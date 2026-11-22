@@ -19815,8 +19815,10 @@ window.kosmosMeasureScrollbarWidth();
       <div class="setrow" id="phone-notify-row" style="margin-top:14px;">
         <div><b>Buzz my phone about my agents</b>
           <p class="dhint" style="margin:2px 0 0;">Kosmos+ is told the agent's name, its project and the time, never what they said. It is on once this computer is connected to Kosmos+, unless you turn it off. While it is on, choose below what buzzes your phone.</p></div>
-        <button class="btn uprime" id="phone-notify-toggle" type="button" disabled>Turn on</button>
+        <button class="btn uprime" id="phone-notify-toggle" type="button" style="white-space:nowrap;" disabled>Turn on</button>
       </div>
+      <!-- #6254 design read (Mona Lisa): the master's state line sits under the master, not under the last kind. -->
+      <p class="dhint" id="phone-notify-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #6254: one switch per kind, under the master above. Shown only while the master is on
            (the client unhides it in paintKinds). Each button toggles its own kind through
            PUT /api/phone-notify { kind, on }; the server's `kinds` says which are on. postedRoom
@@ -19824,19 +19826,19 @@ window.kosmosMeasureScrollbarWidth();
       <div id="phone-notify-kinds" style="margin-top:6px;" hidden>
         <div class="setrow" style="margin-top:8px;">
           <div>When an agent needs me</div>
-          <button class="btn" id="pn-kind-needsYou" data-kind="needsYou" type="button" aria-pressed="true">On</button>
+          <button class="btn uprime" id="pn-kind-needsYou" data-kind="needsYou" type="button" aria-pressed="true">On</button>
         </div>
         <div class="setrow" style="margin-top:8px;">
           <div>When an agent answers me</div>
-          <button class="btn" id="pn-kind-replied" data-kind="replied" type="button" aria-pressed="true">On</button>
+          <button class="btn uprime" id="pn-kind-replied" data-kind="replied" type="button" aria-pressed="true">On</button>
         </div>
         <div class="setrow" style="margin-top:8px;">
           <div>When an agent replies to me or names me in a room</div>
-          <button class="btn" id="pn-kind-postedMention" data-kind="postedMention" type="button" aria-pressed="true">On</button>
+          <button class="btn uprime" id="pn-kind-postedMention" data-kind="postedMention" type="button" aria-pressed="true">On</button>
         </div>
         <div class="setrow" style="margin-top:8px;">
           <div>When work is ready for my check</div>
-          <button class="btn" id="pn-kind-ready" data-kind="ready" type="button" aria-pressed="true">On</button>
+          <button class="btn uprime" id="pn-kind-ready" data-kind="ready" type="button" aria-pressed="true">On</button>
         </div>
         <div class="setrow" style="margin-top:8px;">
           <div>When anyone posts in a project room I am on
@@ -19844,7 +19846,6 @@ window.kosmosMeasureScrollbarWidth();
           <button class="btn" id="pn-kind-postedRoom" data-kind="postedRoom" type="button" aria-pressed="false">Off</button>
         </div>
       </div>
-      <p class="dhint" id="phone-notify-msg" role="status" style="margin:8px 0 0;"></p>
       <p class="dhint" id="phone-notify-step" style="margin:8px 0 0;" hidden>Then open the Kosmos app on your phone, sign in, and allow notifications. Do this on each phone you want alerts on.</p>
     </section>
     <!-- #2436 (Josh, 2026-09-07): the master on/off for the #2407 new-message sound.
@@ -97371,6 +97372,7 @@ setInterval(ageCheckedStamp, 1000);
       var on = st.kinds[name] === true;
       b.textContent = on ? 'On' : 'Off';
       b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.className = on ? 'btn uprime' : 'btn';   // #6254 design read: on is the filled gold switch, off the outline, like the master
     }
   }
 

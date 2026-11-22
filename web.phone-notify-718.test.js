@@ -218,6 +218,10 @@ test('#6254: the sub-switches are hidden while off, shown and painted from kinds
   assert.equal(on.kindBtn('needsYou').textContent, 'On', 'needsYou defaults on');
   assert.equal(on.kindBtn('ready').textContent, 'On', 'ready defaults on');
   assert.equal(on.kindBtn('postedRoom').textContent, 'Off', 'postedRoom defaults off');
+  // #6254 design read (Mona Lisa): a switch that is on is the filled gold one, an off one the outline, so the
+  // word is read as its state, never as the action to press.
+  assert.equal(on.kindBtn('needsYou').className, 'btn uprime', 'an on switch is not painted as the filled one');
+  assert.equal(on.kindBtn('postedRoom').className, 'btn', 'an off switch is painted as the filled one');
 });
 
 test('#6254: clicking a sub-switch PUTs { kind, on } and repaints from the answer', async () => {
@@ -228,6 +232,7 @@ test('#6254: clicking a sub-switch PUTs { kind, on } and repaints from the answe
   const put = h.calls.fetch.find((c) => c.method === 'PUT');
   assert.deepEqual(put.body, { kind: 'postedRoom', on: true }, 'the sub-switch did not PUT its own kind turning on');
   assert.equal(h.kindBtn('postedRoom').textContent, 'On', 'the switch did not repaint on after the PUT');
+  assert.equal(h.kindBtn('postedRoom').className, 'btn uprime', 'the switch did not repaint as filled after turning on');
   // CONTROL: a second click turns it back off (the PUT carries the flipped value, the paint follows).
   h.kindBtn('postedRoom')._click(); await flush();
   const puts = h.calls.fetch.filter((c) => c.method === 'PUT');
