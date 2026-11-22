@@ -10,14 +10,18 @@ showed up only as four unrelated-looking FAIL rows.
 
 ## What
 native-app/main.swift, the three waits (whenAsked twice, whenDenied once):
-- bound 150 tries (15 s) instead of 50 (5 s). A wait still returns the moment the answer arrives.
-- a wait that runs out prints `download selftest WAIT RAN OUT (kosmos#8879): 15s without "Cannot create file"
-  number N (seen M)` and then goes on as before (whenDenied still restores the folder). The rows still give the verdict.
+- each ends by the CLOCK, 15 s (refusedWaitSeconds) after it began, instead of after 50 polls. A poll count is not a
+  time: 150 polls of 0.1 s measured about 34 s each on Agent1s (review 3). A wait still returns the moment the answer
+  arrives.
+- a wait that runs out prints `download selftest WAIT RAN OUT (kosmos#8879): waited Ns without "Cannot create file"
+  number N (seen M)`, N being the measured time, and then goes on as before (whenDenied still restores the folder).
+  The rows still give the verdict.
+- native-app.download-5167.test.js: the watchdog assertion's message names the new worst case (wording only).
 
 ## Rejected
-- 30 s per wait: measured, the run where all three run out took 277 s against the 300 s watchdog (and the build's
-  360 s alarm). Too close. At 15 s the same run took 174 s. The 103 s difference is more than the 45 s the
-  longer waits add; that is measured, not explained, so the 15 s figure rests on the 174 s run, not on arithmetic.
+- A poll count (150 x 0.1 s, then 300 x 0.1 s): it does not measure time. Measured, the all-run-out run took 174 s
+  at "15 s" and 277 s at "30 s", so each wait really ran about 2.2 times its nominal length.
+- 30 s per wait: too close to the 300 s watchdog and the build's 360 s alarm for no measured need.
 - Exiting with "download selftest TIMED OUT" when a wait runs out: build-kosmos-bundle.sh reads that as "the gate could
   not judge", which would relabel a real product regression (the system's reason never said) as the gate's fault.
 - Raising the watchdog and the alarm instead: two more places changed, for no case that needs it.
@@ -27,8 +31,10 @@ That the late "Cannot create file" is timing, and 15 s covers it. Nobody measure
 recurs, the WAIT RAN OUT line now says which wait and how many answers had come, which separates "slow" from
 "never came".
 
-## Checks (Agent1s, 22:1x to 22:2x CST, idle box)
+## Checks (Agent1s, idle, 22:4x CST, the final code)
 - swiftc to the floor target, as build-kosmos-bundle.sh does: no errors.
-- the real self-test: 74 of 74 rows pass, 73 s, no WAIT RAN OUT line.
-- red arm (scratch copy, the counter matching a string never said): all three waits print WAIT RAN OUT, the run
-  finishes in 174 s, below the 300 s watchdog.
+- the real self-test: 74 of 74 rows pass, 74 s, no WAIT RAN OUT line.
+- red arm 1 (scratch copy, the counter matching a string never said): all three waits print "waited 15s", 74 rows
+  pass, 128 s.
+- red arm 2, the worst case (that, and no expected file ever counted as saved): 9 rows wrong, judged
+  ("download-check: 9 row(s) wrong", exit 1), not timed out, 215 s, under the 300 s watchdog.

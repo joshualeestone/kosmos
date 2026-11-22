@@ -7196,8 +7196,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     setvbuf(stdout, nil, _IONBF, 0)
     /* Above the worst case of a run where NOTHING saves (each expected-file wait, 5s, runs out, then the 20s
        settle: well under 300s), so a product that saves nothing is judged, not timed out. The three refused-folder
-       waits (refusedWaitTries, kosmos#8879) count toward it too: a run with all three run out measured 174s on
-       Agent1s, 11-21. */
+       waits (refusedWaitSeconds each, kosmos#8879) count toward it too. */
     let dl = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-\(getpid())")
     AppDelegate.keptStoreForSelftest = [:]   // kosmos#8121: the kept list in memory for this run, never on disk
     AppDelegate.accountListForSelftest = { _, done in done(.onAccount) }   // kosmos#8121: every computer on the account unless a row says not
@@ -7489,31 +7488,31 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         chmod(dl.path, 0o500)
         /* Review 1: restored once the failure is said, not after click's fixed wait, so a slow answer is
            still refused by the read-only folder rather than landing after it is writable again.
-           kosmos#8879: refusedWaitTries polls of refusedPoll seconds each, and ranOut's line before the run goes on. */
-        let refusedWaitTries = 150, refusedPoll = 0.1
+           kosmos#8879: each wait ends by the clock, refusedWaitSeconds after it began, and one that runs out prints ranOut's line, with the time it waited, before going on. */
+        let refusedWaitSeconds = 15.0
         func cannotCreate() -> Int { told.filter({ $0.contains("Cannot create file") }).count }
-        func ranOut(_ n: Int) {
-            print("download selftest WAIT RAN OUT (kosmos#8879): \(Int(Double(refusedWaitTries) * refusedPoll))s without \"Cannot create file\" number \(n) (seen \(cannotCreate()))")
+        func ranOut(_ n: Int, _ began: Date) {
+            print("download selftest WAIT RAN OUT (kosmos#8879): waited \(Int(Date().timeIntervalSince(began)))s without \"Cannot create file\" number \(n) (seen \(cannotCreate()))")
         }
-        func whenAsked(_ n: Int, _ tries: Int, _ then: @escaping () -> Void) {
+        func whenAsked(_ n: Int, _ began: Date = Date(), _ then: @escaping () -> Void) {
             if cannotCreate() >= n { then(); return }
-            if tries == 0 { ranOut(n); then(); return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + refusedPoll) { whenAsked(n, tries - 1, then) }
+            if Date().timeIntervalSince(began) >= refusedWaitSeconds { ranOut(n, began); then(); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenAsked(n, began, then) }
         }
-        func whenDenied(_ tries: Int, _ then: @escaping () -> Void) {
+        func whenDenied(_ began: Date = Date(), _ then: @escaping () -> Void) {
             if cannotCreate() >= 3 { chmod(dl.path, 0o700); then(); return }
-            if tries == 0 { ranOut(3); chmod(dl.path, 0o700); then(); return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + refusedPoll) { whenDenied(tries - 1, then) }
+            if Date().timeIntervalSince(began) >= refusedWaitSeconds { ranOut(3, began); chmod(dl.path, 0o700); then(); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenDenied(began, then) }
         }
         /* #5167 (11-18) review 3: a second refused file whose page changes while the person chooses (onChosen, as the
            start-void arm does for kosmos#7952) must not be saved: the restart's page guard can fail live. */
         onChosen = { name in if name == "denied2.txt" { d.pageCommits += 1 } }
         // One click at a time: two download clicks in one turn leave WebKit only the second (measured).
-        load { web.evaluateJavaScript("document.getElementById('denied').click()") { _, _ in }; whenAsked(1, refusedWaitTries) {
-               web.evaluateJavaScript("document.getElementById('denied2').click()") { _, _ in }; whenAsked(2, refusedWaitTries) {
+        load { web.evaluateJavaScript("document.getElementById('denied').click()") { _, _ in }; whenAsked(1) {
+               web.evaluateJavaScript("document.getElementById('denied2').click()") { _, _ in }; whenAsked(2) {
                /* Review 5: an attachment (WebKit's own download, unmarked) refused on a Kosmos+ computer's page is restarted
                   marked same-origin, or the tunnel would refuse it (403). */
-               mark(true) { web.evaluateJavaScript("document.getElementById('deniedatt').click()") { _, _ in }; whenDenied(refusedWaitTries) { mark(false) {
+               mark(true) { web.evaluateJavaScript("document.getElementById('deniedatt').click()") { _, _ in }; whenDenied { mark(false) {
         mark(true) { click("same", expect: "same.txt") { mark(false) { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("gone") { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { mark(true) { click("frames") { mark(false) { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { mark(true) { click("startvoid") { click("refused") { click("htmlpage") { mark(false) { click("busyzip") { mark(true) { askArm { mark(false) { modalArm { settled {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
