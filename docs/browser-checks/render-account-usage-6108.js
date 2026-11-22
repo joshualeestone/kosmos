@@ -289,6 +289,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           unknownNear: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 70, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Una' }], nm),
           highestRev: acctModelWarn({ scoped: [{ model: 'Fable 5.2', usedPct: 72, resetsAt: Date.now() + 20 * 3600e3 }, { model: 'Fable', usedPct: 100, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
           planned: acctModelWarn(fableFull, [{ name: 'Pia', plannedModelName: 'Claude Fable 5.2' }], nm),
+          plannedFirst: acctModelWarn(fableFull, [{ name: 'Pia', modelName: 'Claude Opus 5.5', plannedModelName: 'Claude Fable 5.2' }], nm),
           pairNear: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 80, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }, { name: 'Ida', model: 'claude-fable-5-2' }], nm),
           mixed3: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 100, resetsAt: Date.now() + 20 * 3600e3 }, { model: 'Opus', usedPct: 80, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Otto', modelName: 'Claude Opus 5.5' }, { name: 'Una' }], nm, 'acc'),
           twoFam: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 100, resetsAt: Date.now() + 20 * 3600e3 }, { model: 'Opus', usedPct: 80, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Otto', modelName: 'Claude Opus 5.5' }, { name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm, 'acc'),
@@ -330,7 +331,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           fsel.value = '/home/.claude-fablefull'; fsel.dispatchEvent(new Event('change')); domWarn.full = fwarn();
           fsel.value = '/home/.claude-spare'; fsel.dispatchEvent(new Event('change')); domWarn.roomy = fwarn();
           fsel.value = '/home/.claude-fablefull'; fsel.dispatchEvent(new Event('change'));
-          fsel.value = ''; fsel.dispatchEvent(new Event('change')); domWarn.placeholder = fwarn();
+          /* Review 7: a kept pick is drawn with its warning by the next repaint (a poll), not blanked. */
+          await paintAccounts(); domWarn.repainted = fwarn();
+          const fsel2 = box('fablesrc@example.com') && box('fablesrc@example.com').querySelector('[data-acct-move-to]');
+          if (fsel2) { fsel2.value = ''; fsel2.dispatchEvent(new Event('change')); }
+          domWarn.placeholder = fwarn();
           domWarn.nearOpt = (() => { const o = [...fsel.options].find((x) => x.value === '/home/.claude-fablenear'); return o ? o.textContent.trim() : null; })();
         }
         /* Review 2: the click. Drawn at 72% Fable; at the click it reads 100%: a step to full, so nothing moves. */
@@ -400,6 +405,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(mw.twice === 'On that account, the Fable limit is full for the week, so Lyra could not run there.', tag + ' review 1: two entries for one model name the agent once', JSON.stringify(mw.twice));
       say(mw.highestRev === 'On that account, the Fable limit is full for the week, so Lyra could not run there.', tag + ' review 4: the higher reading wins in the other order too', JSON.stringify(mw.highestRev));
       say(mw.planned === 'On that account, the Fable limit is full for the week, so Pia could not run there.', tag + ' review 4: a planned model counts as known, as its tile shows it', JSON.stringify(mw.planned));
+      say(mw.plannedFirst === 'On that account, the Fable limit is full for the week, so Pia could not run there.', tag + ' review 7: the planned model comes first, as on the tile', JSON.stringify(mw.plannedFirst));
       say(mw.pairNear === 'On that account, the Fable limit is at 80% for the week, so Lyra and Ida may both stop there soon.', tag + ' review 4: two names read "both"', JSON.stringify(mw.pairNear));
       say(mw.mixed3 === 'On acc, the Opus limit is at 80% for the week, so Otto may stop there soon. The Fable limit there is full for the week. Kosmos cannot tell which model Una uses, so it may stop there too.', tag + ' review 5: with known and unknown agents mixed, the full limit of a third family is still named', JSON.stringify(mw.mixed3));
       say(typeof mw.twoFam === 'string' && /^On acc, the Fable limit is full for the week, so Lyra could not run there\. The Opus limit there is at 80% for the week, so Otto may stop there soon\.$|^On acc, the Opus limit is at 80% for the week, so Otto may stop there soon\. The Fable limit there is full for the week, so Lyra could not run there\.$/.test(mw.twoFam), tag + ' review 5: a second family says "there", not the account again', JSON.stringify(mw.twoFam));
@@ -419,6 +425,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!dw.full && dw.full.text === fullSaid && dw.full.markup === false, tag + ' review 1 finding 5: picking a target with a full Fable limit shows the warning on the page, the agent name as text', JSON.stringify(dw.full));
       say(!!dw.full && dw.full.live === 'polite' && dw.full.shown && dw.full.described, tag + ' review 1 finding 5: the warning is a live region in the page, and the menu is described by it', JSON.stringify(dw.full));
       say(dw.fullOpt === 'fablefull@example.com (30% used, a model limit is in the way)', tag + ' review 1 finding 5: the menu option itself says a model limit is in the way', JSON.stringify(dw.fullOpt));
+      say(!!dw.repainted && dw.repainted.text === fullSaid, tag + ' review 7: a repaint keeps a picked target\'s warning drawn', JSON.stringify(dw.repainted));
       say(dw.nearOpt === 'fablenear@example.com (30% used, a model limit is in the way)', tag + ' review 2: a near limit is offered with its warning too', JSON.stringify(dw.nearOpt));
       say(!!dw.clickFull && dw.clickFull.posts.length === 0 && dw.clickFull.requests === 0 && dw.clickFull.msg === 'Nothing moved: on fablenear@example.com, the Fable limit is full for the week, so Ly<b>ra could not run there. Pick again.', tag + ' review 2: a limit that went full under the menu stops the click, and the row says why, naming the account', JSON.stringify(dw.clickFull));
       say(!!dw.clickNear && dw.clickNear.requests === 1 && dw.clickNear.posts.length === 1 && dw.clickNear.posts[0].agent === 's-ly' && dw.clickNear.posts[0].dir === '/home/.claude-fablenear', tag + ' review 2 CONTROL: a near limit that only moved from 72% to 73% does not stop the click', JSON.stringify(dw.clickNear));

@@ -30714,9 +30714,10 @@ function acctModelRisks(target, cards, nameOfCard) {
     if (!byKey.has(k) || m.usedPct > byKey.get(k).usedPct) byKey.set(k, m);
   }
   if (!byKey.size) return { models: [], unknown: [], unknownIds: [], top: null };
-  /* Review 4: a planned model counts as known, as the agent's tile shows it (the engine's modelOfFrom reads only the
-     running and earlier ones, so for it such an agent is unknown and kept off any limit at 70%+: the stricter side). */
-  const modelOf = (c) => (c && (c.modelName || c.model || c.plannedModelName || c.earlierModelName)) || null;
+  /* Review 4: a planned model counts as known, and (review 7) comes first, as on the agent's tile: the board sends it
+     only for a stopped agent, the one the next start uses. The engine's modelOfFrom reads only the running and earlier
+     ones, so for it such an agent is unknown and kept off any limit at 70%+: the stricter side. */
+  const modelOf = (c) => (c && (c.plannedModelName || c.modelName || c.model || c.earlierModelName)) || null;
   const idOf = (c) => (c && c.sessionName) || nameOfCard(c);   // review 4: compared by session, so a rename is not new
   const models = [...byKey].map(([key, m]) => { const on = (cards || []).filter((c) => acctModelKey(modelOf(c)) === key);
     return { key, model: m.model, usedPct: m.usedPct, full: m.usedPct >= ACCT_MODEL_FULL_PCT, names: on.map(nameOfCard), ids: on.map(idOf) }; }).filter((x) => x.names.length);
