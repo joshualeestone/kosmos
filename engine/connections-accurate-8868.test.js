@@ -11,6 +11,8 @@
  * the old text; connections.test.js pins the source wording. It cannot see a writer running other code (an older
  * Kosmos, or a board started from an old checkout), which is where the reported flip most likely came from; it makes
  * sure the next write from this code puts the accurate block back, and that every writer here uses the one text.
+ * One shape is not repaired: a file holding TWO Connections marker pairs is refused by tellAgent on purpose (we
+ * cannot tell which is ours; connections.test.js pins that), so its text stays until someone removes one pair.
  */
 
 const fs = require('node:fs');
@@ -47,7 +49,7 @@ function section(text) {
 }
 
 /* "There is no command" in the spellings seen and the near rewordings ("no kosmos command", "no verb for this"). */
-const NO_COMMAND = /one-word verb|no such command|\bno (?:\w+ ){0,2}(?:command|verb)\b|there is no (?:command|kosmos|verb)/i;
+const NO_COMMAND = /one-word verb|no such command|\bno (?:\w+ ){0,2}(?:command|verb)(?![\w-])|there is no (?:command|kosmos|verb)/i;
 
 /* What an accurate section must say, and what the reported bad one said. */
 function assertAccurate(flat, where) {
@@ -60,7 +62,7 @@ function assertAccurate(flat, where) {
   assert.doesNotMatch(flat, /board token|Authorization:|Bearer /i, where + ': it sends the agent to a read carrying a credential');
 }
 
-/* Paraphrased from the block of 2026-09-03 to 09-29 (engine/connections.js at 6a4741fd0b^, lines 116-121), keeping the
+/* Paraphrased from the block of 2026-09-03 to 09-29 (engine/connections.js at 6a4741fd0b^, lines 114-121), keeping the
    features the report names: no command, a direct read carrying the board token, and no billing warning. */
 const OLD_BLOCK = [
   '## How connecting a provider works',
@@ -80,7 +82,7 @@ test('kosmos#8868: CONTROL, each check fails on its own bad feature, and the acc
   assertAccurate(good, 'today\'s block');
   const cases = [
     [good.replace('`kosmos connections --how`', '`the guide`'), /it does not point at the guide/],
-    [good.replace(/`kosmos connections`(?! --how)/, '`the connections list`'), /the command that lists connected services is not named/],
+    [good.replace('`kosmos connections`', '`the connections list`'), /the command that lists connected services is not named/],
     [good.replace('`kosmos accounts`', '`the accounts list`'), /the command that lists AI providers is not named/],
     [good.replace(/never read `GET \/api\/connections` yourself/i, 'read `GET /api/connections`'), /the direct read is not forbidden/],
     [good.replace(/bill the person/, 'cost nothing'), /the billing warning is missing/],
@@ -131,7 +133,9 @@ test('kosmos#8868: the on-demand guide keeps the billing warning and never says 
 });
 
 /* Every `spliceBlock(` call in a source, with its whole argument text (it may span lines), found by matching brackets
-   and skipping string contents. A heuristic, not a parser: it does not follow a body built into a variable first. */
+   and skipping string contents. A heuristic, not a parser: it does not skip comments, regex literals or a nested
+   backtick inside `${...}` (each can mis-split a call, which then goes unchecked), and it does not follow a body built
+   into a variable first. */
 function spliceCalls(src) {
   const calls = [];
   const re = /spliceBlock\(/g;
@@ -171,17 +175,36 @@ function topArgs(args) {
   return out;
 }
 
-/* The names a source uses for the Connections START marker: projects' CONNECTIONS_START (any spelling of access),
-   `<alias>.START` for each alias bound to require('./connections'), and a bare START that is destructured from it
-   or (in connections.js) bound to the marker. */
-function connectionsMarkerNames(src, file) {
-  const names = [/\bCONNECTIONS_START\b/];
-  const aliasRe = /(?:const|let|var)\s+(\w+)\s*=\s*require\(\s*['"](?:\.\/|\.\.?\/engine\/|\.\/engine\/)connections['"]\s*\)/g;
+/* How a source names the connections module: each alias bound to require('./connections') (any relative spelling,
+   with or without .js), plus the inline require itself. */
+const CONN_REQUIRE = String.raw`require\(\s*['"](?:\.\.?\/)+(?:engine\/)?connections(?:\.js)?['"]\s*\)`;
+function connectionsAliases(src) {
+  const out = [];
+  const re = new RegExp(String.raw`(?:const|let|var)\s+(\w+)\s*=\s*` + CONN_REQUIRE, 'g');
   let m;
-  while ((m = aliasRe.exec(src))) names.push(new RegExp('\\b' + m[1] + '\\.START\\b'));
-  if (/(?:const|let|var)\s*\{[^}]*\bSTART\b[^}]*\}\s*=\s*require\(\s*['"][^'"]*connections['"]\s*\)/.test(src)) names.push(/^START$/);
+  while ((m = re.exec(src))) out.push(m[1]);
+  return out;
+}
+
+/* The patterns a source uses for the Connections START marker: projects' CONNECTIONS_START (any access), `<alias>.START`,
+   the inline `require('./connections').START`, and a bare START that is destructured from the module or bound to the
+   marker (connections.js does the latter). */
+function connectionsMarkerNames(src) {
+  const names = [/\bCONNECTIONS_START\b/, new RegExp('^' + CONN_REQUIRE + String.raw`\.START$`)];
+  for (const a of connectionsAliases(src)) names.push(new RegExp('^' + a + String.raw`\.START$`));
+  if (new RegExp(String.raw`(?:const|let|var)\s*\{[^}]*\bSTART\b[^}]*\}\s*=\s*` + CONN_REQUIRE).test(src)) names.push(/^START$/);
   if (/(?:const|let|var)\s+START\s*=\s*(?:\w+\.)?CONNECTIONS_START\b/.test(src)) names.push(/^START$/);
   return names;
+}
+
+/* The body a Connections splice must pass: the connections module's own blockBody(), by alias, inline require, a
+   destructured name, or bare inside a file that defines or imports it (connections.js imports it from the guide). */
+function connectionsBodyOk(src, body) {
+  const forms = [new RegExp('^' + CONN_REQUIRE + String.raw`\.blockBody\(\)$`)];
+  for (const a of connectionsAliases(src)) forms.push(new RegExp('^' + a + String.raw`\.blockBody\(\)$`));
+  const bareOk = new RegExp(String.raw`(?:const|let|var)\s*\{[^}]*\bblockBody\b[^}]*\}\s*=\s*(?:` + CONN_REQUIRE + String.raw`|require\(\s*['"]\.\/connectionsguide(?:\.js)?['"]\s*\))`).test(src);
+  if (bareOk) forms.push(/^blockBody\(\)$/);
+  return forms.some((f) => f.test(body));
 }
 
 test('kosmos#8868: every writer of the Connections markers writes exactly blockBody(), so no second text exists in this code', () => {
@@ -195,16 +218,16 @@ test('kosmos#8868: every writer of the Connections markers writes exactly blockB
   const found = [];
   for (const dir of roots) {
     for (const f of fs.readdirSync(dir)) {
-      if (!f.endsWith('.js') || f.endsWith('.test.js') || f === 'projects.js') continue;
+      if (!f.endsWith('.js') || f.endsWith('.test.js')) continue;
       const src = fs.readFileSync(path.join(dir, f), 'utf8');
-      const names = connectionsMarkerNames(src, f);
+      const names = connectionsMarkerNames(src);
       for (const call of spliceCalls(src)) {
         const args = topArgs(call.args);
         const start = args[2] || '';
         if (!names.some((n) => n.test(start))) continue;
         const where = path.relative(path.join(__dirname, '..'), path.join(dir, f)) + ':' + call.line;
         found.push(where);
-        assert.match(args[1] || '', /^(?:\w+\.)?blockBody\(\)$/, where + ' writes the Connections markers with a body other than blockBody(): ' + (args[1] || '(none)'));
+        assert.ok(connectionsBodyOk(src, args[1] || ''), where + ' writes the Connections markers with a body other than the connections blockBody(): ' + (args[1] || '(none)'));
       }
     }
   }
@@ -212,11 +235,20 @@ test('kosmos#8868: every writer of the Connections markers writes exactly blockB
   for (const known of ['engine/connections.js', 'engine/create.js', 'engine/discover.js']) {
     assert.ok(found.some((w) => w.startsWith(known + ':')), 'the sweep did not find the writer in ' + known + ': ' + JSON.stringify(found));
   }
-  // CONTROL: the sweep reads a call spread over lines, a destructured START, and refuses a concatenated body.
-  const multi = "const { START, END } = require('./connections');\nprojects.spliceBlock(\n  text,\n  'other ' + blockBody(),\n  START,\n  END\n);";
-  const mc = spliceCalls(multi);
-  assert.equal(mc.length, 1);
-  const ma = topArgs(mc[0].args);
-  assert.ok(connectionsMarkerNames(multi, 'x.js').some((n) => n.test(ma[2])), 'a destructured START was not recognised');
-  assert.doesNotMatch(ma[1], /^(?:\w+\.)?blockBody\(\)$/, 'a concatenated body was accepted');
+  /* CONTROL: the shapes the sweep must catch, each read as a writer and each refused for its body. */
+  const shapes = [
+    ["const { START, END, blockBody } = require('./connections');\nprojects.spliceBlock(\n  text,\n  'other ' + blockBody(),\n  START,\n  END\n);", 'a concatenated body over several lines with a destructured START'],
+    ["const connMod = require('./connections'); const youMod = require('./you');\nspliceBlock(text, youMod.blockBody(), connMod.START, connMod.END);", 'another module\'s blockBody() on the Connections markers'],
+    ["spliceBlock(text, 'other words', require('./connections').START, require('./connections').END);", 'an inline require of the markers'],
+  ];
+  for (const [src, what] of shapes) {
+    const calls = spliceCalls(src);
+    assert.equal(calls.length, 1, what);
+    const args = topArgs(calls[0].args);
+    assert.ok(connectionsMarkerNames(src).some((n) => n.test(args[2])), what + ': not recognised as a Connections writer');
+    assert.equal(connectionsBodyOk(src, args[1]), false, what + ': its body was accepted');
+  }
+  // And the accepted forms really are accepted, so the refusals above are not a check that refuses everything.
+  assert.equal(connectionsBodyOk("const connMod = require('./connections');", 'connMod.blockBody()'), true);
+  assert.equal(connectionsBodyOk("const { blockBody } = require('./connectionsguide');", 'blockBody()'), true);
 });

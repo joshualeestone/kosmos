@@ -20,7 +20,7 @@ credential, on every regeneration; and a guard in CI fails if that ever stops be
 - No current code carries those words (`git grep` on origin/main finds them only in old plan files). Hundreds of old
   remote branches still do.
 - On Agent1s, 24 agent files: 21 hold today's block, 2 old throwaway agents (zz-test-*) hold a long block from the
-  09-29 to 10-07 window (file mtime 10-01; it has the phrase AND the billing warning; not rewritten since), 1 another. Every `CLAUDE.md.previous` (what the last write replaced) equals its current
+  09-29 to 10-07 window (file mtime 10-01; it has the phrase AND the billing warning; not rewritten since), 1 other (a different block, not the bad version). Every `CLAUDE.md.previous` (what the last write replaced) equals its current
   block: no flip on this computer.
 - The report's install id (885080d4) is neither Agent1s nor Mortals. Splinter, 17:23: it is a WINDOWS board (its 20
   reports since 10-13 all name PowerShell), not Homer's install (45461372). Homer was asked over Slack whether
@@ -32,14 +32,18 @@ credential, on every regeneration; and a guard in CI fails if that ever stops be
    file three times and checks every result (only the first write changes it), repairs a file holding the old block,
    checks the guide, and sweeps engine/ and the top-level .js files so every `spliceBlock` call on the Connections
    markers passes exactly `blockBody()` (whole calls are parsed, so one spread over lines, a destructured START and a
-   concatenated body are all caught; its controls require all three known writers). Not seen by the sweep: a body built
-   into a variable before the call, or the module required under another path. Each check has its own control (review round 1); dropping the billing clause from
-   `blockBody` turns two arms red, and making discover.js splice other words turns the sweep red.
+   concatenated body, another module's `blockBody()` and an inline `require('./connections').START` are all
+   caught; its controls require all three known writers; projects.js is swept too). Not seen by the sweep: a body built
+   into a variable before the call, the module required under a path it does not recognise, and a call mis-split by a
+   comment, a regex literal or a nested backtick inside it (the scanners skip strings only). Each check has its own control (review round 1); dropping the billing clause from
+   `blockBody` turns three arms red, and making discover.js splice other words turns the sweep red.
 
    What it cannot see: a writer running other code. And the guide is checked as `guideText()`, not as the
    `kosmos connections --how` output (connections.test.js covers the CLI printing it).
 2. Make no change to the writer: it already replaces whatever sits between the markers, so the next write from current
-   Kosmos puts the accurate block back (the repair arm proves it).
+   Kosmos puts the accurate block back (the repair arm proves it). One shape it does NOT repair: a file holding TWO
+   Connections marker pairs is refused on purpose (it cannot tell which is ours; connections.test.js pins that), so a
+   stale block there stays until a person removes one pair. Left as is: changing that refusal is a different decision.
 
 Rejected: rewriting the block's words (they are already accurate, and the card's ask is about a second writer);
 refusing writes from a throwaway board (touches #8860's area, Baron's, and the mechanism is not measured).
