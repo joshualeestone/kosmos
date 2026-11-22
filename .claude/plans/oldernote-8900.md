@@ -110,3 +110,8 @@ sentence says what will happen.
 - Fixed: the drain leaves a queued day that is not before today by the clock (a clock set back) to the normal send
   (test; mutation red). A queued `h` must be 64 hex characters.
 - Fixed: the test-run and switched-off tests offer the day first, so their "nothing queued" checks can fail.
+
+## Review 6 (sonnet)
+- No blockers. Fixed: the in-flight test now also runs the real command's order (a note, then noteEarlierDay) during
+  the THIRD try; the late note still goes. Kept: the cross-process race (rounds 1, 4, 5, 6; narrowed by write()'s
+  function form, not closed); `offered` means "started sending"; a sendNow of a queued day may add one extra send.

@@ -140,6 +140,25 @@ test('kosmos#8900 review 2: a day Kosmos never started sending is not queued, ev
   assert.match(fbs.noteEarlierDay(OLDER, NOW), HOURLY, 'CONTROL: once OLDER was offered, the same note is queued');
 });
 
+test('kosmos#8900 review 6: as the real command does it (note, then noteEarlierDay) during the THIRD try, the new note still goes', async () => {
+  fresh();
+  const posts = [];
+  let tick = 0;
+  fbs.setSender(async (url, init) => {
+    posts.push(JSON.parse(init.body));
+    if (tick === 3) { fb.note('mara', 'LATE note', OLDER, NOW + 3 * 3600 * 1000 + 1000); fbs.noteEarlierDay(OLDER, NOW + 3 * 3600 * 1000 + 1000); return { ok: true, status: 200 }; }
+    return { ok: false, status: 503 };   // the first two tries are refused
+  });
+  fb.write('an older report', { from: 'mara', date: OLDER });
+  offer(OLDER, YESTERDAY);
+  fb.note('mara', 'FIRST note', OLDER, NOW);
+  fbs.noteEarlierDay(OLDER, NOW);
+  for (tick = 1; tick <= 3; tick++) { fbs.sweepTick(NOW + tick * 3600 * 1000); await settle(); }
+  assert.equal(fbs.read().pending.length, 1, 'the day was dropped although a note landed during its third try');
+  for (tick = 4; tick <= 6; tick++) { fbs.sweepTick(NOW + tick * 3600 * 1000); await settle(); }
+  assert.ok(posts.some((p) => JSON.stringify(p).includes('LATE note')), 'the note added during the third try never went');
+});
+
 test('kosmos#8900: one queued day per hourly check, in the order they were queued', async () => {
   fresh();
   const posts = stub();
