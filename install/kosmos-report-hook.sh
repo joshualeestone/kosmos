@@ -662,10 +662,12 @@ case "$EVENT" in
     else
       KIND=""
       for K in error matcher error_type; do
-        # Review 2: the FIRST string value of the key, whatever it holds, and only then is it checked for a kind, so a
-        # non-kind top-level value goes on to the next field (as jq and node) instead of a nested one further on.
-        V=$(printf '%s' "$INPUT" | grep -oE '"'"$K"'"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/')
-        case "$V" in *[!a-z_]*|'') ;; *) [ ${#V} -le 40 ] && KIND="$V" ;; esac
+        # Review 2/3: the key's FIRST value, whatever its type (a string, a number, null), and only a quoted one that is a
+        # plain kind is taken, so a top-level value that is not one goes on to the next field (as jq and node) instead of
+        # a nested key further on. LC_ALL=C, as every other grep and sed here: under a UTF-8 locale macOS bash 3.2's
+        # [a-z] lets capitals and accented letters through (review 3, measured).
+        V=$(printf '%s' "$INPUT" | LC_ALL=C grep -oE '"'"$K"'"[[:space:]]*:[[:space:]]*("[^"]*"|[^,}[:space:]]*)' | head -1 | LC_ALL=C sed -n 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/p')
+        if printf '%s' "$V" | LC_ALL=C grep -Eq '^[a-z_]{1,40}$'; then KIND="$V"; fi
         [ -n "$KIND" ] && break
       done
     fi

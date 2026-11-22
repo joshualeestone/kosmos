@@ -54,6 +54,12 @@ for (const [label, env] of [['with jq', {}], ['without jq', { KOSMOS_REPORT_HOOK
     assert.equal(blockedOn({ hook_event_name: 'StopFailure', error: 'Something went wrong: try again' }, env), 'provider api (an api error)', 'a whole message was taken for a kind');
     const odd = { hook_event_name: 'StopFailure', error: 'Rate Limit', error_details: { error: 'invalid_request' }, matcher: 'rate_limit' };
     assert.equal(blockedOn(odd, env), 'provider api (rate_limit)', 'review 2: a non-kind top-level error fell into the nested one instead of matcher');
+    const nul = { hook_event_name: 'StopFailure', error: null, error_details: { error: 'invalid_request' }, matcher: 'rate_limit' };
+    assert.equal(blockedOn(nul, env), 'provider api (rate_limit)', 'review 3: a null top-level error fell into the nested one');
+    /* Review 3: under a UTF-8 locale, as agent sessions run; macOS bash 3.2's [a-z] follows its collation there. */
+    const utf = { ...env, LC_ALL: 'en_US.UTF-8', LANG: 'en_US.UTF-8' };
+    assert.equal(blockedOn({ hook_event_name: 'StopFailure', error: 'Rate_Limit', matcher: 'rate_limit' }, utf), 'provider api (rate_limit)', 'review 3: a capital letter passed for a kind under a UTF-8 locale');
+    assert.equal(blockedOn({ hook_event_name: 'StopFailure', error: 'rate_limit\u00e9' }, utf), 'provider api (an api error)', 'review 3: an accented letter passed for a kind under a UTF-8 locale');
   });
   test(`kosmos#8877 (${label}): the older shape still reads, and a stop with no kind is an api error`, () => {
     assert.equal(blockedOn({ hook_event_name: 'StopFailure', matcher: 'rate_limit' }, env), 'provider api (rate_limit)', 'the older matcher shape stopped reading');

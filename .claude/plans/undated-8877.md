@@ -33,3 +33,8 @@
 - WARNING: the no-jq path could fall into a nested "error" where jq and node go on to matcher. Fixed: the FIRST string value of each key, then checked for a kind; pinned with the reviewer's input.
 - WARNING: nothing pinned automove's three uses of limitFull. Fixed: an end-to-end test in automove-7548.test.js (a reported limit holding a commitment moves on a full week, with the "stopped at its usage limit" message; not at 93%); each of the three sites mutated turns it red.
 - NIT: the jq arm skips (with a reason) on a machine with no jq. NIT: an unknown-model case through the at-limit inference. NIT (residual, for the PR): with extra usage on, a 100% week does not prove the agent is stuck (the same residual #8048 review 5 documents for the screen path).
+
+## Review round 3 (blind): 0 BLOCKER, 1 WARNING, 2 NITs
+- WARNING: the no-jq kind check depended on the locale (macOS bash 3.2's [a-z] lets capitals and accents through under UTF-8). Fixed: LC_ALL=C on the new grep and sed, and the check is `LC_ALL=C grep -Eq '^[a-z_]{1,40}$'`; pinned under en_US.UTF-8 (the round-2 `case` check put back turns it red).
+- NIT: a non-string top-level `error` (null, a number) could still fall into a nested one. Fixed: the key's first value of any type, taken only when quoted and a kind; pinned with null and a nested decoy.
+- NIT (for the PR text): real stops now read with their own kind everywhere a person sees them ("provider api (authentication_failed)"), and authentication_failed reaches providerAuthReport (#5948's sign-in hold on non-Claude runners).
