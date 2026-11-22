@@ -52,6 +52,11 @@ const HOLDS = {
   'ended-agents.jsonl': 'a record of the agents ended here',
   'autobalance-record.jsonl': 'what automatic account balancing decided',
   'damaged-logs-seen.json': 'which damaged records you already dismissed',
+  // Fleet Builders task 3: the restart note's own records (engine/restartnote.js), so a damaged one is named for
+  // what it is rather than as "a record Kosmos keeps".
+  'board-alive.json': 'when Kosmos was last running, so it can tell you the computer restarted',
+  'board-restart-note.json': 'the note that this computer restarted while Kosmos was running',
+  'board-restart-history.json': 'when this computer restarted while Kosmos was running, over the last 30 days',
 };
 // Store folders, one level deep, and what one file in each holds.
 const FOLDERS = {
