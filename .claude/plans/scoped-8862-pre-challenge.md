@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: scoped-8862
-diff_hash: 520e5b7ee51a948206adb7a42fcecc4b7ab8606108f1e352a5d6e2a86bc0209e
+diff_hash: af2864195b9a9859397f44da92cd9dc4084d8d3df57d42568fe03170d8a5ed60
 validation: local: 505/505 across every test touching the usage reader, sweep, mover, accounts rows, card shape and engine.reachable, including the new engine/autobalance-scoped-8862.test.js (21, on the endpoint's real limits answer and real card shapes); every fix shown red with it removed. Browser check render-autobalance-7152 (two new cases) PASS in chromium and webkit at both widths through tools/browser-checks.sh on the frozen head. The full suite runs on the PR's CI.
 subdir_audit: not run (no CLAUDE.md in the diff)
-timestamp: 2026-11-21T23:35:38Z
+timestamp: 2026-11-22T00:16:04Z
 iterations: 6
 converged: true
 ---
@@ -55,5 +55,8 @@ converged: true
 
 ### Accepted
 - The page's own bulk move is not model-aware; the mover's re-check reads the model from the tick's earlier roster read; only one scoped limit (Fable) has been seen in the wild; an idle agent with no model is never at risk by a model limit.
+
+### After convergence (CI)
+- [NIT] the new test built three agent cards by hand (fixture-discipline.test.js) --> FIXED (real test-support/fleet cards with model fields set; test file only).
 
 Full record: .claude/plans/scoped-8862.md.
