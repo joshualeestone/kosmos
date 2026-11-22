@@ -32,3 +32,5 @@ before.
   on, with `at` the count's own time (nit 4, taken), and that a two-hour-old entry is not (CONTROL).
 - Left: the Math.min cap and two aged comments on one post are reasoned, not tested; isPublic is judged now, not at the
   showing (the cap bounds it).
+
+## Round 2 (sonnet, whole branch): no blocker; one should-fix taken (a test that the real nudge hands onCounts the comments number and the counting moment, and not the reason). Nits recorded: the cap can understate when a new comment offsets aging; isPublic is judged now.

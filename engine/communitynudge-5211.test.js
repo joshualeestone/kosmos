@@ -466,3 +466,18 @@ test('kosmos#8895: the line says why the comments count went down when a comment
   const other = await nudge.nudge('mara', { now, lastShown: { comments: 2, at: now - 1 * H } });
   assert.ok(other && !other.includes('more than 24 hours old'), 'a drop with nothing aged out was blamed on aging: ' + other);
 });
+
+/* kosmos#8895 review 2: the seam to the board. The real nudge hands onCounts the counts phrase, the comments number and
+   the moment it counted, which server.js stores as the next lastShown; without the number the feature would be dead. */
+test('kosmos#8895: the real nudge gives onCounts the comments number and the counting moment, and never the reason', async () => {
+  const now = Date.now();
+  fresh(now);
+  const got = [];
+  const line = await nudge.nudge('mara', { now, lastShown: { comments: 2, at: now - 7 * H }, onCounts: (...a) => got.push(a) });
+  assert.equal(got.length, 1, 'onCounts was not called once');
+  const [phrase, comments, at] = got[0];
+  assert.equal(comments, 1, 'onCounts did not get the comments number');
+  assert.equal(at, now, 'onCounts did not get the moment the count was taken');
+  assert.ok(!phrase.includes('more than 24 hours old'), 'the reason was handed on with the counts, so it would be stored');
+  assert.ok(line.includes(phrase) && line.includes(nudge.agedSentence(1)), 'CONTROL: the line itself carries both');
+});
