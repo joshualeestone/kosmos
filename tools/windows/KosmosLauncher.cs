@@ -3962,7 +3962,14 @@ class KosmosLauncher
                 || a.StartsWith("blob:", StringComparison.OrdinalIgnoreCase)) return false;
             int from = a.IndexOf("://", StringComparison.Ordinal);
             if (from <= 0) return true;
-            int end = a.IndexOfAny(new[] { '/', '?', '#', '\\' }, from + 3);
+            // The first /, ?, # or \ after "://". Searched one by one: an array literal makes csc emit a
+            // <PrivateImplementationDetails>{guid} type, which breaks verify-launcher's reproducible build (measured).
+            int end = -1;
+            foreach (char stop in "/?#\\")
+            {
+                int at = a.IndexOf(stop, from + 3);
+                if (at >= 0 && (end < 0 || at < end)) end = at;
+            }
             if (!Uri.TryCreate((end < 0 ? a : a.Substring(0, end)) + "/", UriKind.Absolute, out uri)) return true;
         }
         // .NET Framework spells [::1] out in full (measured: [0000:...:0001]), so an address is read as an IP, not
