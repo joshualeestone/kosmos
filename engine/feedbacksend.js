@@ -666,6 +666,44 @@ const WRITE_MESSAGES = Object.freeze({
   blocked: 'Saved today\'s product-feedback report on this computer. Not sent: this is a test run (or its data is in a temporary folder).',
 });
 function writeMessage(state) { return WRITE_MESSAGES[state] || WRITE_MESSAGES.none; }
+/* kosmos#8896: what `kosmos feedback note` prints after adding a note to TODAY's report and sending it, per sendNow
+   state, in both CLIs. Its own table, not write's: write's "failed" and "soon" say to write the report again, and a
+   whole write replaces the section, so it would delete the note the agent just added. */
+const NOTE_MESSAGES = Object.freeze({
+  sent: 'Added the note to today\'s product-feedback report and sent the report to the Kosmos team (installkosmos.com), with home paths and the names and keys Kosmos recognises taken out first. A copy stays on this computer.',
+  already: 'Added the note to today\'s product-feedback report on this computer. Nothing new was sent just now.',
+  later: 'Added the note to today\'s product-feedback report. A report from today already reached the Kosmos team, and Kosmos sends the updated day at most every three hours, so the note goes with the next send while Kosmos is running.',
+  off: 'Added the note to today\'s product-feedback report on this computer only. Sending feedback to the Kosmos team is switched off (Settings, Automation), so it was not sent.',
+  unreadable: 'Added the note to today\'s product-feedback report on this computer only. Kosmos could not read its feedback-sending setting, so it did not send it.',
+  none: 'Added the note to today\'s product-feedback report on this computer.',
+  failed: 'Added the note to today\'s product-feedback report on this computer, but Kosmos could not confirm the report reached the Kosmos team just now. Nothing more to do: Kosmos tries again on a later hourly check while it is running. Do not write the whole report again for this: that would replace the note.',
+  soon: 'Added the note to today\'s product-feedback report on this computer. A send started less than a minute ago has not been confirmed yet, so the note waits: nothing more to do, Kosmos sends the changed report on a later hourly check while it is running. Do not write the whole report again for this: that would replace the note.',
+  unsent: 'Added the note to today\'s product-feedback report on this computer, but it could not be sent: Kosmos could not record the send. It was not sent.',
+  blocked: 'Added the note to today\'s product-feedback report on this computer. Not sent: this is a test run (or its data is in a temporary folder).',
+});
+function noteMessage(state) { return NOTE_MESSAGES[state] || NOTE_MESSAGES.none; }
+/* kosmos#8896 review 1: what `kosmos feedback note` says after adding a note to an EARLIER day's report, read from the
+   send record, because that day can still go out: the send record names ONE day, and while sending is on, that day is
+   sent again once its report changes (sweepTick for yesterday, flushChangedDay when a later day is sent). Any other
+   earlier day is not sent again. `date` is the day the note was added to. Never throws. */
+function earlierNoteMessage(date, now) {
+  const head = 'Added the note to your report of ' + date + ', on this computer. ';
+  let st;
+  try { st = read(); } catch { st = { ok: false }; }
+  if (!st || !st.ok) return head + 'Kosmos could not read its feedback-sending setting, so it cannot say whether the note will be sent.';
+  if (!st.on) return head + 'Sending feedback to the Kosmos team is switched off (Settings, Automation), so it will not be sent.';
+  // Review 5: as sendNow's `blocked`, a test run (data in a temp folder, no injected sender) sends nothing.
+  if (!sender && sandboxed() && !loopback(endpoint())) return head + 'Not sent: this is a test run (or its data is in a temporary folder).';
+  if (st.sent !== date) return head + 'Kosmos sends an earlier day only when it is the last day it sent, and this one is not, so this note stays here.';
+  // Review 2: the two routes differ. Yesterday is re-sent by the board's hourly check (sweepTick, through sendDailyOnce's
+  // three-hour floor); an older day only
+  // once, when a later day's report is next sent (flushChangedDay), and not if that send never happens.
+  const n = new Date(Number.isFinite(now) ? now : Date.now());
+  const yesterday = feedback.dateKey(new Date(n.getFullYear(), n.getMonth(), n.getDate() - 1));
+  const scrubbed = ', with home paths and the names and keys Kosmos recognises taken out first.';
+  if (date === yesterday) return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team again while Kosmos is running: on an hourly check, or once with today\'s report when that is sent (that one is not tried again if it fails)' + scrubbed;
+  return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team once, when a later day\'s report is next sent (if that send fails, it is not tried again)' + scrubbed;
+}
 
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
@@ -675,4 +713,5 @@ module.exports = {
   FILE, read, setOn, write, scrub, payload, maybeSend, sendDailyOnce, markSent,
   setSender, underTest, DEFAULT_ENDPOINT, CONSENT_VERSION,
   sendNow, writeMessage, WRITE_MESSAGES, loopback, sandboxed, RETRY_MIN_MS,   // kosmos#5294
+  noteMessage, NOTE_MESSAGES, earlierNoteMessage,   // kosmos#8896
 };

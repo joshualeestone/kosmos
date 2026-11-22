@@ -120,7 +120,7 @@ function nudgeText() {
     '4. How are tasks going? In your own words: what went well, what was bad or ugly, how tasks are being used, and',
     'anything that is stuck. Describe tasks, do not count them: no task tallies, and no task titles or what a task says.',
     'No usernames, agent names or project names, and never a key, token or password (redact any in an error you quote).',
-    'If `kosmos feedback show` prints a note for today, leave it; if it says there is no report yet, write one.',
+    'If `kosmos feedback show` prints a report for today, leave it (to add something to your own, run `kosmos feedback note` with the new line instead of writing it again); if it says there is no report yet, write one.',   // kosmos#8896
     'If nothing has changed since your own last report (`kosmos feedback list --mine` lists the days that hold yours; another agent\'s',
     'report does not count, and `kosmos feedback show <date>` shows every agent\'s),',
     'run `kosmos feedback write --unchanged` instead of repeating it (add a line after it if there is one new thing).',

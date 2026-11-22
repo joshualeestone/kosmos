@@ -6325,7 +6325,7 @@ cmd_feedback() {
   # install (missing runtime) refuse in the CLI's own voice rather than letting a
   # raw "node: No such file" surface, matching cmd_adopt's runtime guard.
   case "$sub" in
-    write|show|list|day|triage|pull)
+    write|note|show|list|day|triage|pull)
       if [ ! -f "$NODE" ] || [ ! -x "$NODE" ] || [ ! -d "$KOSMOS_HOME/app" ]; then
         say "Kosmos cannot find its own runtime, so it cannot save or read a report."
         exit 2
@@ -6401,7 +6401,7 @@ cmd_feedback() {
         if [ "$_u_rc" -eq 6 ]; then say "Nothing was saved: the line piped in after --unchanged stopped arriving for $_u_quiet seconds without ending, so it may be cut short. Give it as words instead: kosmos feedback write --unchanged 'the one new thing'"; exit 2; fi
         if [ "$_u_rc" -eq 7 ]; then say "Nothing was saved: the line piped in after --unchanged could not be read. Give it as words instead: kosmos feedback write --unchanged 'the one new thing'"; exit 2; fi
         if [ "$_u_rc" -eq 8 ]; then say "Nothing was saved: --unchanged takes one short line, and more than that was piped in. Give the one new thing as words: kosmos feedback write --unchanged 'the one new thing'. For more than that, write the whole report."; exit 2; fi
-        if [ "$_u_rc" -eq 5 ]; then say "You already saved a report today, so nothing was changed. To change it, write the whole report again."; exit 2; fi
+        if [ "$_u_rc" -eq 5 ]; then say "You already saved a report today, so nothing was changed. To add a line to it, run: kosmos feedback note 'the line'. To change it, write the whole report again."; exit 2; fi   # kosmos#8896
         if [ "$_u_rc" -eq 4 ] && [ -n "$body" ]; then say "There is no earlier report of yours to point back to: the newest report here, of $body, is another agent's, and --unchanged points back only to your own. Nothing was saved. Write today's report instead."; exit 2; fi
         if [ "$_u_rc" -eq 4 ]; then say "There is no earlier report of yours to point back to, so nothing was saved. Write today's report instead."; exit 2; fi
         if [ "$_u_rc" -ne 0 ]; then say "We could not read your earlier reports, so nothing was saved."; exit 1; fi
@@ -6436,6 +6436,59 @@ cmd_feedback() {
         *) say "We could not save that report."; exit 1 ;;
       esac
       { [ "$fb_rc" -ne 0 ] || [ -z "$fb_msg" ]; } && fb_msg="Saved the product-feedback report on this computer. Kosmos could not check whether it was sent."
+      say "$fb_msg"
+      exit 0
+      ;;
+    note)
+      # kosmos#8896: add a short note to a report this agent already wrote (today's, or --date YYYY-MM-DD), kept with it
+      # and marked as added later, without rewriting it (engine/feedback.note). Text as words, piped in, or --body-file,
+      # as for write. A note on today's report is sent the way write sends; an earlier day's stays on this computer.
+      # Node exits 4 for no report of this agent's that day, 5 for no text, 6 for a bad or future date; each saves nothing.
+      local _nu="Usage: kosmos feedback note [--date YYYY-MM-DD] [--body-file <file>] [text]      (or pipe it in on stdin; adds a note to a report you already wrote, today's unless --date)"
+      local _nd="" _nrest=() _npast=0
+      _take_body_file "feedback note" "$_nu" "--date" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}
+      while [ $# -gt 0 ]; do
+        if [ "$_npast" = 0 ]; then
+          case "$1" in
+            --) _npast=1; _nrest+=("$1"); shift; continue ;;
+            --date) { [ $# -ge 2 ] && [ -n "$2" ]; } || { say "--date needs a day, as YYYY-MM-DD."; say "$_nu"; exit 2; }   # review 1: "" refused, as on Windows
+              _opt_value "feedback note" --date "$2" "$_nu"; _nd="$2"; shift 2; continue ;;
+            --date=*) say "Write it as --date YYYY-MM-DD, with a space."; exit 2 ;;
+          esac
+        fi
+        _nrest+=("$1"); shift
+      done
+      set -- ${_nrest[@]+"${_nrest[@]}"}
+      if [ $# -gt 0 ]; then _text_args "feedback note" "$_nu" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}; fi
+      if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "feedback note" "$_nu"; _read_body_file written; body="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then body="$*"; else body="$(cat)"; fi
+      local fb_msg fb_rc
+      fb_msg="$(KOSMOS_FEEDBACK_BODY="$body" KOSMOS_FEEDBACK_DAY="$_nd" "$NODE" -e '
+        const app = process.argv[1];
+        let r;
+        try { const fb = require(app + "/engine/feedback"); r = fb.note(fb.writer(process.env), process.env.KOSMOS_FEEDBACK_BODY || "", process.env.KOSMOS_FEEDBACK_DAY || undefined); } catch { process.exit(3); }
+        if (!r || !r.ok) process.exit(r && r.why === "empty" ? 5 : r && r.why === "date" ? 6 : 4);
+        process.stdout.write("SAVED " + r.date + "\n");
+        const fb = require(app + "/engine/feedback");
+        let fbs;
+        try { fbs = require(app + "/engine/feedbacksend"); } catch { process.stdout.write("Added the note on this computer. Kosmos could not check whether it will be sent."); process.exit(0); }
+        if (r.date !== fb.today()) { process.stdout.write(fbs.earlierNoteMessage(r.date)); process.exit(0); }   /* review 1: that day can still go out */
+        fbs.sendNow(r.date).then((x) => process.stdout.write(fbs.noteMessage(x && x.state)), () => process.stdout.write(fbs.noteMessage("failed")));
+      ' "$KOSMOS_HOME/app")" && fb_rc=0 || fb_rc=$?
+      # Review 5: node's own fatal exits can reuse 4 to 6 (5 is out of memory), so they mean "refused" only when the save
+      # line never printed. With SAVED, the note is on disk whatever the exit code.
+      case "$fb_msg" in "SAVED "*) fb_rc=0 ;; esac
+      case "$fb_rc" in
+        4) if [ -n "$_nd" ]; then say "There is no report of yours for $_nd to add a note to, so nothing was saved."
+           else say "There is no report of yours for today to add a note to, so nothing was saved. Write today's report with kosmos feedback write, or add --date YYYY-MM-DD to add the note to an earlier day's."; fi; exit 2 ;;   # review 4
+        5) say "Nothing to add: a note needs some words (pass them as an argument, give --body-file <file>, or pipe them in on stdin)."; exit 2 ;;
+        6) say "--date must be a real day, as YYYY-MM-DD, and not after today, so nothing was saved."; exit 2 ;;
+      esac
+      case "$fb_msg" in
+        "SAVED "*$'\n'*) fb_msg="${fb_msg#*$'\n'}" ;;
+        "SAVED "*) fb_msg="" ;;   # the save line alone: saved, and nothing said about sending
+        *) say "We could not add that note."; exit 1 ;;
+      esac
+      [ -n "$fb_msg" ] || fb_msg="Added the note on this computer. Kosmos could not check whether it was sent."
       say "$fb_msg"
       exit 0
       ;;
@@ -6558,6 +6611,7 @@ cmd_feedback() {
     ""|help|-h|--help)
       say "Usage: kosmos feedback write [--body-file <file>] [text]      (or pipe the report in on stdin)"
       say "       kosmos feedback write --unchanged [text]  (nothing new since your last report; a line, as words or piped in, is added to it)"
+      say "       kosmos feedback note [--date YYYY-MM-DD] [--body-file <file>] [text]  (add a note to a report you already wrote, marked as added later)"
       say "       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence saying so on stdout, exit 0)"
       say "       kosmos feedback list [--mine]      (--mine: only the days holding your own report)"
       say "       kosmos feedback day                (your own day on this computer, for writing the report)"
@@ -6567,7 +6621,7 @@ cmd_feedback() {
       exit 2
       ;;
     *)
-      say "Unknown: kosmos feedback $sub. Try: write | show | list | day | pull | triage"
+      say "Unknown: kosmos feedback $sub. Try: write | note | show | list | day | pull | triage"
       exit 2
       ;;
   esac
