@@ -1,10 +1,11 @@
 'use strict';
 /* kosmos#8890: a run of tools/run-tests.sh that is stopped part way stops the processes its tests left running inside
    its own run root (kt<pid>), such as a test's stub server, which otherwise outlive the folder re-parented to init and
-   hold their ports. CONTROLS: a process under ANOTHER run's root survives, and so does one under a root whose name only
-   begins with this run's (kt<pid>9), since a match by prefix would take it, and so does a process that names THIS run's
-   root but is someone else's (alive parent outside the run: an operator's tail -f, another agent's ls; review 1).
-   Only the TERM arm proves #8890: on a Ctrl-C bash outlives node and the end-of-run leak guard (#4273) ends the stub. */
+   hold their ports. In the two run arms, the CONTROLS (stubs under kt<pid>9 and another root, and an observer naming
+   THIS run's root) all have a live parent outside the run, so the ownership rule is what protects them there; the
+   matcher's exactness (kt<pid>9) is proven by the direct arm at the end, with real orphans (review 4).
+   Only the TERM arm proves #8890 end to end: on a Ctrl-C bash outlives node and the end-of-run leak guard (#4273)
+   ends the stub, so that arm guards the older path, not this card's. */
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -120,7 +121,7 @@ async function stoppedRunLeavesNoStub(signal, said0) {
 test('#8890 a run stopped by TERM to its group stops the stub its test left in its root, and no other', async () => {
   await stoppedRunLeavesNoStub('SIGTERM', (pid) => new RegExp('stopped process ' + pid + ' this run left running'));
 });
-test('#8890 a run stopped by Ctrl-C (INT to its group) still ends the stub its test left in its root, and no other (the pair)', async () => {
+test('#8890 guard on #4273: a run stopped by Ctrl-C (INT to its group) still ends the stub, by either path, and no other', async () => {
   await stoppedRunLeavesNoStub('SIGINT', (pid) => new RegExp('stopped process ' + pid + ' this run left running|^\\s*process ' + pid + ': ', 'm'));
 });
 

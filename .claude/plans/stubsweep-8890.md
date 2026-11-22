@@ -24,7 +24,9 @@ any other root, including one whose name only begins with this run's (kt<pid>9),
   (decided by the matcher alone) and a live process of the test's naming the root (decided by ownership alone)
   survive, and one that ignores TERM is KILLed after the grace (review 3). Then two end-to-end arms. TERM to the runner's group (bash exits through the trap at once):
   the stub is gone and named. Ctrl-C (INT to the group): bash outlives node and the end-of-run leak guard usually ends
-  the stub first, so that arm accepts either line and guards the pair. CONTROLS in both: stubs under kt<pid>9 and an
+  the stub first, so that arm accepts either line and is named as a guard on #4273, not as proof of this card (review 4).
+  In both run arms the controls have a live parent outside the run, so ownership protects them; the matcher's
+  exactness is proven only by the direct arm (review 4). CONTROLS in both: stubs under kt<pid>9 and an
   unrelated kt root survive, and so does an observer: alive, its parent the outer test, its command line naming this
   run's own root (review 1).
 
@@ -37,7 +39,8 @@ any other root, including one whose name only begins with this run's (kt<pid>9),
   this is usually silent.
 
 ## Weakest premise
-That every leftover names the run root on its command line. A process started from a path outside the root (or one
+That every leftover names the run root on its command line, followed by "/", "=", a space or the end (review 4: a
+`sh -c 'cd "$ROOT"; node s.js'` shows the root followed by ";" and is not matched). A process started from a path outside the root (or one
 that only has the root in its environment, which `ps` cannot read on macOS) is not matched. The six on 11-22 all named
 it. Second: a process of ANOTHER agent whose command line happens to contain this run's root path (say an `ls` of it)
 in the moment of the trap is now left alone unless it is orphaned (review 1). Third (review 3): run roots are kt<pid>
