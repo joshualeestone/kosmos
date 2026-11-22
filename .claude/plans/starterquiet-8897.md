@@ -27,6 +27,10 @@
   column was the same key: a project renamed while empty kept the starter sentence (and, before this change, a column
   with only finished tasks that lost them kept "Nothing open here"). Switching projects already resets the guard.
 
+- engine/starter-8832.test.js's scan for writers of the seed mark now leaves out docs/browser-checks/ (the design-shots
+  screen stubs a Kosmos-made project in a page answer and writes no store); a planted second writer in engine/ still
+  turns it red.
+
 ## Deferred, not missed (review 1)
 - The scoped Tasks view behind View All says "No tasks match." for this project, and the iPhone app's Tasks screen says
   "No tasks yet / Add one with +, or ask an agent to." Neither marks the starter. Left out on purpose: the project page
@@ -43,7 +47,9 @@ wants a visible mark on the project CARD, that is a #4730 question for him, not 
 - engine/starter-page-8897.test.js: the list marks the seeded starter, and not a real empty project, a test project or
   the welcome project once renamed. With engine/starter-8832.test.js, the 16 engine/projects*.test.js files and the two
   repo lints: 329 of 329 run (3 skipped); the 7 server.project*.test.js files 231 of 231.
-- docs/browser-checks/render-starter-empty-8897.js: 28 of 28 (chromium and webkit, 1100 and 390): starter empty; renamed
+- docs/browser-checks/render-starter-empty-8897.js, listed in gated.txt so the runner runs it (review 2: it was wired into
+  nothing; tools.browser-checks-wired.test.js fails without the line, 11 of 11 with it; the gated runner ran it green at
+  638fb924d8): 32 of 32 (chromium and webkit, 1100 and 390): starter empty; renamed
   in place; back; a task arrives; finished work only; a real empty project (CONTROL).
 - Mutations, each red: the page's starter branch removed; the old repaint guard; the engine marking every project;
   isStarter without its made-by-Kosmos check (the lookalike-name control); the no-agent sentence removed.
