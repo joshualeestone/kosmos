@@ -13,9 +13,9 @@ rules" is about 40 sections), so a cut sends the agent back through all of them.
 
 ## Change
 - `changedLines` records where each shown run starts and the first run not shown whole (`cutAt`). On a cut, the note
-  names every section from that run on: `[More changed than fits here. Not shown: the changes under "B"; "C". Read
-  those sections in full.]` One name reads "that section"; the lines above the first heading are named as such; a
-  section with two runs is named once.
+  names every section from that run on: `[More changed than fits here. Not shown: changes in "B"; "C". Read those
+  sections in full.]` One name reads "that section"; the lines above the first heading are "the part before the first
+  heading"; a section with two runs is named once.
 - The names make the note longer than the room kept for the plain note, so the whole is measured against both caps.
   While it does not fit, in order: the last shown run gives way (the first time that is the run it cut inside, already
   named), down to one run; that run's lines give way from its end, down to one line; the list shortens to "and N more
@@ -30,10 +30,11 @@ rules" is about 40 sections), so a cut sends the agent back through all of them.
 - A diff where nothing fits still returns null (the notice names no file), as before.
 
 ## Tests
-- New `engine/instructionreread-cutnames-8912.test.js` (7 tests): names the partial run and every one after and
+- New `engine/instructionreread-cutnames-8912.test.js` (8 tests after round 1): names the partial run and every one after and
   none shown whole; CONTROL a diff that fits has no note; "that section" and one name for two runs; the lines before
   the first heading; long names make runs give way, every section exactly once, inside both caps; over twelve: twelve
-  names and "and 9 more sections"; the header sentence.
+  names and "and 9 more sections". (A source-grep test of the header sentence was removed in round 1: 7149's
+  test reads the written file.)
 - Updated: `engine/instructionreread.test.js` (the exact cut line, now naming "Next") and
   `engine/instructionreread-changes-7149.test.js` (the header regex).
 - Mutations, each red: partial run not named (3 red), no giving way (1), no name cap (1), no dedupe (1), no
