@@ -3429,7 +3429,7 @@ async function feedbackNote(ctx, args) {
     if (!past && a === '--') { past = true; rest.push(a); continue; }
     if (!past && a === '--date') {
       const v = args[i + 1];
-      if (v === undefined) { ctx.err('--date needs a day, as YYYY-MM-DD.'); ctx.err(FEEDBACK_NOTE_USAGE); return 2; }
+      if (v === undefined || v === '') { ctx.err('--date needs a day, as YYYY-MM-DD.'); ctx.err(FEEDBACK_NOTE_USAGE); return 2; }
       if (/^--[A-Za-z]/.test(v)) { ctx.err('--date needs a value, and ' + v + ' is an option, so nothing was done.'); ctx.err(FEEDBACK_NOTE_USAGE); return 2; }
       day = v; i++; continue;
     }
@@ -3466,9 +3466,9 @@ async function feedbackNote(ctx, args) {
     ctx.err('There is no report of yours for ' + (day || 'today') + ' to add a note to, so nothing was saved. Write the report first: kosmos feedback write');
     return 2;
   }
-  if (r.date !== fb.today()) { ctx.out('Added the note to your report of ' + r.date + ', on this computer. A note on an earlier day is kept here and not sent.'); return 0; }
   let fbs;
-  try { fbs = ctx.engine('feedbacksend'); } catch { ctx.out('Added the note to today\'s report on this computer. Kosmos could not check whether it was sent.'); return 0; }
+  try { fbs = ctx.engine('feedbacksend'); } catch { ctx.out('Added the note on this computer. Kosmos could not check whether it will be sent.'); return 0; }
+  if (r.date !== fb.today()) { ctx.out(typeof fbs.earlierNoteMessage === 'function' ? fbs.earlierNoteMessage(r.date) : 'Added the note to your report of ' + r.date + ', on this computer.'); return 0; }   // review 1
   let sent;
   try { sent = await fbs.sendNow(r.date); } catch { sent = { state: 'failed' }; }
   ctx.out(typeof fbs.noteMessage === 'function' ? fbs.noteMessage(sent && sent.state) : 'Added the note to today\'s report on this computer.');

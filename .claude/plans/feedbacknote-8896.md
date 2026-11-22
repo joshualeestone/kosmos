@@ -18,8 +18,12 @@ installs asked for this (11-05: a correction to an earlier day's report; 11-21: 
    The text goes through neutral(), so a line shaped like a section marker cannot split the report.
 2. `kosmos feedback note [--date YYYY-MM-DD] [text]` in install/kosmos and tools/windows/kosmos-cli.js (parity verb;
    the Windows half gets one real run from Homer, not gating). Text as words, piped in, or --body-file, as for write.
-3. Sending: a note on TODAY's report is sent the way `feedback write` sends (sendNow, same sentences). A note on an
-   EARLIER day is saved on this computer only, and the command says so in plain words.
+3. Sending: a note on TODAY's report is sent the way `feedback write` sends (sendNow), with the note's own sentences
+   (feedbacksend NOTE_MESSAGES: write's "failed" and "soon" say to write the report again, which would replace the
+   note). A note on an EARLIER day is not sent by the command; what the command says about it is read from the send
+   record (feedbacksend.earlierNoteMessage, review 1): the record names one day, and while sending is on that day is
+   sent again once its report changes (sweepTick for yesterday, flushChangedDay when a later day goes). So a note on
+   that day says it goes with a later send; any other earlier day says it stays; sending off says so.
 4. The --unchanged refusal names the new verb: "To add a line to it, run kosmos feedback note 'the line'."
 5. A whole `feedback write` behaves exactly as now: it replaces the writer's section, notes included.
 
@@ -44,3 +48,18 @@ installs asked for this (11-05: a correction to an earlier day's report; 11-21: 
 An agent adds a note to an existing report (today's or an earlier day's) without rewriting it; the note shows as
 added later with its time; a whole `feedback write` still replaces the section as before; another agent's section on
 the same day is untouched.
+
+## Review 1 (opus)
+- BLOCKER, fixed: "A note on an earlier day is kept here and not sent" was false for the day the send record names
+  (usually yesterday): the sweep and the next day's send flush it. The sentence is now read from the record, and
+  engine/feedbacksend-note-8896.test.js runs the real sweep with a stub sender: the named day's note IS sent, an older
+  day's is NOT (with a control that the stub saw a send). Mutation: ignoring the record reds it.
+- Fixed: `--date ""` was today on the Mac and refused on Windows; refused on both (test, mutation red). Mac empty-text
+  wording names --body-file, as Windows. NOTE_MESSAGES.already no longer claims the report equals the sent one.
+  Tests: refusals assert their reason, the unused helper is gone, the CONTROL now finds the written report file.
+- Deferred: a piped note on the Mac has no quiet limit (an open pipe nobody writes to waits), exactly as a plain
+  `feedback write` on the Mac does today; agents pass words. Parity with Windows' limit belongs to both verbs, not this card.
+- Deferred: a named agent whose report that day sits in the unnamed section is told it has none; the same safe rule
+  --unchanged uses (a pre-#5317 report may not be this agent's).
+- Deferred: a note given just before midnight can land on the day that has just ended; the sentence then describes
+  that day from the record, so it stays true.

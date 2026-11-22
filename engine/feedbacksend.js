@@ -671,7 +671,7 @@ function writeMessage(state) { return WRITE_MESSAGES[state] || WRITE_MESSAGES.no
    whole write replaces the section, so it would delete the note the agent just added. */
 const NOTE_MESSAGES = Object.freeze({
   sent: 'Added the note to today\'s product-feedback report and sent the report to the Kosmos team (installkosmos.com), with home paths and the names and keys Kosmos recognises taken out first. A copy stays on this computer.',
-  already: 'Added the note to today\'s product-feedback report. The report is the same as the one already sent today, so nothing new was sent.',
+  already: 'Added the note to today\'s product-feedback report on this computer. Nothing new was sent just now.',
   later: 'Added the note to today\'s product-feedback report. A report from today already reached the Kosmos team, and Kosmos sends the updated day at most every three hours, so the note goes with the next send.',
   off: 'Added the note to today\'s product-feedback report on this computer only. Sending feedback to the Kosmos team is switched off (Settings, Automation), so it was not sent.',
   unreadable: 'Added the note to today\'s product-feedback report on this computer only. Kosmos could not read its feedback-sending setting, so it did not send it.',
@@ -682,6 +682,19 @@ const NOTE_MESSAGES = Object.freeze({
   blocked: 'Added the note to today\'s product-feedback report on this computer. Not sent: this is a test run (or its data is in a temporary folder).',
 });
 function noteMessage(state) { return NOTE_MESSAGES[state] || NOTE_MESSAGES.none; }
+/* kosmos#8896 review 1: what `kosmos feedback note` says after adding a note to an EARLIER day's report, read from the
+   send record, because that day can still go out: the send record names ONE day, and while sending is on, that day is
+   sent again once its report changes (sweepTick for yesterday, flushChangedDay when a later day is sent). Any other
+   earlier day is not sent again. `date` is the day the note was added to. Never throws. */
+function earlierNoteMessage(date) {
+  const head = 'Added the note to your report of ' + date + ', on this computer. ';
+  let st;
+  try { st = read(); } catch { st = { ok: false }; }
+  if (!st || !st.ok) return head + 'Kosmos could not read its feedback-sending setting, so it cannot say whether the note will be sent.';
+  if (!st.on) return head + 'Sending feedback to the Kosmos team is switched off (Settings, Automation), so it will not be sent.';
+  if (st.sent === date) return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team with a later send, with home paths and the names and keys Kosmos recognises taken out first.';
+  return head + 'Kosmos does not send a day again once it has moved on to a later one, so this note stays here.';
+}
 
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
@@ -691,5 +704,5 @@ module.exports = {
   FILE, read, setOn, write, scrub, payload, maybeSend, sendDailyOnce, markSent,
   setSender, underTest, DEFAULT_ENDPOINT, CONSENT_VERSION,
   sendNow, writeMessage, WRITE_MESSAGES, loopback, sandboxed, RETRY_MIN_MS,   // kosmos#5294
-  noteMessage, NOTE_MESSAGES,   // kosmos#8896
+  noteMessage, NOTE_MESSAGES, earlierNoteMessage,   // kosmos#8896
 };

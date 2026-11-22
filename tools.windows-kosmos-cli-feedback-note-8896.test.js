@@ -46,7 +46,7 @@ test('--date adds to an earlier day\'s report, kept on this computer', () => {
   plant('old report', '2026-11-05');
   const n = cli(['feedback', 'note', '--date', '2026-11-05', 'a correction']);
   assert.equal(n.code, 0, n.err);
-  assert.equal(n.out, 'Added the note to your report of 2026-11-05, on this computer. A note on an earlier day is kept here and not sent.');
+  assert.equal(n.out, 'Added the note to your report of 2026-11-05, on this computer. Kosmos does not send a day again once it has moved on to a later one, so this note stays here.');
   assert.match(cli(['feedback', 'show', '2026-11-05']).out, /^old report\n\nAdded later \(.* UTC\):\na correction$/);
 });
 
@@ -58,9 +58,17 @@ test('refusals save nothing, on stderr, exit 2', () => {
   assert.equal(none.out, '');
   assert.equal(cli(['feedback', 'write', 'report']).code, 0);
   const before = cli(['feedback', 'show']).out;
-  assert.equal(cli(['feedback', 'note', '--date', '2099-01-01', 'x']).code, 2);
-  assert.equal(cli(['feedback', 'note', '--date']).code, 2);
-  assert.equal(cli(['feedback', 'note', '--date', '--loud']).code, 2);
+  const future = cli(['feedback', 'note', '--date', '2099-01-01', 'x']);
+  assert.equal(future.code, 2);
+  assert.match(future.err, /--date must be a real day, as YYYY-MM-DD, and not after today/);
+  for (const args of [['--date'], ['--date', '', 'x']]) {
+    const r = cli(['feedback', 'note', ...args]);
+    assert.equal(r.code, 2, JSON.stringify(args));
+    assert.match(r.err, /--date needs a day, as YYYY-MM-DD\./, JSON.stringify(args));
+  }
+  const noval = cli(['feedback', 'note', '--date', '--loud']);
+  assert.equal(noval.code, 2);
+  assert.match(noval.err, /--date needs a value, and --loud is an option/);
   const opt = cli(['feedback', 'note', '--loud', 'x']);
   assert.equal(opt.code, 2);
   assert.match(opt.err, /--loud is not an option of kosmos feedback note/);

@@ -36,8 +36,6 @@ function run(args, { home, data }, input) {
     if (input != null) { child.stdin.write(input); child.stdin.end(); } else child.stdin.end();
   });
 }
-// The report file for a day, read the way the CLI's own engine stores it.
-const fileOf = (h, day) => path.join(h.data, fs.readdirSync(h.data).find((d) => fs.existsSync(path.join(h.data, d, 'feedback'))) || '', 'feedback', day + '.md');
 
 test('feedback note adds a line to today\'s report, after "Added later (... UTC):", and show reads it', async () => {
   const h = makeHome();
@@ -74,7 +72,8 @@ test('an earlier day: --date adds to that day\'s report and says it stays on thi
   assert.equal(w.status, 0, String(w.stderr));
   const n = await run(['feedback', 'note', '--date', '2026-11-05', 'a correction'], h);
   assert.equal(n.code, 0, n.both);
-  assert.match(n.out, /^\s*Added the note to your report of 2026-11-05, on this computer\. A note on an earlier day is kept here and not sent\./);
+  // A fresh store has sent nothing, so that day is not the last one sent: it stays here (engine/feedbacksend-note-8896 covers the day that does go).
+  assert.match(n.out, /^\s*Added the note to your report of 2026-11-05, on this computer\. Kosmos does not send a day again once it has moved on to a later one, so this note stays here\./);
   assert.match((await run(['feedback', 'show', '2026-11-05'], h)).out, /^old report\n\nAdded later \(.*UTC\):\na correction\n$/);
 });
 
@@ -94,11 +93,16 @@ test('refusals save nothing and say why', async () => {
   assert.match(future.out, /--date must be a real day, as YYYY-MM-DD, and not after today/);
   const bad = await run(['feedback', 'note', '--date', '../etc', 'x'], h);
   assert.equal(bad.code, 2);
+  assert.match(bad.out, /--date must be a real day, as YYYY-MM-DD, and not after today/);
+  const blank = await run(['feedback', 'note', '--date', '', 'x'], h);
+  assert.equal(blank.code, 2, 'an empty --date was taken as today');
+  assert.match(blank.out, /--date needs a day, as YYYY-MM-DD\./);
   const opt = await run(['feedback', 'note', '--loud', 'x'], h);
   assert.equal(opt.code, 2);
   assert.match(opt.out, /--loud is not an option of kosmos feedback note/);
   const noval = await run(['feedback', 'note', '--date', '--loud'], h);
   assert.equal(noval.code, 2);
+  assert.match(noval.out, /--date needs a value, and --loud is an option/);
   assert.equal((await run(['feedback', 'show'], h)).out, before, 'a refused note changed the report');
 });
 
@@ -123,8 +127,11 @@ test('help lists feedback note', async () => {
   assert.match((await run(['feedback', 'help'], h)).out, /kosmos feedback note \[--date YYYY-MM-DD\] \[text\]/);
 });
 
-test('CONTROL: fileOf finds the real report file, so the store under test is the throwaway one', async () => {
+test('CONTROL: the report the CLI writes lands in the throwaway data folder', async () => {
   const h = makeHome();
   await run(['feedback', 'write', 'report'], h);
-  assert.ok(fs.readdirSync(h.data).length > 0);
+  const found = [];
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (/\/feedback\/\d{4}-\d{2}-\d{2}\.md$/.test(p)) found.push(p); } };
+  walk(h.data);
+  assert.equal(found.length, 1, JSON.stringify(found));
 });
