@@ -124,9 +124,10 @@ function atStart(deps = {}) {
     const scan = deps.files;
     const files = scan && scan.checked === true && Number.isInteger(scan.damaged) && scan.damaged >= 0 ? filesOf(scan) : null;
     if (files) note.files = files;
-    const pattern = patternAfter(note.bootAt, now);   // kosmos#8866
+    const hist = historyWith(note.bootAt, now);   // kosmos#8866: kept only once the note itself is written (below)
+    const pattern = hist ? patternOf(hist, now) : null;
     if (pattern) note.pattern = pattern;
-    writeJson(noteFile(), { ...note, dismissed: false });
+    if (writeJson(noteFile(), { ...note, dismissed: false }) && hist) writeJson(historyFile(), { at: hist.map((t) => new Date(t).toISOString()) });
   }
   beat(now);
   // The person's mark is consumed only now that it has been used, so a board that died before this point was
@@ -204,17 +205,15 @@ function historyOf(now) {
   return [...new Set(at.filter((x) => typeof x === 'string').map(ms).filter((t) => t != null && t <= now + 60 * 1000 && now - t <= HISTORY_MS))]
     .sort((a, b) => a - b);
 }
-/* kosmos#8866: keep this note's boot time, and say the pattern when PATTERN_COUNT or more fall within PATTERN_MS. A boot
-   already kept (the same restart read twice) is not counted again. Best effort: a history that cannot be written is no
-   pattern, never a guessed one. */
-function patternAfter(bootIso, now) {
+/* kosmos#8866: the history with this note's boot time added, or null when it cannot be told. A boot within WINDOW_MS of
+   one already kept is the same restart read again (a board that died before its first beat makes a second note for
+   it, with a boot time a few milliseconds off, as it is derived from two clocks), so it is not counted twice. */
+function historyWith(bootIso, now) {
   const boot = ms(bootIso);
   if (boot == null) return null;
   const kept = historyOf(now);
-  const all = kept.includes(boot) ? kept : [...kept, boot].sort((a, b) => a - b);
-  const saved = all.slice(-HISTORY_MAX);
-  if (!writeJson(historyFile(), { at: saved.map((t) => new Date(t).toISOString()) })) return null;
-  return patternOf(saved, now);
+  const same = kept.some((t) => Math.abs(t - boot) <= WINDOW_MS);
+  return (same ? kept : [...kept, boot].sort((a, b) => a - b)).slice(-HISTORY_MAX);
 }
 /** kosmos#8866: { count, dates } for the boots within PATTERN_MS of `now`, or null below PATTERN_COUNT. Pure. */
 function patternOf(boots, now) {
