@@ -1589,10 +1589,10 @@
       "shownIn": "0.8.02"
     },
     {
-      "title": "The day count is off the K mark",
+      "title": "No number left on the K mark",
       "line": "The daily sentence still comes out of the K mark, then folds away. No number stays behind to look like an unread message.",
       "icon": "spark",
-      "rank": 11.85,
+      "rank": 11.62,
       "since": "0.8.02",
       "status": "pending"
     },
@@ -1600,7 +1600,7 @@
       "title": "The computer control stays while a page loads",
       "line": "With two computers, the control at the top left no longer disappears while the page is loading.",
       "icon": "list",
-      "rank": 11.9,
+      "rank": 11.65,
       "since": "0.8.02",
       "status": "pending"
     },

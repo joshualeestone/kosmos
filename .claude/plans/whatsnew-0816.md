@@ -11,10 +11,14 @@ Built with `node tools/whats-new-pool.js build 0.8.16` (online) on origin/main a
 
 ## The list (5)
 - all: The restart note says when restarts repeat (#8866; shipped in 0.8.15, never yet in a window)
-- windows: Windows agents keep their account at login; Start at login stops misreading the account; A removed startup job explains its folder (shipped 0.8.06-0.8.07, never in a window)
-- mac: A warning before an agent runs twice
+- windows: Windows agents keep their account at login; Start at login stops misreading the account (shipped 0.8.06, never in a window)
+- all: No number left on the K mark (shipped 0.8.02; retitled from "The day count is off the K mark", which could read as "the count is wrong")
+- all: The computer control stays while a page loads (shipped 0.8.02)
 
-Per platform: Windows 4, Mac 2, Linux 1.
+Per platform: Windows 5, Mac 3, Linux 3.
+
+## Mona Lisa's copy read (15:54), taken
+As first built, the three Windows lines took shared slots, so Linux saw one line and Mac two. Ranks only: the K mark line 11.85 -> 11.62, the computer control line 11.9 -> 11.65. "A removed startup job explains its folder" (Windows) and "A warning before an agent runs twice" (Mac) wait for the next window.
 
 ## Checks
 - `prod-check`: the pool records prod 0.8.15, rc 0.
@@ -22,4 +26,4 @@ Per platform: Windows 4, Mac 2, Linux 1.
 - The five What's New test files: 60/60.
 
 ## Weakest premise
-That Linux showing one line is acceptable; the build accepts it (no platform has none). Nothing higher-ranked for Linux is pending.
+That two older all-platform lines are a better use of the shared slots than a third Windows one; it is a ranking, reversible in the pool.
