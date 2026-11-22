@@ -352,22 +352,30 @@ const INNER_ABS = /(?:^|[^A-Za-z0-9_.~/$-])(\/[^\s'"`()<>;|&,/][^\s'"`()<>;|&,]*
    /c/ form), so ':' is the separator, never path.delimiter. Measured in Git Bash on Windows:
    - a drive path in the value (C:/x, "C:\x", or a variable holding one, such as CLAUDE_PROJECT_DIR) is split on its
      colon by bash too: it searches a folder named C where the command runs, then /x. So every plain piece is kept;
-   - ~ and $HOME reach bash as /c/... even when the home was set as C:\..., wherever they sit in the value (x$HOME/bin
-     is the folder x/c/H/bin where the command runs). Kosmos has already expanded them to the Windows home (C:\H) by now
-     and cannot tell them from a variable or literal with the same text, so the value is ALSO split with every whole
-     home (C:\Homer is not C:\H) rewritten in that /c/ form, and the folders of both splits are named;
+   - Git Bash converts exactly HOME, TMP, TEMP and TMPDIR to /c/... form when it starts (measured: set to D:\..., bash
+     printed /d/... for those four, while USERPROFILE, APPDATA, CLAUDE_PROJECT_DIR and others stayed D:\...). So ~ and
+     those variables are /c/ folders to bash wherever they sit in the value (x$HOME/bin is the folder x/c/H/bin where
+     the command runs). Kosmos has already expanded them to their Windows values by now and cannot tell them from a
+     variable or literal with the same text, so the value is ALSO split with every whole occurrence of those values
+     (C:\Homer is not C:\H) rewritten in that /c/ form, and the folders of both splits are named;
    - a one-letter first folder is that drive (cygpath -w: /c/x is C:\x, /x is X:\, the drive's root).
-   Off Windows the value splits on every ':' exactly as before. */
-function splitPathValue(value, win, home = '') {
+   Off Windows the value splits on every ':' exactly as before. `converted` is the Windows values of those variables. */
+const GIT_BASH_CONVERTS = ['HOME', 'TMP', 'TEMP', 'TMPDIR'];
+function splitPathValue(value, win, converted = []) {
   if (!win) return value.split(':');
   // Git Bash /c/x -> C:/x, and a bare /d -> D:/ (the drive's root; a bare D: would be the current folder on D:).
   const drive = (p) => p.replace(/^\/([A-Za-z])(?:\/|$)/, (m, d) => d.toUpperCase() + ':/');
   const out = value.split(':').map(drive);
-  if (!/^[A-Za-z]:[\\/]/.test(home)) return out;
-  const h = home.replace(/[\\/]+$/, '');
-  const asBash = '/' + h[0].toLowerCase() + h.slice(2).replace(/\\/g, '/');   // C:\H -> /c/H, as Git Bash gives it
-  const homeAt = new RegExp(h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\\/g, '[\\\\/]') + '(?=[\\\\/:]|$)', 'gi');
-  const bashForm = value.replace(homeAt, asBash);   // the value as Git Bash holds it once ~ and $HOME are expanded
+  // Longest first, so a TMP inside the home is rewritten as itself before the home's rewrite would cut it.
+  const dirs = [...new Set([].concat(converted).filter((d) => /^[A-Za-z]:[\\/]/.test(d || '')).map((d) => d.replace(/[\\/]+$/, '')))]
+    .sort((a, b) => b.length - a.length);
+  if (!dirs.length) return out;
+  let bashForm = value;   // the value as Git Bash holds it once those variables are expanded
+  for (const d of dirs) {
+    const asBash = '/' + d[0].toLowerCase() + d.slice(2).replace(/\\/g, '/');   // C:\H -> /c/H, as Git Bash gives it
+    const at = new RegExp(d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\\/g, '[\\\\/]') + '(?=[\\\\/:]|$)', 'gi');
+    bashForm = bashForm.replace(at, asBash);
+  }
   for (const p of bashForm.split(':').map(drive)) if (!out.includes(p)) out.push(p);
   return out;
 }
@@ -424,7 +432,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     if (w.dynamic) { unsafe.push('a PATH made when the command runs'); return; }
     // The host platform, not startCommandScripts' platform option: path.resolve below is the host's too, and the two
     // must agree (a Windows split resolved by POSIX rules, or the reverse, names folders nobody searches).
-    for (const c of splitPathValue(value, process.platform === 'win32', vars.HOME || '')) {
+    for (const c of splitPathValue(value, process.platform === 'win32', GIT_BASH_CONVERTS.map((n) => vars[n]))) {
       if (!c || c === PATH_MARK) continue;
       for (const d of cwds) { const r = path.resolve(d, c); if (!pathDirs.includes(r)) pathDirs.push(r); }
     }

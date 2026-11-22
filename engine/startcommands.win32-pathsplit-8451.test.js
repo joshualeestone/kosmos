@@ -34,6 +34,12 @@ test('#8451: on Windows every plain piece is kept, the home is also read in its 
   assert.deepEqual(sc.splitPathValue('C:\\H/bin', true, 'relative'), ['C', '\\H/bin'], 'a home that is not a drive path: plain split');
   assert.deepEqual(sc.splitPathValue('C:\\H\\/bin', true, 'C:\\H\\'), ['C', '\\H\\/bin', 'C:/H\\/bin'], 'a home given with a trailing slash');
   for (const v of ['a::b:', ':a', 'a', '']) assert.deepEqual(w(v), v.split(':'), 'same pieces as split for ' + JSON.stringify(v));
+  // Review 4: Git Bash converts TMP, TEMP and TMPDIR too (measured), so their values are read in /c/ form as well.
+  assert.deepEqual(sc.splitPathValue('D:\\t/bin', true, ['C:\\H', 'D:\\t']), ['D', '\\t/bin', 'D:/t/bin'], 'a TMPDIR on another drive');
+  // A TMP inside the home is rewritten as itself (longest first), giving the same folder either way.
+  assert.deepEqual(sc.splitPathValue('C:\\H\\T/x', true, ['C:\\H', 'C:\\H\\T']), ['C', '\\H\\T/x', 'C:/H/T/x'], 'nested values');
+  assert.deepEqual(sc.splitPathValue('C:\\H/x', true, [undefined, '', 'rel', 'C:\\H']), ['C', '\\H/x', 'C:/H/x'], 'missing or relative values are skipped');
+  assert.equal(sc.splitPathValue.length, 2, 'the converted list is optional');
 });
 
 const WIN_ONLY = process.platform !== 'win32' && 'Windows only: it resolves Windows drive paths, which only the Windows path module does';
@@ -69,4 +75,11 @@ test('#8451: on Windows a PATH= value names the home folder whole AND every fold
   // searches x/d/H/bin under the agent folder for PATH=x$HOME/bin with HOME on D:).
   assert.ok(paths('PATH=x$HOME/bin:$PATH myhook').includes(cwd + '\\x\\d\\H\\bin\\myhook'), 'x$HOME/bin');
   assert.ok(paths('PATH=./$HOME/bin:$PATH myhook').includes(cwd + '\\d\\H\\bin\\myhook'), './$HOME/bin');
+  // Review 4: TMPDIR (and TMP, TEMP) are converted by Git Bash too (measured), so a TMPDIR on another drive than the
+  // home names its own folder, not only the plain split's <cwd>\E and \t\bin on the agent folder's drive.
+  const vt = { HOME: 'C:\\H', TMPDIR: 'E:\\t', TMP: 'E:\\u', TEMP: 'E:\\v', PATH: '\u0000PATH' };
+  const tpaths = (c) => sc.pathsOfWords(sc.shellWords(c, vt), 'C:\\H\\A', vt).runPaths;
+  assert.ok(tpaths('PATH="$TMPDIR/bin:$PATH" myhook').includes('E:\\t\\bin\\myhook'), 'TMPDIR');
+  assert.ok(tpaths('PATH="$TMP/bin:$TEMP/b:$PATH" myhook').includes('E:\\u\\bin\\myhook'), 'TMP');
+  assert.ok(tpaths('PATH="$TMP/bin:$TEMP/b:$PATH" myhook').includes('E:\\v\\b\\myhook'), 'TEMP');
 });
