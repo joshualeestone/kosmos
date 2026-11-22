@@ -1,0 +1,110 @@
+'use strict';
+/* kosmos#8451 item 1: the folders a PATH= value in a hook line may put in front, for a deny guard (naming one too many is
+   harmless, missing one is a hole). Hooks run in a POSIX shell (Git Bash on Windows, measured with Claude Code 2.1.319),
+   so ':' splits the value. Measured in Git Bash: a drive path in the value, typed or from a variable such as
+   CLAUDE_PROJECT_DIR, is split on its colon there too; ~ and $HOME reach bash as /c/..., so the home folder is searched
+   whole; a one-letter first folder is that drive. The splitter is pure and runs on every platform with the Windows rule
+   chosen explicitly; the end-to-end reads run only on Windows, where the path module resolves drive paths. */
+const test = require('node:test');
+const assert = require('node:assert');
+const sc = require('./startcommands');
+
+test('#8451: off Windows a PATH value splits on every colon, exactly as before', () => {
+  assert.deepEqual(sc.splitPathValue('/H/bin:/x:\u0000PATH', false, ['/H']), ['/H/bin', '/x', '\u0000PATH']);
+  assert.deepEqual(sc.splitPathValue('C:\\H/bin:x', false, ['C:\\H']), ['C', '\\H/bin', 'x'], 'no home rule off Windows');
+  assert.deepEqual(sc.splitPathValue('a::b:', false), 'a::b:'.split(':'));
+});
+
+test('#8451: on Windows every plain piece is kept, the home is also read in its Git Bash /c/ form, and /c/ is C:', () => {
+  const w = (v) => sc.splitPathValue(v, true, ['C:\\H']);
+  assert.deepEqual(w('C:\\H/bin:\u0000PATH'), ['C', '\\H/bin', '\u0000PATH', 'C:/H/bin'], 'the home piece whole, plus the plain split');
+  assert.deepEqual(w('/x:C:\\H/bin:C:\\H:\u0000PATH'), ['X:/', 'C', '\\H/bin', 'C', '\\H', '\u0000PATH', 'C:/H/bin', 'C:/H'], 'the home after a colon too; /x is the X: drive root (cygpath -w)');
+  assert.deepEqual(w('c:\\h/bin'), ['c', '\\h/bin', 'C:/H/bin'], 'the home matched without regard to case');
+  // Review 3: the home inside a piece (x$HOME/bin) reaches bash as x/c/H/bin, a folder where the command runs.
+  assert.deepEqual(w('xC:\\H/bin'), ['xC', '\\H/bin', 'x/c/H/bin'], 'the home inside a piece');
+  assert.deepEqual(sc.splitPathValue('C:\\a.b\\H/x', true, ['C:\\a.b\\H']), ['C', '\\a.b\\H/x', 'C:/a.b/H/x'], 'a home with a dot');
+  assert.deepEqual(sc.splitPathValue('C:\\aXb\\H/x', true, ['C:\\a.b\\H']), ['C', '\\aXb\\H/x'], 'the dot in the home is literal, not any character');
+  // Review 6: any occurrence is rewritten, since ${HOME}.local/bin is /c/H.local/bin to bash; for C:\Homer, which is not
+  // the home, the rewrite names the same folder again (C:/Homer), so it costs only a duplicate.
+  assert.deepEqual(w('C:\\Homer/bin'), ['C', '\\Homer/bin', 'C:/Homer/bin'], 'a longer name: the same folder once more');
+  assert.deepEqual(w('C:\\H.local/bin'), ['C', '\\H.local/bin', 'C:/H.local/bin'], '${HOME}.local');
+  assert.deepEqual(sc.splitPathValue('C:\\H/bin', true, ['C:/H']), ['C', '\\H/bin', 'C:/H/bin'], 'either slash matches either slash');
+  assert.deepEqual(w('C:/tools:x'), ['C', '/tools', 'x'], 'a typed drive path splits, as Git Bash splits it (measured)');
+  assert.deepEqual(w('D:\\H/bin'), ['D', '\\H/bin'], 'another drive is not the home');
+  // A bare drive is its root, D:/: a bare D: would be the current folder on D: once resolved (review 2).
+  assert.deepEqual(w('/c/tools:/d:/e/:\u0000PATH'), ['C:/tools', 'D:/', 'E:/', '\u0000PATH'], 'Git Bash drive form, and a bare drive');
+  assert.deepEqual(w('/cc/x:/c2/y'), ['/cc/x', '/c2/y'], 'only a single-letter first folder is a drive');
+  assert.deepEqual(sc.splitPathValue('C:\\H/bin', true, ['']), ['C', '\\H/bin'], 'no home known: plain split');
+  assert.deepEqual(sc.splitPathValue('C:\\H/bin', true, ['relative']), ['C', '\\H/bin'], 'a home that is not a drive path: plain split');
+  assert.deepEqual(sc.splitPathValue('C:\\H\\/bin', true, ['C:\\H\\']), ['C', '\\H\\/bin', 'C:/H\\/bin'], 'a home given with a trailing slash');
+  // Review 5: a converted variable that is a bare drive root (HOME=D:\) is /d/ to Git Bash, so ~/bin is D:/bin.
+  const root = sc.splitPathValue('D:\\/bin:x', true, ['D:\\']);
+  assert.deepEqual(root.slice(0, 3), ['D', '\\/bin', 'x'], 'a drive-root home: the plain split');
+  assert.equal(require('path').win32.resolve('C:\\A', root[3]), 'D:\\bin', 'a drive-root home: its /d/ form is D:\\bin, not C:\\d\\bin');
+  for (const v of ['a::b:', ':a', 'a', '']) assert.deepEqual(w(v), v.split(':'), 'same pieces as split for ' + JSON.stringify(v));
+  // Review 4: Git Bash converts TMP, TEMP and TMPDIR too (measured), so their values are read in /c/ form as well.
+  assert.deepEqual(sc.splitPathValue('D:\\t/bin', true, ['C:\\H', 'D:\\t']), ['D', '\\t/bin', 'D:/t/bin'], 'a TMPDIR on another drive');
+  // A TMP inside the home is rewritten as itself (longest first), giving the same folder either way.
+  assert.deepEqual(sc.splitPathValue('C:\\H\\T/x', true, ['C:\\H', 'C:\\H\\T']), ['C', '\\H\\T/x', 'C:/H/T/x'], 'nested values');
+  assert.deepEqual(sc.splitPathValue('C:\\H/x', true, [undefined, '', 'rel', 'C:\\H']), ['C', '\\H/x', 'C:/H/x'], 'missing or relative values are skipped');
+  assert.deepEqual(sc.splitPathValue('C:\\H/x', true), ['C', '\\H/x'], 'no converted list: the plain split');
+  // Review 7: one piece holding the home's text twice, once from CLAUDE_PROJECT_DIR (not converted) and once from $HOME
+  // (converted): bash holds C:\H\work\A/x/c/H/bin, which only the mixed choice names.
+  const mixed = sc.splitPathValue('C:\\H\\work\\A/xC:\\H/bin', true, ['C:\\H']);
+  assert.ok(mixed.includes('\\H\\work\\A/x/c/H/bin'), 'the unconverted copy split, the converted copy in /c/ form');
+  assert.ok(mixed.includes('C:/H\\work\\A/xC') && mixed.includes('C:/H\\work\\A/x/c/H/bin'), 'and the other choices');
+  assert.equal(mixed.unsure, undefined, 'two occurrences are within the cap');
+  // Past the cap the choices are too many to list: the caller is told, so the guard reports the PATH (fail closed).
+  const many = sc.splitPathValue(Array(9).fill('C:\\H').join('/'), true, ['C:\\H']);
+  assert.equal(many.unsure, true, 'nine occurrences: unsure');
+  assert.equal(sc.splitPathValue(Array(8).fill('C:\\H').join('/'), true, ['C:\\H']).unsure, undefined, 'eight: listed');
+});
+
+const WIN_ONLY = process.platform !== 'win32' && 'Windows only: it resolves Windows drive paths, which only the Windows path module does';
+
+test('#8451: on Windows a PATH= value names the home folder whole AND every folder Git Bash would split it into', { skip: WIN_ONLY }, () => {
+  // The bug: with the home on another drive than the folder the command runs in, the plain split read \H/bin on the
+  // agent folder's drive (C:\H\bin), so the real home folder, D:\H\bin, the one Git Bash searches, was never named.
+  const v0 = { HOME: 'D:\\H', PATH: '\u0000PATH' };
+  const other = (c) => sc.pathsOfWords(sc.shellWords(c, v0), 'C:\\A', v0).runPaths;
+  // Review 6: the home followed by more of a folder name is still the home's /d/ form to bash.
+  assert.ok(other('PATH="${HOME}.local/bin:$PATH" myhook').includes('D:\\H.local\\bin\\myhook'), '${HOME}.local/bin on another drive');
+  assert.ok(other('PATH="$HOME-tools:$PATH" myhook').includes('D:\\H-tools\\myhook'), '$HOME-tools');
+  assert.ok(other('PATH=~/bin:$PATH myhook').includes('D:\\H\\bin\\myhook'), '~ names the home folder on its own drive');
+  assert.ok(other('PATH="$HOME/.bun/bin:$PATH" bun run x.ts').includes('D:\\H\\.bun\\bin\\bun'), '$HOME too');
+  // Below, the agent folder sits under the home, as it does on a real box.
+  const v = { HOME: 'D:\\H', PATH: '\u0000PATH', CLAUDE_PROJECT_DIR: 'D:\\H\\work\\A' };
+  const cwd = 'D:\\H\\work\\A';
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), cwd, v).runPaths;
+  assert.ok(paths('PATH=~/bin:$PATH myhook').includes('D:\\H\\bin\\myhook'), '~ after =');
+  assert.ok(paths('export PATH=/x:~/bin:$PATH; myhook').includes('D:\\H\\bin\\myhook'), '~ after :');
+  assert.ok(paths('export PATH=/x:~/bin:$PATH; myhook').includes('X:\\myhook'), '/x is the X: drive');
+  assert.ok(paths('PATH="$HOME/.bun/bin:$PATH" bun run x.ts').includes('D:\\H\\.bun\\bin\\bun'), '$HOME');
+  assert.deepEqual(paths('PATH=/c/tools:$PATH lint'), ['C:\\tools\\lint'], 'Git Bash /c/ form');
+  // Review 2: a bare drive on the agent folder's OWN drive is that drive's root, not the agent folder.
+  assert.deepEqual(paths('PATH=/d:$PATH myhook'), ['D:\\myhook'], 'a bare /d is D:\\, even from a folder on D:');
+  assert.deepEqual(paths('PATH=/c:$PATH myhook'), ['C:\\myhook'], 'and /c is C:\\, wherever the process runs');
+  assert.deepEqual(paths('export PATH=tools:$PATH; lint'), [cwd + '\\tools\\lint'], 'a relative folder is still the agent folder');
+  // A typed drive path: Git Bash splits C:/t into a folder named C where the command runs and /t, the T: drive.
+  assert.deepEqual(paths('PATH=C:/t:$PATH lint'), [cwd + '\\C\\lint', 'T:\\lint']);
+  // Review 1: a variable holding a Windows path under the home is split by Git Bash (measured: it ran <cwd>/C/myhook for a
+  // home on C:), so the folder named after the drive letter where the command runs must still be named: it is the
+  // script an agent could plant in its own folder.
+  assert.ok(paths('PATH="$CLAUDE_PROJECT_DIR/bin:$PATH" myhook').includes(cwd + '\\D\\myhook'), 'a variable under the home still splits');
+  assert.ok(paths('PATH=~/bin:$PATH myhook').includes(cwd + '\\D\\myhook'), 'and the plain split of the home is named too (harmless)');
+  // Review 3: the home inside a piece is the Git Bash form of it, a folder where the command runs (measured: bash
+  // searches x/d/H/bin under the agent folder for PATH=x$HOME/bin with HOME on D:).
+  assert.ok(paths('PATH=x$HOME/bin:$PATH myhook').includes(cwd + '\\x\\d\\H\\bin\\myhook'), 'x$HOME/bin');
+  assert.ok(paths('PATH=./$HOME/bin:$PATH myhook').includes(cwd + '\\d\\H\\bin\\myhook'), './$HOME/bin');
+  // Review 7, end to end: the project folder (not converted) and the home (converted) in one piece.
+  assert.ok(paths('PATH="$CLAUDE_PROJECT_DIR/x$HOME/bin:$PATH" myhook').includes('D:\\H\\work\\A\\x\\d\\H\\bin\\myhook'), 'mixed piece');
+  const crowded = sc.pathsOfWords(sc.shellWords('PATH="' + Array(9).fill('$HOME').join('/') + ':$PATH" myhook', v), cwd, v);
+  assert.ok(crowded.unsafe.some((u) => /too many home or temp folders/.test(u)), 'past the cap the PATH is reported, not guessed');
+  // Review 4: TMPDIR (and TMP, TEMP) are converted by Git Bash too (measured), so a TMPDIR on another drive than the
+  // home names its own folder, not only the plain split's <cwd>\E and \t\bin on the agent folder's drive.
+  const vt = { HOME: 'C:\\H', TMPDIR: 'E:\\t', TMP: 'E:\\u', TEMP: 'E:\\v', PATH: '\u0000PATH' };
+  const tpaths = (c) => sc.pathsOfWords(sc.shellWords(c, vt), 'C:\\H\\A', vt).runPaths;
+  assert.ok(tpaths('PATH="$TMPDIR/bin:$PATH" myhook').includes('E:\\t\\bin\\myhook'), 'TMPDIR');
+  assert.ok(tpaths('PATH="$TMP/bin:$TEMP/b:$PATH" myhook').includes('E:\\u\\bin\\myhook'), 'TMP');
+  assert.ok(tpaths('PATH="$TMP/bin:$TEMP/b:$PATH" myhook').includes('E:\\v\\b\\myhook'), 'TEMP');
+});

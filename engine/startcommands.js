@@ -346,6 +346,54 @@ function shellWords(cmd, vars = {}) {
 /* An absolute path inside a word that is not itself a path (require('/x.js'), --config=/x). */
 const INNER_ABS = /(?:^|[^A-Za-z0-9_.~/$-])(\/[^\s'"`()<>;|&,/][^\s'"`()<>;|&,]*)/g;   // review 21: jq's // is no path
 
+/* kosmos#8451: the folders a PATH= value may put in front, for a guard that denies writes to what the next start runs:
+   naming a folder too many is harmless, missing one is a hole. A hook line runs in a POSIX shell on every platform (on
+   Windows, Claude Code runs hooks in Git Bash, measured: BASH_VERSION set, SHELL /bin/bash.exe, PATH ':'-separated in
+   /c/ form), so ':' is the separator, never path.delimiter. Measured in Git Bash on Windows:
+   - a drive path in the value (C:/x, "C:\x", or a variable holding one, such as CLAUDE_PROJECT_DIR) is split on its
+     colon by bash too: it searches a folder named C where the command runs, then /x. So every plain piece is kept;
+   - Git Bash converts exactly HOME, TMP, TEMP and TMPDIR to /c/... form when it starts (measured: set to D:\..., bash
+     printed /d/... for those four, while USERPROFILE, APPDATA, CLAUDE_PROJECT_DIR and others stayed D:\...). So ~ and
+     those variables are /c/ folders to bash wherever they sit in the value (x$HOME/bin is the folder x/c/H/bin where
+     the command runs). Kosmos has already expanded them to their Windows values by now and cannot tell them from a
+     variable or literal with the same text (CLAUDE_PROJECT_DIR under the home holds the home's text too, and is NOT
+     converted). So each occurrence of those values may be either form to bash, and the value is split once for every
+     choice of rewritten occurrences, naming the folders of all of them. Any occurrence, not only a whole folder name:
+     bash holds ${HOME}.local/bin as /c/H.local/bin, and rewriting C:\Homer as /c/Homer names the same folder, so a
+     match that is not the variable costs only a duplicate name. Past MAX_CONVERTED occurrences the choices are too
+     many to list, and `unsure` is set so the caller reports the PATH as unreadable (fail closed);
+   - a one-letter first folder is that drive (cygpath -w: /c/x is C:\x, /x is X:\, the drive's root).
+   Off Windows the value splits on every ':' exactly as before. `converted` is the Windows values of those variables
+   that Kosmos knows: a $TMP with no value in the settings env is not expanded at all, and the PATH arm already reports
+   a value it cannot expand as made when the command runs. Returns the pieces; `.unsure` is true past the cap. */
+const GIT_BASH_CONVERTS = ['HOME', 'TMP', 'TEMP', 'TMPDIR'];
+const MAX_CONVERTED = 8;   // 2^8 splits of one value at most
+function splitPathValue(value, win, converted = []) {
+  if (!win) return value.split(':');
+  // Git Bash /c/x -> C:/x, and a bare /d -> D:/ (the drive's root; a bare D: would be the current folder on D:).
+  const drive = (p) => p.replace(/^\/([A-Za-z])(?:\/|$)/, (m, d) => d.toUpperCase() + ':/');
+  const out = value.split(':').map(drive);
+  // Longest first, so at any spot a TMP inside the home is matched as itself, not as the home with a tail.
+  const dirs = [...new Set([].concat(converted).filter((d) => /^[A-Za-z]:[\\/]/.test(d || '')).map((d) => d.replace(/[\\/]+$/, '')))]
+    .sort((a, b) => b.length - a.length);
+  if (!dirs.length) return out;
+  // Either slash in the value matches either slash in the variable's value (C:\H and C:/H are one folder).
+  const pattern = (d) => '(' + d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\\|\//g, '[\\\\/]') + ')';
+  // C:\H -> /c/H, as Git Bash gives it; a bare drive root (D:\, stripped to D:) -> /d/, so drive() reads it as D:/.
+  const asBash = (d) => '/' + d[0].toLowerCase() + (d.length === 2 ? '/' : d.slice(2).replace(/\\/g, '/'));
+  const hits = [...value.matchAll(new RegExp(dirs.map(pattern).join('|'), 'gi'))]
+    .map((m) => ({ at: m.index, len: m[0].length, to: asBash(dirs[m.slice(1).findIndex((g) => g !== undefined)]) }));
+  if (hits.length > MAX_CONVERTED) { out.unsure = true; return out; }
+  for (let mask = 1; mask < 2 ** hits.length; mask++) {   // mask 0 is the plain split, already in out
+    let form = '';
+    let from = 0;
+    hits.forEach((h, i) => { form += value.slice(from, h.at) + (mask & (1 << i) ? h.to : value.substr(h.at, h.len)); from = h.at + h.len; });
+    form += value.slice(from);
+    for (const p of form.split(':').map(drive)) if (!out.includes(p)) out.push(p);
+  }
+  return out;
+}
+
 /*
  * The file paths a list of words names. `cwd` is where the command runs (the agent folder); `vars` are the variables
  * Kosmos knows. Returns { paths, unsafe }: candidate script paths (folders are filtered by startCommandScripts) and the
@@ -396,7 +444,11 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       return;
     }
     if (w.dynamic) { unsafe.push('a PATH made when the command runs'); return; }
-    for (const c of value.split(':')) {
+    // The host platform, not startCommandScripts' platform option: path.resolve below is the host's too, and the two
+    // must agree (a Windows split resolved by POSIX rules, or the reverse, names folders nobody searches).
+    const pieces = splitPathValue(value, process.platform === 'win32', GIT_BASH_CONVERTS.map((n) => vars[n]));
+    if (pieces.unsure) unsafe.push('a PATH with too many home or temp folders in it to read every way the shell may');
+    for (const c of pieces) {
       if (!c || c === PATH_MARK) continue;
       for (const d of cwds) { const r = path.resolve(d, c); if (!pathDirs.includes(r)) pathDirs.push(r); }
     }
@@ -1028,4 +1080,4 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.filter((p) => !p.envRoot).map((p) => p.dir))], envPluginDirs, unsafe: [...new Set(unsafe)] };
 }
 
-module.exports = { startCommandScripts, shellWords, pathsOfWords, commandsIn, managedDir, HELPER_KEYS, CLAUDE_GLOBAL_CONFIG_SUFFIXES, PLUGIN_VARS, cachedReaders };
+module.exports = { startCommandScripts, shellWords, pathsOfWords, splitPathValue, commandsIn, managedDir, HELPER_KEYS, CLAUDE_GLOBAL_CONFIG_SUFFIXES, PLUGIN_VARS, cachedReaders };
