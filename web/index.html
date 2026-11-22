@@ -19828,23 +19828,28 @@ window.kosmosMeasureScrollbarWidth();
           <div>When an agent needs me</div>
           <button class="btn uprime" id="pn-kind-needsYou" data-kind="needsYou" type="button" aria-pressed="true">On</button>
         </div>
+        <p class="dhint" id="pn-kind-err-needsYou" role="status" style="margin:2px 0 0;" hidden></p>
         <div class="setrow" style="margin-top:8px;">
           <div>When an agent answers me</div>
           <button class="btn uprime" id="pn-kind-replied" data-kind="replied" type="button" aria-pressed="true">On</button>
         </div>
+        <p class="dhint" id="pn-kind-err-replied" role="status" style="margin:2px 0 0;" hidden></p>
         <div class="setrow" style="margin-top:8px;">
           <div>When an agent replies to me or names me in a room</div>
           <button class="btn uprime" id="pn-kind-postedMention" data-kind="postedMention" type="button" aria-pressed="true">On</button>
         </div>
+        <p class="dhint" id="pn-kind-err-postedMention" role="status" style="margin:2px 0 0;" hidden></p>
         <div class="setrow" style="margin-top:8px;">
           <div>When work is ready for my check</div>
           <button class="btn uprime" id="pn-kind-ready" data-kind="ready" type="button" aria-pressed="true">On</button>
         </div>
+        <p class="dhint" id="pn-kind-err-ready" role="status" style="margin:2px 0 0;" hidden></p>
         <div class="setrow" style="margin-top:8px;">
           <div>When anyone posts in a project room I am on
             <p class="dhint" style="margin:2px 0 0;">Off to start with, so a busy room does not fill your phone. At most one buzz per room every few minutes.</p></div>
           <button class="btn" id="pn-kind-postedRoom" data-kind="postedRoom" type="button" aria-pressed="false">Off</button>
         </div>
+        <p class="dhint" id="pn-kind-err-postedRoom" role="status" style="margin:2px 0 0;" hidden></p>
       </div>
       <p class="dhint" id="phone-notify-step" style="margin:8px 0 0;" hidden>Then open the Kosmos app on your phone, sign in, and allow notifications. Do this on each phone you want alerts on.</p>
     </section>
@@ -97471,10 +97476,22 @@ setInterval(ageCheckedStamp, 1000);
   // buttons are hidden otherwise, but guard anyway); a refused PUT shows the
   // board's words and leaves the switches at the last good paint.
   var kindBusy = false;
+  /* #6254 design read (Mona Lisa): a kind switch's error shows on the line under the row that was pressed, not on the
+     master's state line five rows up (off screen on a phone). `name` null clears every row. */
+  function kindErr(name, text) {
+    for (var i = 0; i < KIND_BTNS.length; i++) {
+      var e = el('pn-kind-err-' + KIND_BTNS[i]);
+      if (!e) continue;
+      var mine = KIND_BTNS[i] === name && !!text;
+      e.textContent = mine ? text : '';
+      e.hidden = !mine;
+    }
+  }
   function toggleKind(name) {
     if (kindBusy || !current || !current.available || !current.connected || !current.on || !current.kinds) return Promise.resolve(false);
     if (KIND_BTNS.indexOf(name) === -1) return Promise.resolve(false);
     kindBusy = true;
+    kindErr(null);   // #6254 design read: any press clears the last row's error
     var want = !current.kinds[name];
     return fetch(API, {
       method: 'PUT', credentials: 'same-origin',
@@ -97482,13 +97499,13 @@ setInterval(ageCheckedStamp, 1000);
       body: JSON.stringify({ kind: name, on: want }),
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (body) {
-        if (!r.ok) { paint(current); setMsg(body.error || 'That did not work. Please try again.'); return false; }
+        if (!r.ok) { paint(current); kindErr(name, body.error || 'That did not work. Please try again.'); return false; }
         paint(body);
         return true;
       });
     }).catch(function () {
       paint(current);
-      setMsg('That did not work. Please try again.');
+      kindErr(name, 'That did not work. Please try again.');
       return false;
     }).then(function (result) { kindBusy = false; return result; });
   }

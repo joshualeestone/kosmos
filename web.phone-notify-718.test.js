@@ -39,6 +39,7 @@ function load(opts) {
     'phone-notify-kinds': mk({ hidden: true }),   // #6254: the sub-switch container
   };
   for (const name of KINDS) elements['pn-kind-' + name] = clickable({ textContent: '' });   // #6254: one button per kind
+  for (const name of KINDS) elements['pn-kind-err-' + name] = mk({ hidden: true });   // #6254 design read: one error line per row
   // #6254: the per-kind defaults the server resolves (postedRoom off, the rest on).
   const DEFAULT_KINDS = { needsYou: true, replied: true, postedMention: true, ready: true, postedRoom: false };
   let state = Object.assign({ available: true, on: false, connected: true, kinds: Object.assign({}, DEFAULT_KINDS) }, opts.state);
@@ -69,7 +70,7 @@ function load(opts) {
   new Function('navigator', 'window', 'document', 'fetch', BLOCK)(navigator, win, document, fetchStub);
   const e = elements;
   return { win, calls, domHandlers, section: e['phone-notify'], btn: e['phone-notify-toggle'], msg: e['phone-notify-msg'], step: e['phone-notify-step'],
-    kindsBox: e['phone-notify-kinds'], kindBtn: (name) => e['pn-kind-' + name], state: () => state };   // #6254
+    kindsBox: e['phone-notify-kinds'], kindBtn: (name) => e['pn-kind-' + name], kindErr: (name) => e['pn-kind-err-' + name], state: () => state };   // #6254
 }
 
 test('load, off and connected: Turn on, no phone step shown, worker registered', async () => {
@@ -246,6 +247,20 @@ test('#6254: a sub-switch does nothing while the master is off (no PUT)', async 
   h.domHandlers.DOMContentLoaded(); await flush();
   assert.equal(await h.win.kosmosPhoneNotifyKindToggle('ready'), false, 'a sub-switch acted with the master off');
   assert.equal(h.calls.fetch.filter((c) => c.method === 'PUT').length, 0, 'a sub-switch PUT went out with the master off');
+});
+
+test('#6254 design read: a failed switch shows its error under its own row, and the next press clears it', async () => {
+  const h = load({ state: { on: true }, putError: 'Kosmos+ did not answer: down' });
+  h.domHandlers.DOMContentLoaded(); await flush();
+  h.kindBtn('postedRoom')._click(); await flush();
+  const err = (n) => h.kindErr(n);
+  assert.equal(err('postedRoom').hidden, false, 'the pressed row did not show its error');
+  assert.equal(err('postedRoom').textContent, 'Kosmos+ did not answer: down');
+  for (const n of ['needsYou', 'replied', 'postedMention', 'ready']) assert.equal(err(n).hidden, true, n + ' showed an error it did not have');
+  assert.notEqual(h.msg.textContent, 'Kosmos+ did not answer: down', 'the error still went to the master state line five rows up');
+  h.kindBtn('needsYou')._click(); await flush();
+  assert.equal(err('postedRoom').hidden, true, 'the next press did not clear the earlier row\'s error');
+  assert.equal(err('needsYou').hidden, false, 'the second failure did not show under its own row');
 });
 
 test('#6254: turning the master off hides the sub-switches again', async () => {
