@@ -647,8 +647,11 @@ _read_stdin_quiet() {
   KOSMOS_STDIN_LIMIT_S="${1:-$KOSMOS_STDIN_QUIET_S}"
   case "$KOSMOS_STDIN_LIMIT_S" in ''|*[!0-9]*|0*) KOSMOS_STDIN_LIMIT_S=""; return 7 ;; esac   # a wrong limit is a bug here: refuse, never wait
   if [ -t 0 ]; then KOSMOS_STDIN_TEXT="$(cat)"; return 0; fi
-  local _rc=0
-  KOSMOS_STDIN_TEXT="$(KOSMOS_STDIN_QUIET_S="$KOSMOS_STDIN_LIMIT_S" "$NODE" -e '
+  # kosmos#8905: the node every other step of these verbs runs (the bundle's, else the system's in a source checkout or
+  # a partial install), not $NODE alone, which a source checkout does not have; with no node at all, read as before.
+  local _rc=0 _qn
+  _qn="$(kosmos_engine_node)" || { KOSMOS_STDIN_TEXT="$(cat)"; return 0; }
+  KOSMOS_STDIN_TEXT="$(KOSMOS_STDIN_QUIET_S="$KOSMOS_STDIN_LIMIT_S" "$_qn" -e '
     const input = process.stdin; const chunks = []; let timer = null; let done = false; let total = 0;
     const finish = (ended, failed) => {
       if (done) return; done = true; clearTimeout(timer);

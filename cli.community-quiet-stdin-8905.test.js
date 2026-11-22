@@ -138,6 +138,6 @@ test('#8905 the Mac limits are the Windows CLI\'s: 3 s for a body, 120 s for a c
 
 test('#8905 no Mac CLI verb reads stdin with a bare $(cat) any more, outside a terminal', () => {
   const lines = fs.readFileSync(CLI, 'utf8').split('\n');
-  const bare = lines.map((l, i) => [i + 1, l]).filter(([, l]) => /="\$\(cat\)"/.test(l) && !/^\s*#/.test(l) && !/\[ -t 0 \]/.test(l));
+  const bare = lines.map((l, i) => [i + 1, l]).filter(([, l]) => /="\$\(cat\)"/.test(l) && !/^\s*#/.test(l) && !/KOSMOS_STDIN_TEXT="\$\(cat\)"/.test(l));   // the reader's own last resorts (a terminal; no node at all)
   assert.deepEqual(bare.map(([n, l]) => n + ': ' + l.trim().slice(0, 120)), []);
 });
