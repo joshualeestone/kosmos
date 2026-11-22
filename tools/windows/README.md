@@ -99,13 +99,14 @@ WebView2 Runtime, pointed at the same local board.
   any request the page starts to this computer on another port (a link to a site an agent runs here,
   a fetch, an image) would carry the person's board session there. The window sees every request
   to this computer before it leaves (WebView2's `WebResourceRequested`, filtered to addresses that
-  name 127.0.0.1, localhost or [::1] anywhere in them, so other requests are not held) and answers one to 127.0.0.1, localhost or
-  ::1 on any other port or scheme with a local 403, so it never leaves. This holds in every mode,
-  since a connect window can switch to running this computer's board while it is open. If WebView2
-  will not take the check, the window does not open without it: the board opens in the browser
-  instead. Not covered: a WebSocket the page itself opens, which WebView2 does not show to the check
-  (only script already running in the board's page can do that, and such script holds the session
-  anyway).
+  name 127.0.0.1, localhost or [::1] anywhere in them, so other requests are not held) and answers
+  one to 127.0.0.1, localhost or ::1 on any other port or scheme with a local 403, so it never
+  leaves. This holds in every mode, since a connect window can switch to running this computer's
+  board while it is open. If WebView2 will not take the check, the window does not open without
+  it: the board opens in the browser instead. **Not covered yet:** a WebSocket the page itself
+  opens, which WebView2 does not show to the check. Only script already running in the board's
+  page can open one, but the session token is HttpOnly, so that is how such script would get the
+  token itself out to another process. The follow-up blocks it in the browser.
 - **One window per board.** A second double-click brings the open window forward (restoring it if
   minimised) instead of opening another, and signs it in again with a fresh address from the same
   `--print-url` path, so opening Kosmos again also rescues a window that came up signed out. The

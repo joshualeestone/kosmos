@@ -3945,16 +3945,18 @@ class KosmosLauncher
     // request the page starts to this computer on another port carried it there: a navigation, a fetch, an image, all
     // measured. A dev site an agent runs here and links to would get the person's board session. So a request to this
     // computer that is not the board itself is refused here, whatever its scheme: localhost by name, and any address
-    // IPAddress.IsLoopback calls loopback (every 127.x, ::1). In the window only requests the filters let through reach
-    // this (addresses naming 127.0.0.1, localhost or [::1]; ControllerReady), so 127.0.0.2 never does, and need not.
-    // "The board" here is plain http on the board's port at any loopback host, wider than IsBoardAddress (127.0.0.1,
-    // localhost, [::1] only); not a leak, as the cookie is host-only on 127.0.0.1 and never sent to another spelling.
-    // That covers the one host the cookie is ever sent to,
+    // IPAddress.IsLoopback calls loopback (every 127.x, ::1). That covers the one host the cookie is ever sent to,
     // 127.0.0.1, in every spelling Uri reads as it (127.1, 2130706433, 0x7f.1). Other ways to reach this computer
     // (foo.localhost, ::ffff:127.0.0.1, 0.0.0.0) are not refused, and need not be: the cookie is host-only on 127.0.0.1,
-    // so it is never sent to them. A request anywhere else is not this rule's business (links leave by the link rules).
-    // Not covered, measured: a WebSocket the page itself opens (WebView2 never shows it to WebResourceRequested). Only
-    // script already running in the board's page can open one, and such script holds the session anyway.
+    // so it is never sent to them. In the window only addresses the filters hold reach this (ones naming 127.0.0.1,
+    // localhost or [::1] anywhere; ControllerReady). "The board" here is plain http on the board's port at any loopback
+    // host, wider than IsBoardAddress (127.0.0.1, localhost, [::1] only); not a leak, for the same reason. A request
+    // anywhere else is not this rule's business (links leave by the link rules).
+    // NOT COVERED, measured: a WebSocket the page itself opens (WebView2 never shows it to WebResourceRequested). It needs
+    // script already running in the board's page, but it is still a real leak: the cookie is HttpOnly, so such script
+    // can use the session while the page is open yet never read it, and a WebSocket to another port hands the token
+    // itself to another process, which can keep it. Follow-up: block ws/wss to this computer's other ports in the
+    // browser itself (DevTools Network.setBlockedURLs), kosmos#6916's follow-up card.
     internal static bool RefusedLoopbackRequest(string address, int port)
     {
         Uri uri;
@@ -4747,7 +4749,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         args.get_Request(out request);
         string uri;
         try { request.get_Uri(out uri); }
-        finally { Marshal.ReleaseComObject(request); }   // every request the page makes comes through here
+        finally { Marshal.ReleaseComObject(request); }   // every request the filters hold comes through here
         if (KosmosLauncher.RefusedLoopbackRequest(uri, port)) RefuseRequest(args);
     }
 

@@ -88,8 +88,9 @@ test('#6916: the board\'s service worker never sends a request to another origin
      "network first for everything" change), that request goes out as the WORKER's, unseen, carrying the session to
      another port. Such a change needs the ICoreWebView2_22 filter with SOURCE_KINDS_ALL first. */
   const sw = fs.readFileSync(path.join(REPO, 'web', 'sw.js'), 'utf8');
-  const fetchHandler = sw.slice(sw.indexOf("self.addEventListener('fetch'"));
-  assert.ok(fetchHandler.length > 0, 'web/sw.js has no fetch handler to check');
+  const handlerAt = sw.indexOf("self.addEventListener('fetch'");
+  assert.ok(handlerAt >= 0, 'web/sw.js has no fetch handler to check (or it was renamed): look again at what it does with another origin');
+  const fetchHandler = sw.slice(handlerAt);
   const leaves = fetchHandler.indexOf('if (url.origin !== self.location.origin) return;');
   assert.ok(leaves > 0, 'web/sw.js no longer passes on every request to another origin: the board window\'s cross-port check (#6916) would not see it; add the ICoreWebView2_22 SOURCE_KINDS_ALL filter first');
   const firstAnswer = fetchHandler.indexOf('respondWith(');
