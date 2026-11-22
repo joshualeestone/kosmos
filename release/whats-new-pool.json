@@ -1449,10 +1449,7 @@
       "icon": "shield",
       "rank": 10.45,
       "since": "0.8.01",
-      "status": "pending",
-      "platforms": [
-        "mac"
-      ]
+      "status": "pending"
     },
     {
       "title": "A warning before an agent runs twice",

@@ -27,15 +27,19 @@ set lastProd 0.8.14. Hand edits to the pool, each a decision recorded here:
   whose post woke no one during the automatic loop pause (engine/messages.js), never to a person, whose posts are never
   paused that way. To a person, "a paused room" reads as the Pause button, which this does not cover. The tool keeps
   notesOnly items for `kosmos whats-new`, where agents read them. "A closed task" now says "on a note", the board's words.
-- "The restart note says what was checked" (mac) is also in the 0.8.01 to 0.8.05 windows, all versions Mac prod never
-  served, so Mac users have not seen it.
+- "The restart note says what was checked" UNTAGGED (review 6). Main had it tagged mac, added after 0.8.01 to 0.8.05
+  carried it untagged, presumably to spare Windows a repeat. But engine/restartnote.js has no platform gate (its first
+  field report was a Windows restart), and a mac tag hides it from Linux. The same DECISION as the chat-spacing line: a
+  repeated true line on Windows costs less than a missing one on Linux. Mac prod never served 0.8.01 to 0.8.05.
 The build then chose, by rank (10.25, 10.45, 10.7, 11, 11.3):
 - A little more room between chat lines
-- The restart note says what was checked (mac)
+- The restart note says what was checked
 - A just-started agent gets your first message (Windows; in no earlier window)
 - A closed task says how it closed
 - A new Cloud machine can be allowed (untagged; in no earlier v08NN window, searched with a positive control)
-web/whats-new.json is never hand-edited. Review 3 checked every line against each v08NN window from 0.8.00 to 0.8.14.
+Per platform: Mac 4 (all but the Windows-only just-started line), Linux 4 (the four untagged lines; the engine gives
+Linux no tag), Windows 5. Repeats acknowledged: on Windows, the chat-spacing and restart-note lines, if a Windows user
+had 0.8.01, 0.8.03, 0.8.04 or 0.8.05. web/whats-new.json is never hand-edited. Review 3 checked every line against each v08NN window from 0.8.00 to 0.8.14.
 
 ## Rejected
 - Tagging the chat-spacing line mac (review 2's suggestion, made and then reverted): it hides a true line from Linux.
@@ -47,5 +51,5 @@ signed on 11-11; nobody read Windows prod's pointer history. If it is false, the
 Windows prod, and retiring them costs two true lines. The untagged chat-spacing line does not rest on it.
 
 ## Checks
-- `node tools/whats-new-check.js 0.8.15` and `prod-check` after the build.
+- `node tools/whats-new-check.js 0.8.15` (mac 4, windows 5) and `prod-check` after the build.
 - What's New and release-notes tests; the full suite.
