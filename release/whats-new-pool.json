@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.14",
+  "lastProd": "0.8.15",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -1449,10 +1449,11 @@
       "icon": "shield",
       "rank": 10.45,
       "since": "0.8.01",
-      "status": "pending",
+      "status": "shown",
       "platforms": [
         "mac"
-      ]
+      ],
+      "shownIn": "0.8.15"
     },
     {
       "title": "The restart note says when restarts repeat",
@@ -1479,7 +1480,8 @@
       "icon": "chat",
       "rank": 10.25,
       "since": "0.8.01",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.15"
     },
     {
       "title": "A post to someone off the project says so",
@@ -1953,7 +1955,8 @@
       "icon": "tasks",
       "rank": 11,
       "since": "0.8.06",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.15"
     },
     {
       "title": "A paused room says why it stayed quiet",
@@ -1970,7 +1973,8 @@
       "icon": "shield",
       "rank": 11.3,
       "since": "0.8.06",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.15"
     },
     {
       "title": "Windows agents keep their account at login",
@@ -2213,14 +2217,15 @@
     },
     {
       "since": "0.8.09",
-      "status": "pending",
+      "status": "shown",
       "title": "A just-started agent gets your first message",
       "line": "On Windows, a message to an agent that has only just started waits a few seconds for it, or says it is still starting.",
       "icon": "chat",
       "rank": 10.7,
       "platforms": [
         "windows"
-      ]
+      ],
+      "shownIn": "0.8.15"
     },
     {
       "since": "0.8.08",
