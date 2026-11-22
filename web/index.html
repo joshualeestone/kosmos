@@ -25399,7 +25399,7 @@ function rebootPattern(p) {
     + ' times within a week while Kosmos was running (' + listed + ').';
   /* A cloud machine's hardware is not the person's to have looked at: Kosmos+ runs it (the same words its join ask uses). */
   if (typeof onCloudMachine === 'function' && onCloudMachine()) {
-    return said + ' Kosmos+ runs this machine, so if you did not restart it yourself, there is nothing for you to fix.';
+    return said + ' Kosmos+ runs it for you, so its hardware is not yours to look after.';
   }
   return said + ' If you did not restart it yourself and it was not installing updates, restarts this often usually mean'
     + ' a hardware or driver problem worth having looked at.';
