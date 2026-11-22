@@ -72,7 +72,7 @@ function load(opts) {
   new Function('navigator', 'window', 'document', 'fetch', BLOCK)(navigator, win, document, fetchStub);
   const e = elements;
   return { win, calls, domHandlers, section: e['phone-notify'], btn: e['phone-notify-toggle'], msg: e['phone-notify-msg'], step: e['phone-notify-step'],
-    kindsBox: e['phone-notify-kinds'], kindBtn: (name) => e['pn-kind-' + name], kindErr: (name) => e['pn-kind-err-' + name], state: () => state };   // #6254
+    kindsBox: e['phone-notify-kinds'], kindBtn: (name) => e['pn-kind-' + name], kindErr: (name) => e['pn-kind-err-' + name], state: () => state, setState: (st) => { state = Object.assign({}, state, st); } };   // #6254
 }
 
 test('load, off and connected: Turn on, no phone step shown, worker registered', async () => {
@@ -305,6 +305,40 @@ test('#6254 review 4: while a kind press is in flight the master does not start,
   const puts2 = h2.calls.fetch.filter((c) => c.method === 'PUT');
   assert.equal(puts2.length, 1, 'a kind press started while the master was in flight: ' + JSON.stringify(puts2.map((p) => p.body)));
   assert.deepEqual(puts2[0].body, { on: false });
+});
+
+test('#6254 review 5: a master press (even a refused one) clears an old row error', async () => {
+  const h = load({ state: { on: true }, putError: 'Kosmos+ did not answer: down' });
+  h.domHandlers.DOMContentLoaded(); await flush();
+  h.kindBtn('postedRoom')._click(); await flush();
+  assert.equal(h.kindErr('postedRoom').textContent, 'Kosmos+ did not answer: down');
+  h.btn._click(); await flush();   // Turn off, refused: the block stays shown
+  assert.equal(h.kindsBox.hidden, false, 'a refused Turn off hid the block');
+  assert.equal(h.kindErr('postedRoom').textContent, '', 'a master press left the old row error beside its own');
+});
+
+test('#6254 review 5: the block hiding on a reload (not a press) clears an old row error', async () => {
+  const h = load({ state: { on: true }, putError: 'Kosmos+ did not answer: down', putErrorOnce: true });
+  h.domHandlers.DOMContentLoaded(); await flush();
+  h.kindBtn('postedRoom')._click(); await flush();
+  assert.equal(h.kindErr('postedRoom').textContent, 'Kosmos+ did not answer: down');
+  h.setState({ on: false });
+  h.domHandlers.visibilitychange(); await flush();   // back on the page: the board now says off
+  assert.equal(h.kindsBox.hidden, true);
+  h.setState({ on: true });
+  h.domHandlers.visibilitychange(); await flush();   // and on again
+  assert.equal(h.kindsBox.hidden, false);
+  assert.equal(h.kindErr('postedRoom').textContent, '', 'an old row error came back after a reload hid and showed the block');
+});
+
+test('#6254 review 5: the return-to-tab reload waits while a kind press is in flight', async () => {
+  const h = load({ state: { on: true }, putHangs: true });
+  h.domHandlers.DOMContentLoaded(); await flush();
+  h.kindBtn('ready')._click(); await flush();
+  const gets = () => h.calls.fetch.filter((c) => c.method === 'GET').length;
+  const before = gets();
+  h.domHandlers.visibilitychange(); await flush();
+  assert.equal(gets(), before, 'a reload ran over a kind press in flight');
 });
 
 test('#6254: turning the master off hides the sub-switches again', async () => {
