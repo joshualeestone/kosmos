@@ -150,9 +150,13 @@ const SIZE_FIXTURES = [
 ];
 /* Clustered charts that DO have the bug and are funded, so the shipped layout clears 12px. rt(23,250,0.06) is the
    canonical worst bug tree (pre-fix 5.50px); the heavyFans are inside the fan-60 funded region (<= ~23 roots). */
+/* rt(58,100,0.1) pins #4499's size gate: below the first ring the wide window shrinks its proportional layout more
+   than its floored one, so the 1% rule alone refuses the floor and the chart draws a line 11.76px from a face (main:
+   18px). The gate's second rule (no bigger than the capped proportional layout) funds it: 2253px at 18px. */
 const BUG_FIXTURES = [
   ['rt(23,250,0.06)', randomTree(23, 250, 0.06), 5.50],
   ['heavyFan(18,60)', heavyFan(18, 60), null],
+  ['rt(58,100,0.1)', randomTree(58, 100, 0.1), null],
 ];
 
 test('ORG_LINE_CLEAR is the 12px rule this file pins', () => {

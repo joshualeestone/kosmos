@@ -124,14 +124,16 @@ test('deep 100-agent trees: the median natural size over 60 seeds, and the large
   /* Measured over seeds 1..60, through these cards: median 1432 before #4434, 3232 with it, 2700 now; largest 2024,
      8113, 4805. (Plain cards in a different order give 2718: the heavy/light order keeps input order on ties.) The
      plan's table uses seeds 1..200 (median 1580 / 3353 / 2749): a larger sample of the same trees, not a different
-     measurement; 60 seeds keep this test fast. */
+     measurement; 60 seeds keep this test fast.
+     #4499 (the wide window below the first ring): 2341.5 and 3711 over these 60 seeds (2700 and 4805 without it),
+     so the ceilings are 2400 and 3800: a change that loses the window fails here. */
   const sizes = [];
   for (let seed = 1; seed <= 60; seed += 1) sizes.push(paint(randomTree(seed, 100, 0.05)).size);
   sizes.sort((a, b) => a - b);
   assert.equal(sizes.length, 60, 'CONTROL: not every tree was measured');
   const median = (sizes[29] + sizes[30]) / 2;
-  assert.ok(median <= 2800, 'the median deep tree is ' + median + 'px, over 2800 (#4434 alone: 3232)');
-  assert.ok(sizes[59] <= 5300, 'the largest deep tree is ' + sizes[59] + 'px, over 5300 (#4434 alone: 8113)');
+  assert.ok(median <= 2400, 'the median deep tree is ' + median + 'px, over 2400 (#4472 alone: 2700, #4434 alone: 3232)');
+  assert.ok(sizes[59] <= 3800, 'the largest deep tree is ' + sizes[59] + 'px, over 3800 (#4472 alone: 4805, #4434 alone: 8113)');
 });
 
 test('a two-ring team: every line to the outer ring clears every other face by ORG_LANE_SLOT (#4472)', () => {

@@ -41160,7 +41160,7 @@ function orgTreeOf(agents) {
   return out;
 }
 
-function orgPlace(nodes, floored) {
+function orgPlace(nodes, floored, capped) {
   const placed = new Map();
   let maxR = ORG_R0;
   /* kosmos#4434 (Josh, 2026-09-28: "the agents in the bottom left are crossing over lines"). A FLAT fleet
@@ -41260,6 +41260,13 @@ function orgPlace(nodes, floored) {
        below the first ring the tangent cap keeps each line's distance from the hub rising, so a manager's
        own line and its reports' lines meet only at the manager. web.org-sectors-4434.test.js counts
        crossings.
+     - #4499: the cap is sufficient, not necessary, and far from the hub it leaves a team almost no angle (one ring
+       step past a manager at 977px allows about 20 degrees either side), which is most of why deep trees drew at
+       ~1.7x their pre-#4434 size. So a team below the first ring first tries a WIDE window (ORG_WIDE of 90 degrees
+       either side, within its slice), kept only if an exact test passes: no new line properly crosses any line
+       already drawn, none comes within ORG_STEP of the hub, and the usual spacing and 12px clearance hold. Otherwise
+       it takes the capped placement, which cannot cross. `capped` turns the wide try off: orgPlaceGated uses it to
+       know what the chart would draw without it.
      - Each TEAM (one manager's reports) sits at its own radius (#4472), just outside its manager, pushed out
        until its faces are ORG_MIN_ARC from each other and from every face already placed, and until each of its
        branches has room for its leaves further out. (One radius per ring let one crowded team push the whole
@@ -41291,6 +41298,11 @@ function orgPlace(nodes, floored) {
   const ORG_BRANCH_ROOM = 0.85;  // #4472: the share of its leaves' room a branch's slice must have (best of 0.5-1.2)
   const ORG_CLEAR_REACH = 1.25;  // #4472: how far past the spacing radius a team may go for that clearance
   const ORG_LANE_SLOT = 31;   // #4472: a two-ring team's line past a face's CENTRE, at least: half ORG_MIN_ARC (9px past its edge)
+  /* #4499: the wide window, as a share of 90 degrees either side of a manager that has a manager. The prototype's
+     first-ring value; measured over the deep 100-agent trees it took the median from 2725 to 2410px. Shares stay by
+     leaf count: leaf count to the power 0.85 took the median to 2284 but grew 27 of 200 trees by over 1% (worst 1.22x),
+     while plain shares grew none. */
+  const ORG_WIDE = 0.95;
   /* #4472: a manager's reports in the order they are laid out: heaviest and lightest alternating, by leaf count,
      instead of input order. Each report's share of the window is its leaf count, so a light report gets a sliver:
      two light ones side by side then set the whole ring's radius, and every ring below stacked on it (measured: the
@@ -41395,7 +41407,7 @@ function orgPlace(nodes, floored) {
     const ring = [];
     for (const p of prev) for (const k of (kids.get(p.agent.sessionName) || [])) ring.push({ n: k, p });
     if (!ring.length) break;
-    const lay = (r, team) => {
+    const lay = (r, team, wide) => {
       const out = new Map();
       for (const p of team) {
         const ks = kids.get(p.agent.sessionName) || [];
@@ -41409,7 +41421,7 @@ function orgPlace(nodes, floored) {
         /* 0.9 is a safety margin inside the exact tangent. 1.0 is still correct (0 crossings in 4,500 trees
            with a rounding-aware count, review it4), so no test can pin the margin itself; removing the cap is
            pinned by the deep tree randomTree(892, 85, 0.1) in the tests. */
-        const cap = ps.node.parent ? Math.acos(ps.r / r) * 0.9 : (Math.PI / 2) * 0.95;
+        const cap = ps.node.parent ? (wide ? (Math.PI / 2) * ORG_WIDE : Math.acos(ps.r / r) * 0.9) : (Math.PI / 2) * 0.95;
         /* #4472: the window may reach the cap on either side, as far as the manager's own slice allows, so it is
            no longer always centred on the manager. A lone report keeps a centred window (#352: straight out). A pair
            is still either side of the manager when its slice is even on both sides (#352), but may lean into the
@@ -41534,7 +41546,12 @@ function orgPlace(nodes, floored) {
     const lineOf = (f, parent) => {
       const a = parent ? faceOf(parent, placed.get(parent)) : { r: 0, xy: [0, 0] };
       const firstRing = !parent || !placed.get(parent).node.parent;
-      return { a: a.xy, b: f.xy, ends: [f.name, parent], lo: firstRing ? 0 : Math.min(a.r, f.r), hi: Math.max(a.r, f.r) };
+      /* #4499: a wide window's line can dip toward the hub, so its band starts at the line's true closest approach to
+         the hub, not at its nearer end (a band from the ends would let near() skip a face the dip passes). */
+      const dx = f.xy[0] - a.xy[0]; const dy = f.xy[1] - a.xy[1];
+      const t = Math.max(0, Math.min(1, -(a.xy[0] * dx + a.xy[1] * dy) / (dx * dx + dy * dy || 1)));
+      const closest = Math.hypot(a.xy[0] + t * dx, a.xy[1] + t * dy);
+      return { a: a.xy, b: f.xy, ends: [f.name, parent], lo: firstRing ? 0 : closest, hi: Math.max(a.r, f.r) };
     };
     const segDist = (q, g) => {
       const dx = g.b[0] - g.a[0]; const dy = g.b[1] - g.a[1];
@@ -41546,13 +41563,34 @@ function orgPlace(nodes, floored) {
        of M through the midpoint Q, a line that already satisfies it; the pull keeps r_P and only shrinks d, so cos(d),
        and the inequality, only grow. */
     const near = (f, g) => f.r > g.lo - ORG_LINE_CLEAR && f.r < g.hi + ORG_LINE_CLEAR;
+    /* #4499: whether two lines properly cross (at a point inside both). Lines that share an end, a manager and its
+       report's own line, never count. Two lines can only cross where their radius bands overlap, which keeps the
+       wide window's test cheap (a 1000-agent chart within a couple of ms of the capped layout). */
+    const turn3 = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    const sameXY = (p, q) => Math.abs(p[0] - q[0]) < 1e-6 && Math.abs(p[1] - q[1]) < 1e-6;
+    const crosses = (g, h) => {
+      if (g.hi < h.lo || h.hi < g.lo) return false;
+      if (sameXY(g.a, h.a) || sameXY(g.a, h.b) || sameXY(g.b, h.a) || sameXY(g.b, h.b)) return false;
+      const e = 1e-9;
+      const d1 = turn3(h.a, h.b, g.a); const d2 = turn3(h.a, h.b, g.b); const d3 = turn3(g.a, g.b, h.a); const d4 = turn3(g.a, g.b, h.b);
+      return ((d1 > e && d2 < -e) || (d1 < -e && d2 > e)) && ((d3 > e && d4 < -e) || (d3 < -e && d4 > e));
+    };
     const faces = [...placed].map(([name, s]) => faceOf(name, s));
     const lines = faces.map((f) => lineOf(f, placed.get(f.name).node.parent));
     for (const p of prev) {
       if (!(kids.get(p.agent.sessionName) || []).length) continue;
       const ps = placed.get(p.agent.sessionName);
-      const apart = (spots, strict) => {
+      const apart = (spots, strict, wide) => {
         if (!clear(spots)) return false;
+        /* #4499: a wide window is kept only if none of its lines crosses a line already drawn, and none comes within
+           ORG_STEP of the hub (the #4434 rule a capped line meets by construction). */
+        if (wide) {
+          for (const [name, s] of spots) {
+            const g = lineOf(faceOf(name, s), p.agent.sessionName);
+            if (g.lo < ORG_STEP) return false;
+            for (const h of lines) if (crosses(g, h)) return false;
+          }
+        }
         /* Room for what comes after: a report's slice, at the depth its branch's leaves will reach (its height in
            ring steps past this radius), must hold those leaves side by side. A team placed closer in has a narrower
            window, and its branches were then confined to a sliver for good: measured, a 1268px jump three rings
@@ -41591,18 +41629,28 @@ function orgPlace(nodes, floored) {
          radius clears it (one team grew to 46,656,912px unbounded), and chasing clearance far out made single
          trees much bigger than #4473 (review it1: a 1000-agent tree 2.4x). Past the reach, the team keeps the
          spacing radius, as #4473 places it. */
-      const grow = (from, ok, limit) => {
+      const grow = (from, ok, limit, wide) => {
         let r = from;
-        let spots = lay(r, [p]);
+        let spots = lay(r, [p], wide);
         for (let tries = 0; tries < 400 && r <= limit && !ok(spots); tries += 1) {
           r = Math.max(r + 8, r * 1.03);
-          spots = lay(r, [p]);
+          spots = lay(r, [p], wide);
         }
         return { r, spots, ok: r <= limit && ok(spots) };
       };
-      const loose = grow(Math.max(ORG_R0 + ORG_STEP, ps.r + ORG_STEP), (sp) => apart(sp, false), Infinity);
+      const from = Math.max(ORG_R0 + ORG_STEP, ps.r + ORG_STEP);
+      const loose = grow(from, (sp) => apart(sp, false), Infinity);
       const strict = grow(loose.r, (sp) => apart(sp, true), loose.r * ORG_CLEAR_REACH);
-      const spots = strict.ok ? strict.spots : loose.spots;
+      let spots = strict.ok ? strict.spots : loose.spots;
+      /* #4499: below the first ring, the wide window, if it passes every check at a radius inside the one the capped
+         placement chose. It is strict only (the 12px clearance too): a wide team never gives up clearance for room. A
+         team the capped placement puts on two rings (#4472) keeps them: wide, a 14-report team fanned nearly 180
+         degrees on one ring and curled below the hub, a different look for no measured gain (the deep trees size the
+         same either way). */
+      if (ps.node.parent && !capped && ![...spots.values()].some((sp) => sp.laned)) {
+        const wide = grow(from, (sp) => apart(sp, true, true), (strict.ok ? strict.r : loose.r) - 1e-9, true);
+        if (wide.ok) spots = wide.spots;
+      }
       for (const [name, spot] of spots) {
         placed.set(name, spot);
         maxR = Math.max(maxR, spot.r);
@@ -41669,7 +41717,13 @@ function orgPlaceGated(nodes) {
   // the proportional layout. Clearing ORG_LINE_CLEAR already makes the floored first ring no worse than the
   // proportional one: the early-out above guarantees preClear < ORG_LINE_CLEAR, so floClear >= ORG_LINE_CLEAR is
   // always an improvement (an explicit floClear >= preClear clause here would be vacuous).
-  const funded = flo.maxR <= pre.maxR * 1.01 + 1 && floClear >= ORG_LINE_CLEAR;
+  let funded = flo.maxR <= pre.maxR * 1.01 + 1 && floClear >= ORG_LINE_CLEAR;
+  /* #4499 (size): the wide window can shrink the proportional layout more than the floored one (measured,
+     randomTree(23, 250, 0.06): 6351 to 2876, floored 3943), and then the rule above alone would keep the 5.5px line
+     the floor exists to clear. So a floored layout that clears is also funded when it is no bigger than the
+     proportional layout WITHOUT the wide window: no bigger than this chart drew before #4499's size work, and never
+     worse at the first ring. That extra layout runs only for a chart with the bug that the first rule refused. */
+  if (!funded && floClear >= ORG_LINE_CLEAR) funded = flo.maxR <= orgPlace(nodes, false, true).maxR * 1.01 + 1;
   return funded ? { placed: flo.placed, maxR: flo.maxR, funded: true } : { placed: pre.placed, maxR: pre.maxR, funded: false };
 }
 
