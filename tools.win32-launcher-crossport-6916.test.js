@@ -59,9 +59,9 @@ test('#6916: the window wires the request check before any page loads, in every 
 
 test('#6916: a request to this computer on another port is answered with a local 403; one that cannot be read is refused too', () => {
   const on = between('internal void OnWebResourceRequested(', '\n    }\n');
-  assert.match(on, /request\.get_Uri\(out uri\);\s*if \(KosmosLauncher\.RefusedLoopbackRequest\(uri, port\)\) RefuseRequest\(args\);/);
+  assert.match(on, /try \{ request\.get_Uri\(out uri\); \}\s*finally \{ Marshal\.ReleaseComObject\(request\); \}[^\n]*\n\s*if \(KosmosLauncher\.RefusedLoopbackRequest\(uri, port\)\) RefuseRequest\(args\);/);
   const refuse = between('internal void RefuseRequest(', '\n    }\n');
-  assert.match(refuse, /webEnvironment\.CreateWebResourceResponse\(IntPtr\.Zero, 403, "Forbidden", "Content-Type: text\/plain\\r\\nCache-Control: no-store", out refusal\);\s*args\.put_Response\(refusal\);/);
+  assert.match(refuse, /webEnvironment\.CreateWebResourceResponse\(IntPtr\.Zero, 403, "Forbidden", "Content-Type: text\/plain\\r\\nCache-Control: no-store", out refusal\);\s*try \{ args\.put_Response\(refusal\); \}\s*finally \{ Marshal\.ReleaseComObject\(refusal\); \}/);
   const handler = between('public class WebResourceRequested :', '\n}\n');
   assert.match(handler, /try \{ form\.OnWebResourceRequested\(args\); \}\s*catch \{ try \{ form\.RefuseRequest\(args\); \}/, 'a request the check could not read is let through');
   assert.match(between('internal void EnvironmentReady(', '\n    }\n'), /webEnvironment = environment;/, 'the environment that makes the refusal is not kept');

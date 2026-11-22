@@ -3943,9 +3943,12 @@ class KosmosLauncher
     // #6916: a request the board window refuses before it leaves. The window keeps the board's sign-in cookie, scoped to
     // the host and NOT the port (and SameSite does not help: another port on the same host is the same site), so any
     // request the page starts to this computer on another port carried it there: a navigation, a fetch, an image, all
-    // measured. A dev site an agent runs here and links to would get the person's board session. So every request to
-    // this computer (127.0.0.1, localhost, [::1]) that is not the board itself is refused here, whatever its scheme. A
-    // request anywhere else is not this rule's business (the cookie is never sent there; links leave by the link rules).
+    // measured. A dev site an agent runs here and links to would get the person's board session. So a request to this
+    // computer that is not the board itself is refused here, whatever its scheme: localhost by name, and any address
+    // IPAddress.IsLoopback calls loopback (every 127.x, ::1). That covers the one host the cookie is ever sent to,
+    // 127.0.0.1, in every spelling Uri reads as it (127.1, 2130706433, 0x7f.1). Other ways to reach this computer
+    // (foo.localhost, ::ffff:127.0.0.1, 0.0.0.0) are not refused, and need not be: the cookie is host-only on 127.0.0.1,
+    // so it is never sent to them. A request anywhere else is not this rule's business (links leave by the link rules).
     // Not covered, measured: a WebSocket the page itself opens (WebView2 never shows it to WebResourceRequested). Only
     // script already running in the board's page can open one, and such script holds the session anyway.
     internal static bool RefusedLoopbackRequest(string address, int port)
@@ -4726,7 +4729,8 @@ class BoardWindowForm : System.Windows.Forms.Form
         ICoreWebView2WebResourceRequest request;
         args.get_Request(out request);
         string uri;
-        request.get_Uri(out uri);
+        try { request.get_Uri(out uri); }
+        finally { Marshal.ReleaseComObject(request); }   // every request the page makes comes through here
         if (KosmosLauncher.RefusedLoopbackRequest(uri, port)) RefuseRequest(args);
     }
 
@@ -4734,7 +4738,8 @@ class BoardWindowForm : System.Windows.Forms.Form
     {
         ICoreWebView2WebResourceResponse refusal;
         webEnvironment.CreateWebResourceResponse(IntPtr.Zero, 403, "Forbidden", "Content-Type: text/plain\r\nCache-Control: no-store", out refusal);
-        args.put_Response(refusal);
+        try { args.put_Response(refusal); }
+        finally { Marshal.ReleaseComObject(refusal); }
     }
 
     // A computer that has chosen a mode decides every main-frame navigation by ConnectLinkDecision, as the
