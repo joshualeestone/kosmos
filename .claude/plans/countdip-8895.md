@@ -24,3 +24,11 @@ print the board's line unchanged (oneLine/one fold line breaks only; no cap).
 
 Weakest premise: that aging out is the usual cause of a dip. Any other cause shows the lower count with no reason, as
 before.
+
+## Round 1 (opus, blind): no blocker, two should-fix, both taken
+- The reason was stored with the shown counts, so the next unchanged line repeated once; it is now appended after the
+  same-as-shown decision and never stored.
+- The server half had no test: server.community-nudge-5211.test.js now checks that lastShown {comments, at} is handed
+  on, with `at` the count's own time (nit 4, taken), and that a two-hour-old entry is not (CONTROL).
+- Left: the Math.min cap and two aged comments on one post are reasoned, not tested; isPublic is judged now, not at the
+  showing (the cap bounds it).
