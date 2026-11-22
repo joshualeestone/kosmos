@@ -208,16 +208,14 @@ function historyOf(now) {
 /* kosmos#8866: the history with this note's boot time added, or null when it cannot be told. The same restart read
    again is not counted twice: a board that died before its first beat makes a second note for it, from the same last
    alive time, which is then older than the newest boot kept. A real later restart always follows a beat after that boot.
-   A boot within SAME_BOOT_MS of a kept one is also the same (boot times are derived from two clocks, so they can differ
-   by seconds); two real restarts cannot be that close, as each needs a start and a beat in between. */
-const SAME_BOOT_MS = 60 * 1000;
+   (A note needs a last-alive time at all, so a lost alive file makes no note to count.) */
 function historyWith(bootIso, lastAliveIso, now) {
   const boot = ms(bootIso);
   if (boot == null) return null;
   const kept = historyOf(now);
   const newest = kept.length ? kept[kept.length - 1] : null;
   const alive = ms(lastAliveIso);
-  const same = (newest != null && alive != null && alive < newest) || kept.some((t) => Math.abs(t - boot) <= SAME_BOOT_MS);
+  const same = newest != null && alive != null && alive < newest;
   return (same ? kept : [...kept, boot].sort((a, b) => a - b)).slice(-HISTORY_MAX);
 }
 /** kosmos#8866: { count, dates } for the boots within PATTERN_MS of `now`, or null below PATTERN_COUNT. Pure. */

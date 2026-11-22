@@ -58,11 +58,6 @@ test('#8866: restarts spread wider than 7 days are no pattern; the same boot rea
   clean();
   restartAt(T0); restartAt(T0 + DAY);
   assert.equal(restartAt(T0 + DAY).pattern, undefined, 'the same boot twice is one restart');
-  // Round 1: the same restart read again with a boot time a few seconds off (two clocks) is still one restart.
-  clean();
-  restartAt(T0); restartAt(T0 + DAY);
-  assert.equal(restartAt(T0 + DAY + 3000).pattern, undefined, 'a boot 3 s from a kept one is the same restart');
-  assert.equal(restartAt(T0 + 2 * DAY).pattern.count, 3, 'CONTROL: a real third restart still makes the pattern');
   // Round 2: a board that died before its first beat makes a second note from the SAME last-alive time: one restart,
   // even with its boot read minutes off.
   clean();
@@ -82,6 +77,19 @@ test('#8866: two real restarts 10 minutes apart are two (a crash loop is the pat
   const third = restartAt(T0 + 20 * 60 * 1000);
   assert.ok(third.pattern, 'three crashes in 20 minutes were merged');
   assert.equal(third.pattern.count, 3);
+});
+
+test('#8866: the history keeps at most 20 boots and drops one dated in the future', () => {
+  clean();
+  const future = new Date(T0 + 40 * DAY).toISOString();
+  const many = Array.from({ length: 25 }, (_, i) => new Date(T0 - (25 - i) * 60 * 60 * 1000).toISOString());
+  fs.mkdirSync(path.dirname(rn._files.historyFile()), { recursive: true });
+  fs.writeFileSync(rn._files.historyFile(), JSON.stringify({ at: [...many, future] }));
+  restartAt(T0);
+  const kept = JSON.parse(fs.readFileSync(rn._files.historyFile(), 'utf8')).at;
+  assert.equal(kept.length, 20, 'the history grew past its cap');
+  assert.ok(!kept.includes(future), 'a boot dated in the future was kept');
+  assert.equal(Date.parse(kept[kept.length - 1]), T0, 'the newest boot is this one');
 });
 
 test('#8866: patternOf is the rule on its own; a damaged history is no pattern, never a guessed one', () => {

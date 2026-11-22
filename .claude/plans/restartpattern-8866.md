@@ -12,8 +12,8 @@ checked (#8287). Nothing joins notes: each restart overwrote the last, so a patt
 - engine/restartnote.js: each note's boot time is kept in board-restart-history.json (at most 20, for 30 days; a boot
   already kept is not counted twice; invalid entries dropped). A note made when 3 or more fall within 7 days carries
   `pattern: { count, dates }`; current() and publicNote() pass it on, cleaned. A note re-made from the same last-alive
-  time (older than the newest kept boot: no beat since) is the same restart, as is a boot within 60 s of a kept one;
-  real restarts 10 minutes apart count as two (a crash loop). The history is written only after the note is.
+  time (older than the newest kept boot: no beat since) is the same restart; real restarts 10 minutes apart count as
+  two (a crash loop). The history is written only after the note is.
 - web/index.html: rebootPattern() adds one <small class="rpat"> line to the existing note, inside its repaint key:
   "... has restarted N times within a week while Kosmos was running (Nov 18, twice on Nov 20, ...)". "Within a week",
   not "in the last 7 days": the note stays up a day, so the latter could be a day stale.
@@ -22,6 +22,9 @@ checked (#8287). Nothing joins notes: each restart overwrote the last, so a patt
 - Never "unexpectedly": the engine cannot tell a crash from a person's restart (its own header says so), so the line
   says "while Kosmos was running" and gives the hardware or driver reading only "If you did not restart it yourself".
 - 3 in 7 days, the card's starting guess. The line rides the existing note (the card's "simplest"), no new notice.
+- Second weak premise: "the same restart read again" is told by the last-alive time alone (a note re-made from the
+  same last-alive record, older than the newest kept boot). A 60 s same-boot rule was tried and removed in review: it
+  rested on a claim (two real restarts cannot be that close) that a fast power cycle can break, and no test isolated it.
 - Weakest premise: a person who restarts their computer on purpose three times in a week gets the line; the "if you
   did not restart it yourself" clause is what keeps it true for them.
 
