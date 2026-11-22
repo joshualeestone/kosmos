@@ -1471,7 +1471,10 @@
       "icon": "chat",
       "rank": 10.25,
       "since": "0.8.01",
-      "status": "pending"
+      "status": "pending",
+      "platforms": [
+        "mac"
+      ]
     },
     {
       "title": "A post to someone off the project says so",
