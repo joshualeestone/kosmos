@@ -194,7 +194,7 @@ test('#5167 review 11: a run where nothing saves is judged, not timed out (the w
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
   const watchdog = Number((hatch.match(/asyncAfter\(deadline: \.now\(\) \+ (\d+)\) \{\n[^\n]*\n\s+print\("download selftest TIMED OUT"\)/) || [])[1]);
   const alarm = Number((BUILD.match(/alarm (\d+); exec @ARGV; exit 127' "\$STAGE\/app\/bin\/kosmos-app" --kosmos-app-download-selftest/) || [])[1]);
-  assert.ok(watchdog >= 300, 'the watchdog (' + watchdog + 's) is too close to a nothing-saves run (measured 146s; 215s on 11-21 with kosmos#8879\'s refused-folder waits also run out), so a total break can read as a timeout');
+  assert.ok(watchdog >= 300, 'the watchdog (' + watchdog + 's) is too close to a nothing-saves run (measured 146s; 213s on 11-21 with kosmos#8879\'s refused-folder waits also run out), so a total break can read as a timeout');
   assert.ok(alarm >= watchdog + 20, 'the gate\'s alarm (' + alarm + 's) does not sit above the hatch\'s own watchdog (' + watchdog + 's)');
   assert.match(hatch, /wait\(expect == nil \? 20 : 50\)/);
 });
