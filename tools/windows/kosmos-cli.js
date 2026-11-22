@@ -3469,7 +3469,7 @@ async function feedbackNote(ctx, args) {
   }
   let fbs;
   try { fbs = ctx.engine('feedbacksend'); } catch { ctx.out('Added the note on this computer. Kosmos could not check whether it will be sent.'); return 0; }
-  if (r.date !== fb.today()) { ctx.out(typeof fbs.noteEarlierDay === 'function' ? fbs.noteEarlierDay(r.date) : 'Added the note to your report of ' + r.date + ', on this computer.'); return 0; }   // review 1
+  if (r.date !== fb.today()) { ctx.out(typeof fbs.noteEarlierDay === 'function' ? fbs.noteEarlierDay(r.date) : 'Added the note to your report of ' + r.date + ', on this computer.'); return 0; }   // kosmos#8900: queued for the hourly check, or why not
   let sent;
   try { sent = await fbs.sendNow(r.date); } catch { sent = { state: 'failed' }; }
   ctx.out(typeof fbs.noteMessage === 'function' ? fbs.noteMessage(sent && sent.state) : 'Added the note to today\'s report on this computer.');

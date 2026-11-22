@@ -89,3 +89,14 @@ sentence says what will happen.
   every three hours past midnight, so "yesterday" moved and the mutation stayed green; corrected, it now goes red.
 - Kept (NITs): past 14 queued days the oldest is dropped after the person was told it goes; the microsecond race
   between a CLI write and the board's (as round 1).
+
+## Review 4 (sonnet)
+- Fixed: marking a used-up record's day handled used the report's hash at the time of the drop, so a rewrite after the
+  last try was swallowed. Each try now records the hash it sent (`h` in the queue entry) and only that hash is marked
+  handled. Test: three refused tries, a rewrite, then later checks: the rewrite is sent (red with the old hash).
+- Fixed: the stale "review 1" comment in both CLIs.
+- Deferred: a sendDailyOnce of yesterday already in flight when its note is queued can send the day once more (a
+  duplicate the collector replaces, not a loss); the cross-process race (as round 1).
+- Recorded: `offered` means "Kosmos started sending that day" (markSent marks before the POST), not "delivered". A note
+  on a day whose first send never reached the collector sends the day. That stays within the person's opt-in for that
+  day, and the sentence says the report goes.

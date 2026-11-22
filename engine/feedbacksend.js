@@ -117,7 +117,7 @@ function read() {
     sentAt: sent && Number.isFinite(parsed.sentAt) ? parsed.sentAt : null,
     // kosmos#8900: earlier days whose report changed (a note) and still have to go once; only well-formed entries.
     pending: Array.isArray(parsed.pending)
-      ? parsed.pending.filter((x) => x && feedback.isDateKey(x.date) && Number.isInteger(x.tries) && x.tries >= 0).slice(-PENDING_MAX)
+      ? parsed.pending.filter((x) => x && feedback.isDateKey(x.date) && Number.isInteger(x.tries) && x.tries >= 0 && (x.h == null || typeof x.h === 'string')).slice(-PENDING_MAX)
       : [],
     offered: Array.isArray(parsed.offered) ? parsed.offered.filter((d) => feedback.isDateKey(d)).slice(-OFFERED_MAX) : [],
     ok: true,
@@ -585,18 +585,18 @@ function drainCorrections(now) {
     if (!st.ok || !st.pending || !st.pending.length) return;
     if (!st.on) { write({ pending: null }); return; }
     let list = st.pending;
-    const spent = [];
-    while (list.length && list[0].tries >= PENDING_TRIES) { spent.push(list[0].date); list = list.slice(1); }   // review 1: a used-up day does not cost the hour
-    /* Review 3: a used-up day that is also the record's day is marked handled (its current hash), so sweepTick's resend
-       of yesterday and flushChangedDay do not go on trying it past the three tries the note promised. */
-    const handled = spent.includes(st.sent) ? feedback.readBody(st.sent) : null;
-    if (handled != null) { if (!write({ sentHash: bodyHash(handled), pending: list.length ? list : null }).ok) return; }
+    let spentRecordDay = null;
+    while (list.length && list[0].tries >= PENDING_TRIES) { if (list[0].date === st.sent) spentRecordDay = list[0]; list = list.slice(1); }   // review 1: a used-up day does not cost the hour
+    /* Review 3: a used-up day that is also the record's day is marked handled, so sweepTick's resend of yesterday and
+       flushChangedDay do not go on trying it past the three tries the note promised. Review 4: with the hash its LAST
+       try sent (`h`), never the report's hash now, so a rewrite after the last try is still a change and still goes. */
+    if (spentRecordDay && spentRecordDay.h) { if (!write({ sentHash: spentRecordDay.h, pending: list.length ? list : null }).ok) return; }
     if (!list.length) { write({ pending: null }); return; }
     const first = list[0];
-    const counted = [{ date: first.date, tries: first.tries + 1 }].concat(list.slice(1));
-    if (!write({ pending: counted }).ok) return;   // the try could not be counted: do not send, so it cannot repeat for ever
     const body = feedback.readBody(first.date);
     const h = body == null ? null : bodyHash(body);
+    const counted = [{ date: first.date, tries: first.tries + 1, ...(h ? { h } : {}) }].concat(list.slice(1));   // review 4: what this try sends
+    if (!write({ pending: counted }).ok) return;   // the try could not be counted: do not send, so it cannot repeat for ever
     maybeSend(first.date, () => {
       const cur = read();
       if (!cur.ok) return;

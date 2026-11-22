@@ -166,7 +166,8 @@ test('kosmos#8900: a collector that refuses uses up three tries, then the day is
   for (let i = 1; i <= 3; i++) {
     fbs.sweepTick(NOW + i * 3600 * 1000);
     await settle();
-    assert.deepEqual(fbs.read().pending, [{ date: OLDER, tries: i }], 'try ' + i);
+    assert.deepEqual(fbs.read().pending.map((x) => ({ date: x.date, tries: x.tries })), [{ date: OLDER, tries: i }], 'try ' + i);
+    assert.match(fbs.read().pending[0].h, /^[0-9a-f]{64}$/, 'the try did not record the hash it sent');
   }
   fbs.sweepTick(NOW + 4 * 3600 * 1000);
   await settle();
@@ -189,6 +190,22 @@ test('kosmos#8900 review 3: a queued YESTERDAY that the collector keeps refusing
   assert.equal(fb.dateKey(new Date(NOW + 11 * 3600 * 1000)), TODAY, 'CONTROL: every check ran on the same day');
   assert.equal(posts.filter((p) => p.date === YESTERDAY).length, 3, 'tries for yesterday: ' + posts.filter((p) => p.date === YESTERDAY).length);
   assert.deepEqual(fbs.read().pending, []);
+});
+
+test('kosmos#8900 review 4: a rewrite of the record\'s day AFTER its last refused try is still a change, and still goes', async () => {
+  fresh();
+  let refuse = true;
+  const posts = [];
+  fbs.setSender(async (url, init) => { posts.push(JSON.parse(init.body)); return refuse ? { ok: false, status: 503 } : { ok: true, status: 200 }; });
+  fb.write('yesterday\'s report', { from: 'mara', date: YESTERDAY });
+  offer(YESTERDAY);
+  fb.note('mara', 'refused note', YESTERDAY, NOW);
+  fbs.noteEarlierDay(YESTERDAY, NOW);
+  for (let i = 1; i <= 3; i++) { fbs.sweepTick(NOW + i * 3600 * 1000); await settle(); }   // three refused tries
+  fb.write('REWRITTEN after the tries', { from: 'mara', date: YESTERDAY });   // a genuinely new version of the day
+  refuse = false;
+  for (let i = 4; i <= 11; i++) { fbs.sweepTick(NOW + i * 3600 * 1000); await settle(); }   // the drop, then later checks the same day
+  assert.ok(posts.some((p) => JSON.stringify(p).includes('REWRITTEN after the tries')), 'the rewrite after the last try was marked handled and never sent');
 });
 
 test('kosmos#8900 review 3: a file from before the offered list: a day it never recorded says "no record", not "not sent"', () => {
