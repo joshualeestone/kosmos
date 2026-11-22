@@ -51,6 +51,7 @@ const HOLDS = {
   'created.jsonl': 'a record of the agents created here',
   'ended-agents.jsonl': 'a record of the agents ended here',
   'autobalance-record.jsonl': 'what automatic account balancing decided',
+  'damaged-logs-seen.json': 'which damaged records you already dismissed',
 };
 // Store folders, one level deep, and what one file in each holds.
 const FOLDERS = {
@@ -70,6 +71,14 @@ const MAX_BYTES = 64 * 1024 * 1024;   // larger is not one of these stores; neve
 const LAST_GOOD = 'last-good';
 const LAST_GOOD_MAX = 8 * 1024 * 1024;     // a larger store is not copied
 const LAST_GOOD_EVERY_MS = 24 * 60 * 60 * 1000;
+/* kosmos#8863: true when every folder named is a real folder or not there yet, never a link (or Windows junction):
+   last-good/ is only ever read, written or pruned through real folders inside the data root. */
+function noLinkedFolder(dirs) {
+  for (const d of dirs) {
+    try { if (!fs.lstatSync(d).isDirectory()) return false; } catch (err) { if (!err || err.code !== 'ENOENT') return false; }
+  }
+  return true;
+}
 /* Stores whose older copy must never come back by itself: a secret (a key, a token, a sign-in), or something the person
    can take back (a webhook, an agent's permission, a company consent). Their damage is named, but no copy is kept or
    put back: a kept secret outlives its own revocation (engine/securewrite.js), and an older copy would revive what was
@@ -105,6 +114,13 @@ const LOG_TAIL = 8 * 1024 * 1024;
 /* kosmos#8863: nothing repairs a log's blank stretch, so once the person has dismissed it, how far into each log the
    NULs they saw reach is kept here, and a later start names that log again only for NULs past that point. */
 const LOGS_SEEN = 'damaged-logs-seen.json';
+/* kosmos#8863: whether a dismissed stretch covers NULs ending at nulEnd in a log now logSize long. Kept as { end, size }:
+   a log now shorter than when it was dismissed has been rewritten (compacted or trimmed), so its old offset no longer
+   describes it and nothing is skipped. */
+function seenCovers(seen, nulEnd, logSize) {
+  if (!seen || typeof seen !== 'object') return false;
+  return Number(seen.end) >= nulEnd && logSize >= Number(seen.size);
+}
 function readLogsSeen() {
   try { const v = JSON.parse(fs.readFileSync(path.join(store.ROOT, LOGS_SEEN), 'utf8')); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; }
 }
@@ -124,7 +140,7 @@ function logTail(file) {
     const tail = buf.subarray(0, got);
     const r = classifyLog(tail);
     const nulEnd = r ? size - got + tail.lastIndexOf(0) + 1 : 0;
-    return { problem: r === 'nul' && size > got ? 'nulpart' : r, nulEnd };
+    return { problem: r === 'nul' && size > got ? 'nulpart' : r, nulEnd, size };
   } catch (err) {
     if (err && (err.code === 'EACCES' || err.code === 'EPERM')) return { problem: 'unopenable', nulEnd: 0 };
     if (!err || err.code !== 'ENOENT') UNREAD += 1;   // not looked at, so the scan cannot call it fine
@@ -190,7 +206,7 @@ function goodCopy(file) {
   }
   // kosmos#8863: Kosmos's own last good copy, at the same path under last-good/, when it is newer than anything above.
   const lg = lastGoodPath(file);
-  if (lg) {
+  if (lg && noLinkedFolder([path.join(store.ROOT, LAST_GOOD), path.dirname(lg)])) {
     try {
       const st = fs.lstatSync(lg);
       if (st.isFile() && st.size <= MAX_BYTES && classify(fs.readFileSync(lg)) === null && (!best || st.mtimeMs > best.mtimeMs)) {
@@ -231,9 +247,10 @@ function scan(opts) {
     if (!st.isFile()) continue;
     let problem;
     let nulEnd = 0;
+    let logSize = 0;
     if (isLog(file)) {   // kosmos#8863: a log of any size; its tail is where a crash leaves NULs
-      ({ problem, nulEnd } = logTail(file));
-      if ((problem === 'nul' || problem === 'nulpart') && Number(seenLogs[rel(file)]) >= nulEnd) problem = null;   // already seen
+      ({ problem, nulEnd, size: logSize } = logTail(file));
+      if ((problem === 'nul' || problem === 'nulpart') && seenCovers(seenLogs[rel(file)], nulEnd, logSize)) problem = null;   // already seen
     } else if (st.size > MAX_BYTES) problem = 'toobig';
     else {
       let buf = null;
@@ -247,7 +264,7 @@ function scan(opts) {
     const atRoot = path.dirname(file) === store.ROOT || path.basename(file) === 'worlds.json';
     const holds = (atRoot && HOLDS[path.basename(file)]) || (!atRoot && FOLDERS[folder]) || 'a record Kosmos keeps';
     const copy = problem === 'toobig' || problem === 'unopenable' ? null : goodCopy(file);
-    found.push({ file: rel(file), holds, problem, backup: copy ? { file: rel(copy.path), at: copy.at } : null, secret: holdsSecret(file), abs: file, copyAbs: copy ? copy.path : null, size: st.size, mtimeMs: st.mtimeMs, nulEnd });
+    found.push({ file: rel(file), holds, problem, backup: copy ? { file: rel(copy.path), at: copy.at } : null, secret: holdsSecret(file), abs: file, copyAbs: copy ? copy.path : null, size: st.size, mtimeMs: st.mtimeMs, nulEnd, logSize });
   }
   FOUND = found;
   for (const d of found) DAMAGED_THIS_RUN.add(d.abs);
@@ -265,7 +282,7 @@ function atStart(opts, write) {
       + 'Kosmos left it as it is. '
       + (d.backup ? 'A good copy saved ' + d.backup.at + ' is at ' + d.backup.file + '; the person can put it back.'
         : d.secret ? 'It holds a key or something you can take back, so Kosmos keeps no copy of it to put back.'
-          : isLog(d.abs) ? 'Kosmos keeps adding new records to it, so there is nothing to put back.' : 'No good copy of it was found.'));
+          : isLog(d.abs) && d.problem !== 'unopenable' ? 'Kosmos keeps adding new records to it, so there is nothing to put back.' : 'No good copy of it was found.'));
   }
   return found;
 }
@@ -300,6 +317,7 @@ function pruneLastGood() {
       else if (e.isFile() && e.name.endsWith('.json')) copies.push(p);
     }
   };
+  if (!noLinkedFolder([base])) return 0;   // never prune through a link: it would delete files outside the data root
   walk(base, 0);
   let n = 0;
   for (const copy of copies) {
@@ -335,9 +353,7 @@ function copyOne(file) {
   // Unchanged since the last copy: compared by content, since a copied time keeps only whole milliseconds.
   try { if (fs.readFileSync(to).equals(buf)) return 0; } catch { /* no copy yet */ }
   // Never through a link: last-good/ and its folder must be real folders (or not yet there).
-  for (const d of [path.join(store.ROOT, LAST_GOOD), path.dirname(to)]) {
-    try { if (!fs.lstatSync(d).isDirectory()) return 0; } catch { /* not there yet: made below */ }
-  }
+  if (!noLinkedFolder([path.join(store.ROOT, LAST_GOOD), path.dirname(to)])) return 0;
   try {
     fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });
     if (process.platform === 'win32') require('./securewrite').writeSecret(to, buf, null, { atomicOnly: true, umaskDefault: true });
@@ -403,7 +419,7 @@ function current() {
     // One rule for every size (review 3): its size or time moved since start, even if it is still not readable.
     try { savedOver = changedSince(d); } catch { savedOver = false; }
     // kosmos#8863: `log`: an append-only record, which the board adds to and which has no copy to put back.
-    return { file: d.file, holds: d.holds, problem: d.problem, backup: d.backup, secret: d.secret, savedOver, log: isLog(d.abs) };
+    return { file: d.file, holds: d.holds, problem: d.problem, backup: d.backup, secret: d.secret, savedOver, log: isLog(d.abs) && (d.problem === 'nul' || d.problem === 'nulpart') };
   });
 }
 
@@ -455,7 +471,7 @@ function dismiss() {
   const logs = FOUND.filter((d) => isLog(d.abs) && d.nulEnd > 0);
   if (logs.length) {
     const seen = readLogsSeen();
-    for (const d of logs) seen[d.file] = Math.max(Number(seen[d.file]) || 0, d.nulEnd);
+    for (const d of logs) seen[d.file] = { end: d.nulEnd, size: d.logSize };
     try { require('./securewrite').writeSecret(path.join(store.ROOT, LOGS_SEEN), JSON.stringify(seen) + '\n', process.platform === 'win32' ? null : 0o600, { atomicOnly: true, umaskDefault: process.platform === 'win32' }); } catch { /* shown again next start */ }
   }
   FOUND = [];

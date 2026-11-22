@@ -127,7 +127,7 @@ test('kosmos#8863: only allowed stores get a last good copy; secrets, the send q
   put(root, 'chats/direct..alice.json', '{"messages":[]}');
   put(root, 'limitqueue/alice.json', '{"kept":[]}');         // a copy put back would type delivered messages again
   fs.mkdirSync(path.join(root, 'commitments'), { recursive: true });
-  put(root, 'commitments/big.json', '[' + '0,'.repeat(4.5 * 1024 * 1024) + '0]');   // over 8 MB
+  put(root, 'commitments/big.json', '{"pad":"' + 'x'.repeat(9 * 1024 * 1024) + '"}');   // over 8 MB
   sc.atStart({ base: root }, quiet);
   sc.keepLastGood();
   const lg = (r) => fs.existsSync(path.join(root, sc.LAST_GOOD, r));
@@ -274,13 +274,31 @@ test('kosmos#8863: an allowed store over 8 MB gets no copy', () => {
   assert.equal(fs.existsSync(path.join(root, sc.LAST_GOOD, 'projects.json')), true, 'CONTROL: a small allowed store was not copied');
 });
 
-test('kosmos#8863: no copy is written through a last-good folder that is a link', { skip: process.platform === 'win32' ? 'links need extra rights on Windows' : false }, () => {
+test('kosmos#8863: no copy is written, pruned or offered through a last-good folder that is a link', { skip: process.platform === 'win32' ? 'links need extra rights on Windows' : false }, () => {
   const { root, sc } = fresh();
   const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-storecheck-8863-elsewhere-'));
   try {
+    fs.writeFileSync(path.join(elsewhere, 'important.json'), '{"keep":true}');   // not a store: prune must never reach it
     fs.symlinkSync(elsewhere, path.join(root, sc.LAST_GOOD));
     put(root, 'settings.json', '{"theme":"dark"}');
     assert.equal(sc.keepLastGood(), 0);
-    assert.deepEqual(fs.readdirSync(elsewhere), [], 'a copy was written through the link');
+    assert.deepEqual(fs.readdirSync(elsewhere), ['important.json'], 'a copy was written, or a file pruned, through the link');
+    // Nor is a copy offered from behind the link.
+    fs.writeFileSync(path.join(elsewhere, 'settings.json'), '{"theme":"from elsewhere"}');
+    put(root, 'settings.json', nul(20));
+    delete require.cache[require.resolve('./storecheck')];
+    assert.equal(require('./storecheck').atStart({ base: root }, quiet)[0].backup, null, 'a copy was offered through the link');
   } finally { fs.rmSync(elsewhere, { recursive: true, force: true }); }
+});
+
+test('kosmos#8863: a dismissed log that is later rewritten shorter has its new damage named', () => {
+  const { root, sc } = fresh();
+  const log = path.join(root, 'ended-agents.jsonl');
+  put(root, 'ended-agents.jsonl', Buffer.concat([Buffer.from('{"a":1}\n'.repeat(50)), nul(30), Buffer.from('{"a":2}\n')]));
+  assert.equal(sc.atStart({ base: root }, quiet).length, 1);
+  sc.dismiss();
+  // Compacted (as engine/sendertoken.js does): shorter than when dismissed, with a new blank stretch before the old end.
+  fs.writeFileSync(log, Buffer.concat([Buffer.from('{"a":1}\n'), nul(10), Buffer.from('{"a":3}\n')]));
+  delete require.cache[require.resolve('./storecheck')];
+  assert.equal(require('./storecheck').atStart({ base: root }, quiet).length, 1, 'new damage in a rewritten log was taken as already seen');
 });
