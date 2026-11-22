@@ -41,12 +41,12 @@ test('a note is added to today\'s report, marked as added later, and the send se
   assert.match(cli(['feedback', 'show']).out, /^The \+ button did nothing\.\n\nAdded later \(\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\):\nIt works after a restart\.$/);
 });
 
-test('--date adds to an earlier day\'s report, kept on this computer', () => {
+test('--date adds to an earlier day\'s report and queues it for the hourly check (#8900)', () => {
   const { cli, plant } = home();
   plant('old report', '2026-11-05');
   const n = cli(['feedback', 'note', '--date', '2026-11-05', 'a correction']);
   assert.equal(n.code, 0, n.err);
-  assert.equal(n.out, 'Added the note to your report of 2026-11-05, on this computer. Kosmos sends an earlier day only when it is the last day it sent, and this one is not, so this note stays here.');
+  assert.equal(n.out, 'Added the note to your report of 2026-11-05, on this computer. The changed report goes to the Kosmos team on one of Kosmos\'s hourly checks while it is running, with home paths and the names and keys Kosmos recognises taken out first.');   // kosmos#8900
   assert.match(cli(['feedback', 'show', '2026-11-05']).out, /^old report\n\nAdded later \(.* UTC\):\na correction$/);
 });
 

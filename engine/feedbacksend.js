@@ -85,6 +85,9 @@ const endpoint = () => process.env.AGENT_WORKFORCE_FEEDBACK_URL || DEFAULT_ENDPO
  * default): it could be hiding an off we cannot see, and the only thing gated
  * here is a report body leaving the machine. Same split as ping.js.
  */
+/* kosmos#8900: at most this many earlier days wait to be sent again, and each gets this many tries. */
+const PENDING_MAX = 14;
+const PENDING_TRIES = 3;
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); }
@@ -108,6 +111,10 @@ function read() {
     sent,
     sentHash: sent && typeof parsed.sentHash === 'string' ? parsed.sentHash : null,
     sentAt: sent && Number.isFinite(parsed.sentAt) ? parsed.sentAt : null,
+    // kosmos#8900: earlier days whose report changed (a note) and still have to go once; only well-formed entries.
+    pending: Array.isArray(parsed.pending)
+      ? parsed.pending.filter((x) => x && feedback.isDateKey(x.date) && Number.isInteger(x.tries) && x.tries >= 0).slice(-PENDING_MAX)
+      : [],
     ok: true,
   };
 }
@@ -119,6 +126,7 @@ function write(patch) {
   // null field is dropped, so a never-sent file stays {on:...}.
   const next = { on: cur.on };
   for (const k of ['sent', 'sentHash', 'sentAt']) if (cur[k] != null) next[k] = cur[k];
+  if (cur.pending && cur.pending.length) next.pending = cur.pending;   // kosmos#8900: a partial write keeps the corrections
   Object.assign(next, patch);
   for (const k of Object.keys(next)) if (next[k] == null) delete next[k];
   delete next.ok;
@@ -531,6 +539,49 @@ function sweepTick(now) {
       if (body != null && bodyHash(body) !== st.sentHash) sendDailyOnce(prev, t);
     }
     sendDailyOnce(feedback.dateKey(n), t);
+    drainCorrections(t);   // kosmos#8900
+  } catch { /* nothing here may reach the caller */ }
+}
+
+/**
+ * kosmos#8900: queue an EARLIER day whose report changed (a note was added) to be sent once more. The one-day send
+ * record (`sent`, `sentHash`, `sentAt`) is left alone, so today's send timing does not move. A day already queued is
+ * reset to no tries. Today is refused (it goes the normal way), and so is a bad or future date.
+ */
+function queueCorrection(date, now) {
+  const t = Number.isFinite(now) ? now : Date.now();
+  if (!feedback.isDateKey(date) || date >= feedback.dateKey(new Date(t))) return { ok: false, why: 'date' };
+  const st = read();
+  if (!st.ok) return { ok: false, why: 'unreadable' };
+  const list = (st.pending || []).filter((x) => x.date !== date).concat([{ date, tries: 0 }]);   // no file yet: no list
+  while (list.length > PENDING_MAX) list.shift();
+  const w = write({ pending: list });
+  return w.ok ? { ok: true } : { ok: false, why: 'unsaved' };
+}
+
+/**
+ * kosmos#8900: the board's hourly check sends ONE queued earlier day: the first in the list, through maybeSend (the
+ * same payload, scrub, endpoint, timeout and test guard as every other send). The try is counted and saved BEFORE the
+ * POST, so a send that never answers still uses up a try; the day leaves the list when the collector accepts it, or
+ * after PENDING_TRIES tries. With sending switched off the list is cleared, so turning sending back on later does not
+ * send corrections queued before. Never throws.
+ */
+function drainCorrections(now) {
+  try {
+    if (!sender && underTest()) return;
+    const st = read();
+    if (!st.ok || !st.pending || !st.pending.length) return;
+    if (!st.on) { write({ pending: null }); return; }
+    const first = st.pending[0];
+    if (first.tries >= PENDING_TRIES) { write({ pending: st.pending.slice(1).length ? st.pending.slice(1) : null }); return; }
+    const counted = [{ date: first.date, tries: first.tries + 1 }].concat(st.pending.slice(1));
+    if (!write({ pending: counted }).ok) return;   // the try could not be counted: do not send, so it cannot repeat for ever
+    maybeSend(first.date, () => {
+      const cur = read();
+      if (!cur.ok) return;
+      const rest = (cur.pending || []).filter((x) => x.date !== first.date);
+      write({ pending: rest.length ? rest : null });
+    });
   } catch { /* nothing here may reach the caller */ }
 }
 
@@ -682,27 +733,21 @@ const NOTE_MESSAGES = Object.freeze({
   blocked: 'Added the note to today\'s product-feedback report on this computer. Not sent: this is a test run (or its data is in a temporary folder).',
 });
 function noteMessage(state) { return NOTE_MESSAGES[state] || NOTE_MESSAGES.none; }
-/* kosmos#8896 review 1: what `kosmos feedback note` says after adding a note to an EARLIER day's report, read from the
-   send record, because that day can still go out: the send record names ONE day, and while sending is on, that day is
-   sent again once its report changes (sweepTick for yesterday, flushChangedDay when a later day is sent). Any other
-   earlier day is not sent again. `date` is the day the note was added to. Never throws. */
-function earlierNoteMessage(date, now) {
+/* kosmos#8896, #8900: after a note on an EARLIER day's report, queue that day to be sent once more (drainCorrections,
+   on the board's hourly check) and say what will happen. One function, so the sentence can never promise a send that
+   was not queued. `date` is the day the note was added to. Never throws. */
+function noteEarlierDay(date, now) {
   const head = 'Added the note to your report of ' + date + ', on this computer. ';
   let st;
   try { st = read(); } catch { st = { ok: false }; }
   if (!st || !st.ok) return head + 'Kosmos could not read its feedback-sending setting, so it cannot say whether the note will be sent.';
   if (!st.on) return head + 'Sending feedback to the Kosmos team is switched off (Settings, Automation), so it will not be sent.';
-  // Review 5: as sendNow's `blocked`, a test run (data in a temp folder, no injected sender) sends nothing.
+  // As sendNow's `blocked`: a test run (data in a temp folder, no injected sender) sends nothing.
   if (!sender && sandboxed() && !loopback(endpoint())) return head + 'Not sent: this is a test run (or its data is in a temporary folder).';
-  if (st.sent !== date) return head + 'Kosmos sends an earlier day only when it is the last day it sent, and this one is not, so this note stays here.';
-  // Review 2: the two routes differ. Yesterday is re-sent by the board's hourly check (sweepTick, through sendDailyOnce's
-  // three-hour floor); an older day only
-  // once, when a later day's report is next sent (flushChangedDay), and not if that send never happens.
-  const n = new Date(Number.isFinite(now) ? now : Date.now());
-  const yesterday = feedback.dateKey(new Date(n.getFullYear(), n.getMonth(), n.getDate() - 1));
-  const scrubbed = ', with home paths and the names and keys Kosmos recognises taken out first.';
-  if (date === yesterday) return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team again while Kosmos is running: on an hourly check, or once with today\'s report when that is sent (that one is not tried again if it fails)' + scrubbed;
-  return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team once, when a later day\'s report is next sent (if that send fails, it is not tried again)' + scrubbed;
+  let q;
+  try { q = queueCorrection(date, now); } catch { q = { ok: false }; }
+  if (!q || !q.ok) return head + 'Kosmos could not record it to be sent, so it stays here.';
+  return head + 'The changed report goes to the Kosmos team on one of Kosmos\'s hourly checks while it is running, with home paths and the names and keys Kosmos recognises taken out first.';
 }
 
 /* Test hooks. Production never calls these. */
@@ -713,5 +758,5 @@ module.exports = {
   FILE, read, setOn, write, scrub, payload, maybeSend, sendDailyOnce, markSent,
   setSender, underTest, DEFAULT_ENDPOINT, CONSENT_VERSION,
   sendNow, writeMessage, WRITE_MESSAGES, loopback, sandboxed, RETRY_MIN_MS,   // kosmos#5294
-  noteMessage, NOTE_MESSAGES, earlierNoteMessage,   // kosmos#8896
+  noteMessage, NOTE_MESSAGES, noteEarlierDay, queueCorrection, drainCorrections, PENDING_MAX, PENDING_TRIES,   // kosmos#8896, #8900
 };

@@ -3416,7 +3416,7 @@ async function feedbackWrite(ctx, args) {
 /* kosmos#8896, as install/kosmos: add a short note to a report this agent already wrote (today's, or --date
    YYYY-MM-DD), kept with it and marked as added later, without rewriting it (engine/feedback.note). Text as words,
    piped in, or --body-file. A note on today's report is sent as write sends it (noteMessage, not writeMessage: write's
-   advice to write the report again would replace the note); an earlier day's stays on this computer. */
+   advice to write the report again would replace the note); an earlier day's is queued for the board's hourly check (#8900). */
 const FEEDBACK_NOTE_USAGE = 'Usage: kosmos feedback note [--date YYYY-MM-DD] [--body-file <file>] [text]      (or pipe it in on stdin; adds a note to a report you already wrote, today\'s unless --date)';
 async function feedbackNote(ctx, args) {
   const bf = takeBodyFile(ctx, FEEDBACK_NOTE_USAGE, args, ['--date']);
@@ -3469,7 +3469,7 @@ async function feedbackNote(ctx, args) {
   }
   let fbs;
   try { fbs = ctx.engine('feedbacksend'); } catch { ctx.out('Added the note on this computer. Kosmos could not check whether it will be sent.'); return 0; }
-  if (r.date !== fb.today()) { ctx.out(typeof fbs.earlierNoteMessage === 'function' ? fbs.earlierNoteMessage(r.date) : 'Added the note to your report of ' + r.date + ', on this computer.'); return 0; }   // review 1
+  if (r.date !== fb.today()) { ctx.out(typeof fbs.noteEarlierDay === 'function' ? fbs.noteEarlierDay(r.date) : 'Added the note to your report of ' + r.date + ', on this computer.'); return 0; }   // review 1
   let sent;
   try { sent = await fbs.sendNow(r.date); } catch { sent = { state: 'failed' }; }
   ctx.out(typeof fbs.noteMessage === 'function' ? fbs.noteMessage(sent && sent.state) : 'Added the note to today\'s report on this computer.');
