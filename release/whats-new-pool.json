@@ -1455,6 +1455,14 @@
       ]
     },
     {
+      "title": "Several restarts in a week are said once",
+      "line": "When this computer restarts 3 or more times in a week while Kosmos is running, the restart note says so once, with the dates.",
+      "icon": "shield",
+      "rank": 10.46,
+      "since": "0.8.15",
+      "status": "pending"
+    },
+    {
       "title": "A warning before an agent runs twice",
       "line": "Adding an agent that another login job also starts now warns first and names that job.",
       "icon": "shield",
