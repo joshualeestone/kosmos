@@ -169,7 +169,7 @@ function scan(opts) {
     try { st = fs.statSync(file); } catch (err) { if (!err || err.code !== 'ENOENT') UNREAD += 1; continue; }   // a dangling link or a file gone meanwhile: nothing to name
     if (!st.isFile()) continue;
     let problem;
-    let lookedAt = true;   // kosmos#8865: false when it counts as unread instead, so the two counts never overlap
+    let lookedAt = true;   // kosmos#8865: false when it counts as unread instead, so the two never overlap (a file gone between stat and read is in neither)
     if (st.size > MAX_BYTES) problem = 'toobig';
     else {
       let buf = null;

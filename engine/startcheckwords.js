@@ -28,7 +28,7 @@ function renderLines(r) {
       lines.push('Kosmos checked its own files at this start' + seen + ' and found none damaged, but it could not look at '
         + (unread > 0 ? plural(unread, 'file or folder', 'files or folders') : 'all of them') + ', so it cannot say those are fine.');
     } else if (looked === 0) {
-      lines.push('Kosmos found none of its own files to check at this start (a new install has none yet), so none is damaged.');
+      lines.push('Kosmos found none of its own files to check at this start.');
     } else {
       lines.push('Kosmos checked its own files at this start' + seen + ': none is damaged.');
     }
@@ -47,6 +47,10 @@ function renderLines(r) {
   if (restored === damaged) return lines;
   if (r.dismissed === true && files.length === 0) {
     lines.push('The person has seen the list and dismissed it for this start, so it is not listed again until the next start.');
+    return lines;
+  }
+  if (files.length === 0) {
+    lines.push('Kosmos no longer holds the list of them for this start.');
     return lines;
   }
   for (const f of files) {

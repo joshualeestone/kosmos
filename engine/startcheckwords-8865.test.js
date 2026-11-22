@@ -82,6 +82,10 @@ test('kosmos#8865 review 3: a locked or too-large file is not said to have no co
   }
   // CONTROL: an empty or blank file still says none was found, since the scan looked.
   assert.match(renderLines({ ran: true, checked: true, damaged: 1, unread: 0, looked: 3, files: [FILE()] })[1], /No good copy of it was found\.$/);
-  assert.deepEqual(renderLines({ ran: true, checked: true, damaged: 0, unread: 0, looked: 0, files: [] }),
-    ['Kosmos found none of its own files to check at this start (a new install has none yet), so none is damaged.']);
+  const none = renderLines({ ran: true, checked: true, damaged: 0, unread: 0, looked: 0, files: [] });
+  assert.deepEqual(none, ['Kosmos found none of its own files to check at this start.']);
+  assert.doesNotMatch(none.join(' '), NONE_DAMAGED, 'nothing looked at was said to be fine');
+  // review 4: a damaged count with nothing listed and nothing explaining it says so, never a bare count.
+  const bare = renderLines({ ran: true, checked: true, damaged: 2, unread: 0, looked: 4, restored: 0, dismissed: false, files: [] });
+  assert.equal(bare[1], 'Kosmos no longer holds the list of them for this start.');
 });
