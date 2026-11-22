@@ -275,7 +275,8 @@ function lastScan() { return SCANNED ? { ...SCANNED } : { checked: false }; }
 
 /**
  * kosmos#8865: everything an agent may read about this start's check, for GET /api/board/start-check and
- * `kosmos start-check`: whether the scan ran, lastScan's counts (and `looked`, the files it read), and the page's own
+ * `kosmos start-check`: whether the scan ran, lastScan's counts (and `looked`: the files it read, or found too large
+ * or locked), and the page's own
  * list (current()) with each problem in the board log's words. `dismissed` says the person dismissed the list, which is
  * why `files` can be empty while `damaged` is not. A damaged record that was put back has left `files`, so `damaged`
  * counts what the scan found at start, `files` what is still damaged now.

@@ -57,3 +57,12 @@ test('kosmos#8865: a dismissed list and a file already put back are said, never 
   const all = renderLines({ ran: true, checked: true, damaged: 1, unread: 0, looked: 5, files: [FILE()] }).join('\n');
   assert.doesNotMatch(all, /dismissed|put back from a good copy since/);
 });
+
+test('kosmos#8865 review 1: every damaged file put back says so, and a malformed unchecked answer prints no false count', () => {
+  const all = renderLines({ ran: true, checked: true, damaged: 2, unread: 0, looked: 5, dismissed: false, files: [] });
+  assert.deepEqual(all, ['Kosmos checked its own files at this start (5 files) and found 2 damaged.', 'All of them were put back from a good copy since the start.']);
+  const odd = renderLines({ ran: true, checked: false, damaged: 0, unread: 0, looked: 5, files: [] }).join('\n');
+  assert.doesNotMatch(odd, NONE_DAMAGED);
+  assert.doesNotMatch(odd, /\b0 files or folders/, 'a false count of zero was printed');
+  assert.match(odd, /could not look at all of them, so it cannot say those are fine/);
+});

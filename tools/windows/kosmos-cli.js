@@ -3938,16 +3938,13 @@ async function communityUnendorse(ctx, args) {
   return endorseCall(ctx, { name: String(args[0]), takeBack: true });
 }
 
-/* #4451, as install/kosmos cmd_connections: what is connected, read CHEAPLY. The board answers from
-   its disk (is a token stored?), never by checking with each service: GET /api/connections checks every
-   service live and Brave, Exa, Tavily and Serper bill the person for each check. Board token only. */
 /* kosmos#8865: what this start's check of Kosmos's own files found (engine/storecheck.js report(), GET
    /api/board/start-check), in engine/startcheckwords.js's words, as install/kosmos. The board token only: it is the
    board's own state, the same for every agent. */
 async function verbStartCheck(ctx, args) {
   if (args && args.length) { ctx.err(USAGE['start-check']); return 2; }
   let words;
-  try { words = ctx.engine('startcheckwords'); } catch { ctx.err('Kosmos could not find its own runtime to read the board\'s answer.'); return 1; }
+  try { words = ctx.engine('startcheckwords'); } catch { ctx.err('Kosmos could not find its own reader for this start\'s check; this install looks incomplete.'); return 1; }
   const r = await ctx.call('GET', '/api/board/start-check', undefined, { agent: false });
   if (!r.reached) return ctx.unreachable('read what this start\'s check found');
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }
@@ -3956,6 +3953,9 @@ async function verbStartCheck(ctx, args) {
   return 0;
 }
 
+/* #4451, as install/kosmos cmd_connections: what is connected, read CHEAPLY. The board answers from
+   its disk (is a token stored?), never by checking with each service: GET /api/connections checks every
+   service live and Brave, Exa, Tavily and Serper bill the person for each check. Board token only. */
 async function verbConnections(ctx, args) {
   // kosmos#7875 item 2, as install/kosmos: --how prints the guide the agent's instructions point at (a local read).
   if (args && args[0] === '--how') {

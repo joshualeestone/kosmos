@@ -3962,7 +3962,7 @@ cmd_start_check() {
     let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
       let j = null; try { j = JSON.parse(s); } catch { j = null; }
       const code = Number(process.env.KOSMOS_HTTP_CODE);
-      if (j && typeof j.error === "string" && code >= 400) { console.error("Kosmos refused that request: " + j.error + "."); process.exit(3); }
+      if (j && typeof j.error === "string" && code >= 400) { console.error("Kosmos refused that request: " + j.error.replace(/\.+$/, "") + "."); process.exit(3); }
       if (code >= 400 || !j || typeof j !== "object" || Array.isArray(j)) process.exit(1);
       for (const l of renderLines(j)) console.log(l);
     });' "$(kosmos_engine_module startcheckwords).js" || prc=$?

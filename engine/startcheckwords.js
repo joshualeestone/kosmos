@@ -26,7 +26,7 @@ function renderLines(r) {
   if (damaged === 0) {
     if (unread > 0 || r.checked !== true) {
       lines.push('Kosmos checked its own files at this start' + seen + ' and found none damaged, but it could not look at '
-        + plural(unread, 'file or folder', 'files or folders') + ', so it cannot say those are fine.');
+        + (unread > 0 ? plural(unread, 'file or folder', 'files or folders') : 'all of them') + ', so it cannot say those are fine.');
     } else {
       lines.push('Kosmos checked its own files at this start' + seen + ': none is damaged.');
     }
@@ -37,6 +37,10 @@ function renderLines(r) {
   const files = Array.isArray(r.files) ? r.files : [];
   if (r.dismissed === true && files.length === 0) {
     lines.push('The person has seen the list and dismissed it for this start, so it is not listed again until the next start.');
+    return lines;
+  }
+  if (files.length === 0) {
+    lines.push('All of them were put back from a good copy since the start.');
     return lines;
   }
   if (files.length < damaged) {
