@@ -217,7 +217,7 @@ const CASES = [
       }
     }
     /* kosmos#8866: several restarts in 7 days, said once with their dates. The first arm is the control: no pattern, no line. */
-    const PAT = /^\S.* has restarted 3 times within a week while Kosmos was running \(Nov 18, Nov 20, Nov 21\)\. If you did not restart it yourself and it was not installing updates, restarts this often usually mean a hardware or driver problem worth having looked at\.$/;
+    const PAT = /^\S.* has restarted at least 3 times within a week while Kosmos was running \(Nov 18, Nov 20, Nov 21\)\. If you did not restart it yourself and it was not installing updates, restarts this often usually mean a hardware or driver problem worth having looked at\.$/;
     for (const [key, pattern, want] of [['no-pattern', undefined, null],
       ['three', { count: 3, dates: ['2026-11-18T16:00:00Z', '2026-11-20T16:00:00Z', '2026-11-21T16:00:00Z'] }, PAT],
       ['damaged', { count: 3, dates: ['not a date', '2026-11-20T16:00:00Z', '2026-11-21T16:00:00Z'] }, null],

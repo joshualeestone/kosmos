@@ -93,7 +93,7 @@ test('#1531: the comment’s count matches what the rm line actually deletes', (
      rather than about the code. */
   const rm = rmLine();
   const n = (rm.match(/\$_support\/[a-z-]+\.json/g) || []).length;
-  const words = { 2: 'Two', 3: 'Three', 4: 'FOUR', 5: 'Five', 6: 'Six' };
+  const words = { 2: 'Two', 3: 'Three', 4: 'FOUR', 5: 'Five', 6: 'Six', 7: 'Seven' };
   assert.ok(words[n], `no word for ${n} files; extend this map`);
   assert.ok(SETUP.includes(`${words[n]} tiny files`),
     `the uninstall deletes ${n} remembered-answer files but the comment above it does not `
@@ -106,7 +106,7 @@ test('#5359: uninstall removes the restart note\'s files, read from engine/resta
   const src = fs.readFileSync(path.join(__dirname, 'engine', 'restartnote.js'), 'utf8');
   const names = [...src.matchAll(/path\.join\(store\.ROOT,\s*'([^']+)'\)/g)].map((m) => m[1]);
   // Control: the derivation finds both, so the loop below cannot pass over an empty list.
-  assert.deepEqual(names.slice().sort(), ['board-alive.json', 'board-restart-note.json']);
+  assert.deepEqual(names.slice().sort(), ['board-alive.json', 'board-restart-history.json', 'board-restart-note.json']);   // kosmos#8866: the history
   const rm = rmLine();
   for (const n of names) assert.ok(rm.includes(n), n + ' is written by engine/restartnote.js and NOT removed by the uninstall rm line');
 });
