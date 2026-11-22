@@ -19322,7 +19322,7 @@ window.kosmosMeasureScrollbarWidth();
            logins; the switch, as every status control here, stays hidden until a read says on or off. -->
       <div class="setrow" id="ab-row" style="margin-top:14px;" hidden>
         <div><b>Move agents off an account that is running out</b>
-          <p class="dhint" style="margin:2px 0 0;">When a Claude account reaches 80% of its weekly limit and does not reset within 6 hours, Kosmos moves the agents on it that are idle, or stopped at the limit, to the account with the most room (one Kosmos has measured, under 70%, and not near its five-hour limit). If an account's login stops working, it says which agents could move.<span id="ab-dry"> For now it only says what it would do. Nothing is moved.</span></p>
+          <p class="dhint" style="margin:2px 0 0;">When a Claude account reaches 80% of its weekly limit and does not reset within 6 hours, Kosmos moves the agents on it that are idle, or stopped at the limit, to the account with the most room (one Kosmos has measured, under 70%, and not near its five-hour limit). The same goes for one model's own weekly limit: when it reaches 80% on an account, the agents there on that model are moved, to an account where that model has room. If an account's login stops working, it says which agents could move.<span id="ab-dry"> For now it only says what it would do. Nothing is moved.</span></p>
           <div id="ab-lines"></div>
           <div id="ab-recent"></div>
           <p class="dhint" id="ab-msg" role="status" style="margin:8px 0 0;"></p></div>
@@ -31120,7 +31120,8 @@ function paintAutobalance(ab, list) {
   const who = (n) => (((LAST || []).find((x) => x && x.sessionName === n) || {}).name || n);
   const line = (t) => '<p class="dhint" style="margin:8px 0 0;">' + t + '</p>';
   /* Review 9: an account whose login has stopped is not "running out"; it cannot be used. */
-  const opening = (x) => esc(label(x.from)) + (x.kind === 'login' ? ' cannot be used right now' : ' is running out') + ', because ' + esc(x.why);
+  /* kosmos#8862 review 1: a risk from one model's own limit says so, since the account's own meter can read far lower. */
+  const opening = (x) => esc(label(x.from)) + (x.kind === 'login' ? ' cannot be used right now' : (typeof x.model === 'string' && x.model ? ' is running out for ' + esc(x.model) : ' is running out')) + ', because ' + esc(x.why);
   /* kosmos#8056: the hint's last sentences are false on a board whose mover is armed. */
   const abDry = document.getElementById('ab-dry');
   if (abDry) abDry.hidden = ab.armed === true;
@@ -31147,13 +31148,16 @@ function paintAutobalance(ab, list) {
       : ab.movePaused === 'record'
         ? 'Kosmos would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + ', once it can write its record again.'
         : 'Kosmos will move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ' once it is idle, or stopped at the limit, at two checks in a row, because ' + esc(m.why) + '.');
+    /* kosmos#8862 review 1: a held entry names its agents, since others on the same account may be moving; an entry
+       without them (an older board) reads "agents" as before. */
+    const heldWho = (h) => (Array.isArray(h.agents) && h.agents.length ? h.agents.map((a) => esc(who(a))).join(', ') : 'agents');
     html = moves.map((m) => line(moveLine(m))).join('')
       /* Review 1: the engine does not say why no account could take them (room, memory, a limit, a login), so this does not either. */
       + held.map((h) => line(ab.moving === true && kindOf(h) === 'login'   // kosmos#7621 review 1: the mover moves for usage only
         ? 'The agents free to move on ' + esc(label(h.from)) + ' cannot be used right now. Kosmos moves agents only when an account is running out, so move them yourself if they need to work.'
         : ab.moving === true   // kosmos#7621 item 3: while moving, an account the mover holds counts as one that cannot take them
-        ? 'Kosmos would move agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no account it can use takes them right now.'
-        : 'Would move agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no other account can take them right now.')).join('')
+        ? 'Kosmos would move ' + heldWho(h) + ' off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no account it can use takes them right now.'
+        : 'Would move ' + heldWho(h) + ' off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no other account can take them right now.')).join('')
       /* Review 5: with the reason, so an account whose list is short still says why it is running out (review 7: unless
          a move or held line above already said it). */
       + short.map((d) => { const r = moves.some((m) => m.from === d) || held.some((h) => h.from === d) ? null : (Array.isArray(ab.atRisk) ? ab.atRisk : []).find((x) => x.from === d);
@@ -31161,7 +31165,8 @@ function paintAutobalance(ab, list) {
     /* Review 3: an account at risk with no agent free to move on it is said, not silent. kosmos#8056: not "working", since one waiting on the person is neither. */
     const said = new Set([...moves.map((m) => m.from), ...held.map((h) => h.from), ...short]);
     html += (Array.isArray(ab.atRisk) ? ab.atRisk : []).filter((x) => !said.has(x.from))
-      .map((x) => line(opening(x) + ', but none of its agents is free to move.')).join('');
+      /* kosmos#8862 review 1: a risk from one model's limit is about the agents on that model, not all of them. */
+      .map((x) => line(opening(x) + (typeof x.model === 'string' && x.model ? ', but none of its agents on ' + esc(x.model) + ' is free to move.' : ', but none of its agents is free to move.'))).join('');
     if (!html) html = line('Nothing to move right now.');
   }
   /* Slice 3: what Kosmos would have moved lately, from the sweep's record. Shown also when the current decision could

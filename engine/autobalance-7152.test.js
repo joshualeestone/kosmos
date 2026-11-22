@@ -74,7 +74,8 @@ test('#7152: an account that is not measured is never a target, however empty it
   ];
   const d = ab.decide({ rows, movable: all, nowMs: NOW });
   assert.deepEqual(d.moves, [], 'an unmeasured account was taken as headroom');
-  assert.deepEqual(d.held, [{ from: '/u/.claude-a', why: d.held[0].why }], 'the page was not told nothing could take them');
+  assert.deepEqual(d.held, [{ from: '/u/.claude-a', why: d.held[0].why, agents: d.held[0].agents }], 'the page was not told nothing could take them');
+  assert.ok(Array.isArray(d.held[0].agents) && d.held[0].agents.length > 0, 'kosmos#8862: the held entry does not name who is held');
   rows[1].weekly = { usedPct: 60, resetsAt: NOW + 10 * H };
   assert.equal(ab.decide({ rows, movable: all, nowMs: NOW }).moves[0].to, '/u/.claude-b', 'CONTROL: once measured, it is a target');
 });
@@ -158,7 +159,7 @@ test('#7152 review 1: the route marks every Claude row and reads the switch befo
   assert.ok(at > 0, 'the route does not mark its Claude rows');
   assert.match(src.slice(Math.max(0, at - 400), at), /const sentAt = Date\.now\(\);/, 'the marks are not stamped with the clock as the answer is sent');
   const block = src.slice(at, src.indexOf('sendJson(res, 200, { accounts: [...claude', at));
-  assert.match(block, /ab\.decide\(\{ rows: claude, movable, nowMs: sentAt, \.\.\.\(skipTarget \? \{ skipTarget \} : \{\}\) \}\)/, 'the decision does not use the same clock as the marks');
+  assert.match(block, /ab\.decide\(\{ rows: claude, movable, nowMs: sentAt, \.\.\.\(skipTarget \? \{ skipTarget \} : \{\}\), modelOf: ab\.modelOfFrom\(cards, sentAt\) \}\)/, 'the decision does not use the same clock as the marks');   // kosmos#8862: and each agent's model
   assert.match(block, /const movable = ab\.movableOnDemand\(\(\) => ab\.movableFor\(/, 'review 8: the route builds the movable test eagerly, so an unreadable roster fails every read');
   assert.ok(block.length > 0, 'CONTROL: the block is found whole');
   const read = block.indexOf('setting = autobalanceSetting.read()');

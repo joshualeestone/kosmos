@@ -380,8 +380,29 @@ async function readOne(a, { now = Date.now(), request, timeoutMs, identityOf = (
     if (want !== org) return { at: now, state: 'other-account' };
   }
   const fiveHour = windowOf(j && j.five_hour, { nowMs: now, maxAheadSeconds: statusline.FIVE_HOUR_MAX_AHEAD_SECONDS });
+  const scoped = scopedOf(j, now);   // kosmos#8862
   /* Review 13: the organization the profile answered for, which the record keeps (see pollAll). */
-  return { at: now, state: 'ok', weekly, fiveHour, ...(typeof org === 'string' && org ? { org } : {}) };
+  return { at: now, state: 'ok', weekly, fiveHour, scoped, ...(typeof org === 'string' && org ? { org } : {}) };
+}
+
+/* kosmos#8862: a weekly limit for ONE model can be full while the account's overall one is not (measured 11-21: account
+   c, overall 55%, its Fable limit 100%). The answer carries them in a `limits` list:
+     { kind: 'weekly_scoped', group: 'weekly', percent, resets_at, scope: { model: { id, display_name }, surface } }
+   Each such entry with a model's display name, a percent and a readable reset is kept as { model, usedPct, resetsAt }
+   (seconds, as windowOf gives). Anything else in the list (the overall `weekly_all`, a surface scope, a model with no
+   name) is left out, and an answer with no `limits` list gives [], so an older or changed endpoint reads as before. */
+function scopedOf(j, nowMs) {
+  const list = j && typeof j === 'object' && Array.isArray(j.limits) ? j.limits : [];
+  const out = [];
+  for (const e of list) {
+    if (!e || typeof e !== 'object' || e.kind !== 'weekly_scoped') continue;
+    const m = e.scope && typeof e.scope === 'object' && e.scope.model && typeof e.scope.model === 'object' ? e.scope.model.display_name : null;
+    if (typeof m !== 'string' || !m.trim()) continue;
+    const w = windowOf({ utilization: e.percent, resets_at: e.resets_at }, { nowMs, maxAheadSeconds: WEEK_MAX_AHEAD_SECONDS });
+    if (!w || w.resetsAt === null) continue;   // a scoped limit with no reset says nothing it can be waited out by
+    out.push({ model: m.trim(), usedPct: w.usedPct, resetsAt: w.resetsAt });
+  }
+  return out;
 }
 
 /* Write the record into the account folder, atomically, readable by this user only. Never throws. */
@@ -479,6 +500,7 @@ async function pollAll(list, deps = {}) {
         if (typeof prev.org === 'string') rec.org = prev.org;
         rec.measuredAt = prevAt;
         rec.weekly = prev.weekly || null;
+        rec.scoped = Array.isArray(prev.scoped) ? prev.scoped : [];   // kosmos#8862: kept with the figures it was read with
         rec.fiveHour = prev.fiveHour || null;
       }
     }
@@ -506,11 +528,16 @@ function readUsage(dir, nowMs = Date.now()) {
     if (w.resetsAt === null) return { usedPct: w.usedPct, resetsAt: null, changedAt };
     return typeof w.resetsAt === 'number' && w.resetsAt * 1000 > nowMs ? { usedPct: w.usedPct, resetsAt: w.resetsAt, changedAt } : null;
   };
-  return { at: j.at, measuredAt, state: typeof j.state === 'string' ? j.state : 'unknown', weekly: live(j.weekly), fiveHour: live(j.fiveHour),
+  /* kosmos#8862: each model's weekly limit, by the same freshness and reset rules as the overall one. */
+  const scoped = (Array.isArray(j.scoped) ? j.scoped : [])
+    .filter((s) => s && typeof s.model === 'string' && s.model)
+    .map((s) => { const w = live({ usedPct: s.usedPct, resetsAt: s.resetsAt, changedAt: measuredAt }); return w && w.resetsAt !== null ? { model: s.model, usedPct: w.usedPct, resetsAt: w.resetsAt } : null; })
+    .filter(Boolean);
+  return { at: j.at, measuredAt, state: typeof j.state === 'string' ? j.state : 'unknown', weekly: live(j.weekly), fiveHour: live(j.fiveHour), scoped,
     email: typeof j.email === 'string' ? j.email : null, org: typeof j.org === 'string' ? j.org : null };
 }
 
 module.exports = {
-  enabled, liveAllowed, claudeAccountsLinked, defaultOn, resetLinkedCacheForTests, LINKED_CACHE_MS, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor,
+  enabled, liveAllowed, claudeAccountsLinked, defaultOn, resetLinkedCacheForTests, LINKED_CACHE_MS, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, scopedOf, write, ccdFor,
   FILE, POLL_MS, FRESH_MS, pollDelay, JITTER, BACKOFF_MS, accountsToPoll, planPoll, loginKey, triggerStep, afterTrigger, timedNext, RETRY_MS, HOST, USAGE_PATH, BETA,
 };

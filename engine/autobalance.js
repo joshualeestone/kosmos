@@ -90,6 +90,43 @@ function riskOf(row, nowMs) {
   return `it is at ${Math.round(w.usedPct)}% of its weekly limit, which resets in ${when}`;
 }
 
+/* kosmos#8862: a model's own weekly limit. The endpoint names it by its family ("Fable"); a card names the agent's model
+   with "Claude" and its version (status.js modelDisplayName: "Claude Fable 5.2"; measured on Agent1s 11-21, the one
+   scoped limit seen there, 60 times, is "Fable"), and an id when it has no display name ("claude-fable-5-2", or an older
+   "claude-3-5-sonnet-20241022"). So the family is the first word that has a letter in it, without case, once a leading
+   "Claude" is dropped, split at spaces and dashes. A name with no such word is no model (review 1: never "3"). */
+function modelKey(name) {
+  if (typeof name !== 'string') return null;
+  const words = name.trim().toLowerCase().replace(/^claude[-\s]+/, '').split(/[\s-]+/);
+  return words.find((w) => /[a-z]/.test(w)) || null;
+}
+/* The row's live scoped limits, resets still ahead. */
+function scopedNow(row, nowMs) {
+  return (row && Array.isArray(row.scoped) ? row.scoped : [])
+    .filter((s) => s && modelKey(s.model) && Number.isFinite(s.usedPct) && Number.isFinite(s.resetsAt) && s.resetsAt > nowMs);
+}
+/* Review 4: a model limit this full is FULL: what can have stopped an agent. 99.5, not 100, so a 100 that arrives a
+   little under is caught (the page shows 99.5 and up as 100%); a whole 99 is not, which fails toward the old rule. */
+const MODEL_FULL_PCT = 99.5;
+const whenOf = (ms) => { const hours = Math.ceil(ms / 3600000); return hours > 48 ? `${Math.round(hours / 24)} days` : `${hours} h`; };
+/* Why an agent on `model` is at risk on this row by its model's own limit alone, or null: that limit at AT_RISK_PCT or
+   more, not resetting within RESET_SOON_MS, as the overall rule. An agent whose model is unknown is never at risk this
+   way (nothing says which limit it draws on); see targetFor for the other half. */
+function modelRiskOf(row, model, nowMs) {
+  const k = modelKey(model);
+  if (!k || !row || row.provider !== 'anthropic' || row.apiKey) return null;
+  const s = scopedNow(row, nowMs).find((x) => modelKey(x.model) === k);
+  if (!s || s.usedPct < AT_RISK_PCT || s.resetsAt - nowMs <= RESET_SOON_MS) return null;
+  return `its ${s.model} limit is at ${Math.round(s.usedPct)}% of the week, which resets in ${whenOf(s.resetsAt - nowMs)}`;
+}
+/* Whether a row can take an agent on `model` by its model limits: that model's limit under TARGET_MAX_PCT. An agent
+   whose model is unknown is kept off a row where ANY model's limit is at TARGET_MAX_PCT or more (it may be that model). */
+function modelRoomOn(row, model, nowMs) {
+  const k = modelKey(model);
+  const list = scopedNow(row, nowMs);
+  return k ? !list.some((s) => modelKey(s.model) === k && s.usedPct >= TARGET_MAX_PCT) : !list.some((s) => s.usedPct >= TARGET_MAX_PCT);
+}
+
 /* Two rows are the same account when both name the same login (email and organization): one account can be signed in
    from two folders, and moving between them gains nothing. The rows carry the organization's NAME, not its id, so two
    organizations of one name read as one account: that errs toward not moving, never toward a wrong move. */
@@ -109,7 +146,7 @@ function signedIn(row) {
 }
 
 /* The best target for agents leaving `from`, or null. */
-function targetFor(from, rows, nowMs, skip) {
+function targetFor(from, rows, nowMs, skip, model) {
   /* kosmos#8048: skip(dir, fromDir) also gets the account the agents would leave, so a target that would lose them
      skills or hooks can be held (automove's skipTarget). */
   /* Review 1: skip last, after the cheap filters, so the loss check (a folder walk) runs only for a target that could
@@ -117,6 +154,7 @@ function targetFor(from, rows, nowMs, skip) {
   const ok = rows.filter((r) => !sameAccount(r, from) && bulkTargetable(r, nowMs) && signedIn(r)
     && weeklyNow(r, nowMs) && weeklyNow(r, nowMs).usedPct < TARGET_MAX_PCT
     && !(fiveHourNow(r, nowMs) && fiveHourNow(r, nowMs).usedPct >= FIVE_HOUR_MAX_PCT)
+    && modelRoomOn(r, model, nowMs)   // kosmos#8862: the agent's own model must have room there too
     && !(typeof skip === 'function' && skip(r.dir, from.dir)));
   ok.sort((x, y) => (weeklyNow(x, nowMs).usedPct - weeklyNow(y, nowMs).usedPct)
     || (weeklyNow(x, nowMs).resetsAt - weeklyNow(y, nowMs).resetsAt)
@@ -140,26 +178,95 @@ function eligible(rows) {
  * (review 1), so the page does not read "nothing to move" as the whole truth; `atRisk` names every account at risk,
  * so an at-risk account with no idle agent on it is said, not silent (review 3).
  */
-function decide({ rows, movable, nowMs, skipTarget }) {
+/* kosmos#8862: `modelOf` for decide, from a roster read only when first asked (as movableOnDemand): the agent's model as
+   its card names it (modelName, else model), or null when the card or the roster cannot say. Review 2: a fresh session
+   that has not replied yet carries no model, only its previous session's (earlierModelName, status.js
+   splitModelReading); for which limit it draws on that is the best evidence there is, so it is the last fallback. The
+   function also answers `atLimit(session)`: whether the card says the agent is stopped at a usage limit (stoppedAtLimit),
+   so decide can act on an agent whose model is unknown but which has plainly hit a limit. */
+function modelOfFrom(getCards, nowMs = null) {
+  let bySession = null;
+  const card = (session) => {
+    if (!bySession) {
+      let cards = null;
+      try { cards = typeof getCards === 'function' ? getCards() : getCards; } catch { cards = null; }
+      bySession = new Map((Array.isArray(cards) ? cards : []).filter((c) => c && c.sessionName).map((c) => [c.sessionName, c]));
+    }
+    return bySession.get(session) || null;
+  };
+  const str = (v) => (typeof v === 'string' && v.trim() ? v : null);
+  const of = (session) => { const c = card(session); return c ? (str(c.modelName) || str(c.model) || str(c.earlierModelName)) : null; };
+  /* Review 3: whether that model came only from the previous session, so decide can trust it less (an agent can switch
+     models between sessions, or the previous one was another runner's). */
+  of.earlier = (session) => { const c = card(session); return !!c && !str(c.modelName) && !str(c.model) && !!str(c.earlierModelName); };
+  of.atLimit = (session) => { const c = card(session); try { return !!c && stoppedAtLimit(c, Number.isFinite(nowMs) ? nowMs : Date.now()); } catch { return false; } };
+  return of;
+}
+
+function decide({ rows, movable, nowMs, skipTarget, modelOf }) {
   const all = Array.isArray(rows) ? rows.filter((r) => r && r.provider === 'anthropic' && r.dir) : [];
   const moves = [];
   const held = [];
   const short = [];
   const atRisk = [];
   if (eligible(all).length < 2) return { moves, held, short, atRisk };
+  /* kosmos#8862: `modelOf(session)` (optional) is the agent's model as its card names it, or null when unknown. */
+  const model = (n) => { try { return typeof modelOf === 'function' ? modelOf(n) : null; } catch { return null; } };
   for (const from of all) {
-    const why = riskOf(from, nowMs);
-    if (!why) continue;
-    atRisk.push({ from: from.dir, why, kind: loginStopped(from) ? 'login' : 'usage' });   // review 9: the page words the two apart
-    if (!from.agentsHere || from.agentsHere.complete !== true) short.push(from.dir);
     const names = from.agentsHere && Array.isArray(from.agentsHere.names) ? from.agentsHere.names : [];
+    const acctWhy = riskOf(from, nowMs);
+    /* kosmos#8862: an account whose overall limit is fine is still at risk for the agents whose own model's limit is
+       full there. Each agent carries its own reason; the account's line names the first such model. */
+    /* Review 2: an agent whose model cannot be told but which is stopped at a usage limit, on an account whose overall
+       limit is fine, almost certainly hit a model's own limit there (the card's stated fallback), so it is at risk by
+       the first model limit there that passes the rule. */
+    const atLimit = (n) => { try { return typeof modelOf === 'function' && typeof modelOf.atLimit === 'function' && modelOf.atLimit(n) === true; } catch { return false; } };
+    /* Review 3: a model read only from the previous session is a guess: it counts for its own limit, but does not stop
+       the at-limit inference, and its target is chosen by the stricter unknown-model rule. */
+    const earlier = (n) => { try { return typeof modelOf === 'function' && typeof modelOf.earlier === 'function' && modelOf.earlier(n) === true; } catch { return false; } };
+    const sure = (n) => (earlier(n) ? null : model(n));   // the model to choose a target by
+    /* Review 3: only a model limit that is actually FULL there can be what stopped it (85% stopped nobody). */
+    const unknownAtLimitWhy = (n) => ((!modelKey(model(n)) || earlier(n)) && atLimit(n)
+      ? (scopedNow(from, nowMs).filter((s) => s.usedPct >= MODEL_FULL_PCT).map((s) => modelRiskOf(from, s.model, nowMs)).find(Boolean) || null) : null);
+    const whyFor = (n) => acctWhy || modelRiskOf(from, model(n), nowMs) || unknownAtLimitWhy(n);
+    /* Review 5: WHICH limit holds an agent, as a stable identity (null: the account's own; else the model's name, as
+       the limit names it), for the record's key. The reason's words carry a countdown, so they change every hour. */
+    const limitOf = (n) => {
+      if (acctWhy) return null;
+      const w = whyFor(n);
+      const s = w ? scopedNow(from, nowMs).find((x) => modelRiskOf(from, x.model, nowMs) === w) : null;
+      return s ? s.model : null;
+    };
+    const complete = !!from.agentsHere && from.agentsHere.complete === true;
+    /* Review 1: a list that may be short can be missing the very agent on the full model, so with an incomplete list any
+       model limit there that passes the rule makes the account at risk (and short), as an overall risk always did. */
+    const anyModelWhy = () => scopedNow(from, nowMs).map((s) => modelRiskOf(from, s.model, nowMs)).find(Boolean) || null;
+    /* Review 4: from the names in a fixed order, so the model an account is said at risk for does not follow the order
+       the roster walk returns them in (it is not sorted), and the record does not flap between two models. */
+    const modelWhy = acctWhy ? null : (names.slice().sort().map(whyFor).find(Boolean) || (!complete ? anyModelWhy() : null));
+    const why = acctWhy || modelWhy;
+    if (!why) continue;
+    /* Review 1: `model` marks a risk that is one model's limit alone, so the page can say the agents on that model are
+       the ones at risk, not the whole account. */
+    const modelOnly = !acctWhy ? (scopedNow(from, nowMs).find((s) => modelRiskOf(from, s.model, nowMs) === modelWhy) || {}).model || null : null;
+    atRisk.push({ from: from.dir, why, kind: acctWhy && loginStopped(from) ? 'login' : 'usage', ...(modelOnly ? { model: modelOnly } : {}) });   // review 9: the page words the two apart
+    if (!complete) short.push(from.dir);
     /* Review 2: an agent already being moved is not named again. */
     const moving = new Set(from.agentsHere && Array.isArray(from.agentsHere.moving) ? from.agentsHere.moving : []);
-    const going = names.filter((n) => !moving.has(n) && typeof movable === 'function' && movable(n) === true);
+    const going = names.filter((n) => !moving.has(n) && whyFor(n) && typeof movable === 'function' && movable(n) === true);
     if (!going.length) continue;
-    const to = targetFor(from, all, nowMs, skipTarget);
-    if (!to) { held.push({ from: from.dir, why }); continue; }
-    for (const agent of going.slice().sort()) moves.push({ agent, from: from.dir, to: to.dir, why });
+    const stuck = [];
+    for (const agent of going.slice().sort()) {
+      /* kosmos#8862: each agent's target is judged for its own model, so two agents can go two ways, or one be held. */
+      const to = targetFor(from, all, nowMs, skipTarget, sure(agent));
+      if (!to) { stuck.push(agent); continue; }
+      moves.push({ agent, from: from.dir, to: to.dir, why: whyFor(agent) });
+    }
+    /* Review 1: the held line names who is held, since others on the same account may be moving. Review 2: one entry
+       per reason, so an Opus agent is never given the Fable agent's reason. */
+    const byLimit = new Map();   // review 5: grouped by which limit holds them, not by the words
+    for (const a of stuck) { const k = limitOf(a) || ''; const g = byLimit.get(k) || { why: whyFor(a) || why, agents: [] }; g.agents.push(a); byLimit.set(k, g); }
+    for (const [k, g] of byLimit) held.push({ from: from.dir, why: g.why, agents: g.agents, ...(k ? { model: k } : {}) });
   }
   return { moves, held, short, atRisk };
 }
@@ -302,6 +409,8 @@ function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
          keeps the last good ones through a failed read on purpose, so one network blip does not empty the decision. The
          badge alone says whether the latest read worked, and only a 'working' one is ever a target. */
       connection: { badge }, weekly: rec ? ms(rec.weekly) : null, fiveHour: rec ? ms(rec.fiveHour) : null, agentsHere: here,
+      /* kosmos#8862: each model's own weekly limit, resets in ms as the others. */
+      scoped: rec && Array.isArray(rec.scoped) ? rec.scoped.map((s) => ({ model: s.model, ...ms(s) })).filter((s) => s.usedPct !== undefined) : [],
       /* Review 14, 16, 18, 20: whether this reading can say the account's state: a figure that is still fresh, or a login
          that was refused. Review 20: never after a read that could not get at the credential (no-credential, no-token),
          whatever figures slice 1 copied across from before it, so one Keychain hiccup on a named account is a gap. A fresh record whose figures have aged out (slice 1 rewrites its time on
@@ -319,4 +428,4 @@ function movableOnDemand(build) {
   return (session) => (fn || (fn = build()))(session);
 }
 
-module.exports = { decide, movableFor, stoppedAtLimit, movableOnDemand, markTargets, bulkTargetable, eligible, rowsFromReadings, AT_RISK_PCT, TARGET_MAX_PCT, RESET_SOON_MS, FIVE_HOUR_MAX_PCT };
+module.exports = { MODEL_FULL_PCT, modelKey, modelRiskOf, modelRoomOn, modelOfFrom, decide, movableFor, stoppedAtLimit, movableOnDemand, markTargets, bulkTargetable, eligible, rowsFromReadings, AT_RISK_PCT, TARGET_MAX_PCT, RESET_SOON_MS, FIVE_HOUR_MAX_PCT };

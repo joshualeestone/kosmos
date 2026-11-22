@@ -131,7 +131,8 @@ test('#7548 rule 1: a move goes through the account move, is recorded in the swe
   const move = lines(file).find((l) => l.kind === 'move' && l.outcome !== 'started');
   assert.deepEqual([move.agent, move.fromLabel, move.toLabel, move.outcome], ['ada', 'work', 'spare', 'changed']);
   assert.equal(calls.tells.length, 1);
-  assert.match(calls.tells[0][1], /^Kosmos moved this agent from work to spare, because work was running out \(it is at 93% of its weekly limit/);
+  /* kosmos#8862: the reason can be one model's own limit, so the sentence gives it without saying the account ran out. */
+  assert.match(calls.tells[0][1], /^Kosmos moved this agent from work to spare, because on work it is at 93% of its weekly limit/);
   assert.doesNotMatch(calls.tells[0][1], /usage limit, and the restart|committed to/, 'kosmos#8048: an idle move said it had stopped at its limit');
   assert.doesNotMatch(fs.readFileSync(file, 'utf8') + calls.tells[0][1], /@/, 'an email reached the record or the message');
   assert.equal(lines(file).some((l) => l.kind === 'decision'), false, 'the mover wrote a decision line (that is the sweep\'s)');
@@ -916,7 +917,7 @@ test('#7548 review round 6: while the mover runs, Settings skips its held target
   assert.equal(run.skipTarget(NOW + automove.FAILED_HOLD_MS + 6000)(held[0]), false, 'CONTROL: a day later it is not held');
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /automoveRun && automove\.movesOn\(\) \? automoveRun\.skipTarget\(sentAt, moveWouldLose\) : null/, 'Settings does not use the mover\'s held targets');
-  assert.match(src, /decision = ab\.decide\(\{ rows: claude, movable, nowMs: sentAt, \.\.\.\(skipTarget \? \{ skipTarget \} : \{\}\) \}\)/);
+  assert.match(src, /decision = ab\.decide\(\{ rows: claude, movable, nowMs: sentAt, \.\.\.\(skipTarget \? \{ skipTarget \} : \{\}\), modelOf: ab\.modelOfFrom\(cards, sentAt\) \}\)/);   // kosmos#8862: and each agent's model
   assert.match(src, /autobalance\.movePaused = autobalance\.moving === true \? automoveRun\.paused\(\) : null/, 'Settings is not told the mover waits');
   assert.match(src, /const said = why !== null && why === automoveSaid;/, 'the board logs the same reason every tick');
 });

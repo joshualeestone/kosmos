@@ -80,6 +80,19 @@ function polledOfUnguarded(a, nowMs, key) {
     ? { usedPct: w.usedPct, resetsAt: w.resetsAt, at: w.changedAt, measuredAt: r.measuredAt } : null;
 }
 
+/** kosmos#8862: the account's per-model weekly limits from the usage endpoint ([] when none), each { model, usedPct,
+    resetsAt } with resetsAt in epoch ms, behind the same switch and login check as polledOf. Never throws. */
+function scopedOf(a, nowMs = Date.now()) {
+  try {
+    if (!a || !a.dir || a.apiKey) return [];
+    const usagepoll = require('./usagepoll');
+    if (!usagepoll.enabled()) return [];
+    const r = usagepoll.readUsage(a.dir, nowMs);
+    if (!r || (r.email && !usagepoll.sameLogin(r, a, accountOrg(a)))) return [];
+    return (Array.isArray(r.scoped) ? r.scoped : []).map((s) => ({ model: s.model, usedPct: s.usedPct, resetsAt: s.resetsAt * 1000 }));
+  } catch { return []; }
+}
+
 /** The account's weekly reading, or null when there is none this week (an API key, none recorded, unreadable, the week
     has reset). resetsAt and at are epoch ms (readWeekly gives resetsAt in seconds). */
 function weeklyOf(a, nowMs = Date.now()) {
@@ -153,4 +166,4 @@ function summary(list, nowMs = Date.now()) {
 
 function resetForTests() { cached = null; }
 
-module.exports = { weeklyOf, fiveHourOf, weeklyBlockedOf, summary, accountOrg, CACHE_MS, MAX_ACCOUNTS, resetForTests };   // accountOrg: kosmos#7152 slice 3, one login rule for the sweep and Settings
+module.exports = { scopedOf /* kosmos#8862 */, weeklyOf, fiveHourOf, weeklyBlockedOf, summary, accountOrg, CACHE_MS, MAX_ACCOUNTS, resetForTests };   // accountOrg: kosmos#7152 slice 3, one login rule for the sweep and Settings
