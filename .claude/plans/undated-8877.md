@@ -38,3 +38,6 @@
 - WARNING: the no-jq kind check depended on the locale (macOS bash 3.2's [a-z] lets capitals and accents through under UTF-8). Fixed: LC_ALL=C on the new grep and sed, and the check is `LC_ALL=C grep -Eq '^[a-z_]{1,40}$'`; pinned under en_US.UTF-8 (the round-2 `case` check put back turns it red).
 - NIT: a non-string top-level `error` (null, a number) could still fall into a nested one. Fixed: the key's first value of any type, taken only when quoted and a kind; pinned with null and a nested decoy.
 - NIT (for the PR text): real stops now read with their own kind everywhere a person sees them ("provider api (authentication_failed)"), and authentication_failed reaches providerAuthReport (#5948's sign-in hold on non-Claude runners).
+
+## Review round 4 (blind, the round-3 commit): clean
+- ACCEPTED residuals (no-jq path only; Claude Code sends one-line JSON with `error` first): a key and its value on separate lines, or a nested `error` placed before the top-level one, can pick another field. jq and node read them right.
