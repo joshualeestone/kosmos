@@ -19,7 +19,7 @@
  *   restart    -> a new board start time under an open page brings the note (control: the same start time does not)
  *   midnight   -> with the page clock pinned at 23:30 then 00:10, the same note says "yesterday at"
  *   checked    -> kosmos#8287: the line of what was checked, all back / some not back / damage / partial; none without checks (control); a change repaints; a phone keeps it
- *   pattern    -> kosmos#8866: 3 restarts in 7 days are said once with the dates; no line without a pattern (control) or with a damaged one
+ *   pattern    -> kosmos#8866: 3 restarts within a week are said once with the dates (a day twice: "twice on"); no line without a pattern (control) or with a damaged one; UTC and en-US pinned
  *
  *   AGENT_WORKFORCE_DATA=/tmp/rn PORT=17372 node server.js &
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" \
@@ -221,9 +221,9 @@ const CASES = [
     for (const [key, pattern, want] of [['no-pattern', undefined, null],
       ['three', { count: 3, dates: ['2026-11-18T16:00:00Z', '2026-11-20T16:00:00Z', '2026-11-21T16:00:00Z'] }, PAT],
       ['damaged', { count: 3, dates: ['not a date', '2026-11-20T16:00:00Z', '2026-11-21T16:00:00Z'] }, null],
-      ['same-day', { count: 3, dates: ['2026-11-20T15:00:00Z', '2026-11-20T18:00:00Z', '2026-11-21T16:00:00Z'] }, /\(Nov 20 \(twice\), Nov 21\)\. If you did not/]]) {
+      ['same-day', { count: 3, dates: ['2026-11-20T15:00:00Z', '2026-11-20T18:00:00Z', '2026-11-21T16:00:00Z'] }, /\(twice on Nov 20, Nov 21\)\. If you did not/]]) {
       for (const width of [1400, 390]) {
-        const pg = await b.newPage({ viewport: { width, height: 844 } });
+        const pg = await b.newPage({ viewport: { width, height: 844 }, timezoneId: 'UTC', locale: 'en-US' });   // the dates read the same on any host
         await pg.clock.setFixedTime(new Date(NOON));
         await pg.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note: { ...base, checks: {}, ...(pattern ? { pattern } : {}) } }) }).catch(() => {}));
         await pg.goto(URL, { waitUntil: 'networkidle' });
