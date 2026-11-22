@@ -13,8 +13,8 @@
  * port with a local 403, so it never leaves; the same rig then saw no request at all, and the board kept working.
  *
  * Two halves, as the other launcher tests do it:
- *   - the SOURCE (every platform): the hook is wired before any page loads, only for a window that runs its own board,
- *     with the "*" filter; a failure to wire it closes the window (CouldNotHost), never carries on without it; a
+ *   - the SOURCE (every platform): the hook is wired before any page loads, in every mode, with filters for the
+ *     addresses that name this computer; a failure to wire it closes the window (CouldNotHost), never carries on without it; a
  *     request that cannot be read is refused; and the COM slots follow WebView2.h's order;
  *   - a PROBE compiled beside KosmosLauncher.cs (Windows only): RefusedLoopbackRequest over the addresses that matter.
  */
@@ -43,7 +43,12 @@ test('#6916: the window wires the request check before any page loads, in every 
   const ready = between('internal void ControllerReady(', 'FitViewToWindow();');
   const wired = ready.indexOf('webView.add_WebResourceRequested(new WebResourceRequested(this), out token);');
   assert.ok(wired > 0, 'ControllerReady no longer adds the WebResourceRequested handler');
-  assert.ok(ready.indexOf('webView.AddWebResourceRequestedFilter("*", 0);') > wired, 'the filter is not "*" for every resource context');
+  // Review 4: only addresses that name this computer are held (a filtered request's body is buffered, measured), as
+  // substrings so a user part or another spelling Chromium rewrites to 127.0.0.1 still matches (measured), every context.
+  for (const pattern of ['*127.0.0.1*', '*localhost*', '*[::1]*']) {
+    assert.ok(ready.indexOf('webView.AddWebResourceRequestedFilter("' + pattern + '", 0);') > wired, 'no ' + pattern + ' filter for every resource context');
+  }
+  assert.doesNotMatch(ready, /AddWebResourceRequestedFilter\("\*", /, 'every request is held, a connect window\'s uploads elsewhere included');
   // Review 1: never gated on the starting mode. A connect window can become one that runs this computer's board while it
   // is open (RunAgentsHere, PageChoseMode) and loads it in the same view, which would then go unchecked.
   // Review 2: from the top of ControllerReady, so a mode check wrapped around the comment and the calls together counts.

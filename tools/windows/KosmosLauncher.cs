@@ -4344,7 +4344,7 @@ class BoardWindowForm : System.Windows.Forms.Form
     internal void EnvironmentReady(int hr, ICoreWebView2Environment environment)
     {
         if (hr != 0 || environment == null) { CouldNotHost("WebView2 would not start (0x" + hr.ToString("X8") + ")"); return; }
-        webEnvironment = environment;   // #6916: makes the refusal a request to another port gets
+        webEnvironment = environment;   // #6916: kept to make the 403 a refused request gets
         environment.CreateCoreWebView2Controller(Handle, new ControllerCreated(this));
     }
 
@@ -4375,17 +4375,23 @@ class BoardWindowForm : System.Windows.Forms.Form
         }
         catch { /* downloads keep WebView2's defaults, unsaid */ }
         controller.add_AcceleratorKeyPressed(new AcceleratorKeyPressed(this), out token);   // #6882
-        // #6916: before any page loads, every request the page starts is seen here, and one to this computer on another
+        // #6916: before any page loads, every request the page starts to this computer is seen here, and one on another
         // port is refused before it leaves (RefusedLoopbackRequest). In EVERY mode, not only a window that starts on its
         // own board: a connect window can become one while it is open (RunAgentsHere, PageChoseMode), and loads this
-        // computer's board in the same view. A connect window never loads anything from this computer in the window
-        // (ConnectLinkDecision), so the check costs it nothing. Both calls are in every WebView2 Runtime (the base
-        // interface), so a failure means WebView2 itself is not working: the window does not go on without the check,
-        // it closes before anything is shown and the board opens in the browser, as for any other start failure.
+        // computer's board in the same view. The filter holds only addresses that name this computer (WebView2 holds a
+        // filtered request's body, measured: a 50 MB upload took 0.7 s, not 0.1 s), so a connect window's uploads to
+        // its board elsewhere are never held. They are substrings, not host patterns, so an address with a user part
+        // (x@127.0.0.1) still matches; Chromium writes 127.1 or 2130706433 as 127.0.0.1 first (measured). Both calls are
+        // in every WebView2 Runtime (the base interface), so a failure means WebView2 itself is not working: the window
+        // does not go on without the check, it closes before anything is shown and the board opens in the browser.
         try
         {
             webView.add_WebResourceRequested(new WebResourceRequested(this), out token);
-            webView.AddWebResourceRequestedFilter("*", 0);   // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL
+            // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL (0) for each. Separate calls: an array literal would break the
+            // reproducible build (verify-launcher).
+            webView.AddWebResourceRequestedFilter("*127.0.0.1*", 0);
+            webView.AddWebResourceRequestedFilter("*localhost*", 0);
+            webView.AddWebResourceRequestedFilter("*[::1]*", 0);
         }
         catch (Exception x)
         {
@@ -5726,7 +5732,7 @@ public class ControllerCreated : ICoreWebView2CreateCoreWebView2ControllerComple
     }
 }
 
-// #6916: every request the page starts, before it leaves (WebResourceRequested, with the "*" filter). A request to this
+// #6916: every request the page starts, before it leaves (WebResourceRequested, filtered to addresses that name this computer). A request to this
 // computer on another port gets a local 403 in place of going out (BoardWindowForm.OnWebResourceRequested). If the
 // request cannot be read, it is refused too: a check that cannot run must not let the request through.
 [ComVisible(true), ClassInterface(ClassInterfaceType.None)]
@@ -5738,6 +5744,7 @@ public class WebResourceRequested : ICoreWebView2WebResourceRequestedEventHandle
     {
         try { form.OnWebResourceRequested(args); }
         catch { try { form.RefuseRequest(args); } catch { /* nothing left to answer it with */ } }
+        finally { try { Marshal.ReleaseComObject(args); } catch { /* already gone */ } }   // no deferral: unused after this
         return 0;
     }
 }

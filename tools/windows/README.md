@@ -98,7 +98,8 @@ WebView2 Runtime, pointed at the same local board.
 - **The session stays on the board's own port (#6916).** A cookie belongs to a host, not a port, so
   any request the page starts to this computer on another port (a link to a site an agent runs here,
   a fetch, an image) would carry the person's board session there. The window sees every request
-  before it leaves (WebView2's `WebResourceRequested`) and answers one to 127.0.0.1, localhost or
+  to this computer before it leaves (WebView2's `WebResourceRequested`, filtered to addresses that
+  name 127.0.0.1, localhost or [::1], so requests elsewhere are never held) and answers one to 127.0.0.1, localhost or
   ::1 on any other port or scheme with a local 403, so it never leaves. This holds in every mode,
   since a connect window can switch to running this computer's board while it is open. If WebView2
   will not take the check, the window does not open without it: the board opens in the browser
