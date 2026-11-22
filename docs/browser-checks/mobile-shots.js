@@ -2070,12 +2070,8 @@ const SCREENS = [
      line, as on the real one), as engine/projects.js describe marks it; nothing on the board changes. The room's
      messages are the shot board's fixture; a real starter room is new. */
   { name: 'project-starter-8897', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
-    await page.route((u) => new URL(u).pathname === '/api/projects', async (route) => {
-      const res = await route.fetch();
-      let body; try { body = await res.json(); } catch { return route.fulfill({ response: res }); }
-      if (body && Array.isArray(body.projects)) body.projects = body.projects.map((p) => (p && p.id === data.projectId ? { ...p, starter: true, tasks: [], made: { via: 'kosmos' } } : p));
-      return route.fulfill({ response: res, json: body });
-    });
+    /* Review 3: the file's own helper (GET only, the fetch and the answer inside one try, #6022). */
+    await editProjects(page, data.projectId, (p) => Object.assign(p, { starter: true, tasks: [], made: { via: 'kosmos' } }));
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-tasklist [data-starter-empty]', { state: 'visible', timeout: 8000 });

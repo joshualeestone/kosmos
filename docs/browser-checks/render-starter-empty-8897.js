@@ -17,6 +17,7 @@ catch { console.log('render-starter-empty-8897: playwright is not on NODE_PATH -
 
 const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 const STARTER = 'This is the starter project Kosmos made to show you around. Its agents are waiting for you: give them a task here, or start your own project.';
+const STARTER_ONE = 'This is the starter project Kosmos made to show you around. Its agent is waiting for you: give it a task here, or start your own project.';
 const STARTER_ALONE = 'This is the starter project Kosmos made to show you around. Add an agent to it, or start your own project.';
 const PLAIN = 'Add a task, or have an agent add one, to start tracking progress.';
 const DONE_ONLY = 'Nothing open here. The finished ones are behind View All.';
@@ -38,7 +39,9 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       const r = await page.evaluate(({ open, closed }) => {
         const text = () => { const l = document.getElementById('pj-tasklist'); return l ? l.textContent.trim() : null; };
         const out = {};
-        const starter = { id: 'p-welcome', name: 'Welcome', tasks: [], starter: true, agents: ['ada'] };
+        const starter = { id: 'p-welcome', name: 'Welcome', tasks: [], starter: true, agents: ['ada', 'basil'] };
+        /* Review 3: one agent reads in the singular. */
+        paintProjectTasks({ ...starter, agents: ['ada'] }); out.one = text();
         /* Review 1: seeded before any agent exists, it has none to be waiting. */
         paintProjectTasks({ ...starter, agents: [] }); out.alone = text();
         paintProjectTasks(starter); out.starterEmpty = text();
@@ -59,6 +62,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         closed: { id: 't2', number: 2, sentence: 'Old thing', who: 'x', closedAt: '2026-11-20T00:00:00Z', parts: [{ id: 'a', who: 'x', closedAt: '2026-11-20T00:00:00Z' }], progress: { assigned: 1, closed: 1, total: 1 } },
       });
       say(r.starterEmpty === STARTER && r.marked, tag + ' the starter project\'s empty list says what it is', JSON.stringify(r.starterEmpty));
+      say(r.one === STARTER_ONE, tag + ' with one agent, the singular (review 3)', JSON.stringify(r.one));
       say(r.alone === STARTER_ALONE, tag + ' with no agent yet, it says to add one, never that its agents wait (review 1)', JSON.stringify(r.alone));
       say(r.renamed === PLAIN, tag + ' renamed by the person (no project switch between), it reads as any empty project', JSON.stringify(r.renamed));
       say(r.backToStarter === STARTER, tag + ' and back, the starter sentence again (the guard follows the sentence)', JSON.stringify(r.backToStarter));
