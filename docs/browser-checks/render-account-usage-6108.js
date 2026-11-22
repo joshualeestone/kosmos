@@ -69,13 +69,17 @@ const ACCOUNTS = withTarget([
   // #6570: a reading whose week reset while the list was open (the board drops one at its next read): not drawn as current.
   claude('lastweek@example.com', 'lastweek', { weekly: { usedPct: 100, resetsAt: now - H, at: now - 50 * H }, agentsHere: { names: [], complete: true } }),
   claude('noshare@example.com', 'noshare', { memoryShared: false, weekly: { usedPct: 5, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
+  /* kosmos#8882 review 1 finding 5: a row with one Fable agent, and a target whose Fable limit is full (still a bulk
+     target: its weekly has room). Used only by the DOM warning case; other rows' menus only gain an option. */
+  claude('fablesrc@example.com', 'fablesrc', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-ly'], complete: true } }),
+  claude('fablefull@example.com', 'fablefull', { weekly: { usedPct: 30, resetsAt: now + 50 * H, at: now - H }, scoped: [{ model: 'Fable', usedPct: 100, resetsAt: now + 20 * H }], agentsHere: { names: [], complete: true } }),
 ]);
 /* kosmos#7152 review 9: the "gone full since the menu was drawn" row, as the route would then send it, worked out by
    the engine's own rule rather than set by hand. */
 const GONE_FULL = (() => { const g = ACCOUNTS.find((a) => a.dir === '/home/.claude-gone');
   return require('../../engine/autobalance').bulkTargetable({ ...g, weekly: { usedPct: 100, resetsAt: now + 50 * H, at: now } }, now); })();
 const AGENTS = [{ sessionName: 's-ari', name: 'Ari', state: 'working' }, { sessionName: 's-bo', name: 'Bo', state: 'working' }, { sessionName: 's-dana', name: 'Dana', state: 'working' }, { sessionName: 's-eli', name: 'Eli', state: 'working' }, { sessionName: 's-x', name: 'x<b>y', state: 'working' },
-  { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-guide2', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-q', name: 'Quinn', state: 'working' }, { sessionName: 's-z', name: 'Zed', state: 'stopped' }, { sessionName: 's-z2', name: 'Zoe', state: 'stopped' }, { sessionName: 's-z3', name: 'Zia', state: 'stopped' }, { sessionName: 's-z4', name: 'Zak', state: 'stopped' }, { sessionName: 's-q2', name: 'Quill', state: 'working' }, { sessionName: 's-p', name: 'Pia', state: 'working' }, { sessionName: 's-r1', name: 'Rex', state: 'working' }, { sessionName: 's-r2', name: 'Rio', state: 'working' }, { sessionName: 's-slow', name: 'Sol', state: 'working' }];
+  { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-guide2', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-q', name: 'Quinn', state: 'working' }, { sessionName: 's-z', name: 'Zed', state: 'stopped' }, { sessionName: 's-z2', name: 'Zoe', state: 'stopped' }, { sessionName: 's-z3', name: 'Zia', state: 'stopped' }, { sessionName: 's-z4', name: 'Zak', state: 'stopped' }, { sessionName: 's-q2', name: 'Quill', state: 'working' }, { sessionName: 's-p', name: 'Pia', state: 'working' }, { sessionName: 's-r1', name: 'Rex', state: 'working' }, { sessionName: 's-r2', name: 'Rio', state: 'working' }, { sessionName: 's-slow', name: 'Sol', state: 'working' }, { sessionName: 's-ly', name: 'Ly<b>ra', state: 'working', modelName: 'Claude Fable 5.2' }];
 
 const fails = [];
 const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fails.push(label); };
@@ -175,7 +179,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           const probe = document.createElement('span'); probe.style.color = 'var(--label)'; b.appendChild(probe); const labelRgb = getComputedStyle(probe).color; probe.remove();
           return { vis, font: cs ? cs.fontSize : null, color: cs ? cs.color : null, labelRgb, margin: cs ? cs.marginBottom : null, warnText: warnEl ? warnEl.textContent.trim() : null, note: note ? note.textContent.trim() : null, has: !!u, line: u && u.querySelector('.acct-usage-line') ? u.querySelector('.acct-usage-line').textContent.trim() : null,
             fill: fill ? fill.style.width : null, weekResets: u && u.querySelector('.acct-usage-week[data-resets]') ? Number(u.querySelector('.acct-usage-week').dataset.resets) : null, warn: !!(u && u.querySelector('.acct-usage-warn')), text: u ? u.textContent.replace(/\s+/g, ' ').trim() : null,
-            descOf: [sel, btn].map((el) => { const id = el && el.getAttribute('aria-describedby'); const d = id && document.getElementById(id); return d ? d.textContent.trim() : null; }),
+            descOf: [sel, btn].map((el) => { const ids = ((el && el.getAttribute('aria-describedby')) || '').split(/\s+/).filter(Boolean);   // kosmos#8882: an id list, read as a screen reader joins it
+              const ds = ids.map((id) => document.getElementById(id)); return ds.length && ds.every(Boolean) ? ds.map((d) => d.textContent.trim()).filter(Boolean).join(' ') : null; }),
             agents: u && u.querySelector('.acct-agents-line') ? u.querySelector('.acct-agents-line').textContent.trim() : null,
             agentsEls: u && u.querySelector('.acct-agents-line') ? u.querySelector('.acct-agents-line').querySelectorAll('b').length : 0,
             options: sel ? [...sel.options].map((o) => o.textContent.trim()) : null, btnDisabled: btn ? btn.disabled : null,
@@ -281,12 +286,28 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           near: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 72, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
           twice: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 100, resetsAt: Date.now() + 20 * 3600e3 }, { model: 'Fable', usedPct: 100, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
         };
+        /* kosmos#8882 review 1 finding 5: the warning on the real page. Pick the Fable-full target, then a roomy one, then
+           the placeholder; the warning fills, then empties, and stays in the page as the menu's described live region. */
+        const domWarn = {};
+        const fsel = box('fablesrc@example.com') && box('fablesrc@example.com').querySelector('[data-acct-move-to]');
+        const fwarn = () => { const p = box('fablesrc@example.com') && box('fablesrc@example.com').querySelector('.acct-move-warn');
+          return p ? { text: p.textContent, markup: !!p.querySelector('b'), live: p.getAttribute('aria-live'), shown: getComputedStyle(p).display !== 'none',
+            described: !!fsel && (fsel.getAttribute('aria-describedby') || '').split(' ').includes(p.id) } : null; };
+        if (fsel) {
+          domWarn.before = fwarn();
+          const opt = [...fsel.options].find((o) => o.value === '/home/.claude-fablefull'); domWarn.fullOpt = opt ? opt.textContent.trim() : null;
+          const spareOpt = [...fsel.options].find((o) => o.value === '/home/.claude-spare'); domWarn.spareOpt = spareOpt ? spareOpt.textContent.trim() : null;
+          fsel.value = '/home/.claude-fablefull'; fsel.dispatchEvent(new Event('change')); domWarn.full = fwarn();
+          fsel.value = '/home/.claude-spare'; fsel.dispatchEvent(new Event('change')); domWarn.roomy = fwarn();
+          fsel.value = '/home/.claude-fablefull'; fsel.dispatchEvent(new Event('change'));
+          fsel.value = ''; fsel.dispatchEvent(new Event('change')); domWarn.placeholder = fwarn();
+        }
         // Two minutes on, a repaint shows the row plain again.
         const st = ACCT_MOVE.get('/home/.claude-busy'); if (st) st.doneAt -= 3 * 60e3;
         await paintAccounts();
         const expired = msgOf('/home/.claude-busy');
         /* Sideways overflow of the page itself, with the list in its real place. */
-        return { contrast, incMove, warmstop, frozen, unknown, fullmix, tgMove, lostMove, fullstop, weekout, weekoutDay: new Date(Date.now() + 162 * 3600e3).getDate(), staleMove, ncMove, sleepyMove, mine, unwired, lastweek, unsureNote, modelWarn, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
+        return { contrast, incMove, warmstop, frozen, unknown, fullmix, tgMove, lostMove, fullstop, weekout, weekoutDay: new Date(Date.now() + 162 * 3600e3).getDate(), staleMove, ncMove, sleepyMove, mine, unwired, lastweek, unsureNote, modelWarn, domWarn, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS, goneFull: GONE_FULL });
       /* #6175: the page stays open for the set-up step below; it is closed after it (and here, on an error). */
       if (r.error) { say(false, tag + ' ' + r.error); await page.close(); continue; }
@@ -324,6 +345,12 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(mw.near === 'Its Fable limit is at 72% for the week, so Lyra may stop there soon.', tag + ' review 1: a limit at 72% is not called full', JSON.stringify(mw.near));
       say(mw.twice === 'Its Fable limit is full for the week, so Lyra would stop there.', tag + ' review 1: two entries for one model name the agent once', JSON.stringify(mw.twice));
       say(mw.opusOnly === '' && mw.room === '' && mw.past === '' && mw.none === '', tag + ' CONTROL: no warning for another model, a limit with room, a limit past its reset, or none', JSON.stringify([mw.opusOnly, mw.room, mw.past, mw.none]));
+      const dw = r.domWarn || {};
+      const fullSaid = 'Its Fable limit is full for the week, so Ly<b>ra would stop there.';
+      say(!!dw.full && dw.full.text === fullSaid && dw.full.markup === false, tag + ' review 1 finding 5: picking a target with a full Fable limit shows the warning on the page, the agent name as text', JSON.stringify(dw.full));
+      say(!!dw.full && dw.full.live === 'polite' && dw.full.shown && dw.full.described, tag + ' review 1 finding 5: the warning is a live region in the page, and the menu is described by it', JSON.stringify(dw.full));
+      say(dw.fullOpt === 'fablefull@example.com (30% used, a model limit is in the way)', tag + ' review 1 finding 5: the menu option itself says a model limit is in the way', JSON.stringify(dw.fullOpt));
+      say(!!dw.before && dw.before.text === '' && dw.before.shown && !!dw.roomy && dw.roomy.text === '' && !!dw.placeholder && dw.placeholder.text === '' && dw.placeholder.shown && dw.spareOpt === 'spare@example.com (20% used)', tag + ' CONTROL: no pick, a roomy target, and back to the placeholder each leave the warning empty (and still in the page)', JSON.stringify([dw.before, dw.roomy, dw.placeholder, dw.spareOpt]));
       say(!!r.sleepyMove && r.sleepyMove.msg === 'Moved Zed (stopped). It is not running now.', tag + ' moving a stopped agent reads as moved, still stopped, through the route\'s real reply', JSON.stringify(r.sleepyMove));
       say(!!busy && busy.btnDisabled === true, tag + ' Move is disabled until a target is picked');
       say(r.pickKept === true, tag + ' a picked target survives a repaint, with Move awake');
