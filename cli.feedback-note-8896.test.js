@@ -62,7 +62,7 @@ test('the note text can be piped in, or given with --body-file', async () => {
   assert.match(s, /\nfrom a file\n$/);
 });
 
-test('an earlier day: --date adds to that day\'s report and says it stays on this computer', async () => {
+test('an earlier day: --date adds to that day\'s report; with nothing ever sent here it is not queued (#8900)', async () => {
   const h = makeHome();
   assert.equal((await run(['feedback', 'show', '2026-11-05'], h)).out.trim(), 'No product-feedback report for 2026-11-05 yet.');
   // Write that day's report through the engine (the CLI's write is today's, or --unchanged's day).
@@ -72,8 +72,8 @@ test('an earlier day: --date adds to that day\'s report and says it stays on thi
   assert.equal(w.status, 0, String(w.stderr));
   const n = await run(['feedback', 'note', '--date', '2026-11-05', 'a correction'], h);
   assert.equal(n.code, 0, n.both);
-  // A fresh store has sent nothing, so that day is not the last one sent: it stays here (engine/feedbacksend-note-8896 covers the day that does go).
-  assert.match(n.out, /^\s*Added the note to your report of 2026-11-05, on this computer\. Kosmos sends an earlier day only when it is the last day it sent, and this one is not, so this note stays here\./);
+  // Nothing was ever sent from this fresh store, so the note stays here (engine/feedbacksend-note-8896 covers the sends).
+  assert.match(n.out, /^\s*Added the note to your report of 2026-11-05, on this computer\. Kosmos has no record of sending that day, so this note stays on this computer\./);
   assert.match((await run(['feedback', 'show', '2026-11-05'], h)).out, /^old report\n\nAdded later \(.*UTC\):\na correction\n$/);
 });
 

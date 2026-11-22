@@ -6442,7 +6442,7 @@ cmd_feedback() {
     note)
       # kosmos#8896: add a short note to a report this agent already wrote (today's, or --date YYYY-MM-DD), kept with it
       # and marked as added later, without rewriting it (engine/feedback.note). Text as words, piped in, or --body-file,
-      # as for write. A note on today's report is sent the way write sends; an earlier day's stays on this computer.
+      # as for write. A note on today's report is sent the way write sends; an earlier day's is queued for the board's hourly check (#8900).
       # Node exits 4 for no report of this agent's that day, 5 for no text, 6 for a bad or future date; each saves nothing.
       local _nu="Usage: kosmos feedback note [--date YYYY-MM-DD] [--body-file <file>] [text]      (or pipe it in on stdin; adds a note to a report you already wrote, today's unless --date)"
       local _nd="" _nrest=() _npast=0
@@ -6471,7 +6471,7 @@ cmd_feedback() {
         const fb = require(app + "/engine/feedback");
         let fbs;
         try { fbs = require(app + "/engine/feedbacksend"); } catch { process.stdout.write("Added the note on this computer. Kosmos could not check whether it will be sent."); process.exit(0); }
-        if (r.date !== fb.today()) { process.stdout.write(fbs.earlierNoteMessage(r.date)); process.exit(0); }   /* review 1: that day can still go out */
+        if (r.date !== fb.today()) { process.stdout.write(fbs.noteEarlierDay(r.date)); process.exit(0); }   /* kosmos#8900: queued for the hourly check, or why not */
         fbs.sendNow(r.date).then((x) => process.stdout.write(fbs.noteMessage(x && x.state)), () => process.stdout.write(fbs.noteMessage("failed")));
       ' "$KOSMOS_HOME/app")" && fb_rc=0 || fb_rc=$?
       # Review 5: node's own fatal exits can reuse 4 to 6 (5 is out of memory), so they mean "refused" only when the save
