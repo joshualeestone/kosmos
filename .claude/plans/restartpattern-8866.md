@@ -29,6 +29,12 @@ checked (#8287). Nothing joins notes: each restart overwrote the last, so a patt
   without the person, a normal cause of several restarts in a week.
 - The count is a lower bound (only restarts that made a note are kept), so the line says "at least".
 - Uninstall removes the history with the other remembered-answer files (install/setup.sh; now seven).
+- On a Kosmos cloud machine (round 6's NIT, taken 11-22 00:4x): the restart note shows there too, and its hardware hint
+  is not the person's to act on. There the line keeps the count and dates and says "Kosmos+ runs this machine, so if you
+  did not restart it yourself, there is nothing for you to fix." Rejected: hiding the line on cloud (the dates are still
+  true and worth knowing); pointing to a help button (I could not confirm one is reachable on a cloud board). Weakest
+  premise: that Kosmos+ sees a cloud machine's restarts on its own. The words do not claim that; they only say it is
+  not the person's job. The browser check sets the served meta to 1 and repaints; with the old page the arm is red.
 - Weakest premise: a person who restarts their computer on purpose three times in a week gets the line; the "if you
   did not restart it yourself" clause is what keeps it true for them.
 

@@ -25397,9 +25397,14 @@ function rebootPattern(p) {
   for (const d of days) { const f = seen.find((x) => x.d === d); if (f) f.n++; else seen.push({ d, n: 1 }); }
   const listed = seen.map((x) => (x.n === 2 ? 'twice on ' : x.n > 2 ? x.n + ' times on ' : '') + x.d).join(', ');
   // "at least": only a restart that made a note is counted (one Kosmos was not running for is not).
-  return (typeof ThisMachine === 'function' ? ThisMachine() : 'This computer') + ' has restarted at least ' + p.count
-    + ' times within a week while Kosmos was running (' + listed + '). If you did not restart it yourself and it was not'
-    + ' installing updates, restarts this often usually mean a hardware or driver problem worth having looked at.';
+  const said = (typeof ThisMachine === 'function' ? ThisMachine() : 'This computer') + ' has restarted at least ' + p.count
+    + ' times within a week while Kosmos was running (' + listed + ').';
+  /* A cloud machine's hardware is not the person's to have looked at: Kosmos+ runs it (the same words its join ask uses). */
+  if (typeof onCloudMachine === 'function' && onCloudMachine()) {
+    return said + ' Kosmos+ runs this machine, so if you did not restart it yourself, there is nothing for you to fix.';
+  }
+  return said + ' If you did not restart it yourself and it was not installing updates, restarts this often usually mean'
+    + ' a hardware or driver problem worth having looked at.';
 }
 let REBOOT_RECHECK = null;   // kosmos#8287: agents return over minutes, so a list of who is not back is asked again soon
 /* kosmos#8297: ...but only for the first minutes after Kosmos came back (the note's upAt), which is when agents return.
