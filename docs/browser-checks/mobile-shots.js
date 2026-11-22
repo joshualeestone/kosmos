@@ -2546,7 +2546,7 @@ const SCREENS = [
   /* kosmos#6254: Settings, This Mac, Phone notifications with the master on and connected, so the per-kind switch
      rows show (needs you, replied, a post naming you, work ready, other room posts), with replied OFF so On and Off
      both appear. Only /api/phone-notify is stubbed, in the shape render-push-718.js uses. */
-  { name: 'settings-phone-notify-6254', owner: 'Ice Cream Kitty', go: async (page) => {
+  { name: 'settings-phone-notify-6254', owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page) => {
     const st = { available: true, on: true, connected: true,
       kinds: { needsYou: true, replied: false, postedMention: true, ready: true, postedRoom: false } };
     await page.route('**/api/phone-notify', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(st) }).catch(() => {}));

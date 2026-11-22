@@ -238,6 +238,7 @@ test('#6254: clicking a sub-switch PUTs { kind, on } and repaints from the answe
   const puts = h.calls.fetch.filter((c) => c.method === 'PUT');
   assert.deepEqual(puts[puts.length - 1].body, { kind: 'postedRoom', on: false });
   assert.equal(h.kindBtn('postedRoom').textContent, 'Off');
+  assert.equal(h.kindBtn('postedRoom').className, 'btn', 'the switch did not repaint as the outline after turning off');
 });
 
 test('#6254: a sub-switch does nothing while the master is off (no PUT)', async () => {
