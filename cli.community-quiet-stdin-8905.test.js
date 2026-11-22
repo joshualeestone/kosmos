@@ -160,7 +160,13 @@ test('#8905 review: with no node at all (no bundled one, none on PATH), a silent
     child.stderr.on('data', (d) => { both += d; });
     const killer = setTimeout(() => child.kill('SIGKILL'), 20000);
     child.on('error', reject);
-    child.on('close', (code) => { clearTimeout(killer); try { child.stdin.destroy(); } catch {} resolve({ code, both, ms: Date.now() - started }); });
+    child.on('close', (code, signal) => {
+      clearTimeout(killer);
+      try { child.stdin.destroy(); } catch {}
+      const res = { code, both, ms: Date.now() - started };
+      if (typeof res.code !== 'number') { reject(new Error('the CLI gave no exit code (' + signal + ') after ' + res.ms + ' ms: it hung')); return; }
+      resolve(res);
+    });
     child.stdin.on('error', () => {});
   });
   assert.ok(!fs.existsSync('/usr/bin/node') && !fs.existsSync('/bin/node'), 'this machine has a node on the bare PATH, so the case cannot be made here');
