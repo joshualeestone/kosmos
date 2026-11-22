@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: restartpattern-8866
-diff_hash: fb2eb5572b3a0c59ce9aafa2c27f22a6fd18ed31e24170fb5d0209c8dfc03192
-validation: PENDING (re-run after the round 8 change)
+diff_hash: affd9e01cdb1d64edee23ebe4bd3a189f04645020bee1caf2e4fcfdae8c75c95
+validation: passed (Agent1s full suite at f58bec1e48, hash fb2eb5572b3a, status clean: 30470 node tests 0 failed, 4 shell shards passed. The one commit after it changes only the cloud sentence, a test message and comments; at that head the reboot-note browser check passed 92/92 and the page and restart tests passed 3854/3854)
 subdir_audit: passed (no subdirectory CLAUDE.md changed)
-timestamp: 2026-11-22T06:51:27Z
+timestamp: 2026-11-22T07:35:45Z
 iterations: 8
 converged: true
 ---
@@ -108,3 +108,11 @@ Outside review: Renet Tilley read head 576cfa93ab at 20:13 CST: no blocker, 42 p
 - [NIT] web/index.html - "this machine" where the join ask says "it" --> FIXED ("Kosmos+ runs it for you", the join ask's words)
 - [NIT] engine/restartnote-8866.test.js:60 - the message named the wrong rule --> FIXED (names the last-alive rule; the Set only dedupes file entries)
 - [CONVENTION] docs/browser-checks/README.md:671 - the row omitted the #8866 arms --> FIXED
+
+### Outside review after iteration 8
+Ice Cream Kitty's blind reviewer read f58bec1e48: 0 BLOCKERs, 2 WARNINGs, 4 NITs.
+- [WARNING] web/index.html - the cloud line read as if someone were already dealing with the restarts --> FIXED ("Kosmos+ runs its hardware, so it is not yours to fix. This note is only on your board: Kosmos+ has not been told.")
+- [WARNING] rebootPattern is tested only by the browser check --> checked: the Browser-check trailer is on every web/ commit; 92/92 at each head
+- [NIT] the duplicate-note window comment --> FIXED
+- [NIT] the test message was a paragraph --> FIXED (the message says what went wrong; the reasoning is a comment)
+- [NIT] typeof ThisMachine fallback can never run --> kept, to match the code around it
