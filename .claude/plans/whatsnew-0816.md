@@ -10,8 +10,9 @@ Built with `node tools/whats-new-pool.js build 0.8.16` (online) on origin/main a
 "A just-started agent gets your first message" is Windows-only and was in 0.8.15's window, which Windows prod (0.8.15, fd2715b8aa2c) serves. The pool records Mac promotes only, so it is retired by hand: `status: shown`, `shownIn: 0.8.15`. Without that, Windows users would be told about it twice. Rebuilt after the edit.
 
 ## The list (5)
-- all: The restart note says when restarts repeat (#8866; shipped in 0.8.15, never yet in a window)
-- windows: Windows agents keep their account at login; Start at login stops misreading the account (shipped 0.8.06, never in a window)
+- all: The restart note says when restarts repeat (#8866; shipped in 0.8.15, never yet in a window; its words checked against 0.8.15 (f6ac36b940): engine/restartnote.js PATTERN_COUNT = 3 within PATTERN_MS = 7 days, and the board lists the dates)
+- windows: Windows agents keep their account at login (shipped 0.8.06, never in a window)
+- windows: Start at login stops misreading the account (shipped 0.8.06, never in a window)
 - all: No number left on the K mark (shipped 0.8.02; retitled from "The day count is off the K mark", which could read as "the count is wrong")
 - all: The computer control stays while a page loads (shipped 0.8.02)
 
