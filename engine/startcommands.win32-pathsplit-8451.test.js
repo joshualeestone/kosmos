@@ -10,29 +10,31 @@ const assert = require('node:assert');
 const sc = require('./startcommands');
 
 test('#8451: off Windows a PATH value splits on every colon, exactly as before', () => {
-  assert.deepEqual(sc.splitPathValue('/H/bin:/x:\u0000PATH', false, '/H'), ['/H/bin', '/x', '\u0000PATH']);
-  assert.deepEqual(sc.splitPathValue('C:\\H/bin:x', false, 'C:\\H'), ['C', '\\H/bin', 'x'], 'no home rule off Windows');
+  assert.deepEqual(sc.splitPathValue('/H/bin:/x:\u0000PATH', false, ['/H']), ['/H/bin', '/x', '\u0000PATH']);
+  assert.deepEqual(sc.splitPathValue('C:\\H/bin:x', false, ['C:\\H']), ['C', '\\H/bin', 'x'], 'no home rule off Windows');
   assert.deepEqual(sc.splitPathValue('a::b:', false), 'a::b:'.split(':'));
 });
 
 test('#8451: on Windows every plain piece is kept, the home is also read in its Git Bash /c/ form, and /c/ is C:', () => {
-  const w = (v) => sc.splitPathValue(v, true, 'C:\\H');
+  const w = (v) => sc.splitPathValue(v, true, ['C:\\H']);
   assert.deepEqual(w('C:\\H/bin:\u0000PATH'), ['C', '\\H/bin', '\u0000PATH', 'C:/H/bin'], 'the home piece whole, plus the plain split');
   assert.deepEqual(w('/x:C:\\H/bin:C:\\H:\u0000PATH'), ['X:/', 'C', '\\H/bin', 'C', '\\H', '\u0000PATH', 'C:/H/bin', 'C:/H'], 'the home after a colon too; /x is the X: drive root (cygpath -w)');
   assert.deepEqual(w('c:\\h/bin'), ['c', '\\h/bin', 'C:/H/bin'], 'the home matched without regard to case');
   // Review 3: the home inside a piece (x$HOME/bin) reaches bash as x/c/H/bin, a folder where the command runs.
   assert.deepEqual(w('xC:\\H/bin'), ['xC', '\\H/bin', 'x/c/H/bin'], 'the home inside a piece');
-  assert.deepEqual(sc.splitPathValue('C:\\a.b\\H/x', true, 'C:\\a.b\\H'), ['C', '\\a.b\\H/x', 'C:/a.b/H/x'], 'a home with a dot');
-  assert.deepEqual(sc.splitPathValue('C:\\aXb\\H/x', true, 'C:\\a.b\\H'), ['C', '\\aXb\\H/x'], 'the dot in the home is literal, not any character');
+  assert.deepEqual(sc.splitPathValue('C:\\a.b\\H/x', true, ['C:\\a.b\\H']), ['C', '\\a.b\\H/x', 'C:/a.b/H/x'], 'a home with a dot');
+  assert.deepEqual(sc.splitPathValue('C:\\aXb\\H/x', true, ['C:\\a.b\\H']), ['C', '\\aXb\\H/x'], 'the dot in the home is literal, not any character');
   assert.deepEqual(w('C:\\Homer/bin'), ['C', '\\Homer/bin'], 'C:\\Homer is not the home C:\\H: a whole folder name only');
   assert.deepEqual(w('C:/tools:x'), ['C', '/tools', 'x'], 'a typed drive path splits, as Git Bash splits it (measured)');
   assert.deepEqual(w('D:\\H/bin'), ['D', '\\H/bin'], 'another drive is not the home');
   // A bare drive is its root, D:/: a bare D: would be the current folder on D: once resolved (review 2).
   assert.deepEqual(w('/c/tools:/d:/e/:\u0000PATH'), ['C:/tools', 'D:/', 'E:/', '\u0000PATH'], 'Git Bash drive form, and a bare drive');
   assert.deepEqual(w('/cc/x:/c2/y'), ['/cc/x', '/c2/y'], 'only a single-letter first folder is a drive');
-  assert.deepEqual(sc.splitPathValue('C:\\H/bin', true, ''), ['C', '\\H/bin'], 'no home known: plain split');
-  assert.deepEqual(sc.splitPathValue('C:\\H/bin', true, 'relative'), ['C', '\\H/bin'], 'a home that is not a drive path: plain split');
-  assert.deepEqual(sc.splitPathValue('C:\\H\\/bin', true, 'C:\\H\\'), ['C', '\\H\\/bin', 'C:/H\\/bin'], 'a home given with a trailing slash');
+  assert.deepEqual(sc.splitPathValue('C:\\H/bin', true, ['']), ['C', '\\H/bin'], 'no home known: plain split');
+  assert.deepEqual(sc.splitPathValue('C:\\H/bin', true, ['relative']), ['C', '\\H/bin'], 'a home that is not a drive path: plain split');
+  assert.deepEqual(sc.splitPathValue('C:\\H\\/bin', true, ['C:\\H\\']), ['C', '\\H\\/bin', 'C:/H\\/bin'], 'a home given with a trailing slash');
+  // Review 5: a converted variable that is a bare drive root (HOME=D:\) is /d/ to Git Bash, so ~/bin is D:/bin.
+  assert.deepEqual(sc.splitPathValue('D:\\/bin:x', true, ['D:\\']), ['D', '\\/bin', 'x', 'D:/bin'], 'a drive-root home');
   for (const v of ['a::b:', ':a', 'a', '']) assert.deepEqual(w(v), v.split(':'), 'same pieces as split for ' + JSON.stringify(v));
   // Review 4: Git Bash converts TMP, TEMP and TMPDIR too (measured), so their values are read in /c/ form as well.
   assert.deepEqual(sc.splitPathValue('D:\\t/bin', true, ['C:\\H', 'D:\\t']), ['D', '\\t/bin', 'D:/t/bin'], 'a TMPDIR on another drive');

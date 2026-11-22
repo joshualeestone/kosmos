@@ -372,7 +372,8 @@ function splitPathValue(value, win, converted = []) {
   if (!dirs.length) return out;
   let bashForm = value;   // the value as Git Bash holds it once those variables are expanded
   for (const d of dirs) {
-    const asBash = '/' + d[0].toLowerCase() + d.slice(2).replace(/\\/g, '/');   // C:\H -> /c/H, as Git Bash gives it
+    // C:\H -> /c/H, as Git Bash gives it; a bare drive root (D:\, stripped to D:) -> /d/, so drive() reads it as D:/.
+    const asBash = '/' + d[0].toLowerCase() + (d.length === 2 ? '/' : d.slice(2).replace(/\\/g, '/'));
     const at = new RegExp(d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\\/g, '[\\\\/]') + '(?=[\\\\/:]|$)', 'gi');
     bashForm = bashForm.replace(at, asBash);
   }
