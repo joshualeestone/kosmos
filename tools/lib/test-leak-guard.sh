@@ -136,6 +136,56 @@ leak_process_check() {
   return "$found"
 }
 
+# kosmos#8890: leak_process_stop_root <root>: at the END of a run (its exit trap, so also when it is stopped), stop
+# every process whose command line names THIS run's root, orphaned or not. leak_process_check above judges only
+# orphans and runs only after a suite that finished; a run stopped part way never reaches it, and its test stub
+# servers then outlive the folder they were started from, re-parented to init and holding their ports (six on one
+# night, 11-22). Matched by the root's exact path (with a following "/", "=" or space, the same forms as above, so
+# kt123 never matches kt1234), never by a name: other agents run on this Mac as the same user (#6698). TERM, up to a
+# 3-second grace, then KILL whatever still names the root. Never this shell. Says what it stopped, one line each;
+# says nothing when there was nothing. Always returns 0: an exit trap must not fail on it.
+leak_process_stop_root() {
+  local root="${1%/}" real line pid ppid cmd snap stopped="" n=0 i
+  [ -n "$root" ] || return 0
+  real=$(cd "$root" 2>/dev/null && pwd -P) || real="$root"
+  _lpsr_names() {
+    case "$1" in *"$root/"*|*"$real/"*|*"=$root "*|*"=$real "*|*"=$root"|*"=$real"|*" $root "*|*" $real "*|*" $root"|*" $real") return 0 ;; esac
+    return 1
+  }
+  # Snapshot FIRST, filter after (a `ps | grep` pipeline would list the grep, and this shell's own pids are skipped).
+  snap=$(ps -Awwo pid=,ppid=,command= 2>/dev/null) || return 0
+  while IFS= read -r line; do
+    read -r pid ppid cmd <<< "$line"
+    case "$pid" in ''|*[!0-9]*) continue ;; esac
+    [ "$pid" = "$$" ] && continue
+    [ "$pid" = "${BASHPID:-$$}" ] && continue
+    _lpsr_names "$cmd" || continue
+    kill -TERM "$pid" 2>/dev/null || continue
+    stopped="$stopped $pid "
+    n=$((n + 1))
+    echo "run-tests: stopped process $pid this run left running: ${cmd%% *} (#8890)"
+  done <<< "$snap"
+  [ "$n" -gt 0 ] || return 0
+  # The grace: up to 3 s, ended early once none of them is left.
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    snap=$(ps -Awwo pid=,ppid=,command= 2>/dev/null) || break
+    local left=0
+    while IFS= read -r line; do
+      read -r pid ppid cmd <<< "$line"
+      case "$stopped" in *" $pid "*) _lpsr_names "$cmd" && left=1 ;; esac
+    done <<< "$snap"
+    [ "$left" -eq 1 ] || return 0
+    sleep 0.2
+  done
+  # KILL only a pid that is still one of ours AND still names the root (a pid reused since names something else).
+  snap=$(ps -Awwo pid=,ppid=,command= 2>/dev/null) || return 0
+  while IFS= read -r line; do
+    read -r pid ppid cmd <<< "$line"
+    case "$stopped" in *" $pid "*) _lpsr_names "$cmd" && kill -KILL "$pid" 2>/dev/null && echo "run-tests: KILLed process $pid, which outlived its TERM (#8890)" ;; esac
+  done <<< "$snap"
+  return 0
+}
+
 # The family name of a temp entry, so every run of one test maps to one name:
 #  - the random tail: the last token if it is 6 (node mkdtemp) or 10 (macOS mktemp)
 #    characters after a separator, otherwise the last 6 characters (a mkdtemp prefix
