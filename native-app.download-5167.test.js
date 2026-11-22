@@ -410,13 +410,18 @@ test('#5167 (11-18): the restarted download is this app\'s, has this delegate, a
 });
 
 test('kosmos#8879: the refused-folder waits end by a clock, and one that runs out says so without taking the build\'s verdict', () => {
-  const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
+  const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'),
+    SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest")'));
+  assert.ok(hatch.length > 1000, 'the --kosmos-app-download-selftest hatch is gone');
   assert.match(hatch, /let refusedWaitSeconds = (\d+(\.\d+)?)/, 'the refused-folder waits have a time bound');
   assert.match(hatch, /func now8879\(\) -> TimeInterval \{ ProcessInfo\.processInfo\.systemUptime \}/, 'the bound reads the uptime clock, not the wall clock');
   for (const fn of ['whenAsked', 'whenDenied']) {
     const body = (hatch.match(new RegExp('func ' + fn + '\\([^\\n]*\\{\\n([\\s\\S]*?)\\n        \\}')) || [])[1] || '';
     assert.match(body, /if now8879\(\) - began >= refusedWaitSeconds \{ ranOut\(/, fn + ' ends by the clock and says so when it runs out');
   }
+  const denied = (hatch.match(/func whenDenied\([^\n]*\{\n([\s\S]*?)\n        \}/) || [])[1] || '';
+  assert.match(denied, /if now8879\(\) - began >= refusedWaitSeconds \{ ranOut\(3, began\); chmod\(dl\.path, 0o700\); then\(\)/,
+    'whenDenied restores the folder when it runs out, before the run goes on');
   assert.doesNotMatch(hatch, /whenAsked\(\d+, \d+\)|whenDenied\(\d+\)/, 'a wait is bounded by a poll count again (150 polls measured about 34s, not 15s)');
   const line = (hatch.match(/print\("(download selftest WAIT RAN OUT \(kosmos#8879\)(?:[^"\\]|\\.)*)"\)/) || [])[1];
   assert.ok(line && line.includes('(seen '), 'the ran-out line is printed, read to its end');
