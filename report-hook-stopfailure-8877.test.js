@@ -40,7 +40,10 @@ function blockedOn(event, env = {}) {
 const REAL = { hook_event_name: 'StopFailure', session_id: 'sess-1', cwd: '/w/agent', error: 'rate_limit', error_details: 'usage_limit_reached',
   last_assistant_message: 'You\'ve hit your Fable limit · resets 4pm (America/Chicago). {"error":"not this one"}' };
 
+/* Review 2: the jq arm says when this machine has no jq, rather than quietly testing the no-jq path twice. */
+const HAS_JQ = cp.spawnSync('sh', ['-c', 'command -v jq'], { encoding: 'utf8' }).status === 0;
 for (const [label, env] of [['with jq', {}], ['without jq', { KOSMOS_REPORT_HOOK_NO_JQ: '1' }]]) {
+  if (label === 'with jq' && !HAS_JQ) { test('kosmos#8877 (with jq): skipped, this machine has no jq', { skip: 'no jq here' }, () => {}); continue; }
   test(`kosmos#8877 (${label}): a real usage-limit stop is recorded as provider api (rate_limit)`, () => {
     assert.equal(blockedOn(REAL, env), 'provider api (rate_limit)', 'a real usage-limit stop was recorded as an api error, so #5805 never sees it');
   });
@@ -49,6 +52,8 @@ for (const [label, env] of [['with jq', {}], ['without jq', { KOSMOS_REPORT_HOOK
     assert.equal(blockedOn(nested, env), 'provider api (rate_limit)', 'the nested error_details "error" won (the no-jq sed takes the LAST match)');
     assert.equal(blockedOn({ hook_event_name: 'StopFailure', error: 429, matcher: 'rate_limit' }, env), 'provider api (rate_limit)', 'a number in error was taken for a kind');
     assert.equal(blockedOn({ hook_event_name: 'StopFailure', error: 'Something went wrong: try again' }, env), 'provider api (an api error)', 'a whole message was taken for a kind');
+    const odd = { hook_event_name: 'StopFailure', error: 'Rate Limit', error_details: { error: 'invalid_request' }, matcher: 'rate_limit' };
+    assert.equal(blockedOn(odd, env), 'provider api (rate_limit)', 'review 2: a non-kind top-level error fell into the nested one instead of matcher');
   });
   test(`kosmos#8877 (${label}): the older shape still reads, and a stop with no kind is an api error`, () => {
     assert.equal(blockedOn({ hook_event_name: 'StopFailure', matcher: 'rate_limit' }, env), 'provider api (rate_limit)', 'the older matcher shape stopped reading');

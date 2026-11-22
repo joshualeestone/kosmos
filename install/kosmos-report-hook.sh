@@ -662,7 +662,10 @@ case "$EVENT" in
     else
       KIND=""
       for K in error matcher error_type; do
-        KIND=$(printf '%s' "$INPUT" | grep -oE '"'"$K"'"[[:space:]]*:[[:space:]]*"[a-z_]{1,40}"' | head -1 | sed 's/.*"\([a-z_]*\)"$/\1/')
+        # Review 2: the FIRST string value of the key, whatever it holds, and only then is it checked for a kind, so a
+        # non-kind top-level value goes on to the next field (as jq and node) instead of a nested one further on.
+        V=$(printf '%s' "$INPUT" | grep -oE '"'"$K"'"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/')
+        case "$V" in *[!a-z_]*|'') ;; *) [ ${#V} -le 40 ] && KIND="$V" ;; esac
         [ -n "$KIND" ] && break
       done
     fi

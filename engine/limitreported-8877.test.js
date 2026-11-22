@@ -86,3 +86,15 @@ test('kosmos#8877 review 1: a reported limit that has passed (the agent recovere
   const full = [{ ...rows[0], weekly: { usedPct: 100, resetsAt: NOW + 40 * H } }, rows[1]];
   assert.deepEqual(ab.decide({ rows: full, movable, nowMs: NOW, modelOf }).moves.map((m) => [m.agent, m.limitFull]), [['zed', true]], 'CONTROL: stuck on a full week, it was not moved');
 });
+
+test('kosmos#8877 review 2: an agent whose model is unknown, stopped by the report on a full model limit, is moved', () => {
+  const NOW = Date.now(); const H = 3600000;
+  const unknown = { ...cardWith(LIMIT), modelName: null, model: null, earlierModelName: null };
+  const row = (dir, o) => ({ provider: 'anthropic', dir, email: dir + '@example.test', memoryShared: true, apiKey: false, connection: { badge: 'working' },
+    weekly: { usedPct: 20, resetsAt: NOW + 72 * H }, fiveHour: null, agentsHere: { names: [], complete: true }, scoped: [], ...o });
+  const movable = ab.movableFor({ cards: [unknown], records: [], readCommitment: () => ({ state: 'clear' }), isGuide: () => false, guideName: () => null, nowMs: NOW });
+  const modelOf = ab.modelOfFrom([unknown], NOW);
+  const rows = [row('/c', { weekly: { usedPct: 55, resetsAt: NOW + 41 * H }, scoped: [{ model: 'Fable', usedPct: 100, resetsAt: NOW + 20 * H }], agentsHere: { names: ['zed'], complete: true } }),
+    row('/d', { weekly: { usedPct: 20, resetsAt: NOW + 90 * H } })];
+  assert.deepEqual(ab.decide({ rows, movable, nowMs: NOW, modelOf }).moves.map((m) => m.agent), ['zed'], 'an unknown-model agent stopped by the report on a full Fable limit was left there');
+});

@@ -28,3 +28,8 @@
 - WARNING: the no-jq sed took the LAST "error" (a nested error_details). Fixed: the first `"error":"<kind>"` on the line; pinned with an object error_details decoy (the old decoy could not fail).
 - NIT: a kind must look like one (^[a-z_]{1,40}$) in both hooks; a number, a message or an object falls through.
 - NIT (accepted, for the PR text): real server_error stops now clear on an automatic idle (#6209 starts working); kinds like max_output_tokens now read as themselves.
+
+## Review round 2 (blind): 0 BLOCKER, 2 WARNINGs, 3 NITs
+- WARNING: the no-jq path could fall into a nested "error" where jq and node go on to matcher. Fixed: the FIRST string value of each key, then checked for a kind; pinned with the reviewer's input.
+- WARNING: nothing pinned automove's three uses of limitFull. Fixed: an end-to-end test in automove-7548.test.js (a reported limit holding a commitment moves on a full week, with the "stopped at its usage limit" message; not at 93%); each of the three sites mutated turns it red.
+- NIT: the jq arm skips (with a reason) on a machine with no jq. NIT: an unknown-model case through the at-limit inference. NIT (residual, for the PR): with extra usage on, a 100% week does not prove the agent is stuck (the same residual #8048 review 5 documents for the screen path).
