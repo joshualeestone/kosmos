@@ -23,20 +23,14 @@
       ]
     },
     {
-      "icon": "shield",
-      "title": "A removed startup job explains its folder",
-      "line": "On Windows, removing an agent's startup job says plainly what Start at login will do with its account folder.",
-      "platforms": [
-        "windows"
-      ]
+      "icon": "spark",
+      "title": "No number left on the K mark",
+      "line": "The daily sentence still comes out of the K mark, then folds away. No number stays behind to look like an unread message."
     },
     {
-      "icon": "shield",
-      "title": "A warning before an agent runs twice",
-      "line": "Adding an agent that another login job also starts now warns first and names that job.",
-      "platforms": [
-        "mac"
-      ]
+      "icon": "list",
+      "title": "The computer control stays while a page loads",
+      "line": "With two computers, the control at the top left no longer disappears while the page is loading."
     }
   ]
 }
