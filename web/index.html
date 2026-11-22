@@ -30713,12 +30713,16 @@ function acctModelRisks(target, cards, nameOfCard) {
     const k = acctModelKey(m.model); if (!k) continue;
     if (!byKey.has(k) || m.usedPct > byKey.get(k).usedPct) byKey.set(k, m);
   }
-  if (!byKey.size) return { models: [], unknown: [], top: null };
-  const modelOf = (c) => (c && (c.modelName || c.model || c.earlierModelName)) || null;
-  const models = [...byKey].map(([key, m]) => ({ key, model: m.model, usedPct: m.usedPct, full: m.usedPct >= ACCT_MODEL_FULL_PCT,
-    names: (cards || []).filter((c) => acctModelKey(modelOf(c)) === key).map(nameOfCard) })).filter((x) => x.names.length);
+  if (!byKey.size) return { models: [], unknown: [], unknownIds: [], top: null };
+  /* Review 4: a planned model counts as known, as the agent's tile shows it (the engine's modelOfFrom reads only the
+     running and earlier ones, so for it such an agent is unknown and kept off any limit at 70%+: the stricter side). */
+  const modelOf = (c) => (c && (c.modelName || c.model || c.plannedModelName || c.earlierModelName)) || null;
+  const idOf = (c) => (c && c.sessionName) || nameOfCard(c);   // review 4: compared by session, so a rename is not new
+  const models = [...byKey].map(([key, m]) => { const on = (cards || []).filter((c) => acctModelKey(modelOf(c)) === key);
+    return { key, model: m.model, usedPct: m.usedPct, full: m.usedPct >= ACCT_MODEL_FULL_PCT, names: on.map(nameOfCard), ids: on.map(idOf) }; }).filter((x) => x.names.length);
   const top = [...byKey.values()].reduce((a, b) => (b.usedPct > a.usedPct ? b : a));
-  return { models, unknown: (cards || []).filter((c) => !acctModelKey(modelOf(c))).map(nameOfCard), top: { model: top.model, usedPct: top.usedPct, full: top.usedPct >= ACCT_MODEL_FULL_PCT } };
+  const unk = (cards || []).filter((c) => !acctModelKey(modelOf(c)));
+  return { models, unknown: unk.map(nameOfCard), unknownIds: unk.map(idOf), top: { model: top.model, usedPct: top.usedPct, full: top.usedPct >= ACCT_MODEL_FULL_PCT } };
 }
 /* The risks as words, naming the account they go to (review 2: on the row being left, "Its" read as that row), or ''
    when nothing is in the way. Plain text: the caller escapes it. */
@@ -30728,7 +30732,7 @@ function acctModelWarn(target, cards, nameOfCard, targetName) {
   const list = (xs) => (xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]);   // review 3: "Lyra and Ida"
   const level = (m) => (m.full ? 'full' : 'at ' + Math.round(m.usedPct) + '%');
   const parts = models.map((m) => 'On ' + where + ', the ' + m.model + ' limit is ' + level(m) + ' for the week, so '
-    + list(m.names) + (m.full ? (m.names.length === 1 ? ' would stop there.' : ' would all stop there.') : (m.names.length === 1 ? ' may stop there soon.' : ' may all stop there soon.')));
+    + list(m.names) + (m.full ? ' could not run there.' : m.names.length === 1 ? ' may stop there soon.' : m.names.length === 2 ? ' may both stop there soon.' : ' may all stop there soon.'));   // review 4: true of a stopped agent too
   /* Review 3: with only unknown-model agents at stake, say the level as the known-model sentence would. */
   if (unknown.length) parts.push((parts.length || !top ? '' : 'On ' + where + ', the ' + top.model + ' limit is ' + level(top) + ' for the week. ') + 'Kosmos cannot tell which model ' + list(unknown) + (unknown.length === 1 ? ' uses' : ' use') + ', so '
     + (unknown.length === 1 ? 'it' : 'they') + ' may stop there' + (parts.length ? ' too.' : '.'));
@@ -30739,9 +30743,11 @@ function acctModelWarn(target, cards, nameOfCard, targetName) {
    moved within the same level, or an agent that left, is not new. */
 function acctModelRiskNew(was, now) {
   const w = new Map(was.models.map((m) => [m.key, m]));
-  const wasUnknown = new Set(was.unknown);
-  return now.models.some((m) => { const o = w.get(m.key); return !o || (m.full && !o.full) || m.names.some((n) => !o.names.includes(n)); })
-    || now.unknown.some((n) => !wasUnknown.has(n));
+  const wasUnknown = new Set(was.unknownIds || []);
+  return now.models.some((m) => { const o = w.get(m.key); return !o || (m.full && !o.full) || m.ids.some((n) => !o.ids.includes(n)); })
+    || (now.unknownIds || []).some((n) => !wasUnknown.has(n))
+    /* Review 4: an unknown-model agent drawn under a near limit, which is now full, is as new as a known one. */
+    || ((now.unknownIds || []).length > 0 && !!now.top && now.top.full && !(was.top && was.top.full));
 }
 function acctBulkTarget(x, fromDir) {
   return !!x && !!x.dir && x.dir !== fromDir && x.bulkTargetable === true;
@@ -32111,9 +32117,10 @@ async function paintAccounts(opts) {
           const cards = names.map((n) => (LAST || []).find((x) => x && x.sessionName === n) || { sessionName: n });
           const cardName = (c) => (c && (c.name || c.sessionName)) || 'an agent';
           const drawn = drawnRisk;
-          const was = drawn ? drawn.risks : { models: [], unknown: [], top: null };   // nothing recorded: anything at stake now is new
+          const lower = (x) => x.charAt(0).toLowerCase() + x.slice(1);   // review 4: "Nothing moved: on X, ..." like the other refusals
+          const was = drawn ? drawn.risks : { models: [], unknown: [], unknownIds: [], top: null };   // nothing recorded: anything at stake now is new
           if (!acctModelRiskNew(was, acctModelRisks(ft, cards, cardName))) return false;
-          said = 'Nothing moved: ' + acctModelWarn(ft, cards, cardName, (drawn && drawn.label) || acctPrimaryName(ft) || 'that account') + ' Pick again.';
+          said = 'Nothing moved: ' + lower(acctModelWarn(ft, cards, cardName, (drawn && drawn.label) || acctPrimaryName(ft) || 'that account')) + ' Pick again.';
           return true; })()) { /* said is set */ }
         else said = await moveAccountAgents(from, to, names, (done, all) => {
           const b = document.querySelector('[data-acct-move="' + CSS.escape(from) + '"]');   // the current button, after any repaint
