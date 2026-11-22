@@ -356,8 +356,10 @@ const INNER_ABS = /(?:^|[^A-Za-z0-9_.~/$-])(\/[^\s'"`()<>;|&,/][^\s'"`()<>;|&,]*
      printed /d/... for those four, while USERPROFILE, APPDATA, CLAUDE_PROJECT_DIR and others stayed D:\...). So ~ and
      those variables are /c/ folders to bash wherever they sit in the value (x$HOME/bin is the folder x/c/H/bin where
      the command runs). Kosmos has already expanded them to their Windows values by now and cannot tell them from a
-     variable or literal with the same text, so the value is ALSO split with every whole occurrence of those values
-     (C:\Homer is not C:\H) rewritten in that /c/ form, and the folders of both splits are named;
+     variable or literal with the same text, so the value is ALSO split with every occurrence of those values rewritten
+     in that /c/ form, and the folders of both splits are named. Any occurrence, not only a whole folder name: bash
+     holds ${HOME}.local/bin as /c/H.local/bin, and rewriting C:\Homer as /c/Homer names the same folder, so a
+     match that is not the home costs only a duplicate name;
    - a one-letter first folder is that drive (cygpath -w: /c/x is C:\x, /x is X:\, the drive's root).
    Off Windows the value splits on every ':' exactly as before. `converted` is the Windows values of those variables. */
 const GIT_BASH_CONVERTS = ['HOME', 'TMP', 'TEMP', 'TMPDIR'];
@@ -374,7 +376,8 @@ function splitPathValue(value, win, converted = []) {
   for (const d of dirs) {
     // C:\H -> /c/H, as Git Bash gives it; a bare drive root (D:\, stripped to D:) -> /d/, so drive() reads it as D:/.
     const asBash = '/' + d[0].toLowerCase() + (d.length === 2 ? '/' : d.slice(2).replace(/\\/g, '/'));
-    const at = new RegExp(d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\\/g, '[\\\\/]') + '(?=[\\\\/:]|$)', 'gi');
+    // Either slash in the value matches either slash in the variable's value (C:\H and C:/H are one folder).
+    const at = new RegExp(d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\\|\//g, '[\\\\/]'), 'gi');
     bashForm = bashForm.replace(at, asBash);
   }
   for (const p of bashForm.split(':').map(drive)) if (!out.includes(p)) out.push(p);

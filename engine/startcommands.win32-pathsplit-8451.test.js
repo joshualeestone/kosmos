@@ -24,7 +24,11 @@ test('#8451: on Windows every plain piece is kept, the home is also read in its 
   assert.deepEqual(w('xC:\\H/bin'), ['xC', '\\H/bin', 'x/c/H/bin'], 'the home inside a piece');
   assert.deepEqual(sc.splitPathValue('C:\\a.b\\H/x', true, ['C:\\a.b\\H']), ['C', '\\a.b\\H/x', 'C:/a.b/H/x'], 'a home with a dot');
   assert.deepEqual(sc.splitPathValue('C:\\aXb\\H/x', true, ['C:\\a.b\\H']), ['C', '\\aXb\\H/x'], 'the dot in the home is literal, not any character');
-  assert.deepEqual(w('C:\\Homer/bin'), ['C', '\\Homer/bin'], 'C:\\Homer is not the home C:\\H: a whole folder name only');
+  // Review 6: any occurrence is rewritten, since ${HOME}.local/bin is /c/H.local/bin to bash; for C:\Homer, which is not
+  // the home, the rewrite names the same folder again (C:/Homer), so it costs only a duplicate.
+  assert.deepEqual(w('C:\\Homer/bin'), ['C', '\\Homer/bin', 'C:/Homer/bin'], 'a longer name: the same folder once more');
+  assert.deepEqual(w('C:\\H.local/bin'), ['C', '\\H.local/bin', 'C:/H.local/bin'], '${HOME}.local');
+  assert.deepEqual(sc.splitPathValue('C:\\H/bin', true, ['C:/H']), ['C', '\\H/bin', 'C:/H/bin'], 'either slash matches either slash');
   assert.deepEqual(w('C:/tools:x'), ['C', '/tools', 'x'], 'a typed drive path splits, as Git Bash splits it (measured)');
   assert.deepEqual(w('D:\\H/bin'), ['D', '\\H/bin'], 'another drive is not the home');
   // A bare drive is its root, D:/: a bare D: would be the current folder on D: once resolved (review 2).
@@ -43,7 +47,7 @@ test('#8451: on Windows every plain piece is kept, the home is also read in its 
   // A TMP inside the home is rewritten as itself (longest first), giving the same folder either way.
   assert.deepEqual(sc.splitPathValue('C:\\H\\T/x', true, ['C:\\H', 'C:\\H\\T']), ['C', '\\H\\T/x', 'C:/H/T/x'], 'nested values');
   assert.deepEqual(sc.splitPathValue('C:\\H/x', true, [undefined, '', 'rel', 'C:\\H']), ['C', '\\H/x', 'C:/H/x'], 'missing or relative values are skipped');
-  assert.equal(sc.splitPathValue.length, 2, 'the converted list is optional');
+  assert.deepEqual(sc.splitPathValue('C:\\H/x', true), ['C', '\\H/x'], 'no converted list: the plain split');
 });
 
 const WIN_ONLY = process.platform !== 'win32' && 'Windows only: it resolves Windows drive paths, which only the Windows path module does';
@@ -53,6 +57,9 @@ test('#8451: on Windows a PATH= value names the home folder whole AND every fold
   // agent folder's drive (C:\H\bin), so the real home folder, D:\H\bin, the one Git Bash searches, was never named.
   const v0 = { HOME: 'D:\\H', PATH: '\u0000PATH' };
   const other = (c) => sc.pathsOfWords(sc.shellWords(c, v0), 'C:\\A', v0).runPaths;
+  // Review 6: the home followed by more of a folder name is still the home's /d/ form to bash.
+  assert.ok(other('PATH="${HOME}.local/bin:$PATH" myhook').includes('D:\\H.local\\bin\\myhook'), '${HOME}.local/bin on another drive');
+  assert.ok(other('PATH="$HOME-tools:$PATH" myhook').includes('D:\\H-tools\\myhook'), '$HOME-tools');
   assert.ok(other('PATH=~/bin:$PATH myhook').includes('D:\\H\\bin\\myhook'), '~ names the home folder on its own drive');
   assert.ok(other('PATH="$HOME/.bun/bin:$PATH" bun run x.ts').includes('D:\\H\\.bun\\bin\\bun'), '$HOME too');
   // Below, the agent folder sits under the home, as it does on a real box.
