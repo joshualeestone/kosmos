@@ -123,3 +123,13 @@ test('kosmos#8899 CONTROL: feedback note adds a note piped in whole, as before',
   assert.equal(r.code, 0, r.both);
   assert.match(savedBody(h.data), /a note piped in whole/);
 });
+
+/* Review 1: only white space, then quiet, is an empty body (as on Windows), not a report cut short. */
+test('kosmos#8899 review 1: feedback write given only white space on an open pipe says there is no body, not cut short', async () => {
+  const h = makeHome({ earlier: false });
+  const r = await run(['feedback', 'write'], h, { partial: '  \n' });
+  assert.equal(r.code, 2, r.both);
+  assert.match(r.both, /Nothing to write: a feedback report needs a body/);
+  assert.doesNotMatch(r.both, /may be cut short/);
+  assert.deepEqual(todays(h.data), []);
+});

@@ -21,3 +21,14 @@ whole is saved. Putting the bare $(cat) back turns 4 of 6 red (both controls sta
 
 Weakest premise: that no caller relies on a slow writer pausing more than 3 seconds mid-report. The --body-file path
 is the documented way for such a writer, and the refusal says so.
+
+## Round 1 (opus, blind): no blocker, two should-fix, both taken
+- The quiet limit was read from the caller's environment (junk or 0 gave a silent wrong answer); it is now fixed at 3.
+- Every non-zero node exit read as "stopped arriving"; now 6 is the cut-short sentence and anything else (a read that
+  failed part way, or a reader that could not run) is "could not be read", as the --unchanged reader's exit 7.
+- Nit taken: only white space then quiet is an empty body, as on Windows (new test).
+- Measured by the reviewer: bytes identical to $(cat) (BOM, CRLF, NUL, \xff\xfe, trailing newlines), a 6.67 MB pipe
+  whole, set -euo pipefail safe, wording equal to Windows.
+- Left: the error path has no test (it cannot be reached through the real CLI without breaking node for every verb);
+  a Mac BOM is kept where Windows strips it (unchanged from $(cat)). Out of scope, filed separately: the other bare
+  $(cat) reads (community post, comment, edit, endorse, feedback triage --cards -).
