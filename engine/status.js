@@ -9219,7 +9219,9 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
       : 'it is waiting on something that is not you';
     /* #5805: for the StopFailure limit report only, what the screen reads under it: the report stands until the agent's
        next turn, so after the reset only the screen says the session is back (chat.limitReleased reads it). */
-    const screen = providerLimitReport(reported) ? { screenState: scraped.state } : {};
+    /* kosmos#8877: and that this block IS Claude Code's own usage-limit report, as a field, so the usage mover can act on
+       it without reading the sentence above. */
+    const screen = providerLimitReport(reported) ? { screenState: scraped.state, limitReported: true } : {};
     return { state: STATE.BLOCKED, confidence: CONFIDENCE.STRUCTURED, because: said(what), reported: true, conflict: null, ...screen };
   }
   /* #1995: a reported idle/started must not read "at rest and nothing is needed"
@@ -10304,6 +10306,8 @@ function snapshot() {
       /* #5805: under Claude Code's StopFailure limit report only (a blocked card), what the screen reads, so the
          usage-limit hold can release once the screen is back at its prompt (chat.limitReleased). Null otherwise. */
       screenState: typeof status.screenState === 'string' ? status.screenState : null,
+      /* kosmos#8877: true when the card is blocked by Claude Code's own usage-limit report (StopFailure, rate_limit). */
+      limitReported: status.limitReported === true,
       /* #5805 slice 3: the reset a capped Claude agent is out of usage until (an ISO time, dated or dateless, see
          claudeLimitUntil, or on Windows the reset its account's stream gave), so the card can say when: "Looks like a usage limit until <time>" (every Claude card is a
          screen reading today; a reported one would say "Out of usage until"). Null for any other card or an unread line. */

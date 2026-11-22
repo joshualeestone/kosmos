@@ -1005,6 +1005,8 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
       /* kosmos#8846: how many background shell jobs the agent's footer says are running. A small count read off the
          agent's own screen, nothing identifying (0 on a fleet card), passed through. */
       'backgroundShells',
+      /* kosmos#8877: whether the card is blocked by Claude Code's own usage-limit report. One boolean, nothing identifying. */
+      'limitReported',
     ];
     const PINNED_BOOLEAN = ['hasAvatar'];
     /* #2698: avatarVer is a PINNED NUMBER (category 1), forced to a constant in

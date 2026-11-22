@@ -299,7 +299,12 @@ function markTargets(rows, nowMs) {
    remembered one (#5949, as idleCard), and not a switched-off swarm (as idleCard, review 3). One function, so
    movableFor and the mover's message cannot disagree about which moves were off the limit. */
 function stoppedAtLimit(c, nowMs = Date.now(), assigner = require('./assigner')) {
-  return assigner.limitedCard(c, nowMs) && !require('./status').stateIsRemembered(c) && !(c.swarm && c.swarm.active === false);
+  /* kosmos#8877: or blocked by Claude Code's own usage-limit report (StopFailure, rate_limit), which carries no reset time.
+     That is enough to call it stopped at a limit here, because the decision moves an agent only off an account at risk
+     (overall, or for its own model, each with a reset more than RESET_SOON_MS away), so a five-hour limit that resets
+     soon still moves nobody. A report is an agent's own, so ours and not a remembered screen reading. */
+  const reportedLimit = !!c && c.isNamedOurs === true && c.state === 'blocked' && c.limitReported === true;
+  return (assigner.limitedCard(c, nowMs) || reportedLimit) && !require('./status').stateIsRemembered(c) && !(c.swarm && c.swarm.active === false);
 }
 
 function movableFor({ cards, records, readCommitment, assigner = require('./assigner'),
