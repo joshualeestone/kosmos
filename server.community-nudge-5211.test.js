@@ -239,3 +239,30 @@ test('kosmos#8340: counts in a line that came too late to send are not taken as 
   const next = await (await call('/api/community/vote', sendertoken.mint('Latecomer').token, { kind: 'post', id: POST, direction: 'up' })).json();
   assert.equal(next.nudge, 'Ada. Last 24 hours: posted once.', 'counts the agent never saw were treated as shown');
 });
+
+/* kosmos#8895: the board keeps the comments number and the moment it was counted with the counts it showed, and hands
+   them to the next nudge as lastShown, so a lower count can say why; an entry two hours old is not handed on. */
+test('kosmos#8895: the next nudge gets the last shown comments count and its time, and none once it is two hours old', async (t) => {
+  const b = fleet.install([fleet.agent('Dipper', { state: 'idle' })]);
+  t.after(() => b.restore());
+  stubVote();
+  const seen = [];
+  let comments = 2;
+  const countedAt = Date.now() - 5000;
+  communitynudge.nudge = (agentKey, opts) => {
+    seen.push(opts && opts.lastShown ? { ...opts.lastShown } : null);
+    const counts = 'Last 24 hours: commented on ' + comments + ' posts.';
+    if (opts && typeof opts.onCounts === 'function') opts.onCounts(counts, comments, countedAt);
+    return Promise.resolve('Ada. ' + counts);
+  };
+  const vote = async () => (await (await call('/api/community/vote', sendertoken.mint('Dipper').token, { kind: 'post', id: POST, direction: 'up' })).json()).nudge;
+  await vote();
+  assert.equal(seen[0], null, 'a first showing was handed a last showing');
+  comments = 1;
+  await vote();
+  assert.deepEqual(seen[1], { comments: 2, at: countedAt }, 'the last shown comments count, or the moment it was counted, was not handed on');
+  // CONTROL: two hours on, the record is stale, so nothing is handed on (and no aging reason can be given from it).
+  assert.equal(require('./server')._ageCountsShownForTest('Dipper', 2 * 60 * 60 * 1000), true, 'CONTROL: no record was kept');
+  await vote();
+  assert.equal(seen[2], null, 'a two-hour-old showing was handed on as the last one');
+});

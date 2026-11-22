@@ -150,7 +150,7 @@ const readObj = (file) => {
    LOW, never high: a floor is never shown met that is not. Something queued counts once it has gone out.
    One case the board cannot see: a COMMENT taken down by the service's moderators (the board records takedowns for
    posts only), which still counts. */
-function localCounts(agentKey, now) {
+function localCounts(agentKey, now, sinceShown = null) {
   /* Review 6: an account the service switched off shows none of its posts or comments, whatever their records say
      (communitymine's "public" rule excludes it too): no count rather than a floor shown met. */
   const keys = readObj(communitysend._paths.keysFile());
@@ -163,6 +163,7 @@ function localCounts(agentKey, now) {
 
   let comments = null;
   let queuedComments = null;
+  let agedOut = null;   // kosmos#8895: set only when the last showing's time is given
   const c = readRows(communitystore._paths.commentsFile());
   if (c !== null && sent && csent && cdels) {
     // The service ids of this agent's own posts: an answer on your own post is a reply, not one of the two.
@@ -170,6 +171,14 @@ function localCounts(agentKey, now) {
     const mine = c.filter((r) => r && r.remotePostId && sameAgent(r.agent, agentKey) && within(r.receivedAt, now) && !own.has(key(r.remotePostId)));
     const counted = new Set(mine.filter((r) => isPublic(csent[String(r.id)], cdels, String(r.id))).map((r) => key(r.remotePostId)));
     comments = counted.size;
+    /* kosmos#8895: the comments that were in the window at the last showing (`since`) and have aged out of it now:
+       public, on another agent's post, received inside (since - 24 h, now - 24 h], on a post not counted now. Measured,
+       so the line can say why the count went down; a drop for any other reason (a delete, a takedown) is not this. */
+    if (Number.isFinite(sinceShown) && sinceShown < now) {
+      agedOut = new Set(c.filter((r) => r && r.remotePostId && sameAgent(r.agent, agentKey) && within(r.receivedAt, sinceShown)
+        && !within(r.receivedAt, now) && !own.has(key(r.remotePostId)) && isPublic(csent[String(r.id)], cdels, String(r.id)))
+        .map((r) => key(r.remotePostId)).filter((k) => !counted.has(k))).size;
+    }
     /* kosmos#7230 ask 1: a comment just sent is usually QUEUED (stored here, gone out on the next pass), so the count
        above, which is public-only, reads one low right after "Comment queued". The queued ones are counted beside it,
        never in it: a queued comment can still be refused, so it is shown as waiting, not as met. Which comments count
@@ -203,7 +212,7 @@ function localCounts(agentKey, now) {
   const made = readFollows();
   const follows = made === null ? null
     : new Set(made.filter((r) => sameAgent(r.agent, agentKey) && within(r.at, now)).map((r) => require('./communityfollow').nameKey(r.name))).size;
-  return { comments, queuedComments, posts, follows };
+  return { comments, queuedComments, posts, follows, ...(agedOut !== null ? { agedOut } : {}) };
 }
 
 /** #5307: whether the service has switched this agent's account off (the board's keys mark it refused), so it cannot
@@ -243,6 +252,12 @@ async function authorOf(target, me) {
    number is a floor, so each says what to aim for in words ("commented on 1 post (aim for 2, ...)"), never "1/2", which reads as a
    cap. Singular and plural follow the count. A part with no floor known prints its count alone. */
 const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+/* kosmos#8895: why the comments count is lower than last shown, when the reason is measured (comments that passed the
+   24-hour mark since then). Only said for that cause; a drop from a delete or a takedown gets no sentence. */
+function agedSentence(n) {
+  return n === 1 ? '(1 of your comments is now more than 24 hours old, so it no longer counts.)'
+    : '(' + n + ' of your comments are now more than 24 hours old, so they no longer count.)';
+}
 /** The rules block's tie-break for the comment floor (step 3 of the community guide, engine/communityguide.js; communityhome's comment step says the same). */
 const COMMENT_TIE_BREAK = 'only where you have something real to add';
 function countsPhrase(c, f, owed = null) {
@@ -296,19 +311,26 @@ function countsPhrase(c, f, owed = null) {
 const COUNTS_UNCHANGED = 'Your community counts for the last 24 hours are the same as when Kosmos last showed them (votes are not counted there; kosmos community home shows the counts).';
 /** The nudge line after a vote or comment, or null. `postId`: the post voted on or commented on (omit for a comment
  *  vote, whose author the service has no public read for). `reply`: a --reply-to comment. `owed`: replies owed, from a fresh home read (#5212). Never throws. */
-async function nudge(agentKey, { postId = null, now = Date.now(), reply = false, owed = null, sameAsShown = null, onCounts = null } = {}) {
+async function nudge(agentKey, { postId = null, now = Date.now(), reply = false, owed = null, sameAsShown = null, onCounts = null, lastShown = null } = {}) {
   try {
     const target = typeof postId === 'string' && UUID_RE.test(postId.trim()) ? postId.trim().toLowerCase() : null;
     const switchedOn = (() => { try { return communitysend.switchOn(); } catch { return false; } })();
     const none = { author: null, follows: null };
     // kosmos#6705: the stored self, never refreshed here (review 2: nothing is sent as the agent); read and home refresh it.
     const who = target && switchedOn ? await authorOf(target, communityself.stored(agentKey)).catch(() => none) : none;
-    const c = localCounts(agentKey, now);
+    // kosmos#8895: the last showing (its comments count and time), so a lower count can say why.
+    const shownAt = lastShown && Number.isFinite(lastShown.at) ? lastShown.at : null;
+    const c = localCounts(agentKey, now, shownAt);
     const f = floors();
     const owedPart = countsPhrase({}, f, owed);   // the replies-waiting sentence alone (no count parts given)
     let last = countsPhrase(c, f, null);
+    // kosmos#8895: the reason is added AFTER the same-as-shown check and is not stored with the counts (review 1), so the
+    // next unchanged line still shortens.
+    const reason = last && lastShown && Number.isFinite(lastShown.comments) && Number.isFinite(c.comments) && c.comments < lastShown.comments
+      && Number.isFinite(c.agedOut) && c.agedOut > 0 ? agedSentence(Math.min(c.agedOut, lastShown.comments - c.comments)) : null;
     if (last && typeof sameAsShown === 'function' && sameAsShown(last) === true) last = COUNTS_UNCHANGED;
-    else if (last && typeof onCounts === 'function') onCounts(last);
+    else if (last && typeof onCounts === 'function') onCounts(last, c.comments, now);
+    if (reason && last && last !== COUNTS_UNCHANGED) last += ' ' + reason;
     const counts = [owedPart, last].filter(Boolean).join(' ');
     let line = '';
     const a = who.author;
@@ -325,4 +347,4 @@ async function nudge(agentKey, { postId = null, now = Date.now(), reply = false,
   }
 }
 
-module.exports = { nudge, countsPhrase, COUNTS_UNCHANGED, COMMENT_TIE_BREAK, noteFollowed, noteUnfollowed, localCounts, accountRefused, followsFile, shownName, DAY_MS };
+module.exports = { nudge, countsPhrase, agedSentence, COUNTS_UNCHANGED, COMMENT_TIE_BREAK, noteFollowed, noteUnfollowed, localCounts, accountRefused, followsFile, shownName, DAY_MS };
