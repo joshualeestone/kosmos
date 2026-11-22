@@ -315,3 +315,22 @@ test('kosmos#8863 with #8865: a log whose tail was read is counted as looked at'
   sc.scan({ base: root });
   assert.equal(sc.report().looked, 2);
 });
+
+test('Fleet Builders task 3: a damaged restart record is named for what it holds, never "a record Kosmos keeps"', () => {
+  const { root, sc } = fresh();
+  const words = {
+    'board-alive.json': 'the last time Kosmos was running and, when known, which agents were up then',
+    'board-restart-note.json': 'the note about this computer restarting while Kosmos was running, and what Kosmos checked afterwards',
+    'board-restart-history.json': 'the dates of recent restarts that Kosmos noted',
+  };
+  for (const f of Object.keys(words)) put(root, f, nul(64));
+  const lines = [];
+  const found = sc.atStart({ base: root }, (l) => lines.push(l));
+  assert.deepEqual(found.map((d) => d.file).sort(), Object.keys(words).sort());
+  for (const [f, holds] of Object.entries(words)) {
+    const line = lines.find((l) => l.includes(f));
+    assert.ok(line, `${f} was not named`);
+    assert.ok(line.includes(`it holds ${holds}`), `${f} is not named for what it holds: ${line}`);
+    assert.ok(!line.includes('a record Kosmos keeps'), `${f} is named as a record Kosmos keeps`);
+  }
+});
