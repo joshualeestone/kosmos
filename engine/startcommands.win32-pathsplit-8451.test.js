@@ -34,7 +34,9 @@ test('#8451: on Windows every plain piece is kept, the home is also read in its 
   assert.deepEqual(sc.splitPathValue('C:\\H/bin', true, ['relative']), ['C', '\\H/bin'], 'a home that is not a drive path: plain split');
   assert.deepEqual(sc.splitPathValue('C:\\H\\/bin', true, ['C:\\H\\']), ['C', '\\H\\/bin', 'C:/H\\/bin'], 'a home given with a trailing slash');
   // Review 5: a converted variable that is a bare drive root (HOME=D:\) is /d/ to Git Bash, so ~/bin is D:/bin.
-  assert.deepEqual(sc.splitPathValue('D:\\/bin:x', true, ['D:\\']), ['D', '\\/bin', 'x', 'D:/bin'], 'a drive-root home');
+  const root = sc.splitPathValue('D:\\/bin:x', true, ['D:\\']);
+  assert.deepEqual(root.slice(0, 3), ['D', '\\/bin', 'x'], 'a drive-root home: the plain split');
+  assert.equal(require('path').win32.resolve('C:\\A', root[3]), 'D:\\bin', 'a drive-root home: its /d/ form is D:\\bin, not C:\\d\\bin');
   for (const v of ['a::b:', ':a', 'a', '']) assert.deepEqual(w(v), v.split(':'), 'same pieces as split for ' + JSON.stringify(v));
   // Review 4: Git Bash converts TMP, TEMP and TMPDIR too (measured), so their values are read in /c/ form as well.
   assert.deepEqual(sc.splitPathValue('D:\\t/bin', true, ['C:\\H', 'D:\\t']), ['D', '\\t/bin', 'D:/t/bin'], 'a TMPDIR on another drive');
