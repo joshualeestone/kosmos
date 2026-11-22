@@ -281,6 +281,33 @@ test('NEVER BIGGER THAN MAIN: the wide window is drawn only when it is no bigger
   assert.ok(biggerUnpicked >= 1, 'CONTROL: the wide layout is not bigger than main on any case, so this test cannot see the regression it guards');
 });
 
+test('MEMO: a repaint of the same tree draws it the same, and a changed tree is decided again (#4499 size, review r2)', () => {
+  if (!hasGate) assert.fail('orgPlaceGated is absent');
+  const spec = randomTree(1, 60, 0.05);   // a deep tree where the wide layout wins (so a hit that drew main's would differ)
+  // cards() prefixes every tree's names, so one board's agents are built once and laid out again, as a repaint does.
+  const fresh = (ag) => { page.orgPlaceGated.memo = null; return page.orgPlaceGated(page.orgTreeOf(ag)); };
+  const ag = cards(spec);
+  const cold = fresh(ag);
+  const keyA = page.orgPlaceGated.memo && page.orgPlaceGated.memo.key;
+  assert.ok(keyA, 'CONTROL: this tree never reached the memo (it needs a manager below the first ring)');
+  assert.equal(page.orgPlaceGated.memo.wide, true, 'CONTROL: main won on this tree, so a hit that drew main would look right');
+  const warm = page.orgPlaceGated(page.orgTreeOf(ag));   // a repaint: the memo is hit
+  assert.equal(page.orgPlaceGated.memo.key, keyA, 'the repaint did not hit the memo');
+  assert.ok(samePlacement(cold.placed, warm.placed) && warm.maxR === cold.maxR, 'a repaint of the same tree drew it differently');
+  // Move one report to another manager ON THE SAME AGENTS (only its reportsTo changes, every name stays), so only the
+  // parent differs: a key that ignored parents would wrongly hit here.
+  const tree = page.orgTreeOf(ag);
+  const leaf = tree.find((n) => n.parent && !tree.some((m) => m.parent === n.agent.sessionName));
+  const other = tree.find((n) => n.parent && n.parent !== leaf.parent && n.agent.sessionName !== leaf.agent.sessionName);
+  assert.ok(leaf && other, 'CONTROL: no report to move');
+  const agMoved = ag.map((a) => (a === leaf.agent ? { ...a, profile: { ...a.profile, reportsTo: other.parent } } : a));
+  const after = page.orgPlaceGated(page.orgTreeOf(agMoved));
+  assert.notEqual(page.orgPlaceGated.memo.key, keyA, 'a changed tree kept the old memo key');
+  const coldMoved = fresh(agMoved);
+  assert.ok(!samePlacement(cold.placed, coldMoved.placed), 'CONTROL: moving the report did not change the layout, so this cannot see a stale hit');
+  assert.ok(samePlacement(after.placed, coldMoved.placed) && after.maxR === coldMoved.maxR, 'a changed tree was not decided again: it differs from a cold layout of the same tree');
+});
+
 test('HONEST FUNDED + CLEARANCE NEVER WORSE BY FULL: the first-ring gate never disagrees with the full check (#4499 condition 1)', () => {
   if (!hasGate) assert.fail('orgPlaceGated is absent, so the measured gate is not present');
   // A representative set of shapes (the exhaustive 1000+ tree sweep is offline; this guards against regression).

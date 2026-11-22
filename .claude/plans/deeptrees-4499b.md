@@ -17,8 +17,8 @@ Raiden's 09-29 prototype idea, rebuilt on today's orgPlace and measured at each 
   the one the capped placement chose. Otherwise the capped placement stands, as before.
 - A team the capped placement puts on two rings (#4472) keeps them.
 - lineOf's radius band starts at the line's true closest approach to the hub, since a wide line can dip.
-- orgPlace(nodes, floored, capped): `capped` turns the wide try off; with it, orgPlace is exactly main's (review r1
-  checked 10,080 layouts).
+- orgPlace(nodes, floored, capped): `capped` turns the wide try off; with it, orgPlace is exactly main's (reviews r1 and
+  r2 compared it with origin/main's orgPlace on their own sets, 10,080 and 9,600 layouts, all equal).
 - orgPlaceGated (review r1): the wide window is greedy, so alone it drew a few charts bigger than main (a 19-agent tree
   9.4%; 5 of 5,040 random trees over 1%). A chart with a manager below the first ring is now laid out main's way and
   wide, and the wide one is drawn only when it is no bigger and its first ring is no less clear. That makes "never

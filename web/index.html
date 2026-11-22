@@ -41736,7 +41736,8 @@ function orgPlaceGated(nodes) {
   // The wide window only ever applies to a team whose manager has a manager.
   const managed = new Set(nodes.filter((n) => n.parent).map((n) => n.agent.sessionName));
   if (!nodes.some((n) => n.parent && managed.has(n.parent))) return gate(true);
-  const key = nodes.map((n) => n.agent.sessionName + '<' + (n.parent || '')).join('|');
+  // JSON, not a joined string: a name may hold any separator, and two different trees must never share a key.
+  const key = JSON.stringify(nodes.map((n) => [n.agent.sessionName, n.parent || '']));
   const memo = orgPlaceGated.memo;
   if (memo && memo.key === key) return memo.wide ? gate(false, memo.bar) : gate(true);
   const main = gate(true);
