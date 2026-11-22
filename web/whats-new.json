@@ -25,12 +25,12 @@
     {
       "icon": "tasks",
       "title": "A closed task says how it closed",
-      "line": "The Tasks list and each task's page now say how a task closed: with a change, with a note, or without being marked built."
+      "line": "The Tasks list and each task's page now say how a task closed: with a change, on a note, or without being marked built."
     },
     {
-      "icon": "chat",
-      "title": "A paused room says why it stayed quiet",
-      "line": "When a paused room keeps a post from waking anyone, the reply says why, who paused it, and what still gets through."
+      "icon": "shield",
+      "title": "A new Cloud machine can be allowed",
+      "line": "If you already have a computer on Kosmos and add a Kosmos Cloud machine, you can now allow it instead of being told it cannot be allowed."
     }
   ]
 }
