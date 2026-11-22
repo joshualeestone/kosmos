@@ -203,6 +203,8 @@ const CHANGES_LINES_MAX = 160;
 // Review 2: a whole line is never cut (an edit past the cut would print as two identical lines); the file is capped
 // by its size instead, and says so when it is.
 const CHANGES_BYTES_MAX = 32 * 1024;
+// kosmos#8912: how many section names a cut note lists before it says "and N more sections".
+const CUT_NAMES_MAX = 12;
 function seenDir() { return path.join(require('./store').ROOT, 'instruction-reread-seen'); }
 /* Review 2: the exact name's hash is in the file name, so two names that differ only in case (one file on macOS) keep
    two copies. */
@@ -379,8 +381,13 @@ function changedLines(before, after, moved = null) {
   const lineRoom = CHANGES_LINES_MAX - 2 - 2 * movedNotes.length;
   const byteRoom = CHANGES_BYTES_MAX - Buffer.byteLength(NOTE) - 2 - (movedNote ? Buffer.byteLength(movedNote) + 2 : 0);
   const fits = (s) => out.length < lineRoom && bytes + Buffer.byteLength(s) + 1 <= byteRoom;
-  for (const r of runs) {
-    // A label and at least one of its lines fit, or the run is left for the sections the notice names.
+  /* kosmos#8912: where each shown run starts in `out` (by run index), and the first run not shown whole, so the cut note
+     can name the sections it left out. */
+  const startOf = new Map();
+  let cutAt = -1;
+  for (let ri = 0; ri < runs.length; ri += 1) {
+    const r = runs[ri];
+    // A label and at least one of its lines fit, or the run is left for the sections the cut note names.
     const label = r.head ? 'Under ' + r.head.replace(/^#+ /, '') + ':' : 'Before the first heading:';
     /* Review 11: each run in a diff fence, longer than any backtick run inside it, so a removed line (- ...) can never
        be read or rendered as a live bullet. */
@@ -388,11 +395,12 @@ function changedLines(before, after, moved = null) {
     for (const l of r.lines) for (const m of l.match(/`+/g) || []) longest = Math.max(longest, m.length);
     const fence = '`'.repeat(Math.max(3, longest + 1));
     const close = fence.length + 1;   // the closing fence's line, kept in reserve
-    if (out.length + 5 > lineRoom || !fits('\n' + label + '\n' + fence + 'diff\n' + r.lines[0] + '\n' + fence)) { cut = true; break; }
+    if (out.length + 5 > lineRoom || !fits('\n' + label + '\n' + fence + 'diff\n' + r.lines[0] + '\n' + fence)) { cut = true; cutAt = ri; break; }
+    startOf.set(ri, out.length);
     out.push('', label, fence + 'diff');
     bytes += Buffer.byteLength(label) + fence.length + 7;
     for (const l of r.lines) {
-      if (out.length + 1 >= lineRoom || bytes + Buffer.byteLength(l) + 1 + close > byteRoom) { cut = true; break; }
+      if (out.length + 1 >= lineRoom || bytes + Buffer.byteLength(l) + 1 + close > byteRoom) { cut = true; cutAt = ri; break; }
       out.push(l);
       bytes += Buffer.byteLength(l) + 1;
     }
@@ -405,9 +413,40 @@ function changedLines(before, after, moved = null) {
   if (!out.length && !movedNote && !runs.length) return '';   // review 3: only blank lines under the moved heading: the same
   // Review 3: nothing fit (one line larger than the cap): too large, so the line names no file.
   if (!out.length) return null;
-  if (movedNote) out.push('', movedNote);
-  if (cut) out.push('', NOTE);
-  return out.join('\n');
+  if (!cut) { if (movedNote) out.push('', movedNote); return out.join('\n'); }
+  /* kosmos#8912: the cut note names every section whose changes it left out (the run it cut inside, and every run after
+     it), so the reader re-reads those sections, not every section the notice names. The names make the note longer than
+     the room kept for it, so when the whole does not fit, the last shown run is left out too (its section joins the
+     list); only when one run is left does the list itself shorten, ending "and N more sections". */
+  const nameOf = (k) => (runs[k].head ? '"' + runs[k].head.replace(/^#+ /, '') + '"' : 'the lines before the first heading');
+  const namesFrom = (from) => [...new Set(runs.slice(from).map((r, k) => nameOf(from + k)))];
+  const cutNote = (names, more) => (!names.length && !more ? NOTE
+    : '[More changed than fits here. Not shown: the changes under ' + names.join('; ')
+      + (more ? (names.length ? '; and ' : '') + more + (more === 1 ? ' more section' : ' more sections') : '')
+      + '. Read ' + (more ? 'those, and every section the notice names,' : names.length === 1 ? 'that section' : 'those sections')
+      + ' in full.]');
+  const compose = (upTo, from, keep) => {
+    const names = namesFrom(from);
+    const parts = out.slice(0, upTo);
+    if (movedNote) parts.push('', movedNote);
+    parts.push('', cutNote(names.slice(0, keep), names.length - keep));
+    return parts.join('\n');
+  };
+  const within = (t) => t.split('\n').length <= CHANGES_LINES_MAX && Buffer.byteLength(t) <= CHANGES_BYTES_MAX;
+  const shown = [...startOf.keys()];
+  let upTo = out.length;
+  let from = cutAt;
+  let keep = Math.min(CUT_NAMES_MAX, namesFrom(from).length);
+  let text = compose(upTo, from, keep);
+  while (!within(text) && shown.length > 1) {
+    const k = shown.pop();
+    upTo = startOf.get(k);
+    from = Math.min(from, k);
+    keep = Math.min(CUT_NAMES_MAX, namesFrom(from).length);
+    text = compose(upTo, from, keep);
+  }
+  while (!within(text) && keep > 0) { keep -= 1; text = compose(upTo, from, keep); }
+  return text;
 }
 /* Before a line: the current file, and (when a copy of what the agent last read exists and differs) the path of the
    changes file written beside it. { text, path } or null when the file cannot be read. Never throws. */
@@ -538,7 +577,7 @@ function prepareChanges(session) {
       + 'Kosmos wrote this when it told you the file changed. A line starting with - was removed, one starting with + was added.\n'
       /* Reviews 14-17: a pointer, ranking nothing, and never calling a removed line current: an added line anywhere is part
          of your instructions now, a removed one is not. Complete unless it ends with the more-changed note. */
-      + 'This is a pointer only: read the sections the notice named. It lists the changes since you last read the file, changes elsewhere in it included: a line marked + is in your instructions now, wherever it is, and a line marked - no longer applies, unless a note in this file says where it went. If it ends with a note that more changed, it is not complete.\n'
+      + 'This is a pointer only: read the sections the notice named. It lists the changes since you last read the file, changes elsewhere in it included: a line marked + is in your instructions now, wherever it is, and a line marked - no longer applies, unless a note in this file says where it went. If it ends with a note that more changed, it is not complete: that note names the sections to read in full.\n'
       + diff + '\n';
     // Review 1 BLOCKER: through securewrite, so a link planted in the agent's folder is never followed; 0600.
     require('./securewrite').writeSecret(p, body, 0o600, { atomicOnly: true, ownTempsOnly: true });
