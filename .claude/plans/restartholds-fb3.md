@@ -31,3 +31,10 @@ The words are mine, not read by a copy reviewer.
 - Deferred: the test copies the words from the same table (a mirror). It proves each file reaches its own words and
   never the catch-all; whether the words are true is the review's job, not a test's.
 - Checked: the page reads the words from the board (web/index.html:25617, `f.holds`).
+
+## Review 2 (opus)
+- Accepted: the page reads "The file with <holds> (<file>)", so each entry must be a noun phrase; board-alive is now
+  "the last time Kosmos was running and, when known, which agents were up then" (the beat leaves the list out when
+  the roster read is stale). That also drops its "the computer" wording.
+- Deferred: the test checks the board-log form only; the page form is built in web/index.html and these words were
+  read in it by hand (all three read as noun phrases).
