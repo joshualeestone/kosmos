@@ -117,3 +117,10 @@ test('kosmos#8865 review 7: a dismissed file with a copy has it named, never off
   const listed = renderLines({ ran: true, checked: true, damaged: 1, unread: 0, looked: 3, files: [FILE({ backup })] });
   assert.match(listed[1], /the person can put it back in Kosmos\.$/);
 });
+
+test('kosmos#8865: a damaged file deleted since the start is said as gone, never as left alone or offered back', () => {
+  const backup = { file: 'projects.json.recovered-x', at: '2026-11-21T10:00:00.000Z' };
+  const line = renderLines({ ran: true, checked: true, damaged: 1, unread: 0, looked: 3, files: [FILE({ backup, missing: true })] })[1];
+  assert.match(line, /It is no longer there: it was deleted or moved since the start\. The copy saved 2026-11-21T10:00:00\.000Z is kept at projects\.json\.recovered-x\.$/);
+  assert.doesNotMatch(line, /left it as it is|can put it back/);
+});

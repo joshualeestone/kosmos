@@ -293,9 +293,14 @@ function lastScan() { return SCANNED ? { ...SCANNED } : { checked: false }; }
  */
 function report() {
   const s = lastScan();
-  const files = current().map((f) => ({ ...f, says: PROBLEM[f.problem] || 'is damaged' }));
+  // A record deleted or moved since the start is said as gone, not "left as it is" (the page's own list is unchanged).
+  const missing = (d) => { try { fs.lstatSync(d.abs); return false; } catch (err) { return !!err && err.code === 'ENOENT'; } };
+  const goneOf = (list) => new Set(list.filter(missing).map((d) => d.file));
+  const goneFound = goneOf(FOUND);
+  const goneHidden = goneOf(HIDDEN);
+  const files = current().map((f) => ({ ...f, says: PROBLEM[f.problem] || 'is damaged', ...(goneFound.has(f.file) ? { missing: true } : {}) }));
   /* review 6: what the person dismissed is hidden from the page, not from an agent: it is still damaged. */
-  const hidden = describe(HIDDEN).map((f) => ({ ...f, says: PROBLEM[f.problem] || 'is damaged' }));
+  const hidden = describe(HIDDEN).map((f) => ({ ...f, says: PROBLEM[f.problem] || 'is damaged', ...(goneHidden.has(f.file) ? { missing: true } : {}) }));
   return { ran: SCANNED !== null, ...s, ...(SCANNED !== null && Number.isInteger(LOOKED) ? { looked: LOOKED } : {}), restored: RESTORED, dismissed: DISMISSED, files, hidden };
 }
 

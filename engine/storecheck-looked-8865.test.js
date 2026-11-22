@@ -73,7 +73,7 @@ test('kosmos#8865: dismissed is set by dismiss(), carried by report() with the l
   const after = storecheck.report();
   assert.equal(after.dismissed, true);
   assert.deepEqual(after.files, []);
-  assert.deepEqual(after.hidden.map((f) => f.file), before.files.map((f) => f.file), 'the dismissed list is not kept for an agent');
+  assert.deepEqual(after.hidden.map((f) => f.file), before.files.map((f) => f.file), 'the dismissed list should be kept for an agent, and it was not');
   assert.equal(after.damaged, before.damaged, 'the count of what the start found moved when the list was dismissed');
   storecheck.scan({});
   assert.equal(storecheck.report().dismissed, false, 'a new scan kept the old dismissal');
@@ -104,4 +104,13 @@ test('kosmos#8865: before any scan, report() says it did not run and carries no 
   assert.equal(r.checked, false);
   assert.equal('looked' in r, false, 'a count was given for a scan that never ran');
   assert.deepEqual(r.files, []);
+});
+
+test('kosmos#8865: report() marks a damaged record deleted since the start as missing; CONTROL, one still there is not', () => {
+  const root = plant();
+  storecheck.scan({});
+  assert.equal(storecheck.report().files.find((f) => f.file === 'removed.json').missing, undefined);
+  fs.rmSync(path.join(root, 'removed.json'));
+  assert.equal(storecheck.report().files.find((f) => f.file === 'removed.json').missing, true);
+  assert.equal(storecheck.current().find((f) => f.file === 'removed.json').missing, undefined, "the page's list changed shape");
 });

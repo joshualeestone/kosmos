@@ -60,6 +60,13 @@ function renderLines(r) {
     if (!f || typeof f.file !== 'string') continue;
     let line = '- ' + f.file + ' ' + (typeof f.says === 'string' ? f.says : 'is damaged')
       + (typeof f.holds === 'string' ? ' (it holds ' + f.holds + ').' : '.');
+    if (f.missing === true) {
+      // Deleted or moved since the start: restore refuses a store that is no longer there, so no copy is offered.
+      line += ' It is no longer there: it was deleted or moved since the start.';
+      if (f.backup && typeof f.backup.file === 'string') line += ' The copy' + (typeof f.backup.at === 'string' ? ' saved ' + f.backup.at : '') + ' is kept at ' + f.backup.file + '.';
+      lines.push(line);
+      continue;
+    }
     line += f.savedOver === true ? ' It has been saved since the start, so what it holds now is newer than what was found.' : ' Kosmos left it as it is.';
     if (f.backup && typeof f.backup.file === 'string' && (f.savedOver === true || gone)) {
       /* review 5 and 7: restore refuses a store saved since the start, and one the person dismissed (it is no longer
