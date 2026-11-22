@@ -1248,3 +1248,20 @@ test('kosmos#8048 review 1: a mover with no loss check holds rather than moves; 
   await twoTicks(run2, d2);
   assert.ok(sweep.recent(file).some((l) => l.kind === 'held-loss' && l.pairs[0].toLabel === 'spare'), 'the page is not given the hold');
 });
+
+/* kosmos#8877 (review 2): the mover's three uses of a reported usage limit (its two sightings, the strict re-check, the
+   move's message), end to end. A card blocked by Claude Code's own limit report, holding a commitment, is moved only
+   while its account's week is FULL; at 93% it is not (it may have recovered: nothing clears that report in a run). */
+for (const [label, pct, expectMove] of [['the week full', 100, true], ['the week at 93%, not full', 93, false]]) {
+  test('kosmos#8877: a reported usage limit is rescued only while its limit is full (' + label + ')', async () => {
+    const [ada] = realCards(['ada']);
+    const card = { ...ada, state: 'blocked', limitReported: true, isNamedOurs: true, modelName: 'Claude Opus 4.7' };
+    const run = automove.create({ file: fileFor() });
+    const usage = { '/u/.claude-work': reading(pct, 35), '/u/.claude-spare': reading(10, 100) };
+    const { d, calls } = deps({ cards: [card], usage });
+    d.readCommitment = () => ({ state: 'holding', reportedAt: new Date(NOW).toISOString(), commitments: [{ id: 'x', what: 'x', createdAt: new Date(NOW).toISOString(), source: 'agent' }] });
+    await twoTicks(run, d);
+    assert.equal(calls.starts.length, expectMove ? 1 : 0, expectMove ? 'an agent stuck on a full week, by its own limit report, was not moved' : 'a reported limit on a week that is not full moved an agent holding a commitment');
+    if (expectMove) assert.match(calls.tells[0][1], /stopped at its usage limit/, 'the moved agent was not told it was moved off its limit');
+  });
+}

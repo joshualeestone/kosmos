@@ -652,7 +652,26 @@ case "$EVENT" in
     # within seconds of saying so.
     report_turn_end idle --auto finished responding ;;
   StopFailure)
-    KIND=$(json_field '.matcher // .error_type' 'matcher'); KIND="${KIND:-an api error}"
+    # kosmos#8877: Claude Code sends the kind as `error` (2.1.330: error, error_details, last_assistant_message); matcher
+    # and error_type, which it does not send, stay as fallbacks. Only a string `error` counts (jq), as the node hook.
+    # Review 1: a kind is a short lowercase word; anything else falls through to the next field, as the node hook.
+    # Without jq, the FIRST "error":"<kind>" on the line is taken (json_field's sed takes the last, and error_details can
+    # carry an "error" of its own), and each fallback is asked for in the same order.
+    if [ -n "$JQ" ]; then
+      KIND=$(printf '%s' "$INPUT" | "$JQ" -r '[.error, .matcher, .error_type] | map(select(type == "string" and test("^[a-z_]{1,40}$"))) | .[0] // empty' 2>/dev/null)
+    else
+      KIND=""
+      for K in error matcher error_type; do
+        # Review 2/3: the key's FIRST value, whatever its type (a string, a number, null), and only a quoted one that is a
+        # plain kind is taken, so a top-level value that is not one goes on to the next field (as jq and node) instead of
+        # a nested key further on. LC_ALL=C, as every other grep and sed here: under a UTF-8 locale macOS bash 3.2's
+        # [a-z] lets capitals and accented letters through (review 3, measured).
+        V=$(printf '%s' "$INPUT" | LC_ALL=C grep -oE '"'"$K"'"[[:space:]]*:[[:space:]]*("[^"]*"|[^,}[:space:]]*)' | head -1 | LC_ALL=C sed -n 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/p')
+        if printf '%s' "$V" | LC_ALL=C grep -Eq '^[a-z_]{1,40}$'; then KIND="$V"; fi
+        [ -n "$KIND" ] && break
+      done
+    fi
+    KIND="${KIND:-an api error}"
     rm -f "$MARK" 2>/dev/null || true
     report blocked --auto --on "provider api (${KIND})" --owner provider ;;
   SessionEnd)

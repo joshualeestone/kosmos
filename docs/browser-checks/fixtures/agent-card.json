@@ -25,6 +25,7 @@
   "quotaUntil": null,
   "poolUntil": null,
   "screenState": null,
+  "limitReported": false,
   "limitUntil": null,
   "twinSession": null,
   "unsentInput": null,
