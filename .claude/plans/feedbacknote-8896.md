@@ -74,3 +74,15 @@ the same day is untouched.
 - Kept: NOTE_MESSAGES.already is unreachable after a note (the body always changes) and now says nothing false.
 - Kept: Windows adds its PowerShell line to the empty-note refusal, as its `write` does (PowerShell piping is the
   Windows-only reason a note can arrive empty).
+
+## Review 3 (opus)
+- Fixed: note() kept the old generated_at, which the send carries and the daily digest selects by (feedback-triage
+  freshSince), so a corrected report would not show as new. A note now refreshes generated_at, keeping date and
+  install (test; mutation red).
+- Fixed: after a failed or pending send the agent was told only what not to do; it is now told nothing more is needed,
+  because Kosmos tries again on a later hourly check while it runs.
+- Fixed: the NOTE_MESSAGES test let "kosmos feedback write again" through (its `(?! )`); it now refuses any mention.
+- Fixed (NITs): yesterday can also go with today's report (flushChangedDay, one-minute floor), so "at most once every
+  three hours" is gone; an older day's one send is said to be untried again if it fails.
+- Deferred: no length cap on a note (as write, whose limit is the collector's 64 KiB); CRLF frontmatter reads as body,
+  as for write; Mac refusals on stdout vs Windows stderr, as for write.

@@ -232,7 +232,10 @@ function note(from, text, date, now) {
     if (at < 0) return { ok: false, why: 'none' };
     const stamp = new Date(t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
     secs[at] = { key: secs[at].key, text: secs[at].text + '\n\nAdded later (' + stamp + '):\n' + neutral(words) };
-    const head = fm ? (fm[0].endsWith('\n') ? fm[0] : fm[0] + '\n') : '';
+    /* Review 3: generated_at is refreshed (date and install kept). The send carries it, and the daily digest picks
+       reports by it (feedback-triage freshSince), so a stale stamp would hide the corrected report from the digest. */
+    let head = fm ? (fm[0].endsWith('\n') ? fm[0] : fm[0] + '\n') : '';
+    if (head) head = head.replace(/^generated_at: .*$/m, 'generated_at: ' + new Date(t).toISOString());
     const content = head + render(secs);
     require('./store').saveFlushed(dest, content);   // flushed before the rename, as write()
     return { ok: true, path: dest, date: day };

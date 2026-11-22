@@ -676,8 +676,8 @@ const NOTE_MESSAGES = Object.freeze({
   off: 'Added the note to today\'s product-feedback report on this computer only. Sending feedback to the Kosmos team is switched off (Settings, Automation), so it was not sent.',
   unreadable: 'Added the note to today\'s product-feedback report on this computer only. Kosmos could not read its feedback-sending setting, so it did not send it.',
   none: 'Added the note to today\'s product-feedback report on this computer.',
-  failed: 'Added the note to today\'s product-feedback report on this computer, but Kosmos could not confirm the report reached the Kosmos team just now. Kosmos may send it again later today while it is running. Do not write the whole report again for this: that would replace the note.',
-  soon: 'Added the note to today\'s product-feedback report on this computer. A send started less than a minute ago has not been confirmed yet, so the note waits for the next send. Do not write the whole report again for this: that would replace the note.',
+  failed: 'Added the note to today\'s product-feedback report on this computer, but Kosmos could not confirm the report reached the Kosmos team just now. Nothing more to do: Kosmos tries again on a later hourly check while it is running. Do not write the whole report again for this: that would replace the note.',
+  soon: 'Added the note to today\'s product-feedback report on this computer. A send started less than a minute ago has not been confirmed yet, so the note waits: nothing more to do, Kosmos sends the changed report on a later hourly check while it is running. Do not write the whole report again for this: that would replace the note.',
   unsent: 'Added the note to today\'s product-feedback report on this computer, but it could not be sent: Kosmos could not record the send. It was not sent.',
   blocked: 'Added the note to today\'s product-feedback report on this computer. Not sent: this is a test run (or its data is in a temporary folder).',
 });
@@ -699,8 +699,8 @@ function earlierNoteMessage(date, now) {
   const n = new Date(Number.isFinite(now) ? now : Date.now());
   const yesterday = feedback.dateKey(new Date(n.getFullYear(), n.getMonth(), n.getDate() - 1));
   const scrubbed = ', with home paths and the names and keys Kosmos recognises taken out first.';
-  if (date === yesterday) return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team again on one of Kosmos\'s hourly checks while it is running (at most once every three hours)' + scrubbed;
-  return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team once, when a later day\'s report is next sent' + scrubbed;
+  if (date === yesterday) return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team again while Kosmos is running (on an hourly check, or with today\'s report when that is sent)' + scrubbed;
+  return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team once, when a later day\'s report is next sent (if that send fails, it is not tried again)' + scrubbed;
 }
 
 /* Test hooks. Production never calls these. */

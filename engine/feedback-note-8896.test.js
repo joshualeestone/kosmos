@@ -34,8 +34,10 @@ test('a note goes at the end of the writer\'s own section, marked as added later
   assert.equal(secs[0].text, 'mara saw a bug', 'another writer\'s section changed');
   assert.equal(secs[1].key, 'leo', 'the section kept its own name');
   assert.equal(secs[1].text, 'leo saw another\n\nAdded later (2026-11-22 15:40 UTC):\nit was the cache, not the network');
-  // The frontmatter (date, install, generated_at) is kept exactly as it was.
-  assert.equal(raw(DAY).match(/^---\n[\s\S]*?\n---\n/)[0], before.match(/^---\n[\s\S]*?\n---\n/)[0]);
+  // The frontmatter keeps date and install; generated_at becomes the note's time (review 3: the digest picks by it).
+  const fm = (s) => s.match(/^---\n([\s\S]*?)\n---\n/)[1].split('\n');
+  assert.deepEqual(fm(raw(DAY)).filter((l) => !l.startsWith('generated_at:')), fm(before).filter((l) => !l.startsWith('generated_at:')));
+  assert.ok(fm(raw(DAY)).includes('generated_at: 2026-11-22T15:40:00.000Z'), fm(raw(DAY)).join(' | '));
 });
 
 test('a one-writer day stays stored bare, and reads back as the report with the note after it', () => {

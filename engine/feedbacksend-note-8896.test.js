@@ -44,7 +44,7 @@ test('the last day sent: the sentence says it goes with a later send, and the sw
   fb.write('yesterday\'s report', { from: 'mara', date: YESTERDAY });
   fbs.markSent(YESTERDAY, 'hash-of-the-sent-version', NOW - 6 * 3600 * 1000);
   assert.equal(fb.note('mara', 'SECRET correction', YESTERDAY, NOW).ok, true);
-  assert.match(fbs.earlierNoteMessage(YESTERDAY, NOW), /^Added the note to your report of \d{4}-\d{2}-\d{2}, on this computer\. That day is the last one Kosmos sent, so the changed report goes to the Kosmos team again on one of Kosmos's hourly checks while it is running \(at most once every three hours\)/);
+  assert.match(fbs.earlierNoteMessage(YESTERDAY, NOW), /^Added the note to your report of \d{4}-\d{2}-\d{2}, on this computer\. That day is the last one Kosmos sent, so the changed report goes to the Kosmos team again while Kosmos is running \(on an hourly check, or with today's report when that is sent\)/);
   fbs.sweepTick(NOW);
   await settle();
   assert.ok(posts.some((p) => JSON.stringify(p).includes('SECRET correction')), 'the sentence said it goes, and the sweep did not send it: ' + JSON.stringify(posts));
@@ -70,7 +70,7 @@ test('an OLDER day that is still the last one sent: the sweep does not send it; 
   fb.write('an older report', { from: 'mara', date: OLDER });
   fbs.markSent(OLDER, 'hash-of-the-sent-version', NOW - 6 * 3600 * 1000);
   assert.equal(fb.note('mara', 'OLDER correction', OLDER, NOW).ok, true);
-  assert.match(fbs.earlierNoteMessage(OLDER, NOW), /That day is the last one Kosmos sent, so the changed report goes to the Kosmos team once, when a later day's report is next sent/);
+  assert.match(fbs.earlierNoteMessage(OLDER, NOW), /That day is the last one Kosmos sent, so the changed report goes to the Kosmos team once, when a later day's report is next sent \(if that send fails, it is not tried again\)/);
   fbs.sweepTick(NOW);   // no report today, and OLDER is not yesterday: the hourly check sends nothing
   await settle();
   assert.ok(!posts.some((p) => JSON.stringify(p).includes('OLDER correction')), 'the hourly check sent an older day');
@@ -87,7 +87,7 @@ test('sending switched off: the sentence says it will not be sent', () => {
 });
 
 test('NOTE_MESSAGES never tell an agent to write the report again (that would replace the note)', () => {
-  for (const [state, s] of Object.entries(fbs.NOTE_MESSAGES)) assert.doesNotMatch(s, /kosmos feedback write(?! )|write the same report again/, state);
+  for (const [state, s] of Object.entries(fbs.NOTE_MESSAGES)) assert.doesNotMatch(s, /kosmos feedback write|write the same report again|write it again/, state);
   assert.equal(TODAY > YESTERDAY, true, 'CONTROL: the days are in order');
 });
 
