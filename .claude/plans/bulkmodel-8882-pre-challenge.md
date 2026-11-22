@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: bulkmodel-8882
-diff_hash: ecd087febc32f41f8a134e3e295ade958b4e363c830195203f8616bef47e40f7
+diff_hash: d140e98c8764ee33cec18583161ba1ed55f954b89abfb59d1cedb0a74206830a
 validation: local: (diff includes the design-shots screen added after review; shots taken, exit 0) render-account-usage-6108 browser check 660 of 660 PASS at eb9aa0bbcb (chromium and webkit, 1100 and 390, light and dark); the gated browser-check run (queued-heavy, frozen at e8dc1e71cd) all good; fixture-discipline and engine.reachable 28 of 28. Every fix shown red with it removed (10 mutations). The full suite runs on the PR's CI.
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-22T08:32:44Z
@@ -56,6 +56,9 @@ converged: true
 #### Iteration 8 (Kitty, b3f83ffe02, last by the cap)
 - [WARNING] a repaint changing the warning silently counted as heard --> FIXED (shown vs painted)
 - NITs: account-first and may-be label untested --> FIXED; no-family model name --> ACCEPTED (matches the engine); warning beside "Moving..." --> ACCEPTED
+
+#### Design read (Mona Lisa, after round 8)
+- Option label cut off on a phone --> FIXED ("Fable limit full"); reason line below Move --> FIXED (under the picker); "could not run there" read as a failed move --> FIXED ("cannot run there until it resets"). 660 of 660 after; shots retaken and looked at.
 
 ### Accepted, and why
 - Warn, not hide: a full model limit may reset within the hour, so the person decides (the card's weakest premise).
