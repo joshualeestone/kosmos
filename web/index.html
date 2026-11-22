@@ -30681,6 +30681,9 @@ function acctWeeklyNow(a) {
    source row with no agents left has no move control), so the sentence lives here, not in the old element. */
 const ACCT_MOVE = new Map();
 const ACCT_MOVE_SHOW_MS = 2 * 60e3;   // a finished move's sentence stays two minutes, then the row is plain again
+/* kosmos#8882 review 3: the model risks each row's menu DREW per target (key: from dir, newline, target dir), so the
+   click compares against what the person was shown, not a recomputation from cards that may have changed since. */
+const ACCT_DRAWN_RISK = new Map();
 const ACCT_PICK = new Map();          // the target picked in a row's menu, so a poll's repaint does not undo a half-made choice
 /* #6108: whether an account can take another account's agents in one move. One rule for the menu and for the check
    made again at the click (the menu can be a while old: Settings repaints when something is pressed). */
@@ -30710,20 +30713,24 @@ function acctModelRisks(target, cards, nameOfCard) {
     const k = acctModelKey(m.model); if (!k) continue;
     if (!byKey.has(k) || m.usedPct > byKey.get(k).usedPct) byKey.set(k, m);
   }
-  if (!byKey.size) return { models: [], unknown: [] };
+  if (!byKey.size) return { models: [], unknown: [], top: null };
   const modelOf = (c) => (c && (c.modelName || c.model || c.earlierModelName)) || null;
   const models = [...byKey].map(([key, m]) => ({ key, model: m.model, usedPct: m.usedPct, full: m.usedPct >= ACCT_MODEL_FULL_PCT,
     names: (cards || []).filter((c) => acctModelKey(modelOf(c)) === key).map(nameOfCard) })).filter((x) => x.names.length);
-  return { models, unknown: (cards || []).filter((c) => !acctModelKey(modelOf(c))).map(nameOfCard) };
+  const top = [...byKey.values()].reduce((a, b) => (b.usedPct > a.usedPct ? b : a));
+  return { models, unknown: (cards || []).filter((c) => !acctModelKey(modelOf(c))).map(nameOfCard), top: { model: top.model, usedPct: top.usedPct, full: top.usedPct >= ACCT_MODEL_FULL_PCT } };
 }
 /* The risks as words, naming the account they go to (review 2: on the row being left, "Its" read as that row), or ''
    when nothing is in the way. Plain text: the caller escapes it. */
 function acctModelWarn(target, cards, nameOfCard, targetName) {
-  const { models, unknown } = acctModelRisks(target, cards, nameOfCard);
+  const { models, unknown, top } = acctModelRisks(target, cards, nameOfCard);
   const where = targetName || 'that account';
-  const parts = models.map((m) => 'On ' + where + ', the ' + m.model + ' limit is ' + (m.full ? 'full' : 'at ' + Math.round(m.usedPct) + '%') + ' for the week, so '
-    + m.names.join(', ') + (m.full ? (m.names.length === 1 ? ' would stop there.' : ' would all stop there.') : (m.names.length === 1 ? ' may stop there soon.' : ' may all stop there soon.')));
-  if (unknown.length) parts.push((parts.length ? '' : 'A model limit on ' + where + ' is nearly or fully used. ') + 'Kosmos cannot tell which model ' + unknown.join(', ') + (unknown.length === 1 ? ' uses' : ' use') + ', so '
+  const list = (xs) => (xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]);   // review 3: "Lyra and Ida"
+  const level = (m) => (m.full ? 'full' : 'at ' + Math.round(m.usedPct) + '%');
+  const parts = models.map((m) => 'On ' + where + ', the ' + m.model + ' limit is ' + level(m) + ' for the week, so '
+    + list(m.names) + (m.full ? (m.names.length === 1 ? ' would stop there.' : ' would all stop there.') : (m.names.length === 1 ? ' may stop there soon.' : ' may all stop there soon.')));
+  /* Review 3: with only unknown-model agents at stake, say the level as the known-model sentence would. */
+  if (unknown.length) parts.push((parts.length || !top ? '' : 'On ' + where + ', the ' + top.model + ' limit is ' + level(top) + ' for the week. ') + 'Kosmos cannot tell which model ' + list(unknown) + (unknown.length === 1 ? ' uses' : ' use') + ', so '
     + (unknown.length === 1 ? 'it' : 'they') + ' may stop there' + (parts.length ? ' too.' : '.'));
   return parts.join(' ');
 }
@@ -30911,6 +30918,7 @@ function acctUsageHtml(a, list) {
   const movingCards = sessions.map((n) => known.get(n) || { sessionName: n });
   const cardName = (c) => (c && (c.name || c.sessionName)) || 'an agent';
   const warnOf = (x) => acctModelWarn(x, movingCards, cardName, nameOf(x));
+  for (const x of targets) ACCT_DRAWN_RISK.set(a.dir + '\n' + x.dir, { risks: acctModelRisks(x, movingCards, cardName), label: nameOf(x) });
   const inWay = (x) => { const r = acctModelRisks(x, movingCards, cardName); return r.models.length ? 'a model limit is in the way' : r.unknown.length ? 'a model limit may be in the way' : ''; };   // review 2: "may" when only an unknown model is at stake
   /* The restart note describes the menu and the button, so a screen reader hears it before the click, not only after.
      Id from the dir's character codes: unique per dir, and safe in an attribute. */
@@ -32059,6 +32067,7 @@ async function paintAccounts(opts) {
       const row = list.find((x) => String(x.dir) === from);
       const to = sel && sel.value;
       if (!row || !row.agentsHere || !to) return;
+      const drawnRisk = ACCT_DRAWN_RISK.get(from + '\n' + to);   // kosmos#8882 review 3: what the menu drew, read at the press (a repaint mid-click must not replace it)
       if (ACCT_MOVE.get(from) && ACCT_MOVE.get(from).moving) return;   // a repaint mid-move must not start a second one
       const guide = new Set((LAST || []).filter((x) => x && x.isGuide).map((x) => x.sessionName));
       /* Progress goes on the button, not the live region, so a screen reader hears the result once, not every step. */
@@ -32091,19 +32100,21 @@ async function paintAccounts(opts) {
         const stoppedAtClick = new Set(names.filter((n) => { const c = (LAST || []).find((x) => x && x.sessionName === n); return c && cardStOf(c).pres === 'off'; }));
         if (!fresh) throw new Error('unchecked');
         if (!names.length) said = drawn.length === 1 ? 'Nothing moved: its agent is no longer on this account.' : 'Nothing moved: its agents are no longer on this account.';
-        else if (ft && (() => {
-          /* kosmos#8882: refuse only when a model limit came in the way since the menu was drawn (review 2: by family and
-             level, with the same cards on both sides, never by comparing sentences that carry a live percentage). */
-          const cards = names.map((n) => (LAST || []).find((x) => x && x.sessionName === n) || { sessionName: n });
-          const cardName = (c) => (c && (c.name || c.sessionName)) || 'an agent';
-          const drawnTo = list.find((x) => String(x.dir) === to) || null;
-          if (!acctModelRiskNew(acctModelRisks(drawnTo, cards, cardName), acctModelRisks(ft, cards, cardName))) return false;
-          said = 'Nothing moved: ' + acctModelWarn(ft, cards, cardName, acctPrimaryName(ft) || acctPrimaryName(drawnTo) || 'that account') + ' Pick again.';
-          return true; })()) { /* said is set */ }
-        else if (!acctBulkTarget(ft, from)) {   // signed out, refused, full or gone since the menu was drawn
+        else if (!acctBulkTarget(ft, from)) {   // signed out, refused, full or gone since the menu was drawn (review 3: said before any model reason)
           const was = list.find((x) => String(x.dir) === to);
           said = 'Nothing moved: ' + ((ft && acctPrimaryName(ft)) || (was && acctPrimaryName(was)) || 'that account') + ' cannot take ' + (names.length === 1 ? 'it' : 'them') + ' now. Pick another account.';
         }
+        else if ((() => {
+          /* kosmos#8882: refuse only when a model limit came in the way since the menu was drawn: by family and level
+             (review 2), against the risks the menu DREW for this target (review 3), with the cards as they are now, so an
+             agent whose model changed since the paint is new. */
+          const cards = names.map((n) => (LAST || []).find((x) => x && x.sessionName === n) || { sessionName: n });
+          const cardName = (c) => (c && (c.name || c.sessionName)) || 'an agent';
+          const drawn = drawnRisk;
+          const was = drawn ? drawn.risks : { models: [], unknown: [], top: null };   // nothing recorded: anything at stake now is new
+          if (!acctModelRiskNew(was, acctModelRisks(ft, cards, cardName))) return false;
+          said = 'Nothing moved: ' + acctModelWarn(ft, cards, cardName, (drawn && drawn.label) || acctPrimaryName(ft) || 'that account') + ' Pick again.';
+          return true; })()) { /* said is set */ }
         else said = await moveAccountAgents(from, to, names, (done, all) => {
           const b = document.querySelector('[data-acct-move="' + CSS.escape(from) + '"]');   // the current button, after any repaint
           const t = 'Moving ' + done + ' of ' + all + '…';
