@@ -54,9 +54,9 @@ const HOLDS = {
   'damaged-logs-seen.json': 'which damaged records you already dismissed',
   // Fleet Builders task 3: the restart note's own records (engine/restartnote.js), so a damaged one is named for
   // what it is rather than as "a record Kosmos keeps".
-  'board-alive.json': 'when Kosmos was last running, so it can tell you the computer restarted',
-  'board-restart-note.json': 'the note that this computer restarted while Kosmos was running',
-  'board-restart-history.json': 'when this computer restarted while Kosmos was running, over the last 30 days',
+  'board-alive.json': 'when Kosmos was last running and which agents were up, so it can tell you the computer restarted',
+  'board-restart-note.json': 'the note about this computer restarting while Kosmos was running, and what Kosmos checked afterwards',
+  'board-restart-history.json': 'the dates of recent restarts that Kosmos noted',
 };
 // Store folders, one level deep, and what one file in each holds.
 const FOLDERS = {

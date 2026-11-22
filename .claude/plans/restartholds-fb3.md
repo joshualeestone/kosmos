@@ -24,3 +24,10 @@ Based on crashcheck-8863 (PR #8884). Rebase onto main once #8884 and #8866 merge
 
 ## Weakest premise
 The words are mine, not read by a copy reviewer.
+
+## Review 1 (sonnet)
+- Accepted: board-alive also holds which agents were up; the note also holds what Kosmos checked; the history holds
+  only restarts Kosmos made a note for (at most 20, 30 days), so "the dates of recent restarts that Kosmos noted".
+- Deferred: the test copies the words from the same table (a mirror). It proves each file reaches its own words and
+  never the catch-all; whether the words are true is the review's job, not a test's.
+- Checked: the page reads the words from the board (web/index.html:25617, `f.holds`).

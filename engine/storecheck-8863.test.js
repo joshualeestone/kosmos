@@ -319,9 +319,9 @@ test('kosmos#8863 with #8865: a log whose tail was read is counted as looked at'
 test('Fleet Builders task 3: a damaged restart record is named for what it holds, never "a record Kosmos keeps"', () => {
   const { root, sc } = fresh();
   const words = {
-    'board-alive.json': 'when Kosmos was last running, so it can tell you the computer restarted',
-    'board-restart-note.json': 'the note that this computer restarted while Kosmos was running',
-    'board-restart-history.json': 'when this computer restarted while Kosmos was running, over the last 30 days',
+    'board-alive.json': 'when Kosmos was last running and which agents were up, so it can tell you the computer restarted',
+    'board-restart-note.json': 'the note about this computer restarting while Kosmos was running, and what Kosmos checked afterwards',
+    'board-restart-history.json': 'the dates of recent restarts that Kosmos noted',
   };
   for (const f of Object.keys(words)) put(root, f, nul(64));
   const lines = [];
