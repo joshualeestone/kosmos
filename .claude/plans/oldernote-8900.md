@@ -62,3 +62,19 @@ sentence says what will happen.
   of this file (setOn, markSent from the CLI's sendNow); a lock for the file is its own card, not this one.
 - Weakest premise added: "on or before the last day sent" does not prove that day itself was sent (sending could have
   been off on that day and on later). It is the conservative line available without a per-day record.
+
+## Review 2 (sonnet)
+- BLOCKER, fixed: a queued day that is also the record's day went twice when a later day's send came FIRST
+  (flushChangedDay, then the drain). Every corrected day now goes one way: drainCorrections alone. flushChangedDay
+  skips a queued day, and sweepTick's own resend of yesterday skips a queued yesterday. So yesterday is queued like any
+  other day (round 1's "leave yesterday to the sweep" is gone) and one sentence covers all.
+- Fixed (privacy, replacing round 1's "on or before the last day sent"): `offered`, the days Kosmos has started
+  sending (markSent records each, as every real send marks first; at most 60). Only those are queued, so a report kept
+  here, even one older than the last day sent, is never sent for the first time by a note. A file from before the list
+  allows only the record's own day.
+- Fixed: a note added while that day's send was in flight was lost when the send's success removed the day. The
+  completion now compares the report's hash with the one it sent and keeps the day queued when they differ.
+- Fixed: wording "so it will not send that day".
+- Kept: past 14 queued days the oldest is dropped; the sentence about the day just queued is still true.
+- Tests for each (flush-first, the in-flight note, a never-offered day before the last one sent, offered survives
+  markSent); four mutations each red.

@@ -74,7 +74,7 @@ test('an earlier day: --date adds to that day\'s report and queues it for the ho
   assert.equal(n.code, 0, n.both);
   // kosmos#8900: the day is queued for the board's hourly check (engine/feedbacksend-note-8896 checks the send itself).
   // Nothing was ever sent from this fresh store, so the note stays here (engine/feedbacksend-note-8896 covers the sends).
-  assert.match(n.out, /^\s*Added the note to your report of 2026-11-05, on this computer\. Kosmos has not sent a report for that day or any later one, so it does not send that day now, and the note stays here\./);
+  assert.match(n.out, /^\s*Added the note to your report of 2026-11-05, on this computer\. Kosmos has not sent a report for that day, so it will not send that day, and the note stays here\./);
   assert.match((await run(['feedback', 'show', '2026-11-05'], h)).out, /^old report\n\nAdded later \(.*UTC\):\na correction\n$/);
 });
 

@@ -78,6 +78,9 @@ const endpoint = () => process.env.AGENT_WORKFORCE_FEEDBACK_URL || DEFAULT_ENDPO
 /* kosmos#8900: at most this many earlier days wait to be sent again, and each gets this many tries. */
 const PENDING_MAX = 14;
 const PENDING_TRIES = 3;
+/* kosmos#8900 review 2: the days Kosmos has started sending (markSent), newest last, so a note re-sends only a day that
+   was already offered to the team, never a report that was kept here. */
+const OFFERED_MAX = 60;
 
 /**
  * The opt-in preference. A never-asked machine (no file) defaults ON, Josh's
@@ -116,6 +119,7 @@ function read() {
     pending: Array.isArray(parsed.pending)
       ? parsed.pending.filter((x) => x && feedback.isDateKey(x.date) && Number.isInteger(x.tries) && x.tries >= 0).slice(-PENDING_MAX)
       : [],
+    offered: Array.isArray(parsed.offered) ? parsed.offered.filter((d) => feedback.isDateKey(d)).slice(-OFFERED_MAX) : [],
     ok: true,
   };
 }
@@ -128,6 +132,7 @@ function write(patch) {
   const next = { on: cur.on };
   for (const k of ['sent', 'sentHash', 'sentAt']) if (cur[k] != null) next[k] = cur[k];
   if (cur.pending && cur.pending.length) next.pending = cur.pending;   // kosmos#8900: a partial write keeps the corrections
+  if (cur.offered && cur.offered.length) next.offered = cur.offered;   // and the days already offered
   Object.assign(next, patch);
   for (const k of Object.keys(next)) if (next[k] == null) delete next[k];
   delete next.ok;
@@ -537,7 +542,8 @@ function sweepTick(now) {
     const n = new Date(t);
     const prev = feedback.dateKey(new Date(n.getFullYear(), n.getMonth(), n.getDate() - 1));
     const st = read();
-    if (st.ok && st.sent === prev) {
+    // kosmos#8900 review 2: a queued yesterday is sent by drainCorrections alone, so it never goes twice.
+    if (st.ok && st.sent === prev && !(st.pending || []).some((x) => x.date === prev)) {
       const body = feedback.readBody(prev);
       if (body != null && bodyHash(body) !== st.sentHash) sendDailyOnce(prev, t);
     }
@@ -556,13 +562,9 @@ function queueCorrection(date, now) {
   if (!feedback.isDateKey(date) || date >= feedback.dateKey(new Date(t))) return { ok: false, why: 'date' };
   const st = read();
   if (!st.ok) return { ok: false, why: 'unreadable' };
-  // Review 1: only a day on or before the last one Kosmos sent, so a note never pushes out a report that was kept
-  // here (written while sending was off, or before anything was ever sent) for the first time.
-  if (!st.sent || date > st.sent) return { ok: false, why: 'unsent' };
-  // Review 1: yesterday, when it is the last day sent, is already re-sent by the hourly check (sweepTick), with its
-  // own retries; queuing it too would send it twice in one check.
-  const n = new Date(t);
-  if (date === st.sent && date === feedback.dateKey(new Date(n.getFullYear(), n.getMonth(), n.getDate() - 1))) return { ok: true, via: 'sweep' };
+  // Review 2: only a day Kosmos has already started sending (markSent's list, or the record's own day for a file from
+  // before the list), so a note never sends a report that was kept here for the first time.
+  if (!((st.offered || []).includes(date) || st.sent === date)) return { ok: false, why: 'unsent' };
   const list = (st.pending || []).filter((x) => x.date !== date).concat([{ date, tries: 0 }]);   // no file yet: no list
   while (list.length > PENDING_MAX) list.shift();
   const w = write({ pending: list });
@@ -589,14 +591,18 @@ function drainCorrections(now) {
     const counted = [{ date: first.date, tries: first.tries + 1 }].concat(list.slice(1));
     if (!write({ pending: counted }).ok) return;   // the try could not be counted: do not send, so it cannot repeat for ever
     const body = feedback.readBody(first.date);
+    const h = body == null ? null : bodyHash(body);
     maybeSend(first.date, () => {
       const cur = read();
       if (!cur.ok) return;
+      // Review 2: a note added while this send was in flight changed the report: keep the day queued so it goes again.
+      const now = feedback.readBody(first.date);
+      if (now != null && h != null && bodyHash(now) !== h) return;
       const rest = (cur.pending || []).filter((x) => x.date !== first.date);
       const patch = { pending: rest.length ? rest : null };
-      // Review 1: when this day is also the record's day, record what was delivered, so flushChangedDay does not send
-      // the same report again when a later day goes.
-      if (cur.sent === first.date && body != null) patch.sentHash = bodyHash(body);
+      // Review 1: when this day is also the record's day, record what was delivered, so the record does not count it
+      // as changed and undelivered.
+      if (cur.sent === first.date && h != null) patch.sentHash = h;
       write(patch);
     });
   } catch { /* nothing here may reach the caller */ }
@@ -616,13 +622,17 @@ function flushChangedDay(st, d, t) {
     // The last attempt may still be in flight (a send times out after 5 s), and its delivered hash is recorded only
     // when it answers: within a minute of it, whatever the record's hash says, nothing is sent again (review 3).
     if (st.sentAt != null && t - st.sentAt >= 0 && t - st.sentAt < RETRY_MIN_MS) return;
+    if ((st.pending || []).some((x) => x.date === st.sent)) return;   // kosmos#8900 review 2: queued, so the drain sends it
     const body = feedback.readBody(st.sent);
     if (body != null && bodyHash(body) !== st.sentHash) maybeSend(st.sent);
   } catch { /* best effort */ }
 }
 
 function markSent(date, hash, at) {
-  return write({ sent: date, sentHash: hash || null, sentAt: Number.isFinite(at) ? at : null });
+  // kosmos#8900 review 2: every real send marks first, so this is where a day joins the days offered to the team.
+  const cur = read();
+  const offered = ((cur.ok && cur.offered) || []).filter((d) => d !== date).concat(feedback.isDateKey(date) ? [date] : []).sort().slice(-OFFERED_MAX);
+  return write({ sent: date, sentHash: hash || null, sentAt: Number.isFinite(at) ? at : null, offered: offered.length ? offered : null });
 }
 
 // #5294 review 2: a FAILED send (nothing delivered today) may be retried by writing again, but not sooner than this,
@@ -763,9 +773,8 @@ function noteEarlierDay(date, now) {
   if (!sender && sandboxed() && !loopback(endpoint())) return head + 'Not sent: this is a test run (or its data is in a temporary folder).';
   let q;
   try { q = queueCorrection(date, now); } catch { q = { ok: false }; }
-  if (q && !q.ok && q.why === 'unsent') return head + 'Kosmos has not sent a report for that day or any later one, so it does not send that day now, and the note stays here.';
+  if (q && !q.ok && q.why === 'unsent') return head + 'Kosmos has not sent a report for that day, so it will not send that day, and the note stays here.';
   if (!q || !q.ok) return head + 'Kosmos could not record it to be sent, so it stays here.';
-  if (q.via === 'sweep') return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team again on one of Kosmos\'s hourly checks while it is running (switching sending off cancels it), with home paths and the names and keys Kosmos recognises taken out first.';
   return head + 'The changed report goes to the Kosmos team on one of Kosmos\'s hourly checks while it is running (tried up to three times; switching sending off cancels it), with home paths and the names and keys Kosmos recognises taken out first.';
 }
 
@@ -777,5 +786,5 @@ module.exports = {
   FILE, read, setOn, write, scrub, payload, maybeSend, sendDailyOnce, markSent,
   setSender, underTest, DEFAULT_ENDPOINT, CONSENT_VERSION,
   sendNow, writeMessage, WRITE_MESSAGES, loopback, sandboxed, RETRY_MIN_MS,   // kosmos#5294
-  noteMessage, NOTE_MESSAGES, noteEarlierDay, queueCorrection, drainCorrections, PENDING_MAX, PENDING_TRIES,   // kosmos#8896, #8900
+  noteMessage, NOTE_MESSAGES, noteEarlierDay, queueCorrection, drainCorrections, PENDING_MAX, PENDING_TRIES, OFFERED_MAX,   // kosmos#8896, #8900
 };

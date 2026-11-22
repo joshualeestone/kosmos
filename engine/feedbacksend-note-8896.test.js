@@ -31,6 +31,8 @@ function stub() {
   return posts;
 }
 const settle = () => new Promise((r) => setTimeout(r, 50));
+/* Days Kosmos has started sending (markSent records them), the newest last: only those can be queued (#8900 review 2). */
+function offer(...days) { for (const d of days) fbs.markSent(d, 'h-' + d, NOW - 6 * 3600 * 1000); }
 
 test('CONTROL: the send record and the reports are in the throwaway folder', () => {
   assert.ok(fbs.FILE.startsWith(process.env.AGENT_WORKFORCE_DATA), fbs.FILE);
@@ -45,7 +47,7 @@ test('kosmos#8900: an OLDER day (not the last one sent) is queued, sent on the n
   fresh();
   const posts = stub();
   fb.write('an older report', { from: 'mara', date: OLDER });
-  fbs.markSent(YESTERDAY, 'h-yesterday', NOW - 6 * 3600 * 1000);   // no report for yesterday here, so the sweep's own resend skips it
+  offer(OLDER, YESTERDAY);   // OLDER was sent once; no report for yesterday here, so the sweep's own resend skips it
   const before = record();
   assert.equal(fb.note('mara', 'OLD correction', OLDER, NOW).ok, true);
   assert.match(fbs.noteEarlierDay(OLDER, NOW), HOURLY);
@@ -59,17 +61,56 @@ test('kosmos#8900: an OLDER day (not the last one sent) is queued, sent on the n
   assert.deepEqual(record(), before, 'sending a correction moved today\'s send record');
 });
 
-test('kosmos#8900 review 1: YESTERDAY as the last day sent is not queued (the hourly check re-sends it) and goes exactly once', async () => {
+test('kosmos#8900 review 2: YESTERDAY as the last day sent is queued, and the hourly check sends it exactly once (its own resend steps aside)', async () => {
   fresh();
   const posts = stub();
   fb.write('yesterday\'s report', { from: 'mara', date: YESTERDAY });
-  fbs.markSent(YESTERDAY, 'hash-of-the-sent-version', NOW - 6 * 3600 * 1000);
+  offer(YESTERDAY);
   assert.equal(fb.note('mara', 'Y correction', YESTERDAY, NOW).ok, true);
-  assert.match(fbs.noteEarlierDay(YESTERDAY, NOW), /That day is the last one Kosmos sent, so the changed report goes to the Kosmos team again on one of Kosmos's hourly checks/);
-  assert.deepEqual(fbs.read().pending, [], 'yesterday was queued as well as left to the hourly check');
+  assert.match(fbs.noteEarlierDay(YESTERDAY, NOW), HOURLY);
+  assert.deepEqual(fbs.read().pending, [{ date: YESTERDAY, tries: 0 }]);
   fbs.sweepTick(NOW);
   await settle();
   assert.equal(posts.filter((p) => JSON.stringify(p).includes('Y correction')).length, 1, JSON.stringify(posts.map((p) => p.date)));
+  assert.deepEqual(fbs.read().pending, []);
+});
+
+test('kosmos#8900 review 2: a later day\'s send that goes FIRST does not flush a queued day, so it still goes exactly once', async () => {
+  fresh();
+  const posts = stub();
+  fb.write('an older report', { from: 'mara', date: OLDER });
+  offer(OLDER);   // OLDER is the record's day
+  fb.note('mara', 'FLUSH-FIRST correction', OLDER, NOW);
+  fbs.noteEarlierDay(OLDER, NOW);
+  fb.write('today\'s report', { from: 'mara', date: TODAY });
+  await fbs.sendNow(TODAY, NOW);   // the later day goes first: flushChangedDay must leave the queued OLDER to the drain
+  await settle();
+  assert.equal(posts.filter((p) => JSON.stringify(p).includes('FLUSH-FIRST correction')).length, 0, 'the flush sent a queued day');
+  fbs.sweepTick(NOW + 3600 * 1000);
+  await settle();
+  assert.equal(posts.filter((p) => JSON.stringify(p).includes('FLUSH-FIRST correction')).length, 1, JSON.stringify(posts.map((p) => p.date)));
+});
+
+test('kosmos#8900 review 2: a note added while the day\'s send is in flight keeps the day queued, so the new note goes too', async () => {
+  fresh();
+  const posts = [];
+  let first = true;
+  fbs.setSender(async (url, init) => {
+    posts.push(JSON.parse(init.body));
+    if (first) { first = false; fb.note('mara', 'SECOND note', OLDER, NOW + 1000); }   // lands before this send answers
+    return { ok: true, status: 200 };
+  });
+  fb.write('an older report', { from: 'mara', date: OLDER });
+  offer(OLDER, YESTERDAY);
+  fb.note('mara', 'FIRST note', OLDER, NOW);
+  fbs.noteEarlierDay(OLDER, NOW);
+  fbs.sweepTick(NOW);
+  await settle();
+  assert.equal(fbs.read().pending.length, 1, 'the day was dropped although its report changed during the send');
+  fbs.sweepTick(NOW + 3600 * 1000);
+  await settle();
+  assert.ok(posts.some((p) => JSON.stringify(p).includes('SECOND note')), 'the second note never went');
+  assert.deepEqual(fbs.read().pending, []);
 });
 
 test('kosmos#8900 review 1: an OLDER day that is the last one sent goes on the hourly check, and a later day\'s send does not send it again', async () => {
@@ -88,18 +129,21 @@ test('kosmos#8900 review 1: an OLDER day that is the last one sent goes on the h
   assert.equal(posts.filter((p) => JSON.stringify(p).includes('LAST-SENT correction')).length, 1, 'the later day\'s send sent the corrected day again');
 });
 
-test('kosmos#8900 review 1: a day after the last one sent (or with nothing ever sent) is not queued: the note stays here', () => {
+test('kosmos#8900 review 2: a day Kosmos never started sending is not queued, even one before the last day sent: the note stays here', () => {
   fresh();
-  assert.match(fbs.noteEarlierDay(OLDER, NOW), /Kosmos has not sent a report for that day or any later one, so it does not send that day now, and the note stays here\.$/);
-  fbs.markSent(OLDER, 'h', NOW - 6 * 3600 * 1000);
-  assert.match(fbs.noteEarlierDay(YESTERDAY, NOW), /has not sent a report for that day or any later one/);
+  const STAYS = /Kosmos has not sent a report for that day, so it will not send that day, and the note stays here\.$/;
+  assert.match(fbs.noteEarlierDay(OLDER, NOW), STAYS, 'nothing ever sent');
+  offer(YESTERDAY);   // a later day was sent, but OLDER never was (sending was off that day, say)
+  assert.match(fbs.noteEarlierDay(OLDER, NOW), STAYS, 'a day before the last one sent, never itself sent');
   assert.deepEqual(fbs.read().pending, []);
+  offer(OLDER, YESTERDAY);
+  assert.match(fbs.noteEarlierDay(OLDER, NOW), HOURLY, 'CONTROL: once OLDER was offered, the same note is queued');
 });
 
 test('kosmos#8900: one queued day per hourly check, in the order they were queued', async () => {
   fresh();
   const posts = stub();
-  fbs.markSent(YESTERDAY, 'h', NOW - 6 * 3600 * 1000);
+  offer('2026-11-15', '2026-11-16', YESTERDAY);
   for (const d of ['2026-11-15', '2026-11-16']) { fb.write('report ' + d, { from: 'mara', date: d }); fb.note('mara', 'fix ' + d, d, NOW); fbs.noteEarlierDay(d, NOW); }
   fbs.sweepTick(NOW);
   await settle();
@@ -114,7 +158,7 @@ test('kosmos#8900: a collector that refuses uses up three tries, then the day is
   fresh();
   const posts = [];
   fbs.setSender(async (url, init) => { posts.push(JSON.parse(init.body)); return { ok: false, status: 503 }; });
-  fbs.markSent(YESTERDAY, 'h', NOW - 6 * 3600 * 1000);
+  offer(OLDER, YESTERDAY);
   fb.write('an older report', { from: 'mara', date: OLDER });
   fb.note('mara', 'REFUSED correction', OLDER, NOW);
   fbs.noteEarlierDay(OLDER, NOW);
@@ -134,7 +178,7 @@ test('kosmos#8900: a collector that refuses uses up three tries, then the day is
 test('kosmos#8900: switching sending off cancels the queue at once, so switching it back on sends nothing queued before', async () => {
   fresh();
   const posts = stub();
-  fbs.markSent(YESTERDAY, 'h', NOW - 6 * 3600 * 1000);
+  offer(OLDER, YESTERDAY);
   fb.write('an older report', { from: 'mara', date: OLDER });
   fb.note('mara', 'OFF correction', OLDER, NOW);
   fbs.noteEarlierDay(OLDER, NOW);
@@ -153,10 +197,12 @@ test('kosmos#8900: switching sending off cancels the queue at once, so switching
 
 test('kosmos#8900: the queue survives the other writes (setOn, markSent), is capped, and refuses today, a future or a bad date', () => {
   fresh();
-  fbs.markSent(YESTERDAY, 'h', NOW);
+  const octo = Array.from({ length: fbs.PENDING_MAX + 2 }, (_, i) => '2026-10-' + String(i + 1).padStart(2, '0'));
+  offer(...octo, OLDER, YESTERDAY);
   fbs.queueCorrection(OLDER, NOW);
   fbs.setOn(true);
   fbs.markSent(YESTERDAY, 'h2', NOW);
+  assert.ok(fbs.read().offered.includes(OLDER), 'markSent dropped the days already offered');
   assert.deepEqual(fbs.read().pending, [{ date: OLDER, tries: 0 }], 'a partial write wiped the queue');
   for (let i = 1; i <= fbs.PENDING_MAX + 2; i++) fbs.queueCorrection('2026-10-' + String(i).padStart(2, '0'), NOW);
   const q = fbs.read().pending;
