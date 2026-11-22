@@ -2542,7 +2542,6 @@ const SCREENS = [
     await page.$eval('[data-start-at-sign-in]', (el) => el.closest('.setrow').scrollIntoView({ block: 'center' }));
     await page.mouse.move(1, 1);
   } },
-  /* kosmos#7416 slice 3: the keep-awake switch, off and on (keepAwakeShot, above SCREENS). */
   /* kosmos#6254: Settings, This Mac, Phone notifications with the master on and connected, so the per-kind switch
      rows show (needs you, replied, a post naming you, work ready, other room posts), with replied OFF so On and Off
      both appear. Only /api/phone-notify is stubbed, in the shape render-push-718.js uses. */
@@ -2554,6 +2553,7 @@ const SCREENS = [
     await page.waitForFunction(() => { const b = document.getElementById('phone-notify-kinds'); return !!b && !b.hidden; }, null, { timeout: 8000 });
     await page.evaluate(() => { const s = document.getElementById('phone-notify'); if (s) s.scrollIntoView({ block: 'start' }); });
   } },
+  /* kosmos#7416 slice 3: the keep-awake switch, off and on (keepAwakeShot, above SCREENS). */
   { name: 'settings-keepawake-off', owner: 'Renet Tilley', go: async (page) => keepAwakeShot(page, false) },
   { name: 'settings-keepawake-on', owner: 'Renet Tilley', go: async (page) => keepAwakeShot(page, true) },
   { name: 'settings-accounts', owner: 'Sonya', go: async (page) => {
