@@ -33,6 +33,10 @@ Rejected:
   Tilley agreed (m5665). After the rebase, `looked` also counts #8863's .jsonl files and folders, and a .jsonl the person
   already dismissed counts as looked at, not damaged.
 
+Exit status: 0 whenever the board answered, whatever it said (no result, some unread, damaged or clean), as
+`kosmos accounts` does; the words are the answer. A script that needs to branch reads them. Decided in review round 3,
+before any agent scripts against it.
+
 Weakest premise: that an agent will think to run `kosmos start-check`. The help line names it for "after a crash"; a
 line in the restart message an agent sees would reach it without that, and that belongs to #8864.
 

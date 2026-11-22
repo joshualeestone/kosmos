@@ -60,6 +60,7 @@ test('kosmos#8865: a dismissed list and a file already put back are said, never 
   const both = renderLines({ ran: true, checked: true, damaged: 3, unread: 0, looked: 5, restored: 1, dismissed: true, files: [] }).join('\n');
   assert.match(both, /1 of them was put back from a good copy since the start\./);
   assert.match(both, /dismissed it for this start/);
+  // Not a shape the board sends (it counts every put-back in `restored`); here only to show a gap is never read as put back.
   const shorter = renderLines({ ran: true, checked: true, damaged: 2, unread: 0, looked: 5, restored: 0, files: [FILE()] }).join('\n');
   assert.doesNotMatch(shorter, /put back/, 'a shorter list was read as put back');
 });
@@ -71,4 +72,16 @@ test('kosmos#8865 review 1: every damaged file put back says so, and a malformed
   assert.doesNotMatch(odd, NONE_DAMAGED);
   assert.doesNotMatch(odd, /\b0 files or folders/, 'a false count of zero was printed');
   assert.match(odd, /could not look at all of them, so it cannot say those are fine/);
+});
+
+test('kosmos#8865 review 3: a locked or too-large file is not said to have no copy, and an empty install is said as one', () => {
+  for (const problem of ['unopenable', 'toobig']) {
+    const line = renderLines({ ran: true, checked: true, damaged: 1, unread: 0, looked: 3, files: [FILE({ problem, says: 'cannot be opened' })] })[1];
+    assert.match(line, /Kosmos did not look for a good copy of it\.$/, problem);
+    assert.doesNotMatch(line, /No good copy of it was found/, problem);
+  }
+  // CONTROL: an empty or blank file still says none was found, since the scan looked.
+  assert.match(renderLines({ ran: true, checked: true, damaged: 1, unread: 0, looked: 3, files: [FILE()] })[1], /No good copy of it was found\.$/);
+  assert.deepEqual(renderLines({ ran: true, checked: true, damaged: 0, unread: 0, looked: 0, files: [] }),
+    ['Kosmos found none of its own files to check at this start (a new install has none yet), so none is damaged.']);
 });

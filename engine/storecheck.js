@@ -155,6 +155,7 @@ function scan(opts) {
   RESTORED = 0;
   SCANNED = null;   // kosmos#8865 review 2: a scan that throws part way leaves no result, never the previous one
   LOOKED = null;
+  FOUND = [];       // review 3: the list too, so a failed scan never shows the previous start's files
   let looked = 0;   // kosmos#8865: the files this scan read, or found too large or locked, for "checked N files"
   const files = candidates(store.ROOT);
   for (const f of Object.keys(FOLDERS)) files.push(...candidates(path.join(store.ROOT, f)));

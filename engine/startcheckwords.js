@@ -27,6 +27,8 @@ function renderLines(r) {
     if (unread > 0 || r.checked !== true) {
       lines.push('Kosmos checked its own files at this start' + seen + ' and found none damaged, but it could not look at '
         + (unread > 0 ? plural(unread, 'file or folder', 'files or folders') : 'all of them') + ', so it cannot say those are fine.');
+    } else if (looked === 0) {
+      lines.push('Kosmos found none of its own files to check at this start (a new install has none yet), so none is damaged.');
     } else {
       lines.push('Kosmos checked its own files at this start' + seen + ': none is damaged.');
     }
@@ -56,6 +58,9 @@ function renderLines(r) {
       line += ' A good copy' + (typeof f.backup.at === 'string' ? ' saved ' + f.backup.at : '') + ' is at ' + f.backup.file + '; the person can put it back in Kosmos.';
     } else if (f.secret === true) {
       line += ' It holds a key or something that can be taken back, so Kosmos keeps no copy of it.';
+    } else if (f.problem === 'toobig' || f.problem === 'unopenable') {
+      // review 3: the scan does not look for a copy of these (storecheck.js scan), so "none was found" would be untrue.
+      line += ' Kosmos did not look for a good copy of it.';
     } else {
       line += ' No good copy of it was found.';
     }
