@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.11",
+  "lastProd": "0.8.13",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -2435,43 +2435,48 @@
     },
     {
       "since": "0.8.12",
-      "status": "pending",
+      "status": "shown",
       "title": "Older Safari opens your board",
       "icon": "phone",
-      "rank": 8.0,
-      "line": "An older Safari (before 16.4) now shows your board through Kosmos+, its pictures and previews included, not a signed-out page."
+      "rank": 8,
+      "line": "An older Safari (before 16.4) now shows your board through Kosmos+, its pictures and previews included, not a signed-out page.",
+      "shownIn": "0.8.13"
     },
     {
       "since": "0.8.12",
-      "status": "pending",
+      "status": "shown",
       "title": "An agent's name can hold an apostrophe",
       "icon": "swarm",
       "rank": 8.1,
-      "line": "A name like O'Brien's helper now works when you make an agent: the name you see keeps the apostrophe."
+      "line": "A name like O'Brien's helper now works when you make an agent: the name you see keeps the apostrophe.",
+      "shownIn": "0.8.13"
     },
     {
       "since": "0.8.12",
-      "status": "pending",
+      "status": "shown",
       "title": "Fewer sign-in asks from a phone",
       "icon": "shield",
       "rank": 8.2,
-      "line": "From a phone or another computer, a sign-in with your authenticator code counts for as long as it lasts, so making an agent stops asking."
+      "line": "From a phone or another computer, a sign-in with your authenticator code counts for as long as it lasts, so making an agent stops asking.",
+      "shownIn": "0.8.13"
     },
     {
       "since": "0.8.12",
-      "status": "pending",
+      "status": "shown",
       "title": "Update Kosmos from the board on Linux",
       "icon": "shield",
       "rank": 8.3,
-      "line": "On a Kosmos Cloud machine, or a Linux computer running Kosmos as its usual service, Update on the board now installs a newer Kosmos."
+      "line": "On a Kosmos Cloud machine, or a Linux computer running Kosmos as its usual service, Update on the board now installs a newer Kosmos.",
+      "shownIn": "0.8.13"
     },
     {
       "since": "0.8.12",
-      "status": "pending",
+      "status": "shown",
       "title": "Kosmos Cloud machines update themselves",
       "icon": "shield",
       "rank": 8.05,
-      "line": "A Kosmos Cloud machine installs the newest released version each night, skipping a night when an agent is working. Settings can turn it off."
+      "line": "A Kosmos Cloud machine installs the newest released version each night, skipping a night when an agent is working. Settings can turn it off.",
+      "shownIn": "0.8.13"
     },
     {
       "since": "0.8.12",
