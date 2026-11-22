@@ -3945,7 +3945,9 @@ class KosmosLauncher
     // request the page starts to this computer on another port carried it there: a navigation, a fetch, an image, all
     // measured. A dev site an agent runs here and links to would get the person's board session. So a request to this
     // computer that is not the board itself is refused here, whatever its scheme: localhost by name, and any address
-    // IPAddress.IsLoopback calls loopback (every 127.x, ::1). That covers the one host the cookie is ever sent to,
+    // IPAddress.IsLoopback calls loopback (every 127.x, ::1). In the window only requests the filters let through reach
+    // this (addresses naming 127.0.0.1, localhost or [::1]; ControllerReady), so 127.0.0.2 never does, and need not.
+    // That covers the one host the cookie is ever sent to,
     // 127.0.0.1, in every spelling Uri reads as it (127.1, 2130706433, 0x7f.1). Other ways to reach this computer
     // (foo.localhost, ::ffff:127.0.0.1, 0.0.0.0) are not refused, and need not be: the cookie is host-only on 127.0.0.1,
     // so it is never sent to them. A request anywhere else is not this rule's business (links leave by the link rules).
@@ -4392,6 +4394,12 @@ class BoardWindowForm : System.Windows.Forms.Form
             webView.AddWebResourceRequestedFilter("*127.0.0.1*", 0);
             webView.AddWebResourceRequestedFilter("*localhost*", 0);
             webView.AddWebResourceRequestedFilter("*[::1]*", 0);
+            // Review 5: the refusal itself is made once here too. If WebView2 cannot make it, a refused request would
+            // later go out unanswered, so that is found now, before anything loads, and the window closes instead.
+            ICoreWebView2WebResourceResponse probe;
+            webEnvironment.CreateWebResourceResponse(IntPtr.Zero, 403, "Forbidden", "Content-Type: text/plain\r\nCache-Control: no-store", out probe);
+            if (probe == null) throw new InvalidOperationException("WebView2 made no refusal");
+            Marshal.ReleaseComObject(probe);
         }
         catch (Exception x)
         {

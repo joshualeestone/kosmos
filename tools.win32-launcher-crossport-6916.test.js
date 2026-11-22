@@ -64,9 +64,19 @@ test('#6916: the window wires the request check before any page loads, in every 
 
 test('#6916: a request to this computer on another port is answered with a local 403; one that cannot be read is refused too', () => {
   const on = between('internal void OnWebResourceRequested(', '\n    }\n');
-  assert.match(on, /try \{ request\.get_Uri\(out uri\); \}\s*finally \{ Marshal\.ReleaseComObject\(request\); \}[^\n]*\n\s*if \(KosmosLauncher\.RefusedLoopbackRequest\(uri, port\)\) RefuseRequest\(args\);/);
+  // Review 5: the calls and their order, not their layout.
+  const order = (text, calls, what) => {
+    let at = -1;
+    for (const c of calls) { const next = text.indexOf(c, at + 1); assert.ok(next > at, what + ': ' + c + ' is missing or out of order'); at = next; }
+  };
+  order(between('internal void OnWebResourceRequested(', '\n    }\n'),
+    ['request.get_Uri(out uri)', 'Marshal.ReleaseComObject(request)', 'KosmosLauncher.RefusedLoopbackRequest(uri, port)', 'RefuseRequest(args)'], 'OnWebResourceRequested');
   const refuse = between('internal void RefuseRequest(', '\n    }\n');
-  assert.match(refuse, /webEnvironment\.CreateWebResourceResponse\(IntPtr\.Zero, 403, "Forbidden", "Content-Type: text\/plain\\r\\nCache-Control: no-store", out refusal\);\s*try \{ args\.put_Response\(refusal\); \}\s*finally \{ Marshal\.ReleaseComObject\(refusal\); \}/);
+  order(refuse, ['webEnvironment.CreateWebResourceResponse(IntPtr.Zero, 403,', 'args.put_Response(refusal)', 'Marshal.ReleaseComObject(refusal)'], 'RefuseRequest');
+  assert.match(refuse, /finally \{ Marshal\.ReleaseComObject\(refusal\); \}/, 'the refusal is not released when put_Response throws');
+  // Review 5: the wiring makes one refusal too, so a response factory that does not work closes the window at start.
+  const wiringTry = between('webView.add_WebResourceRequested(new WebResourceRequested(this), out token);', 'catch (Exception x)');
+  order(wiringTry, ['webEnvironment.CreateWebResourceResponse(IntPtr.Zero, 403,', 'if (probe == null) throw', 'Marshal.ReleaseComObject(probe)'], 'the wiring\'s throwaway refusal');
   const handler = between('public class WebResourceRequested :', '\n}\n');
   assert.match(handler, /try \{ form\.OnWebResourceRequested\(args\); \}\s*catch \{ try \{ form\.RefuseRequest\(args\); \}/, 'a request the check could not read is let through');
   assert.match(between('internal void EnvironmentReady(', '\n    }\n'), /webEnvironment = environment;/, 'the environment that makes the refusal is not kept');
