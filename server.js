@@ -1563,6 +1563,7 @@ function communityNudge(agentKey, postId, startedAt = Date.now(), reply = false)
   const shownKey = String(agentKey);
   let carried = null;
   let carriedComments = null;   // kosmos#8895: the comments number shown with it
+  let carriedAt = null;   // and the moment it was counted (review 1: not when the answer was ready)
   const shownBefore = COUNTS_SHOWN.get(shownKey);
   const lastShown = shownBefore && Number.isFinite(shownBefore.comments) && Date.now() - shownBefore.at < COUNTS_SHOWN_FOR_MS
     ? { comments: shownBefore.comments, at: shownBefore.at } : null;
@@ -1571,11 +1572,11 @@ function communityNudge(agentKey, postId, startedAt = Date.now(), reply = false)
     return Boolean(e) && e.counts === counts && Date.now() - e.at >= 0 && Date.now() - e.at < COUNTS_SHOWN_FOR_MS;
   };
   return Promise.race([communitynudge.nudge(agentKey, { postId: postId || null, reply: reply === true, owed: home ? home.owed : null,
-    sameAsShown, lastShown, onCounts: (counts, comments) => { carried = counts; carriedComments = Number.isFinite(comments) ? comments : null; } }).catch(() => null), late])
+    sameAsShown, lastShown, onCounts: (counts, comments, countedAt) => { carried = counts; carriedComments = Number.isFinite(comments) ? comments : null; carriedAt = Number.isFinite(countedAt) ? countedAt : null; } }).catch(() => null), late])
     .then((v) => {
       clearTimeout(timer);
       const line = typeof v === 'string' && v ? v : null;
-      if (line && carried && line.includes(carried)) COUNTS_SHOWN.set(shownKey, { counts: carried, comments: carriedComments, at: Date.now() });
+      if (line && carried && line.includes(carried)) COUNTS_SHOWN.set(shownKey, { counts: carried, comments: carriedComments, at: carriedAt != null ? carriedAt : Date.now() });
       return line;
     });
 }

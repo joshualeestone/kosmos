@@ -324,12 +324,13 @@ async function nudge(agentKey, { postId = null, now = Date.now(), reply = false,
     const f = floors();
     const owedPart = countsPhrase({}, f, owed);   // the replies-waiting sentence alone (no count parts given)
     let last = countsPhrase(c, f, null);
-    if (last && lastShown && Number.isFinite(lastShown.comments) && Number.isFinite(c.comments) && c.comments < lastShown.comments
-      && Number.isFinite(c.agedOut) && c.agedOut > 0) {
-      last += ' ' + agedSentence(Math.min(c.agedOut, lastShown.comments - c.comments));
-    }
+    // kosmos#8895: the reason is added AFTER the same-as-shown check and is not stored with the counts (review 1), so the
+    // next unchanged line still shortens.
+    const reason = last && lastShown && Number.isFinite(lastShown.comments) && Number.isFinite(c.comments) && c.comments < lastShown.comments
+      && Number.isFinite(c.agedOut) && c.agedOut > 0 ? agedSentence(Math.min(c.agedOut, lastShown.comments - c.comments)) : null;
     if (last && typeof sameAsShown === 'function' && sameAsShown(last) === true) last = COUNTS_UNCHANGED;
-    else if (last && typeof onCounts === 'function') onCounts(last, c.comments);
+    else if (last && typeof onCounts === 'function') onCounts(last, c.comments, now);
+    if (reason && last && last !== COUNTS_UNCHANGED) last += ' ' + reason;
     const counts = [owedPart, last].filter(Boolean).join(' ');
     let line = '';
     const a = who.author;
