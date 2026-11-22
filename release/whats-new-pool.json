@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.13",
+  "lastProd": "0.8.14",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -2193,11 +2193,12 @@
     },
     {
       "since": "0.8.08",
-      "status": "pending",
+      "status": "shown",
       "title": "A long conversation keeps your place",
       "line": "Reading back through a long conversation, a moment's failed read no longer moves you; one line at the end says so.",
       "icon": "chat",
-      "rank": 10.12
+      "rank": 10.12,
+      "shownIn": "0.8.14"
     },
     {
       "since": "0.8.09",
@@ -2382,11 +2383,12 @@
     },
     {
       "since": "0.8.11",
-      "status": "pending",
+      "status": "shown",
       "title": "A starred agent stands out",
       "icon": "spark",
       "rank": 9.6,
-      "line": "A starred agent's star is solid bright gold now, with a small burst of sparks when you star it."
+      "line": "A starred agent's star is solid bright gold now, with a small burst of sparks when you star it.",
+      "shownIn": "0.8.14"
     },
     {
       "since": "0.8.11",
@@ -2480,19 +2482,21 @@
     },
     {
       "since": "0.8.12",
-      "status": "pending",
+      "status": "shown",
       "title": "A crashed session no longer blocks an agent",
       "icon": "swarm",
       "rank": 9.7,
-      "line": "An agent shown as blocked by its provider after a session crashed now clears when the next session first finishes a reply."
+      "line": "An agent shown as blocked by its provider after a session crashed now clears when the next session first finishes a reply.",
+      "shownIn": "0.8.14"
     },
     {
       "since": "0.8.12",
-      "status": "pending",
+      "status": "shown",
       "title": "On a phone, the Claude code box comes into view",
       "icon": "phone",
       "rank": 9.8,
-      "line": "On a phone, a Kosmos Cloud machine's first Claude sign-in scrolls the box for the Claude code into view, with a fade while more is below."
+      "line": "On a phone, a Kosmos Cloud machine's first Claude sign-in scrolls the box for the Claude code into view, with a fade while more is below.",
+      "shownIn": "0.8.14"
     },
     {
       "since": "0.8.12",
@@ -2544,11 +2548,12 @@
     },
     {
       "since": "0.8.14",
-      "status": "pending",
+      "status": "shown",
       "title": "Agents move off an account that is running out",
       "icon": "swarm",
       "rank": 7.9,
-      "line": "With two or more Claude subscriptions, Kosmos moves idle agents off one near its weekly limit to one with room. Settings can turn it off."
+      "line": "With two or more Claude subscriptions, Kosmos moves idle agents off one near its weekly limit to one with room. Settings can turn it off.",
+      "shownIn": "0.8.14"
     },
     {
       "since": "0.8.14",
