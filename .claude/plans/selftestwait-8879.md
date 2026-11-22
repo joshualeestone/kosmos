@@ -12,7 +12,7 @@ showed up only as four unrelated-looking FAIL rows.
 native-app/main.swift, the three waits (whenAsked twice, whenDenied once):
 - each ends by the uptime clock (ProcessInfo.systemUptime, so a wall-clock step cannot end it early), 15 s
   (refusedWaitSeconds) after it began, instead of after 50 polls. A poll count is not a
-  time: 150 polls of 0.1 s measured about 34 s each on Agent1s (review 3). A wait still returns the moment the answer
+  time: 150 polls of 0.1 s measured about 34 s each on Agent1s. A wait still returns the moment the answer
   arrives.
 - a wait that runs out prints `download selftest WAIT RAN OUT (kosmos#8879): waited Ns without "Cannot create file"
   number N (seen M)`, N being the measured time, and then goes on as before (whenDenied still restores the folder).
@@ -40,7 +40,7 @@ recurs, the WAIT RAN OUT line now says which wait and how many answers had come,
 - the real self-test: 74 of 74 rows pass, 74 s, no WAIT RAN OUT line.
 - red arm 1 (scratch copy, the counter matching a string never said): all three waits print "waited 15s", 74 rows
   pass, 129 s.
-- red arm 2, the worst case (that, and no expected file ever counted as saved), measured on the wall-clock version
-  just before: 9 rows wrong, judged ("download-check: 9 row(s) wrong", exit 1), not timed out, 215 s, under the
-  300 s watchdog.
+- red arm 2, the worst case (that, and no expected file ever counted as saved), on the final code at 96c0ef9d7a,
+  23:00 CST: 9 rows wrong, judged ("download-check: 9 row(s) wrong", exit 1), not timed out, 213 s, under the
+  300 s watchdog. (The wall-clock version measured 215 s.)
 - native-app.download-5167.test.js: 37 of 37.
