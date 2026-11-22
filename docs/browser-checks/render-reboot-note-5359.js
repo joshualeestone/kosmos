@@ -19,6 +19,7 @@
  *   restart    -> a new board start time under an open page brings the note (control: the same start time does not)
  *   midnight   -> with the page clock pinned at 23:30 then 00:10, the same note says "yesterday at"
  *   checked    -> kosmos#8287: the line of what was checked, all back / some not back / damage / partial; none without checks (control); a change repaints; a phone keeps it
+ *   pattern    -> kosmos#8866: 3 restarts in 7 days are said once with the dates; no line without a pattern (control) or with a damaged one
  *
  *   AGENT_WORKFORCE_DATA=/tmp/rn PORT=17372 node server.js &
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" \
@@ -212,6 +213,24 @@ const CASES = [
         say(got.shown && got.text === w.want && (w.want === null || got.h > 0) && !got.hasB, 'checked ' + w.key + ' at ' + width + 'px', JSON.stringify(got));
         if (w.key === 'not-back' && width === 1400) await pg.screenshot({ path: path.join(OUT, 'reboot-checked-not-back.png') }).catch(() => {});
         if (w.key === 'all-back' && width === 390) await pg.screenshot({ path: path.join(OUT, 'reboot-checked-phone.png') }).catch(() => {});
+        await pg.close();
+      }
+    }
+    /* kosmos#8866: several restarts in 7 days, said once with their dates. The first arm is the control: no pattern, no line. */
+    const PAT = /^\S.* has restarted 3 times in the last 7 days while Kosmos was running \(Nov 18, Nov 20, Nov 21\)\. If you did not restart it yourself, restarts this often usually mean a hardware or driver problem worth having looked at\.$/;
+    for (const [key, pattern, want] of [['no-pattern', undefined, null],
+      ['three', { count: 3, dates: ['2026-11-18T16:00:00Z', '2026-11-20T16:00:00Z', '2026-11-21T16:00:00Z'] }, PAT],
+      ['damaged', { count: 3, dates: ['not a date', '2026-11-20T16:00:00Z', '2026-11-21T16:00:00Z'] }, null]]) {
+      for (const width of [1400, 390]) {
+        const pg = await b.newPage({ viewport: { width, height: 844 } });
+        await pg.clock.setFixedTime(new Date(NOON));
+        await pg.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note: { ...base, checks: {}, ...(pattern ? { pattern } : {}) } }) }).catch(() => {}));
+        await pg.goto(URL, { waitUntil: 'networkidle' });
+        if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+        await pg.waitForFunction(() => document.querySelector('#reboot-slot .utoast.reboot'), null, { timeout: 12000 }).catch(() => {});
+        const got = await pg.evaluate(() => { const c = document.querySelector('#reboot-slot .rpat'); return { shown: Boolean(document.querySelector('#reboot-slot .utoast.reboot')), text: c ? c.textContent : null, h: c ? c.getBoundingClientRect().height : 0 }; });
+        say(got.shown && (want === null ? got.text === null : (want.test(got.text || '') && got.h > 0)), 'pattern ' + key + ' at ' + width + 'px', JSON.stringify(got));
+        if (key === 'three') await pg.screenshot({ path: path.join(OUT, 'reboot-pattern-' + width + '.png') }).catch(() => {});
         await pg.close();
       }
     }

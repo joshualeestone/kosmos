@@ -25379,6 +25379,18 @@ function rebootChecked(checks) {
       + (unread ? ' (some others could not be checked)' : ''));
   return parts.length ? 'Checked: ' + parts.join(', and ') + '.' : '';
 }
+/* kosmos#8866: several restarts in a few days are said once, with the count and the dates (engine/restartnote.js keeps
+   them). The board cannot tell a crash from a person's restart, so the line never says "unexpectedly": it names the
+   hardware or driver reading only for the case the person did not restart it. */
+function rebootPattern(p) {
+  if (!p || !Number.isInteger(p.count) || p.count < 3 || !Array.isArray(p.dates) || p.dates.length !== p.count) return '';
+  const days = p.dates.map((iso) => new Date(iso)).filter((d) => !isNaN(d.getTime()))
+    .map((d) => d.toLocaleDateString([], { month: 'short', day: 'numeric' }));
+  if (days.length !== p.count) return '';
+  return (typeof ThisMachine === 'function' ? ThisMachine() : 'This computer') + ' has restarted ' + p.count
+    + ' times in the last 7 days while Kosmos was running (' + days.join(', ') + '). If you did not restart it yourself,'
+    + ' restarts this often usually mean a hardware or driver problem worth having looked at.';
+}
 let REBOOT_RECHECK = null;   // kosmos#8287: agents return over minutes, so a list of who is not back is asked again soon
 /* kosmos#8297: ...but only for the first minutes after Kosmos came back (the note's upAt), which is when agents return.
    Past it the ten-minute re-check is enough. A note whose upAt this page cannot read is not asked about every minute. */
@@ -25398,7 +25410,8 @@ function paintRebootNote(note) {
   /* The ten-minute re-check repaints only when the WORDS change (a new note, or "at 11:30 PM" becoming "yesterday at
      11:30 PM" after midnight): repainting the same words would take focus off Dismiss and re-announce the status. */
   const checked = rebootChecked(note.checks);   // kosmos#8287
-  const key = head + '|' + line + '|' + checked;
+  const pattern = rebootPattern(note.pattern);   // kosmos#8866
+  const key = head + '|' + line + '|' + checked + '|' + pattern;
   if (slot.dataset.shown === key && slot.firstElementChild) {
     /* The board answered this re-check, so a "could not record that just now" from an earlier dismiss is stale. */
     const stale = slot.querySelector('.rerr');
@@ -25409,7 +25422,8 @@ function paintRebootNote(note) {
   slot.innerHTML = '<div class="utoast reboot">'
     + '<span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + esc(line) + '</small>'
-    + (checked ? '<small class="rchk">' + esc(checked) + '</small>' : '') + '</div>'
+    + (checked ? '<small class="rchk">' + esc(checked) + '</small>' : '')
+    + (pattern ? '<small class="rpat">' + esc(pattern) + '</small>' : '') + '</div>'
     + '<button type="button" class="ux" aria-label="Dismiss">&times;</button>'
     + '</div>';
   const btn = slot.querySelector('.ux');
