@@ -3952,11 +3952,11 @@ class KosmosLauncher
     // localhost or [::1] anywhere; ControllerReady). "The board" here is plain http on the board's port at any loopback
     // host, wider than IsBoardAddress (127.0.0.1, localhost, [::1] only); not a leak, for the same reason. A request
     // anywhere else is not this rule's business (links leave by the link rules).
-    // NOT COVERED, measured: a WebSocket the page itself opens (WebView2 never shows it to WebResourceRequested). It needs
-    // script already running in the board's page, but it is still a real leak: the cookie is HttpOnly, so such script
-    // can use the session while the page is open yet never read it, and a WebSocket to another port hands the token
-    // itself to another process, which can keep it. Follow-up: block ws/wss to this computer's other ports in the
-    // browser itself (DevTools Network.setBlockedURLs), kosmos#6916's follow-up card.
+    // NOT COVERED, measured: a WebSocket the page itself opens (WebView2 never shows it to WebResourceRequested), and a
+    // shared worker's own requests (the filters see document requests only). Both need script already running in the
+    // board's page, but both are real leaks: the cookie is HttpOnly, so such script can use the session while the page
+    // is open yet never read it, and either path hands the token itself to another process, which can keep it.
+    // kosmos#8909: worker requests through ICoreWebView2_22's SOURCE_KINDS_ALL filters, ws/wss blocked in the browser.
     internal static bool RefusedLoopbackRequest(string address, int port)
     {
         Uri uri;

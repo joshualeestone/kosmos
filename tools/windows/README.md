@@ -103,10 +103,10 @@ WebView2 Runtime, pointed at the same local board.
   one to 127.0.0.1, localhost or ::1 on any other port or scheme with a local 403, so it never
   leaves. This holds in every mode, since a connect window can switch to running this computer's
   board while it is open. If WebView2 will not take the check, the window does not open without
-  it: the board opens in the browser instead. **Not covered yet:** a WebSocket the page itself
-  opens, which WebView2 does not show to the check. Only script already running in the board's
-  page can open one, but the session token is HttpOnly, so that is how such script would get the
-  token itself out to another process. The follow-up blocks it in the browser.
+  it: the board opens in the browser instead. **Not covered yet (#8909):** a WebSocket the page
+  itself opens, and a shared worker's own requests, neither of which WebView2 shows to the check.
+  Only script already running in the board's page can start either, but the session token is
+  HttpOnly, so that is how such script would get the token itself out to another process.
 - **One window per board.** A second double-click brings the open window forward (restoring it if
   minimised) instead of opening another, and signs it in again with a fresh address from the same
   `--print-url` path, so opening Kosmos again also rescues a window that came up signed out. The
