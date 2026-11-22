@@ -14,7 +14,8 @@
    instructions use); every other project, the welcome one once the person renames it, and a test project, carry no key.
 2. That project's empty Tasks column reads "This is the starter project Kosmos made to show you around. Its agents are
    waiting for you: give them a task here, or start your own project." (Mona Lisa's design read) while it has no task at all; with no agent on it yet (it can be seeded
-   before any agent exists), "... Add an agent to it, or start your own project." (review 1).
+   before any agent exists), "... Add an agent to it, or start your own project." (review 1); with one, "Its agent is
+   waiting for you: give it a task here ..." (review 3).
 3. Once work arrives (any task, open or finished) it reads as any project does; renamed, it reads as any empty project.
    CONTROL: a real empty project keeps "Add a task, or have an agent add one, to start tracking progress."
 
@@ -27,6 +28,9 @@
   column was the same key: a project renamed while empty kept the starter sentence (and, before this change, a column
   with only finished tasks that lost them kept "Nothing open here"). Switching projects already resets the guard.
 
+- Review 3: the check is indexed in docs/browser-checks/README.md (browser-checks-indexed.test.js); the design-shots
+  screen uses the file's own editProjects helper (GET only, fetch and answer inside one try: the #6022 teardown guard).
+  With those tests, the wiring test, both starter tests and the two lints: 47 of 47.
 - engine/starter-8832.test.js's scan for writers of the seed mark now leaves out docs/browser-checks/ (the design-shots
   screen stubs a Kosmos-made project in a page answer and writes no store); a planted second writer in engine/ still
   turns it red.
