@@ -237,7 +237,6 @@ function changesPath(session) {
   } catch { return null; }
 }
 function dropChanges(session) {
-  forgetBody(session);
   const p = changesPath(session);
   if (!p) return;
   try { const st = fs.lstatSync(p); if (st.isFile() || st.isSymbolicLink()) fs.unlinkSync(p); } catch { /* none there */ }
@@ -250,6 +249,7 @@ function rememberRead(session) {
   const dropCopy = () => { const p = seenFile(session); if (p) { try { fs.unlinkSync(p); } catch { /* none kept */ } } forgetMarks(session); return false; };
   try {
     dropChanges(session);
+    forgetBody(session);   // kosmos#8912 slice 2: a session start begins the numbering again, at Notice 1
     const got = require('./instructions').read(session);
     if (!(got && got.exists === true && typeof got.text === 'string')) return dropCopy();
     // kosmos#8416: it read every section just now; marks that could not be saved are dropped, never left old.
@@ -260,6 +260,7 @@ function rememberRead(session) {
 /* The agent's files are deleted (engine/delete-leftover.js): its copy and changes file go with them (review 2). */
 function forget(session) {
   dropChanges(session);
+  forgetBody(session);
   forgetMarks(session);
   const p = seenFile(session);
   if (p) { try { fs.unlinkSync(p); } catch { /* none kept */ } }
@@ -476,10 +477,11 @@ const NOTICE_LINE = /^## Notice (\d+), written /;
    that (a file anyone else wrote there, even one starting with the title, is never republished as Kosmos's). */
 const bodyHash = (t) => require('node:crypto').createHash('sha256').update(String(t)).digest('hex');
 function bodyFile(session) { const p = seenFile(session); return p ? p.replace(/\.md$/, '.changes') : null; }
-/* Round 2: the last notice number is kept with the hash, so a changes file the agent deleted or edited (or one whose
-   hash could not be read) does not make the next notice Notice 1 again. A session start (dropChanges) clears both, and
-   numbering then starts at 1, as the line's "since you started" says. If this file itself cannot be written, both are
-   lost and the next notice is Notice 1: the line then still says to read the sections themselves. */
+/* Round 2: the last notice number is kept with the hash, so a changes file that is gone (the agent deleted or edited it,
+   or Kosmos removed it: dropChanges keeps the number) does not make the next notice Notice 1 again. Only a session start
+   (rememberRead) and deleting the agent (forget) clear it, and numbering then starts at 1, as the line's "since you
+   started" says. If this file itself cannot be written, both are lost and the next notice is Notice 1: the line then
+   still says to read the sections themselves. */
 function rememberBody(session, body, notice) {
   const f = bodyFile(session);
   if (!f) return;
@@ -496,12 +498,13 @@ function readBody(session) {
   } catch { return null; }
 }
 function forgetBody(session) { const f = bodyFile(session); if (f) { try { fs.unlinkSync(f); } catch { /* none kept */ } } }
-/* The file at `p` read without following a link (O_NOFOLLOW where the platform has it, then the open file itself must be a
-   plain file), and no larger than a file Kosmos writes, or null. */
+/* The file at `p` read without following a link or waiting on a pipe (O_NOFOLLOW and O_NONBLOCK where the platform has
+   them, then the open file itself must be a plain file), and no larger than a file Kosmos writes, or null. */
 function readPlain(p) {
   let fd = null;
   try {
-    fd = fs.openSync(p, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+    // Round 3 BLOCKER: O_NONBLOCK, so a named pipe left at the path cannot hold the board's one thread in open().
+    fd = fs.openSync(p, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
     const st = fs.fstatSync(fd);
     if (!st.isFile() || st.size > CHANGES_FILE_MAX + 64 * 1024) return null;
     return fs.readFileSync(fd, 'utf8');
@@ -543,14 +546,23 @@ function dayOf(d) {
    "since you started" about changes from before it started. Anything else there is left as it is. */
 function restoreChanges(session, previous, wrote) {
   const p = changesPath(session);
-  if (!p || typeof wrote !== 'string' || readPlain(p) !== wrote) return;
-  if (typeof previous !== 'string') { dropChanges(session); return; }
+  if (!p || typeof wrote !== 'string') return;
+  // Round 3: the number goes back to the one before this notice's, which never reached the agent.
+  const mine = entriesOf(wrote);
+  const before = mine.length ? mine[mine.length - 1].n - 1 : 0;
+  if (readPlain(p) !== wrote) {
+    /* Not this notice's file any more. A session start forgot the kept hash too, and then nothing is touched. Otherwise
+       the agent or someone else changed the file: it is left as it is, and only the number goes back. */
+    const k = readBody(session);
+    if (k && k.hash === bodyHash(wrote)) rememberBody(session, '', before);
+    return;
+  }
+  if (typeof previous !== 'string') { dropChanges(session); rememberBody(session, '', before); return; }
   try {
     require('./securewrite').writeSecret(p, previous, 0o600, { atomicOnly: true, ownTempsOnly: true });
-    const es = entriesOf(previous);
-    rememberBody(session, previous, es.length ? es[es.length - 1].n : 0);
+    rememberBody(session, previous, before);
   }
-  catch { dropChanges(session); }
+  catch { dropChanges(session); rememberBody(session, '', before); }
 }
 /* Before a line: the current file, and (when a copy of what the agent last read exists and differs) the path of the
    changes file written beside it. { text, path, notice, previous, wrote } (kosmos#8912 slice 2: the entry's number, the

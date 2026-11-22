@@ -38,7 +38,7 @@ A line that did not land deleted the whole file.
 - `seen` and the marks move exactly as before.
 
 ## Tests
-- New `engine/instructionreread-noticeid-8912.test.js` (7 at first, 11 after round 1 and 12 after round 2, the additions listed under Review): two landed notices give entries 1 and 2 and the line
+- New `engine/instructionreread-noticeid-8912.test.js` (7 at first, 11 after round 1 and 12 after round 2 and 15 after round 3, the additions listed under Review): two landed notices give entries 1 and 2 and the line
   names Notice 2 with the earlier-entries clause; a line that did not land keeps entry 1 byte for byte and the next
   landed one is Notice 2 (CONTROL: no restoreChanges drops the file); a session start clears, next is Notice 1; a
   stranger's file at the path is not carried; a `+ ## Notice 5` diff line is not an entry; past the bound entries 1
@@ -79,3 +79,17 @@ each time pays more than before; the bound (128 KB) caps that.
   an agent, on the board's clock); stacked slice tags in the header comment.
 - Mutations after round 2, each red: overwrite as before (3), restore drops (3), restore ignores a start (1), no hash
   check (1), no size limit (1), unanchored heading (1), no bound (1), no earlier clause (1), counter ignored (3).
+- Round 3 (opus): BLOCKER, `readPlain` opened the path without O_NONBLOCK, so a named pipe left in the agent's folder
+  blocked open() and held the board's one thread (reviewer's probe hung over two minutes). Fixed: O_NONBLOCK, then the
+  plain-file check; test runs prepareChanges and restoreChanges against a FIFO in a child process with a 15 s timeout.
+  WARNING, a missed line after a deleted file reset the number (restore's dropChanges forgot it). WARNING, every
+  dropChanges reset the number, not only a session start (the comment said otherwise). Fixed both: dropChanges removes
+  only the file; rememberRead and forget also forget the kept hash and number; a line that did not land sets the number
+  back to the one before its own (also when the file changed meanwhile, unless a session start forgot the hash: then
+  nothing is touched). Tests: deleted file then a missed line then a landed one is Notice 2; a line with a held section
+  (no file) does not reset the number. The tests that reset with dropChanges now reset with forget. NIT not taken: the
+  sub-millisecond window between writing the file and keeping its hash (a start landing exactly there leaves an old
+  number, so the next file says earlier notices are no longer in it, which errs safe).
+- Mutations after round 3, each red: overwrite as before (3), restore drops (4), restore ignores a start (1), no hash
+  check (1), no size limit (1), unanchored heading (1), no bound (1), no earlier clause (1), counter ignored (5),
+  blocking open (1), restore forgets the number (1), drop forgets the number (1).
