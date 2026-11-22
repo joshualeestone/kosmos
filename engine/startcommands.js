@@ -355,11 +355,12 @@ const INNER_ABS = /(?:^|[^A-Za-z0-9_.~/$-])(\/[^\s'"`()<>;|&,/][^\s'"`()<>;|&,]*
    - ~ and $HOME reach bash as /c/... even when the home was set as C:\..., so bash searches the home folder itself.
      Kosmos has already expanded them to the Windows home (C:\H) by now and cannot tell them from a variable or literal
      with the same text, so a piece starting at the home (whole folder name) is ALSO named whole, with its drive colon;
-   - a one-letter first folder is that drive (cygpath -w: /c/x is C:\x, /x is X:\).
+   - a one-letter first folder is that drive (cygpath -w: /c/x is C:\x, /x is X:\, the drive's root).
    Off Windows the value splits on every ':' exactly as before. */
 function splitPathValue(value, win, home = '') {
   if (!win) return value.split(':');
-  const drive = (p) => p.replace(/^\/([A-Za-z])(?=\/|$)/, (m, d) => d.toUpperCase() + ':');   // Git Bash /c/x -> C:/x
+  // Git Bash /c/x -> C:/x, and a bare /d -> D:/ (the drive's root; a bare D: would be the current folder on D:).
+  const drive = (p) => p.replace(/^\/([A-Za-z])(?:\/|$)/, (m, d) => d.toUpperCase() + ':/');
   const out = value.split(':').map(drive);
   const h = /^[A-Za-z]:[\\/]/.test(home) ? home.replace(/[\\/]+$/, '').toLowerCase() : '';
   if (!h) return out;
@@ -382,7 +383,6 @@ function splitPathValue(value, win, home = '') {
  * Kosmos knows. Returns { paths, unsafe }: candidate script paths (folders are filtered by startCommandScripts) and the
  * words whose value cannot be known.
  */
-
 function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredIn = true, deferRunners = false, pathDirsIn = null, whereIn = null) {
   const paths = [];
   const runPaths = [];   // the subset named where something runs

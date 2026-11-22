@@ -18,12 +18,13 @@ test('#8451: off Windows a PATH value splits on every colon, exactly as before',
 test('#8451: on Windows every plain piece is kept, a piece at the home is also named whole, and /c/ is C:', () => {
   const w = (v) => sc.splitPathValue(v, true, 'C:\\H');
   assert.deepEqual(w('C:\\H/bin:\u0000PATH'), ['C', '\\H/bin', '\u0000PATH', 'C:\\H/bin'], 'the home piece whole, plus the plain split');
-  assert.deepEqual(w('/x:C:\\H/bin:C:\\H:\u0000PATH'), ['X:', 'C', '\\H/bin', 'C', '\\H', '\u0000PATH', 'C:\\H/bin', 'C:\\H'], 'the home after a colon too; /x is the X: drive (cygpath -w)');
+  assert.deepEqual(w('/x:C:\\H/bin:C:\\H:\u0000PATH'), ['X:/', 'C', '\\H/bin', 'C', '\\H', '\u0000PATH', 'C:\\H/bin', 'C:\\H'], 'the home after a colon too; /x is the X: drive root (cygpath -w)');
   assert.deepEqual(w('c:\\h/bin'), ['c', '\\h/bin', 'c:\\h/bin'], 'the home matched without regard to case');
   assert.deepEqual(w('C:\\Homer/bin'), ['C', '\\Homer/bin'], 'C:\\Homer is not the home C:\\H: a whole folder name only');
   assert.deepEqual(w('C:/tools:x'), ['C', '/tools', 'x'], 'a typed drive path splits, as Git Bash splits it (measured)');
   assert.deepEqual(w('D:\\H/bin'), ['D', '\\H/bin'], 'another drive is not the home');
-  assert.deepEqual(w('/c/tools:/d:\u0000PATH'), ['C:/tools', 'D:', '\u0000PATH'], 'Git Bash drive form, and a bare drive');
+  // A bare drive is its root, D:/: a bare D: would be the current folder on D: once resolved (review 2).
+  assert.deepEqual(w('/c/tools:/d:/e/:\u0000PATH'), ['C:/tools', 'D:/', 'E:/', '\u0000PATH'], 'Git Bash drive form, and a bare drive');
   assert.deepEqual(w('/cc/x:/c2/y'), ['/cc/x', '/c2/y'], 'only a single-letter first folder is a drive');
   assert.deepEqual(sc.splitPathValue('C:\\H/bin', true, ''), ['C', '\\H/bin'], 'no home known: plain split');
   assert.deepEqual(sc.splitPathValue('C:\\H/bin', true, 'relative'), ['C', '\\H/bin'], 'a home that is not a drive path: plain split');
@@ -49,6 +50,9 @@ test('#8451: on Windows a PATH= value names the home folder whole AND every fold
   assert.ok(paths('export PATH=/x:~/bin:$PATH; myhook').includes('X:\\myhook'), '/x is the X: drive');
   assert.ok(paths('PATH="$HOME/.bun/bin:$PATH" bun run x.ts').includes('D:\\H\\.bun\\bin\\bun'), '$HOME');
   assert.deepEqual(paths('PATH=/c/tools:$PATH lint'), ['C:\\tools\\lint'], 'Git Bash /c/ form');
+  // Review 2: a bare drive on the agent folder's OWN drive is that drive's root, not the agent folder.
+  assert.deepEqual(paths('PATH=/d:$PATH myhook'), ['D:\\myhook'], 'a bare /d is D:\\, even from a folder on D:');
+  assert.deepEqual(paths('PATH=/c:$PATH myhook'), ['C:\\myhook'], 'and /c is C:\\, wherever the process runs');
   assert.deepEqual(paths('export PATH=tools:$PATH; lint'), [cwd + '\\tools\\lint'], 'a relative folder is still the agent folder');
   // A typed drive path: Git Bash splits C:/t into a folder named C where the command runs and /t, the T: drive.
   assert.deepEqual(paths('PATH=C:/t:$PATH lint'), [cwd + '\\C\\lint', 'T:\\lint']);
