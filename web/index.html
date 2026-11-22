@@ -829,7 +829,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 }
 #set-accounts .acct-move-msg { margin: 0; font-size: .8125rem; color: var(--label); }
 #set-accounts .acct-move-msg:empty { margin-top: -8px; }   /* kept in the page (a live region must exist before it speaks), but no gap */
-#set-accounts .acct-move-note { margin: 0; flex: 1 1 100%; font-size: .8125rem; color: var(--label-2); }   /* the only before-click word on the restart: not the smallest text on the row */
+#set-accounts .acct-move-note { margin: 0; flex: 1 1 100%; font-size: .8125rem; color: var(--label-2); }
+#set-accounts .acct-move-warn { margin: 0; flex: 1 1 100%; font-size: .8125rem; color: var(--label); }   /* kosmos#8882: a model limit in the way of the picked account */
+#set-accounts .acct-move-warn:empty { display: none; }   /* the only before-click word on the restart: not the smallest text on the row */
 /* The disambiguator beside a name two accounts share. Quiet on purpose: it is
    an answer to "why are there two of these", not a thing to read first. Same
    token as .acct-org, which is defined on the light, dark and increased-contrast
@@ -30687,6 +30689,32 @@ const ACCT_PICK = new Map();          // the target picked in a row's menu, so a
    disagree: Claude, shared memory, not refused or signed out, not a row that says it is not offerable, not an API key
    (moving a whole account's agents onto a key changes who pays, so that stays a one-agent choice on its page), and not
    at its weekly or five-hour limit. */
+/* kosmos#8882: the family of a model as the usage mover reads it (engine/autobalance.js modelKey): the first word with a
+   letter in it, without case, after a leading "Claude" ("Claude Fable 5.2", "claude-fable-5-2" -> "fable"). */
+function acctModelKey(name) {
+  if (typeof name !== 'string') return null;
+  const w = name.trim().toLowerCase().replace(/^claude[-\s]+/, '').split(/[\s-]+/).find((x) => /[a-z]/.test(x));
+  return w || null;
+}
+/* kosmos#8882: what moving these agents to `target` would cost by its models' own weekly limits (#8862: a row's
+   `scoped`, resets in ms): one sentence per model whose limit there is at 70% or more (the mover's own target rule),
+   naming the agents on that model, and one for agents whose model Kosmos cannot tell, or '' when nothing is in the way.
+   `cards` are the agents' cards (null for one the board does not list). Plain text: the caller escapes it. */
+function acctModelWarn(target, cards, nameOfCard) {
+  const now = Date.now();
+  const full = (target && Array.isArray(target.scoped) ? target.scoped : [])
+    .filter((m) => m && typeof m.model === 'string' && acctModelKey(m.model) && Number.isFinite(m.usedPct) && m.usedPct >= 70 && Number.isFinite(m.resetsAt) && m.resetsAt > now);
+  if (!full.length) return '';
+  const modelOf = (c) => (c && (c.modelName || c.model || c.earlierModelName)) || null;
+  const parts = [];
+  const unknown = (cards || []).filter((c) => !acctModelKey(modelOf(c))).map(nameOfCard);
+  for (const m of full) {
+    const on = (cards || []).filter((c) => acctModelKey(modelOf(c)) === acctModelKey(m.model)).map(nameOfCard);
+    if (on.length) parts.push('Its ' + m.model + ' limit is at ' + Math.round(m.usedPct) + '% of the week, so ' + on.join(', ') + (on.length === 1 ? ' would' : ' would all') + ' stop there.');
+  }
+  if (unknown.length) parts.push('Kosmos cannot tell which model ' + unknown.join(', ') + (unknown.length === 1 ? ' uses' : ' use') + ', and ' + (unknown.length === 1 ? 'it' : 'they') + ' may stop there too.');
+  return parts.join(' ');
+}
 function acctBulkTarget(x, fromDir) {
   return !!x && !!x.dir && x.dir !== fromDir && x.bulkTargetable === true;
 }
@@ -30858,6 +30886,9 @@ function acctUsageHtml(a, list) {
   const nameOf = (x) => acctPrimaryName(x) + (qual.get(String(x.dir || '')) ? ' (' + qual.get(String(x.dir || '')) + ')' : '');
   const who = esc(nameOf(a) || 'this account');
   const picked = targets.some((x) => x.dir === ACCT_PICK.get(a.dir)) ? ACCT_PICK.get(a.dir) : '';
+  /* kosmos#8882: the cards of the agents this row would move, named as the agents line names them. */
+  const movingCards = sessions.map((n) => known.get(n) || { sessionName: n });
+  const warnOf = (x) => acctModelWarn(x, movingCards, (c) => (c && (c.name || c.sessionName)) || 'an agent');
   /* The restart note describes the menu and the button, so a screen reader hears it before the click, not only after.
      Id from the dir's character codes: unique per dir, and safe in an attribute. */
   const noteId = 'acct-move-note-' + Array.from(String(a.dir)).map((c) => c.charCodeAt(0).toString(16)).join('');
@@ -30865,12 +30896,15 @@ function acctUsageHtml(a, list) {
   const move = canMove || busy
     ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '"' + described + ' aria-label="Move the agents on ' + who + ' to another account">'
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
-      + targets.map((x) => '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + '>' + esc(nameOf(x)) + (acctWeeklyNow(x) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
+      /* kosmos#8882: a target where a model limit is in the way carries its warning (shown below the menu when picked). */
+      + targets.map((x) => { const warn = warnOf(x); return '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + (warn ? ' data-acct-warn="' + esc(warn) + '"' : '') + '>' + esc(nameOf(x)) + (acctWeeklyNow(x) ? ' (' + Math.round(x.weekly.usedPct) + '% used' + (warn ? ', a model limit is full' : '') + ')' : (warn ? ' (a model limit is full)' : '')) + '</option>'; }).join('')
       + '</select><button type="button" data-acct-move="' + esc(a.dir) + '"' + described + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc((!st.stopping && st.progress) || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
       /* #6214: a running move can be stopped once the board has it; the board finishes the agent it is restarting and puts
          the rest back. */
       + (busy && st.onBoard ? '<button type="button" data-acct-move-stop' + (st.stopping ? ' disabled' : ' aria-label="' + ACCT_STOP_NAME + '"') + '>' + (st.stopping ? 'Stopping…' : 'Stop the move') + '</button>' : '')
-      + (names.length ? '<p class="acct-move-note" id="' + noteId + '">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p>' : '') + '</div>'   // said before the click; a busy row repainted to no agents says nothing
+      + (names.length ? '<p class="acct-move-note" id="' + noteId + '">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p>' : '')   // said before the click; a busy row repainted to no agents says nothing
+      /* kosmos#8882: the picked target's model-limit warning, before the click; the person can still move them. */
+      + '<p class="acct-move-warn" data-acct-move-warn="' + esc(a.dir) + '" aria-live="polite">' + esc(picked ? warnOf(targets.find((x) => x.dir === picked)) : '') + '</p></div>'
     : '';
   /* After a move focus goes to the menu or the list, never here (it would read this a second time over the panel's
      status line), so the sentence takes no focus. It is shown as soon as the move ends; only the panel line is
@@ -31985,7 +32019,12 @@ async function paintAccounts(opts) {
   }
   for (const sel of box.querySelectorAll('[data-acct-move-to]')) {
     const btn = box.querySelector('[data-acct-move="' + CSS.escape(sel.dataset.acctMoveTo) + '"]');
-    sel.addEventListener('change', () => { if (sel.value) ACCT_PICK.set(sel.dataset.acctMoveTo, sel.value); else ACCT_PICK.delete(sel.dataset.acctMoveTo); if (btn) btn.disabled = !sel.value; });
+    const warnP = box.querySelector('[data-acct-move-warn="' + CSS.escape(sel.dataset.acctMoveTo) + '"]');
+    sel.addEventListener('change', () => {
+      if (sel.value) ACCT_PICK.set(sel.dataset.acctMoveTo, sel.value); else ACCT_PICK.delete(sel.dataset.acctMoveTo); if (btn) btn.disabled = !sel.value;
+      /* kosmos#8882: the picked target's model-limit warning (textContent: it is text, never markup). */
+      if (warnP) { const opt = sel.selectedOptions && sel.selectedOptions[0]; warnP.textContent = (opt && opt.getAttribute('data-acct-warn')) || ''; }
+    });
   }
   for (const stopBtn of box.querySelectorAll('[data-acct-move-stop]')) stopBtn.addEventListener('click', () => acctStopClick(stopBtn));
   for (const btn of box.querySelectorAll('[data-acct-move]')) {
