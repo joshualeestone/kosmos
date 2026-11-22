@@ -266,12 +266,25 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         const fullstop = read('fullstop@example.com'), weekout = read('weekout@example.com');
         const mine = read('mine@example.com'), unwired = read('unwired@example.com'), lastweek = read('lastweek@example.com');
         const unsureNote = acctMoveNote([{ sessionName: 'a', state: 'working' }, { sessionName: 'b', state: 'unknown' }]);
+        /* kosmos#8882: the bulk move's model-limit warning, from the page's own function (a full Fable limit names the
+           Fable agent; an Opus agent is fine there; an agent with no model is said; nothing full says nothing). */
+        const fableFull = { scoped: [{ model: 'Fable', usedPct: 100, resetsAt: Date.now() + 20 * 3600e3 }] };
+        const nm = (c) => c.name;
+        const modelWarn = {
+          fable: acctModelWarn(fableFull, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }, { name: 'Otto', modelName: 'Claude Opus 5.5' }], nm),
+          id: acctModelWarn(fableFull, [{ name: 'Ida', model: 'claude-fable-5-2' }], nm),
+          unknown: acctModelWarn(fableFull, [{ name: 'Una' }], nm),
+          opusOnly: acctModelWarn(fableFull, [{ name: 'Otto', modelName: 'Claude Opus 5.5' }], nm),
+          room: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 40, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
+          past: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 100, resetsAt: Date.now() - 60e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
+          none: acctModelWarn({}, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
+        };
         // Two minutes on, a repaint shows the row plain again.
         const st = ACCT_MOVE.get('/home/.claude-busy'); if (st) st.doneAt -= 3 * 60e3;
         await paintAccounts();
         const expired = msgOf('/home/.claude-busy');
         /* Sideways overflow of the page itself, with the list in its real place. */
-        return { contrast, incMove, warmstop, frozen, unknown, fullmix, tgMove, lostMove, fullstop, weekout, weekoutDay: new Date(Date.now() + 162 * 3600e3).getDate(), staleMove, ncMove, sleepyMove, mine, unwired, lastweek, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
+        return { contrast, incMove, warmstop, frozen, unknown, fullmix, tgMove, lostMove, fullstop, weekout, weekoutDay: new Date(Date.now() + 162 * 3600e3).getDate(), staleMove, ncMove, sleepyMove, mine, unwired, lastweek, unsureNote, modelWarn, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS, goneFull: GONE_FULL });
       /* #6175: the page stays open for the set-up step below; it is closed after it (and here, on an error). */
       if (r.error) { say(false, tag + ' ' + r.error); await page.close(); continue; }
@@ -301,6 +314,12 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!r.mine && r.mine.line === 'Kosmos cannot read usage for this account. It is set up its own way, and Kosmos leaves that alone.', tag + ' "cannot read" appears only when the server knows why', JSON.stringify(r.mine && r.mine.line));
       say(!!r.unwired && r.unwired.line === 'Kosmos is not set up to read usage for this account.', tag + ' an account with no status line is not promised a reading', JSON.stringify(r.unwired && r.unwired.line));
       say(r.unsureNote === 'Moving restarts the running ones on the new account.', tag + ' an agent of unknown state gets no restart count it may not keep', JSON.stringify(r.unsureNote));
+      /* kosmos#8882 */
+      const mw = r.modelWarn || {};
+      say(mw.fable === 'Its Fable limit is at 100% of the week, so Lyra would stop there.', tag + ' a bulk-move target with a full Fable limit names the Fable agent that would stop, not the Opus one', JSON.stringify(mw.fable));
+      say(mw.id === 'Its Fable limit is at 100% of the week, so Ida would stop there.', tag + ' a card naming the model by its id matches the limit', JSON.stringify(mw.id));
+      say(mw.unknown === 'Kosmos cannot tell which model Una uses, and it may stop there too.', tag + ' an agent with no model named is said, not passed over', JSON.stringify(mw.unknown));
+      say(mw.opusOnly === '' && mw.room === '' && mw.past === '' && mw.none === '', tag + ' CONTROL: no warning for another model, a limit with room, a limit past its reset, or none', JSON.stringify([mw.opusOnly, mw.room, mw.past, mw.none]));
       say(!!r.sleepyMove && r.sleepyMove.msg === 'Moved Zed (stopped). It is not running now.', tag + ' moving a stopped agent reads as moved, still stopped, through the route\'s real reply', JSON.stringify(r.sleepyMove));
       say(!!busy && busy.btnDisabled === true, tag + ' Move is disabled until a target is picked');
       say(r.pickKept === true, tag + ' a picked target survives a repaint, with Move awake');
