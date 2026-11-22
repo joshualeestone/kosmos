@@ -15,6 +15,9 @@ const path = require('node:path');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-restartnote-8287-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 const rn = require('./restartnote');
+/* kosmos#8866: each test starts without the restart history an earlier one kept. */
+const clearHistory = () => { try { fs.rmSync(rn._files.historyFile(), { force: true }); } catch { /* none */ } };
+test.beforeEach(clearHistory);
 const storecheck = require('./storecheck');
 
 const MIN = 60 * 1000;

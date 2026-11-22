@@ -63,6 +63,25 @@ test('#8866: restarts spread wider than 7 days are no pattern; the same boot rea
   restartAt(T0); restartAt(T0 + DAY);
   assert.equal(restartAt(T0 + DAY + 3000).pattern, undefined, 'a boot 3 s from a kept one is the same restart');
   assert.equal(restartAt(T0 + 2 * DAY).pattern.count, 3, 'CONTROL: a real third restart still makes the pattern');
+  // Round 2: a board that died before its first beat makes a second note from the SAME last-alive time: one restart,
+  // even with its boot read minutes off.
+  clean();
+  restartAt(T0); restartAt(T0 + DAY);
+  const bootB = T0 + DAY;
+  fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: new Date(bootB - 60 * 1000).toISOString() }));   // no beat since
+  const later = bootB + 5 * 60 * 1000;
+  const again = rn.atStart({ now: () => later, uptime: () => (later - bootB - 2 * 60 * 1000) / 1000, startedBy: 'supervisor' });
+  assert.ok(again, 'fixture: the re-read made no note');
+  assert.equal(again.pattern, undefined, 'a note re-made from the same last-alive time counted the restart twice');
+});
+
+test('#8866: two real restarts 10 minutes apart are two (a crash loop is the pattern this card is for)', () => {
+  clean();
+  restartAt(T0);
+  restartAt(T0 + 10 * 60 * 1000);
+  const third = restartAt(T0 + 20 * 60 * 1000);
+  assert.ok(third.pattern, 'three crashes in 20 minutes were merged');
+  assert.equal(third.pattern.count, 3);
 });
 
 test('#8866: patternOf is the rule on its own; a damaged history is no pattern, never a guessed one', () => {

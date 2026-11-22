@@ -11,10 +11,11 @@ checked (#8287). Nothing joins notes: each restart overwrote the last, so a patt
 ## Built
 - engine/restartnote.js: each note's boot time is kept in board-restart-history.json (at most 20, for 30 days; a boot
   already kept is not counted twice; invalid entries dropped). A note made when 3 or more fall within 7 days carries
-  `pattern: { count, dates }`; current() and publicNote() pass it on, cleaned. A boot within 15 minutes of a kept one
-  is the same restart read again (boot times come from two clocks). The history is written only after the note is.
+  `pattern: { count, dates }`; current() and publicNote() pass it on, cleaned. A note re-made from the same last-alive
+  time (older than the newest kept boot: no beat since) is the same restart, as is a boot within 60 s of a kept one;
+  real restarts 10 minutes apart count as two (a crash loop). The history is written only after the note is.
 - web/index.html: rebootPattern() adds one <small class="rpat"> line to the existing note, inside its repaint key:
-  "... has restarted N times within a week while Kosmos was running (Nov 18, Nov 20 (twice), ...)". "Within a week",
+  "... has restarted N times within a week while Kosmos was running (Nov 18, twice on Nov 20, ...)". "Within a week",
   not "in the last 7 days": the note stays up a day, so the latter could be a day stale.
 
 ## Decided
@@ -28,5 +29,5 @@ checked (#8287). Nothing joins notes: each restart overwrote the last, so a patt
 engine/restartnote-8866.test.js (through the real atStart, sandboxed): one restart, no pattern (control); the third
 within 7 days carries count 3 and the three dates, and publicNote sends them; spread over 9 days, none; the same boot
 twice, counted once; patternOf alone; a damaged history file, no pattern and cleaned. Against main's restartnote.js the
-two positive tests fail. docs/browser-checks/render-reboot-note-5359.js: pattern arms (three, none, damaged) at 1400 and
-390 px; all reboot-note checks passed on a sandboxed board.
+two positive tests fail. docs/browser-checks/render-reboot-note-5359.js: pattern arms (three, none, damaged, same-day) at 1400
+and 390 px with UTC and en-US pinned; all reboot-note checks passed on a sandboxed board.

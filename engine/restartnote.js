@@ -124,7 +124,7 @@ function atStart(deps = {}) {
     const scan = deps.files;
     const files = scan && scan.checked === true && Number.isInteger(scan.damaged) && scan.damaged >= 0 ? filesOf(scan) : null;
     if (files) note.files = files;
-    const hist = historyWith(note.bootAt, now);   // kosmos#8866: kept only once the note itself is written (below)
+    const hist = historyWith(note.bootAt, note.lastAliveAt, now);   // kosmos#8866: kept only once the note itself is written (below)
     const pattern = hist ? patternOf(hist, now) : null;
     if (pattern) note.pattern = pattern;
     if (writeJson(noteFile(), { ...note, dismissed: false }) && hist) writeJson(historyFile(), { at: hist.map((t) => new Date(t).toISOString()) });
@@ -205,14 +205,19 @@ function historyOf(now) {
   return [...new Set(at.filter((x) => typeof x === 'string').map(ms).filter((t) => t != null && t <= now + 60 * 1000 && now - t <= HISTORY_MS))]
     .sort((a, b) => a - b);
 }
-/* kosmos#8866: the history with this note's boot time added, or null when it cannot be told. A boot within WINDOW_MS of
-   one already kept is the same restart read again (a board that died before its first beat makes a second note for
-   it, with a boot time a few milliseconds off, as it is derived from two clocks), so it is not counted twice. */
-function historyWith(bootIso, now) {
+/* kosmos#8866: the history with this note's boot time added, or null when it cannot be told. The same restart read
+   again is not counted twice: a board that died before its first beat makes a second note for it, from the same last
+   alive time, which is then older than the newest boot kept. A real later restart always follows a beat after that boot.
+   A boot within SAME_BOOT_MS of a kept one is also the same (boot times are derived from two clocks, so they can differ
+   by seconds); two real restarts cannot be that close, as each needs a start and a beat in between. */
+const SAME_BOOT_MS = 60 * 1000;
+function historyWith(bootIso, lastAliveIso, now) {
   const boot = ms(bootIso);
   if (boot == null) return null;
   const kept = historyOf(now);
-  const same = kept.some((t) => Math.abs(t - boot) <= WINDOW_MS);
+  const newest = kept.length ? kept[kept.length - 1] : null;
+  const alive = ms(lastAliveIso);
+  const same = (newest != null && alive != null && alive < newest) || kept.some((t) => Math.abs(t - boot) <= SAME_BOOT_MS);
   return (same ? kept : [...kept, boot].sort((a, b) => a - b)).slice(-HISTORY_MAX);
 }
 /** kosmos#8866: { count, dates } for the boots within PATTERN_MS of `now`, or null below PATTERN_COUNT. Pure. */
@@ -220,8 +225,9 @@ function patternOf(boots, now) {
   const recent = boots.filter((t) => Number.isFinite(t) && t <= now + 60 * 1000 && now - t <= PATTERN_MS);
   return recent.length >= PATTERN_COUNT ? { count: recent.length, dates: recent.map((t) => new Date(t).toISOString()) } : null;
 }
-const cleanPattern = (p) => (p && Number.isInteger(p.count) && p.count >= PATTERN_COUNT && Array.isArray(p.dates)
-  && p.dates.length === p.count && p.dates.every((d) => typeof d === 'string' && ms(d) != null) ? { count: p.count, dates: p.dates.slice() } : null);
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;   // what this file writes, and nothing else
+const cleanPattern = (p) => (p && Number.isInteger(p.count) && p.count >= PATTERN_COUNT && p.count <= HISTORY_MAX && Array.isArray(p.dates)
+  && p.dates.length === p.count && p.dates.every((d) => typeof d === 'string' && ISO_RE.test(d) && ms(d) != null) ? { count: p.count, dates: p.dates.slice() } : null);
 
 /** The note to show now: made within SHOW_MS and not dismissed, or null. */
 function current(now = Date.now()) {
