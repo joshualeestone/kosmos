@@ -33,7 +33,7 @@ credential, on every regeneration; and a guard in CI fails if that ever stops be
    file three times and checks every result (only the first write changes it), repairs a file holding the old block,
    checks the guide against the same rules (both commands, both prohibitions, the billing warning, each with its own
    control), and sweeps every .js, .mjs and .cjs file under engine/, bin/, install/ and tools/ and at the
-   top level (491 files today) so every `spliceBlock` call on the Connections markers passes exactly `blockBody()`
+   top level (491 files on 11-21; the test requires more than engine/ alone holds) so every `spliceBlock` call on the Connections markers passes exactly `blockBody()`
    (whole calls are parsed, so one spread over lines, a destructured START and a
    concatenated body, another module's `blockBody()`, an inline `require('./connections').START`, the literal
    marker strings, a renamed destructured START and the marker bound to another name are all caught; its controls

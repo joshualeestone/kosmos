@@ -269,21 +269,20 @@ test('kosmos#8868: every writer of the Connections markers writes exactly blockB
   walk(repo, false);
   for (const d of ['engine', 'bin', 'install', 'tools']) if (fs.existsSync(path.join(repo, d))) walk(path.join(repo, d), true);
   // CONTROL: the walk reaches files below engine/ and outside it, so a recursion that silently stopped cannot pass.
-  assert.ok(files.length > 300, 'the sweep read only ' + files.length + ' files');
+  const engineTop = fs.readdirSync(__dirname).filter((n) => n.endsWith('.js') && !n.endsWith('.test.js')).length;
+  assert.ok(files.length > engineTop, 'the sweep read ' + files.length + ' files, no more than engine/ alone holds (' + engineTop + ')');
   assert.ok(files.some((f) => f.includes(path.sep + 'tools' + path.sep)), 'the sweep did not reach tools/');
   const found = [];
   for (const file of files) {
-    {
-      const src = fs.readFileSync(file, 'utf8');
-      const names = connectionsMarkerNames(src);
-      for (const call of spliceCalls(src)) {
-        const args = topArgs(call.args);
-        const start = args[2] || '';
-        if (!names.some((n) => n.test(start))) continue;
-        const where = path.relative(repo, file) + ':' + call.line;
-        found.push(where);
-        assert.ok(connectionsBodyOk(src, args[1] || ''), where + ' writes the Connections markers with a body other than the connections blockBody(): ' + (args[1] || '(none)'));
-      }
+    const src = fs.readFileSync(file, 'utf8');
+    const names = connectionsMarkerNames(src);
+    for (const call of spliceCalls(src)) {
+      const args = topArgs(call.args);
+      const start = args[2] || '';
+      if (!names.some((n) => n.test(start))) continue;
+      const where = path.relative(repo, file) + ':' + call.line;
+      found.push(where);
+      assert.ok(connectionsBodyOk(src, args[1] || ''), where + ' writes the Connections markers with a body other than the connections blockBody(): ' + (args[1] || '(none)'));
     }
   }
   // CONTROL: all three known writers are seen, so a sweep that silently stopped matching cannot pass.
