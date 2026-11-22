@@ -136,12 +136,14 @@ fs.writeFileSync(UNIT, `#!/bin/bash
 ROOT="$2"; OTHER="$3"; OUT="$4"
 # exec: each pid is the node itself, not a bash subshell (whose command line, the script's, names the root too).
 stub() { exec "$NODE_BIN" -e 'setInterval(() => {}, 1000)' "$1" </dev/null >/dev/null 2>&1; }   # no inherited pipe: a surviving control must not hold this script's output open
-stub "$ROOT/desc.js" & desc=$!
+stub "$ROOT/desc.js" & desc=$!; echo $desc > "$OUT.desc"
+# Review 3: one that ignores TERM, so the KILL path runs.
+( exec "$NODE_BIN" -e 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)' "$ROOT/stubborn.js" </dev/null >/dev/null 2>&1 & echo $! > "$OUT.stubborn" )
 ( stub "$ROOT/orphan.js" & echo $! > "$OUT.orphan" )
 ( stub "\${ROOT}9/prefix.js" & echo $! > "$OUT.prefix" )
 ( stub "$OTHER/other.js" & echo $! > "$OUT.other" )
 sleep 0.5
-echo "desc=$desc orphan=$(cat "$OUT.orphan") prefix=$(cat "$OUT.prefix") other=$(cat "$OUT.other")" > "$OUT"
+echo "desc=$desc orphan=$(cat "$OUT.orphan") prefix=$(cat "$OUT.prefix") other=$(cat "$OUT.other") stubborn=$(cat "$OUT.stubborn")" > "$OUT"
 leak_process_stop_root "$ROOT"
 wait "$desc" 2>/dev/null
 exit 0
@@ -157,10 +159,10 @@ test('#8890 the function stops a descendant and an orphan under the root, and no
     const r = require('node:child_process').spawnSync('bash', [UNIT, LIB, root, other, out], { encoding: 'utf8', timeout: scaleBudget(30000), env: { ...process.env, NODE_BIN: process.execPath } });
     assert.ok(!(r.error && r.error.code === 'ETIMEDOUT'), 'the script did not finish: ' + (r.stdout || '') + (r.stderr || ''));
     for (const kv of fs.readFileSync(out, 'utf8').trim().split(' ')) { const [k, v] = kv.split('='); pids[k] = Number(v); }
-    assert.ok(pids.desc && pids.orphan && pids.prefix && pids.other, 'the script did not start its four stubs: ' + JSON.stringify(pids) + ' ' + r.stderr);
+    assert.ok(pids.desc && pids.orphan && pids.prefix && pids.other && pids.stubborn, 'the script did not start its five stubs: ' + JSON.stringify(pids) + ' ' + r.stderr);
     const said = (r.stdout || '') + (r.stderr || '');
     const deadline = Date.now() + scaleBudget(5000);
-    while ((alive(pids.desc) || alive(pids.orphan)) && Date.now() < deadline) require('node:child_process').spawnSync('sleep', ['0.1']);
+    while ((alive(pids.desc) || alive(pids.orphan) || alive(pids.stubborn)) && Date.now() < deadline) require('node:child_process').spawnSync('sleep', ['0.1']);
     assert.equal(alive(pids.desc), false, 'a DESCENDANT under the root was not stopped (the descendant walk): ' + said);
     assert.equal(alive(pids.orphan), false, 'an ORPHAN under the root was not stopped: ' + said);
     assert.equal(alive(pids.prefix), true, 'CONTROL: an orphan under kt<n>9 was stopped (a match by prefix): ' + said);
@@ -168,7 +170,13 @@ test('#8890 the function stops a descendant and an orphan under the root, and no
     assert.equal(alive(observer.pid), true, 'CONTROL: someone else\'s live process naming the root was stopped (the ownership rule): ' + said);
     assert.match(said, new RegExp('stopped process ' + pids.desc + ' '));
     assert.match(said, new RegExp('stopped process ' + pids.orphan + ' '));
+    assert.equal(alive(pids.stubborn), false, 'a process that ignores TERM under the root was not KILLed: ' + said);
+    assert.match(said, new RegExp('KILLed process ' + pids.stubborn + ', which outlived its TERM'), 'the KILL was not said: ' + said);
   } finally {
-    for (const pid of [pids.desc, pids.orphan, pids.prefix, pids.other, observer.pid]) if (pid && alive(pid)) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+    /* Review 3: from each stub's own pid file, so a script that died before writing the summary leaves nothing. */
+    for (const k of ['desc', 'orphan', 'prefix', 'other', 'stubborn']) {
+      if (!pids[k]) { try { pids[k] = Number(fs.readFileSync(out + '.' + k, 'utf8').trim()) || 0; } catch { /* not written */ } }
+    }
+    for (const pid of [pids.desc, pids.orphan, pids.prefix, pids.other, pids.stubborn, observer.pid]) if (pid && alive(pid)) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
   }
 });

@@ -177,7 +177,9 @@ leak_process_stop_root() {
     now=$(ps -ww -o ppid=,command= -p "$1" 2>/dev/null) || return 1
     read -r pp cm <<< "$now"
     case "$pp" in ''|*[!0-9]*) return 1 ;; esac
-    [ "$pp" = "1" ] || case "$mine" in *" $1 "*|*" $pp "*) ;; *) return 1 ;; esac
+    # Review 3: by its parent NOW (launchd, or one of this run's), never by the pid having been ours in the snapshot,
+    # so a pid reused since cannot pass on its old membership.
+    [ "$pp" = "1" ] || case "$mine" in *" $pp "*) ;; *) return 1 ;; esac
     leak_names_root "$cm" "$root" "$real"
   }
   while IFS= read -r line; do
