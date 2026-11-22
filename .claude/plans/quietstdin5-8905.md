@@ -26,8 +26,10 @@ with a quiet limit.
   no bundled node, and the community verbs already use the system one (11 existing tests caught it). With no node at
   all it answers 7, never a bare `$(cat)` that would still hang. This also applies to #8899's feedback write and note;
   in the installed layout nothing changes for them.
-- Whitespace that stops arriving answers 0 (the reader's 6 needs a non-space character), so the verb's own empty check
-  refuses it, as on Windows.
+- Whitespace that stops arriving answers 0 (the reader's 6 needs a non-space character), so each community verb's own
+  empty check refuses it, as on Windows. Triage has no such check, and an empty list would show every filed item as
+  new, so it reads `strict` (review 4): any card input that did not end answers 6, or 7 if the read failed, as the
+  Windows twin refuses any card input that did not end.
 
 ## Rejected
 

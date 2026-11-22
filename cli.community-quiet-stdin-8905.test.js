@@ -74,6 +74,7 @@ for (const v of VERBS) {
     const r = await run(CLI, v.args, h, { open: true });
     assert.equal(r.code, 2, r.both);
     assert.match(r.both, new RegExp('Nothing was ' + v.verbed + ': nothing arrived on stdin for 3 seconds'));
+    assert.doesNotMatch(r.both, /Kosmos is not running, so nothing was/, 'it reached the send: ' + r.both);
     assert.ok(r.ms >= 2500 && r.ms < 15000, 'it waited ' + r.ms + ' ms');
   });
   test('#8905 ' + name + ': words that stop without the pipe ending are refused as maybe cut short', async () => {
@@ -81,6 +82,7 @@ for (const v of VERBS) {
     const r = await run(CLI, v.args, h, { partial: 'half of a ' + v.noun });
     assert.equal(r.code, 2, r.both);
     assert.match(r.both, new RegExp('Nothing was ' + v.verbed + ': the piped ' + v.noun + ' stopped arriving for 3 seconds without ending, so it may be cut short'));
+    assert.doesNotMatch(r.both, /Kosmos is not running, so nothing was/, 'it reached the send: ' + r.both);
   });
   test('#8905 ' + name + ': CONTROL, a body piped in whole is read and reaches the send', async () => {
     const h = makeHome();
@@ -119,6 +121,14 @@ test('#8905 kosmos feedback triage --cards -: a card list that stops without end
   const r = await run(cliWithCardsLimit(1), ['feedback', 'triage', '--cards', '-'], h, { partial: '#1234 a card\n' });
   assert.equal(r.code, 2, r.both);
   assert.match(r.both, /Nothing was triaged: the piped card list stopped arriving for 1 seconds without ending, so it may be cut short/);
+});
+
+test('#8905 review 4: kosmos feedback triage --cards -: white space then quiet is refused, never triaged as an empty list', async () => {
+  const h = makeHome();
+  const r = await run(cliWithCardsLimit(1), ['feedback', 'triage', '--cards', '-'], h, { partial: '\n  \n' });
+  assert.equal(r.code, 2, r.both);
+  assert.match(r.both, /Nothing was triaged: the piped card list stopped arriving for 1 seconds without ending/);
+  assert.doesNotMatch(r.both, /triage read this computer's own reports/, r.both);
 });
 
 test('#8905 kosmos feedback triage --cards -: CONTROL, a card list piped in whole is read and triage goes on', async () => {
