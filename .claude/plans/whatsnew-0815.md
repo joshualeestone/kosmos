@@ -12,12 +12,18 @@ set lastProd 0.8.14. Hand edits to the pool, each a decision recorded here:
   "Windows Settings stops a false warning" and "Removing Kosmos takes out its agent hooks" are in 0.8.03's window
   (read at its v0803 commit), which Windows 0.8.03 and 0.8.04 carried (both signed by me on 11-11). Status shown,
   shownIn 0.8.03.
-- "A little more room between chat lines" stays UNTAGGED. It is also in 0.8.03's window, so Windows users who had
-  0.8.03 or 0.8.04 have probably seen it. But Mac and Linux prod never showed it, and the engine cannot tag "mac and
+- "A little more room between chat lines" stays UNTAGGED. It is in the 0.8.01, 0.8.03, 0.8.04 and 0.8.05 windows,
+  so Windows users on any of those builds have probably seen it. Mac prod never served those versions (the pool's
+  shownIn set has none of them), and we assume the same for Linux, which is promoted with the Mac family (the pool
+  records Mac promotes only, so that is not checked from here), and the engine cannot tag "mac and
   linux, not windows": a mac tag hides it from Linux (platformOf() gives Linux no tag; review 3). DECISION: a repeated
   true line on Windows costs less than a missing one on Linux, where the Cloud customers are. Its line now reads
   "Messages in an agent conversation now have a little more space between lines." (review 3: the rule applies wherever
   the board renders, so "in the app on your computer" was narrower than the change).
+- Two lines reworded on Mona Lisa's copy read (fleetreleases m5879): "A closed task says how it closed" and "A paused
+  room says why it stayed quiet" (her text, which drops "a room's wake pause", our word, not the person's).
+- "The restart note says what was checked" (mac) is also in the 0.8.01 to 0.8.05 windows, all versions Mac prod never
+  served, so Mac users have not seen it.
 The build then chose, by rank (10.25, 10.45, 10.7, 11, 11.2):
 - A little more room between chat lines
 - The restart note says what was checked (mac)
