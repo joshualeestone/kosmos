@@ -7,24 +7,24 @@
       "line": "With two or more Claude subscriptions, Kosmos moves idle agents off one near its weekly limit to one with room. Settings can turn it off."
     },
     {
-      "icon": "phone",
-      "title": "Older Safari opens your board",
-      "line": "An older Safari (before 16.4) now shows your board through Kosmos+, its pictures and previews included, not a signed-out page."
-    },
-    {
-      "icon": "shield",
-      "title": "Kosmos Cloud machines update themselves",
-      "line": "A Kosmos Cloud machine installs the newest released version each night, skipping a night when an agent is working. Settings can turn it off."
+      "icon": "spark",
+      "title": "Starring an agent shines",
+      "line": "A starred agent's star is solid bright gold now, with a small burst of sparks when you star it."
     },
     {
       "icon": "swarm",
-      "title": "An agent's name can hold an apostrophe",
-      "line": "A name like O'Brien's helper now works when you make an agent: the name you see keeps the apostrophe."
+      "title": "A crashed session no longer blocks an agent",
+      "line": "An agent shown as blocked by its provider after a session crashed now clears when the next session first finishes a reply."
     },
     {
-      "icon": "shield",
-      "title": "Fewer sign-in asks from a phone",
-      "line": "From a phone or another computer, a sign-in with your authenticator code counts for as long as it lasts, so making an agent stops asking."
+      "icon": "phone",
+      "title": "A phone's first-run shows the code box",
+      "line": "On a phone, a Kosmos Cloud machine's first Claude sign-in scrolls the box for the Claude code into view, with a fade while more is below."
+    },
+    {
+      "icon": "chat",
+      "title": "A long conversation keeps your place",
+      "line": "Reading back through a long conversation, a moment's failed read no longer moves you; one line at the end says so."
     }
   ]
 }
