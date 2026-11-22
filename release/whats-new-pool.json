@@ -1467,7 +1467,7 @@
     },
     {
       "title": "A little more room between chat lines",
-      "line": "Messages in an agent conversation on the computer now have a little more space between lines.",
+      "line": "Messages in an agent conversation, in the app on your computer, now have a little more space between lines.",
       "icon": "chat",
       "rank": 10.25,
       "since": "0.8.01",
@@ -1657,7 +1657,8 @@
       ],
       "rank": 10.5,
       "since": "0.8.03",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.03"
     },
     {
       "title": "Codex edits on Windows say who made them",
@@ -1680,7 +1681,8 @@
       ],
       "rank": 10.6,
       "since": "0.8.03",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.03"
     },
     {
       "title": "Removing Kosmos puts back your Gemini settings",
