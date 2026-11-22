@@ -7194,8 +7194,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
        computer that runs agents (computerMode stays unset, which the policy treats as run); a connect computer is
        not driven live here. */
     setvbuf(stdout, nil, _IONBF, 0)
-    /* Above the worst case of a run where NOTHING saves (each expected-file wait, 5s, runs out, then the 20s
-       settle: well under 300s), so a product that saves nothing is judged, not timed out. */
+    /* Above the worst case of a run where NOTHING saves (each expected-file wait, 5s, runs out, the three
+       refused-folder waits, 15s each since kosmos#8879, run out, then the 20s settle), so a product that saves
+       nothing is judged, not timed out. */
     let dl = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-\(getpid())")
     AppDelegate.keptStoreForSelftest = [:]   // kosmos#8121: the kept list in memory for this run, never on disk
     AppDelegate.accountListForSelftest = { _, done in done(.onAccount) }   // kosmos#8121: every computer on the account unless a row says not
@@ -7485,25 +7486,33 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         /* #5167 (11-06): a file WebKit could not create (the folder made unwritable for this one click) says the system's
            reason, as the operator's "Cannot create file" did not. Restored before every other arm. */
         chmod(dl.path, 0o500)
-        /* Review 1: restored once the failure is said (up to 5s), not after click's fixed wait, so a slow answer is
-           still refused by the read-only folder rather than landing after it is writable again. */
+        /* Review 1: restored once the failure is said, not after click's fixed wait, so a slow answer is
+           still refused by the read-only folder rather than landing after it is writable again.
+           kosmos#8879: each wait is bounded at 15s (it was 5s, and a slow answer flaked the 0.8.14 cut), and a wait
+           that runs out prints a line naming itself before the run goes on, so its rows are read with that in view. */
+        func cannotCreate() -> Int { told.filter({ $0.contains("Cannot create file") }).count }
+        func ranOut(_ n: Int) {
+            print("download selftest WAIT RAN OUT (kosmos#8879): 15s without \"Cannot create file\" number \(n) (seen \(cannotCreate()))")
+        }
         func whenAsked(_ n: Int, _ tries: Int, _ then: @escaping () -> Void) {
-            if tries == 0 || told.filter({ $0.contains("Cannot create file") }).count >= n { then(); return }
+            if cannotCreate() >= n { then(); return }
+            if tries == 0 { ranOut(n); then(); return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenAsked(n, tries - 1, then) }
         }
         func whenDenied(_ tries: Int, _ then: @escaping () -> Void) {
-            if tries == 0 || told.filter({ $0.contains("Cannot create file") }).count >= 3 { chmod(dl.path, 0o700); then(); return }
+            if cannotCreate() >= 3 { chmod(dl.path, 0o700); then(); return }
+            if tries == 0 { ranOut(3); chmod(dl.path, 0o700); then(); return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenDenied(tries - 1, then) }
         }
         /* #5167 (11-18) review 3: a second refused file whose page changes while the person chooses (onChosen, as the
            start-void arm does for kosmos#7952) must not be saved: the restart's page guard can fail live. */
         onChosen = { name in if name == "denied2.txt" { d.pageCommits += 1 } }
         // One click at a time: two download clicks in one turn leave WebKit only the second (measured).
-        load { web.evaluateJavaScript("document.getElementById('denied').click()") { _, _ in }; whenAsked(1, 50) {
-               web.evaluateJavaScript("document.getElementById('denied2').click()") { _, _ in }; whenAsked(2, 50) {
+        load { web.evaluateJavaScript("document.getElementById('denied').click()") { _, _ in }; whenAsked(1, 150) {
+               web.evaluateJavaScript("document.getElementById('denied2').click()") { _, _ in }; whenAsked(2, 150) {
                /* Review 5: an attachment (WebKit's own download, unmarked) refused on a Kosmos+ computer's page is restarted
                   marked same-origin, or the tunnel would refuse it (403). */
-               mark(true) { web.evaluateJavaScript("document.getElementById('deniedatt').click()") { _, _ in }; whenDenied(50) { mark(false) {
+               mark(true) { web.evaluateJavaScript("document.getElementById('deniedatt').click()") { _, _ in }; whenDenied(150) { mark(false) {
         mark(true) { click("same", expect: "same.txt") { mark(false) { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("gone") { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { mark(true) { click("frames") { mark(false) { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { mark(true) { click("startvoid") { click("refused") { click("htmlpage") { mark(false) { click("busyzip") { mark(true) { askArm { mark(false) { modalArm { settled {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
