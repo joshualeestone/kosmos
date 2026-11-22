@@ -636,12 +636,19 @@ _body_file_and_words() {
 # limit (review 3: a command slow to start was told to pipe the report in, which it had). The caller saves nothing on
 # 5, 6 or 7. These are the helper's own codes; the verb exits 2. A terminal is still
 # read to its end, as before: a person typing a report is not a silent pipe.
+# kosmos#8905: the community verbs (post, comment, edit, endorse) read the same way, and `feedback triage --cards -`
+# passes KOSMOS_STDIN_CARDS_QUIET_S, the Windows CLI's CARDS_STDIN_QUIET_LIMIT_MS (a piped command that lists cards can
+# be slow to start). The optional first argument is the limit in whole seconds; it comes from this file, never from the
+# caller's environment. KOSMOS_STDIN_LIMIT_S is the limit this read used, for the refusal's words.
 KOSMOS_STDIN_QUIET_S=3   # review 1: never taken from the caller's environment (junk or 0 made a silent wrong answer)
+KOSMOS_STDIN_CARDS_QUIET_S=120
 _read_stdin_quiet() {
   KOSMOS_STDIN_TEXT=""
+  KOSMOS_STDIN_LIMIT_S="${1:-$KOSMOS_STDIN_QUIET_S}"
+  case "$KOSMOS_STDIN_LIMIT_S" in ''|*[!0-9]*|0*) KOSMOS_STDIN_LIMIT_S=""; return 7 ;; esac   # a wrong limit is a bug here: refuse, never wait
   if [ -t 0 ]; then KOSMOS_STDIN_TEXT="$(cat)"; return 0; fi
   local _rc=0
-  KOSMOS_STDIN_TEXT="$(KOSMOS_STDIN_QUIET_S="$KOSMOS_STDIN_QUIET_S" "$NODE" -e '
+  KOSMOS_STDIN_TEXT="$(KOSMOS_STDIN_QUIET_S="$KOSMOS_STDIN_LIMIT_S" "$NODE" -e '
     const input = process.stdin; const chunks = []; let timer = null; let done = false; let total = 0;
     const finish = (ended, failed) => {
       if (done) return; done = true; clearTimeout(timer);
@@ -661,6 +668,17 @@ _read_stdin_quiet() {
   if [ "$_rc" -eq 5 ] || [ "$_rc" -eq 6 ]; then KOSMOS_STDIN_TEXT=""; return "$_rc"; fi
   if [ "$_rc" -ne 0 ]; then KOSMOS_STDIN_TEXT=""; return 7; fi
   return 0
+}
+
+# kosmos#8905: the refusal for _read_stdin_quiet's codes, said one way for every verb, then exit 2 (nothing sent or
+# saved). $1 the code (5, 6, anything else is 7), $2 the past tense ("posted"), $3 what was piped ("post"), $4 what to
+# do instead, ending the sentence ("Give it as words or with --body-file instead.").
+_stdin_refused() {
+  local _lim="${KOSMOS_STDIN_LIMIT_S:-$KOSMOS_STDIN_QUIET_S}"
+  if [ "$1" -eq 5 ]; then say "Nothing was $2: nothing arrived on stdin for $_lim seconds. $4"
+  elif [ "$1" -eq 6 ]; then say "Nothing was $2: the piped $3 stopped arriving for $_lim seconds without ending, so it may be cut short. $4"
+  else say "Nothing was $2: the piped $3 could not be read. $4"; fi
+  exit 2
 }
 
 # Whether this machine has the lsof the port checks use (one answer for all three). A function so a test
@@ -4823,7 +4841,7 @@ cmd_community() {
   if [ $# -gt 0 ]; then
     _text_args "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
   fi
-  if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)"; _read_body_file posted; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi   # kosmos#5970
+  if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)"; _read_body_file posted; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else _read_stdin_quiet || _stdin_refused $? "posted" "post" "Give it as words or with --body-file instead."; text="$KOSMOS_STDIN_TEXT"; fi   # kosmos#5970, #8905
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
     say "Nothing to post: a community post needs some text (pass it as an argument, or pipe it in on stdin)."
     exit 2
@@ -4941,7 +4959,7 @@ cmd_community_comment() {
   if [ $# -gt 0 ]; then
     _text_args "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--public] [--body-file <file>] <text>   (or pipe the comment in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
   fi
-  if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--public] [--body-file <file>] <text>   (or pipe the comment in on stdin)"; _read_body_file sent; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi   # kosmos#5970
+  if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--public] [--body-file <file>] <text>   (or pipe the comment in on stdin)"; _read_body_file sent; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else _read_stdin_quiet || _stdin_refused $? "sent" "comment" "Give it as words or with --body-file instead."; text="$KOSMOS_STDIN_TEXT"; fi   # kosmos#5970, #8905
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
     say "Nothing to send: a comment needs some text (pass it after the post id, or pipe it in on stdin)."
     exit 2
@@ -5360,7 +5378,7 @@ cmd_community_edit() {
   if [ $# -gt 0 ]; then
     _text_args "community edit" "$_usage" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}
   fi
-  if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community edit" "$_usage"; _read_body_file changed; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi   # kosmos#5970
+  if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community edit" "$_usage"; _read_body_file changed; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else _read_stdin_quiet || _stdin_refused $? "changed" "text" "Give it as words or with --body-file instead."; text="$KOSMOS_STDIN_TEXT"; fi   # kosmos#5970, #8905
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
     say "Nothing to change: give the new words (after the id, or piped in on stdin)."
     exit 2
@@ -5431,7 +5449,7 @@ cmd_community_endorse() {
       *) say "Give 1 to 5 stars. $_usage"; exit 2 ;;
     esac
     if [ "${1:-}" = "--" ]; then shift; fi   # kosmos#5970: `--` ends the options, as for the other verbs, and is not review text
-    if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community endorse" "$_usage"; _read_body_file sent; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi   # kosmos#5970
+    if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community endorse" "$_usage"; _read_body_file sent; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else _read_stdin_quiet || _stdin_refused $? "sent" "review" "Give it as words or with --body-file instead."; text="$KOSMOS_STDIN_TEXT"; fi   # kosmos#5970, #8905
     if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
       say "Nothing to send: an endorsement needs a short review (pass it after the stars, or pipe it in on stdin)."
       exit 2
@@ -6602,7 +6620,7 @@ cmd_feedback() {
       done
       local t_cardlist=""
       if [ -n "$t_cards" ]; then
-        if [ "$t_cards" = "-" ]; then t_cardlist="$(cat)"; else t_cardlist="$(cat "$t_cards" 2>/dev/null)" || { say "could not read cards file: $t_cards"; exit 2; }; fi
+        if [ "$t_cards" = "-" ]; then _read_stdin_quiet "$KOSMOS_STDIN_CARDS_QUIET_S" || _stdin_refused $? "triaged" "card list" "Part of a list would show filed items as new: save the list in a file and pass --cards <file>."; t_cardlist="$KOSMOS_STDIN_TEXT"; else t_cardlist="$(cat "$t_cards" 2>/dev/null)" || { say "could not read cards file: $t_cards"; exit 2; }; fi
       fi
       # Which reports are read (store or --dir, --since, the guarded per-file read)
       # and the digest itself are engine functions, feedback.reportsForTriage and
