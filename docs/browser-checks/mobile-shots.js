@@ -2574,8 +2574,7 @@ const SCREENS = [
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#set-accounts .acct-usage-five', { state: 'visible', timeout: 12000 });
   } },
-  /* kosmos#8882: AI Models, the bulk move with a target picked whose Fable limit is full: the option says a model limit
-     is in the way and the line under the menu names the agent that could not run there. Only the account list is
+  /* kosmos#8882: AI Models, the bulk move with a target picked whose Fable limit is full: the option names the full limit and the line under the picker names the agent that cannot run there. Only the account list is
      stubbed (example.com accounts); the shot board's own agent is put on the first, with Fable as its model. */
   { name: 'settings-accounts-bulkmodel-8882', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
     const H = 3600000, now = Date.now();
@@ -2598,7 +2597,7 @@ const SCREENS = [
       sel.value = '/home/.claude-spare'; sel.dispatchEvent(new Event('change'));
       sel.closest('.acct-box').scrollIntoView({ block: 'center' });
     }, data.chatAgent);
-    await page.waitForFunction(() => { const w = document.querySelector('#set-accounts .acct-box[data-acct-dir="/home/.claude-work"] .acct-move-warn'); return w && /could not run there/.test(w.textContent); }, null, { timeout: 5000 });
+    await page.waitForFunction(() => { const w = document.querySelector('#set-accounts .acct-box[data-acct-dir="/home/.claude-work"] .acct-move-warn'); return w && /cannot run there/.test(w.textContent); }, null, { timeout: 5000 });
     await page.mouse.move(1, 1);
   } },
   /* #5977: Add a provider, Qwen picked: the address and model fields (labelled), and the panel for Qwen on this

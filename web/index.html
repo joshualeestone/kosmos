@@ -30740,7 +30740,7 @@ function acctModelWarn(target, cards, nameOfCard, targetName) {
   const parts = [];
   const lead = (model, lv) => (parts.length ? 'The ' + model + ' limit there is ' : 'On ' + where + ', the ' + model + ' limit is ') + lv + ' for the week';
   for (const m of models) parts.push(lead(m.model, level(m)) + ', so '
-    + list(m.names) + (m.full ? ' could not run there.' : m.names.length === 1 ? ' may stop there soon.' : m.names.length === 2 ? ' may both stop there soon.' : ' may all stop there soon.'));   // review 4: true of a stopped agent too
+    + list(m.names) + (m.full ? ' cannot run there until it resets.' : m.names.length === 1 ? ' may stop there soon.' : m.names.length === 2 ? ' may both stop there soon.' : ' may all stop there soon.'));   // review 4: true of a stopped agent too
   const named = parts.length > 0;
   /* Review 3: with only unknown-model agents at stake, say the level as the known-model sentence would. */
   /* Review 5: and the highest limit there, unless a sentence above already said it, since that is the one an
@@ -30944,7 +30944,9 @@ function acctUsageHtml(a, list) {
     const shown = ACCT_DRAWN_RISK.get(k);
     if (x.dir !== picked || !shown || shown.text === e.text) ACCT_DRAWN_RISK.set(k, e);   // review 8: a silent change under a kept pick is not shown
   }
-  const inWay = (x) => { const r = acctModelRisks(x, movingCards, cardName); return r.models.length ? 'a model limit is in the way' : r.unknown.length ? 'a model limit may be in the way' : ''; };   // review 2: "may" when only an unknown model is at stake
+  /* Design read: short enough to show in the picker on a phone, and naming the limit: the worst one in the warning. */
+  const inWay = (x) => { const r = acctModelRisks(x, movingCards, cardName); if (!r.models.length && !r.unknown.length) return '';
+    const w = r.models.slice().sort((a, b) => b.usedPct - a.usedPct)[0] || r.top; return w ? w.model + ' limit ' + (w.full ? 'full' : 'at ' + Math.round(w.usedPct) + '%') : ''; };
   /* The restart note describes the menu and the button, so a screen reader hears it before the click, not only after.
      Id from the dir's character codes: unique per dir, and safe in an attribute. */
   const noteId = 'acct-move-note-' + Array.from(String(a.dir)).map((c) => c.charCodeAt(0).toString(16)).join('');
@@ -30955,13 +30957,16 @@ function acctUsageHtml(a, list) {
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
       /* kosmos#8882: a target where a model limit is in the way carries its warning (shown below the menu when picked). */
       + targets.map((x) => { const warn = warnOf(x), way = warn ? inWay(x) : ''; return '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + (warn ? ' data-acct-warn="' + esc(warn) + '"' : '') + '>' + esc(nameOf(x)) + (acctWeeklyNow(x) ? ' (' + Math.round(x.weekly.usedPct) + '% used' + (way ? ', ' + way : '') + ')' : (way ? ' (' + way + ')' : '')) + '</option>'; }).join('')
-      + '</select><button type="button" data-acct-move="' + esc(a.dir) + '"' + described + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc((!st.stopping && st.progress) || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
+      + '</select>'
+      /* kosmos#8882: the picked target's model-limit warning, straight under the picker and above Move (design read), so
+         it is read before the button; the person can still move them. */
+      + '<p class="acct-move-warn" id="' + warnId + '" data-acct-move-warn="' + esc(a.dir) + '" aria-live="polite">' + esc(picked ? warnOf(targets.find((x) => x.dir === picked)) : '') + '</p>'
+      + '<button type="button" data-acct-move="' + esc(a.dir) + '"' + described + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc((!st.stopping && st.progress) || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
       /* #6214: a running move can be stopped once the board has it; the board finishes the agent it is restarting and puts
          the rest back. */
       + (busy && st.onBoard ? '<button type="button" data-acct-move-stop' + (st.stopping ? ' disabled' : ' aria-label="' + ACCT_STOP_NAME + '"') + '>' + (st.stopping ? 'Stopping…' : 'Stop the move') + '</button>' : '')
       + (names.length ? '<p class="acct-move-note" id="' + noteId + '">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p>' : '')   // said before the click; a busy row repainted to no agents says nothing
-      /* kosmos#8882: the picked target's model-limit warning, before the click; the person can still move them. */
-      + '<p class="acct-move-warn" id="' + warnId + '" data-acct-move-warn="' + esc(a.dir) + '" aria-live="polite">' + esc(picked ? warnOf(targets.find((x) => x.dir === picked)) : '') + '</p></div>'
+      + '</div>'
     : '';
   /* After a move focus goes to the menu or the list, never here (it would read this a second time over the panel's
      status line), so the sentence takes no focus. It is shown as soon as the move ends; only the panel line is
