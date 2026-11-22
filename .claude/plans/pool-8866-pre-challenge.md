@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: pool-8866
-diff_hash: 253b453f5631ffc27dc6bc22daeb3f550b1d6f821b2f47ca3c2d2bef8d206008
-validation: focused (What's New tests 72/72: five root files and engine/whatsnew.test.js; 0.8.15's selection recomputed on PR #8891's pool with and without the item, unchanged, with 10.46 as a control that changes it). No full local suite: the diff is one pool entry and a plan, and Agent1s' CI runners were busy with the 0.8.15 cut's PR; the PR's own CI runs the full suite.
+diff_hash: 6fa5fe8378f4a6f660d97969b29651d6da2e4c3fa99b2f8a2c7b0ab34a663e2b
+validation: focused (What's New tests 72/72: five root files and engine/whatsnew.test.js; 0.8.15's selection recomputed on PR #8891's pool with and without the item, unchanged, with 10.46 as a control that changes it). No full local suite: the diff is one pool entry and a plan, and Agent1s' CI runners were busy with the 0.8.15 cut's PR; the PR's own CI runs the full suite. Rebased onto main 1f4009538c (0.8.15 pin, #8891 merged): my two files unchanged, tests 72/72 again, the item still sixth behind 0.8.15\'s five, web/whats-new.json identical to main.
 subdir_audit: passed (no subdirectory CLAUDE.md changed)
 timestamp: 2026-11-22T11:33:53Z
 iterations: 3
