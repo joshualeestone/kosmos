@@ -30745,16 +30745,18 @@ function acctModelWarn(target, cards, nameOfCard, targetName) {
     + (unknown.length === 1 ? 'it' : 'they') + ' may stop there' + (named ? ' too.' : '.'));
   return parts.join(' ');
 }
-/* Review 2: whether something came in the way between `was` (the risks the menu drew) and `now` (at the click): a model
-   family not drawn, a step from near to full, or an agent named now that was not named under it. A percentage that
-   moved within the same level, or an agent that left, is not new. */
+/* Whether something came in the way between `was` (the risks the menu drew) and `now` (at the click), judged per
+   agent (review 6): new when an agent at stake now was not warned about at all, or now faces a full limit where it was
+   shown a near one. Its level as shown: its family's, or for an unknown model the highest limit there. So a reading
+   moving within its level, an agent that left or was renamed (compared by session), a card gaining or losing its model
+   at the same level, or a full limit changing family for an unknown model, is not new. */
 function acctModelRiskNew(was, now) {
-  const w = new Map(was.models.map((m) => [m.key, m]));
-  const wasUnknown = new Set(was.unknownIds || []);
-  return now.models.some((m) => { const o = w.get(m.key); return !o || (m.full && !o.full) || m.ids.some((n) => !o.ids.includes(n)); })
-    || (now.unknownIds || []).some((n) => !wasUnknown.has(n))
-    /* Review 4: an unknown-model agent drawn under a near limit, which is now full, is as new as a known one. */
-    || ((now.unknownIds || []).length > 0 && !!now.top && now.top.full && !(was.top && was.top.full));
+  const shownFull = new Map();
+  for (const m of was.models) for (const id of m.ids) shownFull.set(id, m.full);
+  for (const id of (was.unknownIds || [])) if (!shownFull.has(id)) shownFull.set(id, !!(was.top && was.top.full));
+  const newFor = (id, full) => !shownFull.has(id) || (full && !shownFull.get(id));
+  return now.models.some((m) => m.ids.some((id) => newFor(id, m.full)))
+    || (now.unknownIds || []).some((id) => newFor(id, !!(now.top && now.top.full)));
 }
 function acctBulkTarget(x, fromDir) {
   return !!x && !!x.dir && x.dir !== fromDir && x.bulkTargetable === true;
