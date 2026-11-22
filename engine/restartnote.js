@@ -39,6 +39,14 @@ const WINDOW_MS = 15 * 60 * 1000;
 const SHOW_MS = 24 * 60 * 60 * 1000;
 const MAX_AGENTS = 1000;   // a bound on what a damaged record can make the note carry
 
+/* kosmos#8866: several restarts in a few days are a pattern worth one plain line (a memory blue screen came back more
+   than once and each read as its own note). Each note's boot time is kept, at most HISTORY_MAX for HISTORY_MS, and a note
+   made when PATTERN_COUNT or more fall within PATTERN_MS carries the count and their dates. */
+const PATTERN_COUNT = 3;
+const PATTERN_MS = 7 * 24 * 60 * 60 * 1000;
+const HISTORY_MS = 30 * 24 * 60 * 60 * 1000;
+const HISTORY_MAX = 20;
+const historyFile = () => path.join(store.ROOT, 'board-restart-history.json');
 const aliveFile = () => path.join(store.ROOT, 'board-alive.json');
 const noteFile = () => path.join(store.ROOT, 'board-restart-note.json');
 
@@ -116,6 +124,8 @@ function atStart(deps = {}) {
     const scan = deps.files;
     const files = scan && scan.checked === true && Number.isInteger(scan.damaged) && scan.damaged >= 0 ? filesOf(scan) : null;
     if (files) note.files = files;
+    const pattern = patternAfter(note.bootAt, now);   // kosmos#8866
+    if (pattern) note.pattern = pattern;
     writeJson(noteFile(), { ...note, dismissed: false });
   }
   beat(now);
@@ -187,6 +197,33 @@ function filesOf(f) {
   return unread ? { damaged: f.damaged, unread: f.unread } : { damaged: f.damaged };
 }
 
+/* kosmos#8866: the boot times kept (valid, not in the future, within HISTORY_MS of now), oldest first. */
+function historyOf(now) {
+  const h = readJson(historyFile());
+  const at = h && Array.isArray(h.at) ? h.at : [];
+  return [...new Set(at.filter((x) => typeof x === 'string').map(ms).filter((t) => t != null && t <= now + 60 * 1000 && now - t <= HISTORY_MS))]
+    .sort((a, b) => a - b);
+}
+/* kosmos#8866: keep this note's boot time, and say the pattern when PATTERN_COUNT or more fall within PATTERN_MS. A boot
+   already kept (the same restart read twice) is not counted again. Best effort: a history that cannot be written is no
+   pattern, never a guessed one. */
+function patternAfter(bootIso, now) {
+  const boot = ms(bootIso);
+  if (boot == null) return null;
+  const kept = historyOf(now);
+  const all = kept.includes(boot) ? kept : [...kept, boot].sort((a, b) => a - b);
+  const saved = all.slice(-HISTORY_MAX);
+  if (!writeJson(historyFile(), { at: saved.map((t) => new Date(t).toISOString()) })) return null;
+  return patternOf(saved, now);
+}
+/** kosmos#8866: { count, dates } for the boots within PATTERN_MS of `now`, or null below PATTERN_COUNT. Pure. */
+function patternOf(boots, now) {
+  const recent = boots.filter((t) => Number.isFinite(t) && t <= now + 60 * 1000 && now - t <= PATTERN_MS);
+  return recent.length >= PATTERN_COUNT ? { count: recent.length, dates: recent.map((t) => new Date(t).toISOString()) } : null;
+}
+const cleanPattern = (p) => (p && Number.isInteger(p.count) && p.count >= PATTERN_COUNT && Array.isArray(p.dates)
+  && p.dates.length === p.count && p.dates.every((d) => typeof d === 'string' && ms(d) != null) ? { count: p.count, dates: p.dates.slice() } : null);
+
 /** The note to show now: made within SHOW_MS and not dismissed, or null. */
 function current(now = Date.now()) {
   const n = readJson(noteFile());
@@ -201,6 +238,8 @@ function current(now = Date.now()) {
   if (returned.length) out.returned = returned;
   const files = n.files && Number.isInteger(n.files.damaged) && n.files.damaged >= 0 ? filesOf(n.files) : null;
   if (files) out.files = files;
+  const pattern = cleanPattern(n.pattern);   // kosmos#8866
+  if (pattern) out.pattern = pattern;
   return out;
 }
 
@@ -229,7 +268,10 @@ function checksFor(note, roster, removed) {
 }
 
 /* kosmos#8287: what the page is sent: the note's times and the checks, never the records they came from. */
-function publicNote(note, checks) { return { lastAliveAt: note.lastAliveAt, bootAt: note.bootAt, upAt: note.upAt, checks }; }
+function publicNote(note, checks) {
+  const pattern = cleanPattern(note.pattern);   // kosmos#8866: the count and dates only
+  return { lastAliveAt: note.lastAliveAt, bootAt: note.bootAt, upAt: note.upAt, checks, ...(pattern ? { pattern } : {}) };
+}
 
 function dismiss() {
   const n = readJson(noteFile());
@@ -240,4 +282,4 @@ function dismiss() {
 function lastRoster(now = Date.now()) { const age = now - lastCardsAt; return lastCards && age >= 0 && age <= ROSTER_STALE_MS ? lastCards : null; }
 function resetForTests() { running = null; lastCards = null; lastCardsAt = 0; carried = null; carriedUntil = 0; }
 
-module.exports = { resetForTests, noteFor, atStart, beat, startBeating, current, dismiss, noteRunning, lastRoster, runningOf, checksFor, publicNote, BEAT_MS, WINDOW_MS, SHOW_MS, _files: { aliveFile, noteFile } };
+module.exports = { patternOf, PATTERN_COUNT, PATTERN_MS, resetForTests, noteFor, atStart, beat, startBeating, current, dismiss, noteRunning, lastRoster, runningOf, checksFor, publicNote, BEAT_MS, WINDOW_MS, SHOW_MS, _files: { aliveFile, noteFile, historyFile } };
