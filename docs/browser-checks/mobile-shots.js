@@ -2066,13 +2066,14 @@ const SCREENS = [
     if (st !== 200) throw new Error('could not unpause the project after the shot (' + st + ')');
   } },
   /* kosmos#8897: the starter project's empty Tasks column says what it is. The project list is passed through and the
-     shot board's own project is sent as the starter Kosmos seeded (starter: true, no tasks), as engine/projects.js
-     describe marks the real one; nothing on the board changes. */
+     shot board's own project is sent as the starter Kosmos seeded (starter: true, no tasks, made by Kosmos, so no "Made by"
+     line, as on the real one), as engine/projects.js describe marks it; nothing on the board changes. The room's
+     messages are the shot board's fixture; a real starter room is new. */
   { name: 'project-starter-8897', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
     await page.route((u) => new URL(u).pathname === '/api/projects', async (route) => {
       const res = await route.fetch();
       let body; try { body = await res.json(); } catch { return route.fulfill({ response: res }); }
-      if (body && Array.isArray(body.projects)) body.projects = body.projects.map((p) => (p && p.id === data.projectId ? { ...p, starter: true, tasks: [] } : p));
+      if (body && Array.isArray(body.projects)) body.projects = body.projects.map((p) => (p && p.id === data.projectId ? { ...p, starter: true, tasks: [], made: { via: 'kosmos' } } : p));
       return route.fulfill({ response: res, json: body });
     });
     await openTab(page, 'projects');

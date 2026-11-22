@@ -16,7 +16,7 @@ try { pw = require('playwright'); }
 catch { console.log('render-starter-empty-8897: playwright is not on NODE_PATH - SKIPPED, not passed.'); process.exit(0); }
 
 const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
-const STARTER = 'This is the starter project Kosmos made to show you around. Its agents wait for work from you: give them a task here, or start a project of your own.';
+const STARTER = 'This is the starter project Kosmos made to show you around. Its agents are waiting for you: give them a task here, or start your own project.';
 const PLAIN = 'Add a task, or have an agent add one, to start tracking progress.';
 const DONE_ONLY = 'Nothing open here. The finished ones are behind View All.';
 const fails = [];
