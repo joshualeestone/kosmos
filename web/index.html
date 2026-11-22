@@ -830,6 +830,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 #set-accounts .acct-move-msg { margin: 0; font-size: .8125rem; color: var(--label); }
 #set-accounts .acct-move-msg:empty { margin-top: -8px; }   /* kept in the page (a live region must exist before it speaks), but no gap */
 #set-accounts .acct-move-note { margin: 0; flex: 1 1 100%; font-size: .8125rem; color: var(--label-2); }   /* the only before-click word on the restart: not the smallest text on the row */
+#set-accounts .acct-move-warn { margin: 0; flex: 1 1 100%; font-size: .8125rem; color: var(--label); }   /* kosmos#8882: a model limit in the way of the picked account */
+#set-accounts .acct-move-warn:empty { margin-top: -8px; }   /* review 1: kept in the page when empty (no display:none), so the live region is heard when it fills */
 /* The disambiguator beside a name two accounts share. Quiet on purpose: it is
    an answer to "why are there two of these", not a thing to read first. Same
    token as .acct-org, which is defined on the light, dark and increased-contrast
@@ -30679,6 +30681,13 @@ function acctWeeklyNow(a) {
    source row with no agents left has no move control), so the sentence lives here, not in the old element. */
 const ACCT_MOVE = new Map();
 const ACCT_MOVE_SHOW_MS = 2 * 60e3;   // a finished move's sentence stays two minutes, then the row is plain again
+/* kosmos#8882 review 3: the model risks each row's menu DREW per target (key: from dir, newline, target dir), so the
+   click compares against what the person was shown, not a recomputation from cards that may have changed since. */
+const ACCT_DRAWN_RISK = new Map();
+/* Review 8: the risks the LATEST paint worked out per row and target. A screen reader does not hear a live region that
+   a repaint inserts already filled, so for a kept pick a repaint that changed the words does not count as shown: the
+   shown entry above keeps what was last spoken (a pick's change handler, or a paint with the same words). */
+const ACCT_PAINT_RISK = new Map();
 const ACCT_PICK = new Map();          // the target picked in a row's menu, so a poll's repaint does not undo a half-made choice
 /* #6108: whether an account can take another account's agents in one move. One rule for the menu and for the check
    made again at the click (the menu can be a while old: Settings repaints when something is pressed). */
@@ -30687,6 +30696,73 @@ const ACCT_PICK = new Map();          // the target picked in a row's menu, so a
    disagree: Claude, shared memory, not refused or signed out, not a row that says it is not offerable, not an API key
    (moving a whole account's agents onto a key changes who pays, so that stays a one-agent choice on its page), and not
    at its weekly or five-hour limit. */
+/* kosmos#8882: the family of a model as the usage mover reads it (engine/autobalance.js modelKey): the first word with a
+   letter in it, without case, after a leading "Claude" ("Claude Fable 5.2", "claude-fable-5-2" -> "fable"). */
+function acctModelKey(name) {
+  if (typeof name !== 'string') return null;
+  const w = name.trim().toLowerCase().replace(/^claude[-\s]+/, '').split(/[\s-]+/).find((x) => /[a-z]/.test(x));
+  return w || null;
+}
+/* kosmos#8882: what moving these agents to `target` would cost by its models' own weekly limits (#8862: a row's
+   `scoped`, resets in ms). One entry per model family whose limit there is at ACCT_MODEL_NEAR_PCT or more (the mover's
+   own target rule, engine/autobalance.js TARGET_MAX_PCT), keeping the HIGHEST reading of a family (review 2), with
+   `full` from ACCT_MODEL_FULL_PCT (the engine's MODEL_FULL_PCT) and the names of the agents on that model; and the
+   agents whose model Kosmos cannot tell, while any limit there is in the way. `cards` are the agents' cards. */
+const ACCT_MODEL_NEAR_PCT = 70, ACCT_MODEL_FULL_PCT = 99.5;
+function acctModelRisks(target, cards, nameOfCard) {
+  const now = Date.now();
+  const byKey = new Map();
+  for (const m of (target && Array.isArray(target.scoped) ? target.scoped : [])) {
+    if (!m || typeof m.model !== 'string' || !Number.isFinite(m.usedPct) || m.usedPct < ACCT_MODEL_NEAR_PCT || !Number.isFinite(m.resetsAt) || m.resetsAt <= now) continue;
+    const k = acctModelKey(m.model); if (!k) continue;
+    if (!byKey.has(k) || m.usedPct > byKey.get(k).usedPct) byKey.set(k, m);
+  }
+  if (!byKey.size) return { models: [], unknown: [], unknownIds: [], top: null };
+  /* Review 4: a planned model counts as known, and (review 7) comes first, as on the agent's tile: the board sends it
+     only for a stopped agent, the one the next start uses. The engine's modelOfFrom reads only the running and earlier
+     ones, so for it such an agent is unknown and kept off any limit at 70%+: the stricter side. */
+  const modelOf = (c) => (c && (c.plannedModelName || c.modelName || c.model || c.earlierModelName)) || null;
+  const idOf = (c) => (c && c.sessionName) || nameOfCard(c);   // review 4: compared by session, so a rename is not new
+  const models = [...byKey].map(([key, m]) => { const on = (cards || []).filter((c) => acctModelKey(modelOf(c)) === key);
+    return { key, model: m.model, usedPct: m.usedPct, full: m.usedPct >= ACCT_MODEL_FULL_PCT, names: on.map(nameOfCard), ids: on.map(idOf) }; }).filter((x) => x.names.length);
+  const top = [...byKey.values()].reduce((a, b) => (b.usedPct > a.usedPct ? b : a));
+  const unk = (cards || []).filter((c) => !acctModelKey(modelOf(c)));
+  return { models, unknown: unk.map(nameOfCard), unknownIds: unk.map(idOf), top: { model: top.model, usedPct: top.usedPct, full: top.usedPct >= ACCT_MODEL_FULL_PCT } };
+}
+/* The risks as words, naming the account they go to (review 2: on the row being left, "Its" read as that row), or ''
+   when nothing is in the way. Plain text: the caller escapes it. */
+function acctModelWarn(target, cards, nameOfCard, targetName) {
+  const { models, unknown, top } = acctModelRisks(target, cards, nameOfCard);
+  const where = targetName || 'that account';
+  const list = (xs) => (xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]);   // review 3: "Lyra and Ida"
+  const level = (m) => (m.full ? 'full' : 'at ' + Math.round(m.usedPct) + '%');
+  /* Review 5: the first sentence names the account, later ones say "there". */
+  const parts = [];
+  const lead = (model, lv) => (parts.length ? 'The ' + model + ' limit there is ' : 'On ' + where + ', the ' + model + ' limit is ') + lv + ' for the week';
+  for (const m of models) parts.push(lead(m.model, level(m)) + ', so '
+    + list(m.names) + (m.full ? ' cannot run there until it resets.' : m.names.length === 1 ? ' may stop there soon.' : m.names.length === 2 ? ' may both stop there soon.' : ' may all stop there soon.'));   // review 4: true of a stopped agent too
+  const named = parts.length > 0;
+  /* Review 3: with only unknown-model agents at stake, say the level as the known-model sentence would. */
+  /* Review 5: and the highest limit there, unless a sentence above already said it, since that is the one an
+     unknown-model agent may hit. */
+  if (unknown.length && top && !models.some((m) => m.key === acctModelKey(top.model))) parts.push(lead(top.model, level(top)) + '.');
+  if (unknown.length) parts.push('Kosmos cannot tell which model ' + list(unknown) + (unknown.length === 1 ? ' uses' : ' use') + ', so '
+    + (unknown.length === 1 ? 'it' : 'they') + ' may stop there' + (named ? ' too.' : '.'));
+  return parts.join(' ');
+}
+/* Whether something came in the way between `was` (the risks the menu drew) and `now` (at the click), judged per
+   agent (review 6): new when an agent at stake now was not warned about at all, or now faces a full limit where it was
+   shown a near one. Its level as shown: its family's, or for an unknown model the highest limit there. So a reading
+   moving within its level, an agent that left or was renamed (compared by session), a card gaining or losing its model
+   at the same level, or a full limit changing family for an unknown model, is not new. */
+function acctModelRiskNew(was, now) {
+  const shownFull = new Map();
+  for (const m of was.models) for (const id of m.ids) shownFull.set(id, m.full);
+  for (const id of (was.unknownIds || [])) if (!shownFull.has(id)) shownFull.set(id, !!(was.top && was.top.full));
+  const newFor = (id, full) => !shownFull.has(id) || (full && !shownFull.get(id));
+  return now.models.some((m) => m.ids.some((id) => newFor(id, m.full)))
+    || (now.unknownIds || []).some((id) => newFor(id, !!(now.top && now.top.full)));
+}
 function acctBulkTarget(x, fromDir) {
   return !!x && !!x.dir && x.dir !== fromDir && x.bulkTargetable === true;
 }
@@ -30858,19 +30934,39 @@ function acctUsageHtml(a, list) {
   const nameOf = (x) => acctPrimaryName(x) + (qual.get(String(x.dir || '')) ? ' (' + qual.get(String(x.dir || '')) + ')' : '');
   const who = esc(nameOf(a) || 'this account');
   const picked = targets.some((x) => x.dir === ACCT_PICK.get(a.dir)) ? ACCT_PICK.get(a.dir) : '';
+  /* kosmos#8882: the cards of the agents this row would move, named as the agents line names them. */
+  const movingCards = sessions.map((n) => known.get(n) || { sessionName: n });
+  const cardName = (c) => (c && (c.name || c.sessionName)) || 'an agent';
+  const warnOf = (x) => acctModelWarn(x, movingCards, cardName, nameOf(x));
+  for (const x of targets) {
+    const k = a.dir + '\n' + x.dir, e = { risks: acctModelRisks(x, movingCards, cardName), label: nameOf(x), text: warnOf(x) };
+    ACCT_PAINT_RISK.set(k, e);
+    const shown = ACCT_DRAWN_RISK.get(k);
+    if (x.dir !== picked || !shown || shown.text === e.text) ACCT_DRAWN_RISK.set(k, e);   // review 8: a silent change under a kept pick is not shown
+  }
+  /* Design read: short enough to show in the picker on a phone, and naming the limit: the worst one in the warning. */
+  const inWay = (x) => { const r = acctModelRisks(x, movingCards, cardName); if (!r.models.length && !r.unknown.length) return '';
+    const w = r.models.slice().sort((a, b) => b.usedPct - a.usedPct)[0] || r.top; return w ? w.model + ' limit ' + (w.full ? 'full' : 'at ' + Math.round(w.usedPct) + '%') : ''; };
   /* The restart note describes the menu and the button, so a screen reader hears it before the click, not only after.
      Id from the dir's character codes: unique per dir, and safe in an attribute. */
   const noteId = 'acct-move-note-' + Array.from(String(a.dir)).map((c) => c.charCodeAt(0).toString(16)).join('');
-  const described = names.length ? ' aria-describedby="' + noteId + '"' : '';
+  const warnId = noteId.replace('acct-move-note-', 'acct-move-warn-');   // kosmos#8882 review 1: the menu is described by the warning too
+  const described = names.length ? ' aria-describedby="' + noteId + ' ' + warnId + '"' : '';
   const move = canMove || busy
     ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '"' + described + ' aria-label="Move the agents on ' + who + ' to another account">'
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
-      + targets.map((x) => '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + '>' + esc(nameOf(x)) + (acctWeeklyNow(x) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
-      + '</select><button type="button" data-acct-move="' + esc(a.dir) + '"' + described + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc((!st.stopping && st.progress) || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
+      /* kosmos#8882: a target where a model limit is in the way carries its warning (shown below the menu when picked). */
+      + targets.map((x) => { const warn = warnOf(x), way = warn ? inWay(x) : ''; return '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + (warn ? ' data-acct-warn="' + esc(warn) + '"' : '') + '>' + esc(nameOf(x)) + (acctWeeklyNow(x) ? ' (' + Math.round(x.weekly.usedPct) + '% used' + (way ? ', ' + way : '') + ')' : (way ? ' (' + way + ')' : '')) + '</option>'; }).join('')
+      + '</select>'
+      /* kosmos#8882: the picked target's model-limit warning, straight under the picker and above Move (design read), so
+         it is read before the button; the person can still move them. */
+      + '<p class="acct-move-warn" id="' + warnId + '" data-acct-move-warn="' + esc(a.dir) + '" aria-live="polite">' + esc(picked ? warnOf(targets.find((x) => x.dir === picked)) : '') + '</p>'
+      + '<button type="button" data-acct-move="' + esc(a.dir) + '"' + described + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc((!st.stopping && st.progress) || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
       /* #6214: a running move can be stopped once the board has it; the board finishes the agent it is restarting and puts
          the rest back. */
       + (busy && st.onBoard ? '<button type="button" data-acct-move-stop' + (st.stopping ? ' disabled' : ' aria-label="' + ACCT_STOP_NAME + '"') + '>' + (st.stopping ? 'Stopping…' : 'Stop the move') + '</button>' : '')
-      + (names.length ? '<p class="acct-move-note" id="' + noteId + '">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p>' : '') + '</div>'   // said before the click; a busy row repainted to no agents says nothing
+      + (names.length ? '<p class="acct-move-note" id="' + noteId + '">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p>' : '')   // said before the click; a busy row repainted to no agents says nothing
+      + '</div>'
     : '';
   /* After a move focus goes to the menu or the list, never here (it would read this a second time over the panel's
      status line), so the sentence takes no focus. It is shown as soon as the move ends; only the panel line is
@@ -31985,7 +32081,14 @@ async function paintAccounts(opts) {
   }
   for (const sel of box.querySelectorAll('[data-acct-move-to]')) {
     const btn = box.querySelector('[data-acct-move="' + CSS.escape(sel.dataset.acctMoveTo) + '"]');
-    sel.addEventListener('change', () => { if (sel.value) ACCT_PICK.set(sel.dataset.acctMoveTo, sel.value); else ACCT_PICK.delete(sel.dataset.acctMoveTo); if (btn) btn.disabled = !sel.value; });
+    const warnP = box.querySelector('[data-acct-move-warn="' + CSS.escape(sel.dataset.acctMoveTo) + '"]');
+    sel.addEventListener('change', () => {
+      if (sel.value) ACCT_PICK.set(sel.dataset.acctMoveTo, sel.value); else ACCT_PICK.delete(sel.dataset.acctMoveTo); if (btn) btn.disabled = !sel.value;
+      /* Review 8: a pick speaks its warning (textContent below), so what this paint worked out for it is now shown. */
+      if (sel.value) { const k = sel.dataset.acctMoveTo + '\n' + sel.value; if (ACCT_PAINT_RISK.has(k)) ACCT_DRAWN_RISK.set(k, ACCT_PAINT_RISK.get(k)); }
+      /* kosmos#8882: the picked target's model-limit warning (textContent: it is text, never markup). */
+      if (warnP) { const opt = sel.selectedOptions && sel.selectedOptions[0]; warnP.textContent = (opt && opt.getAttribute('data-acct-warn')) || ''; }
+    });
   }
   for (const stopBtn of box.querySelectorAll('[data-acct-move-stop]')) stopBtn.addEventListener('click', () => acctStopClick(stopBtn));
   for (const btn of box.querySelectorAll('[data-acct-move]')) {
@@ -31996,6 +32099,7 @@ async function paintAccounts(opts) {
       const row = list.find((x) => String(x.dir) === from);
       const to = sel && sel.value;
       if (!row || !row.agentsHere || !to) return;
+      const drawnRisk = ACCT_DRAWN_RISK.get(from + '\n' + to);   // kosmos#8882 review 3: what the menu drew, read at the press (a repaint mid-click must not replace it)
       if (ACCT_MOVE.get(from) && ACCT_MOVE.get(from).moving) return;   // a repaint mid-move must not start a second one
       const guide = new Set((LAST || []).filter((x) => x && x.isGuide).map((x) => x.sessionName));
       /* Progress goes on the button, not the live region, so a screen reader hears the result once, not every step. */
@@ -32028,10 +32132,22 @@ async function paintAccounts(opts) {
         const stoppedAtClick = new Set(names.filter((n) => { const c = (LAST || []).find((x) => x && x.sessionName === n); return c && cardStOf(c).pres === 'off'; }));
         if (!fresh) throw new Error('unchecked');
         if (!names.length) said = drawn.length === 1 ? 'Nothing moved: its agent is no longer on this account.' : 'Nothing moved: its agents are no longer on this account.';
-        else if (!acctBulkTarget(ft, from)) {   // signed out, refused, full or gone since the menu was drawn
+        else if (!acctBulkTarget(ft, from)) {   // signed out, refused, full or gone since the menu was drawn (review 3: said before any model reason)
           const was = list.find((x) => String(x.dir) === to);
           said = 'Nothing moved: ' + ((ft && acctPrimaryName(ft)) || (was && acctPrimaryName(was)) || 'that account') + ' cannot take ' + (names.length === 1 ? 'it' : 'them') + ' now. Pick another account.';
         }
+        else if ((() => {
+          /* kosmos#8882: refuse only when a model limit came in the way since the menu was drawn: by family and level
+             (review 2), against the risks the menu DREW for this target (review 3), with the cards as they are now, so an
+             agent whose model changed since the paint is new. */
+          const cards = names.map((n) => (LAST || []).find((x) => x && x.sessionName === n) || { sessionName: n });
+          const cardName = (c) => (c && (c.name || c.sessionName)) || 'an agent';
+          const drawn = drawnRisk;
+          const lower = (x) => x.charAt(0).toLowerCase() + x.slice(1);   // review 4: "Nothing moved: on X, ..." like the other refusals
+          const was = drawn ? drawn.risks : { models: [], unknown: [], unknownIds: [], top: null };   // nothing recorded: anything at stake now is new
+          if (!acctModelRiskNew(was, acctModelRisks(ft, cards, cardName))) return false;
+          said = 'Nothing moved: ' + lower(acctModelWarn(ft, cards, cardName, (drawn && drawn.label) || acctPrimaryName(ft) || 'that account')) + ' Pick again.';
+          return true; })()) { /* said is set */ }
         else said = await moveAccountAgents(from, to, names, (done, all) => {
           const b = document.querySelector('[data-acct-move="' + CSS.escape(from) + '"]');   // the current button, after any repaint
           const t = 'Moving ' + done + ' of ' + all + '…';

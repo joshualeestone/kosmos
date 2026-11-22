@@ -2574,6 +2574,32 @@ const SCREENS = [
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#set-accounts .acct-usage-five', { state: 'visible', timeout: 12000 });
   } },
+  /* kosmos#8882: AI Models, the bulk move with a target picked whose Fable limit is full: the option names the full limit and the line under the picker names the agent that cannot run there. Only the account list is
+     stubbed (example.com accounts); the shot board's own agent is put on the first, with Fable as its model. */
+  { name: 'settings-accounts-bulkmodel-8882', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    const H = 3600000, now = Date.now();
+    const row = (email, dir, extra) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email, label: email, dir,
+      organization: null, isDefault: false, keyTail: null, memoryShared: true, offerable: true, apiKey: false, bulkTargetable: true,
+      connection: { state: 'connected', badge: 'working', checkedLive: true, plan: null }, agentsHere: { names: [], complete: true }, ...extra });
+    const accounts = [
+      row('work@example.com', '/home/.claude-work', { weekly: { usedPct: 84, resetsAt: now + 60 * H, at: now - H }, agentsHere: { names: [data.chatAgent], complete: true } }),
+      row('spare@example.com', '/home/.claude-spare', { weekly: { usedPct: 30, resetsAt: now + 90 * H, at: now - H }, scoped: [{ model: 'Fable', usedPct: 100, resetsAt: now + 20 * H }] }),
+      row('quiet@example.com', '/home/.claude-quiet', { weekly: { usedPct: 12, resetsAt: now + 120 * H, at: now - 5 * H } }),
+    ];
+    await page.route((u) => new URL(u).pathname === '/api/accounts', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ accounts }) }));
+    await at(page, '?tab=settings&sec=accounts');
+    await page.waitForSelector('#set-accounts .acct-box[data-acct-dir="/home/.claude-work"] [data-acct-move-to]', { state: 'visible', timeout: 12000 });
+    await page.evaluate(async (agent) => {
+      const c = (LAST || []).find((x) => x && x.sessionName === agent); if (c) { c.modelName = 'Claude Fable 5.2'; c.plannedModelName = null; }
+      await paintAccounts();
+      const sel = document.querySelector('#set-accounts .acct-box[data-acct-dir="/home/.claude-work"] [data-acct-move-to]');
+      sel.value = '/home/.claude-spare'; sel.dispatchEvent(new Event('change'));
+      sel.closest('.acct-box').scrollIntoView({ block: 'center' });
+    }, data.chatAgent);
+    await page.waitForFunction(() => { const w = document.querySelector('#set-accounts .acct-box[data-acct-dir="/home/.claude-work"] .acct-move-warn'); return w && /cannot run there/.test(w.textContent); }, null, { timeout: 5000 });
+    await page.mouse.move(1, 1);
+  } },
   /* #5977: Add a provider, Qwen picked: the address and model fields (labelled), and the panel for Qwen on this
      computer. The Ollama route is stubbed (needs_model: Ollama has qwen2.5:7b, Kosmos's 16k copy is not made yet), so
      the shot never depends on this Mac's own Ollama. */
