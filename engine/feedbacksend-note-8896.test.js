@@ -216,6 +216,21 @@ test('kosmos#8900 review 3: a file from before the offered list: a day it never 
   assert.match(fbs.noteEarlierDay(YESTERDAY, NOW), HOURLY, 'CONTROL: the record\'s own day is still queued from an old file');
 });
 
+test('kosmos#8900 review 5: a queued day that is not before today by the clock (set back) is not drained', async () => {
+  fresh();
+  const posts = stub();
+  fb.write('yesterday\'s report', { from: 'mara', date: YESTERDAY });
+  offer(YESTERDAY);
+  fb.note('mara', 'CLOCK note', YESTERDAY, NOW);
+  fbs.noteEarlierDay(YESTERDAY, NOW);
+  const back = new Date(2026, 10, 21, 15, 0).getTime();   // the clock now reads YESTERDAY afternoon
+  fbs.sweepTick(back);
+  await settle();
+  // The normal daily send may post that day (it is "today" now); the queue must not count a try on it or drop it.
+  assert.deepEqual(fbs.read().pending.map((x) => ({ date: x.date, tries: x.tries })), [{ date: YESTERDAY, tries: 0 }], 'the drain tried a day that is today by the clock');
+  void posts;
+});
+
 test('kosmos#8900: switching sending off cancels the queue at once, so switching it back on sends nothing queued before', async () => {
   fresh();
   const posts = stub();
@@ -245,10 +260,13 @@ test('kosmos#8900: the queue survives the other writes (setOn, markSent), is cap
   fbs.markSent(YESTERDAY, 'h2', NOW);
   assert.ok(fbs.read().offered.includes(OLDER), 'markSent dropped the days already offered');
   assert.deepEqual(fbs.read().pending, [{ date: OLDER, tries: 0 }], 'a partial write wiped the queue');
-  for (let i = 1; i <= fbs.PENDING_MAX + 2; i++) fbs.queueCorrection('2026-10-' + String(i).padStart(2, '0'), NOW);
+  const results = octo.map((d) => fbs.queueCorrection(d, NOW));
   const q = fbs.read().pending;
   assert.equal(q.length, fbs.PENDING_MAX);
-  assert.equal(q[q.length - 1].date, '2026-10-' + String(fbs.PENDING_MAX + 2).padStart(2, '0'), 'the newest day was dropped instead of the oldest');
+  // Review 5: a full list refuses the new day; the days already told they go are kept.
+  assert.equal(q[0].date, OLDER, 'a day already promised was dropped to make room');
+  assert.deepEqual(results.slice(-3).map((r) => r.why || 'ok'), ['full', 'full', 'full']);
+  assert.match(fbs.noteEarlierDay(octo[octo.length - 1], NOW), new RegExp('already has ' + fbs.PENDING_MAX + ' earlier days waiting to be sent, so this note stays on this computer\\.$'));
   assert.deepEqual(fbs.queueCorrection(TODAY, NOW), { ok: false, why: 'date' });
   assert.deepEqual(fbs.queueCorrection('2099-01-01', NOW), { ok: false, why: 'date' });
   assert.deepEqual(fbs.queueCorrection('../x', NOW), { ok: false, why: 'date' });
@@ -256,6 +274,7 @@ test('kosmos#8900: the queue survives the other writes (setOn, markSent), is cap
 
 test('a test run (data in a temp folder, no injected sender): not sent, and nothing queued', () => {
   fresh();
+  offer(OLDER);   // review 5: so a queue would accept the day, and the empty-queue check below can fail
   fbs.setSender(null);
   process.env.AGENT_WORKFORCE_FEEDBACK_URL = 'https://installkosmos.com/api/feedback';   // a real address: only a stub may post
   try {
@@ -266,6 +285,7 @@ test('a test run (data in a temp folder, no injected sender): not sent, and noth
 
 test('sending switched off: the sentence says it will not be sent, and nothing is queued', () => {
   fresh();
+  offer(OLDER);   // review 5: as above
   fbs.setOn(false);
   assert.match(fbs.noteEarlierDay(OLDER, NOW), /switched off \(Settings, Automation\), so it will not be sent\.$/);
   assert.deepEqual(fbs.read().pending, []);

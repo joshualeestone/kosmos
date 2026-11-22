@@ -100,3 +100,13 @@ sentence says what will happen.
 - Recorded: `offered` means "Kosmos started sending that day" (markSent marks before the POST), not "delivered". A note
   on a day whose first send never reached the collector sends the day. That stays within the person's opt-in for that
   day, and the sentence says the report goes.
+
+## Review 5 (opus)
+- Fixed (raised in rounds 1, 4 and 5): a list rebuilt from an earlier read could overwrite a CLI's queued day. write()
+  now takes a function of the file as it is at write time; queueCorrection, every drain write and markSent's `offered`
+  are built inside it. The remaining window is write()'s own read-then-save, as for every writer of this file.
+- Fixed: a full list (14 days) refuses the new day with its own sentence, instead of dropping the oldest, which had
+  already been told it goes (test; mutation red).
+- Fixed: the drain leaves a queued day that is not before today by the clock (a clock set back) to the normal send
+  (test; mutation red). A queued `h` must be 64 hex characters.
+- Fixed: the test-run and switched-off tests offer the day first, so their "nothing queued" checks can fail.
