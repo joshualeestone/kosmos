@@ -38,7 +38,7 @@ A line that did not land deleted the whole file.
 - `seen` and the marks move exactly as before.
 
 ## Tests
-- New `engine/instructionreread-noticeid-8912.test.js` (7): two landed notices give entries 1 and 2 and the line
+- New `engine/instructionreread-noticeid-8912.test.js` (7 at first, 11 after round 1, which added the four listed under Review): two landed notices give entries 1 and 2 and the line
   names Notice 2 with the earlier-entries clause; a line that did not land keeps entry 1 byte for byte and the next
   landed one is Notice 2 (CONTROL: no restoreChanges drops the file); a session start clears, next is Notice 1; a
   stranger's file at the path is not carried; a `+ ## Notice 5` diff line is not an entry; past the bound entries 1
@@ -46,8 +46,7 @@ A line that did not land deleted the whole file.
 - Updated `engine/instructionreread-changes-7149.test.js`: the path regex allows ", under Notice N (...)"; the review
   13 chain now asserts the second notice is entry 2 with entry 1 above it (it asserted the old replace); three
   separate-case prepares in the 8743 tests drop the file between cases.
-- Mutations, each red: overwrite as before (3), restore drops (1), no ownership check (1), unanchored heading (1),
-  no bound (1), no earlier clause (1).
+- Mutations: see the latest list under Review.
 
 ## Weakest premise
 That an agent will read only the entry its notice names. The line says to, but an agent that re-reads the whole file
