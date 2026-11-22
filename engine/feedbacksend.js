@@ -75,6 +75,10 @@ const RESEND_MIN_MS = 3 * 60 * 60 * 1000;
 let sender = null;   // tests inject; production uses global fetch
 const endpoint = () => process.env.AGENT_WORKFORCE_FEEDBACK_URL || DEFAULT_ENDPOINT;
 
+/* kosmos#8900: at most this many earlier days wait to be sent again, and each gets this many tries. */
+const PENDING_MAX = 14;
+const PENDING_TRIES = 3;
+
 /**
  * The opt-in preference. A never-asked machine (no file) defaults ON, Josh's
  * ruling: the daily report is "baked in day one", a default-checked opt-in
@@ -85,9 +89,6 @@ const endpoint = () => process.env.AGENT_WORKFORCE_FEEDBACK_URL || DEFAULT_ENDPO
  * default): it could be hiding an off we cannot see, and the only thing gated
  * here is a report body leaving the machine. Same split as ping.js.
  */
-/* kosmos#8900: at most this many earlier days wait to be sent again, and each gets this many tries. */
-const PENDING_MAX = 14;
-const PENDING_TRIES = 3;
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); }
@@ -141,7 +142,9 @@ function write(patch) {
 
 function setOn(on) {
   if (typeof on !== 'boolean') return { ok: false, because: 'that has to be on or off' };
-  return write({ on });
+  // kosmos#8900 review 1: switching sending off cancels every queued correction at once, so switching it back on
+  // later (before any hourly check ran) cannot send them.
+  return write(on ? { on } : { on, pending: null });
 }
 
 /**
@@ -553,6 +556,13 @@ function queueCorrection(date, now) {
   if (!feedback.isDateKey(date) || date >= feedback.dateKey(new Date(t))) return { ok: false, why: 'date' };
   const st = read();
   if (!st.ok) return { ok: false, why: 'unreadable' };
+  // Review 1: only a day on or before the last one Kosmos sent, so a note never pushes out a report that was kept
+  // here (written while sending was off, or before anything was ever sent) for the first time.
+  if (!st.sent || date > st.sent) return { ok: false, why: 'unsent' };
+  // Review 1: yesterday, when it is the last day sent, is already re-sent by the hourly check (sweepTick), with its
+  // own retries; queuing it too would send it twice in one check.
+  const n = new Date(t);
+  if (date === st.sent && date === feedback.dateKey(new Date(n.getFullYear(), n.getMonth(), n.getDate() - 1))) return { ok: true, via: 'sweep' };
   const list = (st.pending || []).filter((x) => x.date !== date).concat([{ date, tries: 0 }]);   // no file yet: no list
   while (list.length > PENDING_MAX) list.shift();
   const w = write({ pending: list });
@@ -572,15 +582,22 @@ function drainCorrections(now) {
     const st = read();
     if (!st.ok || !st.pending || !st.pending.length) return;
     if (!st.on) { write({ pending: null }); return; }
-    const first = st.pending[0];
-    if (first.tries >= PENDING_TRIES) { write({ pending: st.pending.slice(1).length ? st.pending.slice(1) : null }); return; }
-    const counted = [{ date: first.date, tries: first.tries + 1 }].concat(st.pending.slice(1));
+    let list = st.pending;
+    while (list.length && list[0].tries >= PENDING_TRIES) list = list.slice(1);   // review 1: a used-up day does not cost the hour
+    if (!list.length) { write({ pending: null }); return; }
+    const first = list[0];
+    const counted = [{ date: first.date, tries: first.tries + 1 }].concat(list.slice(1));
     if (!write({ pending: counted }).ok) return;   // the try could not be counted: do not send, so it cannot repeat for ever
+    const body = feedback.readBody(first.date);
     maybeSend(first.date, () => {
       const cur = read();
       if (!cur.ok) return;
       const rest = (cur.pending || []).filter((x) => x.date !== first.date);
-      write({ pending: rest.length ? rest : null });
+      const patch = { pending: rest.length ? rest : null };
+      // Review 1: when this day is also the record's day, record what was delivered, so flushChangedDay does not send
+      // the same report again when a later day goes.
+      if (cur.sent === first.date && body != null) patch.sentHash = bodyHash(body);
+      write(patch);
     });
   } catch { /* nothing here may reach the caller */ }
 }
@@ -746,8 +763,10 @@ function noteEarlierDay(date, now) {
   if (!sender && sandboxed() && !loopback(endpoint())) return head + 'Not sent: this is a test run (or its data is in a temporary folder).';
   let q;
   try { q = queueCorrection(date, now); } catch { q = { ok: false }; }
+  if (q && !q.ok && q.why === 'unsent') return head + 'Kosmos has not sent a report for that day or any later one, so it does not send that day now, and the note stays here.';
   if (!q || !q.ok) return head + 'Kosmos could not record it to be sent, so it stays here.';
-  return head + 'The changed report goes to the Kosmos team on one of Kosmos\'s hourly checks while it is running, with home paths and the names and keys Kosmos recognises taken out first.';
+  if (q.via === 'sweep') return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team again on one of Kosmos\'s hourly checks while it is running (switching sending off cancels it), with home paths and the names and keys Kosmos recognises taken out first.';
+  return head + 'The changed report goes to the Kosmos team on one of Kosmos\'s hourly checks while it is running (tried up to three times; switching sending off cancels it), with home paths and the names and keys Kosmos recognises taken out first.';
 }
 
 /* Test hooks. Production never calls these. */

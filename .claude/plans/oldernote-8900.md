@@ -45,3 +45,20 @@ exactly that.
 A note on a day older than the last one sent reaches the collector once (a test with a stub sender), today's send
 record is unchanged by it, three failed tries drop it, switching sending off clears the list, and the command's
 sentence says what will happen.
+
+## Review 1 (opus)
+- Fixed: yesterday, when it is the last day sent, went twice in one hourly check (the sweep's own resend plus the
+  drain). It is not queued (the sweep re-sends it, with its own retries); the sentence says so. A queued day that is
+  also the record's day records its delivered hash on success, so flushChangedDay does not send it a third time.
+- Fixed: switching sending off and back on between checks still sent old corrections. setOn(false) now cancels the
+  list at once.
+- Fixed (privacy): a note could push out a report kept here (written while sending was off, or before anything was
+  sent) for the first time. Only days on or before the last one Kosmos sent are queued; later ones are refused with a
+  sentence saying the note stays here.
+- Fixed: the sentence now says each day is tried up to three times and that switching sending off cancels it.
+- Fixed (NITs): a used-up day no longer costs that hour's check; the constants moved off read()'s docblock.
+- Deferred: the settings file has no lock, so a CLI write and the board's write can race (a lost queued day, or a
+  read-then-save that undoes a switch-off in the same milliseconds). The same window already exists for every writer
+  of this file (setOn, markSent from the CLI's sendNow); a lock for the file is its own card, not this one.
+- Weakest premise added: "on or before the last day sent" does not prove that day itself was sent (sending could have
+  been off on that day and on later). It is the conservative line available without a per-day record.
