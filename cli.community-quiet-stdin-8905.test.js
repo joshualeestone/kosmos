@@ -141,3 +141,30 @@ test('#8905 no Mac CLI verb reads stdin with a bare $(cat) any more, outside a t
   const bare = lines.map((l, i) => [i + 1, l]).filter(([, l]) => /="\$\(cat\)"/.test(l) && !/^\s*#/.test(l) && !/KOSMOS_STDIN_TEXT="\$\(cat\)"/.test(l));   // the reader's own last resorts (a terminal; no node at all)
   assert.deepEqual(bare.map(([n, l]) => n + ': ' + l.trim().slice(0, 120)), []);
 });
+
+test('#8905 review: with no node at all (no bundled one, none on PATH), a silent pipe is refused at once, never waited on', async () => {
+  const h = makeHome();
+  fs.rmSync(path.join(h.home, 'runtime'), { recursive: true, force: true });   // no bundled node
+  /* The CLI puts the chosen tmux's folder first on PATH (a system tmux in /opt/homebrew/bin brings that folder's node
+     with it), so give it a stand-in bundled tmux, which it keeps off PATH, and no known system ones. */
+  const tmuxStub = path.join(h.home, 'tmux', 'bin', 'tmux');
+  fs.mkdirSync(path.dirname(tmuxStub), { recursive: true });
+  fs.writeFileSync(tmuxStub, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  const bare = '/usr/bin:/bin';
+  const r = await new Promise((resolve, reject) => {
+    const env = { ...process.env, PATH: bare, KOSMOS_TMUX_KNOWN: '', AGENT_WORKFORCE_TMUX_BIN: tmuxStub, KOSMOS_HOME: h.home, AGENT_WORKFORCE_DATA: h.data, KOSMOS_PORT: '9', KOSMOS_AGENT_TOKEN: '', TMUX: '', TMUX_PANE: '' };
+    const started = Date.now();
+    const child = spawn('/bin/bash', [CLI, 'community', 'post'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    let both = '';
+    child.stdout.on('data', (d) => { both += d; });
+    child.stderr.on('data', (d) => { both += d; });
+    const killer = setTimeout(() => child.kill('SIGKILL'), 20000);
+    child.on('error', reject);
+    child.on('close', (code) => { clearTimeout(killer); try { child.stdin.destroy(); } catch {} resolve({ code, both, ms: Date.now() - started }); });
+    child.stdin.on('error', () => {});
+  });
+  assert.ok(!fs.existsSync('/usr/bin/node') && !fs.existsSync('/bin/node'), 'this machine has a node on the bare PATH, so the case cannot be made here');
+  assert.equal(r.code, 2, r.both);
+  assert.match(r.both, /Nothing was posted: the piped post could not be read/);
+  assert.ok(r.ms < 2500, 'it waited ' + r.ms + ' ms for a pipe it could never read');
+});
