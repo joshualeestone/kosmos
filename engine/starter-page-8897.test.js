@@ -37,7 +37,12 @@ test('the list the page reads marks the seeded starter project, and nothing else
     'the key travels for a project that is not the starter (it should be left out)');
 
   /* Renamed by the person: theirs now, no mark (the same rule as the instructions). */
+  const seededName = home.name;
   projects.edit(home.id, { name: 'Q4 launch 8897' });
   const after = projects.list([]).find((p) => p.id === home.id);
   assert.equal(after.starter, undefined, 'a renamed welcome project is still marked starter');
+  /* Review 1: CONTROL: the person's own project with the seeded name, made from the screen, is not the starter. */
+  fs.mkdirSync(path.join(SANDBOX, 'lookalike-8897'), { recursive: true });
+  const lookalike = projects.create({ name: seededName, folder: path.join(SANDBOX, 'lookalike-8897'), made: { via: 'screen', by: null } });
+  assert.equal(projects.list([]).find((p) => p.id === lookalike.id).starter, undefined, 'a screen-made project with the starter\'s name is marked starter');
 });

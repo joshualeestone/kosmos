@@ -73375,10 +73375,10 @@ function paintProjectTasks(p) {
   // ⚠️ Change-guarded, the removed-list's own pattern: the five-second poll
   // repaints this project every tick, and an unconditional innerHTML write
   // destroys a keyboard user's focus on a card even when nothing changed.
-  /* kosmos#8897: keyed on WHICH empty sentence too. Every empty column painted '' here, so moving from one empty project to
-     another kept the first one's sentence (a project with only finished tasks, then one with none, kept "Nothing open
-     here"; the starter project's own sentence made it worse). */
-  const listKey = html || ('\u0000' + (all.length ? 'done-only' : p.starter === true ? 'starter' : 'none'));
+  /* kosmos#8897: keyed on WHICH empty sentence too. Every empty column painted '' here, so the SAME project changing state
+     kept its old sentence: renamed while empty (the starter sentence stayed), or its finished tasks removed ("Nothing
+     open here" stayed). Switching projects already resets the guard (TK_LIST_HTML = null). */
+  const listKey = html || ('\u0000' + (all.length ? 'done-only' : p.starter === true ? ((p.agents || []).length ? 'starter' : 'starter-alone') : 'none'));
   if (listKey !== TK_LIST_HTML) {
     TK_LIST_HTML = listKey;
     /* #761 (Josh, 2026-08-24 21:56): "some kind of centered light gray text
@@ -73400,7 +73400,10 @@ function paintProjectTasks(p) {
     list.innerHTML = html || (all.length
       ? '<p class="tk-empty">Nothing open here. The finished ones are behind View All.</p>'
       : p.starter === true
-        ? '<p class="tk-empty" data-starter-empty>This is the starter project Kosmos made to show you around. Its agents are waiting for you: give them a task here, or start your own project.</p>'
+        /* Review 1: the starter can be seeded before any agent exists, and then it has none to be waiting. */
+        ? ((p.agents || []).length
+          ? '<p class="tk-empty" data-starter-empty>This is the starter project Kosmos made to show you around. Its agents are waiting for you: give them a task here, or start your own project.</p>'
+          : '<p class="tk-empty" data-starter-empty>This is the starter project Kosmos made to show you around. Add an agent to it, or start your own project.</p>')
         : '<p class="tk-empty">Add a task, or have an agent add one, to start tracking progress.</p>');
   }
   /* THE DOOR IS ALWAYS THERE NOW (#1382), and both halves of that are
