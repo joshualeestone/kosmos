@@ -46,7 +46,7 @@ test('--date adds to an earlier day\'s report, kept on this computer', () => {
   plant('old report', '2026-11-05');
   const n = cli(['feedback', 'note', '--date', '2026-11-05', 'a correction']);
   assert.equal(n.code, 0, n.err);
-  assert.equal(n.out, 'Added the note to your report of 2026-11-05, on this computer. Kosmos does not send a day again once it has moved on to a later one, so this note stays here.');
+  assert.equal(n.out, 'Added the note to your report of 2026-11-05, on this computer. Kosmos sends an earlier day only when it is the last day it sent, and this one is not, so this note stays here.');
   assert.match(cli(['feedback', 'show', '2026-11-05']).out, /^old report\n\nAdded later \(.* UTC\):\na correction$/);
 });
 

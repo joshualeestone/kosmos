@@ -44,7 +44,7 @@ test('the last day sent: the sentence says it goes with a later send, and the sw
   fb.write('yesterday\'s report', { from: 'mara', date: YESTERDAY });
   fbs.markSent(YESTERDAY, 'hash-of-the-sent-version', NOW - 6 * 3600 * 1000);
   assert.equal(fb.note('mara', 'SECRET correction', YESTERDAY, NOW).ok, true);
-  assert.match(fbs.earlierNoteMessage(YESTERDAY), /^Added the note to your report of \d{4}-\d{2}-\d{2}, on this computer\. That day is the last one Kosmos sent, so the changed report goes to the Kosmos team with a later send/);
+  assert.match(fbs.earlierNoteMessage(YESTERDAY, NOW), /^Added the note to your report of \d{4}-\d{2}-\d{2}, on this computer\. That day is the last one Kosmos sent, so the changed report goes to the Kosmos team again on one of Kosmos's hourly checks while it is running \(at most once every three hours\)/);
   fbs.sweepTick(NOW);
   await settle();
   assert.ok(posts.some((p) => JSON.stringify(p).includes('SECRET correction')), 'the sentence said it goes, and the sweep did not send it: ' + JSON.stringify(posts));
@@ -57,11 +57,27 @@ test('an older day, not the last one sent: the sentence says it stays, and the s
   fb.write('yesterday\'s report', { from: 'mara', date: YESTERDAY });
   fbs.markSent(YESTERDAY, null, NOW - 6 * 3600 * 1000);
   assert.equal(fb.note('mara', 'OLD correction', OLDER, NOW).ok, true);
-  assert.match(fbs.earlierNoteMessage(OLDER), /Kosmos does not send a day again once it has moved on to a later one, so this note stays here\.$/);
+  assert.match(fbs.earlierNoteMessage(OLDER, NOW), /Kosmos sends an earlier day only when it is the last day it sent, and this one is not, so this note stays here\.$/);
   fbs.sweepTick(NOW);
   await settle();
   assert.ok(!posts.some((p) => JSON.stringify(p).includes('OLD correction')), 'an older day\'s note was sent');
   assert.ok(posts.length > 0, 'CONTROL: the sweep sent something this tick, so the stub can see a send');
+});
+
+test('an OLDER day that is still the last one sent: the sweep does not send it; the next later day\'s send does, once', async () => {
+  fresh();
+  const posts = stub();
+  fb.write('an older report', { from: 'mara', date: OLDER });
+  fbs.markSent(OLDER, 'hash-of-the-sent-version', NOW - 6 * 3600 * 1000);
+  assert.equal(fb.note('mara', 'OLDER correction', OLDER, NOW).ok, true);
+  assert.match(fbs.earlierNoteMessage(OLDER, NOW), /That day is the last one Kosmos sent, so the changed report goes to the Kosmos team once, when a later day's report is next sent/);
+  fbs.sweepTick(NOW);   // no report today, and OLDER is not yesterday: the hourly check sends nothing
+  await settle();
+  assert.ok(!posts.some((p) => JSON.stringify(p).includes('OLDER correction')), 'the hourly check sent an older day');
+  fb.write('today\'s report', { from: 'mara', date: TODAY });
+  await fbs.sendNow(TODAY, NOW);   // a later day's report goes: the older day is flushed with it
+  await settle();
+  assert.ok(posts.some((p) => JSON.stringify(p).includes('OLDER correction')), 'the sentence said the next later send takes it, and it did not: ' + JSON.stringify(posts));
 });
 
 test('sending switched off: the sentence says it will not be sent', () => {

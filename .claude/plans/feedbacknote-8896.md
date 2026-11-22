@@ -63,3 +63,14 @@ the same day is untouched.
   --unchanged uses (a pre-#5317 report may not be this agent's).
 - Deferred: a note given just before midnight can land on the day that has just ended; the sentence then describes
   that day from the record, so it stays true.
+
+## Review 2 (sonnet)
+- Fixed: "goes with a later send" was true only for yesterday. Yesterday goes on one of the board's hourly checks
+  (sweepTick, through sendDailyOnce's three-hour floor); an older day that is still the last one sent goes once, when a
+  later day's report is next sent (flushChangedDay), and not if that never happens. Three sentences now, each tested
+  against the real sweep or sendNow with a stub sender; a mutation that treats every day as yesterday reds the new one.
+- Fixed: the "stays here" sentence gave a false reason for a day never sent; it now says Kosmos sends an earlier day
+  only when it is the last day it sent.
+- Kept: NOTE_MESSAGES.already is unreachable after a note (the body always changes) and now says nothing false.
+- Kept: Windows adds its PowerShell line to the empty-note refusal, as its `write` does (PowerShell piping is the
+  Windows-only reason a note can arrive empty).

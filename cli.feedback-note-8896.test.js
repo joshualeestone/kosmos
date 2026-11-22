@@ -73,7 +73,7 @@ test('an earlier day: --date adds to that day\'s report and says it stays on thi
   const n = await run(['feedback', 'note', '--date', '2026-11-05', 'a correction'], h);
   assert.equal(n.code, 0, n.both);
   // A fresh store has sent nothing, so that day is not the last one sent: it stays here (engine/feedbacksend-note-8896 covers the day that does go).
-  assert.match(n.out, /^\s*Added the note to your report of 2026-11-05, on this computer\. Kosmos does not send a day again once it has moved on to a later one, so this note stays here\./);
+  assert.match(n.out, /^\s*Added the note to your report of 2026-11-05, on this computer\. Kosmos sends an earlier day only when it is the last day it sent, and this one is not, so this note stays here\./);
   assert.match((await run(['feedback', 'show', '2026-11-05'], h)).out, /^old report\n\nAdded later \(.*UTC\):\na correction\n$/);
 });
 

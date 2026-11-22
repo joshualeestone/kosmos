@@ -686,14 +686,21 @@ function noteMessage(state) { return NOTE_MESSAGES[state] || NOTE_MESSAGES.none;
    send record, because that day can still go out: the send record names ONE day, and while sending is on, that day is
    sent again once its report changes (sweepTick for yesterday, flushChangedDay when a later day is sent). Any other
    earlier day is not sent again. `date` is the day the note was added to. Never throws. */
-function earlierNoteMessage(date) {
+function earlierNoteMessage(date, now) {
   const head = 'Added the note to your report of ' + date + ', on this computer. ';
   let st;
   try { st = read(); } catch { st = { ok: false }; }
   if (!st || !st.ok) return head + 'Kosmos could not read its feedback-sending setting, so it cannot say whether the note will be sent.';
   if (!st.on) return head + 'Sending feedback to the Kosmos team is switched off (Settings, Automation), so it will not be sent.';
-  if (st.sent === date) return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team with a later send, with home paths and the names and keys Kosmos recognises taken out first.';
-  return head + 'Kosmos does not send a day again once it has moved on to a later one, so this note stays here.';
+  if (st.sent !== date) return head + 'Kosmos sends an earlier day only when it is the last day it sent, and this one is not, so this note stays here.';
+  // Review 2: the two routes differ. Yesterday is re-sent by the board's hourly check (sweepTick, through sendDailyOnce's
+  // three-hour floor); an older day only
+  // once, when a later day's report is next sent (flushChangedDay), and not if that send never happens.
+  const n = new Date(Number.isFinite(now) ? now : Date.now());
+  const yesterday = feedback.dateKey(new Date(n.getFullYear(), n.getMonth(), n.getDate() - 1));
+  const scrubbed = ', with home paths and the names and keys Kosmos recognises taken out first.';
+  if (date === yesterday) return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team again on one of Kosmos\'s hourly checks while it is running (at most once every three hours)' + scrubbed;
+  return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team once, when a later day\'s report is next sent' + scrubbed;
 }
 
 /* Test hooks. Production never calls these. */
