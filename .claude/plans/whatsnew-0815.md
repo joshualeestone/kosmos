@@ -6,25 +6,29 @@ the version it cuts and the pool records what prod serves. Prod has served 0.8.1
 recorded 0.8.13 (the same refusal that cost the 0.8.14 re-cut at 21:46 on 11-21). So this goes in before the cut.
 
 ## What
-One command, nothing hand-edited: `node tools/whats-new-pool.js build 0.8.15`. Its prod sync marked 0.8.14's 5
-highlights shown (shownIn 0.8.14) and set lastProd 0.8.14. Then it built the window from what is still pending:
+`node tools/whats-new-pool.js build 0.8.15`. Its prod sync marked 0.8.14's 5 highlights shown (shownIn 0.8.14) and
+set lastProd 0.8.14. Then two Windows-only items were RETIRED BY HAND, as the tool's header asks ("once Windows prod has
+shown it, retire it by hand"): "Windows Settings stops a false warning" and "Removing Kosmos takes out its agent hooks"
+are in 0.8.03's shipped window (read at its v0803 commit), and Windows 0.8.03 and 0.8.04 were signed and shipped on 11-11,
+so Windows users were already told. Both are status shown, shownIn 0.8.03. One line was reworded in the pool ("in the
+app on your computer", review 1). The build then chose, by rank:
 - A little more room between chat lines
 - The restart note says what was checked
-- Windows Settings stops a false warning
-- Removing Kosmos takes out its agent hooks
-- A just-started agent gets your first message
-That is mac 2, windows 4. The lines are as their authors put them in the pool.
+- A just-started agent gets your first message (Windows; first time in any window)
+- A closed task says how it closed
+- A paused room says why it stayed quiet
+mac 4, windows 4. web/whats-new.json is never hand-edited.
 
 ## Rejected
-- Hand-picking Mac lines to fill the window: the tool chooses highlights by its own ranking and platform rules, and the
-  check accepts this window. The other pending pool items are agent-command notes (`kosmos ... --how` and the like),
-  which the tool keeps out of the highlights.
+- Hand-picking lines: the tool chooses by rank and platform. Other pending items lose on rank (the next is 11.8), and
+  the `kosmos ... --how` ones are notes-only, which the tool keeps out.
+- Leaving the two Windows items in: Windows users would be told old news as new.
 
 ## Weakest premise
-That every pending highlight is on main at this commit. The pool is written by the PRs that ship them, so a highlight is
-pending only once its PR merged, but nobody checked each one against main by hand for this file.
+That Windows prod actually served a build carrying 0.8.03's window. I signed Windows 0.8.03 and 0.8.04 on 11-11, but I
+did not read Windows prod's pointer history. If Windows prod skipped from before 0.8.03 to 0.8.11, those two lines were
+never shown on Windows prod, and retiring them costs two true lines. That is the cheaper mistake of the two.
 
 ## Checks
-- `node tools/whats-new-check.js 0.8.15`: 5 highlights (mac 2, windows 4).
-- `node tools/whats-new-pool.js prod-check` after the build.
-- The What's New tests, and the full suite.
+- `node tools/whats-new-check.js 0.8.15` (mac 4, windows 4) and `prod-check` after the build.
+- What's New and release-notes tests; the full suite.

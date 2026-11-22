@@ -4,7 +4,7 @@
     {
       "icon": "chat",
       "title": "A little more room between chat lines",
-      "line": "Messages in an agent conversation on the computer now have a little more space between lines."
+      "line": "Messages in an agent conversation, in the app on your computer, now have a little more space between lines."
     },
     {
       "icon": "shield",
@@ -15,28 +15,22 @@
       ]
     },
     {
-      "icon": "shield",
-      "title": "Windows Settings stops a false warning",
-      "line": "Settings, Computer no longer says it could not tell which user Kosmos runs as, from a check that never applied here.",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "icon": "shield",
-      "title": "Removing Kosmos takes out its agent hooks",
-      "line": "Removing Kosmos on Windows takes its Gemini and Codex hooks out of your agents' settings, and leaves your own.",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "icon": "chat",
       "title": "A just-started agent gets your first message",
       "line": "On Windows, a message to an agent that has only just started waits a few seconds for it, or says it is still starting.",
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "icon": "tasks",
+      "title": "A closed task says how it closed",
+      "line": "A closed task says whether it closed with a change, on a note, or without being marked built, on the Tasks list and on its page."
+    },
+    {
+      "icon": "chat",
+      "title": "A paused room says why it stayed quiet",
+      "line": "When a room's wake pause keeps a post from waking anyone, the reply says why the room is paused, who paused it, and what still gets through."
     }
   ]
 }
