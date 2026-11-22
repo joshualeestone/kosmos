@@ -23,8 +23,10 @@ Rollback: delete the file.
   both exit traps first log `ended exit <status>` for a suite that took a turn.
 - Reading it: two suites overlapped exactly when one has a took line between the other's took and ended lines. A suite
   killed with KILL writes no ended line; its pid then no longer answers. A TERM still runs the exit trap.
-- Not logged: an --only run, a run that skips the queue (KOSMOS_TESTS_IGNORE_SUITE=1 or inside a test), and a
-  queued-heavy turn, none of which take a suite-queue turn.
+- A release cut's own suite holds the machine claim and takes no queue turn; it is logged as `took cap=claim` (review
+  1), because it is the one full suite that may run beside others.
+- Not logged: an --only run, a run that skips the queue (KOSMOS_TESTS_IGNORE_SUITE=1 or inside a test), a queued-heavy
+  turn, and any run whose copy of cut-guard.sh failed to load (it has no logger).
 
 ## Rejected
 

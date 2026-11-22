@@ -709,6 +709,11 @@ elif command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machin
   else
     kosmos_wait_until_clear "this test run" _rt_box_clear || exit 1
   fi
+elif command -v kosmos_holds_machine_claim >/dev/null 2>&1 && kosmos_holds_machine_claim; then
+  # kosmos#8870: a release cut's own suite holds the claim and takes no queue turn, but it is a full suite that can run
+  # beside others, so it is logged too, as cap=claim.
+  _rt_took_turn=1
+  command -v kosmos_suite_turn_log >/dev/null 2>&1 && kosmos_suite_turn_log took "cap=claim head=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo '?') tree=$(basename "$REPO")"
 fi
 # #4609: the queue overrides and wait controls are for THIS run's wait, read above; nothing later in this script reads
 # them. Its descendants lose them on purpose, a nested run-tests.sh in a test included (it waits on its own terms, and

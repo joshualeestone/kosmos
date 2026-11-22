@@ -219,7 +219,9 @@ _kosmos_drop_test_fixtures() {
 _kosmos_marker_dir() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cache/kosmos-run-markers}"; }
 # kosmos#8870: one line per full-suite turn taken and ended, in suite-turns.log beside the markers, so whether two runs
 # overlapped can be read afterwards: they did when one took its turn between the other's took and ended lines. A run
-# killed outright (KILL) writes no ended line; its pid then no longer answers. Best effort: never fails the caller.
+# killed outright (KILL) writes no ended line; its pid then no longer answers, until the pid is given out again. Not
+# logged: an --only run, a run that skips the queue, and any run whose copy of this file did not load. Nothing rotates
+# the file (two lines per full suite). Best effort: never fails the caller.
 # Line: <local time> <took|ended> pid=<pid> <details>
 kosmos_suite_turn_log() {
   local d; d="$(_kosmos_marker_dir)"
