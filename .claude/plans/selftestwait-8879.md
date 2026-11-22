@@ -30,6 +30,13 @@ native-app/main.swift, the three waits (whenAsked twice, whenDenied once):
   not judge", which would relabel a real product regression (the system's reason never said) as the gate's fault.
 - Raising the watchdog and the alarm instead: two more places changed, for no case that needs it.
 
+## Left as it is (April's review, 11-22 00:4x)
+- The other arms' waits still count 0.1 s polls, which ran over twice their nominal time on Agent1s. On a far more
+  loaded box the whole run could reach the 300 s watchdog. That ends in "download selftest TIMED OUT", which the build
+  reads as "could not judge", never as a false verdict, so it fails safe. Not changed here.
+- An answer that comes after its 15 s bound can still let a file land after whenDenied restores the folder. The
+  WAIT RAN OUT line now comes before those rows, so it can be diagnosed. A longer bound would only move the edge.
+
 ## Weakest premise
 That the late "Cannot create file" is timing, and 15 s covers it. Nobody measured how late it came on 11-21. If it
 recurs, the WAIT RAN OUT line now says which wait and how many answers had come, which separates "slow" from
