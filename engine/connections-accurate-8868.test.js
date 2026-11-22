@@ -46,13 +46,17 @@ function section(text) {
   return text.slice(a + projects.CONNECTIONS_START.length, b).replace(/\s+/g, ' ');
 }
 
+/* "There is no command" in the spellings seen and the near rewordings ("no kosmos command", "no verb for this"). */
+const NO_COMMAND = /one-word verb|no such command|\bno (?:\w+ ){0,2}(?:command|verb)\b|there is no (?:command|kosmos|verb)/i;
+
 /* What an accurate section must say, and what the reported bad one said. */
 function assertAccurate(flat, where) {
+  assert.match(flat, /`kosmos connections --how`/, where + ': it does not point at the guide');
   assert.match(flat, /`kosmos connections`/, where + ': the command that lists connected services is not named');
   assert.match(flat, /`kosmos accounts`/, where + ': the command that lists AI providers is not named');
   assert.match(flat, /never read `GET \/api\/connections` yourself/i, where + ': the direct read is not forbidden');
   assert.match(flat, /bill the person/, where + ': the billing warning is missing');
-  assert.doesNotMatch(flat, /one-word verb|no such command|there is no (?:command|kosmos)/i, where + ': it says there is no command');
+  assert.doesNotMatch(flat, NO_COMMAND, where + ': it says there is no command');
   assert.doesNotMatch(flat, /board token|Authorization:|Bearer /i, where + ': it sends the agent to a read carrying a credential');
 }
 
@@ -75,18 +79,20 @@ test('kosmos#8868: CONTROL, each check fails on its own bad feature, and the acc
   const good = connections.blockBody().replace(/\s+/g, ' ');
   assertAccurate(good, 'today\'s block');
   const cases = [
-    [good.replace('`kosmos connections`', '`the connections list`'), /the command that lists connected services is not named/],
+    [good.replace('`kosmos connections --how`', '`the guide`'), /it does not point at the guide/],
+    [good.replace(/`kosmos connections`(?! --how)/, '`the connections list`'), /the command that lists connected services is not named/],
     [good.replace('`kosmos accounts`', '`the accounts list`'), /the command that lists AI providers is not named/],
     [good.replace(/never read `GET \/api\/connections` yourself/i, 'read `GET /api/connections`'), /the direct read is not forbidden/],
     [good.replace(/bill the person/, 'cost nothing'), /the billing warning is missing/],
     [good + ' There is no one-word verb that prints accounts.', /it says there is no command/],
+    [good + ' There is no kosmos command for this.', /it says there is no command/],
     [good + ' Send the board token with the read.', /it sends the agent to a read carrying a credential/],
   ];
   for (const [text, why] of cases) {
     assert.notEqual(text, good, 'a control case did not change the text: ' + why);
     assert.throws(() => assertAccurate(text, 'control'), why);
   }
-  assert.throws(() => assertAccurate(OLD_BLOCK.replace(/\s+/g, ' '), 'old block'));
+  assert.throws(() => assertAccurate(OLD_BLOCK.replace(/\s+/g, ' '), 'old block'), /old block: /);
 });
 
 test('kosmos#8868: the section written into an agent file is accurate, and stays so on every regeneration', () => {
@@ -121,32 +127,96 @@ test('kosmos#8868: the on-demand guide keeps the billing warning and never says 
   const flat = connections.guideText().replace(/\s+/g, ' ');
   assert.match(flat, /To see what is connected, run `kosmos connections`/);
   assert.match(flat, /bill the person for every check/);
-  assert.doesNotMatch(flat, /one-word verb|no such command|there is no (?:command|kosmos)/i);
+  assert.doesNotMatch(flat, NO_COMMAND);
 });
 
-test('kosmos#8868: every writer of the Connections markers writes blockBody(), so no second text exists in this code', () => {
-  /* The block is written by connections.tellAgent and, for an imported agent, by discover.js (review round 1). A third
-     writer with its own words would bring the flip back from current code; this fails when one appears. Writers are
-     found by the marker: a spliceBlock call naming the Connections markers, or a file that binds CONNECTIONS_START to a
-     name of its own and calls spliceBlock (only connections.js may, and its START is checked to be that marker). */
+/* Every `spliceBlock(` call in a source, with its whole argument text (it may span lines), found by matching brackets
+   and skipping string contents. A heuristic, not a parser: it does not follow a body built into a variable first. */
+function spliceCalls(src) {
+  const calls = [];
+  const re = /spliceBlock\(/g;
+  let m;
+  while ((m = re.exec(src))) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    let quote = null;
+    for (; i < src.length && depth > 0; i++) {
+      const ch = src[i];
+      if (quote) { if (ch === '\\') i++; else if (ch === quote) quote = null; continue; }
+      if (ch === '\'' || ch === '"' || ch === '`') quote = ch;
+      else if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+    }
+    const args = src.slice(m.index + m[0].length, i - 1);
+    calls.push({ line: src.slice(0, m.index).split('\n').length, args });
+  }
+  return calls;
+}
+
+/* Split top-level arguments (commas outside brackets and strings). */
+function topArgs(args) {
+  const out = [];
+  let depth = 0;
+  let quote = null;
+  let cur = '';
+  for (let i = 0; i < args.length; i++) {
+    const ch = args[i];
+    if (quote) { cur += ch; if (ch === '\\') { cur += args[++i] || ''; } else if (ch === quote) quote = null; continue; }
+    if (ch === '\'' || ch === '"' || ch === '`') { quote = ch; cur += ch; continue; }
+    if ('([{'.includes(ch)) depth++;
+    if (')]}'.includes(ch)) depth--;
+    if (ch === ',' && depth === 0) { out.push(cur.trim()); cur = ''; } else cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+/* The names a source uses for the Connections START marker: projects' CONNECTIONS_START (any spelling of access),
+   `<alias>.START` for each alias bound to require('./connections'), and a bare START that is destructured from it
+   or (in connections.js) bound to the marker. */
+function connectionsMarkerNames(src, file) {
+  const names = [/\bCONNECTIONS_START\b/];
+  const aliasRe = /(?:const|let|var)\s+(\w+)\s*=\s*require\(\s*['"](?:\.\/|\.\.?\/engine\/|\.\/engine\/)connections['"]\s*\)/g;
+  let m;
+  while ((m = aliasRe.exec(src))) names.push(new RegExp('\\b' + m[1] + '\\.START\\b'));
+  if (/(?:const|let|var)\s*\{[^}]*\bSTART\b[^}]*\}\s*=\s*require\(\s*['"][^'"]*connections['"]\s*\)/.test(src)) names.push(/^START$/);
+  if (/(?:const|let|var)\s+START\s*=\s*(?:\w+\.)?CONNECTIONS_START\b/.test(src)) names.push(/^START$/);
+  return names;
+}
+
+test('kosmos#8868: every writer of the Connections markers writes exactly blockBody(), so no second text exists in this code', () => {
+  /* The block is written by connections.tellAgent, by create.js at an agent's birth, and by discover.js for an imported
+     agent (review rounds 1 and 2). A writer with words of its own would bring the flip back from current code; this
+     fails when one appears. Swept: engine/ and the repository's top-level .js files. Not seen: a body built into a
+     variable before the call, and code that requires the module under another path. */
   assert.equal(connections.START, projects.CONNECTIONS_START);
   assert.equal(connections.END, projects.CONNECTIONS_END);
-  const writers = [];
-  const aliasing = [];
-  for (const f of fs.readdirSync(__dirname)) {
-    if (!f.endsWith('.js') || f.endsWith('.test.js') || f === 'projects.js') continue;
-    const src = fs.readFileSync(path.join(__dirname, f), 'utf8');
-    if (/CONNECTIONS_START/.test(src) && /spliceBlock\(/.test(src)) aliasing.push(f);
-    src.split('\n').forEach((line, i) => {
-      if (/spliceBlock\(/.test(line) && /CONNECTIONS_START|connMod\.START|connections\.START/.test(line)) writers.push({ where: f + ':' + (i + 1), line });
-    });
+  const roots = [__dirname, path.join(__dirname, '..')];
+  const found = [];
+  for (const dir of roots) {
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith('.js') || f.endsWith('.test.js') || f === 'projects.js') continue;
+      const src = fs.readFileSync(path.join(dir, f), 'utf8');
+      const names = connectionsMarkerNames(src, f);
+      for (const call of spliceCalls(src)) {
+        const args = topArgs(call.args);
+        const start = args[2] || '';
+        if (!names.some((n) => n.test(start))) continue;
+        const where = path.relative(path.join(__dirname, '..'), path.join(dir, f)) + ':' + call.line;
+        found.push(where);
+        assert.match(args[1] || '', /^(?:\w+\.)?blockBody\(\)$/, where + ' writes the Connections markers with a body other than blockBody(): ' + (args[1] || '(none)'));
+      }
+    }
   }
-  assert.deepEqual(aliasing, ['connections.js'], 'a file other than connections.js binds the Connections marker and splices');
-  // CONTROL: the sweep sees the import writer, so an empty result can never pass for "no stray writer".
-  assert.ok(writers.some((w) => w.where.startsWith('discover.js')), 'the sweep did not find the import writer: ' + JSON.stringify(writers));
-  for (const w of writers) {
-    assert.match(w.line, /\bblockBody\(\)/, w.where + ' writes the Connections markers without blockBody(): ' + w.line.trim());
+  // CONTROL: all three known writers are seen, so a sweep that silently stopped matching cannot pass.
+  for (const known of ['engine/connections.js', 'engine/create.js', 'engine/discover.js']) {
+    assert.ok(found.some((w) => w.startsWith(known + ':')), 'the sweep did not find the writer in ' + known + ': ' + JSON.stringify(found));
   }
-  // connections.js splices with its own START/END, bound above to the real markers: its call must pass blockBody().
-  assert.match(fs.readFileSync(path.join(__dirname, 'connections.js'), 'utf8'), /spliceBlock\([^)]*blockBody\(\), START, END\)/);
+  // CONTROL: the sweep reads a call spread over lines, a destructured START, and refuses a concatenated body.
+  const multi = "const { START, END } = require('./connections');\nprojects.spliceBlock(\n  text,\n  'other ' + blockBody(),\n  START,\n  END\n);";
+  const mc = spliceCalls(multi);
+  assert.equal(mc.length, 1);
+  const ma = topArgs(mc[0].args);
+  assert.ok(connectionsMarkerNames(multi, 'x.js').some((n) => n.test(ma[2])), 'a destructured START was not recognised');
+  assert.doesNotMatch(ma[1], /^(?:\w+\.)?blockBody\(\)$/, 'a concatenated body was accepted');
 });

@@ -7,9 +7,10 @@ credential, on every regeneration; and a guard in CI fails if that ever stops be
 
 ## Measured (2026-11-21, Agent1s)
 
-- The section is the Connections block, written between the `kosmos:connections` markers by two callers that both
+- The section is the Connections block, written between the `kosmos:connections` markers by three callers that all
   splice the constant `blockBody()` (`engine/connectionsguide.js`): `engine/connections.js` `tellAgent` (board start and
-  syncs) and `engine/discover.js` (an imported agent, found in review round 1). `instructionreread.js` only names the
+  syncs), `engine/create.js` (an agent's birth) and `engine/discover.js` (an imported agent); the last two were found
+  in review rounds 1 and 2. `instructionreread.js` only names the
   section in its re-read notice; it writes no text.
 - The reported bad version matches the block of 2026-09-03 to 09-29 (`git log -S` on the phrase, measured in review
   round 1): "there is no one-word verb that prints accounts" was added in c946e47994 (09-03) and removed in 7328bedd16
@@ -29,8 +30,10 @@ credential, on every regeneration; and a guard in CI fails if that ever stops be
 
 1. Guard the FILE, not only the source: `engine/connections-accurate-8868.test.js` writes the block into an agent
    file three times and checks every result (only the first write changes it), repairs a file holding the old block,
-   checks the guide, and sweeps engine/ so every writer of the Connections markers passes `blockBody()` (a third text
-   in current code fails it). Each check has its own control (review round 1); dropping the billing clause from
+   checks the guide, and sweeps engine/ and the top-level .js files so every `spliceBlock` call on the Connections
+   markers passes exactly `blockBody()` (whole calls are parsed, so one spread over lines, a destructured START and a
+   concatenated body are all caught; its controls require all three known writers). Not seen by the sweep: a body built
+   into a variable before the call, or the module required under another path. Each check has its own control (review round 1); dropping the billing clause from
    `blockBody` turns two arms red, and making discover.js splice other words turns the sweep red.
 
    What it cannot see: a writer running other code. And the guide is checked as `guideText()`, not as the
