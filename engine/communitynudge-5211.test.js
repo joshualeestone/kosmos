@@ -438,3 +438,31 @@ test('kosmos#8340 review 1: the replies waiting for an answer print every time; 
   assert.equal(await nudge.nudge('mara', { now, owed: 2, onCounts: (c) => told.push(c) }), owedLine + ' ' + full);
   assert.deepEqual(told, [full], 'onCounts was told the replies-waiting sentence too');
 });
+
+/* kosmos#8895: a comment that passes the 24-hour mark between two actions makes the count go down; the line says why,
+   measured. The fixture's c2 (public, on OTHER) is 30 hours old: inside the window as it was 7 hours ago, outside now. */
+test('kosmos#8895: localCounts measures the comments aged out since the last showing, and only when asked', () => {
+  const now = Date.now();
+  fresh(now);
+  assert.equal(nudge.localCounts('mara', now).agedOut, undefined, 'agedOut was reported without a last showing');
+  assert.equal(nudge.localCounts('mara', now, now - 7 * H).agedOut, 1, 'c2, inside the window 7 hours ago and outside now, was not counted as aged out');
+  // CONTROL: 1 hour ago c2 was already outside the window, so nothing aged out since then.
+  assert.equal(nudge.localCounts('mara', now, now - 1 * H).agedOut, 0);
+  // CONTROL: the comment still inside the window (c1, on POST) counts as before.
+  assert.equal(nudge.localCounts('mara', now, now - 7 * H).comments, 1);
+});
+
+test('kosmos#8895: the line says why the comments count went down when a comment aged out, and nothing otherwise', async () => {
+  const now = Date.now();
+  fresh(now);
+  const dropped = await nudge.nudge('mara', { now, lastShown: { comments: 2, at: now - 7 * H } });
+  assert.ok(dropped && dropped.includes(nudge.agedSentence(1)), 'the lower count gave no reason: ' + dropped);
+  assert.equal(nudge.agedSentence(1), '(1 of your comments is now more than 24 hours old, so it no longer counts.)');
+  assert.equal(nudge.agedSentence(2), '(2 of your comments are now more than 24 hours old, so they no longer count.)');
+  // CONTROL: the same count as last shown, so no reason is given, even though c2 aged out since.
+  const same = await nudge.nudge('mara', { now, lastShown: { comments: 1, at: now - 7 * H } });
+  assert.ok(same && !same.includes('more than 24 hours old'), 'a count that did not go down was given an aging reason: ' + same);
+  // CONTROL: a lower count with nothing aged out (say, a deleted comment) gets no aging sentence.
+  const other = await nudge.nudge('mara', { now, lastShown: { comments: 2, at: now - 1 * H } });
+  assert.ok(other && !other.includes('more than 24 hours old'), 'a drop with nothing aged out was blamed on aging: ' + other);
+});
