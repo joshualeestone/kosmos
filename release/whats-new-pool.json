@@ -1467,14 +1467,11 @@
     },
     {
       "title": "A little more room between chat lines",
-      "line": "Messages in an agent conversation, in the app on your computer, now have a little more space between lines.",
+      "line": "Messages in an agent conversation now have a little more space between lines.",
       "icon": "chat",
       "rank": 10.25,
       "since": "0.8.01",
-      "status": "pending",
-      "platforms": [
-        "mac"
-      ]
+      "status": "pending"
     },
     {
       "title": "A post to someone off the project says so",
