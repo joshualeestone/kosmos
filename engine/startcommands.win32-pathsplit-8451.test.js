@@ -15,11 +15,15 @@ test('#8451: off Windows a PATH value splits on every colon, exactly as before',
   assert.deepEqual(sc.splitPathValue('a::b:', false), 'a::b:'.split(':'));
 });
 
-test('#8451: on Windows every plain piece is kept, a piece at the home is also named whole, and /c/ is C:', () => {
+test('#8451: on Windows every plain piece is kept, the home is also read in its Git Bash /c/ form, and /c/ is C:', () => {
   const w = (v) => sc.splitPathValue(v, true, 'C:\\H');
-  assert.deepEqual(w('C:\\H/bin:\u0000PATH'), ['C', '\\H/bin', '\u0000PATH', 'C:\\H/bin'], 'the home piece whole, plus the plain split');
-  assert.deepEqual(w('/x:C:\\H/bin:C:\\H:\u0000PATH'), ['X:/', 'C', '\\H/bin', 'C', '\\H', '\u0000PATH', 'C:\\H/bin', 'C:\\H'], 'the home after a colon too; /x is the X: drive root (cygpath -w)');
-  assert.deepEqual(w('c:\\h/bin'), ['c', '\\h/bin', 'c:\\h/bin'], 'the home matched without regard to case');
+  assert.deepEqual(w('C:\\H/bin:\u0000PATH'), ['C', '\\H/bin', '\u0000PATH', 'C:/H/bin'], 'the home piece whole, plus the plain split');
+  assert.deepEqual(w('/x:C:\\H/bin:C:\\H:\u0000PATH'), ['X:/', 'C', '\\H/bin', 'C', '\\H', '\u0000PATH', 'C:/H/bin', 'C:/H'], 'the home after a colon too; /x is the X: drive root (cygpath -w)');
+  assert.deepEqual(w('c:\\h/bin'), ['c', '\\h/bin', 'C:/H/bin'], 'the home matched without regard to case');
+  // Review 3: the home inside a piece (x$HOME/bin) reaches bash as x/c/H/bin, a folder where the command runs.
+  assert.deepEqual(w('xC:\\H/bin'), ['xC', '\\H/bin', 'x/c/H/bin'], 'the home inside a piece');
+  assert.deepEqual(sc.splitPathValue('C:\\a.b\\H/x', true, 'C:\\a.b\\H'), ['C', '\\a.b\\H/x', 'C:/a.b/H/x'], 'a home with a dot');
+  assert.deepEqual(sc.splitPathValue('C:\\aXb\\H/x', true, 'C:\\a.b\\H'), ['C', '\\aXb\\H/x'], 'the dot in the home is literal, not any character');
   assert.deepEqual(w('C:\\Homer/bin'), ['C', '\\Homer/bin'], 'C:\\Homer is not the home C:\\H: a whole folder name only');
   assert.deepEqual(w('C:/tools:x'), ['C', '/tools', 'x'], 'a typed drive path splits, as Git Bash splits it (measured)');
   assert.deepEqual(w('D:\\H/bin'), ['D', '\\H/bin'], 'another drive is not the home');
@@ -28,7 +32,7 @@ test('#8451: on Windows every plain piece is kept, a piece at the home is also n
   assert.deepEqual(w('/cc/x:/c2/y'), ['/cc/x', '/c2/y'], 'only a single-letter first folder is a drive');
   assert.deepEqual(sc.splitPathValue('C:\\H/bin', true, ''), ['C', '\\H/bin'], 'no home known: plain split');
   assert.deepEqual(sc.splitPathValue('C:\\H/bin', true, 'relative'), ['C', '\\H/bin'], 'a home that is not a drive path: plain split');
-  assert.deepEqual(sc.splitPathValue('C:\\H\\/bin', true, 'C:\\H\\'), ['C', '\\H\\/bin', 'C:\\H\\/bin'], 'a home given with a trailing slash');
+  assert.deepEqual(sc.splitPathValue('C:\\H\\/bin', true, 'C:\\H\\'), ['C', '\\H\\/bin', 'C:/H\\/bin'], 'a home given with a trailing slash');
   for (const v of ['a::b:', ':a', 'a', '']) assert.deepEqual(w(v), v.split(':'), 'same pieces as split for ' + JSON.stringify(v));
 });
 
@@ -61,4 +65,8 @@ test('#8451: on Windows a PATH= value names the home folder whole AND every fold
   // script an agent could plant in its own folder.
   assert.ok(paths('PATH="$CLAUDE_PROJECT_DIR/bin:$PATH" myhook').includes(cwd + '\\D\\myhook'), 'a variable under the home still splits');
   assert.ok(paths('PATH=~/bin:$PATH myhook').includes(cwd + '\\D\\myhook'), 'and the plain split of the home is named too (harmless)');
+  // Review 3: the home inside a piece is the Git Bash form of it, a folder where the command runs (measured: bash
+  // searches x/d/H/bin under the agent folder for PATH=x$HOME/bin with HOME on D:).
+  assert.ok(paths('PATH=x$HOME/bin:$PATH myhook').includes(cwd + '\\x\\d\\H\\bin\\myhook'), 'x$HOME/bin');
+  assert.ok(paths('PATH=./$HOME/bin:$PATH myhook').includes(cwd + '\\d\\H\\bin\\myhook'), './$HOME/bin');
 });

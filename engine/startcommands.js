@@ -352,9 +352,10 @@ const INNER_ABS = /(?:^|[^A-Za-z0-9_.~/$-])(\/[^\s'"`()<>;|&,/][^\s'"`()<>;|&,]*
    /c/ form), so ':' is the separator, never path.delimiter. Measured in Git Bash on Windows:
    - a drive path in the value (C:/x, "C:\x", or a variable holding one, such as CLAUDE_PROJECT_DIR) is split on its
      colon by bash too: it searches a folder named C where the command runs, then /x. So every plain piece is kept;
-   - ~ and $HOME reach bash as /c/... even when the home was set as C:\..., so bash searches the home folder itself.
-     Kosmos has already expanded them to the Windows home (C:\H) by now and cannot tell them from a variable or literal
-     with the same text, so a piece starting at the home (whole folder name) is ALSO named whole, with its drive colon;
+   - ~ and $HOME reach bash as /c/... even when the home was set as C:\..., wherever they sit in the value (x$HOME/bin
+     is the folder x/c/H/bin where the command runs). Kosmos has already expanded them to the Windows home (C:\H) by now
+     and cannot tell them from a variable or literal with the same text, so the value is ALSO split with every whole
+     home (C:\Homer is not C:\H) rewritten in that /c/ form, and the folders of both splits are named;
    - a one-letter first folder is that drive (cygpath -w: /c/x is C:\x, /x is X:\, the drive's root).
    Off Windows the value splits on every ':' exactly as before. */
 function splitPathValue(value, win, home = '') {
@@ -362,19 +363,12 @@ function splitPathValue(value, win, home = '') {
   // Git Bash /c/x -> C:/x, and a bare /d -> D:/ (the drive's root; a bare D: would be the current folder on D:).
   const drive = (p) => p.replace(/^\/([A-Za-z])(?:\/|$)/, (m, d) => d.toUpperCase() + ':/');
   const out = value.split(':').map(drive);
-  const h = /^[A-Za-z]:[\\/]/.test(home) ? home.replace(/[\\/]+$/, '').toLowerCase() : '';
-  if (!h) return out;
-  // Where a piece starts (the value's start or just after a ':') with the home as a whole folder name, add that piece
-  // with the home's drive colon kept: C:\H/bin, not C and \H/bin. C:\Homer is not the home C:\H.
-  for (let at = 0; at <= value.length; at = value.indexOf(':', at) + 1) {
-    const rest = value.slice(at);
-    if (rest.toLowerCase().startsWith(h) && /^(?:[\\/:]|$)/.test(rest.slice(h.length))) {
-      const end = rest.indexOf(':', h.length);
-      const whole = end === -1 ? rest : rest.slice(0, end);
-      if (!out.includes(whole)) out.push(whole);
-    }
-    if (value.indexOf(':', at) === -1) break;
-  }
+  if (!/^[A-Za-z]:[\\/]/.test(home)) return out;
+  const h = home.replace(/[\\/]+$/, '');
+  const asBash = '/' + h[0].toLowerCase() + h.slice(2).replace(/\\/g, '/');   // C:\H -> /c/H, as Git Bash gives it
+  const homeAt = new RegExp(h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\\/g, '[\\\\/]') + '(?=[\\\\/:]|$)', 'gi');
+  const bashForm = value.replace(homeAt, asBash);   // the value as Git Bash holds it once ~ and $HOME are expanded
+  for (const p of bashForm.split(':').map(drive)) if (!out.includes(p)) out.push(p);
   return out;
 }
 
@@ -428,6 +422,8 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       return;
     }
     if (w.dynamic) { unsafe.push('a PATH made when the command runs'); return; }
+    // The host platform, not startCommandScripts' platform option: path.resolve below is the host's too, and the two
+    // must agree (a Windows split resolved by POSIX rules, or the reverse, names folders nobody searches).
     for (const c of splitPathValue(value, process.platform === 'win32', vars.HOME || '')) {
       if (!c || c === PATH_MARK) continue;
       for (const d of cwds) { const r = path.resolve(d, c); if (!pathDirs.includes(r)) pathDirs.push(r); }
