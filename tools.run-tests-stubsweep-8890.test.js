@@ -2,7 +2,9 @@
 /* kosmos#8890: a run of tools/run-tests.sh that is stopped part way stops the processes its tests left running inside
    its own run root (kt<pid>), such as a test's stub server, which otherwise outlive the folder re-parented to init and
    hold their ports. CONTROLS: a process under ANOTHER run's root survives, and so does one under a root whose name only
-   begins with this run's (kt<pid>9), since a match by prefix would take it. */
+   begins with this run's (kt<pid>9), since a match by prefix would take it, and so does a process that names THIS run's
+   root but is someone else's (alive parent outside the run: an operator's tail -f, another agent's ls; review 1).
+   Only the TERM arm proves #8890: on a Ctrl-C bash outlives node and the end-of-run leak guard (#4273) ends the stub. */
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -89,6 +91,9 @@ async function stoppedRunLeavesNoStub(signal, said0) {
     assert.ok(stub && alive(stub), 'the fixture never started its stub, so this arm tested nothing\nthe runner said:\n' + said());
     /* The run's own root is kt<runner pid>; the controls sit under kt<runner pid>9 and an unrelated kt root. */
     controls.push(control('kt' + child.pid + '9'), control('kt999999999'));
+    /* Review 1: alive, not orphaned, not the runner's, and its command line names this run's own root. */
+    const observer = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', path.join(PLAIN_TMP, 'kt' + child.pid, 'observed.log')], { stdio: 'ignore' });
+    controls.push(observer.pid);
     assert.ok(controls.every(alive), 'a control stub did not start');
     /* Stopped as a queue timeout or a person stops it: the whole foreground group (node --test with it). */
     process.kill(-child.pid, signal);
@@ -99,7 +104,7 @@ async function stoppedRunLeavesNoStub(signal, said0) {
     assert.equal(alive(stub), false, `${signal}: the stub (pid ${stub}) the stopped run left is still running\nthe runner said:\n` + said());
     const whole = fs.readFileSync(log, 'utf8');   // the whole log: the leak guard's own lines can follow this one
     assert.match(whole, said0(stub), 'the runner did not say what it stopped\n' + said());
-    assert.deepEqual(controls.filter((p) => !alive(p)), [], 'CONTROL: a stub under another run\'s root was stopped too');
+    assert.deepEqual(controls.filter((p) => !alive(p)), [], 'CONTROL: a process under another run\'s root, or someone else\'s naming this root, was stopped too (order: kt<pid>9, other root, observer): ' + controls.join(' '));
   } finally {
     for (const p of [stub, ...controls]) if (p && alive(p)) { try { process.kill(p, 'SIGKILL'); } catch { /* gone */ } }
     try { process.kill(-child.pid, 'SIGKILL'); } catch { /* the group is gone */ }
