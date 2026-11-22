@@ -16,7 +16,7 @@ this card). Windows is unchanged.
 ## Tests
 cli.feedback-quiet-stdin-8899.test.js (real CLI, real engine, throwaway data): for each verb, an open silent pipe ends
 inside the limit and saves nothing; a body that stops part way is refused and saves nothing; CONTROL a body piped in
-whole is saved. Putting the bare $(cat) back turns 4 of 6 red (both controls stay green). Related set, 11 files:
+whole is saved. Putting the bare $(cat) back turned 4 of the first 6 red (both controls stayed green). Related set, 11 files:
 165 tests, 0 failed.
 
 Weakest premise: that no caller relies on a slow writer pausing more than 3 seconds mid-report. The --body-file path
@@ -32,3 +32,5 @@ is the documented way for such a writer, and the refusal says so.
 - Left: the error path has no test (it cannot be reached through the real CLI without breaking node for every verb);
   a Mac BOM is kept where Windows strips it (unchanged from $(cat)). Out of scope, filed separately: the other bare
   $(cat) reads (community post, comment, edit, endorse, feedback triage --cards -).
+
+## Round 2 (sonnet, whole branch): nothing above nit. Plan count wording corrected (the perturbation was run on the first 6 tests; the round 1 white-space test is a 7th, related set now 166/0).
