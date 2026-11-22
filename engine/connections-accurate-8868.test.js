@@ -127,11 +127,33 @@ test('kosmos#8868: a file holding the old block is put right by the next write, 
   assert.equal(text.split(projects.CONNECTIONS_START).length - 1, 1, 'the repair left two sections');
 });
 
-test('kosmos#8868: the on-demand guide keeps the billing warning and never says there is no command', () => {
+/* The on-demand guide must keep the same rules as the block: name both commands, forbid reading either route by hand,
+   and keep the billing warning. The credential check is not reused here: the guide rightly says the CLI sends the board
+   token off the command line, which is the safe way round. */
+function assertGuide(flat, where) {
+  assert.match(flat, /To see what is connected, run `kosmos connections`/, where + ': the connections command is not taught');
+  assert.match(flat, /Run `kosmos accounts`/, where + ': the accounts command is not taught');
+  assert.match(flat, /Do not read the route by hand/, where + ': reading the accounts route by hand is not forbidden');
+  assert.match(flat, /Never read `GET \/api\/connections` yourself/, where + ': the direct connections read is not forbidden');
+  assert.match(flat, /bill the person for every check/, where + ': the billing warning is missing');
+  assert.doesNotMatch(flat, NO_COMMAND, where + ': it says there is no command');
+}
+
+test('kosmos#8868: the on-demand guide keeps both commands, both prohibitions and the billing warning, each with a control', () => {
   const flat = connections.guideText().replace(/\s+/g, ' ');
-  assert.match(flat, /To see what is connected, run `kosmos connections`/);
-  assert.match(flat, /bill the person for every check/);
-  assert.doesNotMatch(flat, NO_COMMAND);
+  assertGuide(flat, 'the guide');
+  const cases = [
+    [flat.replace('To see what is connected, run `kosmos connections`', 'To see what is connected, ask'), /the connections command is not taught/],
+    [flat.replace('Run `kosmos accounts`', 'Read the route'), /the accounts command is not taught/],
+    [flat.replace('Do not read the route by hand', 'Read the route by hand'), /reading the accounts route by hand is not forbidden/],
+    [flat.replace('Never read `GET /api/connections` yourself', 'Read `GET /api/connections`'), /the direct connections read is not forbidden/],
+    [flat.replace('bill the person for every check', 'cost nothing'), /the billing warning is missing/],
+    [flat + ' There is no one-word verb that prints accounts.', /it says there is no command/],
+  ];
+  for (const [text, why] of cases) {
+    assert.notEqual(text, flat, 'a control case did not change the text: ' + why);
+    assert.throws(() => assertGuide(text, 'control'), why);
+  }
 });
 
 /* Every `spliceBlock(` call in a source, with its whole argument text (it may span lines), found by matching brackets
@@ -195,8 +217,23 @@ function connectionsMarkerNames(src) {
   const literal = projects.CONNECTIONS_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const names = [/\bCONNECTIONS_START\b/, new RegExp('^' + CONN_REQUIRE + String.raw`\.START$`), new RegExp('^[\'"`]' + literal + '[\'"`]$')];
   for (const a of connectionsAliases(src)) names.push(new RegExp('^' + a + String.raw`\.START$`));
-  if (new RegExp(String.raw`(?:const|let|var)\s*\{[^}]*\bSTART\b[^}]*\}\s*=\s*` + CONN_REQUIRE).test(src)) names.push(/^START$/);
-  if (/(?:const|let|var)\s+START\s*=\s*(?:\w+\.)?CONNECTIONS_START\b/.test(src)) names.push(/^START$/);
+  /* Destructured from the module, under its own name or renamed: { START } or { START: CONN_START }. */
+  const destr = new RegExp(String.raw`(?:const|let|var)\s*\{([^}]*)\}\s*=\s*` + CONN_REQUIRE, 'g');
+  let d;
+  while ((d = destr.exec(src))) {
+    for (const part of d[1].split(',')) {
+      const m = part.trim().match(/^START(?:\s*:\s*(\w+))?$/);
+      if (m) names.push(new RegExp('^' + (m[1] || 'START') + '$'));
+    }
+  }
+  /* Bound to the marker under any name: const START = projects.CONNECTIONS_START, const CS = pj.CONNECTIONS_START, or
+     destructured from projects as { CONNECTIONS_START: X }. */
+  const bound = /(?:const|let|var)\s+(\w+)\s*=\s*(?:\w+\.|require\([^)]*\)\.)?CONNECTIONS_START\b/g;
+  let bm;
+  while ((bm = bound.exec(src))) names.push(new RegExp('^' + bm[1] + '$'));
+  const pdestr = /(?:const|let|var)\s*\{[^}]*\bCONNECTIONS_START\s*:\s*(\w+)[^}]*\}/g;
+  let pm;
+  while ((pm = pdestr.exec(src))) names.push(new RegExp('^' + pm[1] + '$'));
   return names;
 }
 
@@ -215,7 +252,7 @@ test('kosmos#8868: every writer of the Connections markers writes exactly blockB
      agent (review rounds 1 and 2). A writer with words of its own would bring the flip back from current code; this
      fails when one appears. Swept: every .js, .mjs and .cjs file under engine/, bin/, install/ and tools/, and the
      repository's top-level ones. Not seen: a body built into a variable before the call; the module required under a
-     path it does not recognise; spliceBlock called under another name; a call mis-split by a comment, a regex literal
+     path it does not recognise, or brought in with an ESM import; spliceBlock called under another name; a call mis-split by a comment, a regex literal
      or a nested backtick inside it (see spliceCalls). */
   assert.equal(connections.START, projects.CONNECTIONS_START);
   assert.equal(connections.END, projects.CONNECTIONS_END);
@@ -238,14 +275,12 @@ test('kosmos#8868: every writer of the Connections markers writes exactly blockB
   for (const file of files) {
     {
       const src = fs.readFileSync(file, 'utf8');
-      const dir = path.dirname(file);
-      const f = path.basename(file);
       const names = connectionsMarkerNames(src);
       for (const call of spliceCalls(src)) {
         const args = topArgs(call.args);
         const start = args[2] || '';
         if (!names.some((n) => n.test(start))) continue;
-        const where = path.relative(path.join(__dirname, '..'), path.join(dir, f)) + ':' + call.line;
+        const where = path.relative(repo, file) + ':' + call.line;
         found.push(where);
         assert.ok(connectionsBodyOk(src, args[1] || ''), where + ' writes the Connections markers with a body other than the connections blockBody(): ' + (args[1] || '(none)'));
       }
@@ -261,6 +296,8 @@ test('kosmos#8868: every writer of the Connections markers writes exactly blockB
     ["const connMod = require('./connections'); const youMod = require('./you');\nspliceBlock(text, youMod.blockBody(), connMod.START, connMod.END);", 'another module\'s blockBody() on the Connections markers'],
     ["spliceBlock(text, 'other words', require('./connections').START, require('./connections').END);", 'an inline require of the markers'],
     ["spliceBlock(text, 'other words', '<!-- kosmos:connections:start -->', '<!-- kosmos:connections:end -->');", 'the literal marker strings'],
+    ["const { START: CONN_START, END: CONN_END } = require('./connections');\nspliceBlock(text, 'other words', CONN_START, CONN_END);", 'a renamed destructured START'],
+    ["const pj = require('./projects'); const CS = pj.CONNECTIONS_START;\nspliceBlock(text, 'other words', CS, pj.CONNECTIONS_END);", 'the marker bound to another name'],
   ];
   for (const [src, what] of shapes) {
     const calls = spliceCalls(src);

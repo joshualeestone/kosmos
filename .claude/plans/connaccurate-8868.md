@@ -20,7 +20,8 @@ credential, on every regeneration; and a guard in CI fails if that ever stops be
 - No current code carries those words (`git grep` on origin/main finds them only in old plan files). Hundreds of old
   remote branches still do.
 - On Agent1s, 24 agent files: 21 hold today's block, 2 old throwaway agents (zz-test-*) hold a long block from the
-  09-29 to 10-07 window (file mtime 10-01; it has the phrase AND the billing warning; not rewritten since), 1 other (a different block, not the bad version). Every `CLAUDE.md.previous` (what the last write replaced) equals its current
+  09-29 to 10-07 window (file mtime 10-01; it has the phrase AND the billing warning; not rewritten since), 1 other (a
+  different block, not the bad version). Every `CLAUDE.md.previous` (what the last write replaced) equals its current
   block: no flip on this computer.
 - The report's install id (885080d4) is neither Agent1s nor Mortals. Splinter, 17:23: it is a WINDOWS board (its 20
   reports since 10-13 all name PowerShell), not Homer's install (45461372). Homer was asked over Slack whether
@@ -30,13 +31,18 @@ credential, on every regeneration; and a guard in CI fails if that ever stops be
 
 1. Guard the FILE, not only the source: `engine/connections-accurate-8868.test.js` writes the block into an agent
    file three times and checks every result (only the first write changes it), repairs a file holding the old block,
-   checks the guide, and sweeps every .js, .mjs and .cjs file under engine/, bin/, install/ and tools/ and at the
-   top level (491 files today) so every `spliceBlock` call on the Connections markers passes exactly `blockBody()` (whole calls are parsed, so one spread over lines, a destructured START and a
-   concatenated body, another module's `blockBody()`, an inline `require('./connections').START` and the literal
-   marker strings are all caught; its controls require all three known writers; projects.js is swept too). Not seen by the sweep: a body built
-   into a variable before the call, the module required under a path it does not recognise, `spliceBlock` called under
-   another name, and a call mis-split by a comment, a regex literal or a nested backtick inside it (the scanners skip
-   strings only; stripping comments safely needs a real tokenizer, since `//` also appears inside URLs in strings). Each check has its own control (review round 1); dropping the billing clause from
+   checks the guide against the same rules (both commands, both prohibitions, the billing warning, each with its own
+   control), and sweeps every .js, .mjs and .cjs file under engine/, bin/, install/ and tools/ and at the
+   top level (491 files today) so every `spliceBlock` call on the Connections markers passes exactly `blockBody()`
+   (whole calls are parsed, so one spread over lines, a destructured START and a
+   concatenated body, another module's `blockBody()`, an inline `require('./connections').START`, the literal
+   marker strings, a renamed destructured START and the marker bound to another name are all caught; its controls
+   require all three known writers; projects.js is swept too). Not seen by the sweep: a body built
+   into a variable before the call, the module required under a path it does not recognise or brought in with an ESM import,
+   `spliceBlock` called under another name, and a call mis-split by a comment, a regex literal or a nested backtick
+   inside it (the scanners skip
+   strings only; stripping comments safely needs a real tokenizer, since `//` also appears inside URLs in strings).
+   Each check has its own control (review round 1); dropping the billing clause from
    `blockBody` turns three arms red, and making discover.js splice other words turns the sweep red.
 
    What it cannot see: a writer running other code. And the guide is checked as `guideText()`, not as the
