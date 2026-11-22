@@ -1,36 +1,42 @@
 {
-  "version": "0.8.15",
+  "version": "0.8.16",
   "highlights": [
     {
-      "icon": "chat",
-      "title": "A little more room between chat lines",
-      "line": "Messages in an agent conversation now have a little more space between lines."
-    },
-    {
       "icon": "shield",
-      "title": "The restart note says what was checked",
-      "line": "After this computer restarts, the note says how many agents came back, names any that did not, and whether Kosmos's main records read fine.",
-      "platforms": [
-        "mac"
-      ]
+      "title": "The restart note says when restarts repeat",
+      "line": "When this computer has restarted at least 3 times in a week while Kosmos was running, the restart note says so, with the dates."
     },
     {
-      "icon": "chat",
-      "title": "A just-started agent gets your first message",
-      "line": "On Windows, a message to an agent that has only just started waits a few seconds for it, or says it is still starting.",
+      "icon": "swarm",
+      "title": "Windows agents keep their account at login",
+      "line": "On Windows, an agent whose startup job is put back by Start at login keeps the account and model it had, not the main account.",
       "platforms": [
         "windows"
       ]
     },
     {
-      "icon": "tasks",
-      "title": "A closed task says how it closed",
-      "line": "The Tasks list and each task's page now say how a task closed: with a change, on a note, or without being marked built."
+      "icon": "swarm",
+      "title": "Start at login stops misreading the account",
+      "line": "On Windows, Start at login no longer says an agent's account signed out or changed when it is still the same account.",
+      "platforms": [
+        "windows"
+      ]
     },
     {
       "icon": "shield",
-      "title": "A new Cloud machine can be allowed",
-      "line": "If you already have a computer on Kosmos and add a Kosmos Cloud machine, you can now allow it instead of being told it cannot be allowed."
+      "title": "A removed startup job explains its folder",
+      "line": "On Windows, removing an agent's startup job says plainly what Start at login will do with its account folder.",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "icon": "shield",
+      "title": "A warning before an agent runs twice",
+      "line": "Adding an agent that another login job also starts now warns first and names that job.",
+      "platforms": [
+        "mac"
+      ]
     }
   ]
 }
