@@ -15,7 +15,7 @@ checked (#8287). Nothing joins notes: each restart overwrote the last, so a patt
   time (older than the newest kept boot: no beat since) is the same restart; real restarts 10 minutes apart count as
   two (a crash loop). The history is written only after the note is.
 - web/index.html: rebootPattern() adds one <small class="rpat"> line to the existing note, inside its repaint key:
-  "... has restarted N times within a week while Kosmos was running (Nov 18, twice on Nov 20, ...)". "Within a week",
+  "... has restarted at least N times within a week while Kosmos was running (Nov 18, twice on Nov 20, ...)". "Within a week",
   not "in the last 7 days": the note stays up a day, so the latter could be a day stale.
 
 ## Decided
@@ -27,7 +27,8 @@ checked (#8287). Nothing joins notes: each restart overwrote the last, so a patt
   rested on a claim (two real restarts cannot be that close) that a fast power cycle can break, and no test isolated it.
 - The hint also excludes updates ("and it was not installing updates"): an operating system update restarts a machine
   without the person, a normal cause of several restarts in a week.
-- The count is a lower bound: only restarts that made a note are kept.
+- The count is a lower bound (only restarts that made a note are kept), so the line says "at least".
+- Uninstall removes the history with the other remembered-answer files (install/setup.sh; now seven).
 - Weakest premise: a person who restarts their computer on purpose three times in a week gets the line; the "if you
   did not restart it yourself" clause is what keeps it true for them.
 

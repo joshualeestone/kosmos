@@ -3237,7 +3237,7 @@ UNWIREEOF
     rm -rf "$_support/bin"
   fi
   # 🔑 THE APP'S OWN REMEMBERED ANSWERS ARE PLUMBING TOO, THE SAME ARGUMENT AS
-  # THE SUPERVISOR ABOVE (#891). Six tiny files live at the data folder's
+  # THE SUPERVISOR ABOVE (#891). Seven tiny files live at the data folder's
   # root. Four each hold one "have we asked this yet" fact the app checked once
   # so it would not ask again: whether first run has been seen
   # (first-run.json), the last app version the person was shown a what's-new
@@ -3251,7 +3251,8 @@ UNWIREEOF
   # last alive (board-alive.json) and the "this computer restarted" note with
   # whether it was dismissed (board-restart-note.json), both from
   # engine/restartnote.js. Left behind, a reinstall within a day could show the
-  # old note again.
+  # old note again. The seventh is #8866's: the boot times of recent restart
+  # notes (board-restart-history.json), so a reinstall starts its count at zero.
   #
   # ⚠️ THE FOURTH ONE WAS ADDED WITHOUT BEING ADDED HERE, WHICH IS THE WHOLE
   # POINT OF WRITING THE COUNT INTO THIS COMMENT. `found-agents-declined.json`
@@ -3272,7 +3273,7 @@ UNWIREEOF
   # written, e.g. a person who never opened the what's-new page).
   rm -f "$_support/first-run.json" "$_support/seen-version.json" \
     "$_support/found-agents-dismissed.json" "$_support/found-agents-declined.json" \
-    "$_support/board-alive.json" "$_support/board-restart-note.json"
+    "$_support/board-alive.json" "$_support/board-restart-note.json" "$_support/board-restart-history.json"
   # #5896: the app's per-account install config, only when it names THIS install (an account can have another
   # install, and its config is not this uninstall's to remove). Same anchored match as bundle_is_ours.
   if [ -f "$INSTALL_CONFIG_DIR/kosmos-install.json" ] && [ ! -L "$INSTALL_CONFIG_DIR/kosmos-install.json" ] \
@@ -3358,7 +3359,7 @@ UNWIREEOF
   #
   # 🛑 ALREADY REMOVED ABOVE, SO DO NOT ADD THEM HERE: `first-run.json`,
   # `seen-version.json`, `found-agents-dismissed.json`, `found-agents-declined.json`,
-  # `board-alive.json` and `board-restart-note.json` go at the `rm -f` of the six
+  # `board-alive.json`, `board-restart-note.json` and `board-restart-history.json` go at the `rm -f` of the seven
   # remembered-answer files ("the app's own remembered answers").
   # 🛑 `remote/` IS DIFFERENT AND THIS ROW USED TO CALL IT SIMPLY HANDLED. It is
   # removed at `rm -rf "$_remote_state"`, but only inside FOUR nested conditions: KOSMOS_HOME exists, the
