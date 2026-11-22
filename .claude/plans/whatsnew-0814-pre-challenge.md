@@ -26,7 +26,7 @@ converged: true
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 1 CONVENTION, 2 NITs
 **Self-generated:** 0
 - [WARNING] the auto-balance line is not tied to Splinter's prod condition on #1050 --> FIXED (recorded on #1050: if auto-balance is turned off by default instead of #8862 landing, the line is rewritten before any promote)
-- [WARNING] the feedback --unchanged line was false in PowerShell --> FIXED (b-review-1 commit): "keeps a single line piped in, or says why it could not (in PowerShell, give it as words)"
+- [WARNING] the feedback --unchanged line was false in PowerShell --> FIXED (41f9a6116d): "keeps a single line piped in, or says why it could not (in PowerShell, give it as words)"
 - [WARNING] kosmos post --how and kosmos agent --how had no notes lines --> FIXED: two notes lines
 - [CONVENTION] a title dropped the leading `kosmos` --> FIXED
 - [NIT] "Claude accounts" looser than the code (subscriptions only) --> FIXED; [NIT] the Following line over-claimed --> FIXED
@@ -57,9 +57,9 @@ converged: true
 | # | Iter | Category | File | Origin | Description | Status | Resolution |
 |---|------|----------|------|--------|-------------|--------|------------|
 | 1 | 1 | WARNING | release/whats-new-pool.json | BRANCH | highlight vs the prod condition | FIXED | #1050 comment |
-| 2 | 1 | WARNING | release/whats-new-pool.json | BRANCH | PowerShell feedback line | FIXED | review 1 commit |
-| 3 | 1 | WARNING | release/whats-new-pool.json | BRANCH | post/agent --how missing | FIXED | review 1 commit |
-| 4 | 1 | CONVENTION | release/whats-new-pool.json | BRANCH | title without kosmos | FIXED | review 1 commit |
+| 2 | 1 | WARNING | release/whats-new-pool.json | BRANCH | PowerShell feedback line | FIXED | 41f9a6116d |
+| 3 | 1 | WARNING | release/whats-new-pool.json | BRANCH | post/agent --how missing | FIXED | 41f9a6116d |
+| 4 | 1 | CONVENTION | release/whats-new-pool.json | BRANCH | title without kosmos | FIXED | 41f9a6116d |
 | 5 | 2 | WARNING | release/whats-new-pool.json | BRANCH | idle-or-stopped wording | DEFERRED | 140-character window, plan |
 | 6 | 3 | WARNING | release/whats-new-pool.json | BRANCH | Cloud nightly out of window | FIXED | 8ee3be08ec |
 
