@@ -9,6 +9,8 @@ const os = require('node:os');
 const path = require('node:path');
 
 const ab = require('./autobalance');
+/* Real board cards (test-support/fleet, as fixture-discipline.test.js requires), with only the model fields set. */
+const realCard = (sessionName, models = {}) => ({ ...require('../test-support/fleet').install([require('../test-support/fleet').agent(sessionName, { state: 'idle' })]).card(sessionName), ...models });
 const usagepoll = require('./usagepoll');
 
 const NOW = Date.parse('2026-11-21T04:45:43Z');
@@ -126,7 +128,9 @@ test('kosmos#8862: models are matched by family, and a full limit that resets so
 
 test('kosmos#8862: the model lookup reads the card as the board shows it, and the roster only once', () => {
   let reads = 0;
-  const of = ab.modelOfFrom(() => { reads += 1; return [{ sessionName: 'lyra', modelName: 'Fable 5.2', model: 'claude-fable-5-2' }, { sessionName: 'otto', modelName: null, model: 'Opus 5.5' }, { sessionName: 'nemo' }]; });
+  const cards = [realCard('lyra', { modelName: 'Fable 5.2', model: 'claude-fable-5-2' }), realCard('otto', { modelName: null, model: 'Opus 5.5' }),
+    realCard('nemo', { modelName: null, model: null, earlierModelName: null })];
+  const of = ab.modelOfFrom(() => { reads += 1; return cards; });
   assert.equal(of('lyra'), 'Fable 5.2');
   assert.equal(of('otto'), 'Opus 5.5', 'a card with no modelName did not fall back to model');
   assert.equal(of('nemo'), null);
@@ -179,7 +183,7 @@ test('kosmos#8862 review 1: models are matched as the board itself names them (s
 });
 
 test('kosmos#8862 review 1: through real card shapes, the Fable agent leaves the full Fable limit and the Opus agent stays', () => {
-  const card = (sessionName, id) => ({ sessionName, model: id, modelName: status.modelDisplayName(id) });
+  const card = (sessionName, id) => realCard(sessionName, { model: id, modelName: status.modelDisplayName(id) });
   const modelOf = ab.modelOfFrom([card('lyra', 'claude-fable-5-2'), card('otto', 'claude-opus-5-5')]);
   const rows = [
     row('/u/.claude-c', { weekly: { usedPct: 55, resetsAt: NOW + 41 * H }, scoped: fable(100), agentsHere: { names: ['lyra', 'otto'], complete: true } }),
@@ -219,8 +223,8 @@ test('kosmos#8862 review 1: with an agent list that may be short, a full model l
 /* Review 2. */
 const fleet = require('../test-support/fleet');
 test('kosmos#8862 review 2: a fresh session with no model yet is judged by its previous one', () => {
-  const x = { sessionName: 'x', model: null, modelName: null, earlierModelName: 'Claude Fable 5.2' };
-  const y = { sessionName: 'y', model: 'claude-fable-5-2', modelName: 'Claude Fable 5.2' };
+  const x = realCard('x', { model: null, modelName: null, earlierModelName: 'Claude Fable 5.2' });
+  const y = realCard('y', { model: 'claude-fable-5-2', modelName: 'Claude Fable 5.2' });
   const modelOf = ab.modelOfFrom([x, y]);
   assert.equal(modelOf('x'), 'Claude Fable 5.2', 'the previous session\'s model was not used');
   const rows = [
