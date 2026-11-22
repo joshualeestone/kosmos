@@ -14,7 +14,7 @@ converged: true
 
 **Iterations:** 8 (my round 1, then seven blind rounds by Ice Cream Kitty, each a fresh reviewer that saw no earlier round)
 **Converged:** Yes, under Splinter's 8-round cap: rounds 2 to 8 found no BLOCKER; the warnings shrank to one per round from round 4 on, round 8's was a screen-reader timing gap, and it is fixed and tested in this head.
-**Total actionable findings:** 0 BLOCKERs, 17 WARNINGs, 27 NITs
+**Total actionable findings:** 0 BLOCKERs, 19 WARNINGs (5 of them my own round 1), 23 NITs
 **Fixed:** every WARNING, most NITs | **Accepted:** listed below | **Asked:** 0
 
 ### Per-Iteration Breakdown
