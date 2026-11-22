@@ -597,8 +597,9 @@ function drainCorrections(now) {
     // Review 5: a queued day that is not before today (a clock set back) is left alone: today goes the normal way.
     const today = feedback.dateKey(new Date(Number.isFinite(now) ? now : Date.now()));
     let list = st.pending.filter((x) => x.date < today);
-    let spentRecordDay = null;
-    while (list.length && list[0].tries >= PENDING_TRIES) { if (list[0].date === st.sent) spentRecordDay = list[0]; list = list.slice(1); }   // review 1: a used-up day does not cost the hour
+    // Review 8: a used-up record day is found anywhere in the list, not only at its head, since keep() drops them all.
+    const spentRecordDay = list.find((x) => x.tries >= PENDING_TRIES && x.date === st.sent) || null;
+    while (list.length && list[0].tries >= PENDING_TRIES) list = list.slice(1);   // review 1: a used-up day does not cost the hour
     /* Review 3: a used-up day that is also the record's day is marked handled, so sweepTick's resend of yesterday and
        flushChangedDay do not go on trying it past the three tries the note promised. Review 4: with the hash its LAST
        try sent (`h`), never the report's hash now, so a rewrite after the last try is still a change and still goes. */

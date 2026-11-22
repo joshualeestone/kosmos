@@ -126,3 +126,9 @@ sentence says what will happen.
   sentence; the plan names noteEarlierDay.
 - Kept: the CLI tests reach only the "no record" sentence; the queueing itself is covered in the engine tests, and both
   CLIs call the one function.
+
+## Review 8 (sonnet): converged at the cap
+- No blockers. Fixed: a used-up record day is found anywhere in the list (keep() drops them all), not only at the head.
+  Fixed: the CLI test's title and comment match what it asserts (the "no record" refusal).
+- Kept: the cross-process race (no lock; narrowed); `offered` means "started sending", so "no record of sending" is
+  loose for a day started but never delivered (safe: a note on such a day sends what the person already allowed).
