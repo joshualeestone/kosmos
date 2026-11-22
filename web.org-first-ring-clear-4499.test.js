@@ -255,10 +255,11 @@ test('NON-BUG IDENTICAL: a chart with no sub-12 first-ring line gets a layout id
 function mainOf(tree) {
   const pre = page.orgPlace(tree, false, true);
   const preClear = page.orgFirstRingClear(pre.placed);
-  if (preClear >= LINE_CLEAR) return { maxR: pre.maxR, clear: preClear };
+  if (preClear >= LINE_CLEAR) return { placed: pre.placed, maxR: pre.maxR, clear: preClear };
   const flo = page.orgPlace(tree, true, true);
   const floClear = page.orgFirstRingClear(flo.placed);
-  return floClear >= LINE_CLEAR && flo.maxR <= pre.maxR * 1.01 + 1 ? { maxR: flo.maxR, clear: floClear } : { maxR: pre.maxR, clear: preClear };
+  return floClear >= LINE_CLEAR && flo.maxR <= pre.maxR * 1.01 + 1 ? { placed: flo.placed, maxR: flo.maxR, clear: floClear }
+    : { placed: pre.placed, maxR: pre.maxR, clear: preClear };
 }
 test('NEVER BIGGER THAN MAIN: the wide window is drawn only when it is no bigger and no less clear at the first ring (#4499 size, review r1)', () => {
   if (!hasGate) assert.fail('orgPlaceGated is absent');
@@ -308,6 +309,49 @@ test('MEMO: a repaint of the same tree draws it the same, and a changed tree is 
   assert.ok(samePlacement(after.placed, coldMoved.placed) && after.maxR === coldMoved.maxR, 'a changed tree was not decided again: it differs from a cold layout of the same tree');
 });
 
+/* The least angle at any manager between its line up (to its own manager, or the hub) and a line down to a report,
+   in degrees: measured independently of the page's own turnOf. */
+function leastTurn(placed) {
+  const pos = new Map(); for (const [n, s] of placed) pos.set(n, { x: Math.cos(s.ang) * s.r, y: Math.sin(s.ang) * s.r, parent: s.node.parent || null });
+  let least = 180;
+  for (const [, q] of pos) {
+    const m = q.parent && pos.get(q.parent); if (!m) continue;
+    const up = m.parent ? pos.get(m.parent) : { x: 0, y: 0 };
+    const ux = up.x - m.x; const uy = up.y - m.y; const vx = q.x - m.x; const vy = q.y - m.y;
+    const c = (ux * vx + uy * vy) / (Math.hypot(ux, uy) * Math.hypot(vx, vy) || 1);
+    least = Math.min(least, (Math.acos(Math.max(-1, Math.min(1, c))) * 180) / Math.PI);
+  }
+  return least;
+}
+test('NO FOLDED LINE: no line down leaves a manager closer to its line up than 38 degrees, or than main does (#4499, review r3)', () => {
+  if (!hasGate) assert.fail('orgPlaceGated is absent');
+  /* rt(142,100,0.05): review r3's case, where n5 -> n13 ran 2.3 degrees off n5 -> n3, passed inside n3's face and
+     read as reporting to n3. Main never draws under 38.1 degrees. */
+  const cases = [['rt(142,100,0.05)', randomTree(142, 100, 0.05)], ['rt(159,100,0.05)', randomTree(159, 100, 0.05)],
+    ['rt(1,60,0.05)', randomTree(1, 60, 0.05)], ['rt(78518,150,0.15)', randomTree(78518, 150, 0.15)]];
+  for (const [label, spec] of cases) {
+    const tree = page.orgTreeOf(cards(spec));
+    const ship = page.orgPlaceGated(tree);
+    const main = mainOf(tree);
+    const t = leastTurn(ship.placed);
+    assert.ok(t >= Math.min(38, leastTurn(main.placed)) - 1e-6, label + ': a line down leaves its manager ' + t.toFixed(1) + ' degrees from its line up');
+  }
+  // The control is a run of this test against the commit before the rule, where rt(142,100,0.05) draws 2.3 degrees.
+});
+
+test('TURN FLOOR PINNED: orgPlace and orgPlaceGated use one ORG_TURN_MIN expression (#4499)', () => {
+  const bodyOf = (name) => {
+    const at = SCRIPT.indexOf('function ' + name + '(');
+    let d = 0;
+    for (let k = SCRIPT.indexOf('{', at); k < SCRIPT.length; k += 1) { if (SCRIPT[k] === '{') d += 1; else if (SCRIPT[k] === '}') { d -= 1; if (!d) return SCRIPT.slice(at, k + 1); } }
+    return '';
+  };
+  const re = /const ORG_TURN_MIN = ([^;]+);/;
+  const a = bodyOf('orgPlace').match(re); const b = bodyOf('orgPlaceGated').match(re);
+  assert.ok(a && b, 'ORG_TURN_MIN is no longer declared in both orgPlace and orgPlaceGated');
+  assert.equal(a[1], b[1], 'orgPlace and orgPlaceGated hold different ORG_TURN_MIN floors');
+});
+
 test('HONEST FUNDED + CLEARANCE NEVER WORSE BY FULL: the first-ring gate never disagrees with the full check (#4499 condition 1)', () => {
   if (!hasGate) assert.fail('orgPlaceGated is absent, so the measured gate is not present');
   // A representative set of shapes (the exhaustive 1000+ tree sweep is offline; this guards against regression).
@@ -324,16 +368,18 @@ test('HONEST FUNDED + CLEARANCE NEVER WORSE BY FULL: the first-ring gate never d
   let funded = 0; let checked = 0;
   for (const [label, spec] of sweep) {
     const ag = cards(spec);
-    const prop = page.orgPlace(page.orgTreeOf(ag), false);
+    // The baseline is what MAIN draws (mainOf: the capped layouts and main's own gate), not the wide proportional
+    // layout, so a wide window that made clearance or spacing worse than main would fail here (review r3).
+    const main = mainOf(page.orgTreeOf(ag));
     const gated = page.orgPlaceGated(page.orgTreeOf(ag));
-    const propW = fullWorst(prop.placed).worst;
+    const mainW = fullWorst(main.placed).worst;
     const shipW = fullWorst(gated.placed).worst;
     checked += 1;
-    // clearance never worse by the FULL check, funded or not
-    assert.ok(shipW >= propW - 0.05, label + ': full clearance dropped from ' + propW.toFixed(2) + ' to ' + shipW.toFixed(2) + ' (the first-ring gate funded a layout the full check finds worse)');
-    // overlap never worse: the floored layout must not bring two faces closer than the proportional one
-    const propMin = minFaceDist(prop.placed); const shipMin = minFaceDist(gated.placed);
-    assert.ok(shipMin >= propMin - 0.05, label + ': closest two faces moved from ' + propMin.toFixed(2) + ' to ' + shipMin.toFixed(2) + ' (the floored layout brought two nodes closer than main did)');
+    // clearance never worse than main by the FULL check (the 12px rule, or main's own value if main is under it)
+    assert.ok(shipW >= Math.min(LINE_CLEAR, mainW) - 0.05, label + ': full clearance ' + shipW.toFixed(2) + ' is under min(12, main ' + mainW.toFixed(2) + ')');
+    // spacing never worse than main: two faces no closer than main's closest pair, or 46px (they would touch)
+    const mainMin = minFaceDist(main.placed); const shipMin = minFaceDist(gated.placed);
+    assert.ok(shipMin >= Math.min(46, mainMin) - 0.05, label + ': closest two faces ' + shipMin.toFixed(2) + ', under min(46, main ' + mainMin.toFixed(2) + ')');
     if (gated.funded) {
       funded += 1;
       // honest funded: a funded chart has NO sub-12 line ANYWHERE (not just first ring)

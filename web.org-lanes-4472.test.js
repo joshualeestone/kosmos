@@ -55,6 +55,8 @@ function lift(names, tail) {
   return new Function(consts + src + '\n' + tail)();
 }
 const page = lift(['orgTreeOf', 'orgPlace'], 'return { orgTreeOf, orgPlace, ORG_PAD, ORG_MIN_ARC };');
+/* #4499: what the page draws (orgPlaceGated picks main's layout or the wide one), for the deep-tree size test. */
+const shipped = lift(['orgTreeOf', 'orgPlace', 'orgFirstRingClear', 'orgPlaceGated'], 'return { orgTreeOf, orgPlaceGated };');
 /* ORG_LANE_SLOT lives inside orgPlace (so the tests that lift orgPlace need no new constant); read it from there. */
 const LANE_SLOT = Number((SCRIPT.match(/const\s+ORG_LANE_SLOT\s*=\s*([\d.]+)\s*;/) || [])[1]);
 assert.ok(LANE_SLOT > 0, 'ORG_LANE_SLOT is no longer declared in the page');
@@ -125,15 +127,18 @@ test('deep 100-agent trees: the median natural size over 60 seeds, and the large
      8113, 4805. (Plain cards in a different order give 2718: the heavy/light order keeps input order on ties.) The
      plan's table uses seeds 1..200 (median 1580 / 3353 / 2749): a larger sample of the same trees, not a different
      measurement; 60 seeds keep this test fast.
-     #4499 (the wide window below the first ring): 2341.5 and 3711 over these 60 seeds (2700 and 4805 without it),
-     so the ceilings are 2400 and 3800: a change that loses the window fails here. */
+     #4499 (the wide window below the first ring, as orgPlaceGated draws it): 2425.5 and 4805 over these 60 seeds (main:
+     2699.5 and 4805; the largest is a tree where main's own layout is drawn). So the median ceiling is 2500, which a
+     change that loses the window (or always draws main's) fails; the largest stays under 4810, as it can never be
+     bigger than main's. */
   const sizes = [];
-  for (let seed = 1; seed <= 60; seed += 1) sizes.push(paint(randomTree(seed, 100, 0.05)).size);
+  // As the page draws them (orgPlaceGated), so a broken choice between main's layout and the wide one fails here too.
+  for (let seed = 1; seed <= 60; seed += 1) sizes.push(Math.round((shipped.orgPlaceGated(shipped.orgTreeOf(cards(randomTree(seed, 100, 0.05)))).maxR + page.ORG_PAD) * 2));
   sizes.sort((a, b) => a - b);
   assert.equal(sizes.length, 60, 'CONTROL: not every tree was measured');
   const median = (sizes[29] + sizes[30]) / 2;
-  assert.ok(median <= 2400, 'the median deep tree is ' + median + 'px, over 2400 (#4472 alone: 2700, #4434 alone: 3232)');
-  assert.ok(sizes[59] <= 3800, 'the largest deep tree is ' + sizes[59] + 'px, over 3800 (#4472 alone: 4805, #4434 alone: 8113)');
+  assert.ok(median <= 2500, 'the median deep tree is ' + median + 'px, over 2500 (#4472 alone: 2700, #4434 alone: 3232)');
+  assert.ok(sizes[59] <= 4810, 'the largest deep tree is ' + sizes[59] + 'px, over 4810 (#4472 alone: 4805, #4434 alone: 8113)');
 });
 
 test('a two-ring team: every line to the outer ring clears every other face by ORG_LANE_SLOT (#4472)', () => {

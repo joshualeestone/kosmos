@@ -41303,6 +41303,11 @@ function orgPlace(nodes, floored, capped) {
      leaf count: leaf count to the power 0.85 took the median to 2284 but grew 27 of 200 trees by over 1% (worst 1.22x),
      while plain shares grew none. */
   const ORG_WIDE = 0.95;
+  /* #4499 (review r3): the least angle at a manager between its own line up and a line down to one of its reports. A
+     wide window let a report's line leave almost along the manager's line up (2.3 degrees), so it ran over that line
+     and read as reporting to the manager above. Main never draws one under 38.1 degrees (600 trees), so 38 is the
+     floor, here and in orgPlaceGated (the same expression in both; a test pins them equal). */
+  const ORG_TURN_MIN = (38 * Math.PI) / 180;
   /* #4472: a manager's reports in the order they are laid out: heaviest and lightest alternating, by leaf count,
      instead of input order. Each report's share of the window is its leaf count, so a light report gets a sliver:
      two light ones side by side then set the whole ring's radius, and every ring below stacked on it (measured: the
@@ -41615,6 +41620,18 @@ function orgPlace(nodes, floored, capped) {
            every face, and every line already drawn past this team's faces. Teams at different radii made this a
            real case (measured: a line 9.8px from an unrelated face's centre). */
         if (!strict) return true;
+        /* #4499: below the first ring, outside main's capped layout, every line down leaves its manager at least
+           ORG_TURN_MIN from the manager's own line up. A capped team under a wide manager needs it too: its manager's
+           line up is slanted, so a report near the cap's edge could fold back along it. */
+        if (!capped && ps.node.parent) {
+          const up = faceOf(ps.node.parent, placed.get(ps.node.parent)).xy; const m = faceOf(p.agent.sessionName, ps).xy;
+          const ux = up[0] - m[0]; const uy = up[1] - m[1];
+          for (const [name, sp] of spots) {
+            const q = faceOf(name, sp).xy; const vx = q[0] - m[0]; const vy = q[1] - m[1];
+            const cos = (ux * vx + uy * vy) / (Math.hypot(ux, uy) * Math.hypot(vx, vy) || 1);
+            if (Math.acos(Math.max(-1, Math.min(1, cos))) < ORG_TURN_MIN) return false;
+          }
+        }
         const mineLines = mine.map((f) => lineOf(f, p.agent.sessionName));
         for (const g of mineLines) {
           for (const f of faces) if (near(f, g) && !g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
@@ -41704,7 +41721,8 @@ function orgFirstRingClear(placed) {
    #4499 (size): orgPlace's wide window (below the first ring) is greedy, so on a few charts it draws BIGGER than the
    capped layout (review r1: a 19-agent tree 9.4% bigger; 5 of 5,040 random trees over 1%). So a chart with a manager
    below the first ring is laid out both ways, main's (capped: exactly the layout before the wide window) and wide,
-   and the wide one is drawn only when it is no bigger and its first ring is no less clear. Which one won is
+   and the wide one is drawn only when it is no bigger, its first ring is no less clear, and no line down leaves a
+   manager closer to its line up than ORG_TURN_MIN (or than main does, if main is under it). Which one won is
    remembered for this shape of tree (who reports to whom, in order), so a repaint of the same fleet lays it out one
    way only; a change of shape decides again. */
 function orgPlaceGated(nodes) {
@@ -41743,7 +41761,25 @@ function orgPlaceGated(nodes) {
   const main = gate(true);
   const wide = gate(false, main.maxR);
   const clearOf = (x) => (x.clear !== undefined ? x.clear : orgFirstRingClear(x.placed));
-  const ok = wide.maxR <= main.maxR && clearOf(wide) >= Math.min(ORG_LINE_CLEAR, clearOf(main));
+  /* #4499 (review r3): the least angle at any manager between its line up and a line down (orgPlace's ORG_TURN_MIN,
+     the same expression). A loose fallback team can still fold, so the whole chart is measured. */
+  const ORG_TURN_MIN = (38 * Math.PI) / 180;
+  const turnOf = (placed) => {
+    let least = Math.PI;
+    for (const s of placed.values()) {
+      const p = s.node.parent && placed.get(s.node.parent);
+      if (!p) continue;
+      const pp = p.node.parent && placed.get(p.node.parent);
+      const mx = Math.cos(p.ang) * p.r; const my = Math.sin(p.ang) * p.r;
+      const ux = (pp ? Math.cos(pp.ang) * pp.r : 0) - mx; const uy = (pp ? Math.sin(pp.ang) * pp.r : 0) - my;
+      const vx = Math.cos(s.ang) * s.r - mx; const vy = Math.sin(s.ang) * s.r - my;
+      const c = (ux * vx + uy * vy) / (Math.hypot(ux, uy) * Math.hypot(vx, vy) || 1);
+      least = Math.min(least, Math.acos(Math.max(-1, Math.min(1, c))));
+    }
+    return least;
+  };
+  const ok = wide.maxR <= main.maxR && clearOf(wide) >= Math.min(ORG_LINE_CLEAR, clearOf(main))
+    && turnOf(wide.placed) >= Math.min(ORG_TURN_MIN, turnOf(main.placed)) - 1e-9;
   orgPlaceGated.memo = { key, wide: ok, bar: main.maxR };
   return ok ? wide : main;
 }
