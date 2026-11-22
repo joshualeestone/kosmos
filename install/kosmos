@@ -6475,7 +6475,8 @@ cmd_feedback() {
         fbs.sendNow(r.date).then((x) => process.stdout.write(fbs.noteMessage(x && x.state)), () => process.stdout.write(fbs.noteMessage("failed")));
       ' "$KOSMOS_HOME/app")" && fb_rc=0 || fb_rc=$?
       case "$fb_rc" in
-        4) say "There is no report of yours for ${_nd:-today} to add a note to, so nothing was saved. Write the report first: kosmos feedback write"; exit 2 ;;
+        4) if [ -n "$_nd" ]; then say "There is no report of yours for $_nd to add a note to, so nothing was saved."
+           else say "There is no report of yours for today to add a note to, so nothing was saved. Write today's report with kosmos feedback write, or add --date YYYY-MM-DD to add the note to an earlier day's."; fi; exit 2 ;;   # review 4
         5) say "Nothing to add: a note needs some words (pass them as an argument, give --body-file <file>, or pipe them in on stdin)."; exit 2 ;;
         6) say "--date must be a real day, as YYYY-MM-DD, and not after today, so nothing was saved."; exit 2 ;;
       esac

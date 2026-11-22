@@ -672,7 +672,7 @@ function writeMessage(state) { return WRITE_MESSAGES[state] || WRITE_MESSAGES.no
 const NOTE_MESSAGES = Object.freeze({
   sent: 'Added the note to today\'s product-feedback report and sent the report to the Kosmos team (installkosmos.com), with home paths and the names and keys Kosmos recognises taken out first. A copy stays on this computer.',
   already: 'Added the note to today\'s product-feedback report on this computer. Nothing new was sent just now.',
-  later: 'Added the note to today\'s product-feedback report. A report from today already reached the Kosmos team, and Kosmos sends the updated day at most every three hours, so the note goes with the next send.',
+  later: 'Added the note to today\'s product-feedback report. A report from today already reached the Kosmos team, and Kosmos sends the updated day at most every three hours, so the note goes with the next send while Kosmos is running.',
   off: 'Added the note to today\'s product-feedback report on this computer only. Sending feedback to the Kosmos team is switched off (Settings, Automation), so it was not sent.',
   unreadable: 'Added the note to today\'s product-feedback report on this computer only. Kosmos could not read its feedback-sending setting, so it did not send it.',
   none: 'Added the note to today\'s product-feedback report on this computer.',

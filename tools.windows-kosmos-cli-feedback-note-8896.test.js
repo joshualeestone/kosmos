@@ -54,7 +54,10 @@ test('refusals save nothing, on stderr, exit 2', () => {
   const { cli } = home();
   const none = cli(['feedback', 'note', 'x']);
   assert.equal(none.code, 2);
-  assert.match(none.err, /There is no report of yours for today to add a note to, so nothing was saved\./);
+  assert.match(none.err, /There is no report of yours for today to add a note to, so nothing was saved\. Write today's report with kosmos feedback write, or add --date YYYY-MM-DD/);
+  const noneDay = cli(['feedback', 'note', '--date', '2026-11-01', 'x']);
+  assert.equal(noneDay.code, 2);
+  assert.equal(noneDay.err, 'There is no report of yours for 2026-11-01 to add a note to, so nothing was saved.');
   assert.equal(none.out, '');
   assert.equal(cli(['feedback', 'write', 'report']).code, 0);
   const before = cli(['feedback', 'show']).out;

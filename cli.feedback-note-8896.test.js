@@ -81,7 +81,11 @@ test('refusals save nothing and say why', async () => {
   const h = makeHome();
   const none = await run(['feedback', 'note', 'x'], h);
   assert.equal(none.code, 2);
-  assert.match(none.out, /There is no report of yours for today to add a note to, so nothing was saved\./);
+  assert.match(none.out, /There is no report of yours for today to add a note to, so nothing was saved\. Write today's report with kosmos feedback write, or add --date YYYY-MM-DD/);
+  const noneDay = await run(['feedback', 'note', '--date', '2026-11-01', 'x'], h);
+  assert.equal(noneDay.code, 2);
+  assert.match(noneDay.out, /There is no report of yours for 2026-11-01 to add a note to, so nothing was saved\./);
+  assert.doesNotMatch(noneDay.out, /kosmos feedback write/, 'write cannot make an earlier day\'s report');
   assert.match((await run(['feedback', 'show'], h)).out, /No product-feedback report for/, 'a refused note created a report');
   await run(['feedback', 'write', 'report'], h);
   const before = (await run(['feedback', 'show'], h)).out;

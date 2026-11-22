@@ -3463,7 +3463,8 @@ async function feedbackNote(ctx, args) {
   if (!r || !r.ok) {
     if (r && r.why === 'empty') { ctx.err('Nothing to add: a note needs some words (pass them as an argument, give --body-file <file>, or pipe them in on stdin).'); ctx.err(FEEDBACK_PS_NOTE); return 2; }
     if (r && r.why === 'date') { ctx.err('--date must be a real day, as YYYY-MM-DD, and not after today, so nothing was saved.'); return 2; }
-    ctx.err('There is no report of yours for ' + (day || 'today') + ' to add a note to, so nothing was saved. Write the report first: kosmos feedback write');
+    if (day) ctx.err('There is no report of yours for ' + day + ' to add a note to, so nothing was saved.');   // review 4: write cannot make an earlier day's
+    else ctx.err('There is no report of yours for today to add a note to, so nothing was saved. Write today\'s report with kosmos feedback write, or add --date YYYY-MM-DD to add the note to an earlier day\'s.');
     return 2;
   }
   let fbs;

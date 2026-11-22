@@ -86,3 +86,10 @@ the same day is untouched.
   three hours" is gone; an older day's one send is said to be untried again if it fails.
 - Deferred: no length cap on a note (as write, whose limit is the collector's 64 KiB); CRLF frontmatter reads as body,
   as for write; Mac refusals on stdout vs Windows stderr, as for write.
+
+## Review 4 (sonnet)
+- Fixed: the "no report" refusal told an agent to run `feedback write` even with --date (write cannot make an earlier
+  day's report), and after midnight it hid the real fix. With --date it now names only the day; without, it offers both
+  write and --date. Tested on both CLIs.
+- Fixed: NOTE_MESSAGES.later says "while Kosmos is running", as its siblings do.
+- Kept: the named-agent / legacy unnamed section and the unreachable `already` sentence (both as in rounds 1 and 3).
