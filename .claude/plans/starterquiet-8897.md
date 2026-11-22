@@ -12,8 +12,8 @@
 ## Finished looks like
 1. /api/projects sends `starter: true` on the project Kosmos seeded (projects.describe, by the same isStarter rule the
    instructions use); every other project, the welcome one once the person renames it, and a test project, carry no key.
-2. That project's empty Tasks column reads "This is the starter project Kosmos made to show you around. Its agents wait
-   for work from you: give them a task here, or start a project of your own." while it has no task at all.
+2. That project's empty Tasks column reads "This is the starter project Kosmos made to show you around. Its agents are
+   waiting for you: give them a task here, or start your own project." (Mona Lisa's design read) while it has no task at all.
 3. Once work arrives (any task, open or finished) it reads as any project does; renamed, it reads as any empty project.
    CONTROL: a real empty project keeps "Add a task, or have an agent add one, to start tracking progress."
 
