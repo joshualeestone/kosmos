@@ -278,6 +278,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           room: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 40, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
           past: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 100, resetsAt: Date.now() - 60e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
           none: acctModelWarn({}, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
+          near: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 72, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
+          twice: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 100, resetsAt: Date.now() + 20 * 3600e3 }, { model: 'Fable', usedPct: 100, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
         };
         // Two minutes on, a repaint shows the row plain again.
         const st = ACCT_MOVE.get('/home/.claude-busy'); if (st) st.doneAt -= 3 * 60e3;
@@ -316,9 +318,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.unsureNote === 'Moving restarts the running ones on the new account.', tag + ' an agent of unknown state gets no restart count it may not keep', JSON.stringify(r.unsureNote));
       /* kosmos#8882 */
       const mw = r.modelWarn || {};
-      say(mw.fable === 'Its Fable limit is at 100% of the week, so Lyra would stop there.', tag + ' a bulk-move target with a full Fable limit names the Fable agent that would stop, not the Opus one', JSON.stringify(mw.fable));
-      say(mw.id === 'Its Fable limit is at 100% of the week, so Ida would stop there.', tag + ' a card naming the model by its id matches the limit', JSON.stringify(mw.id));
+      say(mw.fable === 'Its Fable limit is full for the week, so Lyra would stop there.', tag + ' a bulk-move target with a full Fable limit names the Fable agent that would stop, not the Opus one', JSON.stringify(mw.fable));
+      say(mw.id === 'Its Fable limit is full for the week, so Ida would stop there.', tag + ' a card naming the model by its id matches the limit', JSON.stringify(mw.id));
       say(mw.unknown === 'Kosmos cannot tell which model Una uses, and it may stop there too.', tag + ' an agent with no model named is said, not passed over', JSON.stringify(mw.unknown));
+      say(mw.near === 'Its Fable limit is at 72% for the week, so Lyra may stop there soon.', tag + ' review 1: a limit at 72% is not called full', JSON.stringify(mw.near));
+      say(mw.twice === 'Its Fable limit is full for the week, so Lyra would stop there.', tag + ' review 1: two entries for one model name the agent once', JSON.stringify(mw.twice));
       say(mw.opusOnly === '' && mw.room === '' && mw.past === '' && mw.none === '', tag + ' CONTROL: no warning for another model, a limit with room, a limit past its reset, or none', JSON.stringify([mw.opusOnly, mw.room, mw.past, mw.none]));
       say(!!r.sleepyMove && r.sleepyMove.msg === 'Moved Zed (stopped). It is not running now.', tag + ' moving a stopped agent reads as moved, still stopped, through the route\'s real reply', JSON.stringify(r.sleepyMove));
       say(!!busy && busy.btnDisabled === true, tag + ' Move is disabled until a target is picked');

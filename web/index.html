@@ -829,9 +829,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 }
 #set-accounts .acct-move-msg { margin: 0; font-size: .8125rem; color: var(--label); }
 #set-accounts .acct-move-msg:empty { margin-top: -8px; }   /* kept in the page (a live region must exist before it speaks), but no gap */
-#set-accounts .acct-move-note { margin: 0; flex: 1 1 100%; font-size: .8125rem; color: var(--label-2); }
+#set-accounts .acct-move-note { margin: 0; flex: 1 1 100%; font-size: .8125rem; color: var(--label-2); }   /* the only before-click word on the restart: not the smallest text on the row */
 #set-accounts .acct-move-warn { margin: 0; flex: 1 1 100%; font-size: .8125rem; color: var(--label); }   /* kosmos#8882: a model limit in the way of the picked account */
-#set-accounts .acct-move-warn:empty { display: none; }   /* the only before-click word on the restart: not the smallest text on the row */
+#set-accounts .acct-move-warn:empty { margin-top: -8px; }   /* review 1: kept in the page when empty (no display:none), so the live region is heard when it fills */
 /* The disambiguator beside a name two accounts share. Quiet on purpose: it is
    an answer to "why are there two of these", not a thing to read first. Same
    token as .acct-org, which is defined on the light, dark and increased-contrast
@@ -30705,12 +30705,18 @@ function acctModelWarn(target, cards, nameOfCard) {
   const full = (target && Array.isArray(target.scoped) ? target.scoped : [])
     .filter((m) => m && typeof m.model === 'string' && acctModelKey(m.model) && Number.isFinite(m.usedPct) && m.usedPct >= 70 && Number.isFinite(m.resetsAt) && m.resetsAt > now);
   if (!full.length) return '';
+  /* Review 1: one entry per model family, so the same agents are never named twice. */
+  const seen = new Set(); for (let i = full.length - 1; i >= 0; i--) { const k = acctModelKey(full[i].model); if (seen.has(k)) full.splice(i, 1); else seen.add(k); }
   const modelOf = (c) => (c && (c.modelName || c.model || c.earlierModelName)) || null;
   const parts = [];
   const unknown = (cards || []).filter((c) => !acctModelKey(modelOf(c))).map(nameOfCard);
   for (const m of full) {
     const on = (cards || []).filter((c) => acctModelKey(modelOf(c)) === acctModelKey(m.model)).map(nameOfCard);
-    if (on.length) parts.push('Its ' + m.model + ' limit is at ' + Math.round(m.usedPct) + '% of the week, so ' + on.join(', ') + (on.length === 1 ? ' would' : ' would all') + ' stop there.');
+    /* Review 1: "full" and "would stop" only when it IS full (99.5%+, the engine's MODEL_FULL_PCT); from 70% the mover
+       keeps agents off it, and this says so plainly. */
+    const isFull = m.usedPct >= 99.5;
+    if (on.length) parts.push('Its ' + m.model + ' limit is ' + (isFull ? 'full' : 'at ' + Math.round(m.usedPct) + '%') + ' for the week, so ' + on.join(', ')
+      + (isFull ? (on.length === 1 ? ' would stop there.' : ' would all stop there.') : (on.length === 1 ? ' may stop there soon.' : ' may all stop there soon.')));
   }
   if (unknown.length) parts.push('Kosmos cannot tell which model ' + unknown.join(', ') + (unknown.length === 1 ? ' uses' : ' use') + ', and ' + (unknown.length === 1 ? 'it' : 'they') + ' may stop there too.');
   return parts.join(' ');
@@ -30892,19 +30898,20 @@ function acctUsageHtml(a, list) {
   /* The restart note describes the menu and the button, so a screen reader hears it before the click, not only after.
      Id from the dir's character codes: unique per dir, and safe in an attribute. */
   const noteId = 'acct-move-note-' + Array.from(String(a.dir)).map((c) => c.charCodeAt(0).toString(16)).join('');
-  const described = names.length ? ' aria-describedby="' + noteId + '"' : '';
+  const warnId = noteId.replace('acct-move-note-', 'acct-move-warn-');   // kosmos#8882 review 1: the menu is described by the warning too
+  const described = names.length ? ' aria-describedby="' + noteId + ' ' + warnId + '"' : '';
   const move = canMove || busy
     ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '"' + described + ' aria-label="Move the agents on ' + who + ' to another account">'
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
       /* kosmos#8882: a target where a model limit is in the way carries its warning (shown below the menu when picked). */
-      + targets.map((x) => { const warn = warnOf(x); return '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + (warn ? ' data-acct-warn="' + esc(warn) + '"' : '') + '>' + esc(nameOf(x)) + (acctWeeklyNow(x) ? ' (' + Math.round(x.weekly.usedPct) + '% used' + (warn ? ', a model limit is full' : '') + ')' : (warn ? ' (a model limit is full)' : '')) + '</option>'; }).join('')
+      + targets.map((x) => { const warn = warnOf(x); return '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + (warn ? ' data-acct-warn="' + esc(warn) + '"' : '') + '>' + esc(nameOf(x)) + (acctWeeklyNow(x) ? ' (' + Math.round(x.weekly.usedPct) + '% used' + (warn ? ', a model limit is in the way' : '') + ')' : (warn ? ' (a model limit is in the way)' : '')) + '</option>'; }).join('')
       + '</select><button type="button" data-acct-move="' + esc(a.dir) + '"' + described + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc((!st.stopping && st.progress) || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
       /* #6214: a running move can be stopped once the board has it; the board finishes the agent it is restarting and puts
          the rest back. */
       + (busy && st.onBoard ? '<button type="button" data-acct-move-stop' + (st.stopping ? ' disabled' : ' aria-label="' + ACCT_STOP_NAME + '"') + '>' + (st.stopping ? 'Stopping…' : 'Stop the move') + '</button>' : '')
       + (names.length ? '<p class="acct-move-note" id="' + noteId + '">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p>' : '')   // said before the click; a busy row repainted to no agents says nothing
       /* kosmos#8882: the picked target's model-limit warning, before the click; the person can still move them. */
-      + '<p class="acct-move-warn" data-acct-move-warn="' + esc(a.dir) + '" aria-live="polite">' + esc(picked ? warnOf(targets.find((x) => x.dir === picked)) : '') + '</p></div>'
+      + '<p class="acct-move-warn" id="' + warnId + '" data-acct-move-warn="' + esc(a.dir) + '" aria-live="polite">' + esc(picked ? warnOf(targets.find((x) => x.dir === picked)) : '') + '</p></div>'
     : '';
   /* After a move focus goes to the menu or the list, never here (it would read this a second time over the panel's
      status line), so the sentence takes no focus. It is shown as soon as the move ends; only the panel line is
@@ -32067,6 +32074,11 @@ async function paintAccounts(opts) {
         const stoppedAtClick = new Set(names.filter((n) => { const c = (LAST || []).find((x) => x && x.sessionName === n); return c && cardStOf(c).pres === 'off'; }));
         if (!fresh) throw new Error('unchecked');
         if (!names.length) said = drawn.length === 1 ? 'Nothing moved: its agent is no longer on this account.' : 'Nothing moved: its agents are no longer on this account.';
+        else if (ft && (() => { const optNow = sel && sel.selectedOptions && sel.selectedOptions[0];
+          const shown = (optNow && optNow.getAttribute('data-acct-warn')) || '';
+          const cards = names.map((n) => (LAST || []).find((x) => x && x.sessionName === n) || { sessionName: n });
+          const nowWarn = acctModelWarn(ft, cards, (c) => (c && (c.name || c.sessionName)) || 'an agent');
+          return nowWarn && nowWarn !== shown ? ((said = 'Nothing moved: ' + nowWarn + ' Pick again.'), true) : false; })()) { /* kosmos#8882 review 1: a model limit came in the way since the menu was drawn */ }
         else if (!acctBulkTarget(ft, from)) {   // signed out, refused, full or gone since the menu was drawn
           const was = list.find((x) => String(x.dir) === to);
           said = 'Nothing moved: ' + ((ft && acctPrimaryName(ft)) || (was && acctPrimaryName(was)) || 'that account') + ' cannot take ' + (names.length === 1 ? 'it' : 'them') + ' now. Pick another account.';
