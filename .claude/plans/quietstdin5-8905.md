@@ -15,9 +15,13 @@ with a quiet limit.
   --stdin" 120 s is the ROOM post (`kosmos post --stdin`), not `community post`.
 - `_read_stdin_quiet [seconds]`: an optional limit from this file (`KOSMOS_STDIN_CARDS_QUIET_S=120`), never from the
   caller's environment (#8899 review 1). A malformed limit answers 7 rather than waiting.
-- `_stdin_refused <code> <past tense> <noun> <remedy>` says codes 5, 6 and 7 one way, then exits 2. Each verb's remedy is
-  its Windows twin's ("Save it in a file instead and give its path: kosmos community post --body-file <file>"; triage:
-  "Pass the titles in a file instead: --cards <file>").
+- `_stdin_refused <code> <past tense> <noun> <remedy>` says codes 5, 6 and 7 in one sentence shape, then exits 2.
+  Each verb ends with its Windows twin's way out, in its own `--body-file` form; triage ends with "Pass the titles in a
+  file instead: --cards <file>". The sentence before it is the shared Mac shape, not the Windows text: edit says "the
+  piped text ... it", where Windows says "the piped words ... they", and triage's cut-short sentence is worded as
+  the other verbs', not as Windows' "did not end within 120 seconds of silence".
+- An open pipe on which nothing ever arrives (code 5) is refused as "nothing arrived on stdin". Windows reaches the
+  verb's empty-body check instead ("Nothing to post"). This follows #8899's Mac verbs, and says what happened.
 - The reader runs `kosmos_engine_node` (the bundle's node, else the system's), not `$NODE` alone: a source checkout has
   no bundled node, and the community verbs already use the system one (11 existing tests caught it). With no node at
   all it answers 7, never a bare `$(cat)` that would still hang. This also applies to #8899's feedback write and note;
