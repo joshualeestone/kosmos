@@ -19,8 +19,9 @@
  *     RED on c1ad35613 (the un-gated always-floor fix), where these charts grow 3x-20x.
  *  3. 12px WHERE FUNDED: a funded clustered chart clears ORG_LINE_CLEAR by the FULL check (no line anywhere
  *     under 12). RED on a7a761731 (pre-fix), where rt(23,250,0.06) passes a face at 5.50px.
- *  4. NON-BUG IDENTICAL: a chart with no sub-12 first-ring line gets a layout byte-identical to main (every
- *     position equal, not merely within 1%) -- the property that makes the fix safe to ship (Liu Kang, m5385).
+ *  4. NON-BUG IDENTICAL: a chart with no sub-12 first-ring line gets a layout byte-identical to an unfloored one
+ *     (every position equal, not merely within 1%): main's capped layout, or since #4499's size work the wide one
+ *     when that is no bigger -- the property that makes the fix safe to ship (Liu Kang, m5385).
  *  5. HONEST FUNDED + CLEARANCE NEVER WORSE BY FULL: across a representative sweep of shapes (including ones the
  *     fix was not designed around -- two heavy roots, heavy roots at depth, random fans), every chart the cheap
  *     first-ring gate funds passes the FULL O(n^2) check (no sub-12 line anywhere), and no chart's full clearance
@@ -129,7 +130,8 @@ function samePlacement(aPlaced, bPlaced) {
   for (const [k, s] of a) { const t = b.get(k); if (!t) return false; if (Math.abs(s.ang - t.ang) > 1e-9 || Math.abs(s.r - t.r) > 1e-9) return false; }
   return true;
 }
-/* Build the board once, then lay it out proportionally (= main) and as shipped, on the SAME agents so names line up. */
+/* Build the board once, then lay it out proportionally and as shipped, on the SAME agents so names line up. Since
+   #4499's size work `prop` is the wide-window proportional layout; main's own (capped) layout is mainOf() below. */
 function layouts(spec) {
   const ag = cards(spec);
   const prop = page.orgPlace(page.orgTreeOf(ag), false);
@@ -234,7 +236,9 @@ test('NON-BUG IDENTICAL: a chart with no sub-12 first-ring line gets a layout id
     // than make a false claim -- the sweep test covers the funded ones.
     if (clear < LINE_CLEAR) continue;
     assert.equal(gated.funded, false, label + ' has no sub-12 first-ring line (clear ' + clear.toFixed(2) + ') yet the gate funded it');
-    assert.ok(samePlacement(prop.placed, gated.placed), label + ': a chart with no bug must get the proportional (main) layout exactly, but a position differs');
+    // #4499 size: the gate draws either the wide or the capped (main) proportional layout; unfloored means one of them exactly.
+    const capped = page.orgPlace(page.orgTreeOf(ag), false, true);
+    assert.ok(samePlacement(prop.placed, gated.placed) || samePlacement(capped.placed, gated.placed), label + ': a chart with no bug must get a proportional layout exactly (wide or main), but a position differs');
     asserted += 1;
     if (rootCount > 1) multiAsserted += 1;
   }
@@ -244,6 +248,37 @@ test('NON-BUG IDENTICAL: a chart with no sub-12 first-ring line gets a layout id
   // A single root is trivially identical (the gate early-outs); require a MULTI-root non-bug chart to assert too,
   // so identity is exercised on a real first-ring layout, not only the degenerate case. wide3 is built to qualify.
   assert.ok(multiAsserted >= 1, 'CONTROL: no multi-root non-bug fixture asserted identity (only single-root, which is trivially identical); the identical-to-main property is not exercised on a real first ring');
+});
+
+/* #4499 size: main's chart, rebuilt from the capped layouts with main's own gate rule (the floor funded only when it
+   clears and stays within 1% of the proportional layout). orgPlace(nodes, f, true) is exactly main's orgPlace. */
+function mainOf(tree) {
+  const pre = page.orgPlace(tree, false, true);
+  const preClear = page.orgFirstRingClear(pre.placed);
+  if (preClear >= LINE_CLEAR) return { maxR: pre.maxR, clear: preClear };
+  const flo = page.orgPlace(tree, true, true);
+  const floClear = page.orgFirstRingClear(flo.placed);
+  return floClear >= LINE_CLEAR && flo.maxR <= pre.maxR * 1.01 + 1 ? { maxR: flo.maxR, clear: floClear } : { maxR: pre.maxR, clear: preClear };
+}
+test('NEVER BIGGER THAN MAIN: the wide window is drawn only when it is no bigger and no less clear at the first ring (#4499 size, review r1)', () => {
+  if (!hasGate) assert.fail('orgPlaceGated is absent');
+  /* Review r1's shapes, where the greedy wide window alone drew bigger than main: a 19-agent tree (1216px against
+     1112px: M0 went wide, M3's lone leaf landed beside M1's two-ring team and pushed it out), and three random trees. */
+  const r1 = [['R'], ['c0', 'R'], ['c1', 'c0'], ['M0', 'c1'], ['M1', 'c1'], ['M2', 'c1'], ['M3', 'c1']];
+  [6, 3, 2, 1].forEach((k, j) => { for (let i = 0; i < k; i += 1) r1.push(['l' + j + '_' + i, 'M' + j]); });
+  const cases = [['review r1 19-agent', r1], ['rt(78232,40,0)', randomTree(78232, 40, 0)],
+    ['rt(78518,150,0.15)', randomTree(78518, 150, 0.15)], ['rt(78570,250,0.1)', randomTree(78570, 250, 0.1)]];
+  let biggerUnpicked = 0;
+  for (const [label, spec] of cases) {
+    const tree = page.orgTreeOf(cards(spec));
+    const ship = page.orgPlaceGated(tree);
+    const main = mainOf(tree);
+    assert.ok(ship.maxR <= main.maxR + 1e-6, label + ': drawn at maxR ' + ship.maxR.toFixed(1) + ', bigger than main ' + main.maxR.toFixed(1));
+    assert.ok(page.orgFirstRingClear(ship.placed) >= Math.min(LINE_CLEAR, main.clear) - 1e-6, label + ': the first ring is less clear than main');
+    if (page.orgPlace(tree, false).maxR > main.maxR * 1.01) biggerUnpicked += 1;
+  }
+  // CONTROL: the wide layout alone really is bigger than main on at least one of these, or this pins nothing.
+  assert.ok(biggerUnpicked >= 1, 'CONTROL: the wide layout is not bigger than main on any case, so this test cannot see the regression it guards');
 });
 
 test('HONEST FUNDED + CLEARANCE NEVER WORSE BY FULL: the first-ring gate never disagrees with the full check (#4499 condition 1)', () => {

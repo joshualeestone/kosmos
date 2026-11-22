@@ -41356,7 +41356,7 @@ function orgPlace(nodes, floored, capped) {
      their own subtrees need, which can grow a crowded chart; orgPlaceGated therefore applies this floored layout
      ONLY when it measures size-safe against the proportional layout, and keeps the proportional layout otherwise
      (a chart that cannot be cleared without growing is left exactly as it was; that size work is #4499's size
-     card). floored=false returns the proportional spans (what the chart drew before #4499); floored=true returns
+     card). floored=false returns the proportional spans (the first ring as it was before #4499); floored=true returns
      the floored spans. Slices stay contiguous and disjoint either way, so nothing new can cross. */
   const prop = roots.map((n) => (TAU * weigh(n)) / total);
   const MIN_SPAN = Math.asin(Math.min(1, (ORG_LINE_CLEAR + ORG_LINE_MARGIN) / ORG_R0));
@@ -41532,13 +41532,14 @@ function orgPlace(nodes, floored, capped) {
     };
     /* #4472: each team at its own radius, just outside its manager, pushed out only until its own faces and
        every face already placed clear each other. One shared radius per ring let a single crowded team push the
-       whole ring out, and every ring below stacked on it. Teams keep their own slices and every line still runs
-       away from the hub, so a team at a different radius from its neighbour cannot cause a crossing. */
+       whole ring out, and every ring below stacked on it. Teams keep their own slices and every capped line still runs
+       away from the hub, so a team at a different radius from its neighbour cannot cause a crossing (a wide team's
+       lines can dip, and are kept only after the exact crossing test, #4499). */
     /* Every face and every line (hub or manager to report) placed so far, kept as lists that each placed team is
        added to, with their radii: a face can only be ORG_MIN_ARC from a face whose radius is within ORG_MIN_ARC of
        its own, and a line can only come within ORG_LINE_CLEAR of a face whose radius lies within its ends' radii
-       give or take ORG_LINE_CLEAR. That holds below the first ring, where the cap makes every line run steadily
-       outward. A first-ring manager's lines have no tangent cap (~85 degrees) and dip below the manager's radius
+       give or take ORG_LINE_CLEAR. That holds below the first ring for a capped line, which runs steadily outward,
+       and for a wide one because its band starts at its true closest approach to the hub (#4499). A first-ring manager's lines have no tangent cap (~85 degrees) and dip below the manager's radius
        (review it5 measured 12.9px, more than ORG_LINE_CLEAR), so a line from the first ring (or the hub) is
        never skipped: its band starts at 0. The checks below skip the distance for the rest (every pair is still
        visited), which took a 1000-agent chart from 97ms to 18ms. */
@@ -41582,15 +41583,6 @@ function orgPlace(nodes, floored, capped) {
       const ps = placed.get(p.agent.sessionName);
       const apart = (spots, strict, wide) => {
         if (!clear(spots)) return false;
-        /* #4499: a wide window is kept only if none of its lines crosses a line already drawn, and none comes within
-           ORG_STEP of the hub (the #4434 rule a capped line meets by construction). */
-        if (wide) {
-          for (const [name, s] of spots) {
-            const g = lineOf(faceOf(name, s), p.agent.sessionName);
-            if (g.lo < ORG_STEP) return false;
-            for (const h of lines) if (crosses(g, h)) return false;
-          }
-        }
         /* Room for what comes after: a report's slice, at the depth its branch's leaves will reach (its height in
            ring steps past this radius), must hold those leaves side by side. A team placed closer in has a narrower
            window, and its branches were then confined to a sliver for good: measured, a 1268px jump three rings
@@ -41608,6 +41600,15 @@ function orgPlace(nodes, floored, capped) {
         for (const f of mine) {
           for (const o of faces) {
             if (Math.abs(o.r - f.r) < ORG_MIN_ARC && Math.hypot(f.xy[0] - o.xy[0], f.xy[1] - o.xy[1]) < ORG_MIN_ARC) return false;
+          }
+        }
+        /* #4499: a wide window is kept only if none of its lines crosses a line already drawn, and none comes within
+           ORG_STEP of the hub (the #4434 rule a capped line meets by construction). After the cheaper checks above. */
+        if (wide) {
+          for (const [name, s] of spots) {
+            const g = lineOf(faceOf(name, s), p.agent.sessionName);
+            if (g.lo < ORG_STEP) return false;
+            for (const h of lines) if (crosses(g, h)) return false;
           }
         }
         /* No line passes nearer than ORG_LINE_CLEAR to a face that is not one of its ends: this team's lines past
@@ -41691,40 +41692,59 @@ function orgFirstRingClear(placed) {
   }
   return worst;
 }
-/* #4499 (option A): draw the proportional layout, which is IDENTICAL to the pre-#4499 layout, unless the first
-   ring has the line-to-face bug AND the minimum-span floor clears it WITHOUT growing the chart. The decision is
-   measured, not estimated: lay the chart out both ways and keep the floored one only when it is size-safe. It is
-   all-or-nothing per chart: a chart that cannot be cleared size-safely (two heavy roots, or many roots with one
-   heavy root) keeps the proportional layout and its first-ring clearance is handled by #4499's size card. The
-   second layout runs only when a chart has few enough roots to seat the floor (checked first) AND its first-ring
-   measure trips the bug threshold (preClear below ORG_LINE_CLEAR), so a chart with no sub-ORG_LINE_CLEAR first-ring
-   line pays one layout pass, not two. A chart that trips the threshold but cannot be helped (a flat fleet, whose
-   floored layout equals its proportional one) does pay the second, diagnostic, pass. */
+/* #4499 (option A): draw the proportional layout unless the first ring has the line-to-face bug AND the
+   minimum-span floor clears it WITHOUT growing the chart. The decision is measured, not estimated: lay the chart out
+   both ways and keep the floored one only when it is size-safe. It is all-or-nothing per chart: a chart that cannot be
+   cleared size-safely (two heavy roots, or many roots with one heavy root) keeps the proportional layout. The second
+   layout runs only when a chart has few enough roots to seat the floor (checked first) AND its first-ring measure
+   trips the bug threshold (preClear below ORG_LINE_CLEAR), so a chart with no sub-ORG_LINE_CLEAR first-ring line pays
+   one layout pass, not two. A chart that trips the threshold but cannot be helped (a flat fleet, whose floored layout
+   equals its proportional one) does pay the second, diagnostic, pass.
+
+   #4499 (size): orgPlace's wide window (below the first ring) is greedy, so on a few charts it draws BIGGER than the
+   capped layout (review r1: a 19-agent tree 9.4% bigger; 5 of 5,040 random trees over 1%). So a chart with a manager
+   below the first ring is laid out both ways, main's (capped: exactly the layout before the wide window) and wide,
+   and the wide one is drawn only when it is no bigger and its first ring is no less clear. Which one won is
+   remembered for this shape of tree (who reports to whom, in order), so a repaint of the same fleet lays it out one
+   way only; a change of shape decides again. */
 function orgPlaceGated(nodes) {
-  const pre = orgPlace(nodes, false);
-  let roots = 0;
-  for (const s of pre.placed.values()) if (!s.node.parent) roots += 1;
   const maxFundable = Math.floor((Math.PI * 2) / Math.asin(Math.min(1, (ORG_LINE_CLEAR + ORG_LINE_MARGIN) / ORG_R0)));
-  // Reject on root count BEFORE the O(roots^2) first-ring scan: a chart with more roots than the floor can seat is
-  // never funded, so a large flat fleet (rejected on count) skips the quadratic scan on every paint.
-  if (roots > maxFundable) return { placed: pre.placed, maxR: pre.maxR, funded: false };
-  // Only a chart WITH the bug (a sub-ORG_LINE_CLEAR first-ring line) is a candidate.
-  const preClear = orgFirstRingClear(pre.placed);
-  if (preClear >= ORG_LINE_CLEAR) return { placed: pre.placed, maxR: pre.maxR, funded: false };
-  const flo = orgPlace(nodes, true);
-  const floClear = orgFirstRingClear(flo.placed);
-  // Fund (use the floored layout) only when it is measured size-safe and clears ORG_LINE_CLEAR. Otherwise keep
-  // the proportional layout. Clearing ORG_LINE_CLEAR already makes the floored first ring no worse than the
-  // proportional one: the early-out above guarantees preClear < ORG_LINE_CLEAR, so floClear >= ORG_LINE_CLEAR is
-  // always an improvement (an explicit floClear >= preClear clause here would be vacuous).
-  let funded = flo.maxR <= pre.maxR * 1.01 + 1 && floClear >= ORG_LINE_CLEAR;
-  /* #4499 (size): the wide window can shrink the proportional layout more than the floored one (measured,
-     randomTree(23, 250, 0.06): 6351 to 2876, floored 3943), and then the rule above alone would keep the 5.5px line
-     the floor exists to clear. So a floored layout that clears is also funded when it is no bigger than the
-     proportional layout WITHOUT the wide window: no bigger than this chart drew before #4499's size work, and never
-     worse at the first ring. That extra layout runs only for a chart with the bug that the first rule refused. */
-  if (!funded && floClear >= ORG_LINE_CLEAR) funded = flo.maxR <= orgPlace(nodes, false, true).maxR * 1.01 + 1;
-  return funded ? { placed: flo.placed, maxR: flo.maxR, funded: true } : { placed: pre.placed, maxR: pre.maxR, funded: false };
+  /* One layout, capped or wide, with the first-ring floor decided as above. `bar` (wide only) is main's maxR: a
+     floored layout that clears is also funded when it is no bigger than main's chart. The wide window can shrink the
+     proportional layout more than the floored one, and then the 1% rule alone would keep a sub-12px line main does not
+     draw (randomTree(58, 100, 0.1): 11.76px against main's 18px). */
+  const gate = (capped, bar) => {
+    const pre = orgPlace(nodes, false, capped);
+    let roots = 0;
+    for (const s of pre.placed.values()) if (!s.node.parent) roots += 1;
+    // Reject on root count BEFORE the O(roots^2) first-ring scan: a chart with more roots than the floor can seat is
+    // never funded, so a large flat fleet (rejected on count) skips the quadratic scan on every paint.
+    if (roots > maxFundable) return { placed: pre.placed, maxR: pre.maxR, funded: false };
+    // Only a chart WITH the bug (a sub-ORG_LINE_CLEAR first-ring line) is a candidate.
+    const preClear = orgFirstRingClear(pre.placed);
+    if (preClear >= ORG_LINE_CLEAR) return { placed: pre.placed, maxR: pre.maxR, funded: false, clear: preClear };
+    const flo = orgPlace(nodes, true, capped);
+    const floClear = orgFirstRingClear(flo.placed);
+    // Fund (use the floored layout) only when it is measured size-safe and clears ORG_LINE_CLEAR. Clearing
+    // ORG_LINE_CLEAR already makes the floored first ring no worse than the proportional one: the early-out above
+    // guarantees preClear < ORG_LINE_CLEAR, so an explicit floClear >= preClear clause here would be vacuous.
+    const funded = floClear >= ORG_LINE_CLEAR
+      && (flo.maxR <= pre.maxR * 1.01 + 1 || (bar !== undefined && flo.maxR <= bar));
+    return funded ? { placed: flo.placed, maxR: flo.maxR, funded: true, clear: floClear }
+      : { placed: pre.placed, maxR: pre.maxR, funded: false, clear: preClear };
+  };
+  // The wide window only ever applies to a team whose manager has a manager.
+  const managed = new Set(nodes.filter((n) => n.parent).map((n) => n.agent.sessionName));
+  if (!nodes.some((n) => n.parent && managed.has(n.parent))) return gate(true);
+  const key = nodes.map((n) => n.agent.sessionName + '<' + (n.parent || '')).join('|');
+  const memo = orgPlaceGated.memo;
+  if (memo && memo.key === key) return memo.wide ? gate(false, memo.bar) : gate(true);
+  const main = gate(true);
+  const wide = gate(false, main.maxR);
+  const clearOf = (x) => (x.clear !== undefined ? x.clear : orgFirstRingClear(x.placed));
+  const ok = wide.maxR <= main.maxR && clearOf(wide) >= Math.min(ORG_LINE_CLEAR, clearOf(main));
+  orgPlaceGated.memo = { key, wide: ok, bar: main.maxR };
+  return ok ? wide : main;
 }
 
 /* #718: the chart on a phone. The canvas is a square (maxR + ORG_PAD) * 2 wide,
