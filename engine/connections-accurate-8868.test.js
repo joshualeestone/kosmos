@@ -48,7 +48,9 @@ function section(text) {
   return text.slice(a + projects.CONNECTIONS_START.length, b).replace(/\s+/g, ' ');
 }
 
-/* "There is no command" in the spellings seen and the near rewordings ("no kosmos command", "no verb for this"). */
+/* "There is no command" in the spellings seen and their near rewordings ("no kosmos command", "no verb for this"). A
+   tripwire, not the whole class: "cannot list" or "no way to see" are not caught. It matches words, so a future
+   accurate text that says "there is no command for X yet" about something else would need this widened on purpose. */
 const NO_COMMAND = /one-word verb|no such command|\bno (?:\w+ ){0,2}(?:command|verb)(?![\w-])|there is no (?:command|kosmos|verb)/i;
 
 /* What an accurate section must say, and what the reported bad one said. */
@@ -190,7 +192,8 @@ function connectionsAliases(src) {
    the inline `require('./connections').START`, and a bare START that is destructured from the module or bound to the
    marker (connections.js does the latter). */
 function connectionsMarkerNames(src) {
-  const names = [/\bCONNECTIONS_START\b/, new RegExp('^' + CONN_REQUIRE + String.raw`\.START$`)];
+  const literal = projects.CONNECTIONS_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const names = [/\bCONNECTIONS_START\b/, new RegExp('^' + CONN_REQUIRE + String.raw`\.START$`), new RegExp('^[\'"`]' + literal + '[\'"`]$')];
   for (const a of connectionsAliases(src)) names.push(new RegExp('^' + a + String.raw`\.START$`));
   if (new RegExp(String.raw`(?:const|let|var)\s*\{[^}]*\bSTART\b[^}]*\}\s*=\s*` + CONN_REQUIRE).test(src)) names.push(/^START$/);
   if (/(?:const|let|var)\s+START\s*=\s*(?:\w+\.)?CONNECTIONS_START\b/.test(src)) names.push(/^START$/);
@@ -210,16 +213,33 @@ function connectionsBodyOk(src, body) {
 test('kosmos#8868: every writer of the Connections markers writes exactly blockBody(), so no second text exists in this code', () => {
   /* The block is written by connections.tellAgent, by create.js at an agent's birth, and by discover.js for an imported
      agent (review rounds 1 and 2). A writer with words of its own would bring the flip back from current code; this
-     fails when one appears. Swept: engine/ and the repository's top-level .js files. Not seen: a body built into a
-     variable before the call, and code that requires the module under another path. */
+     fails when one appears. Swept: every .js, .mjs and .cjs file under engine/, bin/, install/ and tools/, and the
+     repository's top-level ones. Not seen: a body built into a variable before the call; the module required under a
+     path it does not recognise; spliceBlock called under another name; a call mis-split by a comment, a regex literal
+     or a nested backtick inside it (see spliceCalls). */
   assert.equal(connections.START, projects.CONNECTIONS_START);
   assert.equal(connections.END, projects.CONNECTIONS_END);
-  const roots = [__dirname, path.join(__dirname, '..')];
+  const repo = path.join(__dirname, '..');
+  const files = [];
+  const walk = (dir, deep) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) { if (deep) walk(full, true); continue; }
+      if (/\.(?:js|mjs|cjs)$/.test(e.name) && !/\.test\.(?:js|mjs|cjs)$/.test(e.name)) files.push(full);
+    }
+  };
+  walk(repo, false);
+  for (const d of ['engine', 'bin', 'install', 'tools']) if (fs.existsSync(path.join(repo, d))) walk(path.join(repo, d), true);
+  // CONTROL: the walk reaches files below engine/ and outside it, so a recursion that silently stopped cannot pass.
+  assert.ok(files.length > 300, 'the sweep read only ' + files.length + ' files');
+  assert.ok(files.some((f) => f.includes(path.sep + 'tools' + path.sep)), 'the sweep did not reach tools/');
   const found = [];
-  for (const dir of roots) {
-    for (const f of fs.readdirSync(dir)) {
-      if (!f.endsWith('.js') || f.endsWith('.test.js')) continue;
-      const src = fs.readFileSync(path.join(dir, f), 'utf8');
+  for (const file of files) {
+    {
+      const src = fs.readFileSync(file, 'utf8');
+      const dir = path.dirname(file);
+      const f = path.basename(file);
       const names = connectionsMarkerNames(src);
       for (const call of spliceCalls(src)) {
         const args = topArgs(call.args);
@@ -240,6 +260,7 @@ test('kosmos#8868: every writer of the Connections markers writes exactly blockB
     ["const { START, END, blockBody } = require('./connections');\nprojects.spliceBlock(\n  text,\n  'other ' + blockBody(),\n  START,\n  END\n);", 'a concatenated body over several lines with a destructured START'],
     ["const connMod = require('./connections'); const youMod = require('./you');\nspliceBlock(text, youMod.blockBody(), connMod.START, connMod.END);", 'another module\'s blockBody() on the Connections markers'],
     ["spliceBlock(text, 'other words', require('./connections').START, require('./connections').END);", 'an inline require of the markers'],
+    ["spliceBlock(text, 'other words', '<!-- kosmos:connections:start -->', '<!-- kosmos:connections:end -->');", 'the literal marker strings'],
   ];
   for (const [src, what] of shapes) {
     const calls = spliceCalls(src);

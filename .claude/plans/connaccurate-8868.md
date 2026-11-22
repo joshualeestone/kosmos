@@ -30,12 +30,13 @@ credential, on every regeneration; and a guard in CI fails if that ever stops be
 
 1. Guard the FILE, not only the source: `engine/connections-accurate-8868.test.js` writes the block into an agent
    file three times and checks every result (only the first write changes it), repairs a file holding the old block,
-   checks the guide, and sweeps engine/ and the top-level .js files so every `spliceBlock` call on the Connections
-   markers passes exactly `blockBody()` (whole calls are parsed, so one spread over lines, a destructured START and a
-   concatenated body, another module's `blockBody()` and an inline `require('./connections').START` are all
-   caught; its controls require all three known writers; projects.js is swept too). Not seen by the sweep: a body built
-   into a variable before the call, the module required under a path it does not recognise, and a call mis-split by a
-   comment, a regex literal or a nested backtick inside it (the scanners skip strings only). Each check has its own control (review round 1); dropping the billing clause from
+   checks the guide, and sweeps every .js, .mjs and .cjs file under engine/, bin/, install/ and tools/ and at the
+   top level (491 files today) so every `spliceBlock` call on the Connections markers passes exactly `blockBody()` (whole calls are parsed, so one spread over lines, a destructured START and a
+   concatenated body, another module's `blockBody()`, an inline `require('./connections').START` and the literal
+   marker strings are all caught; its controls require all three known writers; projects.js is swept too). Not seen by the sweep: a body built
+   into a variable before the call, the module required under a path it does not recognise, `spliceBlock` called under
+   another name, and a call mis-split by a comment, a regex literal or a nested backtick inside it (the scanners skip
+   strings only; stripping comments safely needs a real tokenizer, since `//` also appears inside URLs in strings). Each check has its own control (review round 1); dropping the billing clause from
    `blockBody` turns three arms red, and making discover.js splice other words turns the sweep red.
 
    What it cannot see: a writer running other code. And the guide is checked as `guideText()`, not as the
