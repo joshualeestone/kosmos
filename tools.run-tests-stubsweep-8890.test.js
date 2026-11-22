@@ -34,7 +34,13 @@ function env() {
   return { ...e, TMPDIR: PLAIN_TMP, HOME: SANDBOX_HOME, KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1' };
 }
 
-const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+/* A killed child of this test stays a zombie until node reaps it, which it cannot while a spawnSync blocks; kill(pid, 0)
+   still answers for a zombie, so a zombie counts as gone (ps state Z). */
+const alive = (pid) => {
+  try { process.kill(pid, 0); } catch (e) { if (e.code !== 'EPERM') return false; }
+  const st = (require('node:child_process').spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).stdout || '').trim();
+  return st !== '' && !st.startsWith('Z');
+};
 const nap = (ms) => new Promise((r) => setTimeout(r, ms));
 const STUB_SRC = "setInterval(() => {}, 1000);\n";
 
