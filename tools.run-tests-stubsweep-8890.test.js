@@ -117,3 +117,52 @@ test('#8890 a run stopped by TERM to its group stops the stub its test left in i
 test('#8890 a run stopped by Ctrl-C (INT to its group) still ends the stub its test left in its root, and no other (the pair)', async () => {
   await stoppedRunLeavesNoStub('SIGINT', (pid) => new RegExp('stopped process ' + pid + ' this run left running|^\\s*process ' + pid + ': ', 'm'));
 });
+
+/* Review 2: leak_process_stop_root itself, so each rule is proven on a process that only that rule decides. A bash
+   script loads the lib and is "this run" ($$): a DESCENDANT of it (alive parent: the script) and a real ORPHAN (its
+   launcher exited) under the root are stopped; ORPHANS under kt<n>9 (prefix) and another root survive (only the
+   matcher decides those, since the ownership rule lets orphans through); an OBSERVER that names the root, owned by this
+   test (alive, outside the script), survives (only the ownership rule decides that). */
+const LIB = path.join(__dirname, 'tools', 'lib', 'test-leak-guard.sh');
+const UNIT = path.join(DIR, 'unit-8890.sh');
+fs.writeFileSync(UNIT, `#!/bin/bash
+. "$1"
+ROOT="$2"; OTHER="$3"; OUT="$4"
+# exec: each pid is the node itself, not a bash subshell (whose command line, the script's, names the root too).
+stub() { exec "$NODE_BIN" -e 'setInterval(() => {}, 1000)' "$1" </dev/null >/dev/null 2>&1; }   # no inherited pipe: a surviving control must not hold this script's output open
+stub "$ROOT/desc.js" & desc=$!
+( stub "$ROOT/orphan.js" & echo $! > "$OUT.orphan" )
+( stub "\${ROOT}9/prefix.js" & echo $! > "$OUT.prefix" )
+( stub "$OTHER/other.js" & echo $! > "$OUT.other" )
+sleep 0.5
+echo "desc=$desc orphan=$(cat "$OUT.orphan") prefix=$(cat "$OUT.prefix") other=$(cat "$OUT.other")" > "$OUT"
+leak_process_stop_root "$ROOT"
+wait "$desc" 2>/dev/null
+exit 0
+`);
+test('#8890 the function stops a descendant and an orphan under the root, and no orphan under a lookalike or other root, nor someone else\'s process naming it', () => {
+  const root = path.join(PLAIN_TMP, 'kt' + (4000000 + Math.floor(Math.random() * 100000)));
+  const other = path.join(PLAIN_TMP, 'kt-other-unit');
+  fs.mkdirSync(root, { recursive: true }); fs.mkdirSync(root + '9', { recursive: true }); fs.mkdirSync(other, { recursive: true });
+  const out = path.join(DIR, 'unit.out');
+  const observer = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', path.join(root, 'observed.log')], { stdio: 'ignore' });
+  const pids = {};
+  try {
+    const r = require('node:child_process').spawnSync('bash', [UNIT, LIB, root, other, out], { encoding: 'utf8', timeout: scaleBudget(30000), env: { ...process.env, NODE_BIN: process.execPath } });
+    assert.ok(!(r.error && r.error.code === 'ETIMEDOUT'), 'the script did not finish: ' + (r.stdout || '') + (r.stderr || ''));
+    for (const kv of fs.readFileSync(out, 'utf8').trim().split(' ')) { const [k, v] = kv.split('='); pids[k] = Number(v); }
+    assert.ok(pids.desc && pids.orphan && pids.prefix && pids.other, 'the script did not start its four stubs: ' + JSON.stringify(pids) + ' ' + r.stderr);
+    const said = (r.stdout || '') + (r.stderr || '');
+    const deadline = Date.now() + scaleBudget(5000);
+    while ((alive(pids.desc) || alive(pids.orphan)) && Date.now() < deadline) require('node:child_process').spawnSync('sleep', ['0.1']);
+    assert.equal(alive(pids.desc), false, 'a DESCENDANT under the root was not stopped (the descendant walk): ' + said);
+    assert.equal(alive(pids.orphan), false, 'an ORPHAN under the root was not stopped: ' + said);
+    assert.equal(alive(pids.prefix), true, 'CONTROL: an orphan under kt<n>9 was stopped (a match by prefix): ' + said);
+    assert.equal(alive(pids.other), true, 'CONTROL: an orphan under another root was stopped: ' + said);
+    assert.equal(alive(observer.pid), true, 'CONTROL: someone else\'s live process naming the root was stopped (the ownership rule): ' + said);
+    assert.match(said, new RegExp('stopped process ' + pids.desc + ' '));
+    assert.match(said, new RegExp('stopped process ' + pids.orphan + ' '));
+  } finally {
+    for (const pid of [pids.desc, pids.orphan, pids.prefix, pids.other, observer.pid]) if (pid && alive(pid)) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+  }
+});

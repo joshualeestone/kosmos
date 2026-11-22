@@ -156,7 +156,7 @@ leak_process_check() {
 # still names the root. Never this shell. One line per process; silent when there was nothing. Always returns 0: an
 # exit trap must not fail on it.
 leak_process_stop_root() {
-  local root="${1%/}" real line pid ppid cmd snap stopped="" n=0 i left mine
+  local root="${1%/}" real line pid ppid cmd snap stopped=" " n=0 i left mine
   [ -n "$root" ] || return 0
   real=$(cd "$root" 2>/dev/null && pwd -P) || real="$root"
   # Snapshot FIRST, filter after (a `ps | grep` pipeline would list the grep).
@@ -170,6 +170,16 @@ leak_process_stop_root() {
       do { grew = 0; for (p in par) if (!(p in in_) && (par[p] in in_)) { in_[p] = 1; grew = 1 } } while (grew)
       for (p in in_) printf "%s ", p
     }') "
+  # Whether a pid, read again right now, is still this run's own and still names the root (review 2: a pid that died
+  # since the snapshot and was reused by another agent's process must not be signalled on its old command line).
+  _lpsr_still() {
+    local now pp cm
+    now=$(ps -ww -o ppid=,command= -p "$1" 2>/dev/null) || return 1
+    read -r pp cm <<< "$now"
+    case "$pp" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$pp" = "1" ] || case "$mine" in *" $1 "*|*" $pp "*) ;; *) return 1 ;; esac
+    leak_names_root "$cm" "$root" "$real"
+  }
   while IFS= read -r line; do
     read -r pid ppid cmd <<< "$line"
     case "$pid$ppid" in ''|*[!0-9]*) continue ;; esac
@@ -177,29 +187,26 @@ leak_process_stop_root() {
     [ "$pid" = "${BASHPID:-$$}" ] && continue
     [ "$ppid" = "1" ] || case "$mine" in *" $pid "*) ;; *) continue ;; esac
     leak_names_root "$cmd" "$root" "$real" || continue
+    _lpsr_still "$pid" || continue
     kill -TERM "$pid" 2>/dev/null || continue
-    stopped="$stopped $pid "
+    stopped="$stopped$pid "
     n=$((n + 1))
-    echo "run-tests: stopped process $pid this run left running: ${cmd%% *} (#8890)"
+    echo "run-tests: stopped process $pid this run left running: ${cmd%% *} (#8890)" 2>/dev/null || true
   done <<< "$snap"
-  [ "$n" -gt 0 ] || return 0
-  # The grace: up to 3 s, ended early once none of them is left.
+  [ "$n" -gt 0 ] || { unset -f _lpsr_still; return 0; }
+  # The grace: up to about 3 s, ended once none of them is left. Each look asks ps about the stopped pids only (review
+  # 2: a look over every process took 0.14 s on an idle Mac).
   for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-    snap=$(ps -Awwo pid=,ppid=,command= 2>/dev/null) || break
     left=0
-    while IFS= read -r line; do
-      read -r pid ppid cmd <<< "$line"
-      case "$stopped" in *" $pid "*) leak_names_root "$cmd" "$root" "$real" && left=1 ;; esac
-    done <<< "$snap"
-    [ "$left" -eq 1 ] || return 0
+    for pid in $stopped; do _lpsr_still "$pid" && { left=1; break; }; done
+    [ "$left" -eq 1 ] || { unset -f _lpsr_still; return 0; }
     sleep 0.2
   done
-  # KILL only a pid that is still one we stopped AND still names the root (a pid reused since names something else).
-  snap=$(ps -Awwo pid=,ppid=,command= 2>/dev/null) || return 0
-  while IFS= read -r line; do
-    read -r pid ppid cmd <<< "$line"
-    case "$stopped" in *" $pid "*) leak_names_root "$cmd" "$root" "$real" && kill -KILL "$pid" 2>/dev/null && echo "run-tests: KILLed process $pid, which outlived its TERM (#8890)" ;; esac
-  done <<< "$snap"
+  # KILL only a pid that is still this run's own AND still names the root, read again just before.
+  for pid in $stopped; do
+    _lpsr_still "$pid" && kill -KILL "$pid" 2>/dev/null && { echo "run-tests: KILLed process $pid, which outlived its TERM (#8890)" 2>/dev/null || true; }
+  done
+  unset -f _lpsr_still
   return 0
 }
 
