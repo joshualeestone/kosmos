@@ -72,6 +72,8 @@ const ACCOUNTS = withTarget([
   /* kosmos#8882 review 1 finding 5: a row with one Fable agent, and a target whose Fable limit is full (still a bulk
      target: its weekly has room). Used only by the DOM warning case; other rows' menus only gain an option. */
   claude('fablesrc@example.com', 'fablesrc', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-ly'], complete: true } }),
+  /* Review 2: drawn at 72% Fable (a near limit, offered with its warning); the clicks below change it under the menu. */
+  claude('fablenear@example.com', 'fablenear', { weekly: { usedPct: 30, resetsAt: now + 50 * H, at: now - H }, scoped: [{ model: 'Fable', usedPct: 72, resetsAt: now + 20 * H }], agentsHere: { names: [], complete: true } }),
   claude('fablefull@example.com', 'fablefull', { weekly: { usedPct: 30, resetsAt: now + 50 * H, at: now - H }, scoped: [{ model: 'Fable', usedPct: 100, resetsAt: now + 20 * H }], agentsHere: { names: [], complete: true } }),
 ]);
 /* kosmos#7152 review 9: the "gone full since the menu was drawn" row, as the route would then send it, worked out by
@@ -284,6 +286,22 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           past: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 100, resetsAt: Date.now() - 60e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
           none: acctModelWarn({}, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
           near: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 72, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
+          highest: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 100, resetsAt: Date.now() + 20 * 3600e3 }, { model: 'Fable 5.2', usedPct: 72, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
+          mixedUnknown: acctModelWarn(fableFull, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }, { name: 'Una' }], nm, 'acc'),
+          named: acctModelWarn(fableFull, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm, 'other@example.com'),
+          at69: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 69.9, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
+          at70: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 70, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
+          at994: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 99.4, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
+          at995: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 99.5, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
+          consts: [ACCT_MODEL_NEAR_PCT, ACCT_MODEL_FULL_PCT],
+          /* Review 2: what counts as new at the click. */
+          riskNew: (() => { const sc = (pct, model) => ({ scoped: [{ model: model || 'Fable', usedPct: pct, resetsAt: Date.now() + 20 * 3600e3 }] });
+            const ly = [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], two = ly.concat([{ name: 'Ida', model: 'claude-fable-5-2' }]), un = [{ name: 'Una' }];
+            const R = (t, c) => acctModelRisks(t, c, nm);
+            return { up1: acctModelRiskNew(R(sc(72), ly), R(sc(73), ly)), down1: acctModelRiskNew(R(sc(72), ly), R(sc(71), ly)),
+              toFull: acctModelRiskNew(R(sc(72), ly), R(sc(100), ly)), fresh: acctModelRiskNew(R({}, ly), R(sc(80), ly)),
+              otherFam: acctModelRiskNew(R(sc(80, 'Opus'), [{ name: 'Otto', modelName: 'Claude Opus 5.5' }].concat(ly)), R({ scoped: [{ model: 'Opus', usedPct: 80, resetsAt: Date.now() + 20 * 3600e3 }, { model: 'Fable', usedPct: 80, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Otto', modelName: 'Claude Opus 5.5' }].concat(ly))),
+              left: acctModelRiskNew(R(sc(100), two), R(sc(100), ly)), unknownNew: acctModelRiskNew(R({}, un), R(sc(80), un)), unknownSame: acctModelRiskNew(R(sc(80), un), R(sc(90), un)) }; })(),
           twice: acctModelWarn({ scoped: [{ model: 'Fable', usedPct: 100, resetsAt: Date.now() + 20 * 3600e3 }, { model: 'Fable', usedPct: 100, resetsAt: Date.now() + 20 * 3600e3 }] }, [{ name: 'Lyra', modelName: 'Claude Fable 5.2' }], nm),
         };
         /* kosmos#8882 review 1 finding 5: the warning on the real page. Pick the Fable-full target, then a roomy one, then
@@ -301,7 +319,20 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           fsel.value = '/home/.claude-spare'; fsel.dispatchEvent(new Event('change')); domWarn.roomy = fwarn();
           fsel.value = '/home/.claude-fablefull'; fsel.dispatchEvent(new Event('change'));
           fsel.value = ''; fsel.dispatchEvent(new Event('change')); domWarn.placeholder = fwarn();
+          domWarn.nearOpt = (() => { const o = [...fsel.options].find((x) => x.value === '/home/.claude-fablenear'); return o ? o.textContent.trim() : null; })();
         }
+        /* Review 2: the click. Drawn at 72% Fable; at the click it reads 100%: a step to full, so nothing moves. */
+        const nearRow = accounts.find((a) => a.dir === '/home/.claude-fablenear');
+        window.__acctPatch = { '/home/.claude-fablenear': { scoped: [{ model: 'Fable', usedPct: 100, resetsAt: Date.now() + 20 * 3600e3 }] } };
+        const clickFull = await runMove('fablesrc@example.com', '/home/.claude-fablenear', 0, true);
+        if (clickFull) clickFull.msg = msgOf('/home/.claude-fablesrc');
+        window.__acctPatch = null; await paintAccounts();
+        /* And drawn at 72%, read at 73% at the click: the same level, so it moves (CONTROL for the refusal). */
+        window.__acctPatch = { '/home/.claude-fablenear': { scoped: [{ model: 'Fable', usedPct: 73, resetsAt: Date.now() + 20 * 3600e3 }] } };
+        const clickNear = nearRow ? await runMove('fablesrc@example.com', '/home/.claude-fablenear', 1, true) : null;
+        if (clickNear) clickNear.msg = msgOf('/home/.claude-fablesrc');
+        window.__acctPatch = null; await paintAccounts();
+        domWarn.clickFull = clickFull; domWarn.clickNear = clickNear;
         // Two minutes on, a repaint shows the row plain again.
         const st = ACCT_MOVE.get('/home/.claude-busy'); if (st) st.doneAt -= 3 * 60e3;
         await paintAccounts();
@@ -339,17 +370,29 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.unsureNote === 'Moving restarts the running ones on the new account.', tag + ' an agent of unknown state gets no restart count it may not keep', JSON.stringify(r.unsureNote));
       /* kosmos#8882 */
       const mw = r.modelWarn || {};
-      say(mw.fable === 'Its Fable limit is full for the week, so Lyra would stop there.', tag + ' a bulk-move target with a full Fable limit names the Fable agent that would stop, not the Opus one', JSON.stringify(mw.fable));
-      say(mw.id === 'Its Fable limit is full for the week, so Ida would stop there.', tag + ' a card naming the model by its id matches the limit', JSON.stringify(mw.id));
-      say(mw.unknown === 'Kosmos cannot tell which model Una uses, and it may stop there too.', tag + ' an agent with no model named is said, not passed over', JSON.stringify(mw.unknown));
-      say(mw.near === 'Its Fable limit is at 72% for the week, so Lyra may stop there soon.', tag + ' review 1: a limit at 72% is not called full', JSON.stringify(mw.near));
-      say(mw.twice === 'Its Fable limit is full for the week, so Lyra would stop there.', tag + ' review 1: two entries for one model name the agent once', JSON.stringify(mw.twice));
+      say(mw.fable === 'On that account, the Fable limit is full for the week, so Lyra would stop there.', tag + ' a bulk-move target with a full Fable limit names the Fable agent that would stop, not the Opus one', JSON.stringify(mw.fable));
+      say(mw.id === 'On that account, the Fable limit is full for the week, so Ida would stop there.', tag + ' a card naming the model by its id matches the limit', JSON.stringify(mw.id));
+      say(mw.unknown === 'A model limit on that account is nearly or fully used. Kosmos cannot tell which model Una uses, so it may stop there.', tag + ' an agent with no model named is said, not passed over (review 2: no "too" when it is the only sentence)', JSON.stringify(mw.unknown));
+      say(mw.near === 'On that account, the Fable limit is at 72% for the week, so Lyra may stop there soon.', tag + ' review 1: a limit at 72% is not called full', JSON.stringify(mw.near));
+      say(mw.twice === 'On that account, the Fable limit is full for the week, so Lyra would stop there.', tag + ' review 1: two entries for one model name the agent once', JSON.stringify(mw.twice));
+      say(mw.highest === 'On that account, the Fable limit is full for the week, so Lyra would stop there.', tag + ' review 2: two readings of one family keep the higher one, whatever their order', JSON.stringify(mw.highest));
+      say(mw.mixedUnknown === 'On acc, the Fable limit is full for the week, so Lyra would stop there. Kosmos cannot tell which model Una uses, so it may stop there too.', tag + ' review 2: "too" only after another sentence', JSON.stringify(mw.mixedUnknown));
+      say(mw.named === 'On other@example.com, the Fable limit is full for the week, so Lyra would stop there.', tag + ' review 2: the warning names the account they would go to', JSON.stringify(mw.named));
+      say(mw.at69 === '' && mw.at70 === 'On that account, the Fable limit is at 70% for the week, so Lyra may stop there soon.' && mw.at994 === 'On that account, the Fable limit is at 99% for the week, so Lyra may stop there soon.' && mw.at995 === 'On that account, the Fable limit is full for the week, so Lyra would stop there.', tag + ' review 2: the edges, 69.9 silent, 70 warns, 99.4 near, 99.5 full', JSON.stringify([mw.at69, mw.at70, mw.at994, mw.at995]));
+      { const ab = require('../../engine/autobalance');
+        say(Array.isArray(mw.consts) && mw.consts[0] === ab.TARGET_MAX_PCT && mw.consts[1] === ab.MODEL_FULL_PCT, tag + ' review 2: the page\'s two levels equal the engine\'s TARGET_MAX_PCT and MODEL_FULL_PCT', JSON.stringify([mw.consts, ab.TARGET_MAX_PCT, ab.MODEL_FULL_PCT])); }
+      { const n = mw.riskNew || {};
+        say(n.toFull === true && n.fresh === true && n.otherFam === true && n.unknownNew === true, tag + ' review 2: new at the click: near to full, a limit that was not there, another family, an unknown-model agent newly at stake', JSON.stringify(n));
+        say(n.up1 === false && n.down1 === false && n.left === false && n.unknownSame === false, tag + ' review 2 CONTROL: not new: 72 to 73, 72 to 71, an agent that left, the same unknown agent at a higher reading', JSON.stringify(n)); }
       say(mw.opusOnly === '' && mw.room === '' && mw.past === '' && mw.none === '', tag + ' CONTROL: no warning for another model, a limit with room, a limit past its reset, or none', JSON.stringify([mw.opusOnly, mw.room, mw.past, mw.none]));
       const dw = r.domWarn || {};
-      const fullSaid = 'Its Fable limit is full for the week, so Ly<b>ra would stop there.';
+      const fullSaid = 'On fablefull@example.com, the Fable limit is full for the week, so Ly<b>ra would stop there.';
       say(!!dw.full && dw.full.text === fullSaid && dw.full.markup === false, tag + ' review 1 finding 5: picking a target with a full Fable limit shows the warning on the page, the agent name as text', JSON.stringify(dw.full));
       say(!!dw.full && dw.full.live === 'polite' && dw.full.shown && dw.full.described, tag + ' review 1 finding 5: the warning is a live region in the page, and the menu is described by it', JSON.stringify(dw.full));
       say(dw.fullOpt === 'fablefull@example.com (30% used, a model limit is in the way)', tag + ' review 1 finding 5: the menu option itself says a model limit is in the way', JSON.stringify(dw.fullOpt));
+      say(dw.nearOpt === 'fablenear@example.com (30% used, a model limit is in the way)', tag + ' review 2: a near limit is offered with its warning too', JSON.stringify(dw.nearOpt));
+      say(!!dw.clickFull && dw.clickFull.posts.length === 0 && dw.clickFull.requests === 0 && dw.clickFull.msg === 'Nothing moved: On fablenear@example.com, the Fable limit is full for the week, so Ly<b>ra would stop there. Pick again.', tag + ' review 2: a limit that went full under the menu stops the click, and the row says why, naming the account', JSON.stringify(dw.clickFull));
+      say(!!dw.clickNear && dw.clickNear.requests === 1 && dw.clickNear.posts.length === 1 && dw.clickNear.posts[0].agent === 's-ly' && dw.clickNear.posts[0].dir === '/home/.claude-fablenear', tag + ' review 2 CONTROL: a near limit that only moved from 72% to 73% does not stop the click', JSON.stringify(dw.clickNear));
       say(!!dw.before && dw.before.text === '' && dw.before.shown && !!dw.roomy && dw.roomy.text === '' && !!dw.placeholder && dw.placeholder.text === '' && dw.placeholder.shown && dw.spareOpt === 'spare@example.com (20% used)', tag + ' CONTROL: no pick, a roomy target, and back to the placeholder each leave the warning empty (and still in the page)', JSON.stringify([dw.before, dw.roomy, dw.placeholder, dw.spareOpt]));
       say(!!r.sleepyMove && r.sleepyMove.msg === 'Moved Zed (stopped). It is not running now.', tag + ' moving a stopped agent reads as moved, still stopped, through the route\'s real reply', JSON.stringify(r.sleepyMove));
       say(!!busy && busy.btnDisabled === true, tag + ' Move is disabled until a target is picked');
