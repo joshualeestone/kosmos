@@ -7,9 +7,9 @@
   stored as the person's row, so `kosmos feedback day` counted them as the person's words.
 
 ## Built
-- messages.automaticWake(): the bracket `[sent automatically on this computer, not typed by your person · to tell your
-  person something, run: kosmos reply]`. It names neither sender, does not say "nothing to answer" (a script's line can
-  ask for work), and does not open with the operator marker, so the MARKERS forgery guard is untouched.
+- messages.automaticWake(): the bracket `[sent automatically on this computer, not typed by your person · to answer, run: kosmos
+  reply]` (with " at <time>" when a timezone is set). It names neither sender, does not say "nothing to answer" (a script's line can
+  ask for work), and does not open with the operator marker; it is itself in the MARKERS forgery guard (round 1).
 - server.js thread route: an `automatic: true` send is typed under that bracket, and its row is stored with
   `automatic: true` (the held and duplicate paths are already `!automatic`, so only the final write is reached).
 - chat.appendMessage keeps `automatic: true` only on the person's side (a row with no `from`).
@@ -61,3 +61,8 @@ that does not keeps the old behaviour; nothing here can tell its POST from the p
 - Plan count corrected (musefront.test.js was 77, now 79 with the two new tests).
 - Related set after round 3: 192 files, 5,161 tests, 4 failed, all in engine/remote.test.js (#4756, #5786) at a 1-minute
   load of 28 on 12 cores; that file alone passes 247/247 on the branch and on main.
+
+## Round 4 (sonnet, whole branch, blind): nothing above nit. Converged.
+- Nit 1 taken: the Built section quoted the old bracket ending. Nit 2 not taken: engine/status.js antigravityQueued counts
+  queued lines by `[message from`, so several automatic lines on an Antigravity pane count as one; cosmetic, and a code
+  change now would reopen a converged review. Follow-up if it matters.
