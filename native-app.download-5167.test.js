@@ -408,3 +408,17 @@ test('#5167 (11-18): the restarted download is this app\'s, has this delegate, a
     'the chosen place is used before the response checks, so an error page or a sign-in page could be saved there');
   assert.match(decide.slice(chosen), /downloadDestination\(dir: chosen\.deletingLastPathComponent\(\)/, 'a chosen name already taken would be written over');
 });
+
+test('kosmos#8879: the refused-folder waits end by a clock, and one that runs out says so without taking the build\'s verdict', () => {
+  const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
+  assert.match(hatch, /let refusedWaitSeconds = (\d+(\.\d+)?)/, 'the refused-folder waits have a time bound');
+  assert.match(hatch, /ProcessInfo\.processInfo\.systemUptime/, 'the bound reads the uptime clock, not the wall clock');
+  assert.doesNotMatch(hatch, /whenAsked\(\d+, \d+\)|whenDenied\(\d+\)/, 'a wait is bounded by a poll count again (150 polls measured about 34s, not 15s)');
+  const line = (hatch.match(/print\("(download selftest WAIT RAN OUT \(kosmos#8879\)[^"]*)/) || [])[1];
+  assert.ok(line, 'the ran-out line is printed');
+  /* Each token is one of tools/build-kosmos-bundle.sh's case arms for this gate: the line must reach none of them,
+     so the rows still decide. Read from the script, so a renamed arm cannot leave this checking an old list. */
+  const arms = [...BUILD.slice(BUILD.indexOf('--kosmos-app-download-selftest 2>&1')).split('esac')[0].matchAll(/^\s*\*"([^"]+)"\*\)/gm)].map((m) => m[1]);
+  assert.ok(arms.length >= 4, 'read the bundle build\'s case arms for the download gate (found ' + arms.length + ')');
+  for (const a of arms) assert.ok(!line.includes(a), 'the ran-out line contains the build arm "' + a + '"');
+});

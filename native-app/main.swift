@@ -7486,23 +7486,26 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         /* #5167 (11-06): a file WebKit could not create (the folder made unwritable for this one click) says the system's
            reason, as the operator's "Cannot create file" did not. Restored before every other arm. */
         chmod(dl.path, 0o500)
-        /* Review 1: restored once the failure is said, not after click's fixed wait, so a slow answer is
-           still refused by the read-only folder rather than landing after it is writable again.
-           kosmos#8879: each wait ends by the clock, refusedWaitSeconds after it began, and one that runs out prints ranOut's line, with the time it waited, before going on. */
+        /* Review 1: whenDenied restores the folder once the third failure is said, not after click's fixed wait, so a
+           slow answer is still refused by the read-only folder rather than landing after it is writable again.
+           whenAsked restores nothing: the folder stays 0500 until whenDenied ends.
+           kosmos#8879: each wait ends by the uptime clock (not the wall clock), refusedWaitSeconds after it began, and
+           one that runs out prints ranOut's line, with the time it waited, before going on. */
         let refusedWaitSeconds = 15.0
+        func now8879() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
         func cannotCreate() -> Int { told.filter({ $0.contains("Cannot create file") }).count }
-        func ranOut(_ n: Int, _ began: Date) {
-            print("download selftest WAIT RAN OUT (kosmos#8879): waited \(Int(Date().timeIntervalSince(began)))s without \"Cannot create file\" number \(n) (seen \(cannotCreate()))")
+        func ranOut(_ n: Int, _ began: TimeInterval) {
+            print("download selftest WAIT RAN OUT (kosmos#8879): waited \(Int(now8879() - began))s without \"Cannot create file\" number \(n) (seen \(cannotCreate()))")
         }
-        func whenAsked(_ n: Int, _ began: Date = Date(), _ then: @escaping () -> Void) {
+        func whenAsked(_ n: Int, began: TimeInterval = now8879(), _ then: @escaping () -> Void) {
             if cannotCreate() >= n { then(); return }
-            if Date().timeIntervalSince(began) >= refusedWaitSeconds { ranOut(n, began); then(); return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenAsked(n, began, then) }
+            if now8879() - began >= refusedWaitSeconds { ranOut(n, began); then(); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenAsked(n, began: began, then) }
         }
-        func whenDenied(_ began: Date = Date(), _ then: @escaping () -> Void) {
+        func whenDenied(began: TimeInterval = now8879(), _ then: @escaping () -> Void) {
             if cannotCreate() >= 3 { chmod(dl.path, 0o700); then(); return }
-            if Date().timeIntervalSince(began) >= refusedWaitSeconds { ranOut(3, began); chmod(dl.path, 0o700); then(); return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenDenied(began, then) }
+            if now8879() - began >= refusedWaitSeconds { ranOut(3, began); chmod(dl.path, 0o700); then(); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenDenied(began: began, then) }
         }
         /* #5167 (11-18) review 3: a second refused file whose page changes while the person chooses (onChosen, as the
            start-void arm does for kosmos#7952) must not be saved: the restart's page guard can fail live. */
