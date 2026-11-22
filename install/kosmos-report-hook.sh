@@ -652,7 +652,11 @@ case "$EVENT" in
     # within seconds of saying so.
     report_turn_end idle --auto finished responding ;;
   StopFailure)
-    KIND=$(json_field '.matcher // .error_type' 'matcher'); KIND="${KIND:-an api error}"
+    # kosmos#8877: Claude Code sends the kind as `error` (2.1.330: error, error_details, last_assistant_message); matcher
+    # and error_type, which it does not send, stay as fallbacks. Only a string `error` counts (jq), as the node hook.
+    KIND=$(json_field '(.error | strings) // .matcher // .error_type' 'error')
+    # Without jq, json_field reads one key at a time, so the fallbacks are asked for in the same order.
+    [ -n "$KIND" ] || KIND=$(json_field '.matcher' 'matcher'); [ -n "$KIND" ] || KIND=$(json_field '.error_type' 'error_type'); KIND="${KIND:-an api error}"
     rm -f "$MARK" 2>/dev/null || true
     report blocked --auto --on "provider api (${KIND})" --owner provider ;;
   SessionEnd)

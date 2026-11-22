@@ -142,7 +142,11 @@ function reportFor(evt, ctx) {
     case 'Stop':
       return { ...base, state: 'idle', text: 'finished responding', turnEnd: true };
     case 'StopFailure': {
-      const kind = field(evt, 'matcher') || field(evt, 'error_type') || 'an api error';
+      /* kosmos#8877: Claude Code sends the stop's kind as `error` (measured in the 2.1.330 program:
+         hook_event_name:"StopFailure",error,error_details,last_assistant_message; a usage limit's transcript row says
+         error "rate_limit"). Reading only `matcher` and `error_type`, neither of which it sends, recorded EVERY real stop
+         as "an api error" (36 of 36 on Agent1s), so #5805's usage-limit handling never fired. They stay as fallbacks. */
+      const kind = field(evt, 'error') || field(evt, 'matcher') || field(evt, 'error_type') || 'an api error';
       return { ...base, state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider' };
     }
     case 'SessionEnd':
