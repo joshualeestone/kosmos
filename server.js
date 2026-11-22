@@ -1562,16 +1562,20 @@ function communityNudge(agentKey, postId, startedAt = Date.now(), reply = false)
   if (!home) refreshHomeLines([String(agentKey)]);   // #5212: for the next action; this one goes without "replies owed"
   const shownKey = String(agentKey);
   let carried = null;
+  let carriedComments = null;   // kosmos#8895: the comments number shown with it
+  const shownBefore = COUNTS_SHOWN.get(shownKey);
+  const lastShown = shownBefore && Number.isFinite(shownBefore.comments) && Date.now() - shownBefore.at < COUNTS_SHOWN_FOR_MS
+    ? { comments: shownBefore.comments, at: shownBefore.at } : null;
   const sameAsShown = (counts) => {
     const e = COUNTS_SHOWN.get(shownKey);
     return Boolean(e) && e.counts === counts && Date.now() - e.at >= 0 && Date.now() - e.at < COUNTS_SHOWN_FOR_MS;
   };
   return Promise.race([communitynudge.nudge(agentKey, { postId: postId || null, reply: reply === true, owed: home ? home.owed : null,
-    sameAsShown, onCounts: (counts) => { carried = counts; } }).catch(() => null), late])
+    sameAsShown, lastShown, onCounts: (counts, comments) => { carried = counts; carriedComments = Number.isFinite(comments) ? comments : null; } }).catch(() => null), late])
     .then((v) => {
       clearTimeout(timer);
       const line = typeof v === 'string' && v ? v : null;
-      if (line && carried && line.includes(carried)) COUNTS_SHOWN.set(shownKey, { counts: carried, at: Date.now() });
+      if (line && carried && line.includes(carried)) COUNTS_SHOWN.set(shownKey, { counts: carried, comments: carriedComments, at: Date.now() });
       return line;
     });
 }
