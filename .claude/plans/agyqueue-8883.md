@@ -20,3 +20,10 @@ message. It draws whatever was typed, and the bracket is typed first, so it shou
   pane-scraping counter keyed on `[message from`. Nit taken: the bracket with no time label is now tested as well.
 - Noted: the 35-line window can count a delivered line still on screen above the queue, already true for
   `[message from` and most likely just after a wake.
+
+## Round 2 (sonnet, own commits, blind): nothing above nit. Converged.
+Related set (every test that loads engine/status.js or names antigravity): 268 files, 5,155 tests, 0 failed.
+
+## Next
+After #8873 merges: rebase this branch onto main (only its own commits), run the full validation, then the PR. Its
+diff against main is then only status.js, the test and this plan.
