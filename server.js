@@ -1758,7 +1758,7 @@ async function instructionRereadPass() {
       remember: (session, text) => ir.remember(session, text),
       dropChanges: (session) => ir.dropChanges(session),
       // kosmos#8912 slice 2: a line that did not land takes back only its own entry.
-      restoreChanges: (session, previous) => ir.restoreChanges(session, previous),
+      restoreChanges: (session, previous, wrote) => ir.restoreChanges(session, previous, wrote),
       // kosmos#8416: never name a section that is not in the file, or one whose text is as the agent last read it.
       trueSections: (session, sections) => ir.trueSectionsFor(session, sections),
       markRead: (session, sections, text) => ir.markRead(session, sections, text),

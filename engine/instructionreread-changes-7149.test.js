@@ -385,7 +385,7 @@ test('review 13: the real chain, end to end: a start copy, a landed line naming 
   // kosmos#8912 slice 2: the second notice is its own entry; the first stays above it, so a turn that never read it loses nothing.
   const entries = ir.entriesOf(body);
   assert.deepEqual(entries.map((e) => e.n), [1, 2], 'the second notice did not add its own entry under the first');
-  assert.match(q.sent[0][1], /, under Notice 2 \(the entries above it are earlier notices since you started/);
+  assert.match(q.sent[0][1], /The entries above Notice 2 in that file are earlier notices since you started/);
   assert.match(entries[1].text, /- Vote honestly\.\n\+ Vote honestly, never on your own work\./);
   assert.doesNotMatch(entries[1].text, /once a day/, 'an already-announced change was listed again in the new entry');
   assert.match(entries[0].text, /- Post at least once a day\./, 'the first notice was replaced by the second');
