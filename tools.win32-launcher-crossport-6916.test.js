@@ -39,13 +39,15 @@ function between(start, end) {
   return SOURCE.slice(at, stop);
 }
 
-test('#6916: the window wires the request check before any page loads, only for its own board, and never goes on without it', () => {
+test('#6916: the window wires the request check before any page loads, in every mode, and never goes on without it', () => {
   const ready = between('internal void ControllerReady(', 'FitViewToWindow();');
   const wired = ready.indexOf('webView.add_WebResourceRequested(new WebResourceRequested(this), out token);');
   assert.ok(wired > 0, 'ControllerReady no longer adds the WebResourceRequested handler');
   assert.ok(ready.indexOf('webView.AddWebResourceRequestedFilter("*", 0);') > wired, 'the filter is not "*" for every resource context');
-  assert.match(ready, /if \(mode != KosmosLauncher\.ComputerMode\.Connect\)\s*\{\s*try\s*\{\s*webView\.add_WebResourceRequested/,
-    'the check is not limited to a window that runs its own board');
+  // Review 1: never gated on the starting mode. A connect window can become one that runs this computer's board while it
+  // is open (RunAgentsHere, PageChoseMode) and loads it in the same view, which would then go unchecked.
+  const wiring = ready.slice(ready.lastIndexOf('// #6916', wired), wired);
+  assert.doesNotMatch(wiring, /ComputerMode|\bmode\b\s*[!=]=/, 'the check is gated on the window\'s mode');
   const failed = ready.slice(ready.indexOf('catch (Exception x)', wired));
   assert.match(failed, /controller\.Close\(\);[\s\S]*controller = null;[\s\S]*CouldNotHost\(/, 'a window that cannot wire the check does not close');
   assert.match(failed, /return;/, 'the window carries on loading after it could not wire the check');

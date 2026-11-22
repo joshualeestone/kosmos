@@ -3946,6 +3946,8 @@ class KosmosLauncher
     // measured. A dev site an agent runs here and links to would get the person's board session. So every request to
     // this computer (127.0.0.1, localhost, [::1]) that is not the board itself is refused here, whatever its scheme. A
     // request anywhere else is not this rule's business (the cookie is never sent there; links leave by the link rules).
+    // Not covered, measured: a WebSocket the page itself opens (WebView2 never shows it to WebResourceRequested). Only
+    // script already running in the board's page can open one, and such script holds the session anyway.
     internal static bool RefusedLoopbackRequest(string address, int port)
     {
         Uri uri;
@@ -4351,26 +4353,24 @@ class BoardWindowForm : System.Windows.Forms.Form
         catch { /* downloads keep WebView2's defaults, unsaid */ }
         controller.add_AcceleratorKeyPressed(new AcceleratorKeyPressed(this), out token);   // #6882
         // #6916: before any page loads, every request the page starts is seen here, and one to this computer on another
-        // port is refused before it leaves (RefusedLoopbackRequest). Only a window that runs its own board: a connect
-        // window's board is another computer, whose cookie this computer's ports never get. Both calls are in every
-        // WebView2 Runtime (the base interface), so a failure means WebView2 itself is not working: the window does not
-        // go on without the check, it closes before anything is shown and the board opens in the browser, as for any
-        // other start failure (CouldNotHost).
-        if (mode != KosmosLauncher.ComputerMode.Connect)
+        // port is refused before it leaves (RefusedLoopbackRequest). In EVERY mode, not only a window that starts on its
+        // own board: a connect window can become one while it is open (RunAgentsHere, PageChoseMode), and loads this
+        // computer's board in the same view. A connect window never loads anything from this computer in the window
+        // (ConnectLinkDecision), so the check costs it nothing. Both calls are in every WebView2 Runtime (the base
+        // interface), so a failure means WebView2 itself is not working: the window does not go on without the check,
+        // it closes before anything is shown and the board opens in the browser, as for any other start failure.
+        try
         {
-            try
-            {
-                webView.add_WebResourceRequested(new WebResourceRequested(this), out token);
-                webView.AddWebResourceRequestedFilter("*", 0);   // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL
-            }
-            catch (Exception x)
-            {
-                try { controller.Close(); } catch { /* closing anyway */ }
-                controller = null;
-                webView = null;
-                CouldNotHost("WebView2 would not check this window's requests (" + x.Message + ")");
-                return;
-            }
+            webView.add_WebResourceRequested(new WebResourceRequested(this), out token);
+            webView.AddWebResourceRequestedFilter("*", 0);   // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL
+        }
+        catch (Exception x)
+        {
+            try { controller.Close(); } catch { /* closing anyway */ }
+            controller = null;
+            webView = null;
+            CouldNotHost("WebView2 would not check this window's requests (" + x.Message + ")");
+            return;
         }
         FitViewToWindow();
         controller.MoveFocus(0);
@@ -4698,14 +4698,6 @@ class BoardWindowForm : System.Windows.Forms.Form
         BeginInvoke(new Action(Close));
     }
 
-    // A computer that has chosen a mode decides every main-frame navigation by ConnectLinkDecision, as the
-    // Mac does (#4381 for connect; #5492, the Mac's #5169, for run and both): this window has no address
-    // bar and no Back button, so another site may never replace its page. A clicked link to another site
-    // opens in the person's browser; an unclicked one (a redirect or a script) is refused. A run or both
-    // computer's own board stays, and so does the about:/data: page NavigateToString shows while the board
-    // starts. A computer that has not chosen (or whose choice cannot be read) keeps the older rule below:
-    // its board and the window's own pages stay, anything else goes to the browser, and a scheme that is not
-    // a web link is refused with the same box as a new-window link (review of #3285).
     // #6916: a request the page starts to this computer on another port never leaves (RefusedLoopbackRequest): it is
     // answered here with a 403 that carries nothing. NavigationStarting, below, still decides what is SHOWN; this
     // decides what is SENT, which NavigationStarting cannot (WebView2 has sent a navigation by then, #6882).
@@ -4725,6 +4717,14 @@ class BoardWindowForm : System.Windows.Forms.Form
         args.put_Response(refusal);
     }
 
+    // A computer that has chosen a mode decides every main-frame navigation by ConnectLinkDecision, as the
+    // Mac does (#4381 for connect; #5492, the Mac's #5169, for run and both): this window has no address
+    // bar and no Back button, so another site may never replace its page. A clicked link to another site
+    // opens in the person's browser; an unclicked one (a redirect or a script) is refused. A run or both
+    // computer's own board stays, and so does the about:/data: page NavigateToString shows while the board
+    // starts. A computer that has not chosen (or whose choice cannot be read) keeps the older rule below:
+    // its board and the window's own pages stay, anything else goes to the browser, and a scheme that is not
+    // a web link is refused with the same box as a new-window link (review of #3285).
     internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)
     {
         string uri;
