@@ -19819,6 +19819,7 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <!-- #6254 design read (Mona Lisa): the master's state line sits under the master, not under the last kind. -->
       <p class="dhint" id="phone-notify-msg" role="status" style="margin:8px 0 0;"></p>
+      <p class="dhint" id="phone-notify-step" style="margin:8px 0 0;" hidden>Then open the Kosmos app on your phone, sign in, and allow notifications. Do this on each phone you want alerts on.</p>
       <!-- #6254: one switch per kind, under the master above. Shown only while the master is on
            (the client unhides it in paintKinds). Each button toggles its own kind through
            PUT /api/phone-notify { kind, on }; the server's `kinds` says which are on. postedRoom
@@ -19851,7 +19852,6 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <p class="dhint" id="pn-kind-err-postedRoom" role="status" style="margin:0;"></p>
       </div>
-      <p class="dhint" id="phone-notify-step" style="margin:8px 0 0;" hidden>Then open the Kosmos app on your phone, sign in, and allow notifications. Do this on each phone you want alerts on.</p>
     </section>
     <!-- #2436 (Josh, 2026-09-07): the master on/off for the #2407 new-message sound.
          #3138 (Josh, 6.68): MOVED here to This computer (from Automations), LAST in the
@@ -97449,7 +97449,8 @@ setInterval(ageCheckedStamp, 1000);
 
   var busy = false;
   function toggle() {
-    if (busy || !current || !current.available || (!current.connected && !current.on)) return Promise.resolve(false);
+    // #6254 review 3: not while a kind press is in flight, so its answer cannot land in a block this press just hid.
+    if (busy || kindBusy || !current || !current.available || (!current.connected && !current.on)) return Promise.resolve(false);
     busy = true;
     var want = !current.on;
     var btn = el('phone-notify-toggle');
@@ -97488,7 +97489,7 @@ setInterval(ageCheckedStamp, 1000);
     }
   }
   function toggleKind(name) {
-    if (kindBusy || !current || !current.available || !current.connected || !current.on || !current.kinds) return Promise.resolve(false);
+    if (kindBusy || busy || !current || !current.available || !current.connected || !current.on || !current.kinds) return Promise.resolve(false);
     if (KIND_BTNS.indexOf(name) === -1) return Promise.resolve(false);
     kindBusy = true;
     kindErr(null);   // #6254 design read: any press clears the last row's error

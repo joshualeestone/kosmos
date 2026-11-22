@@ -55,6 +55,7 @@ function load(opts) {
     const method = (init && init.method) || 'GET';
     calls.fetch.push({ url, method, body: init && init.body ? JSON.parse(init.body) : null });
     if (opts.fetchFails) return Promise.reject(new Error('offline'));
+    if (opts.putFails && method === 'PUT') return Promise.reject(new Error('offline'));   // #6254 review 3: only the PUT fails
     if (method === 'PUT') {
       if (opts.putError && !(opts.putErrorOnce && calls.fetch.filter((c) => c.method === 'PUT').length > 1)) return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error: opts.putError }) });
       const put = JSON.parse(init.body);
@@ -278,6 +279,14 @@ test('#6254 review 2: a SUCCESSFUL press clears an earlier row error, and turnin
   h2.btn._click(); await flush();   // master on
   assert.equal(h2.kindsBox.hidden, false, 'the block did not come back with the master on');
   assert.equal(h2.kindErr('postedRoom').textContent, '', 'an old row error came back with the block');
+});
+
+test('#6254 review 3: a kind press that cannot reach the board shows its error under its own row too', async () => {
+  const h = load({ state: { on: true }, putFails: true });
+  h.domHandlers.DOMContentLoaded(); await flush();
+  h.kindBtn('ready')._click(); await flush();
+  assert.equal(h.kindErr('ready').textContent, 'That did not work. Please try again.', 'an offline press did not show its error under its own row');
+  assert.notEqual(h.msg.textContent, 'That did not work. Please try again.', 'an offline press still wrote to the master line');
 });
 
 test('#6254: turning the master off hides the sub-switches again', async () => {
