@@ -217,6 +217,14 @@ _kosmos_drop_test_fixtures() {
 # reader cleans -- modulo the pid-reuse residual named above (a booted process reusing
 # the old pid reads as live), which is bounded and safe-direction there.
 _kosmos_marker_dir() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cache/kosmos-run-markers}"; }
+# kosmos#8870: one line per full-suite turn taken and ended, in suite-turns.log beside the markers, so whether two runs
+# overlapped can be read afterwards: they did when one took its turn between the other's took and ended lines. A run
+# killed outright (KILL) writes no ended line; its pid then no longer answers. Best effort: never fails the caller.
+# Line: <local time> <took|ended> pid=<pid> <details>
+kosmos_suite_turn_log() {
+  local d; d="$(_kosmos_marker_dir)"
+  { mkdir -p "$d" && printf '%s %s pid=%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$1" "${KOSMOS_SUITE_SELF_PID:-$$}" "${2:-}" >> "$d/suite-turns.log"; } 2>/dev/null || true
+}
 
 # kosmos_mark_run <type>  — the run declares itself. <type> must be a shell-identifier
 # word ([A-Za-z_]+): it is uppercased into the env-var name KOSMOS_RUN_COOKIE_<TYPE>,

@@ -674,6 +674,15 @@ if command -v kosmos_holds_light_side >/dev/null 2>&1 && kosmos_holds_light_side
   echo "this test run is inside a light run's side turn (#4911): run-tests.sh, --only included, does not run beside the heavy run that holds the box. Run the file with node --test directly in the side turn, or take an ordinary turn: queued-heavy.sh without --light." >&2
   exit 2
 fi
+# kosmos#8870: the ended line for a suite that took a turn (the exit traps below call it first, with the run's status).
+_rt_took_turn=0
+_rt_turn_end() {
+  [ "$_rt_took_turn" = 1 ] || return 0
+  _rt_took_turn=0
+  command -v kosmos_suite_turn_log >/dev/null 2>&1 && kosmos_suite_turn_log ended "exit $1"
+  return 0
+}
+
 if [ "$KOSMOS_ONLY" = 1 ]; then
   # #4929: no queue wait, but a foreign machine claim and a live install harness still refuse, asked once (fail-open
   # on a missing lib, as above). A run that holds the claim's own KOSMOS_MACHINE_CLAIM_COOKIE is not refused by it
@@ -694,6 +703,9 @@ elif command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machin
     # check, so a harness could start beside it.
     unset KOSMOS_WAIT_KEEP_MARK
     kosmos_wait_until_clear "this test run" --suite-queue _rt_box_clear || exit 1
+    # kosmos#8870: the turn this suite took, for suite-turns.log (its ended line is written by the exit trap below).
+    _rt_took_turn=1
+    command -v kosmos_suite_turn_log >/dev/null 2>&1 && kosmos_suite_turn_log took "cap=$(_rt_suite_max_now) head=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo '?') tree=$(basename "$REPO")"
   else
     kosmos_wait_until_clear "this test run" _rt_box_clear || exit 1
   fi
@@ -757,7 +769,7 @@ if mkdir -p "$KOSMOS_RUN_TMPDIR" 2>/dev/null; then
   # guard, and removing the root under a launchd job loaded from a plist in it is the
   # 8,096-respawn shape. So while the labels snapshot is still unused (the guard removes
   # it), the trap boots out this run's jobs before the root goes.
-  trap 'type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"; [ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
+  trap '_rt_turn_end $?; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"; [ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
   export TMPDIR="$KOSMOS_RUN_TMPDIR"
   export KOSMOS_TEST_RUN="$KOSMOS_RUN_TMPDIR"   # #5418, see above
 else
@@ -767,7 +779,7 @@ else
   export KOSMOS_TEST_RUN="${TMPDIR:-/tmp}"
   # #6668: with no run root there is no exit trap above, so this one signals the file watchdog on a TERM (a Ctrl-C
   # waits for node, and the normal stop follows).
-  trap 'type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"' EXIT
+  trap '_rt_turn_end $?; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"' EXIT
 fi
 
 # --- coverage assertion: every *.test.js is CONSIDERED (kosmos#1934) -----------
