@@ -286,8 +286,8 @@ function lastScan() { return SCANNED ? { ...SCANNED } : { checked: false }; }
 
 /**
  * kosmos#8865: everything an agent may read about this start's check, for GET /api/board/start-check and
- * `kosmos start-check`: whether the scan ran, lastScan's counts, `looked` (the files it read, or found too large or
- * locked), `restored` (how many were put back since the start), and the page's own list (current()) with each problem
+ * `kosmos start-check`: whether the scan ran, lastScan's counts, `looked` (the files whose bytes it read; a locked or
+ * too-large file is not counted there, it is named damaged), `restored` (how many were put back since the start), and the page's own list (current()) with each problem
  * in the board log's words. `dismissed` says the person dismissed the list, which is why `files` can be empty while
  * `damaged` is not. `damaged` counts what the scan found at start, `files` what is still listed now.
  */

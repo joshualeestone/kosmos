@@ -121,7 +121,7 @@ test('kosmos#8865: after a start that found damaged files, the route and both CL
     assert.deepEqual(b.files.map((f) => f.file).sort(), ['projects.json', 'removed.json']);
 
     assert.equal(got.mac.code, 0, got.mac.both);
-    assert.match(got.mac.both, new RegExp('Kosmos checked its own files at this start \\(' + b.looked + ' files\\) and found 2 damaged\\.'));
+    assert.match(got.mac.both, new RegExp('Kosmos checked its own files at this start \\(' + b.looked + ' files read\\) and found 2 damaged\\.'));
     assert.match(got.mac.both, /- projects\.json is blank, as a crash can leave a file \(it holds your projects, their tasks and who is on them\)\. Kosmos left it as it is\. A good copy saved [^ ]+ is at projects\.json\.recovered-/);
     assert.match(got.mac.both, /- removed\.json is empty \(it holds the agents you removed\)\. Kosmos left it as it is\. No good copy of it was found\./);
     assert.ok(!got.mac.both.includes(sb), 'a path reached what the agent reads');
@@ -145,7 +145,7 @@ test('kosmos#8865: CONTROL, after a clean start the read says checked, nothing d
     assert.equal(got.body.damaged, 0);
     assert.deepEqual(got.body.files, []);
     assert.equal(got.mac.code, 0, got.mac.both);
-    assert.match(got.mac.both, new RegExp('^Kosmos checked its own files at this start \\(' + got.body.looked + ' files?\\): none is damaged\\.$', 'm'));
+    assert.match(got.mac.both, new RegExp('^Kosmos checked its own files at this start \\(' + got.body.looked + ' files? read\\): none is damaged\\.$', 'm'));
     assert.doesNotMatch(got.mac.both, /found \d+ damaged/);
   } finally {
     fs.rmSync(sb, { recursive: true, force: true });

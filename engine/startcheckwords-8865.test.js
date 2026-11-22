@@ -25,9 +25,9 @@ test('kosmos#8865: no result is never read as fine', () => {
 
 test('kosmos#8865: a clean start says how many files and none damaged; CONTROL, one unread is not fine', () => {
   assert.deepEqual(renderLines({ ran: true, checked: true, damaged: 0, unread: 0, looked: 12, files: [] }),
-    ['Kosmos checked its own files at this start (12 files): none is damaged.']);
+    ['Kosmos checked its own files at this start (12 files read): none is damaged.']);
   assert.deepEqual(renderLines({ ran: true, checked: true, damaged: 0, unread: 0, looked: 1, files: [] }),
-    ['Kosmos checked its own files at this start (1 file): none is damaged.']);
+    ['Kosmos checked its own files at this start (1 file read): none is damaged.']);
   const unread = renderLines({ ran: true, checked: false, damaged: 0, unread: 2, looked: 10, files: [] }).join('\n');
   assert.doesNotMatch(unread, NONE_DAMAGED, 'files it could not look at were called fine');
   assert.match(unread, /could not look at 2 files or folders, so it cannot say those are fine/);
@@ -39,7 +39,7 @@ test('kosmos#8865: each damaged file says what it holds and what can be done, an
     FILE({ file: 'remote.json', holds: 'your Kosmos+ settings', problem: 'empty', says: 'is empty', secret: true }),
     FILE({ file: 'removed.json', holds: 'the agents you removed', problem: 'empty', says: 'is empty', savedOver: true }),
   ] });
-  assert.match(lines[0], /^Kosmos checked its own files at this start \(9 files\) and found 3 damaged\. It could not look at 1 other file or folder, so there may be more\.$/);
+  assert.match(lines[0], /^Kosmos checked its own files at this start \(9 files read\) and found 3 damaged\. It could not look at 1 other file or folder, so there may be more\.$/);
   assert.match(lines[1], /^- projects\.json is blank, as a crash can leave a file \(it holds your projects\)\. Kosmos left it as it is\. A good copy saved 2026-11-21T10:00:00\.000Z is at projects\.json\.recovered-x; the person can put it back in Kosmos\.$/);
   assert.match(lines[2], /^- remote\.json is empty \(it holds your Kosmos\+ settings\)\. Kosmos left it as it is\. It holds a key or something that can be taken back, so Kosmos keeps no copy of it\.$/);
   assert.match(lines[3], /^- removed\.json is empty \(it holds the agents you removed\)\. It has been saved since the start, so what it holds now is newer than what was found\. No good copy of it was found\.$/);
@@ -67,7 +67,7 @@ test('kosmos#8865: a dismissed list and a file already put back are said, never 
 
 test('kosmos#8865 review 1: every damaged file put back says so, and a malformed unchecked answer prints no false count', () => {
   const all = renderLines({ ran: true, checked: true, damaged: 2, unread: 0, looked: 5, restored: 2, dismissed: false, files: [] });
-  assert.deepEqual(all, ['Kosmos checked its own files at this start (5 files) and found 2 damaged.', 'All of them were put back from a good copy since the start.']);
+  assert.deepEqual(all, ['Kosmos checked its own files at this start (5 files read) and found 2 damaged.', 'All of them were put back from a good copy since the start.']);
   const odd = renderLines({ ran: true, checked: false, damaged: 0, unread: 0, looked: 5, files: [] }).join('\n');
   assert.doesNotMatch(odd, NONE_DAMAGED);
   assert.doesNotMatch(odd, /\b0 files or folders/, 'a false count of zero was printed');
@@ -107,4 +107,13 @@ test('kosmos#8865 review 6: a dismissed list is still named to an agent, file by
   assert.match(lines[2], /^- projects\.json is blank/);
   assert.match(lines[3], /^- removed\.json is empty/);
   assert.equal(lines.length, 4);
+});
+
+test('kosmos#8865 review 7: a dismissed file with a copy has it named, never offered; CONTROL, a listed one still offers it', () => {
+  const backup = { file: 'projects.json.recovered-x', at: '2026-11-21T10:00:00.000Z' };
+  const gone = renderLines({ ran: true, checked: true, damaged: 1, unread: 0, looked: 3, dismissed: true, files: [], hidden: [FILE({ backup })] });
+  assert.match(gone[2], /The copy saved 2026-11-21T10:00:00\.000Z is kept at projects\.json\.recovered-x\.$/);
+  assert.doesNotMatch(gone.join('\n'), /can put it back/);
+  const listed = renderLines({ ran: true, checked: true, damaged: 1, unread: 0, looked: 3, files: [FILE({ backup })] });
+  assert.match(listed[1], /the person can put it back in Kosmos\.$/);
 });

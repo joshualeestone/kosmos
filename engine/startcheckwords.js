@@ -19,7 +19,8 @@ function renderLines(r) {
     return ['Kosmos has no result from this start\'s check of its own files (it did not run, has not finished, or its answer could not be read), so it cannot say whether any is damaged.'];
   }
   const looked = Number.isInteger(r.looked) && r.looked >= 0 ? r.looked : null;
-  const seen = looked === null ? '' : ' (' + plural(looked, 'file', 'files') + ')';
+  // review 7: "read", since a locked or too-large file is not read but is still counted damaged below.
+  const seen = looked === null ? '' : ' (' + plural(looked, 'file', 'files') + ' read)';
   const unread = Number.isInteger(r.unread) && r.unread > 0 ? r.unread : 0;
   const damaged = Number.isInteger(r.damaged) && r.damaged > 0 ? r.damaged : 0;
   const lines = [];
@@ -54,13 +55,15 @@ function renderLines(r) {
     lines.push('Kosmos no longer holds the list of them for this start.');
     return lines;
   }
-  for (const f of files.concat(r.dismissed === true ? hidden : [])) {
+  const shown = files.map((f) => ({ f, gone: false })).concat((r.dismissed === true ? hidden : []).map((f) => ({ f, gone: true })));
+  for (const { f, gone } of shown) {
     if (!f || typeof f.file !== 'string') continue;
     let line = '- ' + f.file + ' ' + (typeof f.says === 'string' ? f.says : 'is damaged')
       + (typeof f.holds === 'string' ? ' (it holds ' + f.holds + ').' : '.');
     line += f.savedOver === true ? ' It has been saved since the start, so what it holds now is newer than what was found.' : ' Kosmos left it as it is.';
-    if (f.backup && typeof f.backup.file === 'string' && f.savedOver === true) {
-      // review 5: storecheck.restore refuses a store saved since the start, and the page then drops its Put back button.
+    if (f.backup && typeof f.backup.file === 'string' && (f.savedOver === true || gone)) {
+      /* review 5 and 7: restore refuses a store saved since the start, and one the person dismissed (it is no longer
+         on the page's list), so the copy is named, never offered. */
       line += ' The copy' + (typeof f.backup.at === 'string' ? ' saved ' + f.backup.at : '') + ' is kept at ' + f.backup.file + '.';
     } else if (f.backup && typeof f.backup.file === 'string') {
       line += ' A good copy' + (typeof f.backup.at === 'string' ? ' saved ' + f.backup.at : '') + ' is at ' + f.backup.file + '; the person can put it back in Kosmos.';

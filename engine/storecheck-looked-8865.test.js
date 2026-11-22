@@ -2,8 +2,8 @@
 
 /*
  * kosmos#8865 review round 1: the two states report() adds, tested on the real scan rather than on hand-built answers.
- * - `looked` and `unread` never overlap: a locked file is looked at (and named damaged), an unlistable folder is
- *   unread, and looked + unread is exactly what was planted.
+ * - `looked` and `unread` never overlap: a locked file is not counted as looked at (it is named damaged instead), an
+ *   unlistable folder is unread, and nothing is counted twice.
  * - `dismissed`: dismiss() sets it, report() carries it with the list emptied, and the next scan clears it.
  */
 
@@ -37,7 +37,7 @@ function plant() {
   return root;
 }
 
-test('kosmos#8865: a locked file is looked at and named, an unlistable folder is unread, and the counts never overlap', { skip: POSIX }, () => {
+test('kosmos#8865: a locked file is named, not counted as read; an unlistable folder is unread; the counts never overlap', { skip: POSIX }, () => {
   const root = plant();
   // CONTROL: before anything is locked, all three root files are looked at and the profile too, nothing unread.
   storecheck.scan({});
