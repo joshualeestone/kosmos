@@ -27,3 +27,9 @@ Related set (every test that loads engine/status.js or names antigravity): 268 f
 ## Next
 After #8873 merges: rebase this branch onto main (only its own commits), run the full validation, then the PR. Its
 diff against main is then only status.js, the test and this plan.
+
+## Round 3 (Ice Cream Kitty, fresh blind reviewer, own commits only): no blocker, no warning, two nits, neither taken
+- The pattern allows leading whitespace, so an indented automatic bracket in the agent's own tool output can count when
+  the queue prompt is also in the tail. The `[message from` arm already has that gap; this adds one string to it. Left
+  for a separate card if wanted (require the marker, or no indent), so this card stays one alternation.
+- The weakest premise is reasoned, not measured on a captured live pane; the plan already says so.
