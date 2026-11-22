@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: restartpattern-8866
-diff_hash: 74e17d54a4ea1240adae6c04173b985f83b05a6bcf494ee8482bc69257297484
-validation: passed (Agent1s, full suite twice on base equal to origin/main 21:0x CST: 30470 node tests 0 failed, 4 shell shards passed; run 1 red only on the #4273 temp-leak check from CLI test families this branch does not touch, gone on run 2)
+diff_hash: fb2eb5572b3a0c59ce9aafa2c27f22a6fd18ed31e24170fb5d0209c8dfc03192
+validation: PENDING (re-run after the round 8 change)
 subdir_audit: passed (no subdirectory CLAUDE.md changed)
-timestamp: 2026-11-22T03:04:24Z
-iterations: 7
+timestamp: 2026-11-22T06:51:27Z
+iterations: 8
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 7
-**Converged:** Yes. Rounds 6 and 7 returned no BLOCKER; round 6's two CONVENTIONs were fixed; round 7's one WARNING is the plan's named weakest premise (deferred with evidence below).
+**Iterations:** 8
+**Converged:** Yes. Round 8 (whole branch, after the cloud wording was added) returned no BLOCKER or WARNING. Rounds 6 and 7 returned no BLOCKER; round 6's two CONVENTIONs were fixed; round 7's one WARNING is the plan's named weakest premise (deferred with evidence below).
 **Total findings:** 2 BLOCKERs, 10 WARNINGs, 4 CONVENTIONs, plus NITs
 **Fixed:** 2 BLOCKERs, 8 WARNINGs, 2 CONVENTIONs | **Deferred:** 2 WARNINGs | **Asked:** 0
 
@@ -85,7 +85,7 @@ Outside review: Renet Tilley read head 576cfa93ab at 20:13 CST: no blocker, 42 p
 - [CONVENTION] install/setup.sh - "IF YOU ADD A SEVENTH" out of date --> FIXED
 - [CONVENTION] install/setup.sh - "the last two are #5359's" --> FIXED
 - [NIT] the Set dedupe is untested in isolation --> accepted (the guard arm covers the case a person meets)
-- [NIT] on a cloud machine "hardware or driver problem worth having looked at" --> DEFERRED: still true; the person raises it with whoever runs the machine. Rewording for cloud is a separate copy call.
+- [NIT] on a cloud machine "hardware or driver problem worth having looked at" --> FIXED after round 7 (11-22): on a cloud machine the line says Kosmos+ runs it; a browser-check cloud arm, red against the page before it
 - [NIT] dates use the browser locale inside an English sentence --> accepted (the board's other dates do the same)
 - [NIT] plan labels out of order --> FIXED
 
@@ -99,3 +99,12 @@ Outside review: Renet Tilley read head 576cfa93ab at 20:13 CST: no blocker, 42 p
 - [NIT] page hardcodes 3 --> accepted (engine enforces)
 - [NIT] "3 times on Nov 20" wording --> accepted (copy taste)
 - [CONVENTION] plan matches the code --> checked
+
+#### Iteration 8
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 1 CONVENTION, 3 NITs (whole branch read, including the cloud change)
+**Self-generated:** 0 of the above
+- [NIT] web/index.html - "there is nothing for you to fix" claims what the board cannot know --> FIXED ("its hardware is not yours to look after")
+- [NIT] web/index.html - "this machine" where the join ask says "it" --> FIXED ("Kosmos+ runs it for you", the join ask's words)
+- [NIT] engine/restartnote-8866.test.js:60 - the message named the wrong rule --> FIXED (names the last-alive rule; the Set only dedupes file entries)
+- [CONVENTION] docs/browser-checks/README.md:671 - the row omitted the #8866 arms --> FIXED
