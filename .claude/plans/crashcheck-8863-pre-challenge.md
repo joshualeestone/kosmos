@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: crashcheck-8863
-diff_hash: eea83f273622ddb79933ed4525ff951d89e131e8b3c4c2121af6059dd5894ec7
-validation: passed (Agent1s full suite through tools/queued-heavy.sh, head e069c1a05d on main cbffbf3438, 30479 tests 0 failed 582 skipped, all 15 kosmos#8863 tests passed; validation-log hash eea83f273622)
+diff_hash: 76f240156fe1edecea117856825bdbffdc01749e5f15dba192f8a4a687157884
+validation: passed (Agent1s full suite through tools/queued-heavy.sh at c373a6df6e, the branch with main 98738bea74 merged in (#8865), 30502 tests 0 failed 582 skipped, all 16 kosmos#8863 tests passed; validation-log hash 76f240156fe1. The first run, at e069c1a05d before #8865 landed, was 30479 tests 0 failed)
 subdir_audit: passed
-timestamp: 2026-11-22T07:05:56Z
+timestamp: 2026-11-22T08:02:32Z
 iterations: 8
 converged: true
 ---
@@ -98,6 +98,15 @@ tools/queued-heavy.sh (Splinter m5761: no Mortals or relay gate during the 0.8.1
 - [CONVENTION] plan present, weakest premises named, no em dashes in changed strings
 
 **Converged**: round 8 opened no BLOCKER; the 8-round cap applies (Splinter's usage rule).
+
+### After convergence: merged with #8865 (c373a6df6e)
+
+#8865 (98738bea74) changed engine/storecheck.js on main in the minute the hold lifted, and #8884 conflicted. Main was
+merged into the branch (not rebased, so the 9 reviewed commits stay as reviewed) and both kept: #8865's resets, looked
+count, RESTORED, HIDDEN and DISMISSED, beside #8863's log path, seen-log record and copy functions. One rule is new from
+the combination: a .jsonl counts as looked at when its tail was read (logTail returned a size). Test added in
+engine/storecheck-8863.test.js, red with that line set to false. #8865's author (Ice Cream Kitty) read the resolution:
+nothing to change. The full suite was then run again at the merged head (validation line above).
 
 ### Final Ledger
 
