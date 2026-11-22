@@ -30684,6 +30684,10 @@ const ACCT_MOVE_SHOW_MS = 2 * 60e3;   // a finished move's sentence stays two mi
 /* kosmos#8882 review 3: the model risks each row's menu DREW per target (key: from dir, newline, target dir), so the
    click compares against what the person was shown, not a recomputation from cards that may have changed since. */
 const ACCT_DRAWN_RISK = new Map();
+/* Review 8: the risks the LATEST paint worked out per row and target. A screen reader does not hear a live region that
+   a repaint inserts already filled, so for a kept pick a repaint that changed the words does not count as shown: the
+   shown entry above keeps what was last spoken (a pick's change handler, or a paint with the same words). */
+const ACCT_PAINT_RISK = new Map();
 const ACCT_PICK = new Map();          // the target picked in a row's menu, so a poll's repaint does not undo a half-made choice
 /* #6108: whether an account can take another account's agents in one move. One rule for the menu and for the check
    made again at the click (the menu can be a while old: Settings repaints when something is pressed). */
@@ -30934,7 +30938,12 @@ function acctUsageHtml(a, list) {
   const movingCards = sessions.map((n) => known.get(n) || { sessionName: n });
   const cardName = (c) => (c && (c.name || c.sessionName)) || 'an agent';
   const warnOf = (x) => acctModelWarn(x, movingCards, cardName, nameOf(x));
-  for (const x of targets) ACCT_DRAWN_RISK.set(a.dir + '\n' + x.dir, { risks: acctModelRisks(x, movingCards, cardName), label: nameOf(x) });
+  for (const x of targets) {
+    const k = a.dir + '\n' + x.dir, e = { risks: acctModelRisks(x, movingCards, cardName), label: nameOf(x), text: warnOf(x) };
+    ACCT_PAINT_RISK.set(k, e);
+    const shown = ACCT_DRAWN_RISK.get(k);
+    if (x.dir !== picked || !shown || shown.text === e.text) ACCT_DRAWN_RISK.set(k, e);   // review 8: a silent change under a kept pick is not shown
+  }
   const inWay = (x) => { const r = acctModelRisks(x, movingCards, cardName); return r.models.length ? 'a model limit is in the way' : r.unknown.length ? 'a model limit may be in the way' : ''; };   // review 2: "may" when only an unknown model is at stake
   /* The restart note describes the menu and the button, so a screen reader hears it before the click, not only after.
      Id from the dir's character codes: unique per dir, and safe in an attribute. */
@@ -32070,6 +32079,8 @@ async function paintAccounts(opts) {
     const warnP = box.querySelector('[data-acct-move-warn="' + CSS.escape(sel.dataset.acctMoveTo) + '"]');
     sel.addEventListener('change', () => {
       if (sel.value) ACCT_PICK.set(sel.dataset.acctMoveTo, sel.value); else ACCT_PICK.delete(sel.dataset.acctMoveTo); if (btn) btn.disabled = !sel.value;
+      /* Review 8: a pick speaks its warning (textContent below), so what this paint worked out for it is now shown. */
+      if (sel.value) { const k = sel.dataset.acctMoveTo + '\n' + sel.value; if (ACCT_PAINT_RISK.has(k)) ACCT_DRAWN_RISK.set(k, ACCT_PAINT_RISK.get(k)); }
       /* kosmos#8882: the picked target's model-limit warning (textContent: it is text, never markup). */
       if (warnP) { const opt = sel.selectedOptions && sel.selectedOptions[0]; warnP.textContent = (opt && opt.getAttribute('data-acct-warn')) || ''; }
     });

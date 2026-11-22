@@ -198,11 +198,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           moveText: (() => { const b = box('busy@example.com'); const btn = b && b.querySelector('[data-acct-move]'); return btn ? ratio(getComputedStyle(btn).color, getComputedStyle(btn).backgroundColor) : null; })() };
         const before = { arrive: read('arrive@example.com'), busy: read('busy@example.com'), fresh: read('fresh@example.com'), calm: read('calm@example.com'), key: read('key@example.com'), old: read('old@example.com'), def: read('default@example.com'), guideonly: read('guideonly@example.com'), full: read('full@example.com'), sleepy: read('sleepy@example.com') };
         const msgOf = (d) => { const e = document.querySelector('[data-acct-move-msg="' + d + '"]'); return e ? e.textContent.trim() : null; };
-        const runMove = async (email, toDir, expect, once) => {   // once: no forced second click (a move that ends at once would just start again)
+        const runMove = async (email, toDir, expect, once, keepPick) => {   // once: no forced second click (a move that ends at once would just start again); keepPick: click the pick already made (kosmos#8882 review 8)
           const b = box(email); const sel = b && b.querySelector('[data-acct-move-to]'); const btn = b && b.querySelector('[data-acct-move]');
           if (!sel || !btn) return null;
           const start = posts.length, requestsAt = window.__moveRequests || 0;
-          sel.value = toDir; sel.dispatchEvent(new Event('change'));
+          if (!keepPick) { sel.value = toDir; sel.dispatchEvent(new Event('change')); }
           const enabled = !btn.disabled;
           btn.click();
           /* Mid-move, repaint the list (as a poll would) and force a click on the freshly drawn button: the move guard,
@@ -361,6 +361,27 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         const clickSeen = lyCard ? await runMove('fablenear@example.com', '/home/.claude-fablefull', 1, true) : null;
         await paintAccounts();
         domWarn.clickChanged = clickChanged; domWarn.clickSeen = clickSeen;
+        /* Review 8: s-ly is on fablefull now. Pick fablenear (72%: its warning is spoken), then a repaint draws it full,
+           silently (a live region inserted filled is not heard): the click must count that as new. */
+        const pickNear = () => { const sl = box('fablefull@example.com') && box('fablefull@example.com').querySelector('[data-acct-move-to]'); if (sl) { sl.value = '/home/.claude-fablenear'; sl.dispatchEvent(new Event('change')); } return !!sl; };
+        let clickSilent = null, clickSpoken = null;
+        if (pickNear()) {
+          window.__acctPatch = { '/home/.claude-fablenear': { scoped: [{ model: 'Fable', usedPct: 100, resetsAt: Date.now() + 20 * 3600e3 }] } };
+          await paintAccounts();
+          clickSilent = await runMove('fablefull@example.com', '/home/.claude-fablenear', 0, true, true);
+          if (clickSilent) clickSilent.msg = msgOf('/home/.claude-fablefull');
+          /* And picked again (the full warning spoken by the change handler): it moves (CONTROL). */
+          await paintAccounts(); pickNear();
+          clickSpoken = await runMove('fablefull@example.com', '/home/.claude-fablenear', 1, true, true);
+          window.__acctPatch = null; await paintAccounts();
+        }
+        /* Review 8: a target that went full on its weekly AND on a model is refused for the account first. s-ly is on
+           fablenear now; fablesrc (drawn with room) turns full on both. */
+        window.__acctPatch = { '/home/.claude-fablesrc': { scoped: [{ model: 'Fable', usedPct: 100, resetsAt: Date.now() + 20 * 3600e3 }], weekly: { usedPct: 100, resetsAt: Date.now() + 50 * 3600e3, at: Date.now() }, bulkTargetable: false } };
+        const clickBoth = await runMove('fablenear@example.com', '/home/.claude-fablesrc', 0, true);
+        if (clickBoth) clickBoth.msg = msgOf('/home/.claude-fablenear');
+        window.__acctPatch = null; await paintAccounts();
+        domWarn.clickSilent = clickSilent; domWarn.clickSpoken = clickSpoken; domWarn.clickBoth = clickBoth;
         // Two minutes on, a repaint shows the row plain again.
         const st = ACCT_MOVE.get('/home/.claude-busy'); if (st) st.doneAt -= 3 * 60e3;
         await paintAccounts();
@@ -431,6 +452,10 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!dw.clickNear && dw.clickNear.requests === 1 && dw.clickNear.posts.length === 1 && dw.clickNear.posts[0].agent === 's-ly' && dw.clickNear.posts[0].dir === '/home/.claude-fablenear', tag + ' review 2 CONTROL: a near limit that only moved from 72% to 73% does not stop the click', JSON.stringify(dw.clickNear));
       say(!!dw.clickChanged && dw.clickChanged.requests === 0 && dw.clickChanged.msg === 'Nothing moved: on fablefull@example.com, the Fable limit is full for the week, so Ly<b>ra could not run there. Pick again.', tag + ' review 3: an agent whose model changed since the menu was drawn counts as new at the click', JSON.stringify(dw.clickChanged));
       say(!!dw.clickSeen && dw.clickSeen.requests === 1 && dw.clickSeen.posts.length === 1 && dw.clickSeen.posts[0].dir === '/home/.claude-fablefull', tag + ' review 3 CONTROL: drawn full and still full at the click, the warning was seen, so it moves', JSON.stringify(dw.clickSeen));
+      say(!!dw.clickSilent && dw.clickSilent.requests === 0 && dw.clickSilent.msg === 'Nothing moved: on fablenear@example.com, the Fable limit is full for the week, so Ly<b>ra could not run there. Pick again.', tag + ' review 8: a warning a repaint changed silently under a kept pick is not counted as heard', JSON.stringify(dw.clickSilent));
+      say(!!dw.clickSpoken && dw.clickSpoken.requests === 1 && dw.clickSpoken.posts.length === 1 && dw.clickSpoken.posts[0].dir === '/home/.claude-fablenear', tag + ' review 8 CONTROL: picked again, the full warning is spoken, and the click moves', JSON.stringify(dw.clickSpoken));
+      say(!!dw.clickBoth && dw.clickBoth.requests === 0 && dw.clickBoth.msg === 'Nothing moved: fablesrc@example.com cannot take it now. Pick another account.', tag + ' review 8: an account-level reason is said before a model one', JSON.stringify(dw.clickBoth));
+      say(!!busy && Array.isArray(busy.options) && busy.options.includes('fablefull@example.com (30% used, a model limit may be in the way)'), tag + ' review 8: agents of unknown model only: the option says a limit MAY be in the way', JSON.stringify(busy && busy.options));
       say(!!dw.before && dw.before.text === '' && dw.before.shown && !!dw.roomy && dw.roomy.text === '' && !!dw.placeholder && dw.placeholder.text === '' && dw.placeholder.shown && dw.spareOpt === 'spare@example.com (20% used)', tag + ' CONTROL: no pick, a roomy target, and back to the placeholder each leave the warning empty (and still in the page)', JSON.stringify([dw.before, dw.roomy, dw.placeholder, dw.spareOpt]));
       say(!!r.sleepyMove && r.sleepyMove.msg === 'Moved Zed (stopped). It is not running now.', tag + ' moving a stopped agent reads as moved, still stopped, through the route\'s real reply', JSON.stringify(r.sleepyMove));
       say(!!busy && busy.btnDisabled === true, tag + ' Move is disabled until a target is picked');
