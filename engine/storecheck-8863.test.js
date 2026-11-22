@@ -302,3 +302,16 @@ test('kosmos#8863: a dismissed log that is later rewritten shorter has its new d
   delete require.cache[require.resolve('./storecheck')];
   assert.equal(require('./storecheck').atStart({ base: root }, quiet).length, 1, 'new damage in a rewritten log was taken as already seen');
 });
+
+test('kosmos#8863 with #8865: a log whose tail was read is counted as looked at', () => {
+  const { root, sc } = fresh();
+  put(root, 'settings.json', '{"a":1}');
+  put(root, 'messages.jsonl', '{"a":1}\n');
+  put(root, 'created.jsonl', '{"a":1}\n');
+  sc.scan({ base: root });
+  assert.equal(sc.report().looked, 3, 'a log whose tail was read is left out of "checked N files"');
+  // The control: with one log removed, the count drops by one, so the count is of files actually read.
+  fs.unlinkSync(path.join(root, 'created.jsonl'));
+  sc.scan({ base: root });
+  assert.equal(sc.report().looked, 2);
+});

@@ -3940,6 +3940,37 @@ cmd_accounts() {
   if [ "$prc" -ne 0 ]; then say "Kosmos gave an answer we could not read about its accounts."; exit 1; fi
 }
 
+# ---- kosmos start-check  (kosmos#8865)
+# What this start's check of Kosmos's own files found (engine/storecheck.js report(), GET /api/board/start-check), in
+# engine/startcheckwords.js's words, which the Windows CLI's verbStartCheck prints too. After a crash restart an agent
+# read nothing of it and scanned the data folder by hand (feedback, 2026-11-21). The board token only: it is the
+# board's own state, the same for every agent.
+cmd_start_check() {
+  case "${1:-}" in -h|--help) say "Usage: kosmos start-check   (what this start's check of Kosmos's own files found: how many it looked at, which are damaged and what each holds, and whether a good copy is kept; it reads the board's answer and changes nothing)"; exit 0 ;; esac
+  [ $# -eq 0 ] || { say "Usage: kosmos start-check   (what this start's check of Kosmos's own files found: how many it looked at, which are damaged and what each holds, and whether a good copy is kept; it reads the board's answer and changes nothing)"; exit 2; }
+  if ! healthy; then say_not_up "it cannot say what this start's check found"; exit 1; fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
+  local _bt; _bt="$(board_token || true)"
+  local body rc=0 code
+  body=$(kosmos_curl "$_bt" "" -sS -m 15 -w $'\n%{http_code}' "$URL/api/board/start-check" 2>/dev/null) || rc=$?
+  if [ "$rc" -ne 0 ]; then say_unreached "read what this start's check found" "$rc"; exit 1; fi
+  code="${body##*$'\n'}"
+  body="${body%$'\n'*}"
+  local prc=0
+  printf '%s' "$body" | KOSMOS_HTTP_CODE="$code" "$_node" -e '
+    let renderLines; try { ({ renderLines } = require(process.argv[1])); } catch { process.exit(4); }   // a partial install: no stack trace, no path
+    let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+      let j = null; try { j = JSON.parse(s); } catch { j = null; }
+      const code = Number(process.env.KOSMOS_HTTP_CODE);
+      if (j && typeof j.error === "string" && code >= 400) { console.error("Kosmos refused that request: " + j.error.replace(/\.+$/, "") + "."); process.exit(3); }
+      if (code >= 400 || !j || typeof j !== "object" || Array.isArray(j)) process.exit(1);
+      for (const l of renderLines(j)) console.log(l);
+    });' "$(kosmos_engine_module startcheckwords).js" || prc=$?
+  if [ "$prc" -eq 3 ]; then exit 1; fi
+  if [ "$prc" -eq 4 ]; then say "Kosmos could not find its own reader for this start's check; this install looks incomplete."; exit 1; fi
+  if [ "$prc" -ne 0 ]; then say "Kosmos gave an answer we could not read about this start's check."; exit 1; fi
+}
+
 # ---- kosmos handoff [path ...]  (kosmos#6506)
 # Prefill the FACTS for your handoff so you do not reconstruct them by hand (and
 # get them stale): your live self-report state, a sha256 for each artifact path
@@ -6165,6 +6196,7 @@ kosmos_command_list() {
   printf '  kosmos handoff       print facts for your handoff: your live state, artifact fingerprints, instruction and git status\n'
   printf '  kosmos fingerprint   print the fingerprint of a file, or compare one with it, to check a handed-off copy (the dates and ID inside a PDF are left out)\n'
   printf '  kosmos connections   list the outside services and which are connected (--how: how connecting one works)\n'
+  printf '  kosmos start-check   say what Kosmos found when it checked its own files at this start (after a crash, read this rather than checking by hand)\n'
   printf '  kosmos accounts      list the provider accounts and whether each is signed in\n'
   printf '  kosmos whats-new     what changed in each version, and which fixes need your agents restarted\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
@@ -9209,6 +9241,7 @@ case "${1:-}" in
   away) shift; cmd_away "$@" ;;
   connections) shift; cmd_connections "$@" ;;
   accounts) cmd_accounts ;;
+  start-check) shift; cmd_start_check "$@" ;;   # kosmos#8865
   whats-new) shift; cmd_whats_new "$@" ;;   # kosmos#7411
   connect) shift; cmd_connect "$@" ;;
   room)    shift; cmd_room "$@" ;;

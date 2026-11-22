@@ -1407,6 +1407,33 @@ out="$(rt_e2e sprobe-capwhile KOSMOS_RUN_MARKER_DIR="$SMAXW" KOSMOS_NO_WAIT=0 KO
 { [ "$rc" -eq 1 ] && [ "$(cat "$SMAXW/asks" 2>/dev/null || echo 0)" -ge 2 ] && has "$out" "a test suite (tools/run-tests.sh) is already running" && ! has "$out" "an install harness"; } \
   && pass "#6334 a run already waiting obeys a suite-max written while it waits" \
   || fail "#6334 a waiting run ignored a suite-max written while it waited (rc=$rc, asks=$(cat "$SMAXW/asks" 2>/dev/null), $(printf '%s' "$out" | tail -2))"
+# kosmos#8870: suite-turns.log. CONTROL first: with no suite live and a cap of 1, a run takes its turn at once (no
+# wait), writes a took line, and its exit trap writes an ended line for the same pid (it stops at the coverage check in
+# this scratch tree). Then, beside one live suite under a cap of 1, a refused run writes no took line.
+printf '#!/bin/sh\nexit 1\n' > "$T/sprobe-none"; chmod +x "$T/sprobe-none"
+printf '#!/bin/sh\nexit 1\n' > "$T/hprobe-none"; chmod +x "$T/hprobe-none"
+TL="$T/turnlog"; mkdir -p "$TL"
+out="$(rt_e2e sprobe-none KOSMOS_HARNESS_PROBE="$T/hprobe-none" KOSMOS_RUN_MARKER_DIR="$TL" KOSMOS_SUITE_MAX=1)"; rc=$?
+_tk="$(grep -c ' took pid=' "$TL/suite-turns.log" 2>/dev/null || true)"; _en="$(grep -c ' ended pid=' "$TL/suite-turns.log" 2>/dev/null || true)"
+_tp="$(sed -n 's/.* took pid=\([0-9]*\) .*/\1/p' "$TL/suite-turns.log" 2>/dev/null | head -1)"; _ep="$(sed -n 's/.* ended pid=\([0-9]*\) .*/\1/p' "$TL/suite-turns.log" 2>/dev/null | head -1)"
+{ [ "$rc" -ne 0 ] && [ "$_tk" = 1 ] && [ "$_en" = 1 ] && [ -n "$_tp" ] && [ "$_tp" = "$_ep" ] \
+    && grep -q ' took pid=[0-9]* cap=1 head=' "$TL/suite-turns.log" && grep -q " ended pid=$_tp exit $rc\$" "$TL/suite-turns.log"; } \
+  && pass "#8870 CONTROL: alone under a cap of 1 a run takes its turn and logs its took and ended lines" \
+  || fail "#8870 a lone run did not log one took and one ended line for itself (rc=$rc, log: $(cat "$TL/suite-turns.log" 2>/dev/null | tr '\n' '|'), $(printf '%s' "$out" | tail -2))"
+: > "$TL/suite-turns.log"
+out="$(rt_e2e sprobe-live KOSMOS_HARNESS_PROBE="$T/hprobe-none" KOSMOS_RUN_MARKER_DIR="$TL" KOSMOS_SUITE_MAX=1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running" && ! grep -q ' took ' "$TL/suite-turns.log"; } \
+  && pass "#8870 beside one live suite under a cap of 1 a run is held and logs no turn" \
+  || fail "#8870 a held run logged a turn or was not held (rc=$rc, log: $(cat "$TL/suite-turns.log" 2>/dev/null | tr '\n' '|'))"
+# A release cut's own suite (it holds the machine claim, so it takes no queue turn) is logged as cap=claim, even beside
+# a live suite: it is the one full suite that may run beside others, so its overlap must show in the log.
+: > "$TL/suite-turns.log"
+printf 'CUT8870 %s %s host release x\n' "$$" "$(( $(date +%s) + 600 ))" > "$TL/machine-claim"
+out="$(rt_e2e sprobe-live KOSMOS_HARNESS_PROBE="$T/hprobe-none" KOSMOS_RUN_MARKER_DIR="$TL" KOSMOS_SUITE_MAX=1 KOSMOS_MACHINE_CLAIM_COOKIE=CUT8870)"; rc=$?
+{ grep -q ' took pid=[0-9]* cap=claim head=' "$TL/suite-turns.log" && grep -q ' ended pid=[0-9]* exit ' "$TL/suite-turns.log"; } \
+  && pass "#8870 a cut's own suite, holding the claim, logs its took (cap=claim) and ended lines" \
+  || fail "#8870 a claim-holding suite logged no turn (rc=$rc, log: $(cat "$TL/suite-turns.log" 2>/dev/null | tr '\n' '|'), $(printf '%s' "$out" | tail -2))"
+rm -f "$TL/machine-claim"
 kill "$SUITE2" 2>/dev/null; wait "$SUITE2" 2>/dev/null; SUITE2=""
 # #6334: the Mac-wide cap file lowers the limit for every run; junk in it reads as 1; it never raises the limit.
 SMAX="$T/smax"; mkdir -p "$SMAX"
