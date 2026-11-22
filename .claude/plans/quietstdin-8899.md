@@ -43,3 +43,5 @@ is the documented way for such a writer, and the refusal says so.
 - The helper's 5, 6 and 7 are internal; the verb exits 2 for each.
 - Weakest premise, widened: a report from a command slower than 3 seconds to start, or with a pause over 3 seconds,
   is refused with a pointer to --body-file rather than saved. That is the Windows behaviour, said more plainly.
+
+## Round 4 (sonnet, whole branch): nothing above nit. Converged.
