@@ -3940,6 +3940,25 @@ class KosmosLauncher
         return host == "127.0.0.1" || host == "localhost" || host == "[::1]";
     }
 
+    // #6916: a request the board window refuses before it leaves. The window keeps the board's sign-in cookie, scoped to
+    // the host and NOT the port (and SameSite does not help: another port on the same host is the same site), so any
+    // request the page starts to this computer on another port carried it there: a navigation, a fetch, an image, all
+    // measured. A dev site an agent runs here and links to would get the person's board session. So every request to
+    // this computer (127.0.0.1, localhost, [::1]) that is not the board itself is refused here, whatever its scheme. A
+    // request anywhere else is not this rule's business (the cookie is never sent there; links leave by the link rules).
+    internal static bool RefusedLoopbackRequest(string address, int port)
+    {
+        Uri uri;
+        if (!Uri.TryCreate(address ?? "", UriKind.Absolute, out uri)) return false;
+        // .NET Framework spells [::1] out in full (measured: [0000:...:0001]), so an address is read as an IP, not
+        // compared as text: IPAddress.IsLoopback is every 127.x and ::1. localhost (with or without its final dot) by name.
+        string host = uri.DnsSafeHost.ToLowerInvariant().TrimEnd('.');
+        System.Net.IPAddress ip;
+        bool loopback = host == "localhost" || (System.Net.IPAddress.TryParse(host, out ip) && System.Net.IPAddress.IsLoopback(ip));
+        bool board = uri.Scheme == Uri.UriSchemeHttp && uri.Port == port;
+        return loopback && !board;
+    }
+
     internal static void OpenInPersonsBrowser(string address)
     {
         OpenInPersonsBrowser(address, false);
@@ -4113,6 +4132,7 @@ class BoardWindowForm : System.Windows.Forms.Form
     readonly uint closeMessage;
     ICoreWebView2Controller controller;
     ICoreWebView2 webView;
+    ICoreWebView2Environment webEnvironment;   // #6916
     string boardAddress;
     bool navigatedToBoard;
     // The --print-url answer, asked again each time Kosmos.exe is opened while this window is up.
@@ -4299,6 +4319,7 @@ class BoardWindowForm : System.Windows.Forms.Form
     internal void EnvironmentReady(int hr, ICoreWebView2Environment environment)
     {
         if (hr != 0 || environment == null) { CouldNotHost("WebView2 would not start (0x" + hr.ToString("X8") + ")"); return; }
+        webEnvironment = environment;   // #6916: makes the refusal a request to another port gets
         environment.CreateCoreWebView2Controller(Handle, new ControllerCreated(this));
     }
 
@@ -4329,6 +4350,28 @@ class BoardWindowForm : System.Windows.Forms.Form
         }
         catch { /* downloads keep WebView2's defaults, unsaid */ }
         controller.add_AcceleratorKeyPressed(new AcceleratorKeyPressed(this), out token);   // #6882
+        // #6916: before any page loads, every request the page starts is seen here, and one to this computer on another
+        // port is refused before it leaves (RefusedLoopbackRequest). Only a window that runs its own board: a connect
+        // window's board is another computer, whose cookie this computer's ports never get. Both calls are in every
+        // WebView2 Runtime (the base interface), so a failure means WebView2 itself is not working: the window does not
+        // go on without the check, it closes before anything is shown and the board opens in the browser, as for any
+        // other start failure (CouldNotHost).
+        if (mode != KosmosLauncher.ComputerMode.Connect)
+        {
+            try
+            {
+                webView.add_WebResourceRequested(new WebResourceRequested(this), out token);
+                webView.AddWebResourceRequestedFilter("*", 0);   // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL
+            }
+            catch (Exception x)
+            {
+                try { controller.Close(); } catch { /* closing anyway */ }
+                controller = null;
+                webView = null;
+                CouldNotHost("WebView2 would not check this window's requests (" + x.Message + ")");
+                return;
+            }
+        }
         FitViewToWindow();
         controller.MoveFocus(0);
         if (mode == KosmosLauncher.ComputerMode.Connect) LoadConnect();
@@ -4663,6 +4706,25 @@ class BoardWindowForm : System.Windows.Forms.Form
     // starts. A computer that has not chosen (or whose choice cannot be read) keeps the older rule below:
     // its board and the window's own pages stay, anything else goes to the browser, and a scheme that is not
     // a web link is refused with the same box as a new-window link (review of #3285).
+    // #6916: a request the page starts to this computer on another port never leaves (RefusedLoopbackRequest): it is
+    // answered here with a 403 that carries nothing. NavigationStarting, below, still decides what is SHOWN; this
+    // decides what is SENT, which NavigationStarting cannot (WebView2 has sent a navigation by then, #6882).
+    internal void OnWebResourceRequested(ICoreWebView2WebResourceRequestedEventArgs args)
+    {
+        ICoreWebView2WebResourceRequest request;
+        args.get_Request(out request);
+        string uri;
+        request.get_Uri(out uri);
+        if (KosmosLauncher.RefusedLoopbackRequest(uri, port)) RefuseRequest(args);
+    }
+
+    internal void RefuseRequest(ICoreWebView2WebResourceRequestedEventArgs args)
+    {
+        ICoreWebView2WebResourceResponse refusal;
+        webEnvironment.CreateWebResourceResponse(IntPtr.Zero, 403, "Forbidden", "Content-Type: text/plain\r\nCache-Control: no-store", out refusal);
+        args.put_Response(refusal);
+    }
+
     internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)
     {
         string uri;
@@ -5639,6 +5701,22 @@ public class ControllerCreated : ICoreWebView2CreateCoreWebView2ControllerComple
     }
 }
 
+// #6916: every request the page starts, before it leaves (WebResourceRequested, with the "*" filter). A request to this
+// computer on another port gets a local 403 in place of going out (BoardWindowForm.OnWebResourceRequested). If the
+// request cannot be read, it is refused too: a check that cannot run must not let the request through.
+[ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+public class WebResourceRequested : ICoreWebView2WebResourceRequestedEventHandler
+{
+    readonly BoardWindowForm form;
+    internal WebResourceRequested(BoardWindowForm form) { this.form = form; }
+    public int Invoke(ICoreWebView2 sender, ICoreWebView2WebResourceRequestedEventArgs args)
+    {
+        try { form.OnWebResourceRequested(args); }
+        catch { try { form.RefuseRequest(args); } catch { /* nothing left to answer it with */ } }
+        return 0;
+    }
+}
+
 [ComVisible(true), ClassInterface(ClassInterfaceType.None)]
 public class NavigationStarting : ICoreWebView2NavigationStartingEventHandler
 {
@@ -6263,6 +6341,9 @@ public interface ICoreWebView2WebMessageReceivedEventHandler
 public interface ICoreWebView2Environment
 {
     void CreateCoreWebView2Controller(IntPtr parentWindow, ICoreWebView2CreateCoreWebView2ControllerCompletedHandler handler);
+    // #6916: WebView2.h, ICoreWebView2Environment's second method. Content is an IStream*, always null here.
+    void CreateWebResourceResponse(IntPtr content, int statusCode, [MarshalAs(UnmanagedType.LPWStr)] string reasonPhrase,
+        [MarshalAs(UnmanagedType.LPWStr)] string headers, out ICoreWebView2WebResourceResponse response);
 }
 
 [ComImport, Guid("4d00c0d1-9434-4eb6-8078-8697a560334f"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -6338,6 +6419,50 @@ public interface ICoreWebView2
     void _unused_GetDevToolsProtocolEventReceiver();
     void _unused_Stop();
     void add_NewWindowRequested(ICoreWebView2NewWindowRequestedEventHandler eventHandler, out long token);
+    // #6916: on through the WebResourceRequested slots, in WebView2.h's order (the same run ICoreWebView2_4 repeats).
+    void _unused_remove_NewWindowRequested();
+    void _unused_add_DocumentTitleChanged();
+    void _unused_remove_DocumentTitleChanged();
+    void _unused_get_DocumentTitle();
+    void _unused_AddHostObjectToScript();
+    void _unused_RemoveHostObjectFromScript();
+    void _unused_OpenDevToolsWindow();
+    void _unused_add_ContainsFullScreenElementChanged();
+    void _unused_remove_ContainsFullScreenElementChanged();
+    void _unused_get_ContainsFullScreenElement();
+    void add_WebResourceRequested(ICoreWebView2WebResourceRequestedEventHandler eventHandler, out long token);
+    void _unused_remove_WebResourceRequested();
+    void AddWebResourceRequestedFilter([MarshalAs(UnmanagedType.LPWStr)] string uri, int resourceContext);
+}
+
+// #6916: WebView2.h, ICoreWebView2WebResourceRequestedEventHandler.
+[ComImport, Guid("ab00b74c-15f1-4646-80e8-e76341d25d71"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2WebResourceRequestedEventHandler
+{
+    [PreserveSig] int Invoke(ICoreWebView2 sender, ICoreWebView2WebResourceRequestedEventArgs args);
+}
+
+// #6916: WebView2.h, ICoreWebView2WebResourceRequestedEventArgs, up to put_Response.
+[ComImport, Guid("453e667f-12c7-49d4-be6d-ddbe7956f57a"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2WebResourceRequestedEventArgs
+{
+    void get_Request(out ICoreWebView2WebResourceRequest request);
+    void _unused_get_Response();
+    void put_Response(ICoreWebView2WebResourceResponse response);
+}
+
+// #6916: WebView2.h, ICoreWebView2WebResourceRequest; only the address is read.
+[ComImport, Guid("97055cd4-512c-4264-8b5f-e3f446cea6a5"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2WebResourceRequest
+{
+    void get_Uri([MarshalAs(UnmanagedType.LPWStr)] out string uri);
+}
+
+// #6916: WebView2.h, ICoreWebView2WebResourceResponse; made by the environment and handed back untouched.
+[ComImport, Guid("aafcc94f-fa27-48fd-97df-830ef75aaec9"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2WebResourceResponse
+{
+    void _unused_get_Content();
 }
 
 [ComImport, Guid("e562e4f0-d7fa-43ac-8d71-c05150499f00"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]

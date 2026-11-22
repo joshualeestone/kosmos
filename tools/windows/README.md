@@ -95,6 +95,13 @@ WebView2 Runtime, pointed at the same local board.
   instead of opening a browser. The board answers with a session cookie, which the window
   keeps in its own web profile, `%LOCALAPPDATA%\Kosmos\WebView2`. A board restart ends that session (#6358); until
   Kosmos.exe answers the page's sign-in request, double-clicking Kosmos.exe again signs the window back in.
+- **The session stays on the board's own port (#6916).** A cookie belongs to a host, not a port, so
+  any request the page starts to this computer on another port (a link to a site an agent runs here,
+  a fetch, an image) would carry the person's board session there. The window sees every request
+  before it leaves (WebView2's `WebResourceRequested`) and answers one to 127.0.0.1, localhost or
+  ::1 on any other port or scheme with a local 403, so it never leaves. A connect window, whose board
+  is another computer, does not apply this. If WebView2 will not take the check, the window does not
+  open without it: the board opens in the browser instead.
 - **One window per board.** A second double-click brings the open window forward (restoring it if
   minimised) instead of opening another, and signs it in again with a fresh address from the same
   `--print-url` path, so opening Kosmos again also rescues a window that came up signed out. The
