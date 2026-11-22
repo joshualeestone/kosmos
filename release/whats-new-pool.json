@@ -1941,7 +1941,7 @@
     },
     {
       "title": "A closed task says how it closed",
-      "line": "The Tasks list and each task's page now say how a task closed: with a change, with a note, or without being marked built.",
+      "line": "The Tasks list and each task's page now say how a task closed: with a change, on a note, or without being marked built.",
       "icon": "tasks",
       "rank": 11,
       "since": "0.8.06",
@@ -1953,7 +1953,8 @@
       "icon": "chat",
       "rank": 11.2,
       "since": "0.8.06",
-      "status": "pending"
+      "status": "pending",
+      "notesOnly": true
     },
     {
       "title": "A new Cloud machine can be allowed",
