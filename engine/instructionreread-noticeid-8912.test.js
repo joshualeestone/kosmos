@@ -208,6 +208,7 @@ test('round 2: an agent that deletes its changes file does not reset the numberi
   const p = pass(D.PLACED);
   await ir.passOnce(p.o);
   assert.match(p.sent[0], /, under Notice 2 \(a pointer only/, 'a deleted file made the next notice Notice 1 again');
+  assert.ok(!/The entries above Notice 2/.test(p.sent[0]), 'the line pointed at earlier entries the file does not hold (round 4)');
   assert.match(fs.readFileSync(changesOf(f), 'utf8'), /Notice 1 is no longer in this file\. If you did not read it, read the sections its notice named in full\./);
   // CONTROL: a session start resets it.
   assert.equal(ir.rememberRead('ida'), true);
@@ -307,5 +308,8 @@ test('lineFor: no notice number keeps the old sentence; Notice 1 has no earlier-
   const one = ir.lineFor(['community'], { changesAt: '/w/x.md', notice: 1 });
   assert.match(one, /listed in \/w\/x\.md, under Notice 1 \(a pointer only/);
   assert.ok(!one.includes('earlier notices'));
+  // Round 4: Notice 3 with nothing carried says nothing about entries above it; with entries carried it does.
+  assert.ok(!/entries above/.test(ir.lineFor(['community'], { changesAt: '/w/x.md', notice: 3 })));
+  assert.match(ir.lineFor(['community'], { changesAt: '/w/x.md', notice: 3, carried: true }), /The entries above Notice 3 in that file are earlier notices/);
   assert.ok(!/"/.test(one.replace(/"The Kosmos\+ community"/, '')), 'a double quote in the line would be read as a section heading');
 });

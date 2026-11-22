@@ -17,12 +17,12 @@ A line that did not land deleted the whole file.
   whose sha256 equals the hash Kosmos keeps beside the `seen` copy in its own data folder), splits it into entries (`entriesOf`, by
   `## Notice N, written HH:MM on D Mon YYYY` at the start of a line; every diff line starts with + or -, so it cannot
   look like one), and writes the header, the earlier entries and a new entry numbered one past the last.
-  It returns `{ text, path, notice, previous, wrote }`.
+  It returns `{ text, path, notice, previous, wrote, carried }`.
 - Bound: the whole file, header and note included, is kept under `CHANGES_FILE_MAX` (4 x 32 KB) by dropping the oldest entries, and the file
   says which were removed and to read the sections their notices named in full.
 - Header: one new sentence: each notice since the session started has its own entry, oldest first; the notice names
   its entry; a later entry wins over an earlier one.
-- `lineFor(..., { notice })`: "listed in PATH, under Notice N (a pointer only: ...)"; from N = 2 a sentence after it:
+- `lineFor(..., { notice, carried })`: "listed in PATH, under Notice N (a pointer only: ...)"; when the file holds earlier entries (`carried`), a sentence after it:
   "The entries above Notice N in that file are earlier notices since you started: read one only if you have not." No
   double quotes (the #5304 reader).
 - `passOnce`: passes `prepared.notice` to the line; a line that did not land calls `restoreChanges(session,
@@ -93,3 +93,10 @@ each time pays more than before; the bound (128 KB) caps that.
 - Mutations after round 3, each red: overwrite as before (3), restore drops (4), restore ignores a start (1), no hash
   check (1), no size limit (1), unanchored heading (1), no bound (1), no earlier clause (1), counter ignored (5),
   blocking open (1), restore forgets the number (1), drop forgets the number (1).
+- Round 4 (sonnet): WARNING, from Notice 2 the line always said "the entries above Notice N", also when the file held
+  none (after a dropped or deleted file). Fixed: prepareChanges returns `carried` (earlier entries kept) and the
+  sentence needs it; the deleted-file test asserts the line has no such sentence, and lineFor is tested both ways. NIT
+  taken: a comment on the empty-string hash restoreChanges keeps. NITs not taken: a test over the note strings for the
+  heading claim (only Kosmos-written files are parsed, under the hash); the number is unbounded within a session (it
+  resets at every session start).
+- Mutations after round 4, each red: as after round 3, with no earlier clause (2) and carried always (1).

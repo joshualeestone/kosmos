@@ -554,6 +554,7 @@ function restoreChanges(session, previous, wrote) {
     /* Not this notice's file any more. A session start forgot the kept hash too, and then nothing is touched. Otherwise
        the agent or someone else changed the file: it is left as it is, and only the number goes back. */
     const k = readBody(session);
+    // The hash of '' can match no file Kosmos reads (every one starts with the title), so only the number is kept.
     if (k && k.hash === bodyHash(wrote)) rememberBody(session, '', before);
     return;
   }
@@ -713,7 +714,7 @@ function prepareChanges(session, now = new Date()) {
     // Review 1 BLOCKER (kosmos#7149): through securewrite, so a link planted in the agent's folder is never followed; 0600.
     require('./securewrite').writeSecret(p, body, 0o600, { atomicOnly: true, ownTempsOnly: true });
     rememberBody(session, body, notice);
-    return { text: got.text, path: p, notice, previous, wrote: body };
+    return { text: got.text, path: p, notice, previous, wrote: body, carried: earlier.length > 0 };
   } catch { return null; }
 }
 
@@ -888,7 +889,7 @@ function trueSectionsFor(session, sections) {
 }
 
 /* The one line for an agent's debt, naming every section it owes. */
-function lineFor(sections, { communityStopped = false, changesAt = null, notice = null } = {}) {
+function lineFor(sections, { communityStopped = false, changesAt = null, notice = null, carried = false } = {}) {
   const named = (Array.isArray(sections) ? sections : []).filter((s) => Object.prototype.hasOwnProperty.call(SECTIONS, s));
   if (!named.length) return null;
   const list = named.map((s) => (s === 'policy' ? policySection() : SECTIONS[s]));
@@ -920,7 +921,8 @@ function lineFor(sections, { communityStopped = false, changesAt = null, notice 
       // kosmos#8912 slice 2: the entry this notice is about, so an agent can tell whether it has read it.
       + (Number.isSafeInteger(notice) && notice > 0 ? ', under Notice ' + notice : '')
       + ' (a pointer only: still read the sections themselves; a line it marks + elsewhere is current too, and a line it marks - no longer applies, unless a note in it says where it went). '
-      + (Number.isSafeInteger(notice) && notice > 1 ? 'The entries above Notice ' + notice + ' in that file are earlier notices since you started: read one only if you have not. ' : '')
+      // Round 4: only when the file holds earlier entries (after a dropped or deleted file it holds none, and says so).
+      + (Number.isSafeInteger(notice) && notice > 1 && carried === true ? 'The entries above Notice ' + notice + ' in that file are earlier notices since you started: read one only if you have not. ' : '')
     : '';
   // Review 5: after the replaces sentence, so its "it" stays the instructions file, not the changes file.
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
@@ -1025,7 +1027,7 @@ async function passOnce(o) {
       if (!off.length && typeof o.prepareChanges === 'function') { try { prepared = o.prepareChanges(session); } catch { prepared = null; } }
       // Review 3: a line that names no changes file leaves none behind (a held section, or prepareChanges not reached).
       if (!(prepared && prepared.path) && typeof o.dropChanges === 'function') { try { o.dropChanges(session); } catch { /* the next start removes it */ } }
-      const line = lineFor(on, { communityStopped: stoppedNow, changesAt: prepared && prepared.path, notice: prepared && prepared.path ? prepared.notice : null });
+      const line = lineFor(on, { communityStopped: stoppedNow, changesAt: prepared && prepared.path, notice: prepared && prepared.path ? prepared.notice : null, carried: !!(prepared && prepared.path && prepared.carried) });
       /* kosmos#8416: the text the line is about, read before it is typed, so a block rewritten while it is sent keeps
          its old mark and is named when it is owed. */
       let toldText = prepared && typeof prepared.text === 'string' ? prepared.text : null;
