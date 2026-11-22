@@ -45,6 +45,9 @@ credential, on every regeneration; and a guard in CI fails if that ever stops be
    Each check has its own control (review round 1); dropping the billing clause from
    `blockBody` turns three arms red, and making discover.js splice other words turns the sweep red.
 
+   That board start really calls the writer for every agent is pinned by server.connections-refresh-1649.test.js
+   (it boots a board), so it is not repeated here (review round 8).
+
    What it cannot see: a writer running other code. And the guide is checked as `guideText()`, not as the
    `kosmos connections --how` output (connections.test.js covers the CLI printing it).
 2. Make no change to the writer: it already replaces whatever sits between the markers, so the next write from current

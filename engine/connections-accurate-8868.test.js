@@ -7,6 +7,9 @@
  * the features of the block before #4451 (2026-09-29): "there is no one-word verb that prints accounts, so it is a
  * direct read of" GET /api/accounts with the board token, and no Connections part at all. Current main writes neither.
  *
+ * That board start really rewrites every agent's block is pinned by server.connections-refresh-1649.test.js, which boots
+ * a board; this file does not repeat it.
+ *
  * This guards the block as current Kosmos writes it into an agent's file, and the repair of a file that already holds
  * the old text; connections.test.js pins the source wording. It cannot see a writer running other code (an older
  * Kosmos, or a board started from an old checkout), which is where the reported flip most likely came from; it makes
@@ -243,8 +246,8 @@ function connectionsMarkerNames(src) {
   return names;
 }
 
-/* The body a Connections splice must pass: the connections module's own blockBody(), by alias, inline require, a
-   destructured name, or bare inside a file that defines or imports it (connections.js imports it from the guide). */
+/* The body a Connections splice must pass: the connections module's own blockBody(), by alias, inline require, or
+   a bare name destructured from ./connections or ./connectionsguide (connections.js imports it from the guide). */
 function connectionsBodyOk(src, body) {
   const forms = [new RegExp('^' + CONN_REQUIRE + String.raw`\.blockBody\(\)$`)];
   for (const a of connectionsAliases(src)) forms.push(new RegExp('^' + a + String.raw`\.blockBody\(\)$`));
