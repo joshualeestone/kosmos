@@ -1455,10 +1455,10 @@
       ]
     },
     {
-      "title": "Several restarts in a week are said once",
-      "line": "When this computer restarts 3 or more times in a week while Kosmos is running, the restart note says so once, with the dates.",
+      "title": "The restart note says when restarts repeat",
+      "line": "When this computer has restarted at least 3 times in a week while Kosmos was running, the restart note says so, with the dates.",
       "icon": "shield",
-      "rank": 10.46,
+      "rank": 11.35,
       "since": "0.8.15",
       "status": "pending"
     },
