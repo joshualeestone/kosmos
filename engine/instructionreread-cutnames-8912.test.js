@@ -35,7 +35,7 @@ test('the cut note names the section it cut inside and every one after it, and n
   const [before, after] = texts([{ head: 'Alpha', n: 2 }, { head: 'Beta', n: 300 }, { head: 'Gamma', n: 1 }, { head: 'Delta', n: 1 }]);
   const d = ir.changedLines(before, after);
   assert.ok(withinCaps(d), 'over a cap');
-  assert.equal(lastLine(d), '[More changed than fits here. Not shown: the changes under "Beta"; "Gamma"; "Delta". Read those sections in full.]');
+  assert.equal(lastLine(d), '[More changed than fits here. Not shown: changes in "Beta"; "Gamma"; "Delta". Read those sections in full.]');
   assert.ok(d.includes('Under Alpha:'), 'the section shown whole was dropped');
   assert.ok(d.includes('Under Beta:'), 'the section it cut inside shows none of its lines');
   assert.ok(!d.includes('Under Gamma:'), 'a section after the cut was shown');
@@ -53,14 +53,14 @@ test('one section cut: the note says "that section"; a section named twice is li
   const before = '## Alpha\na\n## Beta\n' + Array.from({ length: 200 }, (_, k) => 'b' + k).join('\n') + '\nkeep\nlast\n';
   const after = '## Alpha\na\n## Beta\n' + Array.from({ length: 200 }, (_, k) => 'B' + k).join('\n') + '\nkeep\nLAST\n';
   const d = ir.changedLines(before, after);
-  assert.equal(lastLine(d), '[More changed than fits here. Not shown: the changes under "Beta". Read that section in full.]');
+  assert.equal(lastLine(d), '[More changed than fits here. Not shown: changes in "Beta". Read that section in full.]');
 });
 
-test('lines before the first heading are named as such', () => {
+test('the part before the first heading is named as such', () => {
   const before = Array.from({ length: 200 }, (_, k) => 'top' + k).join('\n') + '\n## After\nz\n';
   const after = Array.from({ length: 200 }, (_, k) => 'TOP' + k).join('\n') + '\n## After\nZ\n';
   const d = ir.changedLines(before, after);
-  assert.equal(lastLine(d), '[More changed than fits here. Not shown: the changes under the lines before the first heading; "After". Read those sections in full.]');
+  assert.equal(lastLine(d), '[More changed than fits here. Not shown: changes in the part before the first heading; "After". Read those sections in full.]');
 });
 
 test('long names: shown runs give way so the whole list fits, inside both caps', () => {
@@ -91,11 +91,30 @@ test('more than twelve left out: twelve names, then "and N more sections", and t
   const d = ir.changedLines(before, after);
   assert.ok(withinCaps(d));
   const names = ['"Big"', ...Array.from({ length: 11 }, (_, k) => '"S' + k + '"')];
-  assert.equal(lastLine(d), '[More changed than fits here. Not shown: the changes under ' + names.join('; ')
+  assert.equal(lastLine(d), '[More changed than fits here. Not shown: changes in ' + names.join('; ')
     + '; and 9 more sections. Read those, and every section the notice names, in full.]');
 });
 
-test('the changes file header says the note names the sections to read', () => {
-  const src = fs.readFileSync(path.join(__dirname, 'instructionreread.js'), 'utf8');
-  assert.ok(src.includes('If it ends with a note that more changed, it is not complete: that note names the sections to read in full.'));
+test('round 1 BLOCKER: one section cut by bytes stays inside both caps and still names it, at every line width', () => {
+  // One section of 300 changed lines: one run, so no run can give way, and the note must fit by its lines giving way.
+  let over = 0;
+  for (let width = 150; width <= 400; width += 1) {
+    const [before, after] = texts([{ head: 'B', n: 300, width }]);
+    const d = ir.changedLines(before, after);
+    if (!withinCaps(d)) { over += 1; continue; }
+    assert.equal(lastLine(d), '[More changed than fits here. Not shown: changes in "B". Read that section in full.]', 'width ' + width);
+    assert.ok(d.includes('Under B:'), 'width ' + width + ': no line of the section was kept');
+  }
+  assert.equal(over, 0, over + ' widths gave a file over a cap');
+});
+
+test('a cut file that cannot fit even one name ends with the plain note, inside both caps', () => {
+  // A 16 KB heading: its label and one line fit, but the label plus the same heading again in the note do not.
+  const head = 'H' + 'h'.repeat(16300);
+  const rows = (w) => Array.from({ length: 40 }, (_, k) => w + ' ' + k + ' ' + 'x'.repeat(600)).join('\n');
+  const before = '## ' + head + '\n' + rows('old') + '\n';
+  const after = '## ' + head + '\n' + rows('new') + '\n';
+  const d = ir.changedLines(before, after);
+  assert.ok(withinCaps(d), 'over a cap: ' + Buffer.byteLength(d) + ' bytes');
+  assert.equal(lastLine(d), '[More changed than fits here: read the sections the notice names.]');
 });

@@ -17,9 +17,10 @@ rules" is about 40 sections), so a cut sends the agent back through all of them.
   those sections in full.]` One name reads "that section"; the lines above the first heading are named as such; a
   section with two runs is named once.
 - The names make the note longer than the room kept for the plain note, so the whole is measured against both caps.
-  When it does not fit, the last shown run gives way (its section joins the list), down to one run; only then does
-  the list shorten, to at most `CUT_NAMES_MAX` (12) names and "and N more sections", which also tells the reader to
-  read every section the notice names.
+  While it does not fit, in order: the last shown run gives way (the first time that is the run it cut inside, already
+  named), down to one run; that run's lines give way from its end, down to one line; the list shortens to "and N more
+  sections" (at most `CUT_NAMES_MAX`, 12, names to start with), down to one name; and last, the plain note, whose room
+  is kept, so the file always fits.
 - The changes file header: "If it ends with a note that more changed, it is not complete: that note names the
   sections to read in full."
 
@@ -40,4 +41,13 @@ rules" is about 40 sections), so a cut sends the agent back through all of them.
   was rebuilt to need it.
 
 ## Review
-(rounds recorded below)
+- Round 1 (opus): BLOCKER, a single shown run could not give way, so the longer note pushed a byte-bound file over
+  32 KB (measured 56 widths over, worst by 65 bytes) and the list shortened to "1 more section", naming nothing.
+  Fixed: the run's lines give way, then the plain note. New test sweeps widths 150 to 400 (0 over), and a plain-note
+  fallback test. WARNING, the room comment was stale: rewritten. WARNING, no single-run test: added. NITs taken: the
+  header-sentence test only grepped source (removed; 7149's test reads the written file); "the lines before the first
+  heading" reworded to "the part before the first heading", and "the changes under" to "changes in"; the give-way order
+  is now listed in the comment. NIT not taken: a heading containing `"; "` makes the list ambiguous; headings are
+  Kosmos's own or the person's, and the list is read by an agent, not parsed.
+- Mutations after round 1, each red: partial run not named (5), no runs give way (1), no lines give way (1), no plain
+  fallback (1), no name cap (1), no dedupe (1), no singular (2).

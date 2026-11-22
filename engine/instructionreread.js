@@ -362,7 +362,8 @@ function changedLines(before, after, moved = null) {
   const out = [];
   let bytes = 0;
   let cut = false;
-  // Room is kept for the cut note (review 3), so a cut file stays inside both caps.
+  /* Room is kept for this plain cut note (review 3). kosmos#8912's note names sections and so can be longer: the end of
+     the function makes it fit, and falls back to this one when it cannot. */
   const NOTE = '[More changed than fits here: read the sections the notice names.]';
   /* Review 1: the moved note (kosmos#8743) is known before any output, so its room is kept too, and it goes before the
      cut note, so a cut file still ends with the more-changed note the header tells the reader to look for. */
@@ -415,37 +416,48 @@ function changedLines(before, after, moved = null) {
   if (!out.length) return null;
   if (!cut) { if (movedNote) out.push('', movedNote); return out.join('\n'); }
   /* kosmos#8912: the cut note names every section whose changes it left out (the run it cut inside, and every run after
-     it), so the reader re-reads those sections, not every section the notice names. The names make the note longer than
-     the room kept for it, so when the whole does not fit, the last shown run is left out too (its section joins the
-     list); only when one run is left does the list itself shorten, ending "and N more sections". */
-  const nameOf = (k) => (runs[k].head ? '"' + runs[k].head.replace(/^#+ /, '') + '"' : 'the lines before the first heading');
-  const namesFrom = (from) => [...new Set(runs.slice(from).map((r, k) => nameOf(from + k)))];
-  const cutNote = (names, more) => (!names.length && !more ? NOTE
-    : '[More changed than fits here. Not shown: the changes under ' + names.join('; ')
-      + (more ? (names.length ? '; and ' : '') + more + (more === 1 ? ' more section' : ' more sections') : '')
-      + '. Read ' + (more ? 'those, and every section the notice names,' : names.length === 1 ? 'that section' : 'those sections')
-      + ' in full.]');
-  const compose = (upTo, from, keep) => {
-    const names = namesFrom(from);
-    const parts = out.slice(0, upTo);
+     it), so the reader re-reads those sections, not every section the notice names. The names can make the note longer
+     than the room kept above, so the whole is measured against both caps, and while it does not fit, in this order:
+       1. the last shown run gives way (the first time, that is the run it cut inside, already named), down to one run;
+       2. that one run's lines give way from its end, down to one line (its section is then named);
+       3. the list shortens, ending "and N more sections", down to one name;
+       4. the plain note, whose room is kept above, so the file always fits. */
+  const nameOf = (k) => (runs[k].head ? '"' + runs[k].head.replace(/^#+ /, '') + '"' : 'the part before the first heading');
+  const namesFrom = (at) => [...new Set(runs.slice(at).map((r, k) => nameOf(at + k)))];
+  const cutNote = (names, more) => '[More changed than fits here. Not shown: changes in ' + names.join('; ')
+    + (more ? '; and ' + more + (more === 1 ? ' more section' : ' more sections') : '')
+    + '. Read ' + (more ? 'those, and every section the notice names,' : names.length === 1 ? 'that section' : 'those sections')
+    + ' in full.]';
+  let kept = out.slice();
+  let from = cutAt;
+  const compose = (note) => {
+    const parts = kept.slice();
     if (movedNote) parts.push('', movedNote);
-    parts.push('', cutNote(names.slice(0, keep), names.length - keep));
+    parts.push('', note);
     return parts.join('\n');
   };
+  const named = (keep) => { const names = namesFrom(from); return compose(cutNote(names.slice(0, keep), names.length - keep)); };
   const within = (t) => t.split('\n').length <= CHANGES_LINES_MAX && Buffer.byteLength(t) <= CHANGES_BYTES_MAX;
+  const fullKeep = () => Math.min(CUT_NAMES_MAX, namesFrom(from).length);
   const shown = [...startOf.keys()];
-  let upTo = out.length;
-  let from = cutAt;
-  let keep = Math.min(CUT_NAMES_MAX, namesFrom(from).length);
-  let text = compose(upTo, from, keep);
+  let text = named(fullKeep());
   while (!within(text) && shown.length > 1) {
     const k = shown.pop();
-    upTo = startOf.get(k);
+    kept = kept.slice(0, startOf.get(k));
     from = Math.min(from, k);
-    keep = Math.min(CUT_NAMES_MAX, namesFrom(from).length);
-    text = compose(upTo, from, keep);
+    text = named(fullKeep());
   }
-  while (!within(text) && keep > 0) { keep -= 1; text = compose(upTo, from, keep); }
+  // The one run left: '' , label, fence + 'diff', its lines, then its closing fence as the last entry of `kept`.
+  const only = shown[0];
+  const firstLine = startOf.get(only) + 3;
+  while (!within(text) && kept.length - 1 - firstLine > 1) {
+    kept.splice(kept.length - 2, 1);
+    from = Math.min(from, only);
+    text = named(fullKeep());
+  }
+  let keep = fullKeep();
+  while (!within(text) && keep > 1) { keep -= 1; text = named(keep); }
+  if (!within(text)) text = compose(NOTE);
   return text;
 }
 /* Before a line: the current file, and (when a copy of what the agent last read exists and differs) the path of the
