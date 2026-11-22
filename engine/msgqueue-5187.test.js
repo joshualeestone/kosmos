@@ -310,3 +310,26 @@ test('#5187 messages.send records queued: true and returns queued receipt', () =
   }
 });
 
+
+/* kosmos#8883: a line sent automatically for the person (kosmos#8864's bracket, messages.automaticWake) is queued above
+   the composer like any message, so it is counted too; before, three queued lines read as two. */
+test('kosmos#8883 antigravityQueued counts a queued line sent automatically', () => {
+  const auto = require('./messages').automaticWake('11:52 PM') + ' The box just rebooted.';
+  const mixed = [
+    '▸ [message from your colleague liukang · m4089] Johnny Cage: first',
+    '▸ ' + auto,
+    '▸ [message from your colleague liukang · m4097] Johnny Cage: second',
+    'Press up to edit queued messages',
+    '────────────────────────────────────────────────────────────────────────────────',
+    '>',
+  ].join('\n');
+  assert.deepEqual(status.antigravityQueued(mixed), { n: 3, yours: 0 }, 'the automatic line was not counted');
+  // CONTROL: the same lines without the queue prompt are not a queue.
+  assert.equal(status.antigravityQueued(mixed.replace('Press up to edit queued messages', '')), null);
+  // CONTROL: the colleague lines alone still read 2, so the count is not inflated.
+  assert.deepEqual(status.antigravityQueued(mixed.replace('▸ ' + auto + '\n', '')), { n: 2, yours: 0 });
+  // Round 1: the bracket with no time label (no timezone set), the ", not typed" shape, is counted too.
+  const bare = mixed.replace(auto, require('./messages').automaticWake() + ' hello');
+  assert.ok(bare.includes('[sent automatically on this computer, not typed'), 'fixture: the bare bracket is not in the pane');
+  assert.deepEqual(status.antigravityQueued(bare), { n: 3, yours: 0 }, 'the bracket with no time label was not counted');
+});
