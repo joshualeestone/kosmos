@@ -31,9 +31,13 @@
 - Review 3: the check is indexed in docs/browser-checks/README.md (browser-checks-indexed.test.js); the design-shots
   screen uses the file's own editProjects helper (GET only, fetch and answer inside one try: the #6022 teardown guard).
   With those tests, the wiring test, both starter tests and the two lints: 47 of 47.
-- engine/starter-8832.test.js's scan for writers of the seed mark now leaves out docs/browser-checks/ (the design-shots
-  screen stubs a Kosmos-made project in a page answer and writes no store); a planted second writer in engine/ still
-  turns it red.
+- engine/starter-8832.test.js's scan for writers of the seed mark now leaves out docs/browser-checks/mobile-shots.js only
+  (its starter screen stubs a Kosmos-made project in a page answer and writes no store); a planted second writer in
+  engine/ still turns it red.
+- Review 4: web.room-761.test.js pinned the empty-Tasks statement as exactly two arms; it now reads the statement whole,
+  with the same strength (the done-only and plain sentences present, every paragraph a tk-empty sentence, no blank arm;
+  a blanked done-only arm turns it red).
+- Every page-reading and browser-check meta test, both starter tests and the two lints: 482 files, 3,993 of 3,993.
 
 ## Deferred, not missed (review 1)
 - The scoped Tasks view behind View All says "No tasks match." for this project, and the iPhone app's Tasks screen says
