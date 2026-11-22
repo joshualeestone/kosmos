@@ -3947,6 +3947,8 @@ class KosmosLauncher
     // computer that is not the board itself is refused here, whatever its scheme: localhost by name, and any address
     // IPAddress.IsLoopback calls loopback (every 127.x, ::1). In the window only requests the filters let through reach
     // this (addresses naming 127.0.0.1, localhost or [::1]; ControllerReady), so 127.0.0.2 never does, and need not.
+    // "The board" here is plain http on the board's port at any loopback host, wider than IsBoardAddress (127.0.0.1,
+    // localhost, [::1] only); not a leak, as the cookie is host-only on 127.0.0.1 and never sent to another spelling.
     // That covers the one host the cookie is ever sent to,
     // 127.0.0.1, in every spelling Uri reads as it (127.1, 2130706433, 0x7f.1). Other ways to reach this computer
     // (foo.localhost, ::ffff:127.0.0.1, 0.0.0.0) are not refused, and need not be: the cookie is host-only on 127.0.0.1,
@@ -4382,7 +4384,8 @@ class BoardWindowForm : System.Windows.Forms.Form
         // own board: a connect window can become one while it is open (RunAgentsHere, PageChoseMode), and loads this
         // computer's board in the same view. The filter holds only addresses that name this computer (WebView2 holds a
         // filtered request's body, measured: a 50 MB upload took 0.7 s, not 0.1 s), so a connect window's uploads to
-        // its board elsewhere are never held. They are substrings, not host patterns, so an address with a user part
+        // its board elsewhere are not held (unless their address happens to contain one of those names; such a request
+        // is held, and then let through). They are substrings, not host patterns, so an address with a user part
         // (x@127.0.0.1) still matches; Chromium writes 127.1 or 2130706433 as 127.0.0.1 first (measured). Both calls are
         // in every WebView2 Runtime (the base interface), so a failure means WebView2 itself is not working: the window
         // does not go on without the check, it closes before anything is shown and the board opens in the browser.

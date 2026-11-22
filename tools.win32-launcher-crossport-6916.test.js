@@ -63,7 +63,6 @@ test('#6916: the window wires the request check before any page loads, in every 
 });
 
 test('#6916: a request to this computer on another port is answered with a local 403; one that cannot be read is refused too', () => {
-  const on = between('internal void OnWebResourceRequested(', '\n    }\n');
   // Review 5: the calls and their order, not their layout.
   const order = (text, calls, what) => {
     let at = -1;
@@ -80,6 +79,21 @@ test('#6916: a request to this computer on another port is answered with a local
   const handler = between('public class WebResourceRequested :', '\n}\n');
   assert.match(handler, /try \{ form\.OnWebResourceRequested\(args\); \}\s*catch \{ try \{ form\.RefuseRequest\(args\); \}/, 'a request the check could not read is let through');
   assert.match(between('internal void EnvironmentReady(', '\n    }\n'), /webEnvironment = environment;/, 'the environment that makes the refusal is not kept');
+});
+
+test('#6916: the board\'s service worker never sends a request to another origin itself (the hook cannot see it if it does)', () => {
+  /* Review 6: AddWebResourceRequestedFilter sees requests from documents only. A page fetch or image the board's worker
+     passes on (no respondWith) falls back to the network as the page's request, which the hook sees and refuses
+     (measured, rig-sw.js). If sw.js ever answers another origin's request itself (respondWith(fetch(...)), a common
+     "network first for everything" change), that request goes out as the WORKER's, unseen, carrying the session to
+     another port. Such a change needs the ICoreWebView2_22 filter with SOURCE_KINDS_ALL first. */
+  const sw = fs.readFileSync(path.join(REPO, 'web', 'sw.js'), 'utf8');
+  const fetchHandler = sw.slice(sw.indexOf("self.addEventListener('fetch'"));
+  assert.ok(fetchHandler.length > 0, 'web/sw.js has no fetch handler to check');
+  const leaves = fetchHandler.indexOf('if (url.origin !== self.location.origin) return;');
+  assert.ok(leaves > 0, 'web/sw.js no longer passes on every request to another origin: the board window\'s cross-port check (#6916) would not see it; add the ICoreWebView2_22 SOURCE_KINDS_ALL filter first');
+  const firstAnswer = fetchHandler.indexOf('respondWith(');
+  assert.ok(firstAnswer === -1 || firstAnswer > leaves, 'web/sw.js answers a request before it has passed on other origins');
 });
 
 test('#6916: the COM declarations follow WebView2.h', () => {
