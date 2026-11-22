@@ -2383,7 +2383,7 @@
     {
       "since": "0.8.11",
       "status": "pending",
-      "title": "Starring an agent shines",
+      "title": "A starred agent stands out",
       "icon": "spark",
       "rank": 9.6,
       "line": "A starred agent's star is solid bright gold now, with a small burst of sparks when you star it."
@@ -2489,7 +2489,7 @@
     {
       "since": "0.8.12",
       "status": "pending",
-      "title": "A phone's first-run shows the code box",
+      "title": "On a phone, the Claude code box comes into view",
       "icon": "phone",
       "rank": 9.8,
       "line": "On a phone, a Kosmos Cloud machine's first Claude sign-in scrolls the box for the Claude code into view, with a fade while more is below."
