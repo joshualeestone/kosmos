@@ -25,6 +25,13 @@ Why it matters: agents run dev sites on 127.0.0.1 ports and post links to them; 
 - `tools.win-launcher-native.test.js`: its WebView2 interface table gains the new interfaces and slots.
 - Live: the rig against the signed build shows fetch 0, img 0 and navigation 0 requests reaching the other port; same-folder control with the original exe: all three YES; the board's own requests still go with the session.
 
+## Measured in challenge review 2 (rig variants in work/trial-6916)
+
+- **Long addresses (BLOCKER, fixed):** .NET Framework's `Uri` will not parse an address over about 65,500 characters, and Chromium sends up to 2 MB. The first version let an unparseable address through. A control against that code confirms it: a 70k `http://127.0.0.1:3000/?...` was not refused. Now an unparseable address is read by where it goes (`scheme://host:port`). Whatever still cannot be read is refused, except the window's own `about:`, `data:` and `blob:` pages.
+- **Redirects:** `rig-redirect.js` runs a listener on this computer's LAN address that answers 302 to `http://127.0.0.1:<other>/`. With the original exe (control), the redirected img and fetch reached the other port WITH the session cookie. With the fix: 0 and 0. So WebResourceRequested sees redirected requests, and they are refused too. (The redirected navigation did not arrive in either run: NavigationStarting cancels it.)
+- **Upload cost (accepted):** `rig-upload.js` sends a 50 MB POST from the page to the board. It took 110 ms and 139 ms with the original exe, and 753 ms and 710 ms with the fix: WebView2 buffers a filtered request's body. The filter cannot leave out the board's own port (its patterns are wildcards, and the board is on the same host), so every board upload pays this. A 100 MB attachment takes about 1.5 s instead of about 0.3 s. Accepted for the session never leaving.
+- **A clicked link to a dev site still opens in the person's browser:** NavigationStarting still runs for a refused navigation. In every fixed run the window kept showing the board page, not the 403. That is NavigationStarting cancelling it, the same decision that sends a clicked link to the browser (ConnectLinkDecision: Browser). Not driven with a real click, to avoid opening tabs in the person's browser on this box.
+
 ## Measured along the way
 
 - .NET Framework's `Uri.Host` spells `[::1]` in full (`[0000:...:0001]`), so loopback is decided by parsing the address, never by comparing text. (`IsBoardAddress` compares text, so it never matches an IPv6 board address; out of scope here, and the board is loaded at 127.0.0.1.)

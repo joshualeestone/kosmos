@@ -3951,7 +3951,20 @@ class KosmosLauncher
     internal static bool RefusedLoopbackRequest(string address, int port)
     {
         Uri uri;
-        if (!Uri.TryCreate(address ?? "", UriKind.Absolute, out uri)) return false;
+        if (!Uri.TryCreate(address ?? "", UriKind.Absolute, out uri))
+        {
+            // Review 2: .NET Framework's Uri will not parse an address over about 65,500 characters (measured), and
+            // Chromium sends up to 2 MB, so http://127.0.0.1:3000/?<70k> must not pass as unreadable. Only the part that
+            // says where the request goes is read then (scheme://host:port); an address whose destination still cannot
+            // be read is refused. The window's own pages (about:, data:, blob:) are not requests to anywhere.
+            string a = address ?? "";
+            if (a.StartsWith("about:", StringComparison.OrdinalIgnoreCase) || a.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+                || a.StartsWith("blob:", StringComparison.OrdinalIgnoreCase)) return false;
+            int from = a.IndexOf("://", StringComparison.Ordinal);
+            if (from <= 0) return true;
+            int end = a.IndexOfAny(new[] { '/', '?', '#', '\\' }, from + 3);
+            if (!Uri.TryCreate((end < 0 ? a : a.Substring(0, end)) + "/", UriKind.Absolute, out uri)) return true;
+        }
         // .NET Framework spells [::1] out in full (measured: [0000:...:0001]), so an address is read as an IP, not
         // compared as text: IPAddress.IsLoopback is every 127.x and ::1. localhost (with or without its final dot) by name.
         string host = uri.DnsSafeHost.ToLowerInvariant().TrimEnd('.');

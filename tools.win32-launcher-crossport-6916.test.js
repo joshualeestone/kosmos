@@ -46,7 +46,8 @@ test('#6916: the window wires the request check before any page loads, in every 
   assert.ok(ready.indexOf('webView.AddWebResourceRequestedFilter("*", 0);') > wired, 'the filter is not "*" for every resource context');
   // Review 1: never gated on the starting mode. A connect window can become one that runs this computer's board while it
   // is open (RunAgentsHere, PageChoseMode) and loads it in the same view, which would then go unchecked.
-  const wiring = ready.slice(ready.lastIndexOf('// #6916', wired), wired);
+  // Review 2: from the top of ControllerReady, so a mode check wrapped around the comment and the calls together counts.
+  const wiring = ready.slice(0, wired);
   assert.doesNotMatch(wiring, /ComputerMode|\bmode\b\s*[!=]=/, 'the check is gated on the window\'s mode');
   const failed = ready.slice(ready.indexOf('catch (Exception x)', wired));
   assert.match(failed, /controller\.Close\(\);[\s\S]*controller = null;[\s\S]*CouldNotHost\(/, 'a window that cannot wire the check does not close');
@@ -98,7 +99,9 @@ test('#6916: RefusedLoopbackRequest refuses this computer on any other port or s
     fs.writeFileSync(probeSource, [
       'class CrossPortProbe {',
       '  static int Main(string[] a) {',
-      '    System.Console.Write(KosmosLauncher.RefusedLoopbackRequest(a.Length > 0 ? a[0] : null, 16180));',
+      // An address too long for a command line (Windows caps it near 32k) comes in a file: @<path>.
+      '    string address = a.Length == 0 ? null : a[0].StartsWith("@") ? System.IO.File.ReadAllText(a[0].Substring(1)) : a[0];',
+      '    System.Console.Write(KosmosLauncher.RefusedLoopbackRequest(address, 16180));',
       '    return 0;',
       '  }',
       '}',
@@ -118,10 +121,25 @@ test('#6916: RefusedLoopbackRequest refuses this computer on any other port or s
       'http://127.0.0.2:16301/']) {
       assert.equal(refused(other), 'True', other + ' would carry the board session out (or is this computer anyway)');
     }
-    // Everywhere else: not this rule's business (the cookie is never sent there).
-    for (const elsewhere of ['https://installkosmos.com/', 'https://example.com:16180/', 'http://10.0.0.5:16301/', 'about:blank', 'data:text/html,x', 'not a url', '']) {
+    // A loopback alias on the board's own port is let through by design: the cookie belongs to the board's host
+    // only (127.0.0.1), so another spelling of this computer on that port never gets it.
+    for (const alias of ['http://127.0.0.2:16180/', 'http://[::1]:16180/x']) assert.equal(refused(alias), 'False', alias + ' on the board\'s port');
+    // Everywhere else: not this rule's business (the cookie is never sent there). The window's own pages included.
+    for (const elsewhere of ['https://installkosmos.com/', 'https://example.com:16180/', 'http://10.0.0.5:16301/', 'about:blank', 'data:text/html,x',
+      'blob:http://127.0.0.1:16180/1b2c']) {
       assert.equal(refused(elsewhere), 'False', elsewhere + ' is not this computer\'s board host');
     }
-    assert.equal(refused(null), 'False', 'no address');
+    // Review 2: an address .NET's Uri cannot parse (over about 65,500 characters, measured; Chromium sends up to 2 MB) is
+    // read by where it goes, not let through as unreadable.
+    const longFile = (address) => { const f = path.join(base, 'long-' + Math.random().toString(36).slice(2) + '.txt'); fs.writeFileSync(f, address); return '@' + f; };
+    const tail = '?' + 'a'.repeat(70000);
+    assert.equal(refused(longFile('http://127.0.0.1:3000/' + tail)), 'True', 'a 70k address to another port slips through as unreadable');
+    assert.equal(refused(longFile('http://localhost:5173' + tail)), 'True', 'a 70k address with no path');
+    assert.equal(refused(longFile('http://127.0.0.1:16180/' + tail)), 'False', 'a 70k request to the board itself is the board');
+    assert.equal(refused(longFile('https://example.com/' + tail)), 'False', 'a 70k address elsewhere is not this rule\'s business');
+    assert.equal(refused(longFile('data:text/html,' + 'x'.repeat(70000))), 'False', 'a long data: page is the window\'s own');
+    // Whatever still cannot be read is refused (fail closed): never let through as unreadable.
+    for (const unreadable of ['not a url', '', 'http://', 'http:///x']) assert.equal(refused(unreadable), 'True', JSON.stringify(unreadable) + ' is let through');
+    assert.equal(refused(null), 'True', 'no address is let through');
   } finally { fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
