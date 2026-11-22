@@ -7195,8 +7195,10 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
        not driven live here. */
     setvbuf(stdout, nil, _IONBF, 0)
     /* Above the worst case of a run where NOTHING saves (each expected-file wait, 5s, runs out, then the 20s
-       settle: well under 300s), so a product that saves nothing is judged, not timed out. The three refused-folder
-       waits (refusedWaitSeconds each, kosmos#8879) count toward it too. */
+       settle: well under 300s), so a product that saves nothing is judged, not timed out. The 5s is nominal: it is
+       counted in 0.1s polls, which ran over twice as long on Agent1s. The three refused-folder waits
+       (refusedWaitSeconds each, kosmos#8879) count toward it too: a run where nothing saved and they all ran out
+       measured 215s on Agent1s, 11-21. */
     let dl = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-\(getpid())")
     AppDelegate.keptStoreForSelftest = [:]   // kosmos#8121: the kept list in memory for this run, never on disk
     AppDelegate.accountListForSelftest = { _, done in done(.onAccount) }   // kosmos#8121: every computer on the account unless a row says not
