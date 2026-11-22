@@ -97452,6 +97452,7 @@ setInterval(ageCheckedStamp, 1000);
     // #6254 review 3: not while a kind press is in flight, so its answer cannot land in a block this press just hid.
     if (busy || kindBusy || !current || !current.available || (!current.connected && !current.on)) return Promise.resolve(false);
     busy = true;
+    kindErr(null);   // #6254 review 4: a master press clears an old row error too
     var want = !current.on;
     var btn = el('phone-notify-toggle');
     if (btn) btn.disabled = true;
@@ -97528,7 +97529,7 @@ setInterval(ageCheckedStamp, 1000);
     }
     load();
     // #6488: back on the page (another tab, the Mac woke): the state may have changed without a press.
-    document.addEventListener('visibilitychange', function () { if (!document.hidden && !busy) load(); });
+    document.addEventListener('visibilitychange', function () { if (!document.hidden && !busy && !kindBusy) load(); });   // #6254 review 4: not over a kind press
     registerServiceWorker();
   }
   if (document.readyState === 'loading') {

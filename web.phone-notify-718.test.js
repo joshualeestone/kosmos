@@ -56,6 +56,7 @@ function load(opts) {
     calls.fetch.push({ url, method, body: init && init.body ? JSON.parse(init.body) : null });
     if (opts.fetchFails) return Promise.reject(new Error('offline'));
     if (opts.putFails && method === 'PUT') return Promise.reject(new Error('offline'));   // #6254 review 3: only the PUT fails
+    if (opts.putHangs && method === 'PUT') return new Promise(() => {});   // #6254 review 4: a PUT that never answers
     if (method === 'PUT') {
       if (opts.putError && !(opts.putErrorOnce && calls.fetch.filter((c) => c.method === 'PUT').length > 1)) return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error: opts.putError }) });
       const put = JSON.parse(init.body);
@@ -287,6 +288,23 @@ test('#6254 review 3: a kind press that cannot reach the board shows its error u
   h.kindBtn('ready')._click(); await flush();
   assert.equal(h.kindErr('ready').textContent, 'That did not work. Please try again.', 'an offline press did not show its error under its own row');
   assert.notEqual(h.msg.textContent, 'That did not work. Please try again.', 'an offline press still wrote to the master line');
+});
+
+test('#6254 review 4: while a kind press is in flight the master does not start, and while the master is in flight no kind press starts', async () => {
+  const h = load({ state: { on: true }, putHangs: true });
+  h.domHandlers.DOMContentLoaded(); await flush();
+  h.kindBtn('ready')._click(); await flush();
+  h.btn._click(); await flush();
+  const puts = h.calls.fetch.filter((c) => c.method === 'PUT');
+  assert.equal(puts.length, 1, 'the master started while a kind press was in flight: ' + JSON.stringify(puts.map((p) => p.body)));
+  assert.deepEqual(puts[0].body, { kind: 'ready', on: false });
+  const h2 = load({ state: { on: true }, putHangs: true });
+  h2.domHandlers.DOMContentLoaded(); await flush();
+  h2.btn._click(); await flush();
+  h2.kindBtn('ready')._click(); await flush();
+  const puts2 = h2.calls.fetch.filter((c) => c.method === 'PUT');
+  assert.equal(puts2.length, 1, 'a kind press started while the master was in flight: ' + JSON.stringify(puts2.map((p) => p.body)));
+  assert.deepEqual(puts2[0].body, { on: false });
 });
 
 test('#6254: turning the master off hides the sub-switches again', async () => {
