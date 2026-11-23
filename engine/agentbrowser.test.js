@@ -113,8 +113,8 @@ test('#8929 a temp folder inside a run root marks a test run; CONTROL: a plain t
   assert.equal(ab.inKtRunRoot('/var/TEMP/kt3'), false, 'CONTROL: the machine-wide rule is case-sensitive, nothing wider');
   assert.equal(ab.inKtRunRoot(undefined), false, 'CONTROL: no temp folder');
   assert.equal(ab.isInstalled(), true, 'fixture: the earlier test installed the fake tree');
-  /* This process IS a test and its runners folder IS sandboxed: it writes, whatever the caller's env says. */
-  assert.equal(ab.launchConfig({ platform: 'win32', node: 'C:\\T\\node.exe', env: { KOSMOS_TEST_RUN: '/tmp/kt1' } }), ab.configPath(),
+  /* This process IS a test and its runners folder IS sandboxed: it writes. */
+  assert.equal(ab.launchConfig({ platform: 'win32', node: 'C:\\T\\node.exe', env: {} }), ab.configPath(),
     'a sandboxed test run was refused');
 });
 
@@ -242,14 +242,17 @@ test('#8929 the shim inside a test run leaves the fallback config untouched; CON
   const storeOnly = path.join(plainTmp, 'run-sub');
   fs.mkdirSync(storeOnly, { recursive: true });
   const byStore = run({ KOSMOS_TEST_RUN: plainTmp, TMPDIR: storeOnly });
+  assert.equal(byStore.status, 0, 'the shim exited');
   assert.equal(byStore.stdout.trim(), '', 'a run-tests.sh child with no kt folder asked for a config');
   assert.equal(fs.readFileSync(cfg, 'utf8'), 'LIVE CONFIG 8929\n', 'a run-tests.sh child with no kt folder rewrote the fallback config');
   /* Review 1: a test that scrubbed its environment (no markers at all) but kept the run's temp folder. */
   const scrubbed = run({ TMPDIR: runRoot });
+  assert.equal(scrubbed.status, 0, 'the shim exited');
   assert.equal(scrubbed.stdout.trim(), '', 'a scrubbed test child with a run root as its temp folder asked for a config');
   assert.equal(fs.readFileSync(cfg, 'utf8'), 'LIVE CONFIG 8929\n', 'a scrubbed test child rewrote the fallback config');
   /* Review 1, CONTROL for the store's rule: the variable alone, with a plain temp folder, is not a test run. */
   const stray = run({ KOSMOS_TEST_RUN: runRoot });
+  assert.equal(stray.status, 0, 'the shim exited');
   assert.equal(stray.stdout.trim(), cfg, 'CONTROL: a stray KOSMOS_TEST_RUN switched a real launch off');
   fs.writeFileSync(cfg, 'LIVE CONFIG 8929\n');
   const outside = run({});

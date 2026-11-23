@@ -57,3 +57,9 @@ run-tests --only agentbrowser.test.js 35/35, not skipped. Mutations, each red un
 - Fixed: the comment described kickInstall's guard, a claim about a neighbouring function that nothing checks. Deleted.
 - Fixed: the installed-layout pre-check now FAILS (before any arm runs) instead of skipping, so a layout change cannot quietly turn the regression guard into a skip.
 - Deferred (same as iteration 1): the catch fails open toward writing, the old behaviour. Deferred: on Windows the kt arm never matches (backslash temp paths), so Windows rests on the store's rule alone; no behaviour changes and the plan says it.
+
+## Challenge loop iteration 6 (opus)
+- Fixed: the caller-env arm is deleted. No production caller passes an env (agent-browser-config.js and win32supervisor.js call launchConfig() bare), no test could make it go red, and it compared a caller's KOSMOS_TEST_RUN with this process's temp folder. inTestRunUnsandboxed now takes no argument and is no longer exported.
+- Fixed: every shim arm now asserts the shim exited 0, so a crash cannot read as a refusal.
+- Deferred (same as the weakest premise): a minimal-env child and direct ensureInstalled/ensureShell calls still reach the real runners folder from a worktree.
+Evidence: run-tests --only agentbrowser.test.js 35/35, none skipped; guard call removed -> red; store call removed -> red; lints and neighbours 127/127; test-supervisor-agentbrowser-3633.sh passes.

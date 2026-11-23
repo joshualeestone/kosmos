@@ -215,9 +215,8 @@ function writeConfigIfNeeded(file, text) {
    runners.managedRoot() falls back to the REAL install's folder, so a test that reached this (the supervisor's shim,
    say) rewrote the live config with the test's node and a temp folder its run then removed, and every agent the board
    started next got it.
-   What counts as a test run is the store's rule (store.isTestProcess), reused rather than re-derived, asked of this
-   process and of the env a caller passed (whose KOSMOS_TEST_RUN is compared with THIS process's temp folder, the only
-   one the store reads), plus one rule of its own, inKtRunRoot below. */
+   What counts as a test run is the store's rule (store.isTestProcess), reused rather than re-derived, plus one rule
+   of its own, inKtRunRoot below. */
 /* The machine-wide test-sandbox rule (tools/lib/process-fixture.sh _KOSMOS_KT_RE): a temp folder inside a
    tools/run-tests.sh run root marks a test that scrubbed its environment but kept TMPDIR, the shape of the live config
    that found this. Not caught: a test child given a minimal env ({ PATH }), with no marks and the default temp folder;
@@ -228,11 +227,10 @@ function inKtRunRoot(tmp) {
 }
 /* The write location comes from THIS process's environment (runners.managedRoot reads process.env), so the sandbox is
    read there too. */
-function inTestRunUnsandboxed(env) {
+function inTestRunUnsandboxed() {
   if (process.env.AGENT_WORKFORCE_RUNNERS_DIR) return false;
   try {
-    const store = require('./store');
-    if (store.isTestProcess(process.env) || (env && env !== process.env && store.isTestProcess(env))) return true;
+    if (require('./store').isTestProcess(process.env)) return true;
   } catch { /* not knowable: the temp-folder rule decides */ }
   return inKtRunRoot(os.tmpdir());
 }
@@ -252,7 +250,7 @@ function launchConfig(opts) {
     const platform = o.platform || process.platform;
     if (platform !== 'win32' && platform !== 'darwin') return null;
     if (disabled(o.env)) return null;
-    if (inTestRunUnsandboxed(o.env)) return null;   // kosmos#8929
+    if (inTestRunUnsandboxed()) return null;   // kosmos#8929
     const mac = platform === 'darwin';
     if (!isInstalled() || (mac && !shellInstalled(o.arch))) {
       if (o.install !== false) kickInstall({ platform, arch: o.arch });
@@ -577,7 +575,7 @@ function installWithRetry(opts) {
 }
 
 module.exports = {
-  inTestRunUnsandboxed, inKtRunRoot,   // kosmos#8929
+  inKtRunRoot,   // kosmos#8929
   PIN, SHELL, SERVER_NAME, configFor, launchConfig, ensureInstalled, ensureShell, kickInstall, isInstalled,
   installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir,
   optOutPath, lockPath, disabled,
