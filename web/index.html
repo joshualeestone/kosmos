@@ -1988,6 +1988,8 @@ html.pnav-up { overflow: hidden; scrollbar-gutter: auto; }
    primary colour), so the promo stands out without a heavy background. */
 .userpop-ico { flex: none; color: var(--k-ink-2); }
 .userpop-sep { height: 0; margin: 4px 6px; border: 0; border-top: 0.5px solid var(--separator); }
+/* kosmos#8938: on a company's work Kosmos, the company's name under the member line (indented to the label). */
+.userpop-org { margin: -4px 0 2px; padding: 0 8px 0 34px; color: var(--k-ink-2); font: var(--text-subhead) var(--font-ui); overflow-wrap: anywhere; }
 /* #3574 (Josh, 2026-09-24, for 0.6.93): first-run help. ONE card is the welcome tour and every
    first-visit tip: a small gold label, a title, a few short sentences, one button. The ? beside the
    user's name brings any of it back. Only the tour dims the screen; a screen tip floats beside the
@@ -13389,6 +13391,7 @@ window.kosmosMeasureScrollbarWidth();
           <span>Kosmos+ member</span>
           <span class="userpop-plus-badge">Plus</span>
         </button>
+        <p class="userpop-org" id="userpop-org" hidden></p>
         <hr class="userpop-sep">
         <!-- #3360: the settings deep-links. Each opens Settings on the named section and
              closes the menu. Ids are new EXCEPT #userpop-settings ("View All Settings"), which
@@ -15760,6 +15763,8 @@ window.kosmosMeasureScrollbarWidth();
         <p class="fc-eyebrow">Let's do it</p>
         <h2>Welcome to Kosmos</h2>
         <p>Create and manage a workforce of AI agents that work for you.</p>
+        <!-- kosmos#8938: on a company's work Kosmos, one line naming the company, below Josh's words (which stay verbatim). -->
+        <p id="fr-work-org" hidden></p>
 
         <!-- No graphic, no gate, no dynamic content on this screen. This one is the
              shape sample: if this seam is right (my inner content drops into your
@@ -35930,6 +35935,7 @@ async function worldHideSubmit() {
     const m = plusMember();
     promo.hidden = m;
     member.hidden = !m;
+    workOrgPaint();   // kosmos#8938
   }
   btn.addEventListener('click', (e) => { e.stopPropagation(); if (menu.hidden) open(); else close(); });
   // #3360: every settings line routes through one helper. It mirrors #rail-me-go: in the
@@ -91126,6 +91132,29 @@ function frFocusActiveHead(paneEl) {
   h2.focus();
 }
 
+/* kosmos#8938: a company member's own Kosmos names the company where they first look: the setup welcome and the You
+   menu. Read from /api/org (the screen's own read; agents get no company name there), at most once a minute; a
+   family, a failed read or no company shows nothing, so a person's own Kosmos is unchanged. */
+const WORK_ORG = { at: 0, org: null, busy: false };
+function workOrgShow(org) {
+  const name = org && typeof org.name === 'string' ? org.name.trim() : '';
+  const say = { 'fr-work-org': name ? plusOrgIn(org, 'This is your work Kosmos for ') + name + '.' : '', 'userpop-org': name ? 'Work Kosmos for ' + name : '' };
+  for (const id of Object.keys(say)) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.hidden = !say[id];
+    el.textContent = say[id];
+  }
+}
+function workOrgPaint() {
+  workOrgShow(WORK_ORG.org);
+  if (WORK_ORG.busy || Date.now() - WORK_ORG.at < 60000) return;
+  WORK_ORG.busy = true;
+  WORK_ORG.at = Date.now();
+  fetch('/api/org').then((r) => r.json()).then((j) => {
+    WORK_ORG.org = j && j.enrolled === true && j.org && j.org.kind !== 'family' ? j.org : null;
+  }).catch(() => {}).finally(() => { WORK_ORG.busy = false; workOrgShow(WORK_ORG.org); });
+}
 function frGo(step) {
   /**
    * ⚠️ CLAMPED TO A WHOLE STEP THAT EXISTS, because `?fr-step=` is a deep link
@@ -91139,6 +91168,7 @@ function frGo(step) {
   if (step > FR_STEPS) step = FR_STEPS;
   // win32-board-copy: a deep link to a step this computer skips lands on the next real one.
   if (!frStepSequence().includes(step)) step = frStepAfter(step);
+  if (step === 1) workOrgPaint();   // kosmos#8938: the welcome names the company on its work Kosmos
 
   // ⚠️ Leaving the About-you step retires its async work: its save and prefill
   // both settle async, and a stale settlement must not repaint a pane the

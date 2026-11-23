@@ -132,3 +132,56 @@ test('/api/org sends providersAllowed to the screen only, and only while a list 
   assert.match(h, /\.\.\.\(providersAllowed \? \{ providersAllowed \} : \{\}\)/, 'sent only when there is a list');
   assert.match(h, /here \? require\('\.\/engine\/orgpolicy'\)\.inForce\(\) : null/, 'read only while this Kosmos is enrolled');
 });
+
+function workOrg(answer) {
+  const els = { 'fr-work-org': { hidden: true, textContent: '' }, 'userpop-org': { hidden: true, textContent: '' } };
+  const document = { getElementById: (id) => els[id] || null };
+  const asked = [];
+  const fetch = async (url) => { asked.push(url); if (answer instanceof Error) throw answer; return { json: async () => answer }; };
+  const src = SCRIPT.match(/const WORK_ORG = \{[^\n]*\};/)[0] + '\n' + page.lift(SCRIPT, 'plusOrgIn') + '\n' + page.lift(SCRIPT, 'workOrgShow') + '\n' + page.lift(SCRIPT, 'workOrgPaint') + '\nreturn { workOrgPaint, WORK_ORG };';
+  const api = new Function('document', 'fetch', src)(document, fetch);
+  return { els, asked, api };
+}
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+test('a company member sees the company named on the welcome and in the You menu', async () => {
+  const { els, api } = workOrg({ enrolled: true, org: { name: ' Testville Municipal ', kind: 'company' } });
+  api.workOrgPaint();
+  await settle(); await settle();
+  assert.equal(els['fr-work-org'].hidden, false);
+  assert.equal(els['fr-work-org'].textContent, 'This is your work Kosmos for Testville Municipal.');
+  assert.equal(els['userpop-org'].hidden, false);
+  assert.equal(els['userpop-org'].textContent, 'Work Kosmos for Testville Municipal');
+});
+
+test('a family, no company, an unenrolled record or a failed read shows nothing (CONTROL above shows it)', async () => {
+  for (const answer of [
+    { enrolled: true, org: { name: 'The Smiths', kind: 'family' } },
+    { enrolled: false, org: null },
+    { enrolled: false, org: { name: 'Old Co', kind: 'company' } },
+    { enrolled: true, org: { name: '   ', kind: 'company' } },
+    new Error('offline'),
+  ]) {
+    const { els, api } = workOrg(answer);
+    api.workOrgPaint();
+    await settle(); await settle();
+    for (const id of ['fr-work-org', 'userpop-org']) {
+      assert.equal(els[id].hidden, true, id + ' ' + JSON.stringify(answer && answer.org));
+      assert.equal(els[id].textContent, '', id);
+    }
+  }
+});
+
+test('it reads /api/org at most once a minute', async () => {
+  const { asked, api } = workOrg({ enrolled: true, org: { name: 'Testville', kind: 'company' } });
+  api.workOrgPaint(); await settle(); await settle();
+  api.workOrgPaint(); api.workOrgPaint();
+  assert.deepEqual(asked, ['/api/org']);
+});
+
+test('the welcome keeps Josh’s words and adds the line after them; both callers are wired', () => {
+  assert.match(HTML, /<h2>Welcome to Kosmos<\/h2>\n\s+<p>Create and manage a workforce of AI agents that work for you\.<\/p>\n\s+<!-- kosmos#8938[^\n]*-->\n\s+<p id="fr-work-org" hidden><\/p>/);
+  assert.match(HTML, /<span class="userpop-plus-badge">Plus<\/span>\n\s+<\/button>\n\s+<p class="userpop-org" id="userpop-org" hidden><\/p>/);
+  assert.match(SCRIPT, /member\.hidden = !m;\n\s+workOrgPaint\(\);/);
+  assert.match(SCRIPT, /if \(step === 1\) workOrgPaint\(\);/);
+});
