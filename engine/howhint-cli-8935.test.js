@@ -19,12 +19,12 @@ test('#8935 Mac CLI: first `kosmos claim` names its guide on stderr, once; CONTR
   const run = (args, extra) => spawnSync('bash', [path.join(ROOT, 'install', 'kosmos'), ...args], {
     env: Object.assign({}, process.env, { KOSMOS_HOME: ROOT, KOSMOS_HOWHINT_FILE: file }, extra), encoding: 'utf8', timeout: 30000,
   });
-  const first = run(['claim'], { KOSMOS_AGENT_SESSION: 't8935-mac' });
+  const first = run(['claim', 'p'], { KOSMOS_AGENT_SESSION: 't8935-mac' });   // a usage error: stops before any board
   assert.equal(first.stderr.split('\n')[0], POINTER, 'the first use did not name the guide first');
   assert.ok(!first.stdout.includes('First use of'), 'the pointer went to stdout');
-  const again = run(['claim'], { KOSMOS_AGENT_SESSION: 't8935-mac' });
+  const again = run(['claim', 'p'], { KOSMOS_AGENT_SESSION: 't8935-mac' });
   assert.ok(!again.stderr.includes('First use of'), 'shown a second time');
-  const person = run(['claim'], { KOSMOS_AGENT_SESSION: '' });
+  const person = run(['claim', 'p'], { KOSMOS_AGENT_SESSION: '', KOSMOS_AGENT_TOKEN: '' });
   assert.ok(!person.stderr.includes('First use of'), 'CONTROL: a person saw it');
   const reader = run(['post', '--how'], { KOSMOS_AGENT_SESSION: 't8935-reader' });
   assert.equal(reader.status, 0);
@@ -47,13 +47,14 @@ test('#8935 Windows CLI: the same, through main()', async () => {
   const file = path.join(SANDBOX, 'win.json');
   const call = async (argv, session) => {
     const errs = [];
-    await cli.main(argv, { env: { KOSMOS_AGENT_SESSION: session, KOSMOS_HOWHINT_FILE: file }, out: () => {}, err: (s) => errs.push(String(s)),
+    // KOSMOS_AGENT_TOKEN is what a real Windows agent carries (no session name).
+    await cli.main(argv, { env: { KOSMOS_AGENT_TOKEN: session, KOSMOS_HOWHINT_FILE: file }, out: () => {}, err: (s) => errs.push(String(s)),
       fetch: async () => { throw new Error('reached the network'); } });
     return errs;
   };
-  const first = await call(['claim'], 't8935-win');
+  const first = await call(['claim', 'p'], 't8935-win');
   assert.equal(first[0], POINTER, 'the first use did not name the guide first');
-  assert.ok(!(await call(['claim'], 't8935-win')).some((s) => s.includes('First use of')), 'shown a second time');
-  assert.ok(!(await call(['claim'], '')).some((s) => s.includes('First use of')), 'CONTROL: a person saw it');
+  assert.ok(!(await call(['claim', 'p'], 't8935-win')).some((s) => s.includes('First use of')), 'shown a second time');
+  assert.ok(!(await call(['claim', 'p'], '')).some((s) => s.includes('First use of')), 'CONTROL: a person saw it');
   assert.ok(!(await call(['post', '--how'], 't8935-win-reader')).some((s) => s.includes('First use of')), 'pointed at the guide it is reading');
 });

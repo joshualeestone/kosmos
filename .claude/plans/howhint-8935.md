@@ -1,7 +1,7 @@
 # kosmos#8935: the first use of a command with a longer guide names the guide, once per agent
 
 ## Finished looks like
-The first time an agent runs `kosmos claim`, `task`, `post`, `community`, `connections` or `report` (on a Mac or on Windows), the command prints one line on stderr naming that command's guide (`kosmos <cmd> --how`; for report, `kosmos report --help`). The same agent never sees it again for that guide, and never sees it at all if it read the guide first. A person in their own Terminal never sees it. A command's stdout is unchanged; its stderr gains one first line, once.
+The first time an agent really uses `kosmos claim`, `task`, `post`, `community`, `connections` or `report` (with arguments; not `--auto`), on a Mac (once per agent) or on Windows (once per launch: a Windows agent carries only a launch token), the command prints one line on stderr naming that command's guide (`kosmos <cmd> --how`; for report, `kosmos report --help`). The same agent never sees it again for that guide, and never sees it at all if it read the guide first. A person in their own Terminal never sees it. A command's stdout is unchanged; its stderr gains one first line, once.
 
 ## Shape (posted on the card, comment 7106272674)
 - One engine module, engine/howhint.js: the guide table, the decision and the record (`how-hints.json` in store.root(); KOSMOS_HOWHINT_FILE is a test seam). Never throws.
@@ -25,3 +25,11 @@ That agents read a command's stderr. Claude Code shows it with the output; a run
 - Fixed: the hint's node gets </dev/null, so a `post --stdin` can never lose input to it; stated: stderr gains one first line, once.
 - Fixed: a test asserts every guided command's Mac dispatch line calls _how_hint (a missing one is caught), and the stdin redirect.
 - Fixed: the record has no prototype, so an agent named __proto__ is recorded; the redirect order and the test-only seam are commented.
+
+## Challenge loop iteration 2 (opus)
+- Fixed (BLOCKER): Windows agents carry no KOSMOS_AGENT_SESSION, only KOSMOS_AGENT_TOKEN, so the Windows half never fired, and my test passed the variable real agents lack. The agent key is now the session name, or a hash of the launch token (never the token itself; once per launch on Windows; the record keeps the newest 500 keys). The Windows test uses the token.
+- Fixed (BLOCKER): the report hook's `kosmos report` probe used up the report pointer where no agent sees it. A call with no arguments and any `--auto` call neither points nor marks; the Mac shell skips them before starting node, so the hook's hot path pays nothing.
+- Fixed (BLOCKER): `report --help` on a Mac re-dispatches bare, so it showed the pointer to the guide being read. Bare calls no longer count, on both CLIs.
+- Fixed: a test run that names no record of its own never points or writes (store.isTestProcess, through an opts.store seam so its test can fail; removing the check turns it red).
+- Decided: `--help` does not count as reading for the --how commands (only `--how` does); report's guide is its --help, which no longer marks either, so an agent that read report --help may still see the pointer once.
+- Evidence: 10/10 in the two files; mutations red (token key, --auto skip, test-run guard). Wide run: 1256 tests (40 Windows CLI files, 20 agent-CLI files, lints): 1248 pass, 0 fail.

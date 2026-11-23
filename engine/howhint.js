@@ -5,7 +5,11 @@
  * More of the detailed rules live in on-demand guides now (`kosmos claim --how` and the like). That depends on an
  * agent remembering to read one the first time a case comes up, and an agent acting from memory of older text gets it
  * wrong quietly. So each such command prints one line naming its guide, once per agent per guide. Running the guide
- * itself counts as seen. A person in their own Terminal (no KOSMOS_AGENT_SESSION) never sees it.
+ * itself counts as seen. Only an agent's call counts: KOSMOS_AGENT_SESSION (a Mac agent's name, so once per agent) or
+ * KOSMOS_AGENT_TOKEN (all a Windows agent carries; minted per launch, so there it is once per launch, and only a hash
+ * of it is stored). A person in their own Terminal has neither. A call with no arguments (a usage request, or the
+ * report hook's status probe) and any `--auto` call (the report hook's own) neither points nor marks. A test run never
+ * points unless it names its own record (KOSMOS_HOWHINT_FILE).
  *
  * Both CLIs call this one module (install/kosmos through `node howhint.js <command> [args]`, the Windows CLI through
  * require), so the rule and the record are the same everywhere. The record is one JSON file in the data folder
@@ -29,16 +33,18 @@ const GUIDES = Object.freeze({
 function classify(command, args) {
   const guide = GUIDES[command];
   if (!guide) return null;
-  const first = Array.isArray(args) && args.length ? String(args[0]) : '';
+  const list = Array.isArray(args) ? args.map(String) : [];
+  if (!list.length || list.includes('--auto')) return null;   // a usage request, a status probe, or the report hook
+  const first = list[0];
   const readsIt = command === 'report' ? (first === '--help' || first === '-h') : first === '--how';
   /* `kosmos task built` ends with its own line naming the task guide (kosmos#8934): not pointed at twice. */
   if (command === 'task' && first === 'built') return null;
   return { guide, readsIt };
 }
 
-function recordFile(env) {
+function recordFile(env, store) {
   if (env && env.KOSMOS_HOWHINT_FILE) return env.KOSMOS_HOWHINT_FILE;   // test-only seam: where a test keeps its record
-  return path.join(require('./store').root(), 'how-hints.json');
+  return path.join(store.root(), 'how-hints.json');
 }
 /* A record with no prototype, so an agent named like an Object key (`__proto__`) is stored as a key like any other. */
 function readRecord(file) {
@@ -58,27 +64,46 @@ function writeRecord(file, rec) {
   } catch { try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ } }
 }
 
+/* Who is calling: a Mac agent's name, or a hash of a Windows agent's launch token (never the token itself). */
+function agentKeyOf(env) {
+  const session = String(env.KOSMOS_AGENT_SESSION || '');
+  if (session) return session;
+  const token = String(env.KOSMOS_AGENT_TOKEN || '');
+  if (!token) return '';
+  return 'launch:' + require('node:crypto').createHash('sha256').update(token).digest('hex').slice(0, 16);
+}
+/* Per-launch keys accumulate on Windows: keep the newest 500 entries. */
+function capRecord(rec) {
+  const keys = Object.keys(rec);
+  for (const k of keys.slice(0, Math.max(0, keys.length - 500))) delete rec[k];
+}
+
 /* The line to show for this call, or '' (not an agent, no guide, already seen, or the agent is reading the guide now).
    Marks the guide seen for this agent either way. */
 function hint(command, args, opts) {
   try {
     const env = (opts && opts.env) || process.env;
-    const agent = String(env.KOSMOS_AGENT_SESSION || '');
+    const agent = agentKeyOf(env);
     if (!agent) return '';
     const c = classify(command, args);
     if (!c) return '';
-    const file = recordFile(env);
+    const store = (opts && opts.store) || require('./store');   // opts.store: a test's stand-in
+    if (!env.KOSMOS_HOWHINT_FILE) {
+      try { if (store.isTestProcess(env)) return ''; } catch { return ''; }
+    }
+    const file = recordFile(env, store);
     const rec = readRecord(file);
     const seen = Array.isArray(rec[agent]) ? rec[agent] : [];
     if (seen.includes(command)) return '';
     rec[agent] = seen.concat(command);
+    capRecord(rec);
     writeRecord(file, rec);
     if (c.readsIt) return '';
     return 'First use of kosmos ' + command + ' here: its full guide is ' + c.guide + ' (shown once).';
   } catch { return ''; }
 }
 
-module.exports = { GUIDES, classify, hint };
+module.exports = { GUIDES, classify, hint, agentKeyOf };
 
 /* install/kosmos runs this as a program: prints the line (or nothing) and always exits 0. */
 if (require.main === module) {
