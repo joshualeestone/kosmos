@@ -20,7 +20,7 @@ A line that did not land deleted the whole file.
   It returns `{ text, path, notice, previous, wrote, carried }`.
 - Bound: the whole file, header and note included, is kept under `CHANGES_FILE_MAX` (4 x 32 KB) by dropping the oldest entries, and the file
   says which were removed and to read the sections their notices named in full.
-- Header: one new sentence: each notice since the session started has its own entry, oldest first; the notice names
+- Header: one new sentence: each notice since the session started that names this file has its own entry, oldest first; the notice names
   its entry; a later entry wins over an earlier one.
 - `lineFor(..., { notice, carried })`: "listed in PATH, under Notice N (a pointer only: ...)"; when the file holds earlier entries (`carried`), a sentence after it:
   "The entries above Notice N in that file are earlier notices since you started: read one only if you have not." No
@@ -109,3 +109,11 @@ each time pays more than before; the bound (128 KB) caps that.
   flag, unclassified): two INVENTORY rows for readPlain's O_NOFOLLOW and O_NONBLOCK, as server.js's download route
   has. #1777 (a test file that branches on a win32 host and nothing runs on Windows): the new test file is added to
   tools/windows-tests.js ALSO, so Windows runs it; only its FIFO arm skips there.
+- Round 6 (sonnet): WARNING, the new test file now runs on Windows, and a temp folder with a space (a user folder
+  such as First Last) makes prepareChanges name no file, so most of its tests would fail there. Fixed: those tests
+  (and the FIFO one) skip with the reason when the sandbox path has whitespace or a quote; CONTROL measured with a
+  spaced TMPDIR: 13 skipped, 0 failed; normal: 0 skipped. WARNING, the header's "each notice since your session started
+  has its own entry" (round 5's NIT): now "each notice since your session started that names this file". NIT taken:
+  the three 7149 separate-case resets used dropChanges, which keeps the number; now forget. NITs not taken: readPlain's
+  fstat-then-read size window (recorded in round 5); a weak last assertion in the stranger's-file test.
+- Mutations after round 6, each red: as after round 4 (14 mutations).

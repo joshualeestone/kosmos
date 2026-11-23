@@ -468,7 +468,7 @@ const CHANGES_TITLE = '# What changed in your instructions file since you last r
 const CHANGES_HEADER = CHANGES_TITLE + '\n'
   + 'Kosmos wrote this when it told you the file changed. A line starting with - was removed, one starting with + was added.\n'
   + 'This is a pointer only: read the sections the notice named. It lists the changes since you last read the file, changes elsewhere in it included: a line marked + is in your instructions now, wherever it is, and a line marked - no longer applies, unless a note in this file says where it went. If it ends with a note that more changed, it is not complete: that note names the sections to read in full.\n'
-  + 'Each notice since your session started has its own entry below, numbered, oldest first; the notice names the one it is about. A later entry wins over an earlier one: a line one entry marks + may be marked - in a later one.\n\n';
+  + 'Each notice since your session started that names this file has its own entry below, numbered, oldest first; the notice names the one it is about. A later entry wins over an earlier one: a line one entry marks + may be marked - in a later one.\n\n';
 // The whole file's bound: the oldest entries go first, and the file says so.
 const CHANGES_FILE_MAX = 4 * CHANGES_BYTES_MAX;
 const NOTICE_LINE = /^## Notice (\d+), written /;

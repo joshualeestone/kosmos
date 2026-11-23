@@ -13,6 +13,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const ir = require('./instructionreread');
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+/* Round 6: prepareChanges names no file whose path holds whitespace or a double quote (the notice line carries the path
+   unquoted), so on a host whose temp folder has one (a Windows user folder such as First Last) every test that needs a
+   changes file skips, saying why, rather than failing. */
+const PATH_OK = { skip: /["\s]/.test(SANDBOX) ? 'the sandbox path has whitespace or a quote, and Kosmos names no changes file there' : false };
 
 const D = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
 const T = Date.parse('2026-10-25T22:00:00Z');
@@ -58,7 +62,7 @@ function plantHash(name, body) {
 }
 const changesOf = (f) => path.join(path.dirname(f), fs.readdirSync(path.dirname(f)).find((n) => n.startsWith('.kosmos-instructions-changed-')) || 'none');
 
-test('two notices that land: two numbered entries, oldest first, and the line names the new one', async () => {
+test('two notices that land: two numbered entries, oldest first, and the line names the new one', PATH_OK, async () => {
   const f = agentFile('ida', V1);
   assert.equal(ir.rememberRead('ida'), true);
   fs.writeFileSync(f, V2);
@@ -80,7 +84,7 @@ test('two notices that land: two numbered entries, oldest first, and the line na
   assert.match(body, /A later entry wins over an earlier one/, 'the header does not say how entries combine');
 });
 
-test('a line that did not land takes back only its own entry; CONTROL: with no restoreChanges the file goes, as before', async () => {
+test('a line that did not land takes back only its own entry; CONTROL: with no restoreChanges the file goes, as before', PATH_OK, async () => {
   const f = agentFile('ida', V1);
   assert.equal(ir.rememberRead('ida'), true);
   fs.writeFileSync(f, V2);
@@ -101,7 +105,7 @@ test('a line that did not land takes back only its own entry; CONTROL: with no r
   assert.equal(fs.existsSync(changesOf(f)), false, 'CONTROL: dropChanges no longer removes the file');
 });
 
-test('a session start clears the entries: the next notice is Notice 1 again', async () => {
+test('a session start clears the entries: the next notice is Notice 1 again', PATH_OK, async () => {
   const f = agentFile('ida', V1);
   assert.equal(ir.rememberRead('ida'), true);
   fs.writeFileSync(f, V2);
@@ -114,7 +118,7 @@ test('a session start clears the entries: the next notice is Notice 1 again', as
   assert.match(p.sent[0], /, under Notice 1 \(a pointer only/);
 });
 
-test('a file at that path that Kosmos did not write is never carried into the next one', () => {
+test('a file at that path that Kosmos did not write is never carried into the next one', PATH_OK, () => {
   const f = agentFile('ida', V2);
   ir.forget('ida');   // a clean start: forget clears the kept number too (dropChanges keeps it, round 3)
   assert.equal(ir.remember('ida', V1), true);
@@ -128,7 +132,7 @@ test('a file at that path that Kosmos did not write is never carried into the ne
   assert.ok(fs.readFileSync(f, 'utf8') === V2);
 });
 
-test('review 1 BLOCKER: a session start during a send that does not land is not undone by the restore', async () => {
+test('review 1 BLOCKER: a session start during a send that does not land is not undone by the restore', PATH_OK, async () => {
   const f = agentFile('ida', V1);
   assert.equal(ir.rememberRead('ida'), true);
   fs.writeFileSync(f, V2);
@@ -150,7 +154,7 @@ test('review 1 BLOCKER: a session start during a send that does not land is not 
   assert.deepEqual(ir.entriesOf(fs.readFileSync(changesOf(f), 'utf8')).map((e) => e.n), [1], 'CONTROL: a plain miss lost entry 1');
 });
 
-test('review 1: a planted file larger than any Kosmos writes is not read at all', () => {
+test('review 1: a planted file larger than any Kosmos writes is not read at all', PATH_OK, () => {
   const f = agentFile('ida', V2);
   ir.forget('ida');   // a clean start: forget clears the kept number too (dropChanges keeps it, round 3)
   assert.equal(ir.remember('ida', V1), true);
@@ -164,7 +168,7 @@ test('review 1: a planted file larger than any Kosmos writes is not read at all'
   assert.equal(fs.readFileSync(f, 'utf8'), V2);
 });
 
-test('review 1: a file that starts with the title but is not what Kosmos wrote is not carried', () => {
+test('review 1: a file that starts with the title but is not what Kosmos wrote is not carried', PATH_OK, () => {
   const f = agentFile('ida', V2);
   ir.forget('ida');   // a clean start: forget clears the kept number too (dropChanges keeps it, round 3)
   assert.equal(ir.remember('ida', V1), true);
@@ -180,7 +184,7 @@ test('review 1: a file that starts with the title but is not what Kosmos wrote i
   assert.equal(fs.readFileSync(f, 'utf8'), V2);
 });
 
-test('review 1: a held line takes back only its own entry; an UNCONFIRMED one keeps it, and the next is Notice 2', async () => {
+test('review 1: a held line takes back only its own entry; an UNCONFIRMED one keeps it, and the next is Notice 2', PATH_OK, async () => {
   const f = agentFile('ida', V1);
   assert.equal(ir.rememberRead('ida'), true);
   fs.writeFileSync(f, V2);
@@ -198,7 +202,7 @@ test('review 1: a held line takes back only its own entry; an UNCONFIRMED one ke
   assert.deepEqual(ir.entriesOf(fs.readFileSync(changesOf(f), 'utf8')).map((e) => e.n), [1, 2]);
 });
 
-test('round 2: an agent that deletes its changes file does not reset the numbering; a session start does', async () => {
+test('round 2: an agent that deletes its changes file does not reset the numbering; a session start does', PATH_OK, async () => {
   const f = agentFile('ida', V1);
   assert.equal(ir.rememberRead('ida'), true);
   fs.writeFileSync(f, V2);
@@ -218,7 +222,7 @@ test('round 2: an agent that deletes its changes file does not reset the numberi
   assert.match(q.sent[0], /, under Notice 1 \(a pointer only/);
 });
 
-test('round 3: a deleted file, then a line that did not land, then one that does: still Notice 2', async () => {
+test('round 3: a deleted file, then a line that did not land, then one that does: still Notice 2', PATH_OK, async () => {
   const f = agentFile('ida', V1);
   assert.equal(ir.rememberRead('ida'), true);
   fs.writeFileSync(f, V2);
@@ -233,7 +237,7 @@ test('round 3: a deleted file, then a line that did not land, then one that does
   assert.match(ok.sent[0], /, under Notice 2 \(a pointer only/, 'a missed line after a deleted file reset the numbering');
 });
 
-test('round 3: a notice that names no file (a held section) does not reset the numbering', async () => {
+test('round 3: a notice that names no file (a held section) does not reset the numbering', PATH_OK, async () => {
   const f = agentFile('ida', V1);
   assert.equal(ir.rememberRead('ida'), true);
   fs.writeFileSync(f, V2);
@@ -251,7 +255,7 @@ test('round 3: a notice that names no file (a held section) does not reset the n
   assert.match(next.sent[0], /, under Notice 2 \(a pointer only/, 'a line that named no file reset the numbering');
 });
 
-test('round 3 BLOCKER: a named pipe at the changes path does not hold the board', { skip: process.platform === 'win32' }, () => {
+test('round 3 BLOCKER: a named pipe at the changes path does not hold the board', { skip: process.platform === 'win32' ? 'Windows has no mkfifo' : PATH_OK.skip }, () => {
   const cp = require('node:child_process');
   const dir = fs.mkdtempSync(path.join(SANDBOX, 'fifo-'));
   const script = path.join(dir, 'probe.js');
@@ -280,7 +284,7 @@ test('a diff line that looks like an entry heading is not one', () => {
   assert.deepEqual(ir.entriesOf(body).map((e) => e.n), [1]);
 });
 
-test('past the whole-file bound the oldest entries go, and the file says so', () => {
+test('past the whole-file bound the oldest entries go, and the file says so', PATH_OK, () => {
   const f = agentFile('ida', V2);
   ir.forget('ida');   // a clean start: forget clears the kept number too (dropChanges keeps it, round 3)
   // Five earlier entries of 36 KB each (184 KB, under the read limit): three and the new one fit the 128 KB bound, four do not.
