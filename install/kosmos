@@ -1240,6 +1240,18 @@ kosmos_engine_module() {
   [ -f "$_mod.js" ] || _mod="$KOSMOS_HOME/engine/$1"
   printf '%s' "$_mod"
 }
+# kosmos#8935: the first time an agent uses a command with a longer guide, name the guide once (engine/howhint.js
+# decides and records). Only an agent's call reaches node; on stderr, so a command's own output is unchanged; and it
+# never fails the command it sits in front of.
+_how_hint() {
+  [ -n "${KOSMOS_AGENT_SESSION:-}" ] || return 0
+  local _hn _hm
+  _hn="$(kosmos_engine_node)" || return 0
+  _hm="$(kosmos_engine_module howhint).js"
+  [ -f "$_hm" ] || return 0
+  "$_hn" "$_hm" "$@" >&2 2>/dev/null || true
+  return 0
+}
 
 # #5333 (a day-one report): an agent whose token Kosmos could not match is refused by whoami, inbox, reply, msg,
 # post and report with the board's one sentence (sendertoken NO_MATCH), and nothing said what to do. The board keeps that sentence
@@ -9388,17 +9400,17 @@ case "${1:-}" in
   msg)     shift; cmd_msg "$@" ;;
   reply)   shift; cmd_reply "$@" ;;
   reply-channel) shift; cmd_reply_channel "$@" ;;   # kosmos#5805 part 2
-  post)    shift; cmd_post "$@" ;;
+  post)    shift; _how_hint post "$@"; cmd_post "$@" ;;
   react)   shift; cmd_react "$@" ;;
-  claim)   shift; cmd_claim "$@" ;;   # kosmos#6946
-  report)  shift; cmd_report "$@" ;;
+  claim)   shift; _how_hint claim "$@"; cmd_claim "$@" ;;   # kosmos#6946
+  report)  shift; _how_hint report "$@"; cmd_report "$@" ;;
   whoami)  shift; cmd_whoami "$@" ;;
   handoff) shift; cmd_handoff "$@" ;;   # kosmos#6506
   fingerprint) shift; cmd_fingerprint "$@" ;;   # kosmos#6849
   inbox)   shift; cmd_inbox "$@" ;;
   file-notices) shift; cmd_file_notices "$@" ;;
   away) shift; cmd_away "$@" ;;
-  connections) shift; cmd_connections "$@" ;;
+  connections) shift; _how_hint connections "$@"; cmd_connections "$@" ;;
   accounts) cmd_accounts ;;
   start-check) shift; cmd_start_check "$@" ;;   # kosmos#8865
   whats-new) shift; cmd_whats_new "$@" ;;   # kosmos#7411
@@ -9406,8 +9418,8 @@ case "${1:-}" in
   room)    shift; cmd_room "$@" ;;
   notice)  shift; cmd_notice "$@" ;;
   feedback) shift; cmd_feedback "$@" ;;
-  community) shift; cmd_community_with_reason "$@" ;;   # kosmos#7967
-  task)    shift; cmd_task "$@" ;;
+  community) shift; _how_hint community "$@"; cmd_community_with_reason "$@" ;;   # kosmos#7967
+  task)    shift; _how_hint task "$@"; cmd_task "$@" ;;
   project) shift; cmd_project "$@" ;;
   records) shift; cmd_records "$@" ;;   # kosmos#6994
   agent) shift; cmd_agent "$@" ;;

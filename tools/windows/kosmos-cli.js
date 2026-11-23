@@ -4783,6 +4783,9 @@ async function main(argv, io) {
     },
   };
 
+  /* kosmos#8935, as install/kosmos: the first time an agent uses a command with a longer guide, name it once on stderr.
+     engine/howhint.js decides and records; it never throws, and this never fails the command. */
+  try { const line = ctx.engine('howhint').hint(verb, args, { env }); if (line) err(line); } catch { /* no hint, the command runs */ }
   const subs = SUBCOMMAND_HANDLERS[verb];
   if (subs && Object.prototype.hasOwnProperty.call(subs, args[0])) return subs[args.shift()](ctx, args);
   return VERB_HANDLERS[verb](ctx, args);
