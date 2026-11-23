@@ -184,6 +184,21 @@ test('a failed read is tried again on the next paint, not held for a minute', as
   assert.deepEqual(asked, ['/api/org', '/api/org']);
 });
 
+test('a slower read that started before a fresh answer is dropped (CONTROL: with no fresh answer it lands)', async () => {
+  for (const fresh of [true, false]) {
+    const els = { 'fr-work-org': { hidden: true, textContent: '' }, 'userpop-org': { hidden: true, textContent: '' } };
+    const document = { getElementById: (id) => els[id] || null, documentElement: { hasAttribute: () => true } };
+    let release;
+    const fetch = () => new Promise((r) => { release = () => r({ json: async () => ({ enrolled: true, org: { name: 'Old Co', kind: 'company' } }) }); });
+    const src = SCRIPT.match(/const WORK_ORG = \{[^\n]*\};/)[0] + '\n' + page.lift(SCRIPT, 'plusOrgIn') + '\n' + page.lift(SCRIPT, 'workOrgShow') + '\n' + page.lift(SCRIPT, 'workOrgPaint') + '\n' + page.lift(SCRIPT, 'workOrgFrom') + '\nreturn { workOrgPaint, workOrgFrom };';
+    const api = new Function('document', 'fetch', src)(document, fetch);
+    api.workOrgPaint();                                   // a read goes out
+    if (fresh) api.workOrgFrom({ enrolled: false, org: null });   // then the member leaves: a fresh answer
+    release(); await settle(); await settle(); await settle();
+    assert.equal(els['fr-work-org'].textContent, fresh ? '' : 'This is your work Kosmos for Old Co.', 'fresh=' + fresh);
+  }
+});
+
 test('it reads /api/org at most once a minute', async () => {
   const { asked, api } = workOrg({ enrolled: true, org: { name: 'Testville', kind: 'company' } });
   api.workOrgPaint(); await settle(); await settle();
