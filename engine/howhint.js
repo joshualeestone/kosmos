@@ -89,7 +89,7 @@ function hint(command, args, opts) {
     if (!agent) return '';
     const store = (opts && opts.store) || require('./store');   // opts.store: a test's stand-in
     if (!env.KOSMOS_HOWHINT_FILE) {
-      try { if (store.isTestProcess(env)) return ''; } catch { return ''; }
+      try { if (store.isTestProcess(env) || store.isTestProcess(process.env)) return ''; } catch { return ''; }   // the env handed in, and this process
     }
     const file = recordFile(env, store);
     if (!env.KOSMOS_HOWHINT_FILE) {

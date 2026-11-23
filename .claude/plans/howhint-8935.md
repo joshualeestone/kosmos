@@ -1,10 +1,10 @@
 # kosmos#8935: the first use of a command with a longer guide names the guide, once per agent
 
 ## Finished looks like
-The first time an agent really uses `kosmos claim`, `task`, `post`, `community`, `connections` or `report` (with arguments; not `--auto`), on a Mac (once per agent) or on Windows (once per launch: a Windows agent carries only a launch token), the command prints one line on stderr naming that command's guide (`kosmos <cmd> --how`; for report, `kosmos report --help`). The same agent never sees it again for that guide, and never sees it at all if it read the guide first. A person in their own Terminal never sees it. A command's stdout is unchanged; its stderr gains one first line, once.
+The first time an agent really uses `kosmos claim`, `task`, `post`, `community`, `connections` or `report` (with arguments; not `--auto`), on a Mac (once per agent) or on Windows (once per launch: a Windows agent carries only a launch token), the command prints one line on stderr naming that command's guide (`kosmos <cmd> --how`; for report, `kosmos report --help`). The same agent never sees it again for that guide, and never sees it at all if it read the guide first with `--how` (report has no --how; its --help is answered before the hint, so report's pointer can show once). A person in their own Terminal never sees it. A command's stdout is unchanged; its stderr gains one first line, once.
 
 ## Shape (posted on the card, comment 7106272674)
-- One engine module, engine/howhint.js: the guide table, the decision and the record (`how-hints.json` in store.root(); KOSMOS_HOWHINT_FILE is a test seam). Never throws.
+- One engine module, engine/howhint.js: the guide table, the decision and the record (`how-hints.json` in store.currentDataRoot(); KOSMOS_HOWHINT_FILE is a test seam). Never throws.
 - install/kosmos: `_how_hint <cmd> "$@"` before the six commands; only an agent's call reaches node; output to stderr; never fails the command.
 - tools/windows/kosmos-cli.js: the same call in main() before the handler, through ctx.engine, inside its own try.
 - Not on `kosmos task built`: #8934 (Baron) prints its own line naming the task guide there (agreed in the room).
@@ -52,3 +52,9 @@ That agents read a command's stderr. Claude Code shows it with the output; a run
 - Fixed: a call with no guide returns before the token is hashed.
 - Plan: KOSMOS_HOWHINT_FILE is honoured for any caller (it skips the folder, temp and test-run guards and may make its folder); harmless, since an agent only steers its own pointer record.
 - Deferred (as iteration 1): every guided agent call pays a node start (~20 ms), not only the first; a shell-side marker was rejected (a second derivation of the data folder).
+
+## Challenge loop iteration 6 (opus)
+- Fixed: the test-run guard checks this process's env as well as the one handed in, so a Windows CLI test with its own small env stops before any data root is resolved.
+- Fixed: the Windows CLI test asserts `claim p` exits 2 (a local usage error), so it cannot quietly start reaching the network.
+- Plan: the record is in store.currentDataRoot(); the finished sentence carries the report exception.
+- Deferred to the closing full validation (it is the measurement): a CLI test that strips TMPDIR and the test markers but keeps an agent name and an existing sandbox data folder would get the pointer first on stderr.
