@@ -2668,7 +2668,7 @@
       "since": "0.8.18",
       "status": "pending",
       "title": "A company computer says whose it is",
-      "line": "A company member's Kosmos names the company, lists what it reports and never sends, and says which AI providers are allowed.",
+      "line": "A company member's Kosmos says which company it belongs to, what it reports there, and which AI providers are allowed.",
       "icon": "shield",
       "rank": 12.8
     }

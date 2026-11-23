@@ -7,7 +7,7 @@ Built with `node tools/whats-new-pool.js build 0.8.18` (online) on origin/main a
 - Picked the top five pending highlights.
 
 ## Pool additions (since 0.8.18)
-- **A company computer says whose it is** (#8942, all platforms, rank 12.8): a company member's Kosmos names the company, lists what it reports and never sends, and says which AI providers are allowed. Ranked into the five: it is the main user-facing change since 0.8.17.
+- **A company computer says whose it is** (#8942, all platforms, rank 12.8): a company member's Kosmos says which company it belongs to, what it reports there, and which AI providers are allowed (Mona Lisa's copy read, m6200). Not "and never sends": a computer that joined before #8942 keeps no never lines (Renet Tilley, m6199), and today that is every member. Ranked into the five: it is the main user-facing change since 0.8.17.
 - **Agent browsers left running are closed** (#8936, mac, rank 17.3): kept just outside the five, so Linux keeps three lines. Mac only because Windows ships it off until measured (#8928, needs-device).
 - **A command points to its longer guide** (#8941, notesOnly): agent-facing CLI output, so notes only, like 0.8.17's CLI lines.
 
