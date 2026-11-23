@@ -259,8 +259,9 @@ function rememberRead(session) {
 }
 /* kosmos#8916 item 1: a session start that was not recorded still read the whole file, so what was kept for its old
    session goes: its marks (kosmos#8416), and its changes file and the number kept with it, so the next notice starts
-   at Notice 1 and "since you started" is true. Only the copy stays, so it never runs ahead of the recorded start
-   (review 7 of #7149). Never throws. */
+   at Notice 1 and no entry from before the start is carried. Only the copy stays, so it never runs ahead of the recorded
+   start (review 7 of #7149); the next entry is then diffed from that older copy and can list lines the agent already read
+   at this start, more to read, never less. Never throws. */
 function startedUnrecorded(session) {
   try { dropChanges(session); } catch { /* none there */ }
   try { forgetBody(session); } catch { /* none kept */ }
