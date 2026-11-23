@@ -218,7 +218,8 @@ function rowLinesInto(out, rows) {
   if (h >= 0) {
     for (let r = h + 1; r < rows.length; r += 1) {
       names.forEach((name, i) => {
-        if (name == null || lineValue(rows[r].cells[i])) return;
+        const v = rows[r].cells[i];
+        if (name == null || (v && v.trim())) return;   // empty once trimmed, which is when lineValue gives ''
         if (!blanks.has(i)) blanks.set(i, { first: [], count: 0 });
         const b = blanks.get(i);
         b.count += 1;
