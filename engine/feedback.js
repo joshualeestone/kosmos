@@ -190,11 +190,24 @@ function write(body, opts) {
     }
     const mine = { key, text: neutral(String(body == null ? '' : body).replace(/\s*$/, '')) };
     const at = prior.findIndex((x) => x.key.toLowerCase() === key.toLowerCase());   // review 1: Mara and mara are one agent
+    // kosmos#8919: the notes the replaced section carried (kosmos feedback note), so the CLIs can say they went with it.
+    const notesReplaced = at >= 0 ? notesIn(prior[at].text) : 0;
     if (at >= 0) prior[at] = mine; else prior.push(mine);
     const content = header + render(prior);
     require('./store').saveFlushed(dest, content);   // #5434 slice 21: flushed before the rename (a unique temp, removed on failure; the folder after on POSIX)
-    return { ok: true, path: dest, date, from: key || null, writers: prior.length };
+    return { ok: true, path: dest, date, from: key || null, writers: prior.length, notesReplaced };
   });
+}
+/* kosmos#8919: how many notes (kosmos feedback note, #8896) a section's text holds: each starts with its own
+   "Added later (YYYY-MM-DD HH:MM UTC):" line, which note() writes and neutral() leaves as it is. */
+const NOTE_LINE = /^Added later \(\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\):$/gm;
+function notesIn(text) { return (String(text == null ? '' : text).match(NOTE_LINE) || []).length; }
+/* kosmos#8919: the sentence both CLIs add after `kosmos feedback write` saves, when the report it replaced carried notes
+   (the write replaces the whole section, notes included, by design since #5317), or '' when it carried none. */
+function replacedNotesLine(n) {
+  if (!Number.isSafeInteger(n) || n < 1) return '';
+  return 'This replaced your earlier report for that day, and with it ' + (n === 1 ? 'the note' : 'the ' + n + ' notes')
+    + ' added to it later. If one still applies, add it again with kosmos feedback note.';
 }
 /* The stored body for a day's sections: a day with only the unnamed section is stored bare, as before #5317; otherwise
    each section is its marker, heading and text. write() and note() both store through this, so they cannot drift. */
@@ -208,7 +221,7 @@ function render(secs) {
  * kosmos#8896: add a short note to a report already written, without rewriting it. The note goes at the end of THIS
  * writer's section of that day (the same key match write() uses), after a line saying it was added later and when, in
  * UTC so it reads the same on every install. The day's frontmatter is kept as it was; another writer's section is
- * untouched. A later whole `write` still replaces the section, notes included, exactly as before.
+ * untouched. A later whole `write` still replaces the section, notes included, and since kosmos#8919 says so.
  * Returns { ok: true, path, date } or { ok: false, why }: 'none' (no report of this writer's that day), 'empty' (no
  * text), 'date' (not a real day, or after today). Nothing is saved on a refusal.
  */
@@ -522,4 +535,4 @@ function mineLines(from) {
   const mine = daysOf(from);
   return mine.length ? mine : [noneOfYoursWords()];
 }
-module.exports = { noReportsWords, noneOfYoursWords, unreadableWords, mineLines, daysOf, listNote, dir, dateKey, isDateKey, today, pathFor, write, note, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
+module.exports = { notesIn, replacedNotesLine, noReportsWords, noneOfYoursWords, unreadableWords, mineLines, daysOf, listNote, dir, dateKey, isDateKey, today, pathFor, write, note, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };

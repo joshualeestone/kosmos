@@ -3395,8 +3395,14 @@ async function feedbackWrite(ctx, args) {
     return 2;
   }
   let date;
+  let gone = '';   // kosmos#8919, as install/kosmos: the sentence for notes this write replaced, or nothing
   // kosmos#5317, as install/kosmos: this agent's own section of the day, so a second agent does not replace the first.
-  try { const fb = ctx.engine('feedback'); date = fb.write(body, { from: typeof fb.writer === 'function' ? fb.writer(ctx.env) : null, ...(unchangedDay ? { date: unchangedDay } : {}) }).date; } catch (e) {
+  try {
+    const fb = ctx.engine('feedback');
+    const w = fb.write(body, { from: typeof fb.writer === 'function' ? fb.writer(ctx.env) : null, ...(unchangedDay ? { date: unchangedDay } : {}) });
+    date = w.date;
+    try { gone = typeof fb.replacedNotesLine === 'function' ? fb.replacedNotesLine(w.notesReplaced) : ''; } catch { gone = ''; }
+  } catch (e) {
     ctx.err('We could not save that report (' + String((e && e.message) || e) + ').');
     return 1;
   }
@@ -3404,12 +3410,13 @@ async function feedbackWrite(ctx, args) {
      as the board's hourly sweep) and print the one shared sentence for what happened. It used to say "It stays on
      this computer.", stale once sending shipped, and a user's agent took that to mean the team never got it. */
   let fbs;
-  try { fbs = ctx.engine('feedbacksend'); } catch { ctx.out('Saved the product-feedback report on this computer. Kosmos could not check whether it was sent.'); return 0; }
+  const tail = gone ? ' ' + gone : '';
+  try { fbs = ctx.engine('feedbacksend'); } catch { ctx.out('Saved the product-feedback report on this computer. Kosmos could not check whether it was sent.' + tail); return 0; }
   let r;
   // review 2: no date back means no report we can name, so nothing is sent (a stub engine returns none).
   if (!date) r = { state: 'none' };
   else { try { r = await fbs.sendNow(date); } catch { r = { state: 'failed' }; } }
-  ctx.out(fbs.writeMessage(r && r.state));
+  ctx.out(fbs.writeMessage(r && r.state) + tail);
   return 0;
 }
 
