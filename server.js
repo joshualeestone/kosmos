@@ -13879,14 +13879,18 @@ const server = http.createServer(async (req, res) => {
       try { handover = here ? require('./engine/handoversend').notice() : null; } catch { handover = null; }
       /* kosmos#8938: the AI providers the company's (or family's) policy allows, in the provider menus' words
          (orgpolicy.providerName), so Add a provider can say so before the member connects one every agent create would
-         refuse (#5534). Screen only, and only while a list is in force; absent means not restricted. current(), not
+         refuse (#5534). Screen only, and only while a list is in force that every id of can be named; absent means
+         nothing is said. current(), not
          inForce(): a read here must not apply a newly delivered bundle. */
       let allowedProviderNames = null;
       try {
         const op = require('./engine/orgpolicy');
         const pol = here ? op.current() : null;
         const list = pol && pol.providers_allowed;
-        allowedProviderNames = Array.isArray(list) ? [...new Set(list.filter((p) => typeof p === 'string').map(op.providerName))].filter((n) => n !== op.providerName('')) : null;
+        const ids = Array.isArray(list) ? [...new Set(list.filter((p) => typeof p === 'string'))] : null;
+        const names = ids ? ids.map(op.providerName) : null;
+        // An id with no menu name cannot be said truthfully, so then no list is sent and the page says nothing.
+        allowedProviderNames = names && !names.includes(op.providerName('')) ? [...new Set(names)] : null;
       } catch { allowedProviderNames = null; }
       sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired, backupLate, ...(handover ? { handover } : {}), ...(allowedProviderNames ? { allowedProviderNames } : {}),
        // kosmos#8938: the words this computer accepted (the company's own lines: what it reports, what it may back up, what
