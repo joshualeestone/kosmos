@@ -143,7 +143,8 @@ function sheetRows(sheet, shared, clip) {
   let last = 0;
   let rowR = null;
   const rowNumber = (ref) => { const d = /^([A-Z]{0,3})([1-9]\d{0,6})$/.exec(ref || ''); return d ? Number(d[2]) : null; };
-  for (const rowText of oc.blocks(sheet, 'row', (open) => { rowR = rowNumber(oc.attr(open, 'r')); })) {
+  const rowRAttr = (open) => { const m = /\sr="([^"]*)"/.exec(open); return m ? m[1] : null; };   // r itself, never x:r
+  for (const rowText of oc.blocks(sheet, 'row', (open) => { rowR = rowNumber(rowRAttr(open)); })) {
     const row = [];
     let next = 0;
     let n = rowR;
