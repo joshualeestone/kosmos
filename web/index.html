@@ -32954,20 +32954,55 @@ function noteStepUpReturn(dir) {
   if (typeof dir !== 'string' || !dir) return;
   try { sessionStorage.setItem(STEPUP_RETURN_KEY, JSON.stringify({ kind: 'claude-signin', dir, at: Date.now() })); } catch { /* the return is a courtesy */ }
 }
+/* kosmos#8938 item 4: an outside invite (POST /api/federation/invite from the invite sheet) refused the same way leaves
+   the same one note, of its own kind: which project, who it is for (the sheet's own "Who is it for?", 80 characters at
+   most), person or agent, and whether an email address was typed (never the address). No code. Back from the fresh
+   sign-in, the page opens that project's invite sheet with those filled in; it never makes the code by itself. */
+function noteFedInviteReturn(project, label, invitedKind, hadEmail) {
+  if (typeof project !== 'string' || !project || typeof label !== 'string' || !label) return;
+  if (invitedKind !== 'person' && invitedKind !== 'agent') return;
+  const n = { kind: 'fed-invite', project, label: label.slice(0, 80), invitedKind, at: Date.now() };
+  if (hadEmail === true) n.hadEmail = true;
+  try { sessionStorage.setItem(STEPUP_RETURN_KEY, JSON.stringify(n)); } catch { /* the return is a courtesy */ }
+}
 function forgetStepUpReturn() {
   try { sessionStorage.removeItem(STEPUP_RETURN_KEY); } catch { /* nothing to forget */ }
 }
-/* The person pressed the ask's Sign in again (either way it goes: the fresh form or the logout, both a submit of
-   #stepup-form) FOR the Claude start's refusal (review 4: the ask is shared by every refused write, and the one it is
-   showing records which request in stepUpFor): the note says so, with the time of the press. */
-const STEPUP_RETURN_FOR = 'POST /api/connect/start';
-function markStepUpReturnGoing(forKey, now = Date.now()) {
-  if (forKey !== STEPUP_RETURN_FOR) return;
+// A new attempt forgets only a note of its own kind: an invite attempt never erases a Claude sign-in's note, nor a Claude
+// start an invite's, since the other's ask may still be on screen.
+function forgetStepUpReturnOfKind(kind) {
   let n = null;
   try { n = JSON.parse(sessionStorage.getItem(STEPUP_RETURN_KEY) || 'null'); } catch { n = null; }
-  if (!n || n.kind !== 'claude-signin' || typeof n.dir !== 'string' || !n.dir || typeof n.at !== 'number') return;
+  if (n && typeof n === 'object' && n.kind === kind) forgetStepUpReturn();
+}
+function forgetFedInviteReturn() { forgetStepUpReturnOfKind('fed-invite'); }
+function forgetClaudeSignInReturn() { forgetStepUpReturnOfKind('claude-signin'); }
+// A note of a kind this page knows, with every field it needs.
+function stepUpNoteShaped(n) {
+  if (!n || typeof n !== 'object' || typeof n.at !== 'number') return false;
+  if (n.kind === 'claude-signin') return typeof n.dir === 'string' && !!n.dir;
+  if (n.kind === 'fed-invite') {
+    return typeof n.project === 'string' && !!n.project && typeof n.label === 'string' && !!n.label && n.label.length <= 80
+      && (n.invitedKind === 'person' || n.invitedKind === 'agent') && (n.hadEmail === undefined || n.hadEmail === true);
+  }
+  return false;
+}
+/* The person pressed the ask's Sign in again (either way it goes: the fresh form or the logout, both a submit of
+   #stepup-form) FOR the refusal the note is about (review 4: the ask is shared by every refused write, and the one it is
+   showing records which request in stepUpFor): the note says so, with the time of the press. */
+const STEPUP_RETURN_FOR = 'POST /api/connect/start';
+const STEPUP_RETURN_FED_FOR = 'POST /api/federation/invite';   // kosmos#8938 item 4
+function markStepUpReturnGoing(forKey, now = Date.now()) {
+  if (forKey !== STEPUP_RETURN_FOR && forKey !== STEPUP_RETURN_FED_FOR) return;
+  let n = null;
+  try { n = JSON.parse(sessionStorage.getItem(STEPUP_RETURN_KEY) || 'null'); } catch { n = null; }
+  if (!stepUpNoteShaped(n)) return;
+  if (forKey !== (n.kind === 'fed-invite' ? STEPUP_RETURN_FED_FOR : STEPUP_RETURN_FOR)) return;   // a press for another request
   if (now - n.at > STEPUP_RETURN_MS) return;
-  try { sessionStorage.setItem(STEPUP_RETURN_KEY, JSON.stringify({ kind: 'claude-signin', dir: n.dir, at: n.at, went: now })); } catch { /* the return is a courtesy */ }
+  const kept = n.kind === 'fed-invite'
+    ? { kind: 'fed-invite', project: n.project, label: n.label, invitedKind: n.invitedKind, ...(n.hadEmail ? { hadEmail: true } : {}), at: n.at, went: now }
+    : { kind: 'claude-signin', dir: n.dir, at: n.at, went: now };
+  try { sessionStorage.setItem(STEPUP_RETURN_KEY, JSON.stringify(kept)); } catch { /* the return is a courtesy */ }
 }
 /* The note, if this page may act on it: of the right shape, within its window, and its Sign in again pressed BEFORE this
    page loaded. Not removed here; a note of the wrong shape or past its window is removed. */
@@ -32978,8 +33013,7 @@ function peekStepUpReturn(now = Date.now(), pageStart = performance.timeOrigin) 
   let n = null;
   try { n = JSON.parse(raw); } catch { n = null; }
   if (!n || typeof n !== 'object') { forgetStepUpReturn(); return null; }   // review 5: unreadable is removed too
-  const shaped = n.kind === 'claude-signin' && typeof n.dir === 'string' && n.dir && typeof n.at === 'number';
-  if (!shaped || now - n.at > STEPUP_RETURN_MS || n.at - now > 60 * 1000) { forgetStepUpReturn(); return null; }
+  if (!stepUpNoteShaped(n) || now - n.at > STEPUP_RETURN_MS || n.at - now > 60 * 1000) { forgetStepUpReturn(); return null; }
   // Not yet pressed, or pressed in this page view (the sign-in has not navigated back yet): keep it.
   if (typeof n.went !== 'number' || !(n.went < pageStart)) return null;
   return n;
@@ -32994,7 +33028,7 @@ function stepUpReturnBusy() {
 }
 function resumeStepUpReturn(list = ACCOUNTS) {
   const n = peekStepUpReturn();
-  if (!n || stepUpReturnBusy() || !Array.isArray(list)) return;
+  if (!n || n.kind !== 'claude-signin' || stepUpReturnBusy() || !Array.isArray(list)) return;   // an invite note is not an account's
   forgetStepUpReturn();
   const acct = list.find((a) => a && a.dir === n.dir && !a.apiKey);
   if (!acct) return;
@@ -33003,10 +33037,78 @@ function resumeStepUpReturn(list = ACCOUNTS) {
   const note = document.getElementById('acct-add-note');
   if (note) note.textContent = 'Press Sign in again to sign this account in to Claude.';
 }
-/* On load, with a note this page may act on: read the account list once and resume from THAT list. It is not stored as
-   the page's list (review 2): the page's own reads keep their sequencing. Without a note, nothing is read here. */
+/* kosmos#8938 item 4: the invite note's return. It waits, keeping the note, while anything covers the page
+   (fedInviteReturnBusy), until the projects read has landed, and until inviting is on (fedShow). Then the note goes, and only a project
+   this board still lists opens (one that went, or is not this person's, opens nothing). True when nothing is left to
+   wait for. The words claim no sign-in (as #8728 review 3): a log-out can fail and the person reload. */
+const FEDINV_RETURN_LINE = 'Your invitation is filled in again. Press Make an invite code.';
+// The address is never kept, so the sheet does not claim to be whole when one was typed, and focus goes to that field.
+const FEDINV_RETURN_EMAIL_LINE = 'Your invitation is filled in again, except the email address. Add it again if only they should use the code.';
+const FEDINV_RETURN_READ_MAX = 3;
+let FEDINV_RETURN_READS = 0;        // projects reads this return asked for
+let FEDINV_RETURN_READING = false;  // one of them is still being answered
+/* The person pressed or typed something since this page loaded while nothing covered the page (dismissing first run or
+   a dialog is not a choice of where to go, and the return waits behind both): they have moved on, so the return opens
+   nothing and the note goes. Listened for only while an invite note waits (fedInviteReturnWait). */
+let FEDINV_RETURN_TOUCHED = false;
+function fedInviteReturnTouched() {
+  if (fedInviteReturnBusy()) return;   // something covers the page: the key or press is about that, wherever focus is
+  FEDINV_RETURN_TOUCHED = true;
+}
+// The Claude return's own test, and everything the board counts as covering the page (tipModalOpen: dialogs, the
+// first screens, an update or restart screen, an open <dialog>, the phone menu).
+function fedInviteReturnBusy() {
+  return stepUpReturnBusy() || (typeof tipModalOpen === 'function' && tipModalOpen());
+}
+function resumeFedInviteReturn() {
+  const n = peekStepUpReturn();
+  if (!n || n.kind !== 'fed-invite') return true;
+  if (FEDINV_RETURN_TOUCHED) { forgetStepUpReturn(); return true; }
+  if (fedInviteReturnBusy()) return false;
+  // In the tab layout the projects are read only when Projects is shown, and the page may load on another tab: the
+  // return asks for that read itself, one at a time and at most FEDINV_RETURN_READ_MAX times.
+  if (!PJ_LOADED_ONCE) {
+    if (!FEDINV_RETURN_READING && FEDINV_RETURN_READS < FEDINV_RETURN_READ_MAX) {
+      FEDINV_RETURN_READS++;
+      FEDINV_RETURN_READING = true;
+      Promise.resolve().then(() => loadProjects()).catch(() => {}).then(() => { FEDINV_RETURN_READING = false; });
+    }
+    return false;
+  }
+  if (!fedShow()) return false;
+  forgetStepUpReturn();
+  const proj = pjById(n.project);
+  if (!proj || proj.archived) return true;   // gone, not this person's, or archived: nothing to invite into
+  if (typeof showTab === 'function') showTab('projects');   // the page may have loaded on another tab
+  openProject(n.project);
+  if (PJ_CURRENT !== n.project) return true;
+  fedInviteOpen(null, { label: n.label, kind: n.invitedKind });
+  const modal = document.getElementById('fedinv-modal');
+  const msg = document.getElementById('fedinv-msg');
+  if (modal && !modal.hidden && msg) {
+    msg.textContent = n.hadEmail ? FEDINV_RETURN_EMAIL_LINE : FEDINV_RETURN_LINE;
+    const email = n.hadEmail ? document.getElementById('fedinv-email') : null;
+    if (email) email.focus();
+  }
+  return true;
+}
+// Tried now and then every half second, 60 tries in all; a page that is still not ready keeps the note (its window is
+// the same 10 minutes), so a later load can still use it.
+function fedInviteReturnWait(tries = 60) {
+  if (tries === 60) for (const type of ['pointerdown', 'keydown']) document.addEventListener(type, fedInviteReturnTouched, true);
+  if (resumeFedInviteReturn() || tries <= 1) {
+    for (const type of ['pointerdown', 'keydown']) document.removeEventListener(type, fedInviteReturnTouched, true);
+    return;
+  }
+  setTimeout(() => fedInviteReturnWait(tries - 1), 500);
+}
+/* On load, with a note this page may act on: an invite note goes to fedInviteReturnWait (no account read). A Claude note
+   reads the account list once and resumes from THAT list. It is not stored as the page's list (review 2): the page's
+   own reads keep their sequencing. Without a note, nothing is read here. */
 function stepUpReturnBoot() {
-  if (!peekStepUpReturn()) return;
+  const n = peekStepUpReturn();
+  if (!n) return;
+  if (n.kind === 'fed-invite') { setTimeout(() => fedInviteReturnWait(), 0); return; }   // after the whole script has run, however it is loaded
   fetch('/api/accounts', { cache: 'no-store' })
     .then((res) => (res.ok ? res.json() : null))
     .then((body) => { if (body && Array.isArray(body.accounts)) resumeStepUpReturn(body.accounts); })
@@ -33035,7 +33137,7 @@ async function acctAddStart(installConfirmed) {
   btn.disabled = true;
   note.textContent = '';
   ACCT_FLOW_LAST = null;
-  if (typeof forgetStepUpReturn === 'function') forgetStepUpReturn();   // kosmos#8728: a new start clears an older note
+  if (typeof forgetClaudeSignInReturn === 'function') forgetClaudeSignInReturn();   // kosmos#8728: a new start clears an older Claude note
   const reauthDir = ACCT_REAUTH_DIR;   // kosmos#8728: read before any await; a refusal's note uses it
   try {
     const res = await fetch('/api/connect/start', {
@@ -58327,14 +58429,17 @@ function plusOrgPaint() {
    reportWords: its report lines, its backup lines and its never lines), on the member's own screen. Shown for a company only, while this
    Kosmos reports; nothing when the words are missing. */
 function plusOrgSeesText(words) {
-  const clean = (l) => (Array.isArray(l) ? l.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim()) : []);
+  // A line's closing full stop goes (one, not an ellipsis's), so a list never reads ".;" (Renet's review of #8942); a
+  // closing abbreviation's stop goes too ("U.S."). A list whose last line ends in an ellipsis, "?" or "!" gets no stop.
+  const clean = (l) => (Array.isArray(l) ? l.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim().replace(/(^|[^.])\.$/, '$1').trim()).filter(Boolean) : []);
+  const list = (l) => l.join('; ') + (/[.\u2026?!]$/.test(l[l.length - 1]) ? '' : '.');
   const reports = clean(words && words.reports);
   if (!reports.length) return '';
   const backsUp = clean(words && words.backsUp);
   const never = clean(words && words.never);
-  return 'Your company\u2019s words for this computer. Reported: ' + reports.join('; ') + '.'
-    + (backsUp.length ? ' May back up: ' + backsUp.join('; ') + '.' : '')
-    + (never.length ? ' Never sent: ' + never.join('; ') + '.' : '');
+  return 'Your company\u2019s words for this computer. Reported: ' + list(reports)
+    + (backsUp.length ? ' May back up: ' + list(backsUp) : '')
+    + (never.length ? ' Never sent: ' + list(never) : '');
 }
 function plusOrgSees(st) {
   const el = document.getElementById('plus-org-sees');
@@ -87849,6 +87954,7 @@ async function pjMintInvite(invitedKind) {
   document.getElementById('pj-invite-panel').hidden = false;
   codeEl.value = '';
   status.textContent = 'Making a code…';
+  if (typeof forgetFedInviteReturn === 'function') forgetFedInviteReturn();   // kosmos#8938 item 4: its press must not return the sheet's older note
   try {
     const res = await fetch('/api/federation/invite', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -89368,6 +89474,7 @@ async function fedInviteMake() {
     return;
   }
   pjFieldOk('fedinv-email', 'fedinv-msg');
+  if (typeof forgetFedInviteReturn === 'function') forgetFedInviteReturn();   // kosmos#8938 item 4: a new Make clears an older invite note
   const seq = ++FEDINV_SEQ;
   const askedFor = FEDINV_PROJECT;
   make.disabled = true;
@@ -89405,6 +89512,9 @@ async function fedInviteMake() {
         pjFieldBad('fedinv-email', 'fedinv-msg', pjFedMessage(body, fallback));
         return;
       }
+      // kosmos#8938 item 4: the refusal that offers Sign in again leaves a note, so the sheet comes back filled in. It
+      // replaces any Claude note: the one ask on screen now belongs to this refusal.
+      if (res.status === 403 && body && body.code === 'remote_step_up' && body.signInAgain === true && typeof noteFedInviteReturn === 'function') noteFedInviteReturn(askedFor, label, kind, !!email);
       msg.textContent = res.status === 403 ? (fedRemoteSays(body) || fallback)
         : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback);
       document.getElementById('fedinv-label').focus();   // back in the field (pjFieldBad's way), not on <body>
@@ -92074,7 +92184,7 @@ async function frConnectStart(opts) {
 }
 
 async function frConnectStartConfirmed(installConfirmed, opener) {
-  if (typeof forgetStepUpReturn === 'function') forgetStepUpReturn();   // kosmos#8728 slice 2 review 5: a first-run start supersedes an older note
+  if (typeof forgetClaudeSignInReturn === 'function') forgetClaudeSignInReturn();   // kosmos#8728 slice 2 review 5: a first-run start supersedes an older Claude note
   const msg = document.getElementById('fr-sub-msg');
   msg.textContent = '';
   const next = document.getElementById('fr-next');
