@@ -245,6 +245,11 @@ function supervise(spec, opts) {
  */
 /* kosmos#8928: the agent's own browser config, asked by its name. A function of the spec so a test can check the
    name reaches launchConfig without starting an agent. */
+/* kosmos#8928 slice 2: whether this run may end the agent's orphaned browser servers. A real start calls main(args) with
+   no deps: the anchored boot shim every task runs (win32anchor.BOOT_JS, `require(entry).main(args)`, including shims
+   written before this existed) and the direct entry below. Every test passes deps, and the sweep also refuses in any
+   test run on its own. */
+function endOrphansFor(deps) { return deps === undefined || (deps !== null && typeof deps === 'object' && deps.endOrphans === true); }
 function browserFor(spec, ab, live) {
   return () => (ab || require('./agentbrowser')).launchConfig({ agent: spec.name, orphans: { live: live === true } });
 }
@@ -283,7 +288,7 @@ function main(argv, deps) {
      reaches it on its next restart. Claude only for now; codex is a follow-up. */
   const perTurn = spec.runner === 'codex' || spec.runner === 'gemini' || spec.runner === 'grok' || spec.runner === 'antigravity';   // #3568: agy too (engine/win32agy.js)
   if (!perTurn) {
-    const browser = d.agentBrowser || browserFor(spec, d.agentBrowserModule, d.endOrphans === true);
+    const browser = d.agentBrowser || browserFor(spec, d.agentBrowserModule, endOrphansFor(deps));
     spec.mcpConfig = () => browser();
     /* #5406: the agent does not stop on a prompt the person's own ask rules raise (a Kosmos-owned settings file with
        one PermissionRequest hook, engine/agentpermission.js). Asked per launch, like the browser; never throws. */
@@ -392,7 +397,7 @@ function main(argv, deps) {
 
 /* istanbul ignore next -- the process wrapper; the state machine above is what
    the tests drive. */
-if (require.main === module) main(process.argv.slice(2), { endOrphans: true });   // kosmos#8928: only the real entry ends orphaned browser servers
+if (require.main === module) main(process.argv.slice(2));
 
 /* ── the streaming supervisor (7c-1) ───────────────────────────────────────── */
 
@@ -911,5 +916,5 @@ function superviseStreaming(spec, opts) {
 module.exports = {
   THROTTLE_MS, POLL_MS, REGISTRATION_GRACE_MS,
   isAlive, ourLiveSession, ensureRunning, supervise, superviseStreaming, specFromArgv, usageDirFor,
-  setLiveReader, liveSessions, main, browserFor,
+  setLiveReader, liveSessions, main, browserFor, endOrphansFor,
 };
