@@ -76,7 +76,7 @@ test('engine: each value is stored; an unknown one is refused and writes nothing
   for (const bad of ['Person', 'agents', 'constructor', '__proto__', 1, true, {}]) {
     const out = tasks.setBuilt(projectId, n, { by: 'mona', waitingOn: bad });
     assert.equal(out.ok, false, 'accepted ' + JSON.stringify(bad));
-    assert.match(out.because, /person, review or release/);
+    assert.match(out.because, /person, review, release or none/);
     assert.equal(stored(n).builtAt, undefined, 'a refused value still marked the task');
   }
   // CONTROL: no value is the old mark, and it goes through.
@@ -102,6 +102,17 @@ test('engine: a change of only the value is a change; the same mark again is not
   // CONTROL: a mark that says another value replaces it.
   assert.equal(tasks.setBuilt(projectId, n, { by: 'zed', note: 'checked it', waitingOn: 'release' }).changed, true);
   assert.equal(stored(n).builtWaitingOn, 'release');
+  // Review 4: none takes the value off and keeps the rest of the mark (the note, here), where a clear would drop it all.
+  const r4 = tasks.setBuilt(projectId, n, { by: 'zed', note: 'checked it', waitingOn: 'none' });
+  assert.equal(r4.changed, true);
+  assert.equal(r4.waitsOnly, true, 'a change of only the value was not said to be one');
+  assert.equal('builtWaitingOn' in stored(n), false, 'none kept the value');
+  assert.equal(stored(n).builtNote, 'checked it', 'none dropped the rest of the mark');
+  assert.equal(tasks.setBuilt(projectId, n, { by: 'zed', note: 'checked it', waitingOn: 'none' }).changed, false, 'none again was recorded as new');
+  // CONTROL: a mark that changes the note too is not a value-only change.
+  const both = tasks.setBuilt(projectId, n, { by: 'zed', note: 'checked it again', waitingOn: 'review' });
+  assert.equal(both.changed, true);
+  assert.equal(both.waitsOnly, undefined, 'a mark that changed the note was said to change only the value');
   // The person's own mark drops it: they have looked.
   assert.equal(tasks.setBuilt(projectId, n, { person: true }).ok, true);
   assert.equal('builtWaitingOn' in stored(n), false, 'the person\'s mark kept a wait on the person');
@@ -213,7 +224,7 @@ for (const [name, run, skip] of [['Mac', mac, process.platform === 'win32' && 't
     assert.equal(stored(n).builtWaitingOn, 'person');
     assert.equal(stored(n).builtNote, 'the report is done', 'the value leaked into the note');
     assert.match(r.out, /built, waiting on the person\. Closing it clears the mark\./);
-    assert.equal(/--waiting person, review or release/.test(r.out), false, 'the hint was given to a mark that said it');
+    assert.equal(/--waiting person, review, release or none/.test(r.out), false, 'the hint was given to a mark that said it');
     // CONTROL: the same command without --waiting goes through, reads as before, and names the option.
     const m = newTask(name + ' notes');
     const p = await run(['task', 'built', projectId, String(m), 'the notes are done']);
@@ -224,13 +235,22 @@ for (const [name, run, skip] of [['Mac', mac, process.platform === 'win32' && 't
     // Review 3: the same plain mark again changes nothing, so it is not given the hint either.
     const repeat = await run(['task', 'built', projectId, String(m), 'the notes are done']);
     assert.equal(repeat.code, 0, repeat.out);
-    assert.equal(/--waiting person, review or release/.test(repeat.out), false, 'the hint was given to a repeat of the same mark: ' + repeat.out);
+    assert.equal(/--waiting person, review, release or none/.test(repeat.out), false, 'the hint was given to a repeat of the same mark: ' + repeat.out);
     // Review 2: the same task marked again without --waiting keeps it, says it, and is not given the hint.
     const again = await run(['task', 'built', projectId, String(n), 'the report is checked']);
     assert.equal(again.code, 0, again.out);
     assert.equal(stored(n).builtWaitingOn, 'person');
     assert.match(again.out, /built, waiting on the person\. Closing it clears the mark\./, again.out);
-    assert.equal(/--waiting person, review or release/.test(again.out), false, 'the hint was given to a task that waits on the person: ' + again.out);
+    assert.equal(/--waiting person, review, release or none/.test(again.out), false, 'the hint was given to a task that waits on the person: ' + again.out);
+    // Review 4: --waiting none takes it off, keeps the mark, and is never said to be unrecorded or given the hint.
+    const off = newTask(name + ' summary');
+    assert.equal((await run(['task', 'built', projectId, String(off), 'summed up', '--waiting', 'person'])).code, 0);
+    const none = await run(['task', 'built', projectId, String(off), 'summed up', '--waiting', 'none']);
+    assert.equal(none.code, 0, none.out);
+    assert.equal('builtWaitingOn' in stored(off), false, 'none left the value');
+    assert.equal(typeof stored(off).builtAt, 'string', 'none took the mark off');
+    assert.match(none.out, /built, waiting to be released or checked\./, none.out);
+    assert.equal(/did not record|--waiting person, review or release \(kosmos/.test(none.out), false, none.out);
     const l = await run(['task', 'list', projectId]);
     assert.equal(l.code, 0, l.out);
     assert.match(l.out, new RegExp('\\[' + n + '\\] \\[built, waiting on the person\\] '), l.out);
@@ -241,14 +261,14 @@ for (const [name, run, skip] of [['Mac', mac, process.platform === 'win32' && 't
     const n = newTask(name + ' slides');
     const bad = await run(['task', 'built', projectId, String(n), 'done', '--waiting', 'agents']);
     assert.equal(bad.code, 2, bad.out);
-    assert.match(bad.out, /--waiting says what the task waits on: person, review or release \(got agents\)/);
+    assert.match(bad.out, /--waiting says what the task waits on: person, review, release or none \(got agents\)/);
     // Review 1: the same refusal first in both CLIs, an unknown value before a --file with no path.
     const first = await run(['task', 'built', projectId, String(n), 'done', '--waiting', 'bogus', '--file']);
     assert.equal(first.code, 2, first.out);
     assert.match(first.out, /\(got bogus\)/, 'refused for another reason first: ' + first.out);
     const empty = await run(['task', 'built', projectId, String(n), 'done', '--waiting']);
     assert.equal(empty.code, 2, empty.out);
-    assert.match(empty.out, /--waiting says what the task waits on: person, review or release/);
+    assert.match(empty.out, /--waiting says what the task waits on: person, review, release or none/);
     assert.equal(stored(n).builtAt, undefined, 'a refused --waiting still marked the task');
     // Review 1: marked first, so the clear's refusal is what keeps the mark (a clear of an unmarked task sets nothing either way).
     assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', note: 'first' }).ok, true);

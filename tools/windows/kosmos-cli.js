@@ -131,9 +131,10 @@ const USAGE = {
     '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time, and whether the person has viewed it',
     '  kosmos task show <project-id> <task-number>                  one task whole: its state, who holds it, its checks, and what it delivered',
     '  kosmos task files <project-id|--all>                         check each built task\'s delivered file again on this computer: matches, changed or missing',
-    '  kosmos task built <project-id> <task-number> ["note"] [--waiting person|review|release]  mark it built; with checks, the note says how each went',
+    '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
     '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) and its path with the mark; another agent\'s mark keeps them, your own mark without --file drops them',
+    '      --waiting <who>                                          what it waits on: person, review or release (or none, to say it waits on nothing named)',
     '      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes',
     '  kosmos task edit <project-id> <task-number> [--title "<new title>"] [--detail "<new detail>" | --clear-detail]  fix a task\'s title or detail',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it, or --check <number> "<wording>" to change one',
@@ -2094,7 +2095,7 @@ function taskHoldAs(want) {
    off with --clear. Presents the agent token, as message does, so the board names who marked it. */
 async function taskBuilt(ctx, args) {
   const [project, num] = args;
-  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["note"] [--waiting person|review|release] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends the delivered file\'s fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)'); return 2; }
+  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["note"] [--waiting person|review|release|none] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends the delivered file\'s fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)'); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
   /* kosmos#4889, as install/kosmos: --clear, (#6330) --file <path> and (#7508) --commit <ref> are built's options; any
      other --word is refused, and past a bare -- everything is the note. */
@@ -2105,7 +2106,7 @@ async function taskBuilt(ctx, args) {
     if (wantFile) { file = a; wantFile = false; continue; }
     if (wantCommit) { cref = a; wantCommit = false; continue; }
     if (wantWaiting) {   // kosmos#8934: refused as it is read, as install/kosmos refuses it, before --file and --commit
-      if (!['person', 'review', 'release'].includes(a)) { ctx.err('--waiting says what the task waits on: person, review or release (got ' + a + ').'); return 2; }
+      if (!['person', 'review', 'release', 'none'].includes(a)) { ctx.err('--waiting says what the task waits on: person, review, release or none (got ' + a + ').'); return 2; }
       waiting = a; wantWaiting = false; continue;
     }
     if (!past && a === '--') { past = true; continue; }
@@ -2113,12 +2114,12 @@ async function taskBuilt(ctx, args) {
     if (!past && a === '--file') { wantFile = true; continue; }   // #6330 slice 2
     if (!past && a === '--commit') { wantCommit = true; continue; }   // #7508
     if (!past && a === '--waiting') { wantWaiting = true; continue; }   // kosmos#8934
-    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["note"] [--waiting person|review|release] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends the delivered file\'s fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)', a); return 2; }
+    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["note"] [--waiting person|review|release|none] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends the delivered file\'s fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)', a); return 2; }
     words.push(a);
   }
   if (wantFile) { ctx.err('--file needs the path of the delivered file.'); return 2; }
   if (wantCommit || cref === '') { ctx.err('--commit needs the commit the fix landed as, for example --commit HEAD.'); return 2; }
-  if (wantWaiting) { ctx.err('--waiting says what the task waits on: person, review or release.'); return 2; }   // kosmos#8934, after --file and --commit, as install/kosmos
+  if (wantWaiting) { ctx.err('--waiting says what the task waits on: person, review, release or none.'); return 2; }   // kosmos#8934, after --file and --commit, as install/kosmos
   if (cref !== null && cref.startsWith('-')) { ctx.err('--commit needs the commit the fix landed as, for example --commit HEAD (got ' + cref + ').'); return 2; }   // review 2: not the next option
   const note = words.join(' ');
   if (clear && note) { ctx.err('--clear takes the mark off, so it takes no note. Run it without the note.'); return 2; }
@@ -2210,7 +2211,8 @@ async function taskBuilt(ctx, args) {
     ctx.out(clear ? (r.json.changed === false ? 'Task ' + num + ' on ' + project + ' was not marked built.' : 'Took the built mark off task ' + num + ' on ' + project + '.')
       : 'Marked task ' + num + ' on ' + project + ' built, waiting ' + waitsWords + '. Closing it clears the mark.' + left + told);
     // kosmos#8934, as install/kosmos: said when an older board did not record what it waits on.
-    if (!clear && waiting && !recorded) ctx.out('This Kosmos did not record what it waits on: it may be older than --waiting. Update it, then mark the task again.');
+    // Review 4: none asks for no value, so an answer without one is what was asked, never "not recorded".
+    if (!clear && waiting && waiting !== 'none' && !recorded) ctx.out('This Kosmos did not record what it waits on: it may be older than --waiting. Update it, then mark the task again.');
     // #6761, as install/kosmos: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
     if (!clear && fingerprint) ctx.out('Fingerprint sent: ' + fingerprint + ' for ' + file);
     if (!clear && fingerprint && !filePath && pathWhy) ctx.out('Its path was not sent (' + pathWhy + '), so kosmos task files cannot check this mark.');

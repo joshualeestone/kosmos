@@ -685,14 +685,15 @@ function chk(ok, label, extra) {
         const waitsWhy = await rowWhy();
         chk(waitsWhy !== null && /^Marked built by Rex .+, waiting on a release: waiting on the release Undo$/.test(waitsWhy),
           `${tag} a built mark that says what it waits on says it on the row (kosmos#8934)`, JSON.stringify(waitsWhy));
-        /* An agent's mark without a value keeps the one the task has (review 2), so the way back to a plain mark is to take
-           the mark off first (review 3: a plain re-mark alone was the same mark again, and kept "a release"). */
-        tasks.clearBuilt(news.id, 3, { by: 'rex' });
-        tasks.setBuilt(news.id, 3, { by: 'rex', note: 'waiting on the release' });
+        /* An agent's mark without a value keeps the one the task has (review 2: a plain re-mark alone was the same mark
+           again and kept "a release", review 3), so the way back is `none` (review 4), which keeps everything else. */
+        tasks.setBuilt(news.id, 3, { by: 'rex', note: 'waiting on the release', waitingOn: 'none' });
         await page.evaluate(() => tskLoad());
         await page.waitForTimeout(300);
         const plainWhy = await rowWhy();
-        chk(plainWhy !== null && !/waiting on a release:/.test(plainWhy), `${tag} the plain mark again has no waits-on phrase (kosmos#8934)`, JSON.stringify(plainWhy));
+        // Review 4: the same words the plain mark's check above reads, so the fixture is shown to be back as later checks expect.
+        chk(plainWhy !== null && /^Marked built by Rex .+: waiting on the release Undo$/.test(plainWhy) && !/waiting on a release:/.test(plainWhy),
+          `${tag} --waiting none takes the waits-on phrase off and the row reads as the plain mark (kosmos#8934)`, JSON.stringify(plainWhy));
         /* kosmos#4787: a repeating task's row says its rule, its last run (who and their note) and its next run, from the
            board's words; and it stays in its owner's group (Assigned), not Unassigned. Made repeating and cleared here,
            so every count above and below sees the fixture as it was. Control: before the rule, the row has no line. */

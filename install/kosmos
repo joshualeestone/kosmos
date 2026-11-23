@@ -6777,9 +6777,10 @@ cmd_task() {
       say "  kosmos task activity <project-id> <task-number>              read a task's conversation, oldest first, in this computer's local time, and whether the person has viewed it"
       say "  kosmos task show <project-id> <task-number>                  one task whole: its state, who holds it, its checks, and what it delivered"
       say "  kosmos task files <project-id|--all>                         check each built task's delivered file again on this computer: matches, changed or missing"
-      say "  kosmos task built <project-id> <task-number> [\"note\"] [--waiting person|review|release]  mark it built; with checks, the note says how each went"
+      say "  kosmos task built <project-id> <task-number> [\"note\"]  mark it built; with checks, the note says how each went"
       say "      --clear                                                  take the built mark off"
       say "      --file <path>                                            send the delivered file's fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) and its path with the mark; another agent's mark keeps them, your own mark without --file drops them"
+      say "      --waiting <who>                                          what it waits on: person, review or release (or none, to say it waits on nothing named)"
       say "      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes"
       say "  kosmos task edit <project-id> <task-number> [--title \"<new title>\"] [--detail \"<new detail>\" | --clear-detail]  fix a task's title or detail"
       say "  kosmos task done-when <project-id> <task-number> \"<check>\" [\"<check>\" [\"<check>\"]]  say what finished means for it, or --check <number> \"<wording>\" to change one"
@@ -7049,7 +7050,7 @@ cmd_task() {
       # Review 1: `message p 3 --` leaves no words once the -- is dropped; that is the usage error, not an empty send.
       [ -n "${KOSMOS_TEXT_ARGS[*]+${KOSMOS_TEXT_ARGS[*]}}" ] || { say "Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] \"<what to say>\""; exit 2; } ;;
     built)
-      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--waiting person|review|release] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends the delivered file's fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)"; exit 2; }
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--waiting person|review|release|none] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends the delivered file's fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       local _c _cpast=0 _cfile=0 _ccommit=0 _cwait=0   # kosmos#4889: --clear, (#6330) --file <path>, (#7508) --commit <ref> and (#8934) --waiting <who> are built's options; any other --word is refused
       for _c in "${@:3}"; do
@@ -7057,14 +7058,14 @@ cmd_task() {
         if [ "$_cfile" = 1 ]; then _cfile=2; continue; fi
         if [ "$_ccommit" = 1 ]; then _ccommit=2; continue; fi
         if [ "$_cwait" = 1 ]; then
-          case "$_c" in person|review|release) _cwait=2; continue ;; esac
-          say "--waiting says what the task waits on: person, review or release (got $_c)."; exit 2
+          case "$_c" in person|review|release|none) _cwait=2; continue ;; esac
+          say "--waiting says what the task waits on: person, review, release or none (got $_c)."; exit 2
         fi
-        case "$_c" in --) _cpast=1 ;; --clear) ;; --file) _cfile=1 ;; --commit) _ccommit=1 ;; --waiting) _cwait=1 ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task built" "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--waiting person|review|release] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends the delivered file's fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)" "$_c" ;; esac
+        case "$_c" in --) _cpast=1 ;; --clear) ;; --file) _cfile=1 ;; --commit) _ccommit=1 ;; --waiting) _cwait=1 ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task built" "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--waiting person|review|release|none] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends the delivered file's fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)" "$_c" ;; esac
       done
       [ "$_cfile" != 1 ] || { say "--file needs the path of the delivered file."; exit 2; }
       [ "$_ccommit" != 1 ] || { say "--commit needs the commit the fix landed as, for example --commit HEAD."; exit 2; }
-      [ "$_cwait" != 1 ] || { say "--waiting says what the task waits on: person, review or release."; exit 2; } ;;
+      [ "$_cwait" != 1 ] || { say "--waiting says what the task waits on: person, review, release or none."; exit 2; } ;;
     assign)
       # #4914: <project> <task-number> <agent|me|nobody> [--part <n>], checked before the board as --parent is.
       local _usage="Usage: kosmos task assign <project-id> <task-number> <agent|me|nobody> [--part <part-number>] [--add-member]"
@@ -7727,7 +7728,7 @@ cmd_task() {
       # kosmos#8934: what it waits on, one of three words (checked again here, as the board checks it).
       if [ "$_bwait" -gt 0 ]; then
         [ "$clear" = true ] && { say "--clear takes the mark off, so it takes no --waiting. Run it without --waiting."; exit 2; }
-        case "$waiting" in person|review|release) ;; *) say "--waiting says what the task waits on: person, review or release."; exit 2 ;; esac
+        case "$waiting" in person|review|release|none) ;; *) say "--waiting says what the task waits on: person, review, release or none."; exit 2 ;; esac
       fi
       # #6330 slice 2: the delivered file's sha256, hashed here; the board never reads the file.
       local fingerprint="" file_abs="" file_json=""
@@ -7813,7 +7814,8 @@ cmd_task() {
             case "$body" in *'"builtWaitingOn":"person"'*) _wnow=person ;; *'"builtWaitingOn":"review"'*) _wnow=review ;; *'"builtWaitingOn":"release"'*) _wnow=release ;; esac
             case "$_wnow" in person) _waits="on the person" ;; review) _waits="on a review" ;; release) _waits="on a release" ;; esac
             say "Marked task $num on ${project:-the project} built, waiting $_waits. Closing it clears the mark.${_left:+ Your part only. $_left}${told:+ $told}"
-            case "$waiting" in ?*) case "$body" in *"\"builtWaitingOn\":\"$waiting\""*) ;; *) say "This Kosmos did not record what it waits on: it may be older than --waiting. Update it, then mark the task again." ;; esac ;; esac
+            # Review 4: none asks for no value, so an answer without one is what was asked, never "not recorded".
+            case "$waiting" in none) ;; ?*) case "$body" in *"\"builtWaitingOn\":\"$waiting\""*) ;; *) say "This Kosmos did not record what it waits on: it may be older than --waiting. Update it, then mark the task again." ;; esac ;; esac
             # #6761: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
             [ -z "$fingerprint" ] || say "Fingerprint sent: $fingerprint for $file"
             [ -z "$fingerprint" ] || [ -n "$file_abs" ] || say "Its path was not sent (Kosmos keeps only a plain local path: absolute, with no . or .. in it, no control characters, not a network path, and 1024 characters at most), so kosmos task files cannot check this mark."   # kosmos#8214 review 2: a path dropped is said, not silent
