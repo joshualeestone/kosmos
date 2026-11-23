@@ -121,7 +121,7 @@ run 0 0 STUB_BUILD_EMPTY=1
 
 # prod could not be read (exit 4): goes on, as at 1b-ii, and the early run does not print 1b-ii's NOTE.
 run 0 4
-{ ! has "$OUT" "$STOP" && home_made && ! has "$OUT" "could not read what prod serves" && ! has "$OUT" "stand-in refuses (4)"; } \
+{ ! has "$OUT" "$STOP" && home_made && ! has "$OUT" "could not read what prod" && ! has "$OUT" "stand-in refuses (4)"; } \
   && pass "prod unreadable (exit 4): the cut goes on, its reason and the NOTE left to step 1b-ii" \
   || bad "prod unreadable (rc=$RC): out=$(printf '%s' "$OUT" | tail -3)"
 

@@ -44,12 +44,15 @@ function history() {
 }
 
 /* Mac and Windows prod pointers and manifests as files, as installkosmos.com serves them. */
-function prod({ mac = '0.8.16', win = '0.8.16', commit, winCommit = commit, winManifest = true, winDirty = false, winPointer = true } = {}) {
+/* arch: the pointer's arch field (undefined leaves it out, as a pointer may); winApp: the manifest's whole app object. */
+function prod({ mac = '0.8.16', win = '0.8.16', commit, winCommit = commit, winManifest = true, winDirty = false, winPointer = true, arch = 'x64', winApp } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wnpool-win-prod-'));
   fs.writeFileSync(path.join(dir, 'latest.json'), JSON.stringify({ version: mac, manifest: `kosmos-${mac}-arm64.manifest.json` }));
   fs.writeFileSync(path.join(dir, `kosmos-${mac}-arm64.manifest.json`), JSON.stringify({ version: mac, app: { commit, dirty: false } }));
-  if (winPointer) fs.writeFileSync(path.join(dir, 'latest-win.json'), JSON.stringify({ version: win, arch: 'x64', artifact: 'kosmos-win-x64.zip' }));
-  if (winManifest) fs.writeFileSync(path.join(dir, `kosmos-${win}-win-x64.manifest.json`), JSON.stringify({ version: win, platform: 'win32', app: { commit: winCommit, dirty: winDirty } }));
+  const ptr = { version: win, artifact: 'kosmos-win-x64.zip' };
+  if (arch !== undefined) ptr.arch = arch;
+  if (winPointer) fs.writeFileSync(path.join(dir, 'latest-win.json'), JSON.stringify(ptr));
+  if (winManifest) fs.writeFileSync(path.join(dir, `kosmos-${win}-win-x64.manifest.json`), JSON.stringify({ version: win, platform: 'win32', app: winApp || { commit: winCommit, dirty: winDirty } }));
   return { dir, env: { KOSMOS_PROD_POINTER_URL: 'file://' + path.join(dir, 'latest.json') } };
 }
 function poolFile(pool) {
@@ -128,9 +131,11 @@ test('#8924: what cannot be read exactly refuses and writes nothing (no pointer,
     // A Windows-only title the window has and the pool does not (reworded after the build): refused, as the Mac sync does.
     const p = prod({ commit: h.cut }); dirs.push(p.dir);
     const pf = poolFile({ lastProd: '0.8.16', items: [item('W reworded', 1, 'pending', { platforms: ['windows'] })] }); dirs.push(pf.dir);
+    const reworded = fs.readFileSync(pf.file, 'utf8');
     const r = tool.syncWithWinProd(tool.readPool(pf.file), pf.file, p.env, h.dir);
     assert.equal(r.ok, false);
     assert.match(r.because, /Windows-only highlights of 0\.8\.16 are not in the pool .*"W"/);
+    assert.equal(fs.readFileSync(pf.file, 'utf8'), reworded, 'a refused reworded title wrote the pool');
   } finally { cleanup(...dirs); }
 });
 
@@ -159,8 +164,7 @@ test('#8924: prod-check is 3 when Windows prod is newer than the pool records, 0
   } finally { cleanup(p.dir, noPtr.dir, recorded.dir, behind.dir, never.dir); }
 });
 
-test('#8924: through build, the Windows sync runs after the Mac one and a refusal names what was already written', () => {
-  const h = history();
+test('#8924: through build, a Windows refusal after a Mac sync that wrote nothing claims nothing and writes nothing', () => {
   // build reads history from this repo (ROOT), not the test's: point both pointers at a commit this repo lacks so the
   // Windows sync refuses after the Mac sync had nothing to do, and the refusal says so.
   const p = prod({ commit: 'c'.repeat(40) });
@@ -177,7 +181,7 @@ test('#8924: through build, the Windows sync runs after the Mac one and a refusa
     // CONTROL: --offline skips both syncs and builds.
     const o = withEnv(p.env, () => quiet(() => tool.main(['build', '--offline', '0.8.17', `--pool=${pf.file}`, `--out=${out}`])));
     assert.equal(o.code, 0, o.said);
-  } finally { cleanup(h.dir, p.dir, pf.dir); }
+  } finally { cleanup(p.dir, pf.dir); }
 });
 
 test('#8924 review 2: through build, a Windows refusal AFTER the Mac sync wrote says the pool was already updated, and the Mac record is on disk', (t) => {
@@ -197,4 +201,96 @@ test('#8924 review 2: through build, a Windows refusal AFTER the Mac sync wrote 
     assert.equal(after.lastProdWin, undefined, 'a refused Windows sync recorded Windows prod');
     assert.equal(fs.existsSync(out), false, 'a refused build wrote the window');
   } finally { cleanup(p.dir, pf.dir); }
+});
+
+/* Review 3: a repo whose window at one commit is for ANOTHER version, listing the Windows one in "also", as a Windows
+   build of the same release as the Mac's carries it (tools/windows/RELEASING.md). */
+function historyAlso() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wnpool-win-also-'));
+  const git = (...a) => execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  git('init', '-q');
+  git('config', 'user.email', 'test@example.invalid');
+  git('config', 'user.name', 'test');
+  fs.mkdirSync(path.join(dir, 'web'));
+  fs.writeFileSync(path.join(dir, 'web', 'whats-new.json'), JSON.stringify({ version: '0.8.15', also: ['0.8.16'], highlights: [
+    { icon: 'tasks', title: 'W', line: 'x', platforms: ['windows'] },
+  ] }));
+  git('add', '.'); git('commit', '-q', '-m', 'cut 0.8.15, also 0.8.16');
+  return { dir, cut: git('rev-parse', 'HEAD') };
+}
+
+test('#8924 review 3: a window for another version whose "also" lists the Windows version counts; CONTROL: without "also" it refuses', () => {
+  const h = historyAlso();
+  const p = prod({ win: '0.8.16', commit: h.cut });
+  const pf = poolFile({ lastProd: '0.8.16', items: [item('W', 1, 'pending', { platforms: ['windows'] })] });
+  const bare = prod({ win: '0.8.17', commit: h.cut });   // the file there names 0.8.15 and 0.8.16, not 0.8.17
+  const pf2 = poolFile({ lastProd: '0.8.16', items: [item('W', 1, 'pending', { platforms: ['windows'] })] });
+  try {
+    const r = tool.syncWithWinProd(tool.readPool(pf.file), pf.file, p.env, h.dir);
+    assert.equal(r.ok, true, r.because);
+    assert.deepEqual(statuses(pf.file), [['W', 'shown', '0.8.16']]);
+    const c = tool.syncWithWinProd(tool.readPool(pf2.file), pf2.file, bare.env, h.dir);
+    assert.equal(c.ok, false);
+    assert.match(c.because, /has no What's New for it at that commit.*set "lastProdWin": "0\.8\.17"/);
+  } finally { cleanup(h.dir, p.dir, pf.dir, bare.dir, pf2.dir); }
+});
+
+test('#8924 review 3: the pointer\'s arch defaults to x64 when absent, and an arch that is not a plain word refuses', () => {
+  const h = history();
+  const noArch = prod({ commit: h.cut, arch: undefined });
+  const badArch = prod({ commit: h.cut, arch: 'x 64' });
+  try {
+    const ok = tool.servedWinProd(noArch.env);
+    assert.equal(ok.ok, true, ok.because);
+    assert.equal(ok.commit, h.cut);
+    const bad = tool.servedWinPointer(badArch.env);
+    assert.equal(bad.ok, false);
+    assert.match(bad.because, /names no arch we can read/);
+  } finally { cleanup(h.dir, noArch.dir, badArch.dir); }
+});
+
+test('#8924 review 3: a manifest that names no app commit refuses, naming the hand step (building again cannot help)', () => {
+  const h = history();
+  const p = prod({ commit: h.cut, winApp: { dirty: false } });
+  const pf = poolFile({ lastProd: '0.8.16', items: [item('W', 1, 'pending', { platforms: ['windows'] })] });
+  try {
+    const before = fs.readFileSync(pf.file, 'utf8');
+    const r = tool.syncWithWinProd(tool.readPool(pf.file), pf.file, p.env, h.dir);
+    assert.equal(r.ok, false);
+    assert.match(r.because, /names no app commit.*set "lastProdWin": "0\.8\.16" in release\/whats-new-pool\.json by hand/);
+    assert.equal(fs.readFileSync(pf.file, 'utf8'), before);
+  } finally { cleanup(h.dir, p.dir, pf.dir); }
+});
+
+test('#8924 review 3: markShownWin refuses a version older than the Windows prod the pool records, and changes nothing', () => {
+  const pool = { lastProd: '0.8.16', lastProdWin: '0.8.17', items: [item('W', 1, 'pending', { platforms: ['windows'] })] };
+  const r = tool.markShownWin(pool, '0.8.16', { version: '0.8.16', highlights: [{ title: 'W', platforms: ['windows'] }] }, 'test');
+  assert.equal(r.ok, false);
+  assert.match(r.because, /already records Windows prod 0\.8\.17, newer than 0\.8\.16/);
+  assert.equal(pool.items[0].status, 'pending');
+  assert.equal(pool.lastProdWin, '0.8.17');
+});
+
+test('#8924 review 3: a Windows record that jumps more than one version says how to retire the version in between; CONTROL: the next patch says nothing', () => {
+  const h = history();
+  const p = prod({ commit: h.cut });
+  const jumped = poolFile({ lastProd: '0.8.16', lastProdWin: '0.8.14', items: [item('W', 1, 'pending', { platforms: ['windows'] })] });
+  const next = poolFile({ lastProd: '0.8.16', lastProdWin: '0.8.15', items: [item('W', 1, 'pending', { platforms: ['windows'] })] });
+  try {
+    const r = tool.syncWithWinProd(tool.readPool(jumped.file), jumped.file, p.env, h.dir);
+    assert.equal(r.ok, true, r.because);
+    assert.match(r.note, /If a Windows version between 0\.8\.14 and 0\.8\.16 also reached Windows prod/);
+    const c = tool.syncWithWinProd(tool.readPool(next.file), next.file, p.env, h.dir);
+    assert.equal(c.ok, true, c.because);
+    assert.doesNotMatch(c.note, /version between/);
+  } finally { cleanup(h.dir, p.dir, jumped.dir, next.dir); }
+});
+
+test('#8924 review 3: the Windows promote prints the pool-build NEXT hint, guarded against a rollback as the Mac one is', () => {
+  const s = fs.readFileSync(path.join(__dirname, 'tools', 'promote-channel.sh'), 'utf8');
+  // The Windows branch that reports the site-checkout update (the script has other Windows branches).
+  const at = s.indexOf('echo "promote-channel: updated the SITE CHECKOUT');
+  const win = at < 0 ? '' : s.slice(at, s.indexOf('\nelse\n', at));
+  assert.ok(win.length > 0, 'the --family win branch of promote-channel.sh was not found');
+  assert.match(win, /\[ "\$ALLOW_OLDER" = 1 \] \|\| echo "promote-channel: NEXT, once Windows users are served \$V: node tools\/whats-new-pool\.js build/);
 });

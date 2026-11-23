@@ -497,7 +497,7 @@ whats_new_gate() {
   fi
   case "$pc" in
     0) ;;
-    4) [ "$1" != note ] || echo "NOTE: could not read what prod serves, so the What's New pool was not checked against it; the cut goes on." ;;
+    4) [ "$1" != note ] || echo "NOTE: could not read what prod (Mac or Windows) serves, so the What's New pool was not checked against it; the cut goes on." ;;
     *) return 1 ;;   # 3: prod is newer than the pool records; anything else: the pool or the tool is broken (#5713 review 2)
   esac
   _whats_new_fresh_check "$REPO" "$1"
