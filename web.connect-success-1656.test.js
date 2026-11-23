@@ -45,7 +45,9 @@ const IDS = ['acct-add-modal', 'acct-add-dialog', 'acct-add-t', 'acct-add-in', '
   // #2241: acctShowSuccess now also touches these (the gold-box arm hides the default
   // check/heading and shows the box; the else-arm restores them). The stub throws on an
   // id it does not carry, so the real function's new refs must be declared here.
-  'acct-success-box', 'acct-success-check', 'acct-success-t'];
+  'acct-success-box', 'acct-success-check', 'acct-success-t',
+  // kosmos#8938: the company's provider line is hidden on the success view too.
+  'acct-policy-note'];
 
 /** acctShowSuccess, the REAL one, run against a stub in a known start state. */
 function makeShow(modalHidden) {
@@ -68,7 +70,7 @@ test('kosmos#1656: on an OPEN modal, success shows, names the account, and hides
   show('your Claude account');
   assert.equal(els.get('acct-success').hidden, false, 'the success panel is shown');
   assert.equal(els.get('acct-success-say').textContent, 'Successfully connected to your Claude account.');
-  for (const id of ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-gemini-flow', 'acct-qwen-flow', 'acct-compat-flow', 'acct-add-acts']) {
+  for (const id of ['acct-add-t', 'acct-add-in', 'acct-policy-note', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-gemini-flow', 'acct-qwen-flow', 'acct-compat-flow', 'acct-add-acts']) {
     assert.equal(els.get(id).hidden, true, id + ' is hidden while success shows');
   }
   assert.equal(els.get('acct-add-dialog').attrs['aria-labelledby'], 'acct-success-t', 'the dialog is renamed to its success heading, not the hidden form title');

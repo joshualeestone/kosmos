@@ -122,7 +122,7 @@ async function welcome(page) {
       chk(m1.order, 'M1 it sits right under the company line');
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'membertold-' + TAG + '-settings.png') }).catch(() => {});
       const m2 = await providers(page);
-      chk(m2.note === 'Your company allows only Anthropic Claude and OpenAI for new agents on this computer.', 'M2 Add a provider says which providers the company allows', String(m2.note));
+      chk(m2.note === 'Your company allows only Anthropic Claude and OpenAI for new agents in this Kosmos.', 'M2 Add a provider says which providers the company allows', String(m2.note));
       chk(m2.under, 'M2 the line sits right under the intro');
       chk(untouched(m2.out), 'M2 the options are left as they were', JSON.stringify(m2.out));
       chk((await youMenu(page)) === 'Work Kosmos for Testville Municipal', 'M3 the You menu names the company');
@@ -159,7 +159,7 @@ async function welcome(page) {
       const m4 = await welcome(page);
       chk(m4.t === null, 'CONTROL ' + k + ': the welcome names no company', String(m4.t));
       const m2 = await providers(page);
-      if (k === 'family') chk(m2.note === 'Your family allows only Anthropic Claude and OpenAI for new agents on this computer.', 'CONTROL family: the provider line names the family, not a company', String(m2.note));
+      if (k === 'family') chk(m2.note === 'Your family allows only Anthropic Claude and OpenAI for new agents in this Kosmos.', 'CONTROL family: the provider line names the family, not a company', String(m2.note));
       else chk(m2.note === null, 'CONTROL none: Add a provider says nothing', String(m2.note));
       chk(untouched(m2.out), 'CONTROL ' + k + ': the options are as they were', JSON.stringify(m2.out));
       errsAll.push(...errs);

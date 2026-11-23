@@ -20,19 +20,38 @@ const SCRIPT = page.scriptOf(HTML);
 const noteText = new Function(page.lift(SCRIPT, 'acctPolicyNoteText') + '\nreturn acctPolicyNoteText;')();
 
 test('the lifted pieces exist (a rename here would make every assertion vacuous)', () => {
-  assert.match(SCRIPT, /acctPolicyMark\(\);\s+\/\/ kosmos#8938/, 'openAcctAdd calls acctPolicyMark');
+  assert.match(SCRIPT, /acctPolicyNote\(\);\s+\/\/ kosmos#8938/, 'openAcctAdd calls acctPolicyNote');
   assert.match(HTML, /<p class="rm-small" id="acct-add-in">[^\n]*<\/p>\n\s+<!-- kosmos#8938[^\n]*-->\n\s+<p class="rm-small" id="acct-policy-note" hidden><\/p>/, 'the note sits under the intro');
 });
 
 test('a company list is said in the menu words the server sends', () => {
   const org = { name: 'Testville', kind: 'company' };
   assert.equal(noteText({ enrolled: true, org, allowedProviderNames: ['Anthropic Claude', 'OpenAI'] }),
-    'Your company allows only Anthropic Claude and OpenAI for new agents on this computer.');
+    'Your company allows only Anthropic Claude and OpenAI for new agents in this Kosmos.');
   assert.equal(noteText({ enrolled: true, org, allowedProviderNames: ['Anthropic Claude'] }),
-    'Your company allows only Anthropic Claude for new agents on this computer.');
+    'Your company allows only Anthropic Claude for new agents in this Kosmos.');
   assert.equal(noteText({ enrolled: true, org, allowedProviderNames: ['Anthropic Claude', 'OpenAI', 'Google Gemini (Google subscription)'] }),
-    'Your company allows only Anthropic Claude, OpenAI and Google Gemini (Google subscription) for new agents on this computer.');
-  assert.equal(noteText({ enrolled: true, org, allowedProviderNames: [] }), 'Your company allows no AI provider for new agents on this computer.');
+    'Your company allows only Anthropic Claude, OpenAI and Google Gemini (Google subscription) for new agents in this Kosmos.');
+  assert.equal(noteText({ enrolled: true, org, allowedProviderNames: [] }), 'Your company allows no AI provider for new agents in this Kosmos.');
+});
+
+test('an answer meant for an earlier open of the dialog is dropped; one for this open is shown', async () => {
+  const el = { hidden: false, textContent: 'old' };
+  let release;
+  const fetch = () => new Promise((r) => { release = () => r({ json: async () => ({ enrolled: true, org: { name: 'T', kind: 'company' }, allowedProviderNames: ['OpenAI'] }) }); });
+  const mk = new Function('document', 'fetch', 'let ACCT_ADD_VISIT = 1;\n' + page.lift(SCRIPT, 'acctPolicyNoteText') + '\n' + page.lift(SCRIPT, 'acctPolicyNote') + '\nreturn { acctPolicyNote, bump: () => { ACCT_ADD_VISIT += 1; } };');
+  const api = mk({ getElementById: (id) => (id === 'acct-policy-note' ? el : null) }, fetch);
+  const late = api.acctPolicyNote();
+  assert.equal(el.hidden, true, 'hidden while the read is out');
+  assert.equal(el.textContent, '');
+  api.bump();   // the dialog was closed (or reopened) before the answer came
+  release(); await late;
+  assert.equal(el.hidden, true, 'a late answer is dropped');
+  assert.equal(el.textContent, '');
+  const now = api.acctPolicyNote();   // CONTROL: the same answer for the current open is shown
+  release(); await now;
+  assert.equal(el.hidden, false);
+  assert.equal(el.textContent, 'Your company allows only OpenAI for new agents in this Kosmos.');
 });
 
 test('a family is told about its family, never its company', () => {
@@ -171,7 +190,7 @@ test('the welcome keeps Josh’s words and adds the line after them; both caller
   assert.match(HTML, /aria-describedby="acct-add-in acct-policy-note"/, 'a screen reader hears the provider line with the intro');
 });
 
-test('orgenroll.acceptedNever reads the never lines of the words on record, and [] with none', () => {
+test('orgenroll.acceptedNever gives [] with no enrollment (the read-back is engine/orgrollup-5532.test.js)', () => {
   const fs2 = require('node:fs');
   const os = require('node:os');
   const root = fs2.mkdtempSync(nodePath.join(os.tmpdir(), 'membertold-8938-'));

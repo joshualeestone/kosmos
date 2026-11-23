@@ -22,7 +22,8 @@ allow, before connecting one. A family, a Kosmos in no company, and a company wi
 3. /api/org adds allowedProviderNames (orgpolicy.current().providers_allowed mapped through providerName, the menus'
    words, so the two Gemini rows stay distinct; screen-only branch; only while a list is in force; current() so a read
    applies nothing; a list holding an id with no menu name is not sent, so nothing false is said). Add a provider shows one line under its intro: "Your company
-   (or family) allows only X and Y for new agents on this computer." (new: running agents are not stopped). Words only, by design (challenge round 1):
+   (or family) allows only X and Y for new agents in this Kosmos." (new: running agents are not stopped; in this Kosmos: the
+   policy is this Kosmos's own, another Kosmos on the computer has its own). Hidden on the success view. Words only, by design (challenge round 1):
    marking the options themselves raced the code that owns them (Meta Muse, the vendor switches, Windows Qwen),
    could not represent the Gemini subscription and key rows separately, and could strand a sign-in in flight.
 4. NOT in this PR: Sign in again returning the member to the invite sheet. The #8728 return mechanism is built around
