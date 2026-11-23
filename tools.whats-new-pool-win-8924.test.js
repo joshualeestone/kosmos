@@ -179,3 +179,22 @@ test('#8924: through build, the Windows sync runs after the Mac one and a refusa
     assert.equal(o.code, 0, o.said);
   } finally { cleanup(h.dir, p.dir, pf.dir); }
 });
+
+test('#8924 review 2: through build, a Windows refusal AFTER the Mac sync wrote says the pool was already updated, and the Mac record is on disk', (t) => {
+  // The Mac sync reads history from this repo (ROOT), so it uses this repo's real 0.7.35 cut, as #5713's test does.
+  try { execFileSync('git', ['-C', __dirname, 'cat-file', '-e', 'ad8039770d4b50b9cd6665f421c7d1e2ff7fd07f^{commit}'], { stdio: 'ignore' }); }
+  catch { t.skip('0.7.35\'s cut commit is not in this checkout (shallow clone)'); return; }
+  const p = prod({ mac: '0.7.35', win: '0.7.35', commit: 'ad8039770d4b50b9cd6665f421c7d1e2ff7fd07f', winManifest: false });
+  const pf = poolFile({ lastProd: '0.7.34', items: [item('Agent cards show the last community post', 1, 'pending'), item('Next thing', 2, 'pending')] });
+  const out = path.join(pf.dir, 'whats-new.json');
+  try {
+    const r = withEnv(p.env, () => quiet(() => tool.main(['build', '0.7.36', `--pool=${pf.file}`, `--out=${out}`])));
+    assert.equal(r.code, 3, r.said);
+    assert.match(r.said, /could not read Windows prod's manifest/);
+    assert.match(r.said, /\(The pool was already updated to record prod 0\.7\.35: commit release\/whats-new-pool\.json to main\.\)/, r.said);
+    const after = JSON.parse(fs.readFileSync(pf.file, 'utf8'));
+    assert.equal(after.lastProd, '0.7.35', 'the Mac sync did not write the pool');
+    assert.equal(after.lastProdWin, undefined, 'a refused Windows sync recorded Windows prod');
+    assert.equal(fs.existsSync(out), false, 'a refused build wrote the window');
+  } finally { cleanup(p.dir, pf.dir); }
+});

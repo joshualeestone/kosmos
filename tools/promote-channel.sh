@@ -950,6 +950,9 @@ echo "   refreshed the prod alias $ALIAS to $V"
 if [ "$FAMILY" = win ]; then
   # Not "to prod": users are served the Windows files from R2, which this does not write (#3725).
   echo "promote-channel: updated the SITE CHECKOUT's $PROD_NAME to $V ($ARTIFACT). This does NOT change what users are served: that is tools/windows/publish-r2.ps1 -Promote."
+  # kosmos#8924: the pool records what WINDOWS prod serves too, so once publish-r2.ps1 -Promote serves $V the next Mac cut's
+  # prod-check stops on it until the pool is built again. Said here, where the promoter can act on it (not on a rollback).
+  [ "$ALLOW_OLDER" = 1 ] || echo "promote-channel: NEXT, once Windows users are served $V: node tools/whats-new-pool.js build <the next cut's version> on a branch, merged to main. It records $V's Windows-only highlights as shown (kosmos#8924); until then the next cut stops at its What's New check."
 else
   echo "promote-channel: PROMOTED $V to prod - $PROD_NAME now points at the exact bytes staging verified ($ARTIFACT)."
   [ "${PLUS_UNVERIFIED:-0}" = 1 ] && echo "promote-channel: NOTE a first Kosmos+ sign-in was NOT verified on $V (#3940); see ${PLUS_LOG:-the output above}."
