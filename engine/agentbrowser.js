@@ -218,10 +218,10 @@ function writeConfigIfNeeded(file, text) {
    What counts as a test run is the store's rule (store.isTestProcess), reused rather than re-derived, asked of this
    process and of the env a caller passed (whose KOSMOS_TEST_RUN is compared with THIS process's temp folder, the only
    one the store reads), plus one rule of its own, inKtRunRoot below. */
-/* The machine-wide test-sandbox rule (tools/lib/process-fixture.sh _KOSMOS_KT_RE, (T|tmp)/kt<digits>), with either
-   separator: a temp folder inside a tools/run-tests.sh run root marks a test that scrubbed its environment but kept
-   TMPDIR, the shape of the live config that found this. Pure, so it is tested on its own. */
-const KT_RUN_ROOT = /(^|[\/\\])(T|tmp)[\/\\]kt\d+([\/\\]|$)/;
+/* The machine-wide test-sandbox rule (tools/lib/process-fixture.sh _KOSMOS_KT_RE): a temp folder inside a
+   tools/run-tests.sh run root marks a test that scrubbed its environment but kept TMPDIR, the shape of the live config
+   that found this. Not caught: a test child given a minimal env ({ PATH }), with no marks and the default temp folder. */
+const KT_RUN_ROOT = /(^|\/)(T|tmp)\/kt\d+(\/|$)/;
 function inKtRunRoot(tmp) {
   return KT_RUN_ROOT.test(String(tmp || ''));
 }
