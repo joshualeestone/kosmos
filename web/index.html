@@ -73589,6 +73589,12 @@ function tskRepeatMissed(t) {
   if (n === 1 && t.repeatMissedMore !== true) return 'Missed the run due ' + t.repeatMissedWords + '.';
   return 'Missed ' + (t.repeatMissedMore === true ? 'more than ' + n : n) + ' runs, the latest due ' + t.repeatMissedWords + '.';
 }
+/* kosmos#8934: what a built mark says it waits on, for the person reading it: ", waiting on you" and the rest, or ''
+   for a mark that does not say. A fixed phrase, never the agent's text. */
+function tskBuiltWaitsWords(t) {
+  const w = { person: 'you', review: 'a review', release: 'a release' };
+  return t && typeof t.builtWaitingOn === 'string' && Object.hasOwn(w, t.builtWaitingOn) ? ', waiting on ' + w[t.builtWaitingOn] : '';
+}
 function tskAgentName(sessionName) {
   const a = Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === sessionName) : null;
   return String((a && a.name) || sessionName || '');
@@ -73884,6 +73890,7 @@ function tskRow(t, at) {
     : '<div class="why">Marked built' + (t.builtByPerson ? ' by you' : t.builtBy ? ' by ' + esc(tskAgentName(t.builtBy)) : '')
       /* An empty ago (a time ahead of this device's clock) leaves no stray space before the colon (review round 11). */
       + (t.builtAt && agoWords(Date.now() - Date.parse(t.builtAt)) ? ' ' + esc(agoWords(Date.now() - Date.parse(t.builtAt))) : '')
+      + (typeof tskBuiltWaitsWords === 'function' ? tskBuiltWaitsWords(t) : '')   // kosmos#8934: what it waits on; typeof: tests lift this function alone
       + (t.builtNote ? ': ' + esc(builtNoteRow) : '')
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
       + ' <button type="button" class="tsk-unbuild' + (t.builtNote ? ' tsk-unbuild-own' : '') + '" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Undo marking task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(rowChain)) + ' built">Undo</button></div>';
@@ -74614,7 +74621,7 @@ function paintTaskPage() {
   /* kosmos#8555: left out, as the Tasks row leaves it out, when the payload's landedCheck is 'missing'. That is the Tasks
      view's cached check, so the page has it only while the cache holds one (none after it expires or a restart). */
   const closedHow = t.landedCheck !== 'missing' && typeof tkClosedHowWords === 'function' ? tkClosedHowWords(t) : '';   // kosmos#8552; typeof: tests lift this function alone
-  const builtWords = (t.builtAt && !t.closedAt ? ', marked built' + (builtWho ? ' by ' + builtWho : '') + (t.builtNote ? ': ' + t.builtNote : '') : '')
+  const builtWords = (t.builtAt && !t.closedAt ? ', marked built' + (builtWho ? ' by ' + builtWho : '') + (typeof tskBuiltWaitsWords === 'function' ? tskBuiltWaitsWords(t) : '') + (t.builtNote ? ': ' + t.builtNote : '') : '')
     + (closedHow ? ', ' + closedHow : '');
   { const words = typeof tkWhoLeftWords === 'function' ? tkWhoLeftWords(t, (n) => tkMemberName(p, n)) : '';   // typeof: tests lift this function alone
     const row = document.getElementById('tk-wholeft-row');

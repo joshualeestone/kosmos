@@ -48,6 +48,12 @@ function guideText() {
   'after it closes, so a fix that was checked but never committed shows up. Push it too:',
   'until a remote has it, the task says it is only on this computer.',
   '',
+  // kosmos#8934: what a built task waits on, so the person can see which delivered work needs them.
+  '**Say what a built task waits on,** so the person can see at a glance which delivered',
+  'work needs them: add `--waiting person` (they have to look at it, answer or decide),',
+  '`--waiting review` (another agent reviews it) or `--waiting release` (it goes out with',
+  'a release or a deploy). Each mark says its own, so say it again when you mark it again.',
+  '',
   '**Work that comes back on a schedule is one task that repeats,** not a new task',
   'each time: a report every morning, a check every hour. Add it as your working rules say (or use',
   'the task you were given), with checks for what each run should find, then set',

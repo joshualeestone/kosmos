@@ -606,8 +606,11 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
   const projName = clean(rec.name || projectId);
   const who = clean(by) || 'An agent';
   const note = clean(t.builtNote || '');
+  const WAITS_ON_WORDS = { person: 'the person', review: 'a review', release: 'a release' };   // kosmos#8934
   const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
     + (n ? ': "' + n + '"' : '')
+    // kosmos#8934: what it waits on, when the mark says (a fixed word, never the sender's text).
+    + (Object.hasOwn(WAITS_ON_WORDS, String(t.builtWaitingOn)) ? ' - it is waiting on ' + WAITS_ON_WORDS[t.builtWaitingOn] : '')
     + (forParent.includes(m) ? ' (it is under your task ' + heldAt.number + ')' : '')
     /* #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
        Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). kosmos#6849: it
@@ -27983,7 +27986,9 @@ const server = http.createServer(async (req, res) => {
           // kosmos#8214: and that file's absolute path on the agent's computer, which the board only stores.
           filePath: !viaScreen && body.file_path != null ? body.file_path : null,
           // #7508: an agent's mark may name the commit a code fix landed as (the CLI resolved it); the screen sends none.
-          commit: !viaScreen && body.commit != null ? body.commit : null });
+          commit: !viaScreen && body.commit != null ? body.commit : null,
+          // kosmos#8934: what it waits on (person, review or release), from an agent; the screen sends none.
+          waitingOn: !viaScreen && body.waiting_on != null ? body.waiting_on : null });
       if (!out.ok) {
         const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
           : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);

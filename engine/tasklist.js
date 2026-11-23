@@ -151,7 +151,9 @@ function waitsWords(x, now = Date.now()) {
   }
   // Built before paused, as tasks.listGroup orders them (#5864): a built task's review can happen in a paused project.
   // #8577 nit: the same built test as tasks.listGroup (a non-empty string), so a stray non-string builtAt is not built.
-  if (typeof x.builtAt === 'string' && x.builtAt) return 'waits on a review and close';
+  // kosmos#8934: what the mark says it waits on; a review and close when it says nothing, as before.
+  if (typeof x.builtAt === 'string' && x.builtAt) return x.builtWaitingOn === 'person' ? 'waits on the person'
+    : x.builtWaitingOn === 'release' ? 'waits on a release' : 'waits on a review and close';
   if (x.projectPaused === true) return 'waits on its project being resumed';
   if (x.repeatNextWords) return 'next run ' + one(x.repeatNextWords);
   return '';
@@ -254,6 +256,11 @@ function closedHowWords(x) {
   if (x.landedCheck === 'missing') return '';   // as the page: the board cannot find the change it was closed with
   return x.closedHow === 'change' ? ', with a change' : x.closedHow === 'note' ? ', on a note' : x.closedHow === 'unbuilt' ? ', without being marked built' : '';
 }
+/* kosmos#8934: what a built mark says it waits on, as a fixed phrase; nothing for a mark that does not say. */
+function builtWaitsWords(x) {
+  const w = { person: 'the person', review: 'a review', release: 'a release' };
+  return x && typeof x.builtWaitingOn === 'string' && Object.hasOwn(w, x.builtWaitingOn) ? ', waiting on ' + w[x.builtWaitingOn] : '';
+}
 function stateWords(x) {
   if (x.isClosed) return Number.isInteger(x.replacedBy) ? 'closed, replaced by task ' + x.replacedBy : x.closedUnrun === true ? 'closed, not run' : 'done' + closedHowWords(x);   // kosmos#8301
   if (x.onHold === true) {
@@ -264,7 +271,7 @@ function stateWords(x) {
       + (x.projectPaused === true ? '; its project is paused too' : '')   // review 5
       + (x.builtAt ? '; built' : '');   // review 2: as the list's [on hold] [built], so delivered work is not hidden
   }
-  if (x.builtAt) return 'built' + (x.projectPaused === true ? ' (its project is paused)' : '');
+  if (x.builtAt) return 'built' + builtWaitsWords(x) + (x.projectPaused === true ? ' (its project is paused)' : '');
   if (x.projectPaused === true) return 'on hold (its project is paused)';
   return 'open';
 }
@@ -377,7 +384,7 @@ function showLines(body, num, project) {
   }
   if (x.builtAt) {
     const by = x.builtByPerson === true ? 'the person' : (x.builtBy ? q(x.builtBy) : null);
-    field('Built', (whenWords(x.builtAt) || 'yes') + (by ? ', by ' + by : ''));
+    field('Built', (whenWords(x.builtAt) || 'yes') + (by ? ', by ' + by : '') + builtWaitsWords(x));
     if (typeof x.builtNote === 'string' && x.builtNote.trim()) { lines.push('Built note:'); under(x.builtNote); }
   }
   /* kosmos#6330: `task built --file` records the delivered file's fingerprint. kosmos#8214: and, from a CLI that sends it,
