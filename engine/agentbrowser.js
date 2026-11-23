@@ -257,6 +257,96 @@ function inTestRunUnsandboxed() {
   } catch { /* not knowable: the temp-folder rule decides */ }
   return inKtRunRoot(os.tmpdir());
 }
+/* kosmos#8928 slice 2: a browser server left running after its Claude session ended (the session exited by itself, so
+   nothing stopped its children) is ended at that agent's next launch, with the headless browser it started. Only an
+   exact match is touched: the command line runs THIS install's cli.js, its --output-dir is exactly THIS agent's
+   folder (a whole argument, so `mona` never matches `mona-lisa`), and its parent is gone. A parent that might be
+   alive counts as alive: on doubt, nothing is ended. Pure, so every "never touch" case is tested over a table. */
+function escapeRe(t) { return String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function serverMatch(command, o) {
+  const dir = new RegExp('(^|\\s)--output-dir\\s+"?' + escapeRe(o.outputDir) + '"?(\\s|$)');
+  return typeof command === 'string' && command.includes(o.cli) && dir.test(command);
+}
+function orphanedServers(procs, o) {
+  const x = o || {};
+  if (!x.cli || !x.outputDir) return [];
+  const parentGone = typeof x.parentGone === 'function' ? x.parentGone : () => false;
+  return (procs || [])
+    .filter((p) => p && Number.isInteger(p.pid) && p.pid > 1 && Number.isInteger(p.ppid) && p.ppid >= 1)
+    .filter((p) => p.pid !== x.self)
+    .filter((p) => serverMatch(p.command, x))
+    .filter((p) => parentGone(p.ppid))
+    .map((p) => p.pid);
+}
+/* What to end for one server, in order: its descendants deepest first, then the server, each with the parent it must
+   still have when it is ended (re-checked then, so a pid reused in between is never touched). */
+function endingOrder(procs, server) {
+  const kids = (pid) => (procs || []).filter((p) => p && p.ppid === pid && p.pid !== pid);
+  const out = [];
+  const walk = (pid, depth) => { if (depth > 8) return; for (const k of kids(pid)) { walk(k.pid, depth + 1); out.push({ pid: k.pid, parent: pid }); } };
+  walk(server, 0);
+  out.push({ pid: server, parent: null });
+  return out;
+}
+/* The live process table, bounded. Mac: ps at full width (-ww: a COLUMNS in the environment would otherwise cut the
+   command and the match would quietly fail). Windows: one CIM query. Any failure answers [] (nothing is ended). */
+function parseTable(out) {
+  return String(out || '').split(/\r?\n/).map((l) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l)).filter(Boolean)
+    .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), command: m[3] }));
+}
+function processTable(platform, pids) {
+  const { execFileSync } = require('node:child_process');
+  try {
+    if (platform === 'darwin') {
+      const args = pids ? ['-ww', '-o', 'pid=,ppid=,command=', '-p', pids.join(',')] : ['-axww', '-o', 'pid=,ppid=,command='];
+      return parseTable(execFileSync('/bin/ps', args, { encoding: 'utf8', timeout: 3000, maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }));
+    }
+    const filter = pids ? " -Filter 'ProcessId=" + pids.map(Number).join(' OR ProcessId=') + "'" : '';
+    const script = 'Get-CimInstance Win32_Process' + filter + ' | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.CommandLine)" } | Out-String -Width 32767';
+    return parseTable(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 8000, windowsHide: true, maxBuffer: 32 * 1024 * 1024 }));
+  } catch { return []; }
+}
+function defaultEnd(platform) {
+  return platform === 'win32'
+    ? (pid) => require('node:child_process').execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { timeout: 8000, windowsHide: true, stdio: 'ignore' })
+    : (pid) => process.kill(pid, 'SIGKILL');
+}
+/* Ends this agent's orphaned servers and their browsers. Never throws. Inside a `node --test` process nothing is ever
+   signalled unless the caller hands in `end`. On Windows the listing (a PowerShell start) runs after the launch has gone
+   ahead, never in front of it, and taskkill /T takes the browser with the server. Each pid is re-read just before it
+   is ended, and skipped unless it is still what was selected. */
+function endOrphanedServers(agent, deps) {
+  const d = deps || {};
+  if (!agentKey(agent)) return [];
+  const platform = d.platform || process.platform;
+  let end = d.end;
+  if (!end) {
+    try { if (require('./live-execution').inTestProcess()) return []; } catch { return []; }
+    end = defaultEnd(platform);
+  }
+  const run = () => {
+    try {
+      const procs = (d.procs || (() => processTable(platform)))();
+      const alive = d.alive || ((pid) => require('./win32orphan').pidState(pid) !== 'gone');
+      const o = { cli: cliPath(), outputDir: outputDir(agent), self: process.pid, parentGone: (ppid) => (platform === 'darwin' && ppid === 1) || !alive(ppid) };
+      const recheck = d.recheck || ((pid) => processTable(platform, [pid]).find((p) => p.pid === pid) || null);
+      const ended = [];
+      for (const server of orphanedServers(procs, o)) {
+        const steps = platform === 'win32' ? [{ pid: server, parent: null }] : endingOrder(procs, server);
+        for (const step of steps) {
+          const now = recheck(step.pid);
+          const ok = now && (step.parent === null ? serverMatch(now.command, o) && o.parentGone(now.ppid) : now.ppid === step.parent);
+          if (!ok) continue;
+          try { end(step.pid); ended.push(step.pid); } catch { /* gone already, or not ours to end */ }
+        }
+      }
+      return ended;
+    } catch { return []; }
+  };
+  if (platform === 'win32' && !d.sync) { setImmediate(run); return []; }
+  return run();
+}
+
 /**
  * The config path for ONE agent launch, or null. Sync and NEVER throws: it sits
  * in the launch path, and no answer here may cost an agent its start.
@@ -267,59 +357,6 @@ function inTestRunUnsandboxed() {
  * the agent's next (re)launch picks it up. The board starts the same install at
  * boot, so on a normal machine it is long done before the first agent is made.
  */
-/* kosmos#8928 slice 2: a browser server left running after its Claude session ended (the session exited by itself, so
-   nothing stopped its children) is ended at that agent's next launch. Only an exact match is touched: the command
-   line runs THIS install's cli.js, its --output-dir is exactly THIS agent's folder (a whole argument, so `mona` never
-   matches `mona-lisa`), and its parent is gone. A parent that might be alive counts as alive: on doubt, nothing is
-   ended. Pure, so every "never touch" case is tested over a table. */
-function escapeRe(t) { return String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-function orphanedServers(procs, o) {
-  const x = o || {};
-  if (!x.cli || !x.outputDir) return [];
-  const dir = new RegExp('(^|\\s)--output-dir\\s+"?' + escapeRe(x.outputDir) + '"?(\\s|$)');
-  const parentGone = typeof x.parentGone === 'function' ? x.parentGone : () => false;
-  return (procs || [])
-    .filter((p) => p && Number.isInteger(p.pid) && p.pid > 1 && typeof p.command === 'string')
-    .filter((p) => p.pid !== x.self)
-    .filter((p) => p.command.includes(x.cli) && dir.test(p.command))
-    .filter((p) => parentGone(p.ppid))
-    .map((p) => p.pid);
-}
-/* The live process table, bounded so a launch never waits long. Mac: ps. Windows: one CIM query for node processes.
-   Any failure answers [] (nothing is ended). */
-function processTable(platform) {
-  const { execFileSync } = require('node:child_process');
-  try {
-    if (platform === 'darwin') {
-      const out = execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8', timeout: 3000, maxBuffer: 16 * 1024 * 1024 });
-      return out.split('\n').map((l) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l)).filter(Boolean)
-        .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), command: m[3] }));
-    }
-    const script = "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId) $($_.CommandLine)\" } | Out-String -Width 32767";
-    const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 8000, windowsHide: true, maxBuffer: 16 * 1024 * 1024 });
-    return out.split(/\r?\n/).map((l) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l)).filter(Boolean)
-      .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), command: m[3] }));
-  } catch { return []; }
-}
-function endOrphanedServers(agent, deps) {
-  const d = deps || {};
-  if (!agentKey(agent)) return [];
-  try {
-    const platform = d.platform || process.platform;
-    const procs = (d.procs || (() => processTable(platform)))();
-    const alive = d.alive || ((pid) => require('./win32orphan').pidState(pid) !== 'gone');
-    const pids = orphanedServers(procs, {
-      cli: cliPath(), outputDir: outputDir(agent), self: process.pid,
-      parentGone: (ppid) => (platform === 'darwin' && ppid === 1) || !alive(ppid),
-    });
-    const end = d.end || ((pid) => (platform === 'win32'
-      ? require('node:child_process').execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { timeout: 8000, windowsHide: true, stdio: 'ignore' })
-      : process.kill(pid, 'SIGTERM')));
-    const ended = [];
-    for (const pid of pids) { try { end(pid); ended.push(pid); } catch { /* gone already, or not ours to end */ } }
-    return ended;
-  } catch { return []; }
-}
 function launchConfig(opts) {
   const o = opts || {};
   try {
@@ -656,6 +693,6 @@ function installWithRetry(opts) {
 module.exports = {
   inKtRunRoot,   // kosmos#8929
   PIN, SHELL, SERVER_NAME, configFor, launchConfig, ensureInstalled, ensureShell, kickInstall, isInstalled,
-  installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir, agentKey, orphanedServers, endOrphanedServers,
+  installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir, agentKey, orphanedServers, endingOrder, endOrphanedServers, defaultEnd,
   optOutPath, lockPath, disabled,
 };
