@@ -51,7 +51,7 @@ function runSupervisor({ runner, model, envHome, envVar }) {
     PATH: process.env.PATH,
     HOME: SANDBOX,
     REC: rec,
-    AGENT_WORKFORCE_HOME: SANDBOX,
+    AGENT_WORKFORCE_HOME: SANDBOX, AGENT_WORKFORCE_DATA: nodePath.join(SANDBOX, 'data'),
   };
   if (envHome) env[envVar] = envHome;
   const r = spawnSync('/bin/bash', [

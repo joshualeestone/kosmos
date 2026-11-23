@@ -61,3 +61,6 @@ dist/
 /bin/kosmos-tunnel
 # #4408: throwaway modules the freshness tests load at the app root (removed after; this catches a killed run)
 /.probe-*/
+# kosmos#8930: the supervisor puts agent secrets in ${AGENT_WORKFORCE_DATA:-$_app}/launch-secrets, and from a source
+# checkout with no AGENT_WORKFORCE_DATA, $_app is this checkout. A broad `git add` must never pick those files up.
+/launch-secrets/

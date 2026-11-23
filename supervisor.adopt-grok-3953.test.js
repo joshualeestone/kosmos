@@ -34,7 +34,7 @@ fs.writeFileSync(FAKE_TMUX, [
 function runOver(paneCmd) {
   const rec = nodePath.join(SANDBOX, `rec-${paneCmd}-${Math.random().toString(36).slice(2)}.txt`);
   const r = spawnSync('/bin/bash', [SUP, 'elon', SANDBOX, '/usr/bin/true', FAKE_TMUX, '', 'grok-4.6', 'grok'], {
-    env: { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_HOME: SANDBOX, REC: rec, SESSION_NAME: 'elon', PANE_CMD: paneCmd },
+    env: { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_HOME: SANDBOX, AGENT_WORKFORCE_DATA: nodePath.join(SANDBOX, 'data'), REC: rec, SESSION_NAME: 'elon', PANE_CMD: paneCmd },
     encoding: 'utf8', timeout: 20000,
   });
   const calls = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
@@ -77,7 +77,7 @@ fs.writeFileSync(LAUNCH_TMUX, [
 function launch(runner, serverPath = 'PATH=/usr/bin:/bin') {
   const rec = nodePath.join(SANDBOX, `launch-${runner}-${Math.random().toString(36).slice(2)}.txt`);
   const r = spawnSync('/bin/bash', [SUP, `a-${runner}`, SANDBOX, '/usr/bin/true', LAUNCH_TMUX, '', runner === 'claude' ? '' : 'm', runner], {
-    env: { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_HOME: SANDBOX, REC: rec, SERVER_PATH: serverPath },
+    env: { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_HOME: SANDBOX, AGENT_WORKFORCE_DATA: nodePath.join(SANDBOX, 'data'), REC: rec, SERVER_PATH: serverPath },
     encoding: 'utf8', timeout: 20000,
   });
   return { r, rec: fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '' };

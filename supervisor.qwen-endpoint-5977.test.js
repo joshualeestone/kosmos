@@ -41,7 +41,7 @@ function home(files, prefix) {
 }
 function run(codexHome, model) {
   const rec = nodePath.join(SANDBOX, `rec-${++n}.txt`);
-  const env = { PATH: process.env.PATH, HOME: SANDBOX, REC: rec, AGENT_WORKFORCE_HOME: SANDBOX, CODEX_HOME: codexHome };
+  const env = { PATH: process.env.PATH, HOME: SANDBOX, REC: rec, AGENT_WORKFORCE_HOME: SANDBOX, AGENT_WORKFORCE_DATA: nodePath.join(SANDBOX, 'data'), CODEX_HOME: codexHome };
   const r = spawnSync('/bin/bash', [SUP, `agent-q${n}`, SANDBOX, '/usr/bin/true', FAKE_TMUX, '', model || '', 'codex'],
     { env, encoding: 'utf8', timeout: 30000 });
   const argv = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
