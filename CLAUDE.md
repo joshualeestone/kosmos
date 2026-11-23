@@ -288,8 +288,9 @@ from a night in this codebase, kosmos#2616.)
    `engine/agent-browser-config.js` and the Windows supervisor). Opening it there would arm every other gated module
    in those processes, so each passes a feature-only `live` flag instead: the shim from its `require.main` path, and
    the Windows supervisor only with an explicit `endOrphans` (OFF for real Windows starts until measured on Windows;
-   `win32supervisor.endOrphansFor` says how to turn it on). With no flag (and no injected ender) it does nothing, and
-   it never acts in a test run (`store.isTestProcess`).
+   `win32supervisor.endOrphansFor` says how to turn it on). With no flag it does nothing, and with a flag it still does
+   nothing in a test run (`store.isTestProcess`). A caller that injects its own ender acts with it, test or not: the
+   e2e test does, against stand-ins only its sandboxed cli.js can match, so hand one in only that tightly scoped.
 
 4. **A committed `web/` change needs a `docs/browser-checks/` assertion or a
    `Browser-check: <reason>` trailer.** `tools/run-tests.sh` (its call to `kosmos_browser_check_gate`, via

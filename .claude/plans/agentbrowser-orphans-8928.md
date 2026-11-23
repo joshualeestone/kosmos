@@ -36,7 +36,7 @@ Servers left by an earlier pinned version (another cli.js path) are not matched.
 - Found while proving the control: liveness by kill(pid, 0) called the ended child alive (a zombie until reaped), so the live-parent control could not fail. It now reads ps state. Same trap as the handoff's note on zombies under spawnSync.
 
 ## Challenge loop iteration 1 (sonnet)
-- Fixed: SIGTERM only, which a hung server (the kind that outlives its session) can ignore. Now SIGKILL, browser children first (Mac), taskkill /T /F (Windows).
+- Fixed: SIGTERM only, which a hung server (the kind that outlives its session) can ignore. Now SIGKILL, browser children first (Mac), taskkill /T /F (Windows) (superseded: Windows ends each pid alone through WIN_END, iterations 2 and 4).
 - Fixed: a pid reused between the listing and the kill. Each pid is re-read just before it is ended and skipped unless it still matches (the server) or still has the same parent (a child).
 - Fixed: on Windows the PowerShell listing sat in front of every launch. It now runs after the launch has gone ahead.
 - Fixed: ps -ww, so a COLUMNS in the environment cannot cut the command and quietly defeat the match.
@@ -76,7 +76,7 @@ Servers left by an earlier pinned version (another cli.js path) are not matched.
 - Plan spec sections brought up to date with the code (they still described taskkill).
 
 ## Challenge loop iteration 6 (opus)
-- Fixed (BLOCKER): the Windows half never ran in production. Tasks start the anchored boot shim (win32anchor.BOOT_JS), which calls `main(args)` with no deps, so the `require.main` opt-in never applied. Now `main()` called with no deps is a real start (endOrphansFor): that covers shims already on disk, with no re-anchoring. Every test passes deps; the sweep refuses in a test run regardless. Tested, and BOOT_JS's call shape is pinned; making it require endOrphans turns the test red.
+- Fixed (BLOCKER): the Windows half never ran in production. Tasks start the anchored boot shim (win32anchor.BOOT_JS), which calls `main(args)` with no deps, so the `require.main` opt-in never applied. Now `main()` called with no deps is a real start (endOrphansFor): that covers shims already on disk, with no re-anchoring (superseded in iteration 8: Windows ships off; only an explicit endOrphans turns it on). Every test passes deps; the sweep refuses in a test run regardless. Tested, and BOOT_JS's call shape is pinned; making it require endOrphans turns the test red.
 - Fixed: runPs decodes stdout as one UTF-8 stream (a character split across chunks stayed broken), and PowerShell writes UTF-8 without a byte-order mark (stripped anyway), so the first `ended` line is never missed in the log.
 - Fixed: cli.js must be the interpreter's script argument, not named anywhere; an orphaned `tail` on the same paths is not a match (loosening it turns the test red).
 - Fixed: on Windows a "parent" created after the server holds a reused pid, so the server counts as orphaned (removing the rule turns the test red; a parent older than the server is the control).
@@ -104,3 +104,9 @@ Servers left by an earlier pinned version (another cli.js path) are not matched.
 ## Challenge loop iteration 11 (sonnet)
 - Fixed: the plan's match rule 1 still said "contains" (iteration 8's edit never matched the backticked text), and "Where" did not say Windows is off. Both now match the code.
 - Deferred, as before: the Mac parent-gone premise (measured on this Mac in iteration 10), no sweep while the browser is off or not installed, the 2 s launch cap, the Windows boot path (needs Windows).
+
+## Challenge loop iteration 12 (opus)
+- Fixed: CLAUDE.md said the sweep "never acts in a test run", which is false for a caller that injects its own ender (the e2e test does, on purpose). It now says what the code does and how tightly an injected ender must be scoped.
+- Fixed: a comment from iteration 10 overstated what the sandbox guarantees for a test child that reaches the real runners folder; deleted rather than reworded (in that case the exact interpreter match is the backstop, and the only thing it could end is that named agent's real orphan).
+- Superseded iteration notes are tagged.
+- NITs left: the interpreter/cli match is case-insensitive while --output-dir is exact (safe: the folder match is exact); on Windows the pre-filter compares rows with themselves (WIN_END does the real re-read).

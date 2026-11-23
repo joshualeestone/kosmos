@@ -388,8 +388,6 @@ function endOrphanedServers(agent, deps) {
     /* Never in a test run, by the store's rule (--test, an inherited NODE_TEST_CONTEXT, or tools/run-tests.sh's
        KOSMOS_TEST_RUN with the temp folder inside it). */
     try { armed = d.live === true && !require('./store').isTestProcess(process.env); } catch { /* not knowable: closed */ }
-    /* A scrubbed test child is stopped earlier by launchConfig's own guard, or runs against a sandboxed runners folder
-       whose cli.js no real server runs: the match, not only this check, is what keeps a test away from real servers. */
     if (!armed) return [];
     end = defaultEnd(platform);
   }
