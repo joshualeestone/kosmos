@@ -36,6 +36,7 @@ extension Board {
         var builtBy: String? = nil
         var builtByPerson = false
         var builtNote: String? = nil
+        var builtWaitingOn: String? = nil   // kosmos#8939: #8934's fixed value (person, review, release), shown through Tasks.builtWaitsWords
         var subtasks: Subtasks? = nil
         var repeatWords: String? = nil
         var repeating = false
@@ -116,6 +117,7 @@ extension Board {
             t.builtBy = str(row, "builtBy")
             t.builtByPerson = (row["builtByPerson"] as? Bool) == true
             t.builtNote = str(row, "builtNote")
+            t.builtWaitingOn = str(row, "builtWaitingOn")
             if let s = row["subtasks"] as? [String: Any], let total = (s["total"] as? NSNumber)?.intValue, total > 0 {
                 t.subtasks = TaskRow.Subtasks(done: int(s, "done"), total: total, built: int(s, "built"))
             }
@@ -542,6 +544,14 @@ enum Tasks {
         return said.joined(separator: " ")
     }
 
+    // tskBuiltWaitsWords (kosmos#8934, #8939): what a built mark says it waits on, from a fixed table, so a stored value
+    // that is not one of the three shows nothing, and the agent's own text never reaches the line.
+    static func builtWaitsWords(_ v: String?) -> String {
+        let w = ["person": "you", "review": "a review", "release": "a release"]
+        guard let v = v, let words = w[v] else { return "" }
+        return ", waiting on " + words
+    }
+
     // tskRow's builtLine: "Marked built by Rex 2 hours ago: the note", "Marked built by you".
     // kosmos#8352: the web row shortens a long note and says so; here the row's own line limit cuts it.
     static func builtLine(_ t: Board.TaskRow, now: Date, name: (String) -> String) -> String {
@@ -550,6 +560,7 @@ enum Tasks {
         if t.builtByPerson { s += " by you" } else if let by = t.builtBy { s += " by " + name(by) }
         let a = ago(t.builtAt, now: now)
         if !a.isEmpty { s += " " + a }
+        s += builtWaitsWords(t.builtWaitingOn)   // kosmos#8939: as the web row, after who and when, before the note
         if let note = t.builtNote { s += ": " + note }
         return s
     }

@@ -60,6 +60,7 @@ extension Board {
         let builtBy: String?
         let builtByPerson: Bool
         let builtNote: String?
+        var builtWaitingOn: String? = nil   // kosmos#8939
         var whoFinished: [String] = []   // kosmos#8137
         var whoLeft: [String] = []
         let parts: [TaskPart]
@@ -143,7 +144,7 @@ extension Board {
             onHold: t["onHold"] as? Bool == true, onHoldByPerson: t["onHoldByPerson"] as? Bool == true,
             onHoldForPerson: t["onHold"] as? Bool == true && t["onHoldForPerson"] as? Bool == true,
             builtAt: text(t["builtAt"]), builtBy: text(t["builtBy"]), builtByPerson: t["builtByPerson"] as? Bool == true,
-            builtNote: text(t["builtNote"]), whoFinished: whoIsLeft.finished, whoLeft: whoIsLeft.left, parts: parts, claim: claim, legacyWho: text(t["who"]),
+            builtNote: text(t["builtNote"]), builtWaitingOn: text(t["builtWaitingOn"]), whoFinished: whoIsLeft.finished, whoLeft: whoIsLeft.left, parts: parts, claim: claim, legacyWho: text(t["who"]),
             parentNumber: parent == nil ? nil : parentNumber, parentSentence: parent.flatMap { text($0["sentence"]) },
             subtasks: subtasks,
             allSubtasksDone: !kids.isEmpty && kids.allSatisfy(isClosed) && !closed,
@@ -180,7 +181,7 @@ extension Board.TaskPage {
         var line = stateWord
         if builtAt != nil && closedAt == nil {
             let who = builtByPerson ? "you" : builtBy.map { name($0, roster: roster) } ?? ""
-            line += ", marked built" + (who.isEmpty ? "" : " by " + who) + (builtNote.map { ": " + $0 } ?? "")
+            line += ", marked built" + (who.isEmpty ? "" : " by " + who) + Tasks.builtWaitsWords(builtWaitingOn) + (builtNote.map { ": " + $0 } ?? "")
         }
         if !replaces.isEmpty {
             line += (line.last.map { ".!?".contains($0) } == true ? " " : ". ") + "Replaces " + replaces.map { "task \($0)" }.joined(separator: ", ")
