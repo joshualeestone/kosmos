@@ -33040,6 +33040,15 @@ const FEDINV_RETURN_LINE = 'Your invitation is filled in again. Press Make an in
 const FEDINV_RETURN_READ_MAX = 3;
 let FEDINV_RETURN_READS = 0;        // projects reads this return asked for
 let FEDINV_RETURN_READING = false;  // one of them is still being answered
+/* The person pressed or typed something since this page loaded (outside first run, whose dismissal is not a choice of
+   where to go): they have moved on, so the return opens nothing and the note goes. Listened for only while an invite
+   note waits (fedInviteReturnWait). */
+let FEDINV_RETURN_TOUCHED = false;
+function fedInviteReturnTouched(e) {
+  const t = e && e.target;
+  if (t && t.closest && t.closest('#firstrun, #fr-choice')) return;
+  FEDINV_RETURN_TOUCHED = true;
+}
 function fedInviteReturnBusy() {
   if (stepUpReturnBusy()) return true;
   return [...document.querySelectorAll('.rm-back')].some((el) => !el.hidden);
@@ -33047,6 +33056,7 @@ function fedInviteReturnBusy() {
 function resumeFedInviteReturn() {
   const n = peekStepUpReturn();
   if (!n || n.kind !== 'fed-invite') return true;
+  if (FEDINV_RETURN_TOUCHED) { forgetStepUpReturn(); return true; }
   if (fedInviteReturnBusy()) return false;
   // In the tab layout the projects are read only when Projects is shown, and the page may load on another tab: the
   // return asks for that read itself, one at a time and at most FEDINV_RETURN_READ_MAX times.
@@ -33073,7 +33083,11 @@ function resumeFedInviteReturn() {
 // Tried now and then every half second, 60 tries in all; a page that is still not ready keeps the note (its window is
 // the same 10 minutes), so a later load can still use it.
 function fedInviteReturnWait(tries = 60) {
-  if (resumeFedInviteReturn() || tries <= 1) return;
+  if (tries === 60) for (const type of ['pointerdown', 'keydown']) document.addEventListener(type, fedInviteReturnTouched, true);
+  if (resumeFedInviteReturn() || tries <= 1) {
+    for (const type of ['pointerdown', 'keydown']) document.removeEventListener(type, fedInviteReturnTouched, true);
+    return;
+  }
   setTimeout(() => fedInviteReturnWait(tries - 1), 500);
 }
 /* On load, with a note this page may act on: an invite note goes to fedInviteReturnWait (no account read). A Claude note
@@ -89474,7 +89488,8 @@ async function fedInviteMake() {
         pjFieldBad('fedinv-email', 'fedinv-msg', pjFedMessage(body, fallback));
         return;
       }
-      // kosmos#8938 item 4: the refusal that offers Sign in again leaves a note, so the sheet comes back filled in.
+      // kosmos#8938 item 4: the refusal that offers Sign in again leaves a note, so the sheet comes back filled in. It
+      // replaces any Claude note: the one ask on screen now belongs to this refusal.
       if (res.status === 403 && body && body.code === 'remote_step_up' && body.signInAgain === true && typeof noteFedInviteReturn === 'function') noteFedInviteReturn(askedFor, label, kind);
       msg.textContent = res.status === 403 ? (fedRemoteSays(body) || fallback)
         : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback);

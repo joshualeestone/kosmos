@@ -23,8 +23,10 @@ opens nothing.
   read has landed (in the tab layout projects are read only on Projects, so it asks for that read itself, one at a
   time, at most 3 times), and until inviting is on (fedShow). Then the note goes; a project no longer listed opens
   nothing; else showTab('projects'), openProject, fedInviteOpen(null, { label, kind }), and the line. 60 tries,
-  one now and then every 500 ms. Not covered: the person moving to another tab inside that window (the projects read
-  usually lands in well under a second).
+  one now and then every 500 ms. If the person presses or types anything meanwhile (outside first run), they have moved
+  on: nothing opens and the note goes.
+- Decided, from review 2: a page whose 3 projects reads all fail opens nothing (the note stays for a reload). That is
+  today's behaviour, and more reads would poll a board that is not answering.
 - The words claim no sign-in (#8728 review 3: a log-out can fail and the person reload).
 - fedInviteMake and pjMintInvite clear an older INVITE note before their request (forgetFedInviteReturn), never a
   Claude note, whose ask may still be on screen. pjMintInvite (the create form) never writes one: it has no sheet to come back to.

@@ -22,7 +22,12 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
   };
   // .rm-back dialogs: the invite sheet itself plus any the arm puts on screen (dialogs: ids shown).
   const rmBack = () => [els['fedinv-modal'], ...dialogs.map((id) => ({ id, hidden: false }))];
-  const document = { getElementById: (id) => els[id] || null, querySelectorAll: (sel) => (sel === '.rm-back' ? rmBack() : []) };
+  const listeners = [];
+  const document = {
+    getElementById: (id) => els[id] || null, querySelectorAll: (sel) => (sel === '.rm-back' ? rmBack() : []),
+    addEventListener: (type, fn, capture) => listeners.push({ type, fn, capture }),
+    removeEventListener: (type, fn) => { const i = listeners.findIndex((l) => l.type === type && l.fn === fn); if (i > -1) listeners.splice(i, 1); },
+  };
   const performance = { timeOrigin: Date.now() };
   const state = { loaded, fed, current: null };
   const timers = [];
@@ -35,6 +40,8 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
     SCRIPT.match(/const FEDINV_RETURN_READ_MAX = [^;]*;/)[0],
     SCRIPT.match(/let FEDINV_RETURN_READS = [^;]*;/)[0],
     SCRIPT.match(/let FEDINV_RETURN_READING = [^;]*;/)[0],
+    SCRIPT.match(/let FEDINV_RETURN_TOUCHED = [^;]*;/)[0],
+    lift(SCRIPT, 'fedInviteReturnTouched'),
     lift(SCRIPT, 'noteFedInviteReturn'), lift(SCRIPT, 'noteStepUpReturn'), lift(SCRIPT, 'forgetStepUpReturn'), lift(SCRIPT, 'forgetFedInviteReturn'),
     lift(SCRIPT, 'fedInviteReturnBusy'),
     lift(SCRIPT, 'stepUpNoteShaped'), lift(SCRIPT, 'markStepUpReturnGoing'), lift(SCRIPT, 'peekStepUpReturn'),
@@ -55,7 +62,7 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
     (tab) => calls.push(['showTab', tab]),
     () => { calls.push(['loadProjects']); if (state.readLands) state.loaded = true; return Promise.resolve(true); },
     { get PJ_LOADED_ONCE() { return state.loaded; }, get PJ_CURRENT() { return state.current; } });
-  return { ...fns, storage, calls, els, state, timers, performance };
+  return { ...fns, storage, calls, els, state, timers, performance, listeners };
 }
 
 // A note written, and its Sign in again pressed, before this page view began.
@@ -190,6 +197,30 @@ test('#8938 item 4 review: an invite attempt forgets only an invite note, never 
   p.storage.set(p.KEY, 'not json');
   p.forgetFedInviteReturn();   // unreadable: left to peekStepUpReturn, which removes it
   assert.equal(p.storage.get(p.KEY), 'not json');
+});
+
+test('#8938 item 4 review 2: the person pressed or typed after the page loaded: they moved on, so nothing opens and the note goes', () => {
+  const p = page({ loaded: false });
+  earlier(p);
+  p.fedInviteReturnWait();
+  assert.deepEqual(p.listeners.map((l) => [l.type, l.capture]), [['pointerdown', true], ['keydown', true]]);
+  // A key inside first run (dismissing it) is not a choice of where to go.
+  const inFirstRun = { target: { closest: (sel) => (sel === '#firstrun, #fr-choice' ? {} : null) } };
+  p.listeners[1].fn(inFirstRun);
+  p.state.loaded = true;
+  p.timers.shift().fn();
+  assert.deepEqual(p.calls.map((c) => c[0]).filter((c) => c !== 'loadProjects'), ['showTab', 'openProject', 'fedInviteOpen'], 'a first-run key stopped the return');
+  assert.deepEqual(p.listeners, [], 'the listeners stay after the wait ended');
+  // A press anywhere else: the return gives up and drops the note.
+  const q = page({ loaded: false });
+  earlier(q);
+  q.fedInviteReturnWait();
+  q.listeners[0].fn({ target: { closest: () => null } });
+  q.state.loaded = true;
+  q.timers.shift().fn();
+  assert.deepEqual(q.calls.filter((c) => c[0] !== 'loadProjects'), [], 'opened over what the person had moved on to');
+  assert.equal(q.storage.has(q.KEY), false, 'the note was kept for a later surprise');
+  assert.deepEqual(q.listeners, []);
 });
 
 test('#8938 item 4: a project no longer listed, or one that did not open, opens no sheet; the note goes', () => {
