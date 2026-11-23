@@ -15,9 +15,11 @@
  * never puts it in the window, whatever its rank, and the release notes keep it.
  * "prod" here is the Mac prod family (promote-channel.sh without --family win). Windows is promoted on its own and
  * shows whichever list is current when its build is made (its number goes in the built file's "also", by hand,
- * on the release branch, docs/windows RELEASING.md); the pool does not record Windows promotes.
- * A Windows-only highlight is never marked shown (the pool records Mac promotes only), so once Windows prod has shown
- * it, RETIRE IT BY HAND: set its status to shown, with shownIn the Windows version.
+ * on the release branch, docs/windows RELEASING.md).
+ * kosmos#8924: a Windows-only highlight (tagged windows, not mac) is never shown by the Mac, so `build` also reads what
+ * WINDOWS prod serves (latest-win.json, its manifest's app commit, and the What's New at that commit) and marks that
+ * window's Windows-only highlights shown, with shownIn the Windows version, recording it as lastProdWin. Nothing is
+ * retired by hand any more; `prod-check` refuses (3) when Windows prod is newer than lastProdWin.
  * A highlight tagged for ONE platform still takes one of the 5 slots of the one file both platforms read (the engine
  * caps the file, not each platform's view), so that platform's window shows fewer. Tag an item only when it truly is
  * one platform's; build refuses a list that leaves a platform with none.
@@ -77,6 +79,9 @@ function readPool(file) {
   }
   if (pool.lastProd !== undefined && (typeof pool.lastProd !== 'string' || !/^\d+\.\d+\.\d+$/.test(pool.lastProd))) {
     throw new Error(file + ': lastProd must be a version like 0.7.35, not ' + JSON.stringify(pool.lastProd));
+  }
+  if (pool.lastProdWin !== undefined && (typeof pool.lastProdWin !== 'string' || !/^\d+\.\d+\.\d+$/.test(pool.lastProdWin))) {
+    throw new Error(file + ': lastProdWin must be a version like 0.8.16, not ' + JSON.stringify(pool.lastProdWin));
   }
   for (const it of pool.items) {
     if (it.notesOnly !== undefined && it.notesOnly !== true) {
@@ -247,6 +252,99 @@ function syncWithProd(pool, poolFile, env = process.env, root = ROOT) {
     + (env.KOSMOS_PROD_POINTER_URL ? ' [prod read from ' + env.KOSMOS_PROD_POINTER_URL + ']' : '') };
 }
 
+/* kosmos#8924: what WINDOWS prod serves, so a Windows-only highlight retires itself once Windows prod has shown it
+   (it used to be retired by hand). The Windows pointer, latest-win.json, sits beside the Mac one and names no manifest,
+   so the manifest is named from its version and arch, as the Windows build names it (tools/build-kosmos-windows.sh).
+   KOSMOS_PROD_WIN_POINTER_URL points elsewhere for a test; with only KOSMOS_PROD_POINTER_URL set, the Windows pointer
+   is read from the same folder, so a test that fakes Mac prod never reaches the live site for Windows. */
+const PROD_WIN_POINTER_URL = 'https://installkosmos.com/dist/latest-win.json';
+function winPointerUrl(env = process.env) {
+  if (env.KOSMOS_PROD_WIN_POINTER_URL) return env.KOSMOS_PROD_WIN_POINTER_URL;
+  if (env.KOSMOS_PROD_POINTER_URL) return env.KOSMOS_PROD_POINTER_URL.replace(/[^/]*$/, '') + 'latest-win.json';
+  return PROD_WIN_POINTER_URL;
+}
+function servedWinPointer(env = process.env) {
+  const url = winPointerUrl(env);
+  let ptr;
+  try { ptr = fetchJson(url); } catch { return { ok: false, because: 'could not read what Windows prod serves (' + url + ')' }; }
+  if (!ptr || typeof ptr.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(ptr.version)) {
+    return { ok: false, because: 'the Windows prod pointer (' + url + ') names no version we can read' };
+  }
+  const arch = ptr.arch === undefined ? 'x64' : ptr.arch;
+  if (typeof arch !== 'string' || !/^[a-z0-9]+$/.test(arch)) return { ok: false, because: 'the Windows prod pointer (' + url + ') names no arch we can read' };
+  return { ok: true, version: ptr.version, arch, url };
+}
+function servedWinProd(env = process.env) {
+  const p = servedWinPointer(env);
+  if (!p.ok) return p;
+  const mUrl = p.url.replace(/[^/]*$/, '') + 'kosmos-' + p.version + '-win-' + p.arch + '.manifest.json';
+  let man;
+  try { man = fetchJson(mUrl); } catch { return { ok: false, because: 'could not read Windows prod\'s manifest (' + mUrl + ')' }; }
+  const commit = man && man.app && typeof man.app.commit === 'string' && /^[0-9a-f]{7,40}$/.test(man.app.commit) ? man.app.commit : null;
+  if (!commit) return { ok: false, because: 'Windows prod\'s manifest (' + mUrl + ') names no app commit' };
+  if (man.app.dirty === true) return { ok: false, because: 'Windows prod\'s manifest (' + mUrl + ') says its build was made from a changed tree, so its commit is not what shipped' };
+  return { ok: true, version: p.version, commit };
+}
+
+/* kosmos#8924: tagged for Windows and not for the Mac, so only a Windows promote can show it. A line every platform
+   shows stays recorded by the Mac promote, as before. */
+const windowsOnly = (it) => Array.isArray(it.platforms) && it.platforms.includes('windows') && !it.platforms.includes('mac');
+
+/**
+ * kosmos#8924: mark the Windows-only highlights Windows prod version `version` showed (shownObj, its What's New) as
+ * shown, in place, and record it as lastProdWin. { ok, marked } or { ok: false, because }. A Windows-only highlight of
+ * that window the pool does not have refuses, as markShown does for the Mac, so a reworded one cannot show again.
+ */
+function markShownWin(pool, version, shownObj, from) {
+  if (!shownObj || shownObj.version !== version || !Array.isArray(shownObj.highlights)) {
+    return { ok: false, because: from + ' is not the What\'s New of ' + version + '; nothing marked' };
+  }
+  if (pool.lastProdWin && newerFirst(version, pool.lastProdWin) > 0) {
+    return { ok: false, because: 'the pool already records Windows prod ' + pool.lastProdWin + ', newer than ' + version + '; nothing marked' };
+  }
+  const byTitle = new Set(pool.items.map((it) => it.title));
+  const unmatched = shownObj.highlights.filter((h) => windowsOnly(h)).map((h) => h.title).filter((t) => !byTitle.has(t));
+  if (unmatched.length) {
+    return { ok: false, because: 'these Windows-only highlights of ' + version + ' are not in the pool (reworded after the build?): '
+      + unmatched.map((t) => '"' + t + '"').join(', ') + '. Make the pool titles match, then run this again; nothing marked' };
+  }
+  const titles = new Set(shownObj.highlights.map((h) => h.title));
+  let marked = 0;
+  for (const it of pool.items) {
+    if (titles.has(it.title) && it.status === 'pending' && windowsOnly(it)) { it.status = 'shown'; it.shownIn = version; marked++; }
+  }
+  pool.lastProdWin = version;
+  return { ok: true, marked };
+}
+
+/* kosmos#8924: the Windows half of #5713's sync, run by build after the Mac half. The same refusals: what Windows prod
+   served must be read exactly, or nothing is written. */
+function syncWithWinProd(pool, poolFile, env = process.env, root = ROOT) {
+  const ptr = servedWinPointer(env);
+  if (!ptr.ok) return { ok: false, because: ptr.because + '. Build again when the site answers, or pass --offline (the cut\'s prod-check then holds it until the pool is current)' };
+  if (pool.lastProdWin && newerFirst(ptr.version, pool.lastProdWin) >= 0) {
+    return { ok: true, note: 'Windows prod serves ' + ptr.version + '; the pool already records Windows prod ' + pool.lastProdWin };
+  }
+  const served = servedWinProd(env);
+  if (!served.ok) return { ok: false, because: served.because + '. Build again when the site answers, or pass --offline (the cut\'s prod-check then holds it until the pool is current)' };
+  let obj = fromHistory(served.version, root, served.commit);
+  if (!obj) {
+    try {
+      const f = JSON.parse(require('node:child_process').execFileSync('git', ['-C', root, 'show', served.commit + ':web/whats-new.json'],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 << 20 }));
+      if (f && Array.isArray(f.also) && f.also.includes(served.version) && Array.isArray(f.highlights)) obj = { version: served.version, highlights: f.highlights };
+    } catch { obj = null; }
+  }
+  if (!obj) {
+    return { ok: false, because: 'Windows prod serves ' + served.version + ' (built from ' + served.commit + '), but this checkout has no What\'s New for it at that commit. git fetch, then build again' };
+  }
+  const r = markShownWin(pool, served.version, obj, 'the What\'s New at ' + served.commit);
+  if (!r.ok) return { ok: false, because: 'Windows prod serves ' + served.version + ', and recording what it showed failed: ' + r.because };
+  writePool(pool, poolFile);
+  return { ok: true, wrote: served.version, note: 'Windows prod serves ' + served.version + ': ' + r.marked + ' Windows-only highlight(s) marked shown there, and the pool now records it'
+    + (env.KOSMOS_PROD_WIN_POINTER_URL || env.KOSMOS_PROD_POINTER_URL ? ' [Windows prod read from ' + winPointerUrl(env) + ']' : '') };
+}
+
 function opt(args, name, dflt) {
   const a = args.find((x) => x.startsWith('--' + name + '='));
   return a ? a.slice(name.length + 3) : dflt;
@@ -291,7 +389,16 @@ function main(argv) {
     const served = servedPointer();   // review 3: the version is all this check needs
     if (!served.ok) { process.stderr.write(served.because + '\n'); return 4; }
     if (pool.lastProd && newerFirst(served.version, pool.lastProd) >= 0) {
-      process.stdout.write('the pool records prod ' + pool.lastProd + '; prod serves ' + served.version + '\n');
+      // kosmos#8924: Windows prod too, read the same way: a Windows promote since the last build is a rebuild as well.
+      const win = servedWinPointer();
+      if (!win.ok) { process.stderr.write(win.because + '\n'); return 4; }
+      if (!pool.lastProdWin || newerFirst(win.version, pool.lastProdWin) < 0) {
+        process.stderr.write('Windows prod serves ' + win.version + ' but the pool records ' + (pool.lastProdWin ? 'Windows prod ' + pool.lastProdWin : 'no Windows prod release')
+          + ': its Windows-only highlights are not recorded as shown, so this What\'s New may show them again. Run node tools/whats-new-pool.js build <version> and commit'
+          + ' release/whats-new-pool.json and web/whats-new.json to main, then cut again\n');
+        return 3;
+      }
+      process.stdout.write('the pool records prod ' + pool.lastProd + '; prod serves ' + served.version + '; the pool records Windows prod ' + pool.lastProdWin + '; Windows prod serves ' + win.version + '\n');
       return 0;
     }
     process.stderr.write('prod serves ' + served.version + ' but the pool records ' + (pool.lastProd || 'no prod release') + ': its highlights are not'
@@ -323,6 +430,14 @@ function main(argv) {
       if (!sync.ok) { process.stderr.write(sync.because + '; nothing written\n'); return 3; }
       syncNote = sync.note[0].toUpperCase() + sync.note.slice(1) + '.';
       synced = sync.wrote || null;
+      // kosmos#8924: then what Windows prod has shown, so a Windows-only line retires itself.
+      const winSync = syncWithWinProd(pool, poolFile);
+      if (!winSync.ok) {
+        process.stderr.write(winSync.because + '; nothing written' + (synced ? ' (The pool was already updated to record prod ' + synced + ': commit release/whats-new-pool.json to main.)' : '') + '\n');
+        return 3;
+      }
+      syncNote += ' ' + winSync.note[0].toUpperCase() + winSync.note.slice(1) + '.';
+      if (winSync.wrote) synced = (synced ? synced + ' and ' : '') + 'Windows prod ' + winSync.wrote;
     }
     /* Review 1: a refusal AFTER the sync wrote the pool says so, or the next build would report "already records"
        and the pool's change would never be committed. */
@@ -417,4 +532,4 @@ if (require.main === module) {
   }
   process.exit(code);
 }
-module.exports = { main, choose, readPool, newerFirst, fromHistory, markShown, servedPointer, servedProd, syncWithProd, PROD_POINTER_URL };
+module.exports = { main, choose, readPool, newerFirst, fromHistory, markShown, servedPointer, servedProd, syncWithProd, PROD_POINTER_URL, markShownWin, servedWinPointer, servedWinProd, syncWithWinProd, winPointerUrl, PROD_WIN_POINTER_URL };

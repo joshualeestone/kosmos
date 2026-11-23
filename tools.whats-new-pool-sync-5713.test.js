@@ -41,6 +41,9 @@ function prod(version, commit, { manifest = true } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wnpool-sync-prod-'));
   fs.writeFileSync(path.join(dir, 'latest.json'), JSON.stringify({ version, sha256: 'x', artifact: `kosmos-${version}-arm64.tar.gz`, manifest: `kosmos-${version}-arm64.manifest.json` }));
   if (manifest) fs.writeFileSync(path.join(dir, `kosmos-${version}-arm64.manifest.json`), JSON.stringify({ manifest: 1, version, app: { commit, dirty: false } }));
+  // kosmos#8924: Windows prod beside it, the same build, so a build or prod-check here never reads the live Windows pointer.
+  fs.writeFileSync(path.join(dir, 'latest-win.json'), JSON.stringify({ version, arch: 'x64' }));
+  if (manifest) fs.writeFileSync(path.join(dir, `kosmos-${version}-win-x64.manifest.json`), JSON.stringify({ manifest: 1, version, app: { commit, dirty: false } }));
   return { dir, env: { KOSMOS_PROD_POINTER_URL: 'file://' + path.join(dir, 'latest.json') } };
 }
 function poolFile(pool) {
@@ -143,7 +146,7 @@ function withProd(env, fn) {
 
 test('#5713 review 1: prod-check (the cut\'s check) is 0 when the pool records prod, 3 when prod is newer, 4 when unreadable, and writes nothing', () => {
   const p = prod('0.7.35', 'a'.repeat(40));
-  const recorded = poolFile({ lastProd: '0.7.35', items: [item('A', 1, 'pending')] });
+  const recorded = poolFile({ lastProd: '0.7.35', lastProdWin: '0.7.35', items: [item('A', 1, 'pending')] });
   const behind = poolFile({ lastProd: '0.7.34', items: [item('A', 1, 'pending')] });
   try {
     const b0 = fs.readFileSync(behind.file, 'utf8');
@@ -160,7 +163,7 @@ test('#5713 review 1: the sync names the skipped-version step, and a build that 
   const h = history();
   const p = prod('0.7.35', h.cut);
   // 0.7.35 is not newer than the prod the sync records, so the build refuses after syncing.
-  const pf = poolFile({ lastProd: '0.7.33', items: [item('A', 1, 'pending'), item('B', 2, 'pending'), item('C', 3, 'pending')] });
+  const pf = poolFile({ lastProd: '0.7.33', lastProdWin: '0.7.35', items: [item('A', 1, 'pending'), item('B', 2, 'pending'), item('C', 3, 'pending')] });
   const out = path.join(pf.dir, 'whats-new.json');
   try {
     // The sync needs this test's history: run it directly, as build would, then the build sees the recorded prod.
@@ -188,7 +191,7 @@ test('#5713 review 1: through build, against this repo\'s real 0.7.35 cut: the s
     // Building 0.7.35 itself: the sync records prod 0.7.35, then the build refuses (not newer than prod).
     const r = withProd(p.env, () => quiet(() => tool.main(['build', '0.7.35', `--pool=${pf.file}`, `--out=${out}`])));
     assert.equal(r.code, 3, r.said);
-    assert.match(r.said, /The pool was already updated to record prod 0\.7\.35: commit release\/whats-new-pool\.json to main\./, r.said);
+    assert.match(r.said, /The pool was already updated to record prod 0\.7\.35 and Windows prod 0\.7\.35: commit release\/whats-new-pool\.json to main\./, r.said);
     const after = JSON.parse(fs.readFileSync(pf.file, 'utf8'));
     assert.equal(after.lastProd, '0.7.35');
     assert.equal(after.items.find((i) => i.title === shownTitle).status, 'shown');

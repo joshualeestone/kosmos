@@ -527,7 +527,7 @@ function git_sandbox(version, { diverge = 'none', whatsNewFor = null, whatsNewPo
   fs.mkdirSync(path.join(dir, 'release'), { recursive: true });
   /* kosmos#7617: 1b-ii also checks web/whats-new.json is what this pool builds, so the pool holds the one highlight
      the file below carries (whatsNewPoolExtra adds one merged AFTER the list was built: the arm that must refuse). */
-  fs.writeFileSync(path.join(dir, 'release', 'whats-new-pool.json'), JSON.stringify({ lastProd: version, items: [
+  fs.writeFileSync(path.join(dir, 'release', 'whats-new-pool.json'), JSON.stringify({ lastProd: version, lastProdWin: version, items: [
     { icon: 'spark', title: 'A sandbox highlight', line: 'Here so the cut reaches the step under test.', rank: 10, since: version, status: 'pending' },
     ...(whatsNewPoolExtra ? [whatsNewPoolExtra] : []),
   ] }));
@@ -562,6 +562,8 @@ function git_sandbox(version, { diverge = 'none', whatsNewFor = null, whatsNewPo
   // #5713: the prod pointer step 1b-ii's prod-check reads (see the pool above).
   fs.writeFileSync(path.join(site, 'dist', 'latest.json'), JSON.stringify({ version, manifest: 'kosmos-' + version + '-arm64.manifest.json' }));
   fs.writeFileSync(path.join(site, 'dist', 'kosmos-' + version + '-arm64.manifest.json'), JSON.stringify({ version, app: { commit: 'a'.repeat(40) } }));
+  // kosmos#8924: and the Windows prod pointer prod-check now reads too (the pool above records it as lastProdWin).
+  fs.writeFileSync(path.join(site, 'dist', 'latest-win.json'), JSON.stringify({ version, arch: 'x64' }));
 
   /* #1455: mirror the real repo's ignore of the pending entry file, committed BEFORE
      the base commit so a later fixture write leaves the tree clean. Without it the
