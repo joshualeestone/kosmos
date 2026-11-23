@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 'use strict';
-// kosmos#8928: argv[2] is the agent's name (the Mac supervisor passes its session name), so the printed path is that
-// agent's own config; with no name it is the shared one.
 /*
  * #3633: print the agent browser's --mcp-config path for ONE Mac agent launch, or
  * nothing. bin/agent-supervisor.sh runs this with Kosmos's own node on the Claude
@@ -13,6 +11,9 @@
  *
  * Always exits 0 and prints nothing on any failure: an agent without a browser is
  * fine, an agent that does not start is not.
+ *
+ * kosmos#8928: argv[2] is the agent's name (the supervisor passes its session name),
+ * and the printed path is that agent's own config; with no name, the shared one.
  */
 try {
   const p = require('./agentbrowser').launchConfig({ install: false, node: process.execPath, agent: process.argv[2] });   // kosmos#8928

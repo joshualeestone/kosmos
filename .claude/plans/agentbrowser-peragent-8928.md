@@ -18,10 +18,10 @@ Every agent launch that gets a browser config gets its OWN file and its own outp
 That the agent name ($SESSION on a Mac, the spec name on Windows) is stable across an agent's relaunches. If it is not, slice 2 cannot match a leftover server to its agent.
 
 ## Open
-- Old shared mcp-config.json stays on disk after this ships; harmless, nobody reads it once every launch names an agent.
+- The shared mcp-config.json is still written by a launch with no name (a bare launchConfig()); every supervisor launch now passes one.
 - Disk: one small file per agent, rewritten only when its text changes.
 
-## Evidence (first build)
+## Evidence (first build; later counts are in the iteration notes)
 - run-tests --only engine/agentbrowser.test.js: 34/34. tools/test-supervisor-agentbrowser-3633.sh: passes, including the two new checks (the config is agents/ab-3633.json; its --output-dir names ab-3633).
 - Mutations, each red: the supervisor no longer passes "$SESSION" (both new shell checks FAIL); the name sanitizing removed ("../../escape" leaves the agents folder).
 - Not tested end to end: the Windows default (win32supervisor passes spec.name); win32supervisor.test.js injects agentBrowser, so the default is not reached there.
@@ -39,3 +39,10 @@ That the agent name ($SESSION on a Mac, the spec name on Windows) is stable acro
 - Fixed: the #8929 shim test runs each of its four refusing arms with a name too, and asserts nothing appears under the fallback agents folder; a named control outside a test run writes agents/mona-lisa.json. Removing the #8929 guard turns the named arms red.
 - Fixed: the hash joins with `~`, which cleaning never leaves, so a hashed key cannot equal another agent's plain key. The comment now names every hashed case.
 - Noted for slice 2 or 3: nothing removes a deleted agent's per-agent file or output folder.
+
+## Challenge loop iteration 3 (sonnet)
+- Fixed: the agent's output folder is two levels deep and nothing made it; launchConfig now creates it before returning the path, and the test asserts it exists.
+- Fixed: a duplicated comment header from iteration 2's edit; the shim's new comment folded into its header; plan lines that contradicted the iteration notes.
+- Deferred: the key changing if an agent's name changes between launches (slice 2 depends on stable names; on a Mac it is the session name, on Windows the spec name, and the two never meet on one machine).
+- Deferred (as iteration 2): per-agent files and folders of deleted agents are not removed.
+- Follow-on from making the folder: the unit test removes the output folders it makes (the runner's leak guard caught kosmos-agent-browser left in the run root), and tools/test-supervisor-agentbrowser-3633.sh gives its supervisor a TMPDIR inside its own sandbox; run under a fresh empty TMPDIR it leaves nothing behind.

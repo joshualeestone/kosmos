@@ -119,7 +119,8 @@ test('#8929 a temp folder inside a run root marks a test run; CONTROL: a plain t
 });
 
 /* kosmos#8928: one config and one output folder per agent, named for it; no name keeps the shared file. */
-test('#8928 each agent gets its own config and output folder; a hostile name stays inside; CONTROL: no name keeps the shared file', () => {
+test('#8928 each agent gets its own config and output folder; a hostile name stays inside; CONTROL: no name keeps the shared file', (t) => {
+  t.after(() => { try { fs.rmSync(path.join(os.tmpdir(), 'kosmos-agent-browser'), { recursive: true, force: true }); } catch { /* best effort */ } });   // the agents' output folders it makes
   assert.equal(ab.isInstalled(), true, 'fixture: the earlier test installed the fake tree');
   const a = ab.launchConfig({ platform: 'win32', node: 'C:\\T\\node.exe', env: {}, agent: 'mona-lisa' });
   const b = ab.launchConfig({ platform: 'win32', node: 'C:\\T\\node.exe', env: {}, agent: 'pigeonpete' });
@@ -128,6 +129,7 @@ test('#8928 each agent gets its own config and output folder; a hostile name sta
   const args = (f) => JSON.parse(fs.readFileSync(f, 'utf8')).mcpServers['kosmos-browser'].args;
   const out = (f) => args(f)[args(f).indexOf('--output-dir') + 1];
   assert.equal(out(a), path.join(os.tmpdir(), 'kosmos-agent-browser', 'mona-lisa'), 'the output folder names the agent');
+  assert.ok(fs.statSync(out(a)).isDirectory(), 'the agent\'s output folder exists before its server starts');
   assert.equal(out(b), path.join(os.tmpdir(), 'kosmos-agent-browser', 'pigeonpete'));
   /* Every name, hostile or not, lands directly in the agents folder with a key of only safe characters. */
   const names = ['../../escape', 'a/b', 'a\\b', '..', '.', '_', 'a b', 'a_b', 'Foo', 'foo', 'con', 'NUL.txt', 'com1', 'a.', 'a', 'x'.repeat(300), '\u65e5\u672c'];
