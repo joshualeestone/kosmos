@@ -248,6 +248,18 @@ let built = row(1, "built") { $0.builtAt = iso(7200); $0.builtBy = "rex-discord"
 check(Tasks.rowLine(built, now: now, name: name) == "Marked built by Rex 2 hours ago: in the folder", "built: who, when, the note")
 let builtByYou = row(1, "built") { $0.builtAt = iso(60); $0.builtByPerson = true }
 check(Tasks.rowLine(builtByYou, now: now, name: name) == "Marked built by you 60 seconds ago", "built by you")
+// kosmos#8939: what the mark waits on, after who and when and before the note, from the fixed table only.
+for (v, words) in [("person", "you"), ("review", "a review"), ("release", "a release")] {
+    let waits = row(1, "built") { $0.builtAt = iso(7200); $0.builtBy = "rex-discord"; $0.builtNote = "in the folder"; $0.builtWaitingOn = v }
+    check(Tasks.rowLine(waits, now: now, name: name) == "Marked built by Rex 2 hours ago, waiting on " + words + ": in the folder", "built, waiting on \(v)")
+}
+let waitsOdd = row(1, "built") { $0.builtAt = iso(7200); $0.builtBy = "rex-discord"; $0.builtNote = "in the folder"; $0.builtWaitingOn = "the moon" }
+check(Tasks.rowLine(waitsOdd, now: now, name: name) == "Marked built by Rex 2 hours ago: in the folder", "a value not in the table shows nothing")
+let waitsYou = row(1, "built") { $0.builtAt = iso(60); $0.builtByPerson = true; $0.builtWaitingOn = "release" }
+check(Tasks.rowLine(waitsYou, now: now, name: name) == "Marked built by you 60 seconds ago, waiting on a release", "no note: the words end the line")
+let waitsRead = Board.parseTasks(#"{"tasks":[{"projectId":"p1","projectName":"Launch","number":3,"sentence":"Ship","state":"built","builtAt":"2026-10-24T06:00:00.000Z","builtBy":"rex","builtWaitingOn":"person"}]}"#.data(using: .utf8)!)
+check(waitsRead?.tasks.first?.builtWaitingOn == "person", "the read carries builtWaitingOn")
+check(page.contains("const w = { person: 'you', review: 'a review', release: 'a release' };"), "premise: the board's tskBuiltWaitsWords table is the same three words")
 let kids = row(1, "working") { $0.subtasks = .init(done: 1, total: 3, built: 2); $0.whoNames = ["rex-discord"] }
 check(Tasks.rowLine(kids, now: now, name: name) == "Rex\nAll subtasks built, ready for you to check.", "every subtask done or built: the board's ready-to-check line, after the agent (review 1: it no longer hides the rest)")
 let allDone = row(1, "working") { $0.subtasks = .init(done: 3, total: 3, built: 0); $0.whoNames = ["rex-discord"] }

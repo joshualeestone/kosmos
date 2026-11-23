@@ -72,6 +72,22 @@ check(parent?.partLines(roster: roster).map(\.who) == ["Nobody yet"] && parent?.
 
 let built = page(3)
 check(built?.stateLine(roster: roster) == "Open, marked built by Dana: captions need a check", "built: who marked it and the note")
+// kosmos#8939: the page says what the mark waits on, after who and before the note; a value not in the table says nothing.
+func withBuiltWaiting(_ v: String) -> Board.TaskPage? {
+    guard var top = try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any],
+          var projects = top["projects"] as? [[String: Any]],
+          let i = projects.firstIndex(where: { $0["id"] as? String == "springcatalogue" }),
+          var list = projects[i]["tasks"] as? [[String: Any]] else { return nil }
+    for j in list.indices where (list[j]["number"] as? NSNumber)?.intValue == 3 { list[j]["builtWaitingOn"] = v }
+    projects[i]["tasks"] = list
+    top["projects"] = projects
+    guard let d = try? JSONSerialization.data(withJSONObject: top), case .page(let p) = Board.parseTaskPage(d, project: "springcatalogue", number: 3) else { return nil }
+    return p
+}
+check(withBuiltWaiting("person")?.stateLine(roster: roster) == "Open, marked built by Dana, waiting on you: captions need a check", "built, waiting on you")
+check(withBuiltWaiting("review")?.stateLine(roster: roster) == "Open, marked built by Dana, waiting on a review: captions need a check", "built, waiting on a review")
+check(withBuiltWaiting("release")?.stateLine(roster: roster) == "Open, marked built by Dana, waiting on a release: captions need a check", "built, waiting on a release")
+check(withBuiltWaiting("__proto__")?.stateLine(roster: roster) == "Open, marked built by Dana: captions need a check", "a value not in the table says nothing")
 check(built?.parentNumber == 1 && built?.parentSentence == "Print-ready catalogue", "the task it is part of")
 check(built?.partLines(roster: roster) == [Board.TaskPage.PartLine(id: "1", who: "Dana", line: nil, say: nil, done: false)],
       "Dana by the project's own name; a could-not-tell claim says nothing on the part")
