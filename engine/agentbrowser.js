@@ -300,24 +300,33 @@ function parseTable(out, windows) {
   const re = windows ? /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/ : /^\s*(\d+)\s+(\d+)\s+(.*)$/;
   return String(out || '').split(/\r?\n/).map((l) => re.exec(l)).filter(Boolean)
     .map((m) => (windows
-      ? { pid: Number(m[1]), ppid: Number(m[2]), created: m[3] === '0' ? '' : m[3], command: m[4] }
+      ? { pid: Number(m[1]), ppid: Number(m[2]), created: /^\d{14}\.\d{6}$/.test(m[3]) ? m[3] : '', command: m[4] }
       : { pid: Number(m[1]), ppid: Number(m[2]), command: m[3] }));
 }
 const WIN_TABLE = 'Get-CimInstance Win32_Process | ForEach-Object { $c = if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString(\'yyyyMMddHHmmss.ffffff\') } else { \'0\' }; "$($_.ProcessId) $($_.ParentProcessId) $c $($_.CommandLine)" } | Out-String -Width 32767';
-function macTable(pids, onFail) {
+function macTable(pids, onFail, timeout) {
   try {
     const args = pids ? ['-ww', '-o', 'pid=,ppid=,command=', '-p', pids.join(',')] : ['-axww', '-o', 'pid=,ppid=,command='];
-    return parseTable(require('node:child_process').execFileSync('/bin/ps', args, { encoding: 'utf8', timeout: 2000, maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }));
+    return parseTable(require('node:child_process').execFileSync('/bin/ps', args, { encoding: 'utf8', timeout: Math.max(1, timeout || 2000), maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }));
   } catch (e) { if (onFail) onFail(e); return []; }
 }
 async function winTable(onFail) {
   try { return parseTable(await execP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WIN_TABLE], { timeout: 15000, windowsHide: true, maxBuffer: 32 * 1024 * 1024 }), true); }
   catch (e) { if (onFail) onFail(e); return []; }
 }
+const WIN_END = [
+  '$plan = $env:KOSMOS_ORPHAN_PLAN | ConvertFrom-Json',
+  'foreach ($s in @($plan)) {',
+  '  $p = Get-CimInstance Win32_Process -Filter ("ProcessId=" + [int]$s.pid)',
+  '  if (-not $p -or -not $p.CreationDate) { continue }',
+  "  $c = $p.CreationDate.ToUniversalTime().ToString('yyyyMMddHHmmss.ffffff')",
+  '  if ($c -ne $s.created -or $p.CommandLine -ne $s.command) { continue }',
+  '  try { Stop-Process -Id ([int]$s.pid) -Force -ErrorAction Stop; "ended $($s.pid)" } catch { }',
+  '}',
+].join('; ');
+/* The Mac ender. Windows ends through WIN_END above, which re-reads each pid in the same call. */
 function defaultEnd(platform) {
-  return platform === 'win32'
-    ? (pid) => execP('taskkill', ['/PID', String(pid), '/F'], { timeout: 8000, windowsHide: true })   // one pid, never /T
-    : (pid) => process.kill(pid, 'SIGKILL');
+  return platform === 'win32' ? null : (pid) => process.kill(pid, 'SIGKILL');
 }
 /* Each process ended is written down, so a wrong one could be traced. */
 function note(line) {
@@ -331,11 +340,11 @@ function noteEnded(agent, p) { note(agentKey(agent) + ' pid ' + p.pid + ' ' + St
 function noteListFailed(agent) { return (e) => note(agentKey(agent) + ' could not list processes: ' + String((e && e.message) || e).slice(0, 200)); }
 /* Ends this agent's orphaned servers and their browsers. Never throws. Fails closed: with no `end` handed in, it acts
    only when its caller says `live` (the Mac shim run as a program, and the Windows supervisor's own entry, pass it) or
-   live execution is armed (engine/live-execution.js), and never in a node --test process. Mac: inline, within a 2 s
-   budget; each pid is re-read just before SIGKILL and skipped unless it is still what was selected. Windows: async,
-   after the launch has gone ahead; ONE listing is the only read (no per-pid re-read), so its guards are the creation
-   time rule, the server's live parent check, and ending each pid alone (taskkill /F, no /T). A browser whose server
-   already died is not matched (nothing names its agent). Returns the pids ended (Mac), or a promise of them (Windows). */
+   live execution is armed (engine/live-execution.js), and never in a test run. Mac: inline, the whole sweep within a
+   2 s budget; each pid is re-read just before SIGKILL and skipped unless it is still what was selected. Windows:
+   async, after the launch has gone ahead; one listing plans it, and one PowerShell ends each planned pid only if its
+   creation time and command line are still exactly as listed (a pid with no creation time is left). A browser whose
+   server already died is not matched (nothing names its agent). Returns the pids ended (Mac), or a promise of them. */
 function endOrphanedServers(agent, deps) {
   const d = deps || {};
   if (!agentKey(agent)) return [];
@@ -345,7 +354,9 @@ function endOrphanedServers(agent, deps) {
     let armed = false;
     try {
       const le = require('./live-execution');
-      armed = !le.inTestProcess() && (d.live === true || le.liveExecutionAllowed());   // a node --test process never acts
+      /* Never in a test run, by the store's rule (--test, an inherited NODE_TEST_CONTEXT, or tools/run-tests.sh's
+         KOSMOS_TEST_RUN with the temp folder inside it). */
+      armed = !require('./store').isTestProcess(process.env) && (d.live === true || le.liveExecutionAllowed());
     } catch { /* not knowable: closed */ }
     if (!armed) return [];
     end = defaultEnd(platform);
@@ -361,9 +372,10 @@ function endOrphanedServers(agent, deps) {
   const stillSelected = (now, step) => !!now && (step.parent === null ? serverMatch(now.command, o) && o.parentGone(now.ppid) : now.ppid === step.parent);
   if (!windows) {
     try {
-      const procs = (d.procs || (() => macTable(null, noteListFailed(agent))))();
-      const recheck = d.recheck || ((pid) => macTable([pid]).find((p) => p.pid === pid) || null);
-      const until = Date.now() + (d.budgetMs || 2000);   // a launch never waits on this for long; the rest waits for the next launch
+      const until = Date.now() + (d.budgetMs || 2000);   // the whole sweep, listing included; the rest waits for the next launch
+      const left = () => until - Date.now();
+      const procs = (d.procs || (() => macTable(null, noteListFailed(agent), left())))();
+      const recheck = d.recheck || ((pid) => (left() > 0 ? macTable([pid], null, left()).find((p) => p.pid === pid) || null : null));
       const ended = [];
       for (const step of plan(procs)) {
         if (Date.now() > until) break;
@@ -377,11 +389,24 @@ function endOrphanedServers(agent, deps) {
   const runWin = async () => {
     try {
       const procs = await (d.procs ? Promise.resolve(d.procs()) : winTable(noteListFailed(agent)));
+      const steps = plan(procs).map((step) => ({ step, p: procs.find((x) => x.pid === step.pid) || null }))
+        .filter(({ step, p }) => stillSelected(p, step) && p.created);   // no creation time, no proof of identity: left
+      /* A test hands in its own ender (d.recheck does not apply on this path). Otherwise ONE PowerShell re-reads each
+         planned pid and ends it only if its creation time and whole command line are still exactly what was listed,
+         so a pid that exited and was reused in between is never touched. */
       const ended = [];
-      for (const step of plan(procs)) {
-        const now = procs.find((p) => p.pid === step.pid) || null;
-        if (!stillSelected(now, step)) continue;
-        try { await end(step.pid); ended.push(step.pid); noteEnded(agent, now); } catch { /* gone already, or not ours */ }
+      if (d.end) {
+        for (const { step, p } of steps) { try { await end(step.pid); ended.push(step.pid); noteEnded(agent, p); } catch { /* gone */ } }
+        return ended;
+      }
+      if (!steps.length) return ended;
+      const planJson = JSON.stringify(steps.map(({ p }) => ({ pid: p.pid, created: p.created, command: p.command })));
+      const out = await execP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WIN_END],
+        { timeout: 30000, windowsHide: true, env: Object.assign({}, process.env, { KOSMOS_ORPHAN_PLAN: planJson }) });
+      for (const m of String(out || '').matchAll(/^ended (\d+)\s*$/gm)) {
+        const pid = Number(m[1]);
+        ended.push(pid);
+        noteEnded(agent, steps.find(({ p }) => p.pid === pid).p);
       }
       return ended;
     } catch { return []; }
@@ -735,6 +760,6 @@ function installWithRetry(opts) {
 module.exports = {
   inKtRunRoot,   // kosmos#8929
   PIN, SHELL, SERVER_NAME, configFor, launchConfig, ensureInstalled, ensureShell, kickInstall, isInstalled,
-  installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir, agentKey, orphanedServers, endingOrder, endOrphanedServers, defaultEnd, parseTable,
+  installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir, agentKey, orphanedServers, endingOrder, endOrphanedServers, defaultEnd, parseTable, WIN_END,
   optOutPath, lockPath, disabled,
 };

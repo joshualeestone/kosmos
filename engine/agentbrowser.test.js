@@ -232,6 +232,14 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
   assert.deepEqual(await pending, [311, 301]);
   assert.deepEqual(wended, [311, 301], 'the older process under a reused parent pid was not spared');
   assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', procs: () => wtable, alive: () => true, end: async (pid) => { wended.push(pid); } }), [], 'CONTROL: a live parent on Windows, nothing ended');
+  /* A Windows process with no creation time has no proof of identity: left. */
+  const notime = [Object.assign({}, wtable[0], { created: '' })];
+  assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', procs: () => notime, alive: (pid) => pid !== 50, end: async () => { throw new Error('must not end'); } }), []);
+  /* The Windows ender re-reads each pid in the same call and ends it only if creation time AND command line still match;
+     never a tree kill. (It runs only on Windows; this pins what it checks.) */
+  assert.match(ab.WIN_END, /\$c -ne \$s\.created -or \$p\.CommandLine -ne \$s\.command/);
+  assert.match(ab.WIN_END, /Stop-Process -Id \(\[int\]\$s\.pid\) -Force/);
+  assert.doesNotMatch(ab.WIN_END, /\/T\b|taskkill/i);
   /* Fail closed: with no ender handed in, nothing is listed unless the caller says live, and in a node --test process
      not even then. */
   let asked = false;
@@ -745,6 +753,7 @@ test('#8928 slice 2: an agent\'s launch ends its own orphaned server and its bro
   const MARK = 't8928-e2e-stand-in';
   const cli = ab.cliPath();
   const keepCli = fs.readFileSync(cli);
+  t.after(() => fs.writeFileSync(cli, keepCli));   // registered before the stand-in replaces it
   fs.writeFileSync(cli, "require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', '" + MARK + "'], { stdio: 'ignore' });\nsetInterval(() => {}, 1000);\n");
   const table = () => spawnSync('/bin/ps', ['-axww', '-o', 'pid=,ppid=,stat=,command='], { encoding: 'utf8' }).stdout.split('\n')
     .map((l) => /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(l)).filter(Boolean).map((m) => ({ pid: +m[1], ppid: +m[2], stat: m[3], command: m[4] }));
@@ -760,7 +769,6 @@ test('#8928 slice 2: an agent\'s launch ends its own orphaned server and its bro
       const p = now.find((x) => x.pid === pid);
       if (p && !p.stat.startsWith('Z') && stillOurs(p)) { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
     }
-    fs.writeFileSync(cli, keepCli);
     for (const n of ['t8928-e2e', 't8928-e2e-other']) { try { fs.rmSync(ab.outputDir(n), { recursive: true, force: true }); } catch { /* best effort */ } }
     try { fs.rmdirSync(path.dirname(ab.outputDir('t8928-e2e'))); } catch { /* not empty or gone */ }
   });
@@ -793,6 +801,22 @@ test('#8928 slice 2: an agent\'s launch ends its own orphaned server and its bro
   assert.equal(alive(mineChild), false, 'its browser was not ended');
   assert.equal(alive(live) && alive(liveChild), true, 'CONTROL: a server whose session is alive, or its browser, was ended');
   assert.equal(alive(other) && alive(otherChild), true, 'CONTROL: another agent\'s orphaned server, or its browser, was ended');
+  /* The Mac wiring: the shim, run as a program the way the supervisor runs it, ends the agent's own orphan. Its
+     environment drops this test run's markers on purpose (a test run never acts); its runners folder stays this
+     sandbox's, so only these stand-ins can match. CONTROL: the other agent's orphan survives again. */
+  const again = orphan('t8928-e2e');
+  recorded.push(again);
+  for (let i = 0; i < 50 && (ppid(again) !== 1 || !childOf(again)); i++) await new Promise((r) => setTimeout(r, 100));
+  const againChild = childOf(again);
+  recorded.push(againChild);
+  const env = Object.assign({}, process.env);
+  delete env.NODE_TEST_CONTEXT; delete env.KOSMOS_TEST_RUN;
+  const shim = spawnSync(process.execPath, [path.join(__dirname, 'agent-browser-config.js'), 't8928-e2e'], { env, encoding: 'utf8', timeout: 30000 });
+  assert.equal(shim.status, 0);
+  for (let i = 0; i < 50 && (alive(again) || alive(againChild)); i++) await new Promise((r) => setTimeout(r, 100));
+  assert.equal(alive(again), false, 'the shim, run as a program, did not end the agent\'s orphaned server');
+  assert.equal(alive(againChild), false, 'nor its browser');
+  assert.equal(alive(other) && alive(otherChild), true, 'CONTROL: the shim ended another agent\'s orphan');
   /* The launch itself still gets its config (its sweep does nothing here: a test process with no ender). */
   assert.ok(ab.launchConfig({ platform: 'darwin', arch: process.arch, install: false, env: {}, agent: 't8928-e2e' }), 'the launch still gets its config');
 });
