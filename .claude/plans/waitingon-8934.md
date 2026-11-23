@@ -40,6 +40,8 @@ of taking the mark off. "Waiting on another agent's work" is not among them. Fre
 the note.
 
 ## Tests
-A new engine test for setBuilt (each value stored, unknown refused with nothing written, a clear and a re-mark without
-it drop it, a change of only the value is a change, the screen path cannot send it), the route, tasklist words, both
-CLIs' option parsing (refusals with controls), and the web row words.
+A new engine test for setBuilt (each value stored, unknown refused with nothing written, a later agent's mark without
+one keeps it, a checker's mark keeps it, the person's mark and a clear drop it, a change of only the value is a change,
+the screen path cannot send it), the route and the typed notice, tasklist words (show and the --all rows), both CLIs'
+option parsing (refusals with controls, an older board, the hint's conditions), the web row words, the project card,
+and a browser check on the Tasks row (render-tasks-view-3559.js).

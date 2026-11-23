@@ -685,6 +685,9 @@ function chk(ok, label, extra) {
         const waitsWhy = await rowWhy();
         chk(waitsWhy !== null && /^Marked built by Rex .+, waiting on a release: waiting on the release Undo$/.test(waitsWhy),
           `${tag} a built mark that says what it waits on says it on the row (kosmos#8934)`, JSON.stringify(waitsWhy));
+        /* An agent's mark without a value keeps the one the task has (review 2), so the way back to a plain mark is to take
+           the mark off first (review 3: a plain re-mark alone was the same mark again, and kept "a release"). */
+        tasks.clearBuilt(news.id, 3, { by: 'rex' });
         tasks.setBuilt(news.id, 3, { by: 'rex', note: 'waiting on the release' });
         await page.evaluate(() => tskLoad());
         await page.waitForTimeout(300);
