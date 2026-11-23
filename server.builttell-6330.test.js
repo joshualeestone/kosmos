@@ -180,6 +180,40 @@ test('the typed line says who marked which task built, the note, how to reply, a
   }
 });
 
+/* kosmos#8934: a mark that says what it waits on says it in the typed line, a fixed phrase after the note, never the
+   agent's own text; a mark without one says nothing of the kind (the CONTROL, on a task of the same shape). */
+test('kosmos#8934: the typed line says what the mark waits on, and a mark without one says nothing of it', async () => {
+  const chat = require('./engine/chat');
+  const sends = [];
+  try {
+    chat.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false);
+    const n = tasks.create(projectId, { sentence: 'Write the release notes', who: 'mona' }).number;
+    tasks.addPart(projectId, n, { sentence: 'Check the wording', who: 'zed' });
+    const r = await mark(n, asAgent('mona'), { note: 'drafted', waiting_on: 'review' });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.deepEqual(told(r), ['zed'], JSON.stringify(r.json));
+    const typed = pastedMessages(sends);
+    assert.equal(typed.length, 1, JSON.stringify(typed));
+    assert.match(typed[0], new RegExp(`mona marked task ${n} built: "drafted" - it is waiting on a review - reply in the task: `), typed[0]);
+    sends.length = 0;
+    const m = tasks.create(projectId, { sentence: 'Write the change log', who: 'mona' }).number;
+    tasks.addPart(projectId, m, { sentence: 'Check the dates', who: 'zed' });
+    const plain = await mark(m, asAgent('mona'), { note: 'drafted' });
+    assert.equal(plain.status, 200, JSON.stringify(plain.json));
+    const typedPlain = pastedMessages(sends);
+    assert.equal(typedPlain.length, 1, JSON.stringify(typedPlain));
+    assert.match(typedPlain[0], new RegExp(`mona marked task ${m} built: "drafted" - reply in the task: `), 'CONTROL: the plain line changed: ' + typedPlain[0]);
+    assert.doesNotMatch(typedPlain[0], /it is waiting on/, typedPlain[0]);
+  } finally {
+    chat.resetForTests();
+  }
+});
+
 test('a parent nobody holds directly hands to the nearest held task above it', async () => {
   const top = tasks.create(projectId, { sentence: 'Open the store', who: 'ivy' }).number;
   const middle = tasks.create(projectId, { sentence: 'Set up payments', parent: top }).number;

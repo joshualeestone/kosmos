@@ -443,6 +443,12 @@ test('#6501: a built open task says "(built)" and, on a line of its own, "Built,
     progress: { done: 0, total: 1, closed: false, assigned: 0 }, claim: null });
   assert.match(nobody, /Task 4 \(built\)/, nobody);
   assert.match(nobody, /tkcard-built">Built, waiting for you to check it/, nobody);
+  // kosmos#8934: a mark that says it waits on a review or a release says that, not that it waits on the person; one that
+  // waits on the person reads as a plain mark does (the CONTROL above).
+  assert.match(html({ ...base, ...BUILT, builtWaitingOn: 'review' }), /tkcard-built">Built, waiting on a review</);
+  assert.match(html({ ...base, ...BUILT, builtWaitingOn: 'release' }), /tkcard-built">Built, waiting on a release</);
+  assert.match(html({ ...base, ...BUILT, builtWaitingOn: 'person' }), /tkcard-built">Built, waiting for you to check it</);
+  assert.match(html({ ...base, ...BUILT, builtWaitingOn: 'constructor' }), /tkcard-built">Built, waiting for you to check it</);
   // Review 1: a held task reads held (the engine's taskState: hold wins over built), so it never says built.
   const held = html({ ...base, ...BUILT, onHold: true });
   assert.match(held, /Task 4/, 'PRE-CONTROL: the held task is drawn: ' + held);

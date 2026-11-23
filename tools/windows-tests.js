@@ -148,6 +148,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'server.builtwaiting-8934.test.js': 'its only win32 branch skips the Mac CLI arms: they run install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line from a Kosmos home made with symlinks, which Windows cannot do; its Windows arms drive the Windows CLI through main() with a fake fetch, which needs no Windows host (kosmos#8934)',
   'engine/storecheck-looked-8865.test.js': 'its win32 branch skips the one arm that locks a file and a folder with chmod: Windows does not enforce POSIX file modes, so the locked and unlistable cases cannot be made there; the dismissed and restored arms run everywhere (kosmos#8865)',
   'server.startcheck-8865.test.js': 'its win32 branch skips both arms: they run install/kosmos (the Mac and Linux CLI, a bash script) against a real board, which Windows cannot do; the Windows verb is checked in the same arm from the same board answer (kosmos#8865)',
   'engine/launchscope-8860.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378) on two arms, a symlink needs a privilege on Windows, and os.homedir() reads USERPROFILE on Windows, not HOME; the launchd label scope it tests is macOS-only, and every other arm forces the macOS platform',
