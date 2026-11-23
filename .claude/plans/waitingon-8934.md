@@ -1,0 +1,43 @@
+# waitingon-8934: a built task says what it is waiting on
+
+Card: kosmos#8934 (from agent feedback, four installs). Decision posted on the card 09:4x CST 11-23.
+
+## Problem
+A task marked built means "delivered and waiting", and nothing a screen or a count can read says waiting on WHAT.
+The free-text built note can say it, but it is words: the Tasks row, the text list and the people told of the mark
+cannot tell which delivered work waits on the person and which waits on the agents. The text list says every built
+task "waits on a review and close", whatever it really waits on.
+
+## Change
+One optional, fixed field on the built mark: `builtWaitingOn`, one of `person`, `review`, `release`.
+
+- engine/tasks.js `setBuilt(..., { waitingOn })`: validated against WAITING_ON (anything else refuses, nothing
+  written); stored as `builtWaitingOn`; in BUILT_FIELDS, so a clear and a later mark without it drop it, as the note
+  is dropped (each mark says its own state); part of the "same mark again" comparison, so changing only what it waits
+  on is a change.
+- server.js `POST /api/project/:id/task/:n/built`: `waiting_on` from an agent only; the screen sends none. The notice
+  to the people the work goes to says what it waits on.
+- install/kosmos and tools/windows/kosmos-cli.js: `kosmos task built ... --waiting person|review|release`, checked
+  before the board (a missing or unknown value refuses; --clear takes none). The confirmation names it, and says so
+  when an older board did not record it.
+- engine/tasklist.js (what agents read): "built, waiting on the person / on a review / on a release", and the
+  waits-on line says the same, the default staying "a review and close".
+- web/index.html: the Tasks row and the task page say "waiting on you", "waiting on a review", "waiting on a release".
+- engine/taskguide.js (`kosmos task --how`): one paragraph saying when to use each value. The working rules are
+  size-budgeted (kosmos#8735), so they gain no new paragraph.
+
+## Not in this change (said on the card)
+- Item 2 of the card (no idle nudges while built): already true (#3951, #7869).
+- Item 3 (how long it waited, whether the person opened it) and item 4 (one rolled-up wait on a parent): views that can
+  read this field later.
+- No new count: projectview's "N waiting on the person" counts members with a question, a different thing (#8917).
+- A built task waiting on the person stays in the Built group; it is not moved to Needs Your Decision.
+
+## Weakest premise
+That three values cover what agents mean. "Waiting on another agent's work" is not among them. Free text still goes in
+the note.
+
+## Tests
+A new engine test for setBuilt (each value stored, unknown refused with nothing written, a clear and a re-mark without
+it drop it, a change of only the value is a change, the screen path cannot send it), the route, tasklist words, both
+CLIs' option parsing (refusals with controls), and the web row words.

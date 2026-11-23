@@ -920,7 +920,11 @@ const BUILT_NOTE_MAX = 1000;
    store even when the callback changes nothing, so a looping repeat mark rewrote it on every call). */
 const NO_WRITE = Symbol('no write');
 const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote', 'builtFingerprint',
-  'builtFingerprintBy', 'builtFilePath', 'builtFingerprintAt', 'builtCheckedBy', 'builtCheckedByPerson', 'builtReplaces'];
+  'builtFingerprintBy', 'builtFilePath', 'builtFingerprintAt', 'builtCheckedBy', 'builtCheckedByPerson', 'builtReplaces',
+  'builtWaitingOn'];
+/* kosmos#8934: what a built task waits on, a fixed choice a screen and a list can read (the note is words): the person
+   (to look at it, answer or decide), another agent's review, or a release. None means it reads as before. */
+const WAITING_ON = ['person', 'review', 'release'];
 /* kosmos#8307: at most this many checkers are kept on a file (a name each), so a looping checker cannot grow the store. */
 const CHECKED_BY_MAX = 20;
 /* #6330 slice 2: a built mark can carry the deliverable's fingerprint, so the next agent can check it has the exact
@@ -1072,6 +1076,8 @@ function withoutBuilt(t) {
  *   builtCheckedBy         (kosmos#8307) the agents who checked THIS file: another named agent's mark that kept the
  *                          fingerprint (the checker's mark above). builtCheckedByPerson: the person's mark kept it. Never
  *                          the sender's own mark
+ *   builtWaitingOn         (kosmos#8934) what it waits on, one of WAITING_ON, from an agent's `waitingOn`; each mark says
+ *                          its own (a mark without one drops it, as it drops the note), and the person's mark sends none
  *   builtReplaces          (kosmos#8307) the file this one replaced: a mark with a DIFFERENT fingerprint replaces the one
  *                          kept, and the old one is kept here as { fingerprint, by, at, checkedBy, checkedByPerson? } (no path, review 4),
  *                          so its checks read as out of date and their agents can be told. Only the one previous file.
@@ -1082,7 +1088,10 @@ function withoutBuilt(t) {
  * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
  * task is refused: closing already cleared the mark.
  */
-function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false, fingerprint = null, commit = null, filePath = null } = {}) {
+function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false, fingerprint = null, commit = null, filePath = null, waitingOn = null } = {}) {
+  // kosmos#8934: checked before anything is read, so an unknown value writes nothing.
+  if (waitingOn != null && waitingOn !== '' && !WAITING_ON.includes(waitingOn)) return { ok: false, because: 'what a built task waits on is person, review or release' };
+  const waits = waitingOn && !(person === true) ? waitingOn : '';
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
   const landed = commit == null ? null : landedValue(commit);
   if (commit != null && !landed) return { ok: false, because: 'a commit is its full sha (40 or 64 lowercase hex characters), the absolute path of its repository, and whether a remote has it' };
@@ -1195,6 +1204,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
         && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who) && (t.builtFilePath || '') === keptPath
         && sameList(t.builtCheckedBy, checkedBy) && (t.builtCheckedByPerson === true) === checkedByPerson
+        && (t.builtWaitingOn || '') === waits   // kosmos#8934: a change of only what it waits on is a change
         // review 4: the replaced file too, so a change to it alone is never skipped as the same mark
         && JSON.stringify(t.builtReplaces || null) === JSON.stringify(replaces || null)
         && (!landed || (t.landedCommit === landed.sha && t.landedRepo === landed.repo && t.landedOnRemote === landedOnRemoteNow))) {
@@ -1207,6 +1217,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         ...(isPerson ? { builtByPerson: true } : {}), builtWho,
         ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
         ...(said ? { builtNote: said } : {}),
+        ...(waits ? { builtWaitingOn: waits } : {}),   // kosmos#8934
         ...(kept ? { builtFingerprint: kept, builtFingerprintBy: keptBy, ...(keptPath ? { builtFilePath: keptPath } : {}),
           ...(printAt ? { builtFingerprintAt: printAt } : {}), builtCheckedBy: checkedBy, ...(checkedByPerson ? { builtCheckedByPerson: true } : {}) } : {}),
         ...(replaces ? { builtReplaces: replaces } : {}),   // kosmos#8307: kept without a current file too (a withdrawn one)
@@ -3264,7 +3275,7 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
   return out.slice(0, 3);
 }
 
-module.exports = { ranOnRecord /* kosmos#8736 */, HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, setText /* kosmos#8664 */, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
+module.exports = { WAITING_ON /* kosmos#8934 */, ranOnRecord /* kosmos#8736 */, HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, setText /* kosmos#8664 */, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   setDoneWhenCheck, setCheckResult, checkResultsOf, checkCounts, CHECK_HOW_MAX, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
