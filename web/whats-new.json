@@ -1,36 +1,36 @@
 {
-  "version": "0.8.17",
+  "version": "0.8.18",
   "highlights": [
     {
       "icon": "shield",
-      "title": "A removed startup job explains its folder",
-      "line": "On Windows, removing an agent's startup job says plainly what Start at login will do with its account folder.",
+      "title": "Browsers Kosmos opens keep its keys out",
+      "line": "The browser a Kosmos sign-in opens on Windows no longer starts with Kosmos's own keys in its environment.",
       "platforms": [
         "windows"
       ]
     },
     {
-      "icon": "shield",
-      "title": "A warning before an agent runs twice",
-      "line": "Adding an agent that something else on this computer also starts at login now warns first and says what starts it.",
+      "icon": "spark",
+      "title": "A message to an agent is not lost to typing",
+      "line": "If other text lands in an agent's box while Kosmos is typing a message to it, the message is kept and sent once the box is clear.",
       "platforms": [
         "mac"
       ]
     },
     {
-      "icon": "list",
-      "title": "The Guide says how to free its name",
-      "line": "When a leftover holds the Kosmos Guide's name, Settings says how to free it in three more cases instead of saying to try again."
+      "icon": "shield",
+      "title": "A company computer says whose it is",
+      "line": "A company member's Kosmos names the company, lists what it reports and never sends, and says which AI providers are allowed."
     },
     {
-      "icon": "tasks",
-      "title": "A stalled repeat shows one row",
-      "line": "A repeat whose agent cannot be reached shows one row for the stall, not one for every missed run."
+      "icon": "chat",
+      "title": "A little more space in project rooms",
+      "line": "Posts in a project room now have slightly more space between lines."
     },
     {
-      "icon": "swarm",
-      "title": "Memory rings stay thin and whole",
-      "line": "Memory rings keep one thin line as they fill and are never cut off at the edge of their box."
+      "icon": "chat",
+      "title": "Long agent messages say what they are about",
+      "line": "When a long message is saved to a file for an agent, its pane line now shows how it starts and its length."
     }
   ]
 }

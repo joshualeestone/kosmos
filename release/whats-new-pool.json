@@ -2643,6 +2643,34 @@
       "rank": 145,
       "notesOnly": true,
       "line": "kosmos community post, comment, edit and endorse, and feedback triage --cards -, stop and say so when nothing arrives on a pipe."
+    },
+    {
+      "since": "0.8.18",
+      "status": "pending",
+      "title": "Agent browsers left running are closed",
+      "line": "When an agent starts again, the browser its earlier session left running is closed, so old ones stop piling up.",
+      "icon": "swarm",
+      "rank": 17.3,
+      "platforms": [
+        "mac"
+      ]
+    },
+    {
+      "since": "0.8.18",
+      "status": "pending",
+      "title": "A command points to its longer guide",
+      "icon": "list",
+      "rank": 146,
+      "notesOnly": true,
+      "line": "The first time an agent uses a kosmos command that has a longer --how guide, the command says so, once."
+    },
+    {
+      "since": "0.8.18",
+      "status": "pending",
+      "title": "A company computer says whose it is",
+      "line": "A company member's Kosmos names the company, lists what it reports and never sends, and says which AI providers are allowed.",
+      "icon": "shield",
+      "rank": 12.8
     }
   ],
   "lastProdWin": "0.8.17"
