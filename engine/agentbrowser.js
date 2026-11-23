@@ -227,7 +227,7 @@ function writeConfigIfNeeded(file, text) {
    started next got it. (kickInstall's own guard is narrower: it checks NODE_TEST_CONTEXT only.)
    testRunMarked: NODE_TEST_CONTEXT; or tools/run-tests.sh's KOSMOS_TEST_RUN counted only when the temp folder is that
    run's folder or inside it (the store's rule, so the variable alone left in a shell does not switch a real board's
-   browser off); or a temp folder inside a run root named kt<pid> (a test that scrubbed its environment but kept TMPDIR:
+   browser off); or a temp folder inside a run root named kt<pid> right under a temp base (a test that scrubbed its environment but kept TMPDIR:
    the live config that found this named such a folder). Pure, so each arm is tested. */
 function testRunMarked(env, tmp) {
   const e = env || {};
@@ -239,7 +239,9 @@ function testRunMarked(env, tmp) {
     const rt = path.resolve(t);
     if (rt === r || rt.startsWith(r.endsWith(path.sep) ? r : r + path.sep)) return true;
   }
-  return /(^|[\/\\])kt\d+([\/\\]|$)/.test(t);
+  /* Review 2: only the shape run-tests.sh makes, ${TMPDIR:-/tmp}/kt$$, so a kt<n> folder right under a temp base
+     (T, tmp, Temp). A user folder named kt1 (C:\\Users\\kt1\\AppData\\Local\\Temp) is not a test run. */
+  return /(^|[\/\\])(T|tmp|temp)[\/\\]kt\d+([\/\\]|$)/i.test(t);
 }
 /* The write location comes from THIS process's environment (runners.managedRoot reads process.env), so the sandbox is
    read there too; a test-run mark counts from this process or from the env a caller passed (review 1). */
