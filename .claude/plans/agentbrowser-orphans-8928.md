@@ -110,3 +110,9 @@ Servers left by an earlier pinned version (another cli.js path) are not matched.
 - Fixed: a comment from iteration 10 overstated what the sandbox guarantees for a test child that reaches the real runners folder; deleted rather than reworded (in that case the exact interpreter match is the backstop, and the only thing it could end is that named agent's real orphan).
 - Superseded iteration notes are tagged.
 - NITs left: the interpreter/cli match is case-insensitive while --output-dir is exact (safe: the folder match is exact); on Windows the pre-filter compares rows with themselves (WIN_END does the real re-read).
+
+## Challenge loop iteration 13 (sonnet)
+- Fixed: the sweep call has its own try inside launchConfig, so a throw in its setup can never cost the launch its config.
+- Fixed: the comment claimed "most Windows launches" start no PowerShell; the skip covers only an agent's first launch, and it now says so.
+- Fixed: the Mac ender refuses any pid that is not an integer above 1 (endablePid, pure, tested by value; making it always true turns the test red).
+- DISCLOSURE (near miss, mine): my first attempt at that guard test called the REAL Mac ender with 1, 0 and -1 before the guard existed (the code edit had failed its anchor check and written nothing; the test edit went through). kill(-1) signals every process the user owns, i.e. every agent session on this Mac. It was stopped by the first call: kill(1) failed with EPERM, the assertion failed, and the test ended before 0 or -1. Checked afterwards: all 21 Claude sessions and tmux alive. The test now checks the guard as a value and never calls the real ender with a raw number.
