@@ -59,5 +59,13 @@ test('#8935 Windows CLI: the same, through main()', async () => {
   assert.equal(first[0], POINTER, 'the first use did not name the guide first');
   assert.ok(!(await call(['claim', 'p'], 't8935-win')).some((s) => s.includes('First use of')), 'shown a second time');
   assert.ok(!(await call(['claim', 'p'], '')).some((s) => s.includes('First use of')), 'CONTROL: a person saw it');
-  assert.ok(!(await call(['post', '--how'], 't8935-win-reader')).some((s) => s.includes('First use of')), 'pointed at the guide it is reading');
+  const reader = await call(['post', '--how'], 't8935-win-reader');
+  assert.equal(reader.code, 0, 'post --how failed');
+  assert.ok(!reader.some((s) => s.includes('First use of')), 'pointed at the guide it is reading');
+  // The record proves the hint ran for both agents, keyed by a hash of the launch token, never the token.
+  const key = (t) => 'launch:' + require('node:crypto').createHash('sha256').update(t).digest('hex').slice(0, 16);
+  const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepEqual(rec[key('t8935-win')], ['claim']);
+  assert.deepEqual(rec[key('t8935-win-reader')], ['post'], 'reading the guide was not recorded as seen');
+  assert.ok(!fs.readFileSync(file, 'utf8').includes('t8935-win'), 'a launch token was written down');
 });
