@@ -161,6 +161,21 @@ function mac(args, port = server.address().port, home = MAC_HOME) {
     });
   });
 }
+/* kosmos#8917 (feedback): `--all --state <group>` was refused although the per-project form takes it. It now lists what
+   --open, --built and --blocked list, on both CLIs, from the real board. */
+test('kosmos#8917: --all --state open|built|held lists what --open, --built and --blocked list, on both CLIs', async () => {
+  for (const [group, want] of [['open', WANT.open], ['built', WANT.built], ['held', WANT.blocked]]) {
+    const w = await win(['task', 'list', '--all', '--state', group]);
+    assert.equal(w.code, 0, w.err);
+    assert.deepEqual(w.out, want(), 'Windows --all --state ' + group);
+    if (!SKIP_POSIX_SHELL) {
+      const m = await mac(['task', 'list', '--all', '--state', group]);
+      assert.equal(m.code, 0, m.out);
+      assert.deepEqual(m.out.trimEnd().split('\n'), want(), 'Mac --all --state ' + group);
+    }
+  }
+});
+
 test('Mac: the same forms print the same lines as Windows, from the real board', { skip: SKIP_POSIX_SHELL }, async () => {
   for (const [args, want] of [[['--all'], WANT.open], [['--all', '--blocked'], WANT.blocked], [['--all', '--built'], WANT.built]]) {
     const r = await mac(['task', 'list', ...args]);
@@ -187,9 +202,11 @@ test('both: the same malformed forms are refused with the same words, before the
     [['--all', '--stale', '7x'], /--stale takes a whole number of days, 1 to 3650/],
     [['--all', '--stale', '7', 'more'], /--stale takes one number of days at most/],
     [['--all', '--open', 'more'], /--open takes nothing after it/],
-    [['--all', '--state', 'done'], /After --all: nothing \(open tasks\), --blocked, --built, or --stale/],
+    // kosmos#8917: --all reads --state open|built|held; done has no --all group, and says where a project's done tasks are.
+    [['--all', '--state', 'done'], /--all lists the work still to be closed in every project, so it has no done group\. A project's done tasks: kosmos task list <project-id> --state done/],
+    [['--all', '--state', 'later'], /--state after --all takes one of: open, built, held\./],
     [[A, '--stale', '-3'], /--stale takes a whole number of days, 1 to 3650/],
-    [['--all', '', 'x'], /After --all: nothing \(open tasks\), --blocked, --built, or --stale/],   // review 1 (nit 4)
+    [['--all', '', 'x'], /After --all: nothing \(open tasks\), --blocked, --built, --state open\|built\|held, or --stale/],   // review 1 (nit 4); #8917
   ];
   for (const [args, re] of cases) {
     const w = await win(['task', 'list', ...args], 'http://127.0.0.1:9');   // nothing listens: a refusal must come first

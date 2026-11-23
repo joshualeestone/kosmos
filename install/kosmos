@@ -6702,6 +6702,7 @@ cmd_task() {
       say "Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|files|built|done-when|check|hold|unhold|repeat|ran|told|wake|edit>"
       say "  kosmos task list <project-id> [--state open|built|held|done]  list this project's tasks, open first"
       say "  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each"
+      say "  kosmos task list --all --state open|built|held               the same, named as a project's list names them"
       say "  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first"
       say "  kosmos task list --mine [--blocked|--built|--stale [<days>]]  open (or blocked, built, stale) tasks you hold, in every project you are on"
       say "  kosmos task list <project-id> --mine [--blocked|--built|--stale [<days>]]  the same, in that one project"
@@ -6767,17 +6768,28 @@ cmd_task() {
       local _tw; for _tw in "$@"; do
         [ "$_tw" != "--mine" ] || { say "Put --mine right after the project, or use it alone: kosmos task list <project-id> --mine [--blocked|--built|--stale [<days>]], or kosmos task list --mine"; exit 2; }
       done
+      # kosmos#8917 (feedback): `--all --state open|built|held` is the per-project form's spelling of --open, --built and
+      # --blocked, and was refused. Read here as those, so every check and the request below are --all's own. done is not
+      # an --all group (every closed task of every project), so it says where a project's done tasks are.
+      if [ "${1:-}" = "--all" ] && [ "${2:-}" = "--state" ]; then
+        # if, not case: a case here reads to the verb-parity guard as a list of task subcommands.
+        local _tg=""
+        if [ "${3:-}" = open ]; then _tg=--open; elif [ "${3:-}" = built ]; then _tg=--built; elif [ "${3:-}" = held ]; then _tg=--blocked
+        elif [ "${3:-}" = done ]; then say "--all lists the work still to be closed in every project, so it has no done group. A project's done tasks: kosmos task list <project-id> --state done"; exit 2
+        else say "--state after --all takes one of: open, built, held."; exit 2; fi
+        shift 3; set -- --all "$_tg" "$@"
+      fi
       if [ -n "$_tmine" ]; then
         case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) say "--mine lists an agent's own tasks, so it needs an agent's token (run it from an agent's session)."; exit 2 ;; esac
       fi
       # kosmos#7057: --all (every project) and --stale [<days>]; the days are checked here, so only a number reaches the URL.
       if [ "${1:-}" = "--all" ]; then
         # Review 1 (nit 4), as the Windows CLI: an empty word after --all is not "nothing after it".
-        [ "$#" -lt 2 ] || [ -n "${2}" ] || { say "After ${_tform}: nothing (open tasks), --blocked, --built, or --stale [<days>]."; exit 2; }
+        [ "$#" -lt 2 ] || [ -n "${2}" ] || { say "After ${_tform}: nothing (open tasks), --blocked, --built, --state open|built|held, or --stale [<days>]."; exit 2; }
         case "${2:-}" in
           ''|--open|--blocked|--built) [ "$#" -le 2 ] || { say "${2} takes nothing after it: kosmos task list ${_tform} ${2}"; exit 2; } ;;
           --stale) _task_stale_days "${3:-}"; [ "$#" -le 3 ] || { say "--stale takes one number of days at most: kosmos task list ${_tform} --stale [<days>]"; exit 2; } ;;
-          *) say "After ${_tform}: nothing (open tasks), --blocked, --built, or --stale [<days>]."; exit 2 ;;
+          *) say "After ${_tform}: nothing (open tasks), --blocked, --built, --state open|built|held, or --stale [<days>]."; exit 2 ;;
         esac
       elif [ "${2:-}" = "--stale" ]; then
         _task_stale_days "${3:-}"; [ "$#" -le 3 ] || { say "--stale takes one number of days at most: kosmos task list <project-id> --stale [<days>]"; exit 2; }
