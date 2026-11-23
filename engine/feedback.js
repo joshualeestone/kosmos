@@ -199,16 +199,16 @@ function write(body, opts) {
     return { ok: true, path: dest, date, from: key || null, writers: prior.length, notesReplaced };
   });
 }
-/* kosmos#8919: how many notes (kosmos feedback note, #8896) a section's text holds: each starts with its own
-   "Added later (YYYY-MM-DD HH:MM UTC):" line, which note() writes and neutral() leaves as it is. */
+/* kosmos#8919: each note (kosmos feedback note, #8896) starts with its own "Added later (YYYY-MM-DD HH:MM UTC):" line,
+   which note() writes and neutral() leaves as it is. */
 const NOTE_LINE = /^Added later \(\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\):$/gm;
-function notesIn(text) { return (String(text == null ? '' : text).match(NOTE_LINE) || []).length; }
 /* kosmos#8919 review 1: the notes in `was` whose whole block (its heading line and the text up to the next heading or
    the end) is not in `now`. A heading carries its minute, so a note kept in a rewrite is found, and one edited or
    dropped is counted as gone. */
 function notesLost(was, now) {
-  const w = String(was == null ? '' : was);
-  const n = String(now == null ? '' : now);
+  // Round 3: compared with CRLF as LF on both sides, so a report saved with Windows line endings is read the same.
+  const w = String(was == null ? '' : was).replace(/\r\n/g, '\n');
+  const n = String(now == null ? '' : now).replace(/\r\n/g, '\n');
   const starts = [];
   NOTE_LINE.lastIndex = 0;
   for (let m = NOTE_LINE.exec(w); m; m = NOTE_LINE.exec(w)) starts.push(m.index);

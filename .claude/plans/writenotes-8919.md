@@ -50,3 +50,13 @@ rewrite to add, keeping notes would be the better default, and this sentence at 
   it whatever `^` did); rebuilt so the line ends at the heading-shaped text, and the mutation is red.
 - Mutations after that: never counted (6), kept notes counted (1), unanchored (1), Mac CLI silent (2), Windows CLI
   silent (1).
+- Round 3 (opus): WARNING, CRLF: a kept note in a CRLF rewrite was reported lost (note() writes LF, so the block was not
+  found), the likely Windows shape for a --body-file. Fixed: notesLost compares with CRLF as LF on both sides. The
+  reviewer's second half (a CRLF-stored heading goes uncounted) did not reproduce: JavaScript's multiline `$` also
+  matches before a CR, measured; the stored section does keep its CRs. Test: a CRLF rewrite keeps the note, an LF
+  rewrite of the CRLF-stored section keeps it too (pins the old-side normalization, whose mutation was green until
+  that case was added), and dropping it is counted. NIT taken: the dead notesIn removed. NIT not taken: the failed and
+  soon send sentences ask for a rewrite in a few minutes, which would drop a re-added note again (the second write
+  then says so).
+- Mutations after round 3, each red: never counted (7), kept notes counted (2), unanchored (1), Mac CLI silent (2),
+  Windows CLI silent (1), old side not normalized (1), new side not normalized (1).

@@ -37,6 +37,21 @@ test('review 1: a rewrite that keeps a note (an edit of what show printed) does 
   assert.equal(edited.notesReplaced, 1, 'CONTROL: an edited note was not counted as gone');
 });
 
+test('round 3: CRLF line endings: a kept note is not counted, and a note stored with CRLF is counted when dropped', () => {
+  const day = '2026-11-16';
+  const t = Date.parse(day + 'T12:00:00Z');
+  fb.write('first', { from: 'ada', date: day });
+  assert.equal(fb.note('ada', 'keep me', day, t).ok, true);
+  const shown = fb.sections(fb.stripFrontmatter(fb.read(day))).find((x) => x.key === 'ada').text;
+  const crlf = shown.replace(/\n/g, '\r\n');
+  assert.equal(fb.write(crlf, { from: 'ada', date: day }).notesReplaced, 0, 'a note kept in a CRLF rewrite was reported lost');
+  // Stored with CRLF now: an LF copy of it (what show prints on another computer, or an editor's save) keeps the note.
+  assert.equal(fb.write(shown, { from: 'ada', date: day }).notesReplaced, 0, 'an LF rewrite of a CRLF-stored note was reported lost');
+  fb.write(crlf, { from: 'ada', date: day });
+  // The section is now stored with CRLF, its note heading ending in a CR: dropping it must still be counted.
+  assert.equal(fb.write('rewritten', { from: 'ada', date: day }).notesReplaced, 1, 'a note stored with CRLF went uncounted');
+});
+
 test('another writer\'s notes the same day are kept and not counted', () => {
   const day = '2026-11-19';
   const t = Date.parse(day + 'T12:00:00Z');
