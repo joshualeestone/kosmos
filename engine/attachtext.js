@@ -135,8 +135,7 @@ function zipOf(buf, what) {
 
 /* ── xlsx ──────────────────────────────────────────────────────────────────────────────────── */
 
-/* kosmos#8940: each row is { n, cells }, n being the spreadsheet's own row number: the row's r, else its first cell
-   reference's (B6 is row 6), else the row before's plus one. */
+/* kosmos#8940: each row is { n, cells }, n being the spreadsheet's own row number. */
 function sheetRows(sheet, shared, clip) {
   const rows = [];
   let truncated = false;
@@ -184,10 +183,10 @@ function sheetRows(sheet, shared, clip) {
 
 /* kosmos#8940: one value on one line. A line break shows as the two characters \n and a pipe as \|, with a backslash
    doubled first, so one line is always one row and the escapes cannot be confused with the data. */
-const lineValue = (v) => String(v == null ? '' : v).slice(0, MAX_CELL).replace(/\\/g, '\\\\').replace(/\r?\n|[\r\u0085\u2028\u2029]/g, '\\n').replace(/\|/g, '\\|').trim();
+const lineValue = (v) => String(v == null ? '' : v).slice(0, MAX_CELL).trim().replace(/\\/g, '\\\\').replace(/\r?\n|[\r\u0085\u2028\u2029]/g, '\\n').replace(/\|/g, '\\|');
 const colName = (i) => { let s = ''; for (let k = i + 1; k > 0; k = Math.floor((k - 1) / 26)) s = String.fromCharCode(65 + ((k - 1) % 26)) + s; return s; };
 const NUMBERISH = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/;
-const BLANK_ROWS_LISTED = 20;   // rows named per column in the closing blank line; more are counted
+const BLANK_ROWS_LISTED = 20;   // rows named per column in the blank line; more are counted
 
 /* kosmos#8940: the header is the first row holding two or more values, when every value in it is text (not a number,
    TRUE/FALSE or a formula) and no two are the same. A row with one value above it (a title, a note) is passed over,
@@ -208,14 +207,32 @@ function headerOf(rows) {
 }
 
 /* kosmos#8940: a sheet as one line per row, each value named by its column (the header's word, else the column letter),
-   with the sheet's own row numbers. Under a header every named column is listed, a blank one as (blank), and the
-   sheet ends with one line naming the blanks, so an agent checking an import sees what is missing without counting. */
+   with the sheet's own row numbers. Under a header every named column is listed, a blank one as (blank). The line
+   naming the blanks comes first, under the sheet's heading, so a sheet cut short by the output cap still has it. */
 function rowLinesInto(out, rows) {
   if (!rows.length) return out.add('(no cells with values)\n');
   const h = headerOf(rows);
   const names = [];
   if (h >= 0) rows[h].cells.forEach((v, i) => { if (v.trim()) names[i] = lineValue(v); });   // headerOf allows no repeats
-  const blanks = new Map();   // column index -> row numbers
+  const blanks = new Map();   // column index -> { first: the first row numbers, count }
+  if (h >= 0) {
+    for (let r = h + 1; r < rows.length; r += 1) {
+      names.forEach((name, i) => {
+        if (name == null || lineValue(rows[r].cells[i])) return;
+        if (!blanks.has(i)) blanks.set(i, { first: [], count: 0 });
+        const b = blanks.get(i);
+        b.count += 1;
+        if (b.first.length < BLANK_ROWS_LISTED) b.first.push(rows[r].n);
+      });
+    }
+  }
+  if (blanks.size) {
+    const said = [...blanks.keys()].sort((a, b) => a - b).map((i) => {
+      const { first, count } = blanks.get(i);
+      return names[i] + ' in row' + (count > 1 ? 's ' : ' ') + first.join(', ') + (count > first.length ? ' and ' + (count - first.length) + ' more' : '');
+    });
+    if (!out.add('Blank under a header: ' + said.join('; ') + '.\n')) return false;
+  }
   for (let r = 0; r < rows.length; r += 1) {
     const { n, cells } = rows[r];
     let line;
@@ -225,23 +242,12 @@ function rowLinesInto(out, rows) {
       const width = Math.max(cells.length, r > h && h >= 0 ? names.length : 0);
       for (let i = 0; i < width; i += 1) {
         const v = lineValue(cells[i]);
-        const named = r > h && h >= 0 && names[i] != null;
-        if (named) {
-          parts.push(names[i] + ': ' + (v || '(blank)'));
-          if (!v) { if (!blanks.has(i)) blanks.set(i, []); blanks.get(i).push(n); }
-        } else if (v) parts.push(colName(i) + ': ' + v);
+        if (r > h && h >= 0 && names[i] != null) parts.push(names[i] + ': ' + (v || '(blank)'));
+        else if (v) parts.push(colName(i) + ': ' + v);
       }
       line = 'Row ' + n + ': ' + parts.join(' | ');
     }
     if (!out.add(line + '\n')) return false;
-  }
-  if (blanks.size) {
-    const said = [...blanks.keys()].sort((a, b) => a - b).map((i) => {
-      const ns = blanks.get(i);
-      const shown = ns.slice(0, BLANK_ROWS_LISTED).join(', ') + (ns.length > BLANK_ROWS_LISTED ? ' and ' + (ns.length - BLANK_ROWS_LISTED) + ' more' : '');
-      return names[i] + ' in row' + (ns.length > 1 ? 's ' : ' ') + shown;
-    });
-    if (!out.add('Blank under a header: ' + said.join('; ') + '.\n')) return false;
   }
   return true;
 }
@@ -295,7 +301,7 @@ function xlsxText(buf) {
   if (clip.uncalc || /<(?:\w+:)?calcPr\b[^<>]*fullCalcOnLoad="(?:1|true)"/.test(wb)) {
     if (formulas) notes.add('Some formulas were never calculated by the program that made this file, so they show as formulas (or as 0), not as results.');
   } else if (formulas) notes.add('Formulas are shown as the values they had when the file was last saved.');
-  if (anyRows) notes.add('Each line is one row, with the sheet\u2019s own row number. Under a header, (blank) is an empty cell; inside a value, \\n is a line break and \\| is a pipe.');   // #8940
+  if (anyRows) notes.add('Each line is one row, with the sheet\u2019s own row number. Under a header, (blank) is an empty cell; inside a value, \\n is a line break, \\| is a pipe and \\\\ is one backslash.');   // #8940
   if (clip.cols) notes.add('Only the first ' + MAX_COLS + ' columns of a sheet are converted.');
   if (clip.cell) notes.add('A cell longer than ' + MAX_CELL + ' characters is cut short.');
   let styles = null;

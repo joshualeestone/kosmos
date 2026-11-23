@@ -10,11 +10,11 @@ One line per row, with the sheet's own row number, each value named by its colum
 - Header: the first row holding two or more values, when every value is text (not numeric, TRUE/FALSE or a formula)
   and none repeats. A row with one value above it (a title) is passed over and shown as itself. Otherwise no header,
   and values are named by column letter.
-- Under a header every named column is listed, a blank one as `(blank)`; the sheet ends with one line naming the
-  blanks (20 rows per column, then a count).
+- Under a header every named column is listed, a blank one as `(blank)`. One line naming the blanks (20 rows per
+  column, then a count) comes first, under the sheet's heading, so a sheet cut short by the output cap keeps it.
 - Inside a value: backslash doubled, a line break as `\n`, a pipe as `\|`, so one line is one row.
 - Boolean cells (t="b") read TRUE / FALSE.
-- One note says how to read the lines, only when a row was shown.
+- One note says how to read the lines (including that \\ is one backslash), only when a row was shown.
 - Row number: the row's own `r`, else its first cell reference's digits, else the row before plus one (the format's
   rule). `oc.blocks` takes an optional callback that is handed the opening tag it already found, so no second walk
   over the file is needed (round 1 of review).
@@ -34,7 +34,8 @@ The header rule, both ways. A sheet with no header whose first row is all distin
 header; a real header that holds a number (`Region | 2023 | 2024`) is refused, and the sheet is named by column
 letters. The header line names its row, so an agent can see which happened. Residuals, all rare: a cell whose text is
 literally "(blank)" reads like an empty one; a header word that is itself a column letter, or that contains ": ",
-reads like the separator or a letter-named value.
+reads like the separator or a letter-named value. A one-column sheet never has a header (the rule needs two
+values), so its column is named A; nothing else is lost, since a blank cell there is an empty row, which is skipped.
 
 ## Tests
 - engine/attachtext-8940.test.js (new): the reported shape exactly, a second sheet with a gap / header off column A /
