@@ -12,17 +12,21 @@ allow, before connecting one. A family, a Kosmos in no company, and a company wi
    "Work Kosmos for (company)" under the member line. One reader, workOrgPaint(), from /api/org, at most once a minute.
    Company only. The sentence goes through plusOrgIn like every "your work Kosmos" (web.familysay-6251 counts it).
    Dropped: the model step's "Your agents run on your own subscription" is TRUE for a member, so it stays.
-2. Settings, Kosmos+, under "Your company": one line listing the daily report's contents (engine/orgrollup.js build()
-   fields, plus the blocked/flagged events of #5683) and that chats, files and keys are never in it. Company only.
-3. /api/org adds providersAllowed (orgpolicy.inForce().providers_allowed, screen-only branch, only while a list is in
-   force). Add a provider marks every provider the company leaves out "not allowed by your company" (disabled, data-off
-   for the visible list) and restores exactly what it marked when the list widens. Only Add a provider: the create
-   pickers already refuse at create (#5534) and list only connected providers.
+2. Settings, Kosmos+, under "Your company": one line listing what the report holds (engine/orgrollup.js build():
+   agents, providers, models, status, projects and their token use, last active, tokens and cost, last backup, policy
+   state; plus #5683's blocked/flagged events), that it goes daily and on change, and that chats, files and keys never
+   do. Company only, and only while this Kosmos reports (st.reporting).
+3. /api/org adds allowedProviderNames (orgpolicy.current().providers_allowed mapped through providerName, the menus'
+   words, so the two Gemini rows stay distinct; screen-only branch; only while a list is in force; current() so a read
+   applies nothing). Add a provider shows one line under its intro: "Your company (or family) allows only X and Y
+   for agents on this computer. Agents cannot use any other provider here." Words only, by design (challenge round 1):
+   marking the options themselves raced the code that owns them (Meta Muse, the vendor switches, Windows Qwen),
+   could not represent the Gemini subscription and key rows separately, and could strand a sign-in in flight.
 4. NOT in this PR: Sign in again returning the member to the invite sheet. The #8728 return mechanism is built around
    the Claude sign-in; extending it is its own change, after this merges.
 
 ## Tests
-- web.membertold-8938.test.js: lifts acctPolicyApply, plusOrgSees, workOrgShow/workOrgPaint (mutation controls).
+- web.membertold-8938.test.js: lifts acctPolicyNoteText, plusOrgSees, workOrgShow/workOrgPaint, pins the server field.
 - docs/browser-checks/render-membertold-8938.js: hermetic, all four surfaces plus family / none / no-list controls.
 - web.reauth-1492 stubs the new openAcctAdd callee; web.familysay-6251 counts the new wrapped sentence.
 

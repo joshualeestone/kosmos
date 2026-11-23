@@ -1,15 +1,16 @@
-// Browser-check-surface: plus-org-sees userpop-org fr-work-org acct-provider-pick
+// Browser-check-surface: plus-org-sees userpop-org fr-work-org acct-policy-note
 'use strict';
 /**
  * kosmos#8938: a company member's own Kosmos says it is the company's. HERMETIC (file://, fetch stubbed): /api/org is
  * a stand-in. Asserts, in the browser, for a company member (Testville, allowing Anthropic and OpenAI):
  *   M1  Settings, Kosmos+, Your company: the line saying what the company sees shows, as text, under the company line;
- *   M2  Add a provider: Gemini, Grok and Qwen read "not allowed by your company" and cannot be picked, in the select
- *       AND in the visible list a person opens; Claude and OpenAI can;
+ *   M2  Add a provider says, under its intro, which providers the company allows (the server's menu words), and
+ *       leaves every option as it was (the options belong to the code that owns them);
  *   M3  the You menu shows "Work Kosmos for Testville Municipal" under the member line;
  *   M4  the setup welcome shows "This is your work Kosmos for Testville Municipal." under Josh's words;
- * and the CONTROLS, each on a fresh page: a family shows none of M1, M3, M4; a company with no provider list marks
- * nothing in M2; a Kosmos in no company shows none of it and marks nothing.
+ * and the CONTROLS, each on a fresh page: a family shows none of M1, M3, M4 and its M2 line says "Your family"; a
+ * company with no provider list says nothing in M2; a company asking for no reports shows the company line but not
+ * M1's what-it-sees line; a Kosmos in no company shows none of it.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-membertold-8938.js [shots-dir]
  */
@@ -26,11 +27,12 @@ const chk = (ok, label, extra) => {
   if (!ok) fail.push(label);
 };
 
-const COMPANY = { enrolled: true, reporting: true, reportingWait: null, wordsNeeded: false, stoppedFor: null, leaveRefused: null, org: { name: 'Testville Municipal', slug: 'testville', kind: 'company' }, role: 'member', enrolledAt: '2026-11-23T15:34:11.000Z', providersAllowed: ['anthropic', 'openai'] };
+const COMPANY = { enrolled: true, reporting: true, reportingWait: null, wordsNeeded: false, stoppedFor: null, leaveRefused: null, org: { name: 'Testville Municipal', slug: 'testville', kind: 'company' }, role: 'member', enrolledAt: '2026-11-23T15:34:11.000Z', allowedProviderNames: ['Anthropic Claude', 'OpenAI'] };
 const STATES = {
   company: COMPANY,
-  unlisted: Object.assign({}, COMPANY, { providersAllowed: undefined }),
+  unlisted: Object.assign({}, COMPANY, { allowedProviderNames: undefined }),
   family: Object.assign({}, COMPANY, { org: { name: 'The Smiths', slug: 'smiths', kind: 'family' }, wordsNeeded: false }),
+  quiet: Object.assign({}, COMPANY, { reporting: false, reportingWait: 'noReports' }),
   none: { enrolled: false, stoppedFor: null, leaveRefused: null, org: null, role: null, enrolledAt: null },
 };
 
@@ -74,21 +76,16 @@ async function providers(page) {
   const out = await page.evaluate(() => {
     const sel = document.getElementById('acct-provider-pick');
     const row = (v) => { const o = sel.querySelector('option[value="' + v + '"]'); return { text: o.textContent, disabled: o.disabled }; };
-    return { claude: row('claude'), openai: row('openai'), google: row('google'), xai: row('xai'), alibaba: row('alibaba') };
+    return { claude: row('claude'), openai: row('openai'), google: row('google'), xai: row('xai') };
   });
-  // As a person sees it: open the visible list and read its rows (enhanceProviderSelect re-reads the options on open).
-  const trig = await page.$('#acct-provider-field .pcombo-trigger');
-  let list = null;
-  if (trig) {
-    await trig.click();
-    await settle(page, 300);
-    list = await page.evaluate(() => [...document.querySelectorAll('#acct-provider-field [role="option"]')].filter((o) => o.getClientRects().length).map((o) => ({ text: o.textContent.replace(/\s+/g, ' ').trim(), off: o.getAttribute('aria-disabled') === 'true' })));
-    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'membertold-' + TAG + '-providers.png') }).catch(() => {});
-    await page.keyboard.press('Escape');
-  }
+  const note = await seen(page, 'acct-policy-note');
+  const under = await page.evaluate(() => { const el = document.getElementById('acct-policy-note'); return !!el && !!el.previousElementSibling && el.previousElementSibling.id === 'acct-add-in'; });
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'membertold-' + TAG + '-providers.png') }).catch(() => {});
   await page.evaluate(() => { if (!document.getElementById('acct-add-modal').hidden) closeAcctAdd(); });
-  return { out, list };
+  return { out, note, under };
 }
+const untouched = (out) => out.claude.text === 'Anthropic Claude' && out.openai.text === 'OpenAI' && out.google.text === 'Google Gemini' && out.xai.text === 'xAI Grok'
+  && !out.claude.disabled && !out.openai.disabled && !out.google.disabled && !out.xai.disabled;
 async function youMenu(page) {
   await page.evaluate(() => { document.documentElement.setAttribute('data-fed-member', ''); showTab('agents'); });
   await page.click('#userpop-btn');
@@ -119,21 +116,13 @@ async function welcome(page) {
       const { page, errs } = await open(browser, STATES.company, 'company');
       const m1 = await companySees(page);
       chk(m1.say && /work Kosmos for Testville Municipal/.test(m1.say), 'M1 the company line shows', String(m1.say));
-      chk(m1.sees && /^Once a day your company sees: /.test(m1.sees) && /Your chats, files and keys are never in it\.$/.test(m1.sees), 'M1 what the company sees shows', String(m1.sees));
+      chk(m1.sees && /^Your company sees: /.test(m1.sees) && /It is sent once a day and when something changes\./.test(m1.sees) && /Your chats, files and keys are never in it\.$/.test(m1.sees), 'M1 what the company sees shows', String(m1.sees));
       chk(m1.order, 'M1 it sits right under the company line');
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'membertold-' + TAG + '-settings.png') }).catch(() => {});
       const m2 = await providers(page);
-      chk(!m2.out.claude.disabled && m2.out.claude.text === 'Anthropic Claude' && !m2.out.openai.disabled && m2.out.openai.text === 'OpenAI', 'M2 Claude and OpenAI can be picked', JSON.stringify([m2.out.claude, m2.out.openai]));
-      for (const [v, name] of [['google', 'Google Gemini'], ['xai', 'xAI Grok'], ['alibaba', 'Alibaba Qwen']]) {
-        chk(m2.out[v].disabled && m2.out[v].text === name + ' · not allowed by your company', 'M2 ' + name + ' is marked and cannot be picked', JSON.stringify(m2.out[v]));
-      }
-      chk(Array.isArray(m2.list) && m2.list.length > 0, 'M2 the visible provider list opens', JSON.stringify(m2.list));
-      if (Array.isArray(m2.list)) {
-        const g = m2.list.find((r) => /^Google Gemini/.test(r.text));
-        const c = m2.list.find((r) => /^Anthropic Claude/.test(r.text));
-        chk(!!g && g.off && /not allowed by your company/i.test(g.text), 'M2 the visible Gemini row is marked and off', JSON.stringify(g));
-        chk(!!c && !c.off, 'M2 the visible Claude row is on', JSON.stringify(c));
-      }
+      chk(m2.note === 'Your company allows only Anthropic Claude and OpenAI for agents on this computer. Agents cannot use any other provider here.', 'M2 Add a provider says which providers the company allows', String(m2.note));
+      chk(m2.under, 'M2 the line sits right under the intro');
+      chk(untouched(m2.out), 'M2 the options are left as they were', JSON.stringify(m2.out));
       chk((await youMenu(page)) === 'Work Kosmos for Testville Municipal', 'M3 the You menu names the company');
       const m4 = await welcome(page);
       chk(m4.t === 'This is your work Kosmos for Testville Municipal.', 'M4 the welcome names the company', String(m4.t));
@@ -145,7 +134,17 @@ async function welcome(page) {
     {
       const { page, errs } = await open(browser, STATES.unlisted, 'unlisted');
       const m2 = await providers(page);
-      chk(['claude', 'openai', 'google', 'xai'].every((v) => !m2.out[v].disabled && !/not allowed/.test(m2.out[v].text)), 'CONTROL no list: nothing is marked', JSON.stringify(m2.out));
+      chk(m2.note === null, 'CONTROL no list: Add a provider says nothing', String(m2.note));
+      chk(untouched(m2.out), 'CONTROL no list: the options are as they were', JSON.stringify(m2.out));
+      errsAll.push(...errs);
+      await page.close();
+    }
+    // ----- CONTROL: a company that asks for no reports: the company line shows, the what-it-sees line does not -----
+    {
+      const { page, errs } = await open(browser, STATES.quiet, 'quiet');
+      const m1 = await companySees(page);
+      chk(!!m1.say, 'CONTROL no reports: the company line still shows', String(m1.say));
+      chk(m1.sees === null, 'CONTROL no reports: no what-the-company-sees line under it', String(m1.sees));
       errsAll.push(...errs);
       await page.close();
     }
@@ -157,10 +156,10 @@ async function welcome(page) {
       chk((await youMenu(page)) === null, 'CONTROL ' + k + ': the You menu names no company');
       const m4 = await welcome(page);
       chk(m4.t === null, 'CONTROL ' + k + ': the welcome names no company', String(m4.t));
-      if (k === 'none') {
-        const m2 = await providers(page);
-        chk(['claude', 'openai', 'google', 'xai'].every((v) => !m2.out[v].disabled), 'CONTROL none: nothing is marked', JSON.stringify(m2.out));
-      }
+      const m2 = await providers(page);
+      if (k === 'family') chk(m2.note === 'Your family allows only Anthropic Claude and OpenAI for agents on this computer. Agents cannot use any other provider here.', 'CONTROL family: the provider line names the family, not a company', String(m2.note));
+      else chk(m2.note === null, 'CONTROL none: Add a provider says nothing', String(m2.note));
+      chk(untouched(m2.out), 'CONTROL ' + k + ': the options are as they were', JSON.stringify(m2.out));
       errsAll.push(...errs);
       await page.close();
     }

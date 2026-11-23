@@ -13877,16 +13877,18 @@ const server = http.createServer(async (req, res) => {
       // while there are some.
       let handover = null;
       try { handover = here ? require('./engine/handoversend').notice() : null; } catch { handover = null; }
-      /* kosmos#8938: the providers the company's policy allows (engine/orgpolicy.js inForce(), board ids), so Add a provider
-         can mark the rest before the member connects one that every agent create would refuse (#5534). Screen only, and
-         only while a list is in force; null means not restricted. */
-      let providersAllowed = null;
+      /* kosmos#8938: the AI providers the company's (or family's) policy allows, in the provider menus' words
+         (orgpolicy.providerName), so Add a provider can say so before the member connects one every agent create would
+         refuse (#5534). Screen only, and only while a list is in force; absent means not restricted. current(), not
+         inForce(): a read here must not apply a newly delivered bundle. */
+      let allowedProviderNames = null;
       try {
-        const pol = here ? require('./engine/orgpolicy').inForce() : null;
+        const op = require('./engine/orgpolicy');
+        const pol = here ? op.current() : null;
         const list = pol && pol.providers_allowed;
-        providersAllowed = Array.isArray(list) ? list.filter((p) => typeof p === 'string' && /^[a-z]{1,20}$/.test(p)) : null;
-      } catch { providersAllowed = null; }
-      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired, backupLate, ...(handover ? { handover } : {}), ...(providersAllowed ? { providersAllowed } : {}),   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
+        allowedProviderNames = Array.isArray(list) ? [...new Set(list.filter((p) => typeof p === 'string').map(op.providerName))] : null;
+      } catch { allowedProviderNames = null; }
+      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired, backupLate, ...(handover ? { handover } : {}), ...(allowedProviderNames ? { allowedProviderNames } : {}),   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
        // kosmos#6752: recent reviewer grants, to the screen only and only when there are some (the not-joined shape is unchanged).
        ...(here && rec && Array.isArray(rec.reviewerGrants) && rec.reviewerGrants.length ? { reviewerGrants: oe.cleanReviewerGrants(rec.reviewerGrants),
          ...(Number.isFinite(rec.reviewerGrantsAt) ? { reviewerGrantsAt: rec.reviewerGrantsAt } : {}) } : {}),   // kosmos#6817: when the list was last confirmed
