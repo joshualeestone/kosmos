@@ -511,7 +511,7 @@ test('kosmos#8743 review 1: short and blank routine lines move too, and a cut fi
   const bigBefore = before.replace('\nend\n', '\nend\n' + many.join('\n') + '\n');
   const cut = ir.changedLines(bigBefore, after, moved);
   const lines = cut.split('\n');
-  assert.equal(lines[lines.length - 1], '[More changed than fits here: read the sections the notice names.]', 'a cut file no longer ends with the cut note');
+  assert.equal(lines[lines.length - 1], '[More changed than fits here. Not shown: changes in "Next". Read that section in full.]', 'a cut file no longer ends with the cut note');
   assert.ok(cut.includes('Left out: 5 lines removed'), 'the moved note was dropped from a cut file');
   assert.ok(lines.length <= ir.CHANGES_LINES_MAX, 'the cut file has ' + lines.length + ' lines, over the cap');
   assert.ok(Buffer.byteLength(cut) <= ir.CHANGES_BYTES_MAX, 'the cut file is over the byte cap');

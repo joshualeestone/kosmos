@@ -396,7 +396,7 @@ test('review 14: the changes file says it is a pointer and the named sections ar
   const f = agentFile('jo', AFTER);
   ir.remember('jo', BEFORE);
   const body = fs.readFileSync(ir.prepareChanges('jo').path, 'utf8');
-  assert.match(body, /This is a pointer only: read the sections the notice named\. It lists the changes since you last read the file, changes elsewhere in it included: a line marked \+ is in your instructions now, wherever it is, and a line marked - no longer applies, unless a note in this file says where it went\. If it ends with a note that more changed, it is not complete\./);
+  assert.match(body, /This is a pointer only: read the sections the notice named\. It lists the changes since you last read the file, changes elsewhere in it included: a line marked \+ is in your instructions now, wherever it is, and a line marked - no longer applies, unless a note in this file says where it went\. If it ends with a note that more changed, it is not complete: that note names the sections to read in full\./);
   // Review 17: what - and + mean is said, and nothing calls a removed line current.
   assert.match(body, /A line starting with - was removed, one starting with \+ was added\./);
   assert.doesNotMatch(body, /those are your current instructions too/);
