@@ -91,5 +91,16 @@ test('#8935 bare and --auto calls neither point nor mark; a test run without its
   assert.equal(hh.hint('claim', ['p'], { env: { KOSMOS_AGENT_SESSION: 'mona' }, store: asTest }), '');
   assert.equal(fs.existsSync(path.join(dir, 'how-hints.json')), false, 'a test run wrote a record');
   const asReal = { isTestProcess: () => false, currentDataRoot: () => dir };
-  assert.match(hh.hint('claim', ['p'], { env: { KOSMOS_AGENT_SESSION: 'mona' }, store: asReal }), /kosmos claim --how/, 'CONTROL: outside a test run it points');
+  const notTmp = path.join(SANDBOX, 'elsewhere');   // stands in for the system temp folder, so dir is "not under temp"
+  fs.mkdirSync(notTmp, { recursive: true });
+  /* No data folder yet: nothing shown, nothing made (making it would block the legacy-store migration). */
+  assert.equal(hh.hint('claim', ['p'], { env: { KOSMOS_AGENT_SESSION: 'mona' }, store: asReal, tmpdir: notTmp }), '');
+  assert.equal(fs.existsSync(dir), false, 'the hint made the data folder');
+  fs.mkdirSync(dir, { recursive: true });
+  assert.match(hh.hint('claim', ['p'], { env: { KOSMOS_AGENT_SESSION: 'mona' }, store: asReal, tmpdir: notTmp }), /kosmos claim --how/, 'CONTROL: outside a test run, with its data folder, it points');
+  /* A data folder under the temp folder (a CLI test's sandbox) is never written to. */
+  const other = path.join(SANDBOX, 'store-under-tmp');
+  fs.mkdirSync(other, { recursive: true });
+  assert.equal(hh.hint('post', ['p', 'x'], { env: { KOSMOS_AGENT_SESSION: 'mona' }, store: { isTestProcess: () => false, currentDataRoot: () => other }, tmpdir: SANDBOX }), '');
+  assert.equal(fs.existsSync(path.join(other, 'how-hints.json')), false, 'wrote into a data folder under temp');
 });

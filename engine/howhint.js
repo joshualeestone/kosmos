@@ -14,7 +14,7 @@
  *
  * Both CLIs call this one module (install/kosmos through `node howhint.js <command> [args]`, the Windows CLI through
  * require), so the rule and the record are the same everywhere. The record is one JSON file in the data folder
- * (store.root(), a throwaway root in a test run). Two agents writing at once can at worst lose a mark, which shows a
+ * (store.currentDataRoot(); a test run names its own with KOSMOS_HOWHINT_FILE). Two agents writing at once can at worst lose a mark, which shows a
  * pointer twice; nothing else depends on it. Never throws.
  */
 const fs = require('node:fs');
@@ -45,7 +45,7 @@ function classify(command, args) {
 }
 
 function recordFile(env, store) {
-  if (env && env.KOSMOS_HOWHINT_FILE) return env.KOSMOS_HOWHINT_FILE;   // test-only seam: where a test keeps its record
+  if (env && env.KOSMOS_HOWHINT_FILE) return env.KOSMOS_HOWHINT_FILE;   // a test's own record (honoured anywhere: an agent controls its own env)
   return path.join(store.currentDataRoot(), 'how-hints.json');   // no migration, no folder made, from an agent's command
 }
 /* A record with no prototype, so an agent named like an Object key (`__proto__`) is stored as a key like any other. */
@@ -57,9 +57,9 @@ function readRecord(file) {
   } catch { /* no record yet, or unreadable: start over */ }
   return rec;
 }
-function writeRecord(file, rec) {
+function writeRecord(file, rec, mayMakeFolder) {
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
+    if (mayMakeFolder) fs.mkdirSync(path.dirname(file), { recursive: true });   // only a test's own record
     require('./store').saveFlushed(file, JSON.stringify(rec) + '\n');   // the store's flushed write: a unique temp, then the rename
   } catch { /* nothing recorded: the pointer may show again */ }
 }
@@ -92,13 +92,23 @@ function hint(command, args, opts) {
       try { if (store.isTestProcess(env)) return ''; } catch { return ''; }
     }
     const file = recordFile(env, store);
+    if (!env.KOSMOS_HOWHINT_FILE) {
+      /* Never make the data folder (that would block the legacy-store migration and skip its 0700 mode), and never
+         write into one under the temp folder: no real data folder lives there, but a CLI test's sandbox does. */
+      const dir = path.dirname(file);
+      if (!fs.existsSync(dir)) return '';
+      const tmp = fs.realpathSync((opts && opts.tmpdir) || require('node:os').tmpdir());   // opts.tmpdir: a test's stand-in
+      let real = dir;
+      try { real = fs.realpathSync(dir); } catch { /* checked above */ }
+      if (real === tmp || real.startsWith(tmp + path.sep)) return '';
+    }
     const rec = readRecord(file);
     const seen = Array.isArray(rec[agent]) ? rec[agent] : [];
     if (seen.includes(command)) return '';
     delete rec[agent];   // re-added last, so the cap below keeps recently seen agents
     rec[agent] = seen.concat(command);
     capRecord(rec);
-    writeRecord(file, rec);
+    writeRecord(file, rec, Boolean(env.KOSMOS_HOWHINT_FILE));
     if (c.readsIt) return '';
     return 'First use of kosmos ' + command + ' here: its full guide is ' + c.guide + ' (shown once).';
   } catch { return ''; }

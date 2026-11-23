@@ -39,3 +39,10 @@ That agents read a command's stderr. Claude Code shows it with the output; a run
 - Fixed: `--help` is answered before the hint on both CLIs, so the report "reads it" branch was unreachable; removed, and the comment says report's pointer can show once to an agent that read its --help.
 - Fixed: the record's folder comes from store.currentDataRoot() (now exported), not store.root(), so an agent's command never triggers the legacy-store migration.
 - Fixed: the --auto skip applies to report only (a post whose text says --auto is just text); the record cap keeps recently seen agents.
+
+## Challenge loop iteration 4 (opus)
+- Fixed: the record write could create the data folder (blocking the legacy-store migration, at umask mode). Now: if the data folder does not exist, nothing is shown or written; only a test's own record (KOSMOS_HOWHINT_FILE) may make its folder.
+- Fixed: a data folder under the system temp folder (a CLI test's sandbox, when its node grandchild carries no test marker) is never written to.
+- Fixed: the Mac --auto skip applies to report only, as on Windows.
+- Comments: the record is in store.currentDataRoot(); KOSMOS_HOWHINT_FILE is honoured anywhere (an agent controls its own env).
+- Tests: 10/10 in the two files; mutations for these two guards NOT yet run (next step).
