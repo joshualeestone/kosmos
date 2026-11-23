@@ -52,3 +52,8 @@ run-tests --only agentbrowser.test.js 35/35, not skipped. Mutations, each red un
 - Fixed: the comment now also names a run root made under a custom TMPDIR (last folder not T or tmp) as not caught.
 - Fixed: the plan's earlier design sections are marked superseded.
 - NITs noted: the caller-env branch has no test that can fail (it is reached only with an unsandboxed runners folder, which this file never has); both #8929 tests lean on earlier tests' fixtures and assert them; no Windows end-to-end arm.
+
+## Challenge loop iteration 5 (sonnet)
+- Fixed: the comment described kickInstall's guard, a claim about a neighbouring function that nothing checks. Deleted.
+- Fixed: the installed-layout pre-check now FAILS (before any arm runs) instead of skipping, so a layout change cannot quietly turn the regression guard into a skip.
+- Deferred (same as iteration 1): the catch fails open toward writing, the old behaviour. Deferred: on Windows the kt arm never matches (backslash temp paths), so Windows rests on the store's rule alone; no behaviour changes and the plan says it.
