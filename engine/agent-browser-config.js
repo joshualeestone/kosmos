@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 'use strict';
+// kosmos#8928: argv[2] is the agent's name (the Mac supervisor passes its session name), so the printed path is that
+// agent's own config; with no name it is the shared one.
 /*
  * #3633: print the agent browser's --mcp-config path for ONE Mac agent launch, or
  * nothing. bin/agent-supervisor.sh runs this with Kosmos's own node on the Claude

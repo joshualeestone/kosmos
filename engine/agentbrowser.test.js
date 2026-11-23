@@ -133,7 +133,7 @@ test('#8928 each agent gets its own config and output folder; a hostile name sta
   const names = ['../../escape', 'a/b', 'a\\b', '..', '.', '_', 'a b', 'a_b', 'Foo', 'foo', 'con', 'NUL.txt', 'com1', 'a.', 'a', 'x'.repeat(300), '\u65e5\u672c'];
   for (const n of names) {
     const k = ab.agentKey(n);
-    assert.match(k, /^[a-z0-9._-]{1,57}$/, 'unsafe key for ' + JSON.stringify(n) + ': ' + k);
+    assert.match(k, /^[a-z0-9._-]{1,49}(~[0-9a-f]{8})?$/, 'unsafe key for ' + JSON.stringify(n) + ': ' + k);
     assert.ok(!/\.$/.test(k), 'a key ends in a dot: ' + k);
     assert.ok(!/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\.|$)/.test(k), 'a Windows device name: ' + k);
     assert.equal(path.dirname(ab.configPath(n)), path.join(ab.homeDir(), 'agents'), 'left the agents folder: ' + JSON.stringify(n));
@@ -245,6 +245,7 @@ test('#8929 the shim inside a test run leaves the fallback config untouched; CON
   const root = path.join(home, '.local', 'share', 'kosmos', 'runners');
   fs.mkdirSync(root, { recursive: true });
   fs.cpSync(ab.homeDir(), path.join(root, 'playwright-mcp'), { recursive: true });
+  fs.rmSync(path.join(root, 'playwright-mcp', 'agents'), { recursive: true, force: true });   // the copy carries earlier tests' per-agent files
   const cfg = path.join(root, 'playwright-mcp', 'mcp-config.json');
   fs.writeFileSync(cfg, 'LIVE CONFIG 8929\n');
   /* Review 2: the plain temp folder must sit OUTSIDE any run root. Under tools/run-tests.sh this file's own os.tmpdir()
@@ -257,7 +258,16 @@ test('#8929 the shim inside a test run leaves the fallback config untouched; CON
   const base = { ...process.env, HOME: home, TMPDIR: plainTmp };
   for (const k of ['AGENT_WORKFORCE_RUNNERS_DIR', 'NODE_TEST_CONTEXT', 'KOSMOS_TEST_RUN', 'KOSMOS_AGENT_BROWSER']) delete base[k];
   const shim = path.join(__dirname, 'agent-browser-config.js');
-  const run = (extra) => spawnSync(process.execPath, [shim], { env: { ...base, ...extra }, encoding: 'utf8', timeout: 30000 });
+  const run = (extra, name) => spawnSync(process.execPath, name ? [shim, name] : [shim], { env: { ...base, ...extra }, encoding: 'utf8', timeout: 30000 });
+  /* kosmos#8928: the supervisor now passes the agent's name, so every refusing arm is also run with one, and the
+     per-agent folder under the fallback root must stay absent. */
+  const agentsDir = path.join(root, 'playwright-mcp', 'agents');
+  const refusesNamed = (extra, what) => {
+    const r = run(extra, 'mona-lisa');
+    assert.equal(r.status, 0, 'the shim exited');
+    assert.equal(r.stdout.trim(), '', what + ', named, asked for a config');
+    assert.equal(fs.existsSync(agentsDir), false, what + ', named, wrote under the fallback agents folder');
+  };
   /* Two arms below are meant to WRITE. Before any arm runs, ask a child with the same env where the runners folder is:
      from an installed layout managedRoot() ignores HOME and names the real install's folder, and those arms would
      then rewrite the live config, the damage this card is about. */
@@ -265,11 +275,13 @@ test('#8929 the shim inside a test run leaves the fallback config untouched; CON
     { env: base, encoding: 'utf8', timeout: 30000 });
   assert.equal(where.status === 0 && path.resolve(where.stdout), root,
     'the runners folder does not resolve into this test\'s HOME, so a writing arm could reach a real one; no arm ran');
+  refusesNamed({ KOSMOS_TEST_RUN: runRoot, TMPDIR: runRoot }, 'the shim inside a test run');
   const inRun = run({ KOSMOS_TEST_RUN: runRoot, TMPDIR: runRoot });
   assert.equal(inRun.status, 0);
   assert.equal(inRun.stdout.trim(), '', 'the shim inside a test run asked for a config');
   assert.equal(fs.readFileSync(cfg, 'utf8'), 'LIVE CONFIG 8929\n', 'the shim inside a test run rewrote the fallback config');
   /* A node --test test that spawns the shim with its own env: NODE_TEST_CONTEXT and nothing else. */
+  refusesNamed({ NODE_TEST_CONTEXT: 'child-v8' }, 'a node --test child');
   const nodeTest = run({ NODE_TEST_CONTEXT: 'child-v8' });
   assert.equal(nodeTest.status, 0, 'the shim exited');
   assert.equal(nodeTest.stdout.trim(), '', 'a node --test child asked for a config');
@@ -277,11 +289,13 @@ test('#8929 the shim inside a test run leaves the fallback config untouched; CON
   /* The store's rule alone: KOSMOS_TEST_RUN names a plain folder and the temp folder is inside it, no kt folder. */
   const storeOnly = path.join(plainTmp, 'run-sub');
   fs.mkdirSync(storeOnly, { recursive: true });
+  refusesNamed({ KOSMOS_TEST_RUN: plainTmp, TMPDIR: storeOnly }, 'a run-tests.sh child with no kt folder');
   const byStore = run({ KOSMOS_TEST_RUN: plainTmp, TMPDIR: storeOnly });
   assert.equal(byStore.status, 0, 'the shim exited');
   assert.equal(byStore.stdout.trim(), '', 'a run-tests.sh child with no kt folder asked for a config');
   assert.equal(fs.readFileSync(cfg, 'utf8'), 'LIVE CONFIG 8929\n', 'a run-tests.sh child with no kt folder rewrote the fallback config');
   /* Review 1: a test that scrubbed its environment (no markers at all) but kept the run's temp folder. */
+  refusesNamed({ TMPDIR: runRoot }, 'a scrubbed test child');
   const scrubbed = run({ TMPDIR: runRoot });
   assert.equal(scrubbed.status, 0, 'the shim exited');
   assert.equal(scrubbed.stdout.trim(), '', 'a scrubbed test child with a run root as its temp folder asked for a config');
@@ -295,6 +309,11 @@ test('#8929 the shim inside a test run leaves the fallback config untouched; CON
   assert.equal(outside.status, 0);
   assert.equal(outside.stdout.trim(), cfg, 'CONTROL: outside a test run the shim did not write (the guard is what refused above)');
   assert.notEqual(fs.readFileSync(cfg, 'utf8'), 'LIVE CONFIG 8929\n');
+  /* CONTROL for the named arms: outside a test run a named launch does write its own file, so the absence above is the
+     guard refusing, not a name that never reaches the writer. */
+  const named = run({}, 'mona-lisa');
+  assert.equal(named.status, 0);
+  assert.equal(named.stdout.trim(), path.join(agentsDir, 'mona-lisa.json'), 'CONTROL: a named launch outside a test run did not write its own file');
 });
 
 test('the supervisor shim prints the path once installed, prints nothing otherwise, and always exits 0', async (t) => {
