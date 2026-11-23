@@ -157,7 +157,11 @@ test('#8928 each agent gets its own config and output folder; a hostile name sta
 });
 
 /* kosmos#8928 slice 2: which leftover servers are ended. Every "never touch" case over a plain table. */
-test('#8928 slice 2: only this agent\'s own server whose parent is gone is selected; CONTROL: every near miss is left', () => {
+test('#8928 slice 2: only this agent\'s own server whose parent is gone is selected; CONTROL: every near miss is left', async (t) => {
+  t.after(() => {   // only the output folder this test's launch makes, and the parent only if empty
+    try { fs.rmSync(ab.outputDir('t8928-orphan'), { recursive: true, force: true }); } catch { /* best effort */ }
+    try { fs.rmdirSync(path.dirname(ab.outputDir('t8928-orphan'))); } catch { /* not empty or gone */ }
+  });
   const cli = '/R/playwright-mcp/0.0.82/node_modules/@playwright/mcp/cli.js';
   const mine = '/T/kosmos-agent-browser/mona';
   const cmd = (dir, c) => '/K/node ' + (c || cli) + ' --browser chromium --headless --isolated --output-dir ' + dir;
@@ -207,6 +211,28 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
   assert.deepEqual(moved, [201], 'a re-parented child is not ended');
   assert.deepEqual(ab.endOrphanedServers('', { procs: () => { throw new Error('must not be asked'); } }), [], 'CONTROL: no name, no listing');
   /* Inside a node --test process nothing is listed or signalled unless an ender is handed in. */
+  /* launchConfig really calls it, for the agent it launches, on its own platform. */
+  const viaLaunch = [];
+  assert.ok(ab.launchConfig({ platform: 'win32', node: 'C:\\K\\node.exe', env: {}, agent: 't8928-orphan', orphans: {
+    platform: 'darwin', procs: () => table, alive: () => true, recheck: (pid) => table.find((x) => x.pid === pid) || null,
+    end: (pid) => viaLaunch.push(pid) } }));
+  assert.deepEqual(viaLaunch, [212, 211, 201, 202], 'launchConfig ended the agent\'s orphaned servers and their browsers');
+  /* Each one ended is written down. */
+  const log = fs.readFileSync(path.join(ab.homeDir(), 'ended-servers.log'), 'utf8');
+  assert.match(log, / t8928-orphan pid 201 .*--output-dir/);
+  /* Windows: one fresh listing, each pid alone, and a "child" created before its server (a reused parent pid) is never
+     ended. Async, so the launch never waits on it. */
+  const wtable = [
+    { pid: 301, ppid: 50, created: '20261123120000.000000', command: '"C:\\K\\node.exe" "' + ab.cliPath() + '" --output-dir "' + dir + '"' },
+    { pid: 311, ppid: 301, created: '20261123120001.000000', command: 'chrome.exe --headless' },
+    { pid: 321, ppid: 301, created: '20261123110000.000000', command: 'notepad.exe' },   // older than 301: its parent pid was reused
+  ];
+  const wended = [];
+  const pending = ab.endOrphanedServers('t8928-orphan', { platform: 'win32', procs: () => wtable, alive: (pid) => pid !== 50, end: async (pid) => { wended.push(pid); } });
+  assert.equal(typeof pending.then, 'function', 'Windows answers a promise: the launch does not wait');
+  assert.deepEqual(await pending, [311, 301]);
+  assert.deepEqual(wended, [311, 301], 'the older process under a reused parent pid was not spared');
+  assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', procs: () => wtable, alive: () => true, end: async (pid) => { wended.push(pid); } }), [], 'CONTROL: a live parent on Windows, nothing ended');
   let asked = false;
   assert.deepEqual(ab.endOrphanedServers('t8928-orphan', { platform: 'darwin', procs: () => { asked = true; return []; } }), []);
   assert.equal(asked, false, 'a test process with no ender listed processes (it must stop before, so it can never signal one)');
@@ -751,7 +777,7 @@ test('#8928 slice 2: an agent\'s launch ends its own orphaned server and its bro
   const otherChild = childOf(other);
   const liveChild = childOf(live);
   assert.ok(mineChild && otherChild && liveChild, 'fixture: each stand-in started its browser');
-  recorded.push(mine, other, live, mineChild, otherChild, liveChild);
+  recorded.push(mineChild, otherChild, liveChild);
   /* The real Mac ender, handed in on purpose: inside a test process nothing is signalled without one. */
   const ended = ab.endOrphanedServers('t8928-e2e', { platform: 'darwin', end: ab.defaultEnd('darwin') });
   assert.deepEqual(ended, [mineChild, mine], 'ended its browser, then the server');

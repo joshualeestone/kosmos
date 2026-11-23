@@ -245,8 +245,8 @@ function supervise(spec, opts) {
  */
 /* kosmos#8928: the agent's own browser config, asked by its name. A function of the spec so a test can check the
    name reaches launchConfig without starting an agent. */
-function browserFor(spec, ab) {
-  return () => (ab || require('./agentbrowser')).launchConfig({ agent: spec.name });
+function browserFor(spec, ab, live) {
+  return () => (ab || require('./agentbrowser')).launchConfig({ agent: spec.name, orphans: { live: live === true } });
 }
 function main(argv, deps) {
   const d = deps || {};
@@ -283,7 +283,7 @@ function main(argv, deps) {
      reaches it on its next restart. Claude only for now; codex is a follow-up. */
   const perTurn = spec.runner === 'codex' || spec.runner === 'gemini' || spec.runner === 'grok' || spec.runner === 'antigravity';   // #3568: agy too (engine/win32agy.js)
   if (!perTurn) {
-    const browser = d.agentBrowser || browserFor(spec, d.agentBrowserModule);
+    const browser = d.agentBrowser || browserFor(spec, d.agentBrowserModule, d.endOrphans === true);
     spec.mcpConfig = () => browser();
     /* #5406: the agent does not stop on a prompt the person's own ask rules raise (a Kosmos-owned settings file with
        one PermissionRequest hook, engine/agentpermission.js). Asked per launch, like the browser; never throws. */
@@ -392,7 +392,7 @@ function main(argv, deps) {
 
 /* istanbul ignore next -- the process wrapper; the state machine above is what
    the tests drive. */
-if (require.main === module) main(process.argv.slice(2));
+if (require.main === module) main(process.argv.slice(2), { endOrphans: true });   // kosmos#8928: only the real entry ends orphaned browser servers
 
 /* ── the streaming supervisor (7c-1) ───────────────────────────────────────── */
 

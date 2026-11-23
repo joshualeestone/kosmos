@@ -12,10 +12,10 @@ Slice 1 (each server's `--output-dir` names its agent: `<tmp>/kosmos-agent-brows
 3. Its parent is gone: Mac, ppid 1 (reparented to launchd) or a ppid that no longer exists; Windows, ParentProcessId not alive (win32orphan.pidState === 'gone'; 'unknown' counts as alive, never kill on doubt).
 
 ## Ending
-Exact pids only (never pkill/pattern), force: an orphaned server serves no one, and one that outlived its session is likely hung, so SIGTERM may do nothing. Mac: its descendants deepest first, then the server, SIGKILL, each pid re-read just before it is ended and skipped unless it is still what was selected. Windows: `taskkill /PID <pid> /T /F` (the tree), after a fresh listing.
+Exact pids only (never pkill/pattern), force: an orphaned server serves no one, and one that outlived its session is likely hung, so SIGTERM may do nothing. Mac: its descendants deepest first, then the server, SIGKILL, each pid re-read just before it is ended and skipped unless it is still what was selected. Windows: one fresh listing with creation times; descendants created after their parent, then the server, each ended alone with `taskkill /PID <pid> /F` (never /T: Windows keeps a dead parent's pid and reuses pids, so /T can reach an unrelated process).
 
 ## Where
-`endOrphanedServers(agent, deps)` in engine/agentbrowser.js, called from launchConfig when an agent is named; never throws. Mac: inline (ps takes milliseconds). Windows: after the launch has gone ahead (setImmediate in the long-lived supervisor), never in front of it. Inside a `node --test` process nothing is listed or signalled unless the caller hands in an ender. Listing, re-check and ending are injectable.
+`endOrphanedServers(agent, deps)` in engine/agentbrowser.js, called from launchConfig when an agent is named; never throws. Mac: inline (ps takes milliseconds). Windows: asynchronous, after the launch has gone ahead, without blocking the supervisor. Fails closed: with no ender handed in it acts only when its caller says `live` (the shim run as a program; the Windows supervisor's own entry) or live execution is armed. Each process ended is appended to playwright-mcp/ended-servers.log. Listing, re-check and ending are injectable.
 
 ## Tests
 - Pure selection over a fixture process table: own orphan selected; own server with a live parent NOT; another agent's orphan NOT; a prefix-named agent (`mona` vs `mona-lisa`) NOT; a non-Playwright process with the same folder NOT; a different install's cli.js NOT.
@@ -26,7 +26,7 @@ Exact pids only (never pkill/pattern), force: an orphaned server serves no one, 
 That ppid 1 / a dead parent means the session is over. A server deliberately detached by a live session would be ended at that agent's next launch; nothing in Kosmos detaches them today.
 
 ## Not in this slice
-Slice 3 (`kosmos browser stop`), and removing deleted agents' per-agent files and output folders.
+Servers left by an earlier pinned version (another cli.js path) are not matched. Slice 3 (`kosmos browser stop`), and removing deleted agents' per-agent files and output folders.
 
 ## Evidence (first build)
 - run-tests --only agentbrowser.test.js + win32supervisor.test.js: 103/103. No stand-in process left after the run.
@@ -44,3 +44,13 @@ Slice 3 (`kosmos browser stop`), and removing deleted agents' per-agent files an
 - Fixed: the guard's test could not fail (a throwing listing was caught either way); it now records whether the listing was asked for at all.
 - Deferred, decided: the live-execution gate (#1598) opens only in the board's own process; the Mac shim and the Windows supervisor never open it, so using it would switch this off where it must run. Its intent is kept instead: inside a node --test process nothing is signalled unless an ender is handed in.
 - Mutations, each red: the re-check skipped; children not ended; every parent counted gone; the test-process guard removed.
+
+## Challenge loop iteration 2 (opus)
+- Fixed: Windows `taskkill /T` could reach an unrelated process (a dead parent's pid stays on its children and pids are reused). Descendants now count only if created after their parent, and each pid is ended alone (no /T). Removing the creation-time rule turns the Windows test red.
+- Fixed: the Windows run blocked the supervisor (execFileSync in a setImmediate). It is now async throughout (execP), and launchConfig never waits on it.
+- Fixed: nothing tested that launchConfig calls the sweep; a launchConfig arm now does (removing the call turns it red). And launchConfig passes its own platform.
+- Fixed: a Windows arm: one listing, each pid alone, the older process under a reused parent pid spared, a live parent leaves everything.
+- Fixed: every ended process is logged (time, agent, pid, command) to playwright-mcp/ended-servers.log, so a wrong one could be traced.
+- Fixed: the cli.js is matched as a whole argument, like --output-dir.
+- Changed (repo CLAUDE.md rule 3): the fail-closed gate is kept. The process-wide live-execution switch is not opened in the shim or the Windows supervisor (it would arm store.js and other gated modules there, a change I cannot measure on Windows). Instead a narrow opt-in for this feature: `live` passed only from the shim's require.main path and the Windows supervisor's require.main entry; anything else (every test, any other caller) fails closed, as does a test process with no ender (removing that check turns its test red).
+- Noted: servers from an earlier pinned version are not matched (the safe direction).

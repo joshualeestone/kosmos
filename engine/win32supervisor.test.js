@@ -1109,7 +1109,7 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
       '#5406: main() wires the permission settings into the launch');
     assert.equal(spawned[0].argv[spawned[0].argv.indexOf('--mcp-config') + 1], 'browser-config.json',
       'main() hands a claude agent its browser config');
-    assert.deepEqual(browserAsks, [{ agent: 'entry' }], 'kosmos#8928: main() asks for the browser config by the agent\'s name');
+    assert.deepEqual(browserAsks, [{ agent: 'entry', orphans: { live: false } }], 'kosmos#8928: main() asks for the browser config by the agent\'s name');
     assert.equal(typeof handle.send, 'function', 'so the supervisor can be told things');
     /* ⚠️ THE LOAD-BEARING NEGATIVE. The detached launch goes through `cmd /c start`;
        if main() ever goes back to it, this is the line that says so. */
@@ -1415,5 +1415,8 @@ test('#8928 the default browser config is asked for by the agent\'s name; CONTRO
   const fake = { launchConfig: (o) => { seen.push(o); return 'x.json'; } };
   assert.equal(sup.browserFor({ name: 'mona-lisa' }, fake)(), 'x.json');
   assert.equal(sup.browserFor({ name: 'pigeonpete' }, fake)(), 'x.json');
-  assert.deepEqual(seen, [{ agent: 'mona-lisa' }, { agent: 'pigeonpete' }]);
+  assert.deepEqual(seen, [{ agent: 'mona-lisa', orphans: { live: false } }, { agent: 'pigeonpete', orphans: { live: false } }]);
+  /* kosmos#8928 slice 2: only the real entry (main called with endOrphans) may end orphaned servers. */
+  sup.browserFor({ name: 'x' }, fake, true)();
+  assert.deepEqual(seen[2], { agent: 'x', orphans: { live: true } });
 });
