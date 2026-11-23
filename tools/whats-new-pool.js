@@ -20,6 +20,10 @@
  * WINDOWS prod serves (latest-win.json, its manifest's app commit, and the What's New at that commit) and marks that
  * window's Windows-only highlights shown, with shownIn the Windows version, recording it as lastProdWin. Nothing is
  * retired by hand any more; `prod-check` refuses (3) when Windows prod is newer than lastProdWin.
+ * A Windows pointer, manifest or window that cannot be read exactly refuses `build` (exit 3), as the Mac side does:
+ * build again when the site answers, or pass --offline (the cut's prod-check then holds it until the pool is current).
+ * `prod-check` reads the Windows pointer only once the Mac side is current, and answers 4 when it cannot read it, which
+ * the cut's step 1b-ii takes as a note and goes on, as it does for the Mac.
  * A highlight tagged for ONE platform still takes one of the 5 slots of the one file both platforms read (the engine
  * caps the file, not each platform's view), so that platform's window shows fewer. Tag an item only when it truly is
  * one platform's; build refuses a list that leaves a platform with none.
@@ -215,6 +219,19 @@ function nextPatch(a, b) {
   return x[0] === y[0] && x[1] === y[1] && y[2] === x[2] + 1;
 }
 
+/* What version `version` showed, read at `commit`: its own What's New there, or (review 3 of #5713) another version's
+   file whose "also" lists it, as the cut's check accepts. null when neither. Shared by the Mac and Windows syncs. */
+function shownAt(version, root, commit) {
+  const own = fromHistory(version, root, commit);
+  if (own) return own;
+  try {
+    const f = JSON.parse(require('node:child_process').execFileSync('git', ['-C', root, 'show', commit + ':web/whats-new.json'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 << 20 }));
+    if (f && Array.isArray(f.also) && f.also.includes(version) && Array.isArray(f.highlights)) return { version, highlights: f.highlights };
+  } catch { /* no such commit or file, or not JSON */ }
+  return null;
+}
+
 function syncWithProd(pool, poolFile, env = process.env, root = ROOT) {
   // Review 3: the version first; the manifest (and its commit) only when there is something to record.
   const ptr = servedPointer(env);
@@ -224,16 +241,7 @@ function syncWithProd(pool, poolFile, env = process.env, root = ROOT) {
   }
   const served = servedProd(env);
   if (!served.ok) return { ok: false, because: served.because + '. Build again when the site answers, or pass --offline (the cut\'s prod-check then holds it until the pool is current)' };
-  /* Review 3: a release can carry its What's New through another version's file whose "also" lists it (as the cut's
-     check accepts); the Mac showed those highlights, so they count. */
-  let obj = fromHistory(served.version, root, served.commit);
-  if (!obj) {
-    try {
-      const f = JSON.parse(require('node:child_process').execFileSync('git', ['-C', root, 'show', served.commit + ':web/whats-new.json'],
-        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 << 20 }));
-      if (f && Array.isArray(f.also) && f.also.includes(served.version) && Array.isArray(f.highlights)) obj = { version: served.version, highlights: f.highlights };
-    } catch { obj = null; }
-  }
+  const obj = shownAt(served.version, root, served.commit);
   if (!obj) {
     return { ok: false, because: 'prod serves ' + served.version + ' (cut from ' + served.commit + '), but this checkout has no What\'s New for it at that commit.'
       + ' git fetch, then build again; or, ONLY if ' + served.version + ' shipped with no What\'s New at all (a cut with KOSMOS_CUT_NO_WHATS_NEW=1), record it with'
@@ -327,14 +335,7 @@ function syncWithWinProd(pool, poolFile, env = process.env, root = ROOT) {
   }
   const served = servedWinProd(env);
   if (!served.ok) return { ok: false, because: served.because + '. Build again when the site answers, or pass --offline (the cut\'s prod-check then holds it until the pool is current)' };
-  let obj = fromHistory(served.version, root, served.commit);
-  if (!obj) {
-    try {
-      const f = JSON.parse(require('node:child_process').execFileSync('git', ['-C', root, 'show', served.commit + ':web/whats-new.json'],
-        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 << 20 }));
-      if (f && Array.isArray(f.also) && f.also.includes(served.version) && Array.isArray(f.highlights)) obj = { version: served.version, highlights: f.highlights };
-    } catch { obj = null; }
-  }
+  const obj = shownAt(served.version, root, served.commit);
   if (!obj) {
     return { ok: false, because: 'Windows prod serves ' + served.version + ' (built from ' + served.commit + '), but this checkout has no What\'s New for it at that commit. git fetch, then build again' };
   }
