@@ -842,6 +842,7 @@ test('#8928 slice 2: an agent\'s launch ends its own orphaned server and its bro
   recorded.push(again);
   for (let i = 0; i < 50 && (ppid(again) !== 1 || !childOf(again)); i++) await new Promise((r) => setTimeout(r, 100));
   const againChild = childOf(again);
+  assert.ok(againChild, 'fixture: the stand-in started its browser');
   recorded.push(againChild);
   const env = Object.assign({}, process.env);
   delete env.NODE_TEST_CONTEXT; delete env.KOSMOS_TEST_RUN;

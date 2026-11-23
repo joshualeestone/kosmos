@@ -347,7 +347,7 @@ function runPs(script, input, timeoutMs) {
 function macTable(pids, onFail, timeout) {
   try {
     const args = pids ? ['-ww', '-o', 'pid=,ppid=,command=', '-p', pids.join(',')] : ['-axww', '-o', 'pid=,ppid=,command='];
-    return parseTable(require('node:child_process').execFileSync('/bin/ps', args, { encoding: 'utf8', timeout: Math.max(1, timeout || 2000), maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }));
+    return parseTable(require('node:child_process').execFileSync('/bin/ps', args, { encoding: 'utf8', timeout: Math.max(1, timeout == null ? 2000 : timeout), maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }));
   } catch (e) { if (onFail) onFail(e); return []; }
 }
 async function winTable(onFail) {
@@ -418,7 +418,7 @@ function endOrphanedServers(agent, deps) {
       const until = Date.now() + (d.budgetMs || 2000);   // the whole sweep, listing included; the rest waits for the next launch
       const left = () => until - Date.now();
       const procs = (d.procs || (() => macTable(null, noteListFailed(agent), left())))();
-      const recheck = d.recheck || ((pid) => (left() > 0 ? macTable([pid], null, left()).find((p) => p.pid === pid) || null : null));
+      const recheck = d.recheck || ((pid) => { const ms = left(); return ms > 0 ? macTable([pid], null, ms).find((p) => p.pid === pid) || null : null; });
       const ended = [];
       for (const step of plan(procs)) {
         if (Date.now() > until) break;
