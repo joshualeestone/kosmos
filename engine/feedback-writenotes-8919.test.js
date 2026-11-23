@@ -47,10 +47,16 @@ test('another writer\'s notes the same day are kept and not counted', () => {
   assert.match(fb.read(day), /bo note/, 'another writer\'s note went');
 });
 
-test('a line that merely looks like a note heading inside a report is not counted unless it is one', () => {
-  assert.equal(fb.notesIn('Added later (2026-11-20 12:00 UTC):\nx'), 1);
-  assert.equal(fb.notesIn('I said: Added later (2026-11-20 12:00 UTC):'), 0);
-  assert.equal(fb.notesIn('Added later (soon):'), 0);
+test('a line that merely looks like a note heading inside a report is not counted', () => {
+  // Through write() itself (the counters are not exported: the #265 guard wants every export reachable).
+  const day = '2026-11-17';
+  // The first line ends at the heading-shaped text, so only the line-start anchor can refuse it.
+  fb.write('I said: Added later (2026-11-17 12:00 UTC):\nAdded later (soon):\nend', { from: 'ada', date: day });
+  assert.equal(fb.write('rewritten', { from: 'ada', date: day }).notesReplaced, 0, 'a heading-shaped phrase was counted as a note');
+  // CONTROL: a real note in the same kind of report is counted.
+  fb.write('I said: Added later (2026-11-17 12:00 UTC): x', { from: 'ada', date: day });
+  assert.equal(fb.note('ada', 'real', day, Date.parse(day + 'T13:00:00Z')).ok, true);
+  assert.equal(fb.write('rewritten', { from: 'ada', date: day }).notesReplaced, 1);
 });
 
 test('the sentence: none for 0, one note, several notes, and no apostrophe or em dash', () => {

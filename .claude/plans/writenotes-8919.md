@@ -42,3 +42,11 @@ rewrite to add, keeping notes would be the better default, and this sentence at 
   typed into a note's own text counts (rare, over-counts in the safe direction).
 - Mutations after round 1, each red: never counted (5), kept notes counted (1), unanchored (1), Mac CLI silent (2),
   Windows CLI silent (1).
+- Round 2 (sonnet): no BLOCKER or WARNING; NITs (a very short kept note could be matched by an identical heading
+  elsewhere, errs toward under-reporting; notesIn only used by tests).
+- Full suite at 06cf9ff390: 1 red, engine.reachable (#265): `notesIn` was exported and tested but reachable from no
+  caller. Fixed: neither counter is exported (only `replacedNotesLine` is, which both CLIs call); the anchoring test now
+  goes through write() itself. Its first form left the anchor mutation green (the line ended in "): x", so `$` refused
+  it whatever `^` did); rebuilt so the line ends at the heading-shaped text, and the mutation is red.
+- Mutations after that: never counted (6), kept notes counted (1), unanchored (1), Mac CLI silent (2), Windows CLI
+  silent (1).

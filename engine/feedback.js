@@ -552,4 +552,4 @@ function mineLines(from) {
   const mine = daysOf(from);
   return mine.length ? mine : [noneOfYoursWords()];
 }
-module.exports = { notesIn, notesLost, replacedNotesLine, noReportsWords, noneOfYoursWords, unreadableWords, mineLines, daysOf, listNote, dir, dateKey, isDateKey, today, pathFor, write, note, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
+module.exports = { replacedNotesLine, noReportsWords, noneOfYoursWords, unreadableWords, mineLines, daysOf, listNote, dir, dateKey, isDateKey, today, pathFor, write, note, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
