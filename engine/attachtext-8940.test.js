@@ -38,13 +38,13 @@ test('#8940: the reported shape, a title row, a blank row, then the header, with
   assert.equal(got, [
     '## Sheet: Contacts',
     '',
+    'Blank under a header: Name in row 6; Email in row 5; Phone in rows 4, 7; Notes in row 6.',
     'Row 1: A: Q4 vendor import',
     'Row 3 (header): Name | Email | Phone | Notes',
     'Row 4: Name: Acme Supply | Email: orders@acme.example | Phone: (blank) | Notes: Net 30',
     'Row 5: Name: Beta Parts | Email: (blank) | Phone: 555-0102 | Notes: Call first\\nask for Dana',
     'Row 6: Name: (blank) | Email: gamma@example.com | Phone: 555-0103 | Notes: (blank)',
     'Row 7: Name: Delta \\| Sons | Email: d@example.com | Phone: (blank) | Notes: has a pipe',
-    'Blank under a header: Name in row 6; Email in row 5; Phone in rows 4, 7; Notes in row 6.',
   ].join('\n'));
   assert.ok(!got.includes('| --- |'), 'not the old table');
 });
@@ -58,11 +58,11 @@ test('#8940: a second sheet keeps its own row numbers across a gap, a header off
   assert.equal(prices, [
     '## Sheet: Prices',
     '',
+    'Blank under a header: Price in row 4; Active in row 6.',
     'Row 2 (header): SKU | Price | Active',
     'Row 3: SKU: A-1 | Price: 9.5 | Active: TRUE',
     'Row 4: SKU: A-2 | Price: (blank) | Active: FALSE',
     'Row 6: SKU: A-4 | Price: 12 | Active: (blank)',
-    'Blank under a header: Price in row 4; Active in row 6.',
   ].join('\n'));
   assert.ok(got.indexOf('## Sheet: One') < got.indexOf('## Sheet: Prices'), 'sheets in workbook order');
 });
@@ -94,12 +94,12 @@ test('#8940: a backslash in a value is doubled, so it cannot read as the \\n or 
   assert.ok(got.includes('Row 2: Path: C:\\\\new | Note: a\\\\\\|b'), got);
 });
 
-test('#8940: the blank list names 20 rows per column and counts the rest', () => {
+test('#8940: the blank list, under the heading, names 20 rows per column and counts the rest', () => {
   const rows = { 1: ['Id', 'Email'] };
   for (let n = 2; n <= 31; n += 1) rows[n] = ['r' + n];
   const got = body([{ name: 'S', rows }]);
-  const last = got.split('\n').pop();
-  assert.equal(last, 'Blank under a header: Email in rows ' + Array.from({ length: 20 }, (_, i) => i + 2).join(', ') + ' and 10 more.');
+  const said = got.split('\n')[2];
+  assert.equal(said, 'Blank under a header: Email in rows ' + Array.from({ length: 20 }, (_, i) => i + 2).join(', ') + ' and 10 more.');
 });
 
 test('#8940: a row written without numbers takes the row before plus one, as the format says', () => {
@@ -118,7 +118,7 @@ test('#8940: a workbook with rows carries one note saying how to read the lines'
   const got = at.xlsxText(book([{ name: 'A', rows: { 1: ['x', 'y'], 2: ['1', '2'] } }, { name: 'B', rows: { 1: ['z'] } }]));
   const said = got.notes.filter((n) => /Each line is one row/.test(n));
   assert.equal(said.length, 1, JSON.stringify(got.notes));
-  assert.equal(said[0], 'Each line is one row, with the sheet’s own row number. Under a header, (blank) is an empty cell; inside a value, \\n is a line break and \\| is a pipe.');
+  assert.equal(said[0], 'Each line is one row, with the sheet’s own row number. Under a header, (blank) is an empty cell; inside a value, \\n is a line break, \\| is a pipe and \\\\ is one backslash.');
 });
 
 test('#8940: a header cell holding only spaces does not cost the sheet its header', () => {
@@ -154,10 +154,28 @@ test('#8940: long header names repeated on every row stay inside the output cap,
   const got = at.xlsxText(book([{ name: 'Wide', xml }]));
   assert.ok(Date.now() - t0 < 5000, 'took ' + (Date.now() - t0) + ' ms');
   assert.equal(got.full, true, 'the named lines reach the cap and stop there');
-  assert.ok(got.body.length <= at.MAX_OUT, String(got.body.length));
+  assert.ok(got.body.includes('Row 2: ') && !got.body.includes('Row 401: '), 'the rows are cut short, not all written');
 });
 
 test('#8940: a namespaced attribute ending in r (x:r) on a row is not taken for its number', () => {
   const xml = XML + '<worksheet><sheetData><row x:r="9" r="2"><c t="inlineStr"><is><t>a</t></is></c></row></sheetData></worksheet>';
   assert.equal(body([{ name: 'S', xml }]), '## Sheet: S\n\nRow 2: A: a');
+});
+
+test('#8940: on a sheet cut short by the output cap, the blank line is still there, above the rows', () => {
+  const COLS = 200, ROWS = 3000;
+  const colRef = (i) => { let r = ''; for (let k = i + 1; k > 0; k = Math.floor((k - 1) / 26)) r = String.fromCharCode(65 + ((k - 1) % 26)) + r; return r; };
+  const header = '<row r="1">' + Array.from({ length: COLS }, (_, i) => '<c r="' + colRef(i) + '1" t="inlineStr"><is><t>Field' + i + '</t></is></c>').join('') + '</row>';
+  const data = Array.from({ length: ROWS }, (_, r) => '<row r="' + (r + 2) + '"><c r="A' + (r + 2) + '"><v>' + r + '</v></c></row>').join('');
+  const got = at.xlsxText(book([{ name: 'Sparse', xml: XML + '<worksheet><sheetData>' + header + data + '</sheetData></worksheet>' }]));
+  assert.equal(got.full, true, 'the control: this sheet does reach the cap');
+  const lines = got.body.split('\n');
+  assert.ok(lines[2].startsWith('Blank under a header: Field1 in rows 2, 3, 4,'), lines[2].slice(0, 120));
+  assert.ok(lines[2].includes('and 2980 more'), 'the count covers every row, not only the written ones');
+});
+
+test('#8940: a cell holding only a line break reads as (blank) under a header, as an empty one does', () => {
+  const got = body([{ name: 'S', rows: { 1: ['Name', 'Note'], 2: ['a', '\n'], 3: ['b', 'ok'] } }]);
+  assert.ok(got.includes('Row 2: Name: a | Note: (blank)'), got);
+  assert.ok(got.includes('Blank under a header: Note in row 2.'), got);
 });
