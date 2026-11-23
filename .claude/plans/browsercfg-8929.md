@@ -15,3 +15,12 @@ That every writer goes through launchConfig, and (review 1) that a test which sc
 ## Evidence
 Mutations, each red: the guard call removed; the run-root rule removed; a stray KOSMOS_TEST_RUN counted.
 engine/agentbrowser.test.js: a unit arm (controls: sandboxed, and not a test run) and a shim arm through engine/agent-browser-config.js with no runners sandbox (the path the bug took; CONTROL: outside a test run it writes). Removing the guard turns both red. With fixture-discipline, engine.reachable, launchpath-5516, win32supervisor: 162/162; tools/test-supervisor-agentbrowser-3633.sh passes.
+
+## Review 2, taken
+- BLOCKER fixed: the shim test made its "plain" temp folder inside SANDBOX, which under tools/run-tests.sh is itself inside a kt<pid> run root, so the two controls went silent. The plain folder is now made under /tmp (realpath), checked not to be inside a run root, and removed after the test. The run root the test fakes sits at SANDBOX/tmp/kt8929 and is used as TMPDIR directly (the live config's shape).
+- WARNING fixed: the kt<pid> rule now matches only a kt<n> folder right under a temp base (T, tmp, Temp, case-insensitive), the shape run-tests.sh makes (${TMPDIR:-/tmp}/kt$$). CONTROLS: C:\Users\kt1\AppData\Local\Temp and /home/kt12/tmp are not a test run; ...\Temp\kt77 is.
+- WARNING decided, not built: a test child spawned with a minimal env ({ PATH }) has no markers, TMPDIR falls back to /tmp, HOME to the real home, so it is not caught. Markers cannot see it. The structural fix (refuse to write the REAL account's runners folder from a source checkout) would also switch the browser off for a developer's source board, so I rejected it. What would change my mind: a second rewrite of the live config with no kt folder in it.
+- NIT accepted: the inTestProcess() arm and the caller-env arm have no isolated test. In this file NODE_TEST_CONTEXT is always set and the runners folder is sandboxed, so neither can be isolated in-process.
+
+## Evidence after review 2
+tools/run-tests.sh --only engine/agentbrowser.test.js: 35/35 (the run review 2 said I had never done). Mutation under the same runner, the guard call removed: the shim test goes red (34/35). fixture-discipline, engine.reachable, launchpath-5516 under run-tests --only: 63/63. tools/test-supervisor-agentbrowser-3633.sh: all passed. No plain-tmp-8929 folder left in /tmp.

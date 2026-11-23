@@ -109,6 +109,9 @@ test('#8929 what marks a test run; CONTROL: a stray KOSMOS_TEST_RUN, a plain tem
   assert.equal(ab.testRunMarked({ KOSMOS_TEST_RUN: '/tmp/kt9' }, '/var/T'), false, 'CONTROL: the variable alone, left in a shell');
   assert.equal(ab.testRunMarked({}, '/var/T'), false, 'CONTROL: a real board');
   assert.equal(ab.testRunMarked({}, '/var/T/ktx9'), false, 'CONTROL: a folder that only starts with kt');
+  assert.equal(ab.testRunMarked({}, 'C:\\Users\\kt1\\AppData\\Local\\Temp'), false, 'CONTROL (review 2): a Windows user named kt1');
+  assert.equal(ab.testRunMarked({}, '/home/kt12/tmp'), false, 'CONTROL (review 2): a home folder named kt12');
+  assert.equal(ab.testRunMarked({}, 'C:\\Users\\a\\AppData\\Local\\Temp\\kt77'), true, 'run-tests.sh on Windows');
   assert.equal(ab.isInstalled(), true, 'fixture: the earlier test installed the fake tree');
   /* This process IS a test and its runners folder IS sandboxed: it writes, whatever the caller's env says. */
   assert.equal(ab.launchConfig({ platform: 'win32', node: 'C:\\T\\node.exe', env: { KOSMOS_TEST_RUN: '/tmp/kt1' } }), ab.configPath(),
@@ -203,7 +206,7 @@ test('a proven shell, then a Mac launch gets a flag for a file naming exactly th
 /* kosmos#8929, the path the bug took: the supervisor's shim, as a child process, with NO runners sandbox, so it falls
    back to HOME's .local/share/kosmos/runners as it does from a worktree. HOME is a sandbox holding a copy of the fake
    install, so the fallback lands on a file this test owns. */
-test('#8929 the shim inside a test run leaves the fallback config untouched; CONTROL: outside a test run it writes it', { skip: process.platform !== 'darwin' && 'the shim writes a config only on a Mac or Windows; this arm runs where the suite runs, a Mac' }, () => {
+test('#8929 the shim inside a test run leaves the fallback config untouched; CONTROL: outside a test run it writes it', { skip: process.platform !== 'darwin' && 'the shim writes a config only on a Mac or Windows; this arm runs where the suite runs, a Mac' }, (t) => {
   const { spawnSync } = require('node:child_process');
   assert.equal(ab.isInstalled(), true, 'fixture: the fake tree is installed');
   assert.equal(ab.shellInstalled(), true, 'fixture: this CPU\'s fake shell is installed (the Mac test above)');
@@ -213,20 +216,23 @@ test('#8929 the shim inside a test run leaves the fallback config untouched; CON
   fs.cpSync(ab.homeDir(), path.join(root, 'playwright-mcp'), { recursive: true });
   const cfg = path.join(root, 'playwright-mcp', 'mcp-config.json');
   fs.writeFileSync(cfg, 'LIVE CONFIG 8929\n');
-  const plainTmp = path.join(SANDBOX, 'plain-tmp-8929');
-  const runRoot = path.join(SANDBOX, 'kt8929');
-  fs.mkdirSync(plainTmp, { recursive: true });
-  fs.mkdirSync(path.join(runRoot, 'tmp'), { recursive: true });
+  /* Review 2: the plain temp folder must sit OUTSIDE any run root. Under tools/run-tests.sh this file's own os.tmpdir()
+     IS a kt<pid> run root, so a folder made inside SANDBOX would count as a test run and the controls would go silent. */
+  const plainTmp = fs.realpathSync(fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'plain-tmp-8929-')));
+  t.after(() => { try { fs.rmSync(plainTmp, { recursive: true, force: true }); } catch { /* best effort */ } });
+  assert.equal(ab.testRunMarked({}, plainTmp), false, 'fixture: the plain temp folder is not itself inside a run root');
+  const runRoot = path.join(SANDBOX, 'tmp', 'kt8929');
+  fs.mkdirSync(runRoot, { recursive: true });
   const base = { ...process.env, HOME: home, TMPDIR: plainTmp };
   for (const k of ['AGENT_WORKFORCE_RUNNERS_DIR', 'NODE_TEST_CONTEXT', 'KOSMOS_TEST_RUN', 'KOSMOS_AGENT_BROWSER']) delete base[k];
   const shim = path.join(__dirname, 'agent-browser-config.js');
   const run = (extra) => spawnSync(process.execPath, [shim], { env: { ...base, ...extra }, encoding: 'utf8', timeout: 30000 });
-  const inRun = run({ KOSMOS_TEST_RUN: runRoot, TMPDIR: path.join(runRoot, 'tmp') });
+  const inRun = run({ KOSMOS_TEST_RUN: runRoot, TMPDIR: runRoot });
   assert.equal(inRun.status, 0);
   assert.equal(inRun.stdout.trim(), '', 'the shim inside a test run asked for a config');
   assert.equal(fs.readFileSync(cfg, 'utf8'), 'LIVE CONFIG 8929\n', 'the shim inside a test run rewrote the fallback config');
   /* Review 1: a test that scrubbed its environment (no markers at all) but kept the run's temp folder. */
-  const scrubbed = run({ TMPDIR: path.join(runRoot, 'tmp') });
+  const scrubbed = run({ TMPDIR: runRoot });
   assert.equal(scrubbed.stdout.trim(), '', 'a scrubbed test child with a run root as its temp folder asked for a config');
   assert.equal(fs.readFileSync(cfg, 'utf8'), 'LIVE CONFIG 8929\n', 'a scrubbed test child rewrote the fallback config');
   /* Review 1, CONTROL for the store's rule: the variable alone, with a plain temp folder, is not a test run. */
