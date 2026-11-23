@@ -30,3 +30,12 @@ tools/run-tests.sh --only engine/agentbrowser.test.js: 35/35 (the run review 2 s
 - Fixed: the kt rule is now the machine-wide test-sandbox rule (tools/lib/process-fixture.sh _KOSMOS_KT_RE, `(T|tmp)/kt<digits>`, case-sensitive) plus Windows' backslash and Temp. Review 2's version was case-insensitive and wider than every other guard.
 - Deferred: a real board whose temp folder is literally `.../tmp/kt5` would lose its browser. Every other fixture guard on this machine already treats that path as a test sandbox, so this keeps one rule rather than inventing a stricter one here.
 - Deferred: the catch around live-execution fails open (toward writing), which is the old behaviour; the shim arm runs on a Mac only (the skip says so; the pure arm covers the Windows rule).
+
+## Challenge loop iteration 2 (opus)
+- Fixed: the shim test's two writing arms could have rewritten the LIVE config if the file were run from an installed layout (managedRoot ignores HOME there). The test now asks a child, with the same env, where the runners folder resolves, and skips before any arm runs unless it is inside the test's HOME.
+- Fixed: testRunMarked re-derived store.isTestProcess (and compared with path.resolve where the store uses realish). Now the store's rule is called for this process and for a caller's env, and only the new rule, inKtRunRoot, lives here. A new arm proves the store's rule alone refuses (KOSMOS_TEST_RUN with no kt folder); removing the store call turns it red.
+- Fixed: the Windows `Temp\kt<n>` arm is gone. Node on Windows takes its temp folder from TEMP/TMP, and run-tests.sh sets only TMPDIR, so it described a shape that does not occur.
+- Card handling (deferred, decided): the PR says "Addresses #8929", not "Fixes". Which test wrote the live config is still not established, and ensureInstalled/ensureShell plus a minimal-env child remain uncovered (weakest premise above). The card stays open after merge until the live config has survived a full suite run unrewritten.
+
+## Evidence after iteration 2
+run-tests --only agentbrowser.test.js 35/35, not skipped. Mutations, each red under run-tests: the guard call removed (shim test), the store call removed (the new store-only arm). fixture-discipline, engine.reachable, launchpath-5516, win32supervisor under run-tests --only: 127/127.

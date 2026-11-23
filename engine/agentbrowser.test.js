@@ -100,19 +100,18 @@ test('a proven install, then every launch gets a flag for a file holding exactly
   assert.deepEqual(JSON.parse(fs.readFileSync(p, 'utf8')), written);
 });
 
-/* kosmos#8929: what counts as a test run (pure), and a sandboxed call still writes. The refusal itself is proven through
-   the shim below, the path the bug took, since this file's own runners folder is sandboxed. */
-test('#8929 what marks a test run; CONTROL: a stray KOSMOS_TEST_RUN, a plain temp folder and a kt-like name do not', () => {
-  assert.equal(ab.testRunMarked({ NODE_TEST_CONTEXT: 'child-v8' }, '/var/T'), true, 'node --test');
-  assert.equal(ab.testRunMarked({ KOSMOS_TEST_RUN: '/tmp/kt9' }, '/tmp/kt9/x'), true, 'run-tests.sh, temp inside its run');
-  assert.equal(ab.testRunMarked({}, '/var/T/kt23905'), true, 'a scrubbed env that kept a run root as its temp folder');
-  assert.equal(ab.testRunMarked({ KOSMOS_TEST_RUN: '/tmp/kt9' }, '/var/T'), false, 'CONTROL: the variable alone, left in a shell');
-  assert.equal(ab.testRunMarked({}, '/var/T'), false, 'CONTROL: a real board');
-  assert.equal(ab.testRunMarked({}, '/var/T/ktx9'), false, 'CONTROL: a folder that only starts with kt');
-  assert.equal(ab.testRunMarked({}, 'C:\\Users\\kt1\\AppData\\Local\\Temp'), false, 'CONTROL (review 2): a Windows user named kt1');
-  assert.equal(ab.testRunMarked({}, '/home/kt12/tmp'), false, 'CONTROL (review 2): a home folder named kt12');
-  assert.equal(ab.testRunMarked({}, '/var/TEMP/kt3'), false, 'CONTROL: the same case-sensitive bases as the machine-wide rule, nothing wider');
-  assert.equal(ab.testRunMarked({}, 'C:\\Users\\a\\AppData\\Local\\Temp\\kt77'), true, 'run-tests.sh on Windows');
+/* kosmos#8929: the one rule of agentbrowser's own (a temp folder inside a run root; the rest is the store's
+   isTestProcess, tested there), and a sandboxed call still writes. The refusal itself is proven through the shim below,
+   the path the bug took, since this file's own runners folder is sandboxed. */
+test('#8929 a temp folder inside a run root marks a test run; CONTROL: a plain temp folder and kt-like names do not', () => {
+  assert.equal(ab.inKtRunRoot('/var/folders/ab/cd/T/kt23905'), true, 'the run root the live config named');
+  assert.equal(ab.inKtRunRoot('/tmp/kt9/x'), true, 'inside a run root under /tmp');
+  assert.equal(ab.inKtRunRoot('/var/folders/ab/cd/T'), false, 'CONTROL: a real board');
+  assert.equal(ab.inKtRunRoot('/var/T/ktx9'), false, 'CONTROL: a folder that only starts with kt');
+  assert.equal(ab.inKtRunRoot('C:\\Users\\kt1\\AppData\\Local\\Temp'), false, 'CONTROL: a Windows user named kt1');
+  assert.equal(ab.inKtRunRoot('/home/kt12/tmp'), false, 'CONTROL: a home folder named kt12');
+  assert.equal(ab.inKtRunRoot('/var/TEMP/kt3'), false, 'CONTROL: the machine-wide rule is case-sensitive, nothing wider');
+  assert.equal(ab.inKtRunRoot(undefined), false, 'CONTROL: no temp folder');
   assert.equal(ab.isInstalled(), true, 'fixture: the earlier test installed the fake tree');
   /* This process IS a test and its runners folder IS sandboxed: it writes, whatever the caller's env says. */
   assert.equal(ab.launchConfig({ platform: 'win32', node: 'C:\\T\\node.exe', env: { KOSMOS_TEST_RUN: '/tmp/kt1' } }), ab.configPath(),
@@ -221,17 +220,32 @@ test('#8929 the shim inside a test run leaves the fallback config untouched; CON
      IS a kt<pid> run root, so a folder made inside SANDBOX would count as a test run and the controls would go silent. */
   const plainTmp = fs.realpathSync(fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'plain-tmp-8929-')));
   t.after(() => { try { fs.rmSync(plainTmp, { recursive: true, force: true }); } catch { /* best effort */ } });
-  assert.equal(ab.testRunMarked({}, plainTmp), false, 'fixture: the plain temp folder is not itself inside a run root');
+  assert.equal(ab.inKtRunRoot(plainTmp), false, 'fixture: the plain temp folder is not itself inside a run root');
   const runRoot = path.join(SANDBOX, 'tmp', 'kt8929');
   fs.mkdirSync(runRoot, { recursive: true });
   const base = { ...process.env, HOME: home, TMPDIR: plainTmp };
   for (const k of ['AGENT_WORKFORCE_RUNNERS_DIR', 'NODE_TEST_CONTEXT', 'KOSMOS_TEST_RUN', 'KOSMOS_AGENT_BROWSER']) delete base[k];
   const shim = path.join(__dirname, 'agent-browser-config.js');
   const run = (extra) => spawnSync(process.execPath, [shim], { env: { ...base, ...extra }, encoding: 'utf8', timeout: 30000 });
+  /* Two arms below are meant to WRITE. Before any arm runs, ask a child with the same env where the runners folder is:
+     from an installed layout managedRoot() ignores HOME and names the real install's folder, and those arms would
+     then rewrite the live config, the damage this card is about. */
+  const where = spawnSync(process.execPath, ['-e', 'process.stdout.write(require(process.argv[1]).managedRoot())', path.join(__dirname, 'runners.js')],
+    { env: base, encoding: 'utf8', timeout: 30000 });
+  if (where.status !== 0 || path.resolve(where.stdout) !== root) {
+    t.skip('the runners folder does not resolve into this test\'s HOME (' + where.stdout + '), so a writing arm could reach a real one');
+    return;
+  }
   const inRun = run({ KOSMOS_TEST_RUN: runRoot, TMPDIR: runRoot });
   assert.equal(inRun.status, 0);
   assert.equal(inRun.stdout.trim(), '', 'the shim inside a test run asked for a config');
   assert.equal(fs.readFileSync(cfg, 'utf8'), 'LIVE CONFIG 8929\n', 'the shim inside a test run rewrote the fallback config');
+  /* The store's rule alone: KOSMOS_TEST_RUN names a plain folder and the temp folder is inside it, no kt folder. */
+  const storeOnly = path.join(plainTmp, 'run-sub');
+  fs.mkdirSync(storeOnly, { recursive: true });
+  const byStore = run({ KOSMOS_TEST_RUN: plainTmp, TMPDIR: storeOnly });
+  assert.equal(byStore.stdout.trim(), '', 'a run-tests.sh child with no kt folder asked for a config');
+  assert.equal(fs.readFileSync(cfg, 'utf8'), 'LIVE CONFIG 8929\n', 'a run-tests.sh child with no kt folder rewrote the fallback config');
   /* Review 1: a test that scrubbed its environment (no markers at all) but kept the run's temp folder. */
   const scrubbed = run({ TMPDIR: runRoot });
   assert.equal(scrubbed.stdout.trim(), '', 'a scrubbed test child with a run root as its temp folder asked for a config');
