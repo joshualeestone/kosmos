@@ -925,6 +925,9 @@ const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtF
 /* kosmos#8934: what a built task waits on, a fixed choice a screen and a list can read (the note is words): the person
    (to look at it, answer or decide), another agent's review, or a release. None means it reads as before. */
 const WAITING_ON = ['person', 'review', 'release'];
+/* Review 4: `none` says it now waits on nothing named, the one way to take a value off without taking the mark off
+   (a clear also drops the commit and the check reports). It is a word a mark sends, never a stored value. */
+const WAITING_NONE = 'none';
 /* kosmos#8307: at most this many checkers are kept on a file (a name each), so a looping checker cannot grow the store. */
 const CHECKED_BY_MAX = 20;
 /* #6330 slice 2: a built mark can carry the deliverable's fingerprint, so the next agent can check it has the exact
@@ -1079,7 +1082,8 @@ function withoutBuilt(t) {
  *   builtWaitingOn         (kosmos#8934) what it waits on, one of WAITING_ON, from an agent's `waitingOn`. An agent's mark
  *                          without one keeps it (review 2: a checker's mark, the usual next mark, dropped the builder's
  *                          "waiting on you"), as a checker's mark keeps the fingerprint; a mark with one replaces it. The
- *                          person's mark drops it (they have looked) and so does a clear
+ *                          person's mark drops it (they have looked) and so does a clear; an agent's `none` (review 4)
+ *                          drops it and keeps everything else
  *   builtReplaces          (kosmos#8307) the file this one replaced: a mark with a DIFFERENT fingerprint replaces the one
  *                          kept, and the old one is kept here as { fingerprint, by, at, checkedBy, checkedByPerson? } (no path, review 4),
  *                          so its checks read as out of date and their agents can be told. Only the one previous file.
@@ -1092,8 +1096,9 @@ function withoutBuilt(t) {
  */
 function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false, fingerprint = null, commit = null, filePath = null, waitingOn = null } = {}) {
   // kosmos#8934: checked before anything is read, so an unknown value writes nothing.
-  if (waitingOn != null && waitingOn !== '' && !WAITING_ON.includes(waitingOn)) return { ok: false, because: 'what a built task waits on is person, review or release' };
-  const sent = waitingOn && !(person === true) ? waitingOn : '';   // what this mark says; kept or dropped below
+  if (waitingOn != null && waitingOn !== '' && waitingOn !== WAITING_NONE && !WAITING_ON.includes(waitingOn)) return { ok: false, because: 'what a built task waits on is person, review, release or none' };
+  const dropWaits = waitingOn === WAITING_NONE;
+  const sent = waitingOn && !dropWaits && !(person === true) ? waitingOn : '';   // what this mark says; kept or dropped below
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
   const landed = commit == null ? null : landedValue(commit);
   if (commit != null && !landed) return { ok: false, because: 'a commit is its full sha (40 or 64 lowercase hex characters), the absolute path of its repository, and whether a remote has it' };
@@ -1121,6 +1126,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   let unmetSaid = false;   // #8464: every check reported, some not met
   let replacedNow = null;
   let waits = '';   // kosmos#8934: what the mark leaves it waiting on, worked out inside the write
+  let waitsOnly = false;   // review 4: only what it waits on changed
   try {
     projects.mutate(projectId, (p) => {
       const t = byNumber(p, n);
@@ -1204,15 +1210,19 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       /* kosmos#8555: a remote's copy, once the board has seen it, is kept: a re-mark of the same commit by an agent whose
          checkout had not fetched it says "not on the remote", which is older news than the board's own check. */
       /* kosmos#8934 review 2: an agent's mark without a value keeps the one the task has; the person's mark drops it. */
-      waits = sent || (!isPerson && t.builtAt && WAITING_ON.includes(t.builtWaitingOn) ? t.builtWaitingOn : '');
+      waits = sent || (!isPerson && !dropWaits && t.builtAt && WAITING_ON.includes(t.builtWaitingOn) ? t.builtWaitingOn : '');
       const landedOnRemoteNow = landed && (landed.onRemote || (t.landedOnRemote === true && t.landedCommit === landed.sha && t.landedRepo === landed.repo));
-      if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
+      /* Review 4: a mark that changes nothing but what it waits on (the hint's advice, followed) is a change, but not new
+         work: the route does not tell anyone of it again. */
+      const sameButWaits = () => t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
         && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who) && (t.builtFilePath || '') === keptPath
         && sameList(t.builtCheckedBy, checkedBy) && (t.builtCheckedByPerson === true) === checkedByPerson
-        && (t.builtWaitingOn || '') === waits   // kosmos#8934: a change of only what it waits on is a change
-        // review 4: the replaced file too, so a change to it alone is never skipped as the same mark
         && JSON.stringify(t.builtReplaces || null) === JSON.stringify(replaces || null)
-        && (!landed || (t.landedCommit === landed.sha && t.landedRepo === landed.repo && t.landedOnRemote === landedOnRemoteNow))) {
+        && (!landed || (t.landedCommit === landed.sha && t.landedRepo === landed.repo && t.landedOnRemote === landedOnRemoteNow));
+      waitsOnly = Boolean(sameButWaits()) && (t.builtWaitingOn || '') !== waits;
+      // kosmos#8934: a change of only what it waits on is a change (sameButWaits holds every other field, the replaced file
+      // included: #8307 review 4, so a change to it alone is never skipped as the same mark).
+      if (sameButWaits() && (t.builtWaitingOn || '') === waits) {
         same = true; changed = t; throw NO_WRITE;
       }
       const earlier = t.builtAt ? (Array.isArray(t.builtWho) ? t.builtWho : []) : [];
@@ -1248,7 +1258,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   if (same) return { ok: true, task: changed, changed: false };
   taskchat.record(projectId, changed.number, { kind: 'built', by: who, ...(isPerson ? { person: true } : {}), ...(said ? { note: said } : {}) });
   /* kosmos#8307: `replaced` only when this mark replaced a file, so the notice can say so and reach its checkers. */
-  return { ok: true, task: changed, changed: true, ...(replacedNow ? { replaced: replacedNow } : {}) };
+  return { ok: true, task: changed, changed: true, ...(replacedNow ? { replaced: replacedNow } : {}), ...(waitsOnly ? { waitsOnly: true } : {}) };
 }
 
 /** Take the built mark off (the work turned out not to be done). A task with no mark records nothing. */
@@ -3280,7 +3290,7 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
   return out.slice(0, 3);
 }
 
-module.exports = { WAITING_ON /* kosmos#8934 */, ranOnRecord /* kosmos#8736 */, HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, setText /* kosmos#8664 */, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
+module.exports = { WAITING_ON /* kosmos#8934 */, WAITING_NONE, ranOnRecord /* kosmos#8736 */, HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, setText /* kosmos#8664 */, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   setDoneWhenCheck, setCheckResult, checkResultsOf, checkCounts, CHECK_HOW_MAX, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,

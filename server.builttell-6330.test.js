@@ -209,6 +209,18 @@ test('kosmos#8934: the typed line says what the mark waits on, and a mark withou
     assert.equal(typedPlain.length, 1, JSON.stringify(typedPlain));
     assert.match(typedPlain[0], new RegExp(`mona marked task ${m} built: "drafted" - reply in the task: `), 'CONTROL: the plain line changed: ' + typedPlain[0]);
     assert.doesNotMatch(typedPlain[0], /it is waiting on/, typedPlain[0]);
+    // Review 4: a mark that changes only what it waits on (the hint's advice) is typed to nobody.
+    sends.length = 0;
+    const only = await mark(m, asAgent('mona'), { note: 'drafted', waiting_on: 'release' });
+    assert.equal(only.status, 200, JSON.stringify(only.json));
+    assert.equal(only.json.changed, true);
+    assert.equal(tasks.byNumber(projects.readAll().find((x) => x.id === projectId), m).builtWaitingOn, 'release');
+    assert.deepEqual(pastedMessages(sends), [], 'a change of only the value was typed again');
+    assert.equal(only.json.delivered, undefined, JSON.stringify(only.json));
+    // CONTROL: a mark that changes the note is typed.
+    const noted = await mark(m, asAgent('mona'), { note: 'drafted and dated', waiting_on: 'release' });
+    assert.equal(noted.status, 200, JSON.stringify(noted.json));
+    assert.equal(pastedMessages(sends).length, 1, 'CONTROL: a new note was not typed: ' + JSON.stringify(pastedMessages(sends)));
   } finally {
     chat.resetForTests();
   }

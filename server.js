@@ -28001,7 +28001,8 @@ const server = http.createServer(async (req, res) => {
       /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to, through the
          task-message valve (AGENT_WORKFORCE_TASK_MSG_CAP, 0 = switched off). The mark is recorded by now, so nothing in
          here may fail it: every step after the mark answers 200. */
-      if (!viaScreen && body.clear !== true && out.changed === true) {
+      // kosmos#8934 review 4: a mark that changed only what it waits on is not new work, so nobody is told of it again.
+      if (!viaScreen && body.clear !== true && out.changed === true && out.waitsOnly !== true) {
         // tellBuiltMark can throw only before any line goes (each line's own step catches), so its throw alone is "nobody was told".
         let told = null;
         try {
@@ -28041,7 +28042,7 @@ const server = http.createServer(async (req, res) => {
       // buzz (push-only, Liu Kang's ruling: never email). Not when the person marks it from the screen
       // (viaScreen, by === null), not on a clear, and only when the mark actually changed. Never the
       // task's words; a tap opens the agent. phonenotify gates on the `ready` switch and a per-agent cooldown.
-      if (!viaScreen && body.clear !== true && out.changed && card) {
+      if (!viaScreen && body.clear !== true && out.changed && out.waitsOnly !== true && card) {   // kosmos#8934 review 4
         try {
           const pj = projects.get(id, roster);
           phonenotify.happened({ kind: 'ready', id: 'built:' + id + ':' + taskBuilt[2] + ':' + Date.now(),
@@ -28070,7 +28071,7 @@ const server = http.createServer(async (req, res) => {
       // sweep never sees). After the response, and (kosmos#7649) awaited on its own chain, so it never holds the event loop; the
       // mark is already recorded, and the per-task dedup book makes a second built mark on the same
       // task send none.
-      if (!viaScreen && body.clear !== true && out.changed && card) {
+      if (!viaScreen && body.clear !== true && out.changed && out.waitsOnly !== true && card) {   // kosmos#8934 review 4
         promptCommunityOnTaskDone({ projectId: id, taskNumber: taskBuilt[2], session: card.sessionName, name: card.name || card.sessionName, trigger: 'built', roster });
       }
     }).catch((err) => {

@@ -14,7 +14,9 @@ One optional, fixed field on the built mark: `builtWaitingOn`, one of `person`, 
 - engine/tasks.js `setBuilt(..., { waitingOn })`: validated against WAITING_ON (anything else refuses, nothing
   written); stored as `builtWaitingOn`; in BUILT_FIELDS, so a clear drops it. An agent's later mark without one keeps
   it, as a checker's mark keeps the fingerprint (review 2: the usual next mark is a checker's, and dropping it lost the
-  builder's "waiting on you"); a mark with one replaces it; the person's own mark drops it. Part of the "same mark
+  builder's "waiting on you"); a mark with one replaces it; `none` (review 4) drops it and keeps everything else,
+  since a clear also drops the commit and the check reports; the person's own mark drops it. A mark that changes only
+  this tells nobody again (review 4: the hint's advice would otherwise send every notice twice). Part of the "same mark
   again" comparison, so changing only what it waits on is a change.
 - server.js `POST /api/project/:id/task/:n/built`: `waiting_on` from an agent only; the screen sends none. The notice
   to the people the work goes to says what it waits on.
