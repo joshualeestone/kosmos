@@ -777,6 +777,19 @@ test('a first-try install is logged; an install that was already there is not', 
   assert.deepEqual(already, []);
 });
 
+/* kosmos#8928 slice 2: only two production places may hand the sweep its `orphans` (and so `live`): the Mac shim and the
+   Windows supervisor. Any other engine file that does would widen a destructive action past what CLAUDE.md rule 3's
+   exception covers, and this fails first. Source-asserted, like engine/platform-gate-wiring.test.js. */
+test('#8928 slice 2: only the Mac shim and the Windows supervisor pass orphans to launchConfig', () => {
+  const dir = __dirname;
+  const callers = fs.readdirSync(dir).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'))
+    .filter((f) => /\borphans\s*:\s*\{/.test(fs.readFileSync(path.join(dir, f), 'utf8')));   // the object a caller passes, not the word
+  assert.deepEqual(callers.sort(), ['agent-browser-config.js', 'win32supervisor.js']);
+  const sweepers = fs.readdirSync(dir).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'))
+    .filter((f) => /endOrphanedServers\(/.test(fs.readFileSync(path.join(dir, f), 'utf8')));
+  assert.deepEqual(sweepers, ['agentbrowser.js'], 'endOrphanedServers is called only from inside agentbrowser.js');
+});
+
 /* kosmos#8928 slice 2, end to end on a Mac with real processes: a stand-in "server" (a node script AT this sandbox's
    cli.js path, so it matches exactly) that starts its own stand-in "browser" child, orphaned by a parent that exits;
    the agent's next launch ends both. CONTROLS: a stand-in whose parent is alive, and one for another agent, survive
@@ -846,6 +859,8 @@ test('#8928 slice 2: an agent\'s launch ends its own orphaned server and its bro
   recorded.push(againChild);
   const env = Object.assign({}, process.env);
   delete env.NODE_TEST_CONTEXT; delete env.KOSMOS_TEST_RUN;
+  /* This run sends real signals: only the sandbox's runners folder (inherited here) keeps it to these stand-ins. */
+  assert.ok(env.AGENT_WORKFORCE_RUNNERS_DIR && ab.cliPath().startsWith(env.AGENT_WORKFORCE_RUNNERS_DIR), 'the shim would run outside this sandbox');
   fs.mkdirSync(ab.outputDir('t8928-e2e'), { recursive: true });   // the agent has had a session
   const shim = spawnSync(process.execPath, [path.join(__dirname, 'agent-browser-config.js'), 't8928-e2e'], { env, encoding: 'utf8', timeout: 30000 });
   assert.equal(shim.status, 0);
