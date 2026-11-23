@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: noticeid-8912
-diff_hash: 981bd4b80a8bf6804310b59d62962eba835fefc08735d958cb14482e8cdd9166
+diff_hash: 9e8dcce8ebc86655f5dfabc068bedee7afdc15eb6ed2e80f21b7388d694a6292
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-23T00:37:43Z
+timestamp: 2026-11-23T02:16:52Z
 iterations: 7
 converged: true
 ---
@@ -17,8 +17,10 @@ converged: true
 **Total findings:** 4 BLOCKERs, 9 WARNINGs, 0 CONVENTIONs, 24 NITs
 **Fixed:** 3 BLOCKERs, 8 WARNINGs (one BLOCKER-class item, the FIFO, counted with the BLOCKERs) | **Deferred:** 1 WARNING (re-raised once) | **Asked (awaiting user):** 0
 
-Stacked on cutnames-8912 (slice 1, PR #8914): the diff hash is origin/main...HEAD, so it covers both slices. Reviewers
-reviewed only a6d9787767..HEAD, slice 1 having its own proof.
+Rebased onto main after #8914 merged (0a8de2fffb): `git rebase --onto origin/main 1caa16952d`, clean; the code is
+byte for byte what was reviewed (the diff from the pre-rebase head b0bccdac00 is only main's own new files). The diff
+hash is now this slice alone. Re-validated at fbbeac3a9e, 19:52 to 20:16 CST: 30,634 tests, 0 failed, rc=0, hash
+9e8dcce8ebc8, equal to this proof's diff hash.
 
 Validation: the full suite through queued-heavy at 9503aa75a4, 18:12 to 18:37 CST: 30,634 tests, 0 failed, rc=0,
 validation-log hash 981bd4b80a8b, equal to this proof's diff hash. An earlier full run at 444bff504e was red on two
