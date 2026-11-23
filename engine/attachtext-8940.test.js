@@ -179,3 +179,17 @@ test('#8940: a cell holding only a line break reads as (blank) under a header, a
   assert.ok(got.includes('Row 2: Name: a | Note: (blank)'), got);
   assert.ok(got.includes('Blank under a header: Note in row 2.'), got);
 });
+
+test('#8940: a wide sheet of long whitespace-only cells under a header is read quickly and every cell counts as blank', () => {
+  const COLS = 64, ROWS = 300;
+  const colRef = (i) => { let r = ''; for (let k = i + 1; k > 0; k = Math.floor((k - 1) / 26)) r = String.fromCharCode(65 + ((k - 1) % 26)) + r; return r; };
+  const header = '<row r="1">' + Array.from({ length: COLS }, (_, i) => '<c r="' + colRef(i) + '1" t="inlineStr"><is><t>F' + i + '</t></is></c>').join('') + '</row>';
+  const pad = ' '.repeat(800);
+  const data = Array.from({ length: ROWS }, (_, r) => '<row r="' + (r + 2) + '"><c r="A' + (r + 2) + '"><v>' + r + '</v></c>'
+    + Array.from({ length: COLS - 1 }, (_, i) => '<c r="' + colRef(i + 1) + (r + 2) + '" t="inlineStr"><is><t xml:space="preserve">' + pad + '</t></is></c>').join('') + '</row>').join('');
+  const t0 = Date.now();
+  const got = at.xlsxText(book([{ name: 'W', xml: XML + '<worksheet><sheetData>' + header + data + '</sheetData></worksheet>' }]));
+  assert.ok(Date.now() - t0 < 5000, 'took ' + (Date.now() - t0) + ' ms');
+  assert.ok(got.body.split('\n')[2].startsWith('Blank under a header: F1 in rows 2, 3,'), got.body.split('\n')[2].slice(0, 80));
+  assert.ok(got.body.includes('F63 in rows 2, 3,') && got.body.includes('and 280 more'), 'every whitespace cell is a blank');
+});
