@@ -3,9 +3,9 @@
 /**
  * kosmos#8938: a company member's own Kosmos says it is the company's. This lifts the page's real functions and runs
  * them against a small fake page (no board):
- * - acctPolicyApply marks the providers the company's policy does not allow in Add a provider, restores exactly what
- *   it marked when the list changes, and never touches an option it did not mark (the Windows Qwen line, coming soon);
- * - plusOrgSees shows the what-your-company-sees line only when asked, and its words name no content.
+ * - acctPolicyNoteText says which AI providers a company's or family's policy allows, in the server's menu words;
+ * - plusOrgSees shows the what-your-company-sees line only when asked, and its words name no content as sent;
+ * - workOrgShow / workOrgPaint name the company on the setup welcome and in the You menu, a company only.
  */
 
 const fs = require('node:fs');
@@ -16,88 +16,36 @@ const page = require('./test-support/page');
 
 const HTML = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(HTML);
-const MAP = SCRIPT.match(/const ACCT_POLICY_ID = \{[^}]*\};/);
 const SEES = SCRIPT.match(/const PLUS_ORG_SEES = '[^\n]*';/);
 
-function optionsFrom(rows) {
-  return rows.map(([value, text, disabled, off]) => ({ value, textContent: text, disabled: !!disabled, selected: false, dataset: off === undefined ? {} : { off } }));
-}
-function picker(rows) {
-  const opts = optionsFrom(rows);
-  const sel = {
-    value: '',
-    querySelectorAll: () => opts,
-  };
-  Object.defineProperty(sel, 'value', { get() { const o = opts.find((x) => x.selected); return o ? o.value : ''; }, set(v) { for (const o of opts) o.selected = o.value === v; } });
-  const document = { getElementById: (id) => (id === 'acct-provider-pick' ? sel : null) };
-  const apply = new Function('document', MAP[0] + '\n' + page.lift(SCRIPT, 'acctPolicyApply') + '\nreturn acctPolicyApply;')(document);
-  return { opts, sel, apply };
-}
-const ROWS = [
-  ['', 'Choose a provider…'],
-  ['claude', 'Anthropic Claude'],
-  ['openai', 'OpenAI'],
-  ['google', 'Google Gemini'],
-  ['xai', 'xAI Grok'],
-  ['meta', 'Meta Muse · coming soon', true],
-  ['alibaba', 'Alibaba Qwen · coming to Windows', true, 'Coming to Windows'],
-  ['deepseek', 'DeepSeek · coming soon', true],
-];
-const byVal = (opts, v) => opts.find((o) => o.value === v);
+const noteText = new Function(page.lift(SCRIPT, 'acctPolicyNoteText') + '\nreturn acctPolicyNoteText;')();
 
 test('the lifted pieces exist (a rename here would make every assertion vacuous)', () => {
-  assert.ok(MAP, 'ACCT_POLICY_ID');
   assert.ok(SEES, 'PLUS_ORG_SEES');
   assert.match(SCRIPT, /acctPolicyMark\(\);\s+\/\/ kosmos#8938/, 'openAcctAdd calls acctPolicyMark');
+  assert.match(HTML, /<p class="rm-small" id="acct-add-in">[^\n]*<\/p>\n\s+<!-- kosmos#8938[^\n]*-->\n\s+<p class="rm-small" id="acct-policy-note" hidden><\/p>/, 'the note sits under the intro');
 });
 
-test('a company list marks every provider it leaves out, and only those', () => {
-  const { opts, apply } = picker(ROWS);
-  apply(['anthropic', 'openai']);
-  for (const v of ['claude', 'openai']) {
-    assert.equal(byVal(opts, v).disabled, false, v + ' stays offered');
-    assert.equal(byVal(opts, v).dataset.off, undefined, v);
+test('a company list is said in the menu words the server sends', () => {
+  const org = { name: 'Testville', kind: 'company' };
+  assert.equal(noteText({ enrolled: true, org, allowedProviderNames: ['Anthropic Claude', 'OpenAI'] }),
+    'Your company allows only Anthropic Claude and OpenAI for agents on this computer. Agents cannot use any other provider here.');
+  assert.equal(noteText({ enrolled: true, org, allowedProviderNames: ['Anthropic Claude'] }),
+    'Your company allows only Anthropic Claude for agents on this computer. Agents cannot use any other provider here.');
+  assert.equal(noteText({ enrolled: true, org, allowedProviderNames: ['Anthropic Claude', 'OpenAI', 'Google Gemini (Google subscription)'] }),
+    'Your company allows only Anthropic Claude, OpenAI and Google Gemini (Google subscription) for agents on this computer. Agents cannot use any other provider here.');
+  assert.equal(noteText({ enrolled: true, org, allowedProviderNames: [] }), 'Your company allows no AI provider for agents on this computer yet.');
+});
+
+test('a family is told about its family, never its company', () => {
+  assert.match(noteText({ enrolled: true, org: { name: 'The Smiths', kind: 'family' }, allowedProviderNames: ['OpenAI'] }), /^Your family allows only OpenAI /);
+});
+
+test('no list, not enrolled, no org or a malformed answer says nothing (CONTROL above says it)', () => {
+  const org = { name: 'Testville', kind: 'company' };
+  for (const j of [null, {}, { enrolled: true, org }, { enrolled: false, org, allowedProviderNames: ['OpenAI'] }, { enrolled: true, org: null, allowedProviderNames: ['OpenAI'] }, { enrolled: true, org, allowedProviderNames: 'OpenAI' }]) {
+    assert.equal(noteText(j), '', JSON.stringify(j));
   }
-  for (const v of ['google', 'xai', 'meta', 'alibaba']) {
-    assert.equal(byVal(opts, v).disabled, true, v + ' is disabled');
-    assert.match(byVal(opts, v).textContent, / · not allowed by your company$/, v);
-    assert.equal(byVal(opts, v).dataset.off, 'Not allowed by your company', v);
-  }
-  assert.equal(byVal(opts, 'google').textContent, 'Google Gemini · not allowed by your company');
-  assert.equal(byVal(opts, 'alibaba').textContent, 'Alibaba Qwen · not allowed by your company', 'one reason, not two');
-  assert.equal(byVal(opts, 'deepseek').textContent, 'DeepSeek · coming soon', 'a provider the policy has no id for is untouched');
-});
-
-test('no list (not a company, or not restricted) marks nothing', () => {
-  for (const allowed of [null, undefined]) {
-    const { opts, apply } = picker(ROWS);
-    apply(allowed);
-    assert.deepEqual(opts.map((o) => [o.textContent, o.disabled]), optionsFrom(ROWS).map((o) => [o.textContent, o.disabled]));
-  }
-});
-
-test('a wider list later restores exactly what was marked, words and disabled state included', () => {
-  const { opts, apply } = picker(ROWS);
-  apply(['anthropic']);
-  apply(null);
-  assert.deepEqual(opts.map((o) => [o.textContent, o.disabled, o.dataset.off]), optionsFrom(ROWS).map((o) => [o.textContent, o.disabled, o.dataset.off]));
-  assert.ok(opts.every((o) => o.dataset.policyOff === undefined && o.dataset.policyWas === undefined));
-});
-
-test('a selected provider the company does not allow is unselected', () => {
-  const { sel, apply } = picker(ROWS);
-  sel.value = 'xai';
-  apply(['anthropic']);
-  assert.equal(sel.value, '');
-});
-
-test('marking twice does not stack the words', () => {
-  const { opts, apply } = picker(ROWS);
-  apply(['anthropic']);
-  apply(['anthropic']);
-  assert.equal(byVal(opts, 'openai').textContent, 'OpenAI · not allowed by your company');
-  apply(null);
-  assert.equal(byVal(opts, 'openai').textContent, 'OpenAI');
 });
 
 test('what your company sees: shown only when asked, and it names no content as sent', () => {
@@ -106,7 +54,8 @@ test('what your company sees: shown only when asked, and it names no content as 
   const sees = new Function('document', SEES[0] + '\n' + page.lift(SCRIPT, 'plusOrgSees') + '\nreturn plusOrgSees;')(document);
   sees(true);
   assert.equal(el.hidden, false);
-  assert.match(el.textContent, /^Once a day your company sees: /);
+  assert.match(el.textContent, /^Your company sees: /);
+  assert.match(el.textContent, /It is sent once a day and when something changes\./);
   assert.match(el.textContent, /Your chats, files and keys are never in it\.$/);
   sees(false);
   assert.equal(el.hidden, true);
@@ -115,10 +64,10 @@ test('what your company sees: shown only when asked, and it names no content as 
 
 test('the line is in the joined view, right under the company sentence', () => {
   assert.match(HTML, /<p class="fhint" id="plus-org-say" tabindex="-1"><\/p>\n\s+<!-- kosmos#8938[^\n]*-->\n\s+<p class="fhint" id="plus-org-sees" hidden><\/p>/);
-  assert.match(SCRIPT, /plusOrgSees\(here && st\.org && st\.org\.kind !== 'family' && st\.wordsNeeded !== true\);/);
+  assert.match(SCRIPT, /plusOrgSees\(here && st\.org && st\.org\.kind !== 'family' && st\.reporting === true\);/);
 });
 
-test('/api/org sends providersAllowed to the screen only, and only while a list is in force', () => {
+test('/api/org sends allowedProviderNames to the screen only, only while a list is in force, by a pure read', () => {
   const server = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
   const start = server.indexOf("if (pathname === '/api/org' && (req.method === 'GET' || req.method === 'HEAD')) {");
   assert.ok(start > 0, 'the /api/org handler');
@@ -127,10 +76,19 @@ test('/api/org sends providersAllowed to the screen only, and only while a list 
   const gate = h.indexOf('if (!isViaScreen(req, {})) {');
   const agentAnswer = h.slice(gate, h.indexOf('return;', gate));
   assert.ok(gate > 0, 'the screen gate');
-  assert.doesNotMatch(agentAnswer, /providersAllowed/, 'an agent caller never gets the list');
-  assert.ok(h.indexOf('let providersAllowed = null;') > gate, 'the list is read after the screen gate');
-  assert.match(h, /\.\.\.\(providersAllowed \? \{ providersAllowed \} : \{\}\)/, 'sent only when there is a list');
-  assert.match(h, /here \? require\('\.\/engine\/orgpolicy'\)\.inForce\(\) : null/, 'read only while this Kosmos is enrolled');
+  assert.doesNotMatch(agentAnswer, /allowedProviderNames/, 'an agent caller never gets the list');
+  assert.ok(h.indexOf('let allowedProviderNames = null;') > gate, 'the list is read after the screen gate');
+  assert.match(h, /\.\.\.\(allowedProviderNames \? \{ allowedProviderNames \} : \{\}\)/, 'sent only when there is a list');
+  assert.match(h, /const pol = here \? op\.current\(\) : null;/, 'read only while enrolled, and by current(), which applies nothing');
+  assert.match(h, /\.map\(op\.providerName\)/, 'in the menus\u2019 words, the same ones a refusal uses');
+});
+
+test('the names come from orgpolicy.providerName, which tells the two Gemini rows apart', () => {
+  const op = require('./engine/orgpolicy');
+  assert.equal(op.providerName('anthropic'), 'Anthropic Claude');
+  assert.equal(op.providerName('google'), 'Google Gemini (API key)');
+  assert.equal(op.providerName('antigravity'), 'Google Gemini (Google subscription)');
+  assert.equal(op.providerName('deepseek'), 'DeepSeek');
 });
 
 function workOrg(answer) {

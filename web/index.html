@@ -15133,6 +15133,8 @@ window.kosmosMeasureScrollbarWidth();
   <div class="rm-box rm-box-form" id="acct-add-dialog" role="dialog" aria-modal="true" aria-labelledby="acct-add-t" aria-describedby="acct-add-in">
     <h2 class="rm-title" id="acct-add-t">Add a provider</h2>
     <p class="rm-small" id="acct-add-in">Pick which AI provider you want to connect. Anthropic Claude, OpenAI, Google Gemini, xAI Grok and Alibaba Qwen work today; the rest are listed so you can see what is coming.</p>
+    <!-- kosmos#8938: the AI providers a company's or family's policy allows (acctPolicyMark). -->
+    <p class="rm-small" id="acct-policy-note" hidden></p>
     <div class="field" id="acct-provider-field">
       <label class="flabel tk-lab" id="acct-provider-lab" for="acct-provider-pick">Provider</label>
       <!-- #770: "list all the others so people can see that they're
@@ -36106,38 +36108,29 @@ function openAcctAdd(ev) {
     sel.focus();
   }
 }
-/* kosmos#8938: on a company's work Kosmos, Add a provider marks the providers the company's policy does not allow
-   (/api/org providersAllowed, board ids; the picker says "claude" for anthropic) instead of letting the member connect
-   one that every agent create would then refuse (#5534). Only options this marked are ever restored, so the Windows
-   Qwen line and the coming-soon rows keep their own words. No list (not a company, or not restricted): nothing marked. */
-const ACCT_POLICY_ID = { claude: 'anthropic', openai: 'openai', google: 'google', xai: 'xai', alibaba: 'alibaba', meta: 'meta' };
-function acctPolicyApply(allowed) {
-  const sel = document.getElementById('acct-provider-pick');
-  if (!sel) return;
-  for (const opt of sel.querySelectorAll('option[value]')) {
-    const id = ACCT_POLICY_ID[opt.value];
-    if (!id) continue;
-    const off = Array.isArray(allowed) && !allowed.includes(id);
-    if (off && opt.dataset.policyOff !== '1') {
-      if (opt.selected) sel.value = '';
-      opt.dataset.policyOff = '1';
-      opt.dataset.policyWas = JSON.stringify({ text: opt.textContent, disabled: opt.disabled, off: opt.dataset.off === undefined ? null : opt.dataset.off });
-      opt.disabled = true;
-      opt.textContent = opt.textContent.split(' \u00b7 ')[0] + ' \u00b7 not allowed by your company';
-      opt.dataset.off = 'Not allowed by your company';
-    } else if (!off && opt.dataset.policyOff === '1') {
-      let was = null;
-      try { was = JSON.parse(opt.dataset.policyWas || 'null'); } catch { was = null; }
-      delete opt.dataset.policyOff; delete opt.dataset.policyWas;
-      if (was) {
-        opt.textContent = was.text; opt.disabled = was.disabled === true;
-        if (was.off === null) delete opt.dataset.off; else opt.dataset.off = was.off;
-      }
-    }
-  }
+/* kosmos#8938: on a company's or family's Kosmos whose policy limits the AI providers, Add a provider says which ones
+   it allows (/api/org allowedProviderNames, already in the menus' words), under the intro. Words only: the options
+   are left to the code that owns them (Meta Muse, the vendor switches, Windows Qwen), and agent create still refuses
+   a provider the policy does not allow (#5534). Hidden on every open until the read answers, and an answer for an
+   earlier open of the dialog is dropped. */
+function acctPolicyNoteText(j) {
+  if (!j || j.enrolled !== true || !j.org || !Array.isArray(j.allowedProviderNames)) return '';
+  const who = j.org.kind === 'family' ? 'Your family' : 'Your company';
+  const names = j.allowedProviderNames.filter((n) => typeof n === 'string' && n);
+  if (!names.length) return who + ' allows no AI provider for agents on this computer yet.';
+  const list = names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+  return who + ' allows only ' + list + ' for agents on this computer. Agents cannot use any other provider here.';
 }
 function acctPolicyMark() {
-  return fetch('/api/org').then((r) => r.json()).then((j) => acctPolicyApply(j && j.enrolled === true ? j.providersAllowed : null)).catch(() => {});
+  const el = document.getElementById('acct-policy-note');
+  if (!el) return Promise.resolve();
+  el.hidden = true; el.textContent = '';
+  const visit = ACCT_ADD_VISIT;
+  return fetch('/api/org').then((r) => r.json()).then((j) => {
+    if (visit !== ACCT_ADD_VISIT) return;
+    const t = acctPolicyNoteText(j);
+    el.textContent = t; el.hidden = !t;
+  }).catch(() => {});
 }
 function closeAcctAdd() {
   ACCT_ADD_VISIT += 1;   // #3939 slice 3c-2: a late answer from this visit acts on nothing
@@ -58320,16 +58313,16 @@ function plusOrgPaint() {
   if (here && st.wordsNeeded === true && PLUS_ORG.wordsRefused) document.getElementById('plus-org-say').textContent = 'This Kosmos still shows ' + (st.org.name || 'a family account') + ' on this computer, and it reports nothing to the family.';
   else if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words are not accepted on this computer, so it reports nothing until a parent or guardian reads and accepts them.' + (st.reportingRequired === true ? PLUS_ORG_REQUIRED_WAIT_FAMILY : '');   // kosmos#7586 review (Pete): the child card already says so
   else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') + plusOrgRequiredWait(st) : '') + plusOrgBackupLate(st) + plusOrgHandover(st));
-  plusOrgSees(here && st.org && st.org.kind !== 'family' && st.wordsNeeded !== true);   // kosmos#8938
+  plusOrgSees(here && st.org && st.org.kind !== 'family' && st.reporting === true);   // kosmos#8938: only while it reports
   plusOrgReviewers(here ? st : null);   // kosmos#6752
   plusOrgRecoveries(here ? st : null);   // kosmos#5536
   if (here) reviewerNoteSeenList(st);   // kosmos#6817: the list on screen counts as seen
   if (here) recoveryNoteSeenList(st);   // kosmos#5536: likewise
 }
-/* kosmos#8938: what a company member's computer sends its company, said on the member's own screen. The list follows
-   engine/orgrollup.js build() (names, provider and model, status, projects, last active, tokens and estimated cost) and
-   the blocked-or-flagged events (#5683); nothing in that body carries a chat, a file, a task's words or a key. */
-const PLUS_ORG_SEES = 'Once a day your company sees: your agents\u2019 names, the AI provider and model each one uses, and whether it is running; your projects\u2019 names and which agents are on them; when you were last active; tokens used and their estimated cost; and anything Kosmos blocked or flagged. Your chats, files and keys are never in it.';
+/* kosmos#8938: what a company member's computer reports, said on the member's own screen: the rollup
+   (engine/orgrollup.js build(), daily and on change) and the blocked-or-flagged events (#5683). Shown only while this
+   Kosmos reports (st.reporting), so it never sits under "asks it to report nothing" or a report still waiting. */
+const PLUS_ORG_SEES = 'Your company sees: your agents\u2019 names, the AI provider and model each one uses, and whether it is running; your projects\u2019 names, which agents are on them, and their token use; when you were last active; tokens used and their estimated cost; when your last backup ran; whether this computer follows the company\u2019s AI policy; and anything Kosmos blocked or flagged. It is sent once a day and when something changes. Your chats, files and keys are never in it.';
 function plusOrgSees(show) {
   const el = document.getElementById('plus-org-sees');
   if (!el) return;
