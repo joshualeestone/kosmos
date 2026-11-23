@@ -30,6 +30,7 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
     SCRIPT.match(/const STEPUP_RETURN_FOR = [^;]*;/)[0],
     SCRIPT.match(/const STEPUP_RETURN_FED_FOR = [^;]*;/)[0],
     SCRIPT.match(/const FEDINV_RETURN_LINE = [^;]*;/)[0],
+    SCRIPT.match(/let FEDINV_RETURN_READ = [^;]*;/)[0],
     lift(SCRIPT, 'noteFedInviteReturn'), lift(SCRIPT, 'noteStepUpReturn'), lift(SCRIPT, 'forgetStepUpReturn'),
     lift(SCRIPT, 'stepUpNoteShaped'), lift(SCRIPT, 'markStepUpReturnGoing'), lift(SCRIPT, 'peekStepUpReturn'),
     lift(SCRIPT, 'stepUpReturnBusy'), lift(SCRIPT, 'resumeStepUpReturn'), lift(SCRIPT, 'resumeFedInviteReturn'),
@@ -39,7 +40,7 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
   // PJ_LOADED_ONCE and PJ_CURRENT are read as globals by the page: given here as getters on `with`-free parameters.
   const wrapped = 'return (function () { ' + src + ' })();';
   const fns = new Function('sessionStorage', 'document', 'performance', 'setTimeout', 'fetch', 'ACCOUNTS', 'openAcctReauth', 'fedShow', 'pjById',
-    'openProject', 'fedInviteOpen', 'showTab', 'env',
+    'openProject', 'fedInviteOpen', 'showTab', 'loadProjects', 'env',
     'with (env) { ' + wrapped + ' }')(
     sessionStorage, document, performance, (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     () => { calls.push(['fetch']); return Promise.resolve({ ok: false }); }, [], () => calls.push(['reauth']),
@@ -47,6 +48,7 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
     (id) => { calls.push(['openProject', id]); if (!stayOff) state.current = id; },
     (opener, prefill) => { calls.push(['fedInviteOpen', opener, prefill]); els['fedinv-modal'].hidden = false; els['fedinv-msg'].textContent = ''; },
     (tab) => calls.push(['showTab', tab]),
+    () => { calls.push(['loadProjects']); },
     { get PJ_LOADED_ONCE() { return state.loaded; }, get PJ_CURRENT() { return state.current; } });
   return { ...fns, storage, calls, els, state, timers, performance };
 }
@@ -120,7 +122,7 @@ test('#8938 item 4: not ready yet (projects not read, inviting off, a dialog up)
     const p = page(setup);
     earlier(p);
     assert.equal(p.resumeFedInviteReturn(), false, 'did not wait for ' + JSON.stringify(setup));
-    assert.deepEqual(p.calls, []);
+    assert.deepEqual(p.calls.filter((c) => c[0] !== 'loadProjects'), [], 'acted before ready: ' + JSON.stringify(setup));
     assert.equal(p.storage.has(p.KEY), true, 'lost the note while ' + JSON.stringify(setup));
   }
   // The wait tries again on a timer, and acts once the page is ready.
@@ -131,7 +133,7 @@ test('#8938 item 4: not ready yet (projects not read, inviting off, a dialog up)
   assert.equal(p.timers[0].ms, 500);
   p.state.loaded = true;
   p.timers[0].fn();
-  assert.deepEqual(p.calls.map((c) => c[0]), ['showTab', 'openProject', 'fedInviteOpen']);
+  assert.deepEqual(p.calls.map((c) => c[0]).filter((c) => c !== 'loadProjects'), ['showTab', 'openProject', 'fedInviteOpen']);
   assert.equal(p.timers.length, 1, 'no further try after it acted');
   // It gives up after 60 tries, keeping the note.
   const never = page({ fed: false });
@@ -139,6 +141,21 @@ test('#8938 item 4: not ready yet (projects not read, inviting off, a dialog up)
   never.fedInviteReturnWait();
   while (never.timers.length) { const t = never.timers.shift(); t.fn(); if (never.timers.length > 100) break; }
   assert.equal(never.storage.has(never.KEY), true);
+});
+
+test('#8938 item 4: projects not read yet (the tab layout reads them only on Projects): the return asks for the read, once, and waits', async () => {
+  const p = page({ loaded: false });
+  earlier(p);
+  p.resumeFedInviteReturn();
+  p.resumeFedInviteReturn();
+  await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(p.calls, [['loadProjects']], 'asked for the read more than once, or opened before it landed');
+  // CONTROL: a dialog up asks for nothing (it waits whole).
+  const busy = page({ loaded: false, visible: ['firstrun'] });
+  earlier(busy);
+  busy.resumeFedInviteReturn();
+  await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(busy.calls, []);
 });
 
 test('#8938 item 4: a project no longer listed, or one that did not open, opens no sheet; the note goes', () => {

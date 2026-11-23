@@ -33033,10 +33033,18 @@ function resumeStepUpReturn(list = ACCOUNTS) {
    a project this board still lists opens (one that went, or is not this person's, opens nothing). True when nothing is
    left to wait for. The words claim no sign-in (as #8728 review 3): a log-out can fail and the person reload. */
 const FEDINV_RETURN_LINE = 'Your invitation is filled in again. Press Make an invite code.';
+let FEDINV_RETURN_READ = false;
 function resumeFedInviteReturn() {
   const n = peekStepUpReturn();
   if (!n || n.kind !== 'fed-invite') return true;
-  if (!PJ_LOADED_ONCE || !fedShow() || stepUpReturnBusy()) return false;
+  if (stepUpReturnBusy()) return false;
+  // In the tab layout the projects are read only when Projects is shown, and the page may load on another tab: the
+  // return asks for that read itself, once.
+  if (!PJ_LOADED_ONCE) {
+    if (!FEDINV_RETURN_READ) { FEDINV_RETURN_READ = true; Promise.resolve().then(() => loadProjects()).catch(() => { /* the next try sees it */ }); }
+    return false;
+  }
+  if (!fedShow()) return false;
   forgetStepUpReturn();
   if (!pjById(n.project)) return true;
   if (typeof showTab === 'function') showTab('projects');   // the page may have loaded on another tab
