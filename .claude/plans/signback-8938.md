@@ -43,8 +43,10 @@ opens nothing.
 - Known limits from review 7: (a) measured in the tab layout only; in the consolidated layout the board may auto-open
   its first project on the return's projects read, and the return then switches to the noted one. (b) Sign in again
   the logout way lets another Kosmos+ account sign in in the same tab within the 10 minutes; if it also lists the
-  project, it sees the first person's "Who is it for?" filled in. (c) On a phone a touch to scroll is a press, so it
-  ends the return (which usually acts within a second).
+  project, it sees the first person's "Who is it for?" filled in. (c) On a phone a touch to scroll is a press, and so is
+  a Tab key, so either ends the return (which usually acts within a second).
+- Decided, from review 8: with no email typed, focus stays on Make (as the expired row's "Make a new code"): Enter
+  there makes exactly the invitation the person asked for before the refusal.
 - Decided, from review 2: a page whose 3 projects reads all fail opens nothing (the note stays for a reload). That is
   today's behaviour, and more reads would poll a board that is not answering.
 - The words claim no sign-in (#8728 review 3: a log-out can fail and the person reload).
