@@ -47,12 +47,15 @@ test('#8935 Windows CLI: the same, through main()', async () => {
   const file = path.join(SANDBOX, 'win.json');
   const call = async (argv, session) => {
     const errs = [];
+    let code;
     // KOSMOS_AGENT_TOKEN is what a real Windows agent carries (no session name).
-    await cli.main(argv, { env: { KOSMOS_AGENT_TOKEN: session, KOSMOS_HOWHINT_FILE: file }, out: () => {}, err: (s) => errs.push(String(s)),
+    code = await cli.main(argv, { env: { KOSMOS_AGENT_TOKEN: session, KOSMOS_HOWHINT_FILE: file }, out: () => {}, err: (s) => errs.push(String(s)),
       fetch: async () => { throw new Error('reached the network'); } });
+    errs.code = code;
     return errs;
   };
   const first = await call(['claim', 'p'], 't8935-win');
+  assert.equal(first.code, 2, 'claim p is no longer a local usage error (it could reach the network)');
   assert.equal(first[0], POINTER, 'the first use did not name the guide first');
   assert.ok(!(await call(['claim', 'p'], 't8935-win')).some((s) => s.includes('First use of')), 'shown a second time');
   assert.ok(!(await call(['claim', 'p'], '')).some((s) => s.includes('First use of')), 'CONTROL: a person saw it');
