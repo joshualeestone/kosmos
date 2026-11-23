@@ -7,7 +7,7 @@ When an agent (re)launches, any Playwright MCP server still running from that SA
 Slice 1 (each server's `--output-dir` names its agent: `<tmp>/kosmos-agent-browser/<key>`).
 
 ## Match rule (all three, exact)
-1. The command line contains this install's `cli.js` path (cliPath()).
+1. The command line STARTS with the node binary that runs agents' servers (exactly; quoted or not), and this install's `cli.js` (cliPath()) is its script argument.
 2. It contains `--output-dir` followed by EXACTLY outputDir(agent) (whole argument, not a prefix: `mona` must not match `mona-lisa`).
 3. Its parent is gone: Mac, ppid 1 (reparented to launchd) or a ppid that no longer exists; Windows, ParentProcessId not alive (win32orphan.pidState === 'gone'; 'unknown' counts as alive, never kill on doubt), or a "parent" created after the server (a reused pid).
 
@@ -15,7 +15,7 @@ Slice 1 (each server's `--output-dir` names its agent: `<tmp>/kosmos-agent-brows
 Exact pids only (never pkill/pattern), force: an orphaned server serves no one, and one that outlived its session is likely hung, so SIGTERM may do nothing. Mac: its descendants deepest first, then the server, SIGKILL, each pid re-read just before it is ended and skipped unless it is still what was selected. Windows: one listing with creation times plans it (descendants created after their parent, then the server; never a tree kill: Windows keeps a dead parent's pid and reuses pids); one PowerShell (WIN_END, plan on stdin) re-reads each planned pid and Stop-Process -Force only if its creation time and command line still match exactly.
 
 ## Where
-`endOrphanedServers(agent, deps)` in engine/agentbrowser.js, called from launchConfig when an agent is named; never throws. Mac: inline (ps takes milliseconds). Windows: asynchronous, after the launch has gone ahead, without blocking the supervisor. Fails closed: with no ender handed in it acts only when its caller says `live` (the shim run as a program, on a Mac; the Windows supervisor only with an explicit endOrphans, off for real starts until measured), never in a test run. Each process ended is appended to playwright-mcp/ended-servers.log. Listing, re-check and ending are injectable.
+`endOrphanedServers(agent, deps)` in engine/agentbrowser.js, called from launchConfig when an agent is named; never throws. Mac: inline (ps takes milliseconds). Windows (off for real starts until measured): asynchronous, nothing waits on it, without blocking the supervisor. Fails closed: with no ender handed in it acts only when its caller says `live` (the shim run as a program, on a Mac; the Windows supervisor only with an explicit endOrphans, off for real starts until measured), never in a test run. Each process ended is appended to playwright-mcp/ended-servers.log. Listing, re-check and ending are injectable.
 
 ## Tests
 - Pure selection over a fixture process table: own orphan selected; own server with a live parent NOT; another agent's orphan NOT; a prefix-named agent (`mona` vs `mona-lisa`) NOT; a non-Playwright process with the same folder NOT; a different install's cli.js NOT.
@@ -100,3 +100,7 @@ Servers left by an earlier pinned version (another cli.js path) are not matched.
 ## Challenge loop iteration 10 (opus)
 - Measured by the reviewer on this Mac (read-only): every live Playwright MCP server is a direct child of its Claude process, and its interpreter is the runtime node that both the config and the sweep take from the supervisor's NODE_BIN. So on a Mac "parent gone" does mean the session is gone.
 - Fixed: the header still said a real Windows start turns it on (true before iteration 8); now it says only an explicit endOrphans does. The plan's "Where" said the same and is corrected. A comment now says the cli.js match, not only the test-run check, keeps tests away from real servers.
+
+## Challenge loop iteration 11 (sonnet)
+- Fixed: the plan's match rule 1 still said "contains" (iteration 8's edit never matched the backticked text), and "Where" did not say Windows is off. Both now match the code.
+- Deferred, as before: the Mac parent-gone premise (measured on this Mac in iteration 10), no sweep while the browser is off or not installed, the 2 s launch cap, the Windows boot path (needs Windows).
