@@ -1223,7 +1223,10 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       /* kosmos#8555: a remote's copy, once the board has seen it, is kept: a re-mark of the same commit by an agent whose
          checkout had not fetched it says "not on the remote", which is older news than the board's own check. */
       /* kosmos#8934 review 2: an agent's mark without a value keeps the one the task has; the person's mark drops it. */
-      waits = sent || (!isPerson && !dropWaits && t.builtAt && WAITING_ON.includes(t.builtWaitingOn) ? t.builtWaitingOn : '');
+      /* Review 8: another agent's mark on a task waiting on a review IS that review, so it does not keep `review` (which
+         would then say "waiting on a review" for work that now waits on the person). It keeps `person` and `release`. */
+      const reviewDone = t.builtWaitingOn === 'review' && who !== null && (t.builtBy || null) !== who;
+      waits = sent || (!isPerson && !dropWaits && !reviewDone && t.builtAt && WAITING_ON.includes(t.builtWaitingOn) ? t.builtWaitingOn : '');
       const landedOnRemoteNow = landed && (landed.onRemote || (t.landedOnRemote === true && t.landedCommit === landed.sha && t.landedRepo === landed.repo));
       /* Review 4: a mark that changes nothing but what it waits on (the hint's advice, followed) is a change, but not new
          work: the route does not tell anyone of it again. */

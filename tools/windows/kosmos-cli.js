@@ -133,7 +133,7 @@ const USAGE = {
     '  kosmos task files <project-id|--all>                         check each built task\'s delivered file again on this computer: matches, changed or missing',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
-    '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) and its path with the mark; another agent\'s mark keeps them, your own mark without --file drops them',
+    '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) and its path with the mark; another agent\'s mark keeps them, your own mark without --file drops them, unless it sends only --waiting',
     '      --waiting <who>                                          what it waits on: person, review or release (or none, to say it waits on nothing named)',
     '      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes',
     '  kosmos task edit <project-id> <task-number> [--title "<new title>"] [--detail "<new detail>" | --clear-detail]  fix a task\'s title or detail',
@@ -2226,7 +2226,8 @@ async function taskBuilt(ctx, args) {
     // kosmos#8934, as install/kosmos: the working rules have no room for it, so the option is named where the mark is made, last, after
     // what the mark sent.
     // Review 2: only when the task waits on nothing named and this mark changed it (not a repeat of the same mark).
-    if (!clear && !waiting && !wnow && r.json.changed !== false) ctx.out('To show the person what it waits on, mark it with --waiting person, review or release (kosmos task --how).');
+    // Review 8: and only to a board that says it keeps --waiting (an older one would drop the note on the advice).
+    if (!clear && !waiting && !wnow && r.json.changed !== false && r.json.waitingKnown === true) ctx.out('To show the person what it waits on, mark it with --waiting person, review or release (kosmos task --how).');
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not mark that task: ' + ctx.refusedBy(r) + '.'); return 1; }

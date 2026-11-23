@@ -179,6 +179,23 @@ test('engine: the sender\'s correction keeps the file; a checker\'s --waiting bo
   assert.equal('builtNote' in stored(k), false, 'a mark with a commit borrowed the old note');
 });
 
+/* Review 8: a review wait ends when another agent marks the task (that mark is the review); the builder's own re-mark
+   keeps it, and person and release are kept through another agent's mark. */
+test('engine: another agent\'s mark ends a review wait; the builder\'s own keeps it; person and release survive another agent', () => {
+  const n = newTask('Deliver the copy');
+  tasks.setBuilt(projectId, n, { by: 'mona', note: 'copy drafted', waitingOn: 'review' });
+  tasks.setBuilt(projectId, n, { by: 'mona', note: 'copy drafted, typo fixed' });
+  assert.equal(stored(n).builtWaitingOn, 'review', 'CONTROL: the builder\'s own re-mark dropped the review wait');
+  tasks.setBuilt(projectId, n, { by: 'zed', note: 'checked, good' });
+  assert.equal('builtWaitingOn' in stored(n), false, 'the reviewer\'s mark left it waiting on a review');
+  for (const w of ['person', 'release']) {
+    const m = newTask('Deliver the ' + w + ' copy');
+    tasks.setBuilt(projectId, m, { by: 'mona', note: 'drafted', waitingOn: w });
+    tasks.setBuilt(projectId, m, { by: 'zed', note: 'checked' });
+    assert.equal(stored(m).builtWaitingOn, w, 'another agent\'s mark dropped ' + w);
+  }
+});
+
 test('route: an agent\'s mark records it; a bad value answers 400 and marks nothing; the screen\'s mark ignores one', async () => {
   const n = newTask('Ship the page');
   const r = await post(`/api/project/${projectId}/task/${n}/built`, { note: 'shipped', waiting_on: 'release' }, asAgent('mona'));
@@ -248,13 +265,15 @@ test('the built route\'s phone notice is guarded by waitsOnly', () => {
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const at = src.indexOf("phonenotify.happened({ kind: 'ready', id: 'built:'");
   assert.notEqual(at, -1, 'PRE-CONTROL: the built phone notice is not where this looks');
-  const guard = src.lastIndexOf('if (!viaScreen && body.clear !== true && out.changed && out.waitsOnly !== true && card) {', at);
+  const guard = src.lastIndexOf("if (!viaScreen && body.clear !== true && out.changed && out.waitsOnly !== true && !['review', 'release'].includes(out.task && out.task.builtWaitingOn) && card) {", at);
   assert.ok(guard !== -1 && at - guard < 400, 'the built phone notice is not guarded by out.waitsOnly !== true');
 });
 
 test('kosmos task --how says when to use each value', () => {
   const g = taskguide.guideText();
-  for (const w of ['--waiting person', '--waiting review', '--waiting release']) assert.ok(g.includes(w), w);
+  // Review 8: and the parts that took the most rounds: none, and the exact form of a correction and when it works.
+  for (const w of ['--waiting person', '--waiting review', '--waiting release', '`--waiting none` says it waits on nothing named',
+    'while yours is still the latest mark', 'that keeps your note and your file', 'a mark of yours is a new one']) assert.ok(g.replace(/',\n  '/g, ' ').includes(w) || g.replace(/\n/g, ' ').includes(w), w);
 });
 
 const MAC_HOME = path.join(SANDBOX, 'kosmos-home');
@@ -369,7 +388,7 @@ async function startOlder() {
       try {
         const r = await fetch(base + req.url, { method: req.method, headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : Buffer.concat(chunks) });
         let text = await r.text();
-        try { const j = JSON.parse(text); if (j && j.task) delete j.task.builtWaitingOn; text = JSON.stringify(j); } catch { /* not JSON: as sent */ }
+        try { const j = JSON.parse(text); if (j && j.task) delete j.task.builtWaitingOn; if (j) delete j.waitingKnown; text = JSON.stringify(j); } catch { /* not JSON: as sent */ }
         res.writeHead(r.status, { 'content-type': r.headers.get('content-type') || 'application/json' });
         res.end(text);
       } catch (e) { res.writeHead(502, { 'content-type': 'text/plain' }); res.end('proxy: ' + e.message); }
@@ -405,6 +424,12 @@ test('review 1: against an older board, both CLIs say it was not recorded, and t
     assert.doesNotMatch(r.out, /waiting on a release/, name + ': it claimed what the board did not say: ' + r.out);
     assert.match(r.out, /This Kosmos did not record what it waits on: it may be older than --waiting/, name + ': ' + r.out);
     assert.doesNotMatch(r.out, /--waiting person, review or release \(kosmos task --how\)/, name + ': the hint was given to a mark that sent --waiting: ' + r.out);
+    // Review 8: a plain mark is not given the hint either, by a board that does not say it keeps --waiting (the advice
+    // would make it drop the note). CONTROL: the same plain mark against this board names it (the earlier test).
+    const p = newTask(name + ' older plain');
+    const plain = await run(['task', 'built', projectId, String(p), 'done']);
+    assert.equal(plain.code, 0, name + ': ' + plain.out);
+    assert.doesNotMatch(plain.out, /--waiting person, review or release \(kosmos task --how\)/, name + ': the hint was given against an older board: ' + plain.out);
   }
   } finally { olderServer.close(); }
 });

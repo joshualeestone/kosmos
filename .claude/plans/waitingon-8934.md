@@ -17,23 +17,27 @@ engine/tasks.js `setBuilt(..., { waitingOn })`, every rule:
 - In BUILT_FIELDS, so a clear and a close drop it.
 - An agent's later mark without a value keeps it, as a checker's mark keeps the fingerprint (review 2: the usual next
   mark is a checker's). A mark with a value replaces it. `none` drops it and keeps the rest of the mark (review 4: a
-  clear also drops the commit and the check reports). The person's own mark drops it.
-- A CORRECTION of the wait (review 5 and 6): a mark by the agent whose mark it is, sending only `--waiting` or `none`,
-  with no note and no file. It keeps that agent's note and file (the file is not counted as checked by its own
+  clear also drops the commit and the check reports). The person's own mark drops it. Review 8: another agent's mark
+  on a task waiting on a review IS that review, so it does not keep `review` (it keeps `person` and `release`).
+- A CORRECTION of the wait (review 5, 6 and 7): a mark by the agent whose mark it is, sending only `--waiting` or
+  `none`, with no note, no file and no commit. It keeps that agent's note and file (the file is not counted as checked by its own
   sender), keeps the mark's time, and writes no second "marked it built" history line. A checker's `--waiting` is not
   a correction, so it never borrows the builder's note.
 - `waitsOnly`: a mark that changes nothing but the value. It shares one condition with the "same mark again" test
   (sameButWaits, evaluated once). The route then sends no typed notice, no phone notice and no community prompt. The
   built-marks valve still counts it, so a looping corrector is throttled.
 
-server.js `POST /api/project/:id/task/:n/built`: `waiting_on` from an agent only; the screen sends none. The notice to
+server.js `POST /api/project/:id/task/:n/built`: `waiting_on` from an agent only; the screen sends none. Review 8: no
+phone "ready" notice for a mark that says it waits on a review or a release (the notice says "waiting for your
+check"), and the answer carries `waitingKnown: true`, so a CLI names --waiting only to a board that keeps it. The notice to
 the people the work goes to says what it waits on, a fixed phrase from an own-property table.
 
 install/kosmos and tools/windows/kosmos-cli.js: `kosmos task built ... --waiting person|review|release|none`, checked
 before the board in the same order in both (an unknown value as it is read, a missing value after --file and
 --commit, --clear takes none). The confirmation says the value the board answered with (sent now or kept), and says
 when an older board did not record it (never for `none`). After a mark that changed something on a task that waits on
-nothing named, a last line names --waiting, since the working rules have no room for it. `--waiting` has its own help
+nothing named, a last line names --waiting, since the working rules have no room for it, and only when the board's
+answer says waitingKnown (review 8: against an older board, the advice would drop the note). `--waiting` has its own help
 line under `task built`. The `[built]` list tag names the value.
 
 engine/tasklist.js (what agents read): State and Built say "waiting on the person / a review / a release", a held
@@ -58,6 +62,11 @@ exact form of a correction. The working rules are size-budgeted (kosmos#8735), s
 - The Built group's explanation on the Tasks page still says "waiting to be released or checked", true as the default.
 - No new count: projectview's "N waiting on the person" counts members with a question, a different thing (#8917).
 - A built task waiting on the person stays in the Built group; it is not moved to Needs Your Decision.
+
+## Review
+Eight blind rounds (opus, sonnet, fable in turn), the cap. Round 3 raised the only BLOCKER (the browser check's plain
+mark had become the same mark again), measured red before its fix and green after. Round 8 raised three WARNINGs and
+no BLOCKER; they are fixed in the last commit, each red under a mutant, with no blind round after them.
 
 ## Weakest premise
 That three values cover what agents mean ("waiting on another agent's work" is not among them; free text still goes in
