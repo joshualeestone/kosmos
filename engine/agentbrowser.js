@@ -303,7 +303,38 @@ function parseTable(out, windows) {
       ? { pid: Number(m[1]), ppid: Number(m[2]), created: /^\d{14}\.\d{6}$/.test(m[3]) ? m[3] : '', command: m[4] }
       : { pid: Number(m[1]), ppid: Number(m[2]), command: m[3] }));
 }
-const WIN_TABLE = 'Get-CimInstance Win32_Process | ForEach-Object { $c = if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString(\'yyyyMMddHHmmss.ffffff\') } else { \'0\' }; "$($_.ProcessId) $($_.ParentProcessId) $c $($_.CommandLine)" } | Out-String -Width 32767';
+/* The Windows scripts. Each runs as -EncodedCommand (base64 UTF-16LE), so no quoting between Node and PowerShell can
+   break it; output is UTF-8, so a non-English name or temp path still matches; times are UTC in the invariant culture,
+   so the listing and the ender always spell them the same way. */
+const WIN_PRELUDE = '[Console]::OutputEncoding = [Text.Encoding]::UTF8; [Console]::InputEncoding = [Text.Encoding]::UTF8; $ic = [Globalization.CultureInfo]::InvariantCulture';
+const WIN_TABLE = WIN_PRELUDE + '\n' + 'Get-CimInstance Win32_Process | ForEach-Object { $c = if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString(\'yyyyMMddHHmmss.ffffff\', $ic) } else { \'0\' }; "$($_.ProcessId) $($_.ParentProcessId) $c $($_.CommandLine)" } | Out-String -Width 32767';
+const WIN_END = WIN_PRELUDE + '\n' + [
+  '$plan = [Console]::In.ReadToEnd() | ConvertFrom-Json',   // the plan arrives on stdin: no length limit
+  'foreach ($s in @($plan)) {',
+  '  $p = Get-CimInstance Win32_Process -Filter ("ProcessId=" + [int]$s.pid)',
+  '  if (-not $p -or -not $p.CreationDate) { continue }',
+  "  $c = $p.CreationDate.ToUniversalTime().ToString('yyyyMMddHHmmss.ffffff', $ic)",
+  '  if ($c -cne $s.created -or $p.CommandLine -cne $s.command) { continue }',
+  '  try { Stop-Process -Id ([int]$s.pid) -Force -ErrorAction Stop; "ended $($s.pid)" } catch { "failed $($s.pid) $($_.Exception.Message)" }',
+  '}',
+].join('\n');
+function psArgs(script) { return ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')]; }
+/* Run one PowerShell script, optionally feeding it stdin; resolves stdout, rejects on a failed start or a non-zero exit. */
+function runPs(script, input, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const { spawn } = require('node:child_process');
+    let out = '';
+    let err = '';
+    const child = spawn('powershell.exe', psArgs(script), { windowsHide: true });
+    const timer = setTimeout(() => { try { child.kill(); } catch { /* gone */ } reject(new Error('timed out')); }, timeoutMs || 15000);
+    child.stdout.on('data', (b) => { out += b; });
+    child.stderr.on('data', (b) => { err += b; });
+    child.on('error', (e) => { clearTimeout(timer); reject(e); });
+    child.on('close', (code) => { clearTimeout(timer); if (code === 0) resolve(out); else reject(new Error('exit ' + code + ' ' + err.slice(0, 200))); });
+    child.stdin.on('error', () => { /* it exited early; close reports why */ });
+    child.stdin.end(input || '');
+  });
+}
 function macTable(pids, onFail, timeout) {
   try {
     const args = pids ? ['-ww', '-o', 'pid=,ppid=,command=', '-p', pids.join(',')] : ['-axww', '-o', 'pid=,ppid=,command='];
@@ -311,19 +342,9 @@ function macTable(pids, onFail, timeout) {
   } catch (e) { if (onFail) onFail(e); return []; }
 }
 async function winTable(onFail) {
-  try { return parseTable(await execP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WIN_TABLE], { timeout: 15000, windowsHide: true, maxBuffer: 32 * 1024 * 1024 }), true); }
+  try { return parseTable(await runPs(WIN_TABLE, '', 15000), true); }
   catch (e) { if (onFail) onFail(e); return []; }
 }
-const WIN_END = [
-  '$plan = $env:KOSMOS_ORPHAN_PLAN | ConvertFrom-Json',
-  'foreach ($s in @($plan)) {',
-  '  $p = Get-CimInstance Win32_Process -Filter ("ProcessId=" + [int]$s.pid)',
-  '  if (-not $p -or -not $p.CreationDate) { continue }',
-  "  $c = $p.CreationDate.ToUniversalTime().ToString('yyyyMMddHHmmss.ffffff')",
-  '  if ($c -ne $s.created -or $p.CommandLine -ne $s.command) { continue }',
-  '  try { Stop-Process -Id ([int]$s.pid) -Force -ErrorAction Stop; "ended $($s.pid)" } catch { }',
-  '}',
-].join('; ');
 /* The Mac ender. Windows ends through WIN_END above, which re-reads each pid in the same call. */
 function defaultEnd(platform) {
   return platform === 'win32' ? null : (pid) => process.kill(pid, 'SIGKILL');
@@ -401,8 +422,9 @@ function endOrphanedServers(agent, deps) {
       }
       if (!steps.length) return ended;
       const planJson = JSON.stringify(steps.map(({ p }) => ({ pid: p.pid, created: p.created, command: p.command })));
-      const out = await execP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WIN_END],
-        { timeout: 30000, windowsHide: true, env: Object.assign({}, process.env, { KOSMOS_ORPHAN_PLAN: planJson }) });
+      let out = '';
+      try { out = await runPs(WIN_END, planJson, 30000); } catch (e) { note(agentKey(agent) + ' could not end processes: ' + String((e && e.message) || e).slice(0, 200)); return ended; }
+      for (const m of String(out).matchAll(/^failed (\d+) (.*)$/gm)) note(agentKey(agent) + ' could not end pid ' + m[1] + ': ' + m[2].slice(0, 200));
       for (const m of String(out || '').matchAll(/^ended (\d+)\s*$/gm)) {
         const pid = Number(m[1]);
         ended.push(pid);
@@ -760,6 +782,6 @@ function installWithRetry(opts) {
 module.exports = {
   inKtRunRoot,   // kosmos#8929
   PIN, SHELL, SERVER_NAME, configFor, launchConfig, ensureInstalled, ensureShell, kickInstall, isInstalled,
-  installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir, agentKey, orphanedServers, endingOrder, endOrphanedServers, defaultEnd, parseTable, WIN_END,
+  installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir, agentKey, orphanedServers, endingOrder, endOrphanedServers, defaultEnd, parseTable, WIN_END, WIN_TABLE, psArgs,
   optOutPath, lockPath, disabled,
 };
