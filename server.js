@@ -28042,7 +28042,9 @@ const server = http.createServer(async (req, res) => {
       // buzz (push-only, Liu Kang's ruling: never email). Not when the person marks it from the screen
       // (viaScreen, by === null), not on a clear, and only when the mark actually changed. Never the
       // task's words; a tap opens the agent. phonenotify gates on the `ready` switch and a per-agent cooldown.
-      if (!viaScreen && body.clear !== true && out.changed && out.waitsOnly !== true && card) {   // kosmos#8934 review 4
+      // kosmos#8934 review 4, and review 8: not for work the mark says waits on a review or a release, which is not
+      // waiting for the person's check (the notice's own words).
+      if (!viaScreen && body.clear !== true && out.changed && out.waitsOnly !== true && !['review', 'release'].includes(out.task && out.task.builtWaitingOn) && card) {
         try {
           const pj = projects.get(id, roster);
           phonenotify.happened({ kind: 'ready', id: 'built:' + id + ':' + taskBuilt[2] + ':' + Date.now(),
@@ -28066,7 +28068,8 @@ const server = http.createServer(async (req, res) => {
       // (A copy, made here so the answer below stays written as server.communitytaskdone-5313.test.js finds it.)
       if (viaScreen) out.task = pageTask(out.task);   // kosmos#8318: the repository path too
       // Review 6: the summary goes whenever there is one (the withdrawal sentence must not hang on `delivered` being set); still the last key.
-      sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(stillToFinish ? { stillToFinish } : {}), ...(delivered ? { delivered } : {}), ...(summary ? { summary } : {}) });
+      // kosmos#8934 review 8: waitingKnown tells a CLI this board keeps --waiting, so it names the option only to one that does.
+      sendJson(res, 200, { task: out.task, changed: out.changed === true, waitingKnown: true, ...(stillToFinish ? { stillToFinish } : {}), ...(delivered ? { delivered } : {}), ...(summary ? { summary } : {}) });
       // #5313: the same agent, between tasks, gets one community prompt (reaches busy agents the idle
       // sweep never sees). After the response, and (kosmos#7649) awaited on its own chain, so it never holds the event loop; the
       // mark is already recorded, and the per-task dedup book makes a second built mark on the same
