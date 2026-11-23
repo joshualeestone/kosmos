@@ -127,3 +127,8 @@ Servers left by an earlier pinned version (another cli.js path) are not matched.
 - Fixed: the e2e test asserts the sandbox runners folder survived its env copy before the shim (which sends real signals) runs.
 - Fixed: endOrphansFor and browserFor moved back above main()'s doc comment.
 - Deferred (as before): the Mac parent-gone premise.
+
+## Challenge loop iteration 16 (opus): converged
+- Deferred, decided: Chrome could respawn a GPU helper in the milliseconds between ending a helper and ending the browser, leaving it reparented to pid 1 with nothing naming its agent. Reasoned, not measured; the safe direction (a small leak, never a wrong kill). Rejected: ending parents first, which would leave every already-listed child unmatched once its parent dies (its ppid becomes 1). What would change this: an ended-servers.log on a real Mac showing helpers left behind after a sweep.
+- Deferred (same as earlier NITs): a direct `node --test` of the file makes and removes test-named output folders in the real temp folder, and removes the shared parent only when empty.
+- No new actionable finding: converged.
