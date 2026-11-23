@@ -68,3 +68,6 @@ That agents read a command's stderr. Claude Code shows it with the output; a run
 - Fixed (NIT): the Windows CLI test checks post --how exits 0 and reads the record: both launches are keyed by a hash of the token, reading the guide is recorded as seen, and no token is written down.
 - Checked, no change: every `kosmos report` call in the report hook is bare or carries --auto as a whole argument; the Windows hook posts to the API and never calls the CLI; tools/windows-tests.js lists both files.
 - Not done (NIT): a test that runs the shell's own --auto short-circuit. node's classify makes the same decision, so a broken shell loop costs only speed, never a wrong pointer.
+
+## Challenge loop iteration 9 (sonnet): converged
+- No new findings over the whole diff, code and tests. The reviewer confirmed each new guard-half case can fail only through its own half, and the control rules out every other guard.
