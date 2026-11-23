@@ -24,7 +24,7 @@ That the agent name ($SESSION on a Mac, the spec name on Windows) is stable acro
 ## Evidence (first build; later counts are in the iteration notes)
 - run-tests --only engine/agentbrowser.test.js: 34/34. tools/test-supervisor-agentbrowser-3633.sh: passes, including the two new checks (the config is agents/ab-3633.json; its --output-dir names ab-3633).
 - Mutations, each red: the supervisor no longer passes "$SESSION" (both new shell checks FAIL); the name sanitizing removed ("../../escape" leaves the agents folder).
-- Not tested end to end: the Windows default (win32supervisor passes spec.name); win32supervisor.test.js injects agentBrowser, so the default is not reached there.
+- (First build only: the Windows default was untested then; iteration 2 added the main() test.)
 
 ## Challenge loop iteration 1 (sonnet)
 - Fixed: two agents could share one file (names that clean to the same text, or differ only by case on a case-insensitive disk). The key is now lowercase, at most 48 characters, never ends in a dot, and gets an 8-character hash of the original name whenever cleaning changed it. An ordinary lowercase name (mona-lisa) is used as it is.
@@ -46,3 +46,8 @@ That the agent name ($SESSION on a Mac, the spec name on Windows) is stable acro
 - Deferred: the key changing if an agent's name changes between launches (slice 2 depends on stable names; on a Mac it is the session name, on Windows the spec name, and the two never meet on one machine).
 - Deferred (as iteration 2): per-agent files and folders of deleted agents are not removed.
 - Follow-on from making the folder: the unit test removes the output folders it makes (the runner's leak guard caught kosmos-agent-browser left in the run root), and tools/test-supervisor-agentbrowser-3633.sh gives its supervisor a TMPDIR inside its own sandbox; run under a fresh empty TMPDIR it leaves nothing behind.
+
+## Challenge loop iteration 4 (opus)
+- Fixed: a failure making the agent's output folder (a file in the way, a full or read-only disk) no longer costs the browser: it has its own catch.
+- Fixed: the unit test's cleanup removed the whole shared output folder, which in a direct `node --test` run is the real temp folder holding live agents' output folders. It now removes only the two folders it makes, under test-only names (t8928-alpha, t8928-beta).
+- Fixed: crypto required at the top; the comment says the base is cut to 48; the supervisor test's comment says the temp folder applies to the whole run; a stale plan line.
