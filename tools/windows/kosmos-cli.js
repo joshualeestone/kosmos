@@ -109,6 +109,7 @@ const USAGE = {
     'Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|files|built|done-when|check|hold|unhold|repeat|ran|told|wake|edit>',
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
     '  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each',
+    '  kosmos task list --all --state open|built|held               the same, named as a project\'s list names them',
     '  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first',
     '  kosmos task list --mine [--blocked|--built|--stale [<days>]]  open (or blocked, built, stale) tasks you hold, in every project you are on',
     '  kosmos task list <project-id> --mine [--blocked|--built|--stale [<days>]]  the same, in that one project',
@@ -1406,6 +1407,14 @@ async function taskListAcross(ctx, args) {
   if (mine && !ctx.agentToken()) {
     ctx.err("--mine lists an agent's own tasks, so it needs an agent's token (run it from an agent's session)."); return 2;
   }
+  /* kosmos#8917, as install/kosmos: `--all --state open|built|held` is the per-project form's spelling of --open, --built
+     and --blocked, read here as those; done is not an --all group, so it says where a project's done tasks are. */
+  if (args[0] === '--all' && args[1] === '--state') {
+    const as = { open: '--open', built: '--built', held: '--blocked' }[args[2]];
+    if (args[2] === 'done') { ctx.err('--all lists the work still to be closed in every project, so it has no done group. A project\'s done tasks: kosmos task list <project-id> --state done'); return 2; }
+    if (!as) { ctx.err('--state after --all takes one of: open, built, held.'); return 2; }
+    args = ['--all', as, ...args.slice(3)];
+  }
   if (args[0] === '--all') {
     const f = args[1];
     if (f === undefined || f === '--open' || f === '--blocked' || f === '--built') {
@@ -1416,7 +1425,7 @@ async function taskListAcross(ctx, args) {
       if (days === null) { ctx.err(STALE_DAYS_WORDS); return 2; }
       if (args.length > 3) { ctx.err('--stale takes one number of days at most: kosmos task list ' + form + ' --stale [<days>]'); return 2; }
       flag = 'stale';
-    } else { ctx.err('After ' + form + ': nothing (open tasks), --blocked, --built, or --stale [<days>].'); return 2; }
+    } else { ctx.err('After ' + form + ': nothing (open tasks), --blocked, --built, --state open|built|held, or --stale [<days>].'); return 2; }
   } else {
     project = args[0];
     days = staleDays(args[2]);

@@ -132,10 +132,18 @@ function familyOf(runner, sessionName) {
   return provider === 'anthropic' ? 'Claude' : create.providerLabel(provider);
 }
 
-function openTasks(tasks) {
+/* `open` here is every task not yet closed, which callers inside this file still mean. kosmos#8917 (feedback): `project
+   show` printed that count as "N open", while `kosmos task list --state open` excludes built and held tasks, so
+   "no open tasks" from one meant nearly the opposite of the other. `groups` is the task list's own four groups (open,
+   built, held, done), counted by its own rule (tasks.listGroup, a paused project's tasks held as the list holds
+   them), so each number the summary prints is what `kosmos task list <id> --state <group>` lists. */
+function openTasks(tasks, paused = false) {
   const list = Array.isArray(tasks) ? tasks : [];
   const open = list.filter((t) => t && !(t.progress && t.progress.closed));
-  return { total: list.length, open: open.length, built: open.filter((t) => t.builtAt).length };
+  const { listGroup } = require('./tasks');
+  const groups = { open: 0, built: 0, held: 0, done: 0 };
+  for (const t of list) { if (t) groups[listGroup(paused ? { ...t, projectPaused: true } : t)] += 1; }
+  return { total: list.length, open: open.length, built: open.filter((t) => t.builtAt).length, groups };
 }
 
 /* #4581 N10 (0.7.15 diagnostic, a Claude agent): "freshness counts idle overnight hours, so a quiet night marks three of
@@ -501,7 +509,7 @@ function overviewOf(p, roster, o) {
     briefBytes: brief.found !== true && brief.why === 'too_large' && Number.isFinite(brief.size) ? brief.size : null,
     briefLimit: BRIEF_LIMIT,
     members,
-    tasks: openTasks(p.tasks),
+    tasks: openTasks(p.tasks, p.paused === true),
     records: recordsSummary(p.id),
   };
 }
@@ -538,7 +546,7 @@ function listOf(described) {
         // Review 7: a paused project does not drop a question about ANOTHER project ('elsewhere'): that one still waits.
         && !(m.needsYouQuiet && (m.needsYouQuiet.because === 'dismissed'
           || (m.needsYouQuiet.because === 'paused' && m.needsYouQuiet.reason !== 'elsewhere')))).length,
-      tasks: openTasks(p.tasks),
+      tasks: openTasks(p.tasks, p.paused === true),
     };
   });
 }
@@ -587,6 +595,13 @@ function taskLine(t) {
   /* Numbers only (round 4): a board answer's counts can never print text of their own. */
   const n = (x) => Math.max(0, Math.floor(Number(x) || 0));
   if (!t || !n(t.total)) return 'no tasks yet';
+  /* kosmos#8917: the task list's own groups, in its order, by its words, so "2 open" here is what `kosmos task list
+     --state open` lists (built and held are no longer counted as open). Groups with none are left out; "open" always
+     shows, so a project with nothing left to start says "0 open". An older board sends no groups: the old words. */
+  const g = t.groups;
+  if (g && typeof g === 'object') {
+    return [n(g.open) + ' open'].concat(n(g.built) ? [n(g.built) + ' built'] : [], n(g.held) ? [n(g.held) + ' on hold'] : [], n(g.done) ? [n(g.done) + ' done'] : []).join(', ');
+  }
   return n(t.open) + ' open' + (n(t.built) ? ' (' + n(t.built) + ' built)' : '') + ', ' + (n(t.total) - n(t.open)) + ' done';
 }
 

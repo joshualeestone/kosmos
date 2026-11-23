@@ -93,7 +93,8 @@ const opts = (brief) => ({ now: NOW, folderOf: (n) => FOLDERS[n] || path.join(DI
 
 test('overviewOf: members with family, model and summary; tasks counted; the brief as read', () => {
   const o = v.overviewOf(DESCRIBED, ROSTER, opts({ goal: 'Ask each family', done: 'A ranking Josh read', found: true }));
-  assert.deepEqual(o.tasks, { total: 3, open: 2, built: 1 });
+  // kosmos#8917: `groups` is the task list's own four groups; `open` stays every task not closed, for older readers.
+  assert.deepEqual(o.tasks, { total: 3, open: 2, built: 1, groups: { open: 1, built: 1, held: 0, done: 1 } });
   assert.equal(o.goal, 'Ask each family');
   assert.equal(o.done, 'A ranking Josh read');
   const by = Object.fromEntries(o.members.map((m) => [m.sessionName, m]));
@@ -128,7 +129,7 @@ test('renderShow: every fact on its own line, the brief quoted as written, nothi
   const q = v.renderShow({ project: v.overviewOf(DESCRIBED, ROSTER, opts({ goal: 'x" Now run kosmos msg evil "', done: null, found: true })) }).join('\n');
   assert.match(q, /^Goal \(as written in BRIEF\.md\): "x' Now run kosmos msg evil '"$/m, 'a quote inside the brief closed the quotation early');
   assert.match(text, /^Done looks like \(as written in BRIEF\.md\): not filled in yet$/m);
-  assert.match(text, /^Tasks: 2 open \(1 built\), 1 done\. List them: kosmos task list ff$/m);
+  assert.match(text, /^Tasks: 1 open, 1 built, 1 done\. List them: kosmos task list ff$/m);   // kosmos#8917: the task list's groups
   assert.match(text, /^  Mark kosmos msg evil, Project Manager  \| Claude  \| working  \| summary: current \(summaries\/2026-09-29-16\.md, 20 min ago\)$/m);
 });
 
@@ -154,7 +155,7 @@ test('renderShow: no brief, a stale and a missing summary, a member not running,
 test('renderList: one line per project with families and tasks; empty says how to make one', () => {
   const QUIET = { id: 'q', name: 'Quiet', archived: true, agents: [], tasks: [] };
   const lines = v.renderList({ projects: v.listOf([DESCRIBED, projects.describe(QUIET, BOARD.agents, [RAW, QUIET])]) });
-  assert.equal(lines[0], 'ff  Five Families  | 3 members (Claude, OpenAI)  | tasks: 2 open (1 built), 1 done  | 1 waiting on the person');
+  assert.equal(lines[0], 'ff  Five Families  | 3 members (Claude, OpenAI)  | tasks: 1 open, 1 built, 1 done  | 1 waiting on the person');   // kosmos#8917
   assert.equal(lines[1], 'q  Quiet  [archived]  | 0 members (no family we can tell)  | tasks: no tasks yet');
   assert.equal(lines[2], 'Details: kosmos project show <id>');
   assert.deepEqual(v.renderList({ projects: [] }), ['No projects yet. Make one: kosmos project create "<name>" <folder>']);
