@@ -10,8 +10,15 @@
  * almost no characters outside the basic plane, code points and UTF-16 units differ by a handful.
  *
  * HEADROOM: a brief grows after birth (each project an agent joins adds a line block), so the GOAL is below the limit,
- * not at it: NEW_AGENT_GOAL. Until #8735 reaches it, the guard is a RATCHET: CEILING is the largest brief measured after
- * the last slice (rounded up), so no change can make a brief bigger, and each slice lowers it. Never raise CEILING.
+ * not at it: NEW_AGENT_GOAL. The guard is a RATCHET: CEILING is the largest brief measured after the last slice (rounded
+ * up), so no change can make a brief bigger, and a later cut lowers it. Never raise CEILING.
+ * DECIDED (kosmos#8735, closed when this merges): the goal is NOT met, and the briefs stay at this floor. The call is
+ * PigeonPete's, under Splinter's 2026-11-23 ruling that a reversible decision is the builder's, not Josh's; it is
+ * reversible, and Josh can reopen #8735. After seven slices (pm 58,458 -> 42,440) what is left is Josh's own working
+ * rules and safety text, and moving them to a guide read on demand would weaken them, because a guide is read only when
+ * an agent thinks to. Five roles stay over Claude Code's 40,000 notice (pm, director, email, productdir, household; the
+ * test prints them), and each of those agents opens on that notice. A cut that keeps a rule binding is still welcome:
+ * lower CEILING with it.
  * Measured (pm, this file's sandbox path counted as one word): 58,458 on main before #8735; 51,670 after slice 1
  * (the community routine moved to `kosmos community --how`, the quoting, title and Kosmos-security rules kept in the
  * brief as safety text); 48,843 after slice 2 (the task commands for one situation each moved to `kosmos task --how`,
@@ -61,7 +68,7 @@ const BINS = { claudeBin: winBin('/bin/echo', 'where.exe'), tmuxBin: winBin('/bi
 
 const CLAUDE_CODE_LIMIT = 40000;
 const NEW_AGENT_GOAL = 36000;   // headroom under the limit for the blocks a brief gains after birth (projects, team)
-const CEILING = 42500;          // the ratchet (see above): lowered by each slice of #8735 until it reaches NEW_AGENT_GOAL
+const CEILING = 42500;          // the ratchet (see above): only ever lowered; #8735 closed at this floor, goal not met
 /* Review 3: a brief names its own folders (the Files folder, twice), and this sandbox's path is as long as the host's
    TMPDIR makes it (tools/run-tests.sh adds a kt<pid> folder), so it is counted as one fixed word, not its length: the
    figure is then the same on every host and under every runner. Both spellings, since macOS can name a temp folder by
