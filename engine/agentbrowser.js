@@ -211,7 +211,7 @@ function writeConfigIfNeeded(file, text) {
   return same();
 }
 
-/* kosmos#8929: inside a test run, the config is written only into a sandboxed runners folder. From a worktree
+/* kosmos#8929: inside a test run, launchConfig writes the config only into a sandboxed runners folder. From a worktree
    runners.managedRoot() falls back to the REAL install's folder, so a test that reached this (the supervisor's shim,
    say) rewrote the live config with the test's node and a temp folder its run then removed, and every agent the board
    started next got it.
