@@ -29,11 +29,24 @@ list of subcommands.
   Over 256 KB it is not read and says why: `project show` prints "Brief: BRIEF.md is 601 KB, over the 256 KB Kosmos
   reads" (#8663, 11-17).
 - #8663 is in 0.8.11, 0.8.12 and 0.8.13 (git ancestry), so the reporter's board (0.8.14) had it.
-- Every reader (projectview, assigner, server) goes through brief.js; no reader has a smaller limit.
+- The goal and done that project show, the assigner and the server read go through brief.js. engine/projects.js has two
+  readers of its own (review 1): one with the same 256 KB limit, one (fillDone's) with none; neither prints "no readable
+  BRIEF.md". That sentence prints only at engine/projectview.js renderShow, for why 'missing' (no file, or a folder path
+  that is not absolute) or an older board that sends no reason.
 - "There is no readable BRIEF.md in the folder" prints only when no file is at that path (why 'missing') or an older
   board sends no reason. So on current code a large, well-formed brief does not read as "no brief".
 Weakest premise: the report's board read a different folder than the one the brief was in (a moved project folder, or
 the brief saved under another name); I cannot see that board, so that is a reading, not a measurement.
+
+## Review r1 (opus): fixed
+- WARNING the Mac read --state before the agent-token check, Windows after: the same input got different words. The Mac
+  block now runs after the token check; a both-CLI case (--mine --state done, no token) pins it.
+- WARNING the --state refusals said "--all" for --mine forms. They now name the form typed (--mine, --all --mine,
+  <project-id> --mine); a test runs both CLIs with an agent token and compares their words.
+- NIT words after `--state <group>` were refused as --blocked/--open; now "--state held takes nothing after it".
+- NIT the help line overclaimed (the across list still says "blocked"); now "the same lists, by the --state names a
+  project's list takes".
+- NIT the plan's sentence about brief readers (corrected above).
 
 ## Decided
 - Use the task list's words in the summary rather than renaming the list's "open": the list's four groups are what

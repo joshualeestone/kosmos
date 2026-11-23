@@ -203,8 +203,12 @@ test('both: the same malformed forms are refused with the same words, before the
     [['--all', '--stale', '7', 'more'], /--stale takes one number of days at most/],
     [['--all', '--open', 'more'], /--open takes nothing after it/],
     // kosmos#8917: --all reads --state open|built|held; done has no --all group, and says where a project's done tasks are.
-    [['--all', '--state', 'done'], /--all lists the work still to be closed in every project, so it has no done group\. A project's done tasks: kosmos task list <project-id> --state done/],
+    [['--all', '--state', 'done'], /--all lists the work still to be closed, so it has no done group\. A project's done tasks: kosmos task list <project-id> --state done/],
     [['--all', '--state', 'later'], /--state after --all takes one of: open, built, held\./],
+    // #8917 review 1: words after the group are refused in the words typed, never as --blocked; and with --mine and no
+    // agent token both CLIs refuse the token first, so the same input gets the same words.
+    [['--all', '--state', 'held', '--stale', '3'], /--state held takes nothing after it: kosmos task list --all --state held/],
+    [['--mine', '--state', 'done'], /--mine lists an agent's own tasks, so it needs an agent's token/],
     [[A, '--stale', '-3'], /--stale takes a whole number of days, 1 to 3650/],
     [['--all', '', 'x'], /After --all: nothing \(open tasks\), --blocked, --built, --state open\|built\|held, or --stale/],   // review 1 (nit 4); #8917
   ];
@@ -218,6 +222,39 @@ test('both: the same malformed forms are refused with the same words, before the
       assert.equal(m.code, 2, args.join(' ') + ': ' + m.out);
       assert.match(m.out, re, args.join(' '));
       assert.equal(w.err.trim(), m.out.trim(), 'the two CLIs said different things for ' + args.join(' '));
+    }
+  }
+});
+
+/* #8917 review 1: with an agent's token, the --state refusals name the form the agent typed (--mine, <project> --mine),
+   never --all, on both CLIs. Nothing listens at the URL: each is refused before the board is asked. */
+test('kosmos#8917: with an agent token, --state refusals name the form typed, the same on both CLIs', async () => {
+  const TOKEN = 'ab'.repeat(16);
+  const winTok = async (argv) => {
+    const out = []; const err = []; const url = 'http://127.0.0.1:9';
+    const code = await cli.main(argv, { env: {}, url, hook: { resolveUrl: () => url, readBoardToken: () => null, agentToken: () => TOKEN },
+      out: (x) => out.push(x), err: (x) => err.push(x) });
+    return { code, err: err.join('\n') };
+  };
+  const macTok = (args) => new Promise((resolve, reject) => {
+    const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: '9', TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: TOKEN };
+    execFile(path.join(__dirname, 'install', 'kosmos'), args, { env, timeout: 20000 }, (e, so, se) => {
+      if (e && typeof e.code !== 'number') { reject(new Error(se || String(e.signal))); return; }
+      resolve({ code: e ? e.code : 0, out: (so || '') + (se || '') });
+    });
+  });
+  for (const [args, re] of [
+    [['--mine', '--state', 'done'], /^--mine lists the work still to be closed, so it has no done group/],
+    [['--all', '--mine', '--state', 'later'], /^--state after --all --mine takes one of: open, built, held\./],
+    [['p1', '--mine', '--state', 'done'], /^<project-id> --mine lists the work still to be closed/],
+  ]) {
+    const w = await winTok(['task', 'list', ...args]);
+    assert.equal(w.code, 2, args.join(' ') + ': ' + w.err);
+    assert.match(w.err.trim(), re, args.join(' '));
+    if (!SKIP_POSIX_SHELL) {
+      const m = await macTok(['task', 'list', ...args]);
+      assert.equal(m.code, 2, args.join(' ') + ': ' + m.out);
+      assert.equal(m.out.trim(), w.err.trim(), 'the two CLIs said different things for ' + args.join(' '));
     }
   }
 });
