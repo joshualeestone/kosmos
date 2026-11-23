@@ -16,12 +16,10 @@ const page = require('./test-support/page');
 
 const HTML = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(HTML);
-const SEES = SCRIPT.match(/const PLUS_ORG_SEES = '[^\n]*';/);
 
 const noteText = new Function(page.lift(SCRIPT, 'acctPolicyNoteText') + '\nreturn acctPolicyNoteText;')();
 
 test('the lifted pieces exist (a rename here would make every assertion vacuous)', () => {
-  assert.ok(SEES, 'PLUS_ORG_SEES');
   assert.match(SCRIPT, /acctPolicyMark\(\);\s+\/\/ kosmos#8938/, 'openAcctAdd calls acctPolicyMark');
   assert.match(HTML, /<p class="rm-small" id="acct-add-in">[^\n]*<\/p>\n\s+<!-- kosmos#8938[^\n]*-->\n\s+<p class="rm-small" id="acct-policy-note" hidden><\/p>/, 'the note sits under the intro');
 });
@@ -29,12 +27,12 @@ test('the lifted pieces exist (a rename here would make every assertion vacuous)
 test('a company list is said in the menu words the server sends', () => {
   const org = { name: 'Testville', kind: 'company' };
   assert.equal(noteText({ enrolled: true, org, allowedProviderNames: ['Anthropic Claude', 'OpenAI'] }),
-    'Your company allows only Anthropic Claude and OpenAI for agents on this computer. Agents cannot use any other provider here.');
+    'Your company allows only Anthropic Claude and OpenAI for new agents on this computer.');
   assert.equal(noteText({ enrolled: true, org, allowedProviderNames: ['Anthropic Claude'] }),
-    'Your company allows only Anthropic Claude for agents on this computer. Agents cannot use any other provider here.');
+    'Your company allows only Anthropic Claude for new agents on this computer.');
   assert.equal(noteText({ enrolled: true, org, allowedProviderNames: ['Anthropic Claude', 'OpenAI', 'Google Gemini (Google subscription)'] }),
-    'Your company allows only Anthropic Claude, OpenAI and Google Gemini (Google subscription) for agents on this computer. Agents cannot use any other provider here.');
-  assert.equal(noteText({ enrolled: true, org, allowedProviderNames: [] }), 'Your company allows no AI provider for agents on this computer yet.');
+    'Your company allows only Anthropic Claude, OpenAI and Google Gemini (Google subscription) for new agents on this computer.');
+  assert.equal(noteText({ enrolled: true, org, allowedProviderNames: [] }), 'Your company allows no AI provider for new agents on this computer.');
 });
 
 test('a family is told about its family, never its company', () => {
@@ -48,23 +46,29 @@ test('no list, not enrolled, no org or a malformed answer says nothing (CONTROL 
   }
 });
 
-test('what your company sees: shown only when asked, and it names no content as sent', () => {
+test('what your company sees is the company\u2019s own accepted words: its report lines, then its never lines', () => {
+  const text = new Function(page.lift(SCRIPT, 'plusOrgSeesText') + '\nreturn plusOrgSeesText;')();
+  assert.equal(text({ reports: ['agent names, the AI provider and model each uses', ' project names '], never: ['keys and passwords'] }),
+    'Reported to your company: agent names, the AI provider and model each uses; project names. Never sent: keys and passwords.');
+  assert.equal(text({ reports: ['agent names'], never: [] }), 'Reported to your company: agent names.', 'no never lines: no "Never sent"');
+  for (const w of [null, undefined, {}, { reports: [] }, { reports: ['', '  '] }, { reports: 'agent names' }]) assert.equal(text(w), '', JSON.stringify(w));
+});
+
+test('plusOrgSees shows the words when handed a state, and hides when handed none', () => {
   const el = { hidden: true, textContent: '' };
   const document = { getElementById: (id) => (id === 'plus-org-sees' ? el : null) };
-  const sees = new Function('document', SEES[0] + '\n' + page.lift(SCRIPT, 'plusOrgSees') + '\nreturn plusOrgSees;')(document);
-  sees(true);
+  const sees = new Function('document', page.lift(SCRIPT, 'plusOrgSeesText') + '\n' + page.lift(SCRIPT, 'plusOrgSees') + '\nreturn plusOrgSees;')(document);
+  sees({ reportWords: { reports: ['agent names'], never: ['keys and passwords'] } });
   assert.equal(el.hidden, false);
-  assert.match(el.textContent, /^Your company sees: /);
-  assert.match(el.textContent, /It is sent once a day and when something changes\./);
-  assert.match(el.textContent, /Your chats, files and keys are never in it\.$/);
-  sees(false);
+  assert.equal(el.textContent, 'Reported to your company: agent names. Never sent: keys and passwords.');
+  sees(null);
   assert.equal(el.hidden, true);
   assert.equal(el.textContent, '');
 });
 
 test('the line is in the joined view, right under the company sentence', () => {
   assert.match(HTML, /<p class="fhint" id="plus-org-say" tabindex="-1"><\/p>\n\s+<!-- kosmos#8938[^\n]*-->\n\s+<p class="fhint" id="plus-org-sees" hidden><\/p>/);
-  assert.match(SCRIPT, /plusOrgSees\(here && st\.org && st\.org\.kind !== 'family' && st\.reporting === true\);/);
+  assert.match(SCRIPT, /plusOrgSees\(here && st\.org && st\.org\.kind !== 'family' && st\.reporting === true \? st : null\);/);
 });
 
 test('/api/org sends allowedProviderNames to the screen only, only while a list is in force, by a pure read', () => {
@@ -81,6 +85,9 @@ test('/api/org sends allowedProviderNames to the screen only, only while a list 
   assert.match(h, /\.\.\.\(allowedProviderNames \? \{ allowedProviderNames \} : \{\}\)/, 'sent only when there is a list');
   assert.match(h, /const pol = here \? op\.current\(\) : null;/, 'read only while enrolled, and by current(), which applies nothing');
   assert.match(h, /\.map\(op\.providerName\)/, 'in the menus\u2019 words, the same ones a refusal uses');
+  assert.match(h, /\.filter\(\(n\) => n !== op\.providerName\(''\)\)/, 'an id with no menu name is left out, never said as "this provider"');
+  assert.doesNotMatch(agentAnswer, /reportWords/, 'an agent caller never gets the words');
+  assert.match(h, /\.\.\.\(here && accepted && accepted\.reports\.length \? \{ reportWords: \{ reports: accepted\.reports, never: oe\.acceptedNever\(\) \} \} : \{\}\)/, 'the accepted words, only while there are some');
 });
 
 test('the names come from orgpolicy.providerName, which tells the two Gemini rows apart', () => {
@@ -91,9 +98,9 @@ test('the names come from orgpolicy.providerName, which tells the two Gemini row
   assert.equal(op.providerName('deepseek'), 'DeepSeek');
 });
 
-function workOrg(answer) {
+function workOrg(answer, member = true) {
   const els = { 'fr-work-org': { hidden: true, textContent: '' }, 'userpop-org': { hidden: true, textContent: '' } };
-  const document = { getElementById: (id) => els[id] || null };
+  const document = { getElementById: (id) => els[id] || null, documentElement: { hasAttribute: (a) => a === 'data-fed-member' && member } };
   const asked = [];
   const fetch = async (url) => { asked.push(url); if (answer instanceof Error) throw answer; return { json: async () => answer }; };
   const src = SCRIPT.match(/const WORK_ORG = \{[^\n]*\};/)[0] + '\n' + page.lift(SCRIPT, 'plusOrgIn') + '\n' + page.lift(SCRIPT, 'workOrgShow') + '\n' + page.lift(SCRIPT, 'workOrgPaint') + '\nreturn { workOrgPaint, WORK_ORG };';
@@ -130,6 +137,15 @@ test('a family, no company, an unenrolled record or a failed read shows nothing 
   }
 });
 
+test('not a Kosmos+ member: the welcome still names the company, the You menu line does not (it sits under the member line)', async () => {
+  const { els, api } = workOrg({ enrolled: true, org: { name: 'Testville Municipal', kind: 'company' } }, false);
+  api.workOrgPaint();
+  await settle(); await settle();
+  assert.equal(els['fr-work-org'].textContent, 'This is your work Kosmos for Testville Municipal.');
+  assert.equal(els['userpop-org'].hidden, true);
+  assert.equal(els['userpop-org'].textContent, '');
+});
+
 test('it reads /api/org at most once a minute', async () => {
   const { asked, api } = workOrg({ enrolled: true, org: { name: 'Testville', kind: 'company' } });
   api.workOrgPaint(); await settle(); await settle();
@@ -142,4 +158,14 @@ test('the welcome keeps Josh’s words and adds the line after them; both caller
   assert.match(HTML, /<span class="userpop-plus-badge">Plus<\/span>\n\s+<\/button>\n\s+<p class="userpop-org" id="userpop-org" hidden><\/p>/);
   assert.match(SCRIPT, /member\.hidden = !m;\n\s+workOrgPaint\(\);/);
   assert.match(SCRIPT, /if \(step === 1\) workOrgPaint\(\);/);
+});
+
+test('orgenroll.acceptedNever reads the never lines of the words on record, and [] with none', () => {
+  const fs2 = require('node:fs');
+  const os = require('node:os');
+  const root = fs2.mkdtempSync(nodePath.join(os.tmpdir(), 'membertold-8938-'));
+  try {
+    const oe = require('./engine/orgenroll');
+    assert.deepEqual(oe.acceptedNever({ root }), [], 'no enrollment: none');
+  } finally { fs2.rmSync(root, { recursive: true, force: true }); }
 });

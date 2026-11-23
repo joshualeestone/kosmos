@@ -3,7 +3,8 @@
 /**
  * kosmos#8938: a company member's own Kosmos says it is the company's. HERMETIC (file://, fetch stubbed): /api/org is
  * a stand-in. Asserts, in the browser, for a company member (Testville, allowing Anthropic and OpenAI):
- *   M1  Settings, Kosmos+, Your company: the line saying what the company sees shows, as text, under the company line;
+ *   M1  Settings, Kosmos+, Your company: the company's own accepted report words (what it reports, what it never
+ *       sends) show, as text, under the company line;
  *   M2  Add a provider says, under its intro, which providers the company allows (the server's menu words), and
  *       leaves every option as it was (the options belong to the code that owns them);
  *   M3  the You menu shows "Work Kosmos for Testville Municipal" under the member line;
@@ -27,7 +28,8 @@ const chk = (ok, label, extra) => {
   if (!ok) fail.push(label);
 };
 
-const COMPANY = { enrolled: true, reporting: true, reportingWait: null, wordsNeeded: false, stoppedFor: null, leaveRefused: null, org: { name: 'Testville Municipal', slug: 'testville', kind: 'company' }, role: 'member', enrolledAt: '2026-11-23T15:34:11.000Z', allowedProviderNames: ['Anthropic Claude', 'OpenAI'] };
+const COMPANY = { enrolled: true, reporting: true, reportingWait: null, wordsNeeded: false, stoppedFor: null, leaveRefused: null, org: { name: 'Testville Municipal', slug: 'testville', kind: 'company' }, role: 'member', enrolledAt: '2026-11-23T15:34:11.000Z', allowedProviderNames: ['Anthropic Claude', 'OpenAI'],
+  reportWords: { reports: ['agent names, the AI provider and model each uses', 'project names'], never: ['keys and passwords'] } };
 const STATES = {
   company: COMPANY,
   unlisted: Object.assign({}, COMPANY, { allowedProviderNames: undefined }),
@@ -116,11 +118,11 @@ async function welcome(page) {
       const { page, errs } = await open(browser, STATES.company, 'company');
       const m1 = await companySees(page);
       chk(m1.say && /work Kosmos for Testville Municipal/.test(m1.say), 'M1 the company line shows', String(m1.say));
-      chk(m1.sees && /^Your company sees: /.test(m1.sees) && /It is sent once a day and when something changes\./.test(m1.sees) && /Your chats, files and keys are never in it\.$/.test(m1.sees), 'M1 what the company sees shows', String(m1.sees));
+      chk(m1.sees === 'Reported to your company: agent names, the AI provider and model each uses; project names. Never sent: keys and passwords.', 'M1 the company\u2019s own report words show', String(m1.sees));
       chk(m1.order, 'M1 it sits right under the company line');
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'membertold-' + TAG + '-settings.png') }).catch(() => {});
       const m2 = await providers(page);
-      chk(m2.note === 'Your company allows only Anthropic Claude and OpenAI for agents on this computer. Agents cannot use any other provider here.', 'M2 Add a provider says which providers the company allows', String(m2.note));
+      chk(m2.note === 'Your company allows only Anthropic Claude and OpenAI for new agents on this computer.', 'M2 Add a provider says which providers the company allows', String(m2.note));
       chk(m2.under, 'M2 the line sits right under the intro');
       chk(untouched(m2.out), 'M2 the options are left as they were', JSON.stringify(m2.out));
       chk((await youMenu(page)) === 'Work Kosmos for Testville Municipal', 'M3 the You menu names the company');
@@ -157,7 +159,7 @@ async function welcome(page) {
       const m4 = await welcome(page);
       chk(m4.t === null, 'CONTROL ' + k + ': the welcome names no company', String(m4.t));
       const m2 = await providers(page);
-      if (k === 'family') chk(m2.note === 'Your family allows only Anthropic Claude and OpenAI for agents on this computer. Agents cannot use any other provider here.', 'CONTROL family: the provider line names the family, not a company', String(m2.note));
+      if (k === 'family') chk(m2.note === 'Your family allows only Anthropic Claude and OpenAI for new agents on this computer.', 'CONTROL family: the provider line names the family, not a company', String(m2.note));
       else chk(m2.note === null, 'CONTROL none: Add a provider says nothing', String(m2.note));
       chk(untouched(m2.out), 'CONTROL ' + k + ': the options are as they were', JSON.stringify(m2.out));
       errsAll.push(...errs);

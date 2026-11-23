@@ -36117,9 +36117,9 @@ function acctPolicyNoteText(j) {
   if (!j || j.enrolled !== true || !j.org || !Array.isArray(j.allowedProviderNames)) return '';
   const who = j.org.kind === 'family' ? 'Your family' : 'Your company';
   const names = j.allowedProviderNames.filter((n) => typeof n === 'string' && n);
-  if (!names.length) return who + ' allows no AI provider for agents on this computer yet.';
+  if (!names.length) return who + ' allows no AI provider for new agents on this computer.';
   const list = names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
-  return who + ' allows only ' + list + ' for agents on this computer. Agents cannot use any other provider here.';
+  return who + ' allows only ' + list + ' for new agents on this computer.';
 }
 function acctPolicyMark() {
   const el = document.getElementById('acct-policy-note');
@@ -58313,21 +58313,28 @@ function plusOrgPaint() {
   if (here && st.wordsNeeded === true && PLUS_ORG.wordsRefused) document.getElementById('plus-org-say').textContent = 'This Kosmos still shows ' + (st.org.name || 'a family account') + ' on this computer, and it reports nothing to the family.';
   else if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words are not accepted on this computer, so it reports nothing until a parent or guardian reads and accepts them.' + (st.reportingRequired === true ? PLUS_ORG_REQUIRED_WAIT_FAMILY : '');   // kosmos#7586 review (Pete): the child card already says so
   else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') + plusOrgRequiredWait(st) : '') + plusOrgBackupLate(st) + plusOrgHandover(st));
-  plusOrgSees(here && st.org && st.org.kind !== 'family' && st.reporting === true);   // kosmos#8938: only while it reports
+  plusOrgSees(here && st.org && st.org.kind !== 'family' && st.reporting === true ? st : null);   // kosmos#8938: only while it reports
   plusOrgReviewers(here ? st : null);   // kosmos#6752
   plusOrgRecoveries(here ? st : null);   // kosmos#5536
   if (here) reviewerNoteSeenList(st);   // kosmos#6817: the list on screen counts as seen
   if (here) recoveryNoteSeenList(st);   // kosmos#5536: likewise
 }
-/* kosmos#8938: what a company member's computer reports, said on the member's own screen: the rollup
-   (engine/orgrollup.js build(), daily and on change) and the blocked-or-flagged events (#5683). Shown only while this
-   Kosmos reports (st.reporting), so it never sits under "asks it to report nothing" or a report still waiting. */
-const PLUS_ORG_SEES = 'Your company sees: your agents\u2019 names, the AI provider and model each one uses, and whether it is running; your projects\u2019 names, which agents are on them, and their token use; when you were last active; tokens used and their estimated cost; when your last backup ran; whether this computer follows the company\u2019s AI policy; and anything Kosmos blocked or flagged. It is sent once a day and when something changes. Your chats, files and keys are never in it.';
-function plusOrgSees(show) {
+/* kosmos#8938: what this computer reports to its company, in the company's own words as accepted here (/api/org
+   reportWords: its report lines and its never lines), on the member's own screen. Shown for a company only, while this
+   Kosmos reports; nothing when the words are missing. */
+function plusOrgSeesText(words) {
+  const clean = (l) => (Array.isArray(l) ? l.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim()) : []);
+  const reports = clean(words && words.reports);
+  if (!reports.length) return '';
+  const never = clean(words && words.never);
+  return 'Reported to your company: ' + reports.join('; ') + '.' + (never.length ? ' Never sent: ' + never.join('; ') + '.' : '');
+}
+function plusOrgSees(st) {
   const el = document.getElementById('plus-org-sees');
   if (!el) return;
-  el.hidden = !show;
-  el.textContent = show ? PLUS_ORG_SEES : '';
+  const t = st ? plusOrgSeesText(st.reportWords) : '';
+  el.hidden = !t;
+  el.textContent = t;
 }
 /* kosmos#6752: what follows the reviewer's name on one grant's line, leading with what is true now (Mona Lisa's review):
    every grant is inside 30 days, so a date has no year and no time, except a grant that lands within a day, the one
@@ -91131,7 +91138,9 @@ function frFocusActiveHead(paneEl) {
 const WORK_ORG = { at: 0, org: null, busy: false };
 function workOrgShow(org) {
   const name = org && typeof org.name === 'string' ? org.name.trim() : '';
-  const say = { 'fr-work-org': name ? plusOrgIn(org, 'This is your work Kosmos for ') + name + '.' : '', 'userpop-org': name ? 'Work Kosmos for ' + name : '' };
+  // Through plusOrgIn like every work-Kosmos sentence on the page (web.familysay-6251 counts them); a family never reaches here.
+  const member = document.documentElement.hasAttribute('data-fed-member');   // the You menu line sits under the member line only
+  const say = { 'fr-work-org': name ? plusOrgIn(org, 'This is your work Kosmos for ') + name + '.' : '', 'userpop-org': name && member ? 'Work Kosmos for ' + name : '' };
   for (const id of Object.keys(say)) {
     const el = document.getElementById(id);
     if (!el) continue;
