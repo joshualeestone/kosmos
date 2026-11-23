@@ -257,6 +257,15 @@ function rememberRead(session) {
     return remember(session, got.text) || dropCopy();
   } catch { return dropCopy(); }
 }
+/* kosmos#8916 item 1: a session start that was not recorded still read the whole file, so what was kept for its old
+   session goes: its marks (kosmos#8416), and its changes file and the number kept with it, so the next notice starts
+   at Notice 1 and "since you started" is true. Only the copy stays, so it never runs ahead of the recorded start
+   (review 7 of #7149). Never throws. */
+function startedUnrecorded(session) {
+  try { dropChanges(session); } catch { /* none there */ }
+  try { forgetBody(session); } catch { /* none kept */ }
+  try { forgetMarks(session); } catch { /* the next notice names more */ }
+}
 /* The agent's files are deleted (engine/delete-leftover.js): its copy and changes file go with them (review 2). */
 function forget(session) {
   dropChanges(session);
@@ -481,7 +490,9 @@ function bodyFile(session) { const p = seenFile(session); return p ? p.replace(/
    or Kosmos removed it: dropChanges keeps the number) does not make the next notice Notice 1 again. Only a session start
    (rememberRead) and deleting the agent (forget) clear it, and numbering then starts at 1, as the line's "since you
    started" says. If this file itself cannot be written, both are lost and the next notice is Notice 1: the line then
-   still says to read the sections themselves. */
+   still says to read the sections themselves. kosmos#8916 item 5: that label can repeat one the agent already holds (an
+   earlier Notice 1 in its context); the file then holds only the new one, so the line's pointer is still to the right
+   entry, but "Notice 1" alone does not tell the two apart. */
 function rememberBody(session, body, notice) {
   const f = bodyFile(session);
   if (!f) return;
@@ -506,8 +517,13 @@ function readPlain(p) {
     // Round 3 BLOCKER: O_NONBLOCK, so a named pipe left at the path cannot hold the board's one thread in open().
     fd = fs.openSync(p, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
     const st = fs.fstatSync(fd);
-    if (!st.isFile() || st.size > CHANGES_FILE_MAX + 64 * 1024) return null;
-    return fs.readFileSync(fd, 'utf8');
+    const limit = CHANGES_FILE_MAX + 64 * 1024;
+    if (!st.isFile() || st.size > limit) return null;
+    // kosmos#8916 item 2: read at most limit + 1 bytes, so a file that grows after the fstat is refused, not read past it.
+    const buf = Buffer.alloc(limit + 1);
+    let got = 0;
+    for (let n; got < buf.length && (n = fs.readSync(fd, buf, got, buf.length - got, null)) > 0;) got += n;
+    return got > limit ? null : buf.toString('utf8', 0, got);
   } catch { return null; } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 /* The changes file as Kosmos last wrote it, or null (absent, a link, too large, or not what Kosmos wrote). */
@@ -1093,4 +1109,4 @@ async function passOnce(o) {
   return out;
 }
 
-module.exports = { CHANGES_LINES_MAX, CHANGES_BYTES_MAX, trueSections, trueSectionsFor, sectionBody, markRead, readMarks, forgetMarks, printOf, changedLines, prepareChanges, restoreChanges, entriesOf, remember, rememberRead, forget, dropChanges, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };
+module.exports = { startedUnrecorded, forgetBody, CHANGES_LINES_MAX, CHANGES_BYTES_MAX, trueSections, trueSectionsFor, sectionBody, markRead, readMarks, forgetMarks, printOf, changedLines, prepareChanges, restoreChanges, entriesOf, remember, rememberRead, forget, dropChanges, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };
