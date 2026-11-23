@@ -1244,6 +1244,21 @@ kosmos_engine_module() {
 # decides and records). Only an agent's call reaches node (about 20 ms, measured); the line goes to stderr, so stdout
 # is unchanged and stderr gains one first line, once; stdin is not touched (a `post --stdin` keeps all of its input);
 # and it never fails the command it sits in front of.
+# kosmos#8948 part 2: after "Unknown: kosmos <word>", one line naming the command most likely meant (engine/didyoumean.js,
+# the Windows CLI's rule too), from the names kosmos_command_list prints. Prints nothing when nothing is close, or
+# when node or the module is missing; never fails the answer.
+_did_you_mean() {
+  local _dn _dm _dv
+  _dn="$(kosmos_engine_node)" || return 0
+  _dm="$(kosmos_engine_module didyoumean).js"
+  [ -f "$_dm" ] || return 0
+  _dv="$(kosmos_command_list | sed -n 's/^  kosmos \([a-z][a-z-]*\) .*/\1/p')"
+  # The line goes where the Unknown line goes (stdout); node's own errors are dropped.
+  # shellcheck disable=SC2086
+  "$_dn" "$_dm" "$1" $_dv </dev/null 2>/dev/null | sed 's/^/  /' || true
+  return 0
+}
+
 _how_hint() {
   [ -n "${KOSMOS_AGENT_SESSION:-}${KOSMOS_AGENT_TOKEN:-}" ] || return 0
   [ $# -ge 2 ] || return 0   # no arguments after the command: a usage request or a status probe (the report hook's)
@@ -6599,13 +6614,16 @@ cmd_feedback() {
       # kosmos#7875: the asking agent's own day on this computer (its conversation with the person and the tasks it
       # changed today), so a report written from a fresh session is not thin. Printed here only; nothing is sent.
       # The agent is the one asking (its token's key, or its window); none identified prints nobody's day.
-      [ $# -eq 0 ] || { say "Usage: kosmos feedback day"; exit 2; }
+      # kosmos#8948: --date YYYY-MM-DD reads an earlier day (a session resumed across days), checked in feedbackday.dayArg.
       "$NODE" -e '
         const day = require(process.argv[1] + "/engine/feedbackday");
+        const arg = typeof day.dayArg === "function" ? day.dayArg(process.argv.slice(2))
+          : (process.argv.length > 2 ? { error: "Usage: kosmos feedback day" } : { date: null });   /* an older engine: as before */
+        if (arg.error) { console.error(arg.error); process.exit(2); }
         const who = day.recordWho(process.env);
         if (!who) { console.error("Kosmos cannot tell which agent is asking, so it prints nobody\x27s day. Run this from your own agent session."); process.exit(1); }
-        process.stdout.write(day.digest(who).join("\n") + "\n");
-      ' "$KOSMOS_HOME/app"
+        process.stdout.write(day.digest(arg.date ? { ...who, date: arg.date, asked: true } : who).join("\n") + "\n");
+      ' "$KOSMOS_HOME/app" "$@"
       exit $?
       ;;
     list)
@@ -6704,7 +6722,7 @@ cmd_feedback() {
       say "       kosmos feedback note [--date YYYY-MM-DD] [--body-file <file>] [text]  (add a note to a report you already wrote, marked as added later)"
       say "       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence saying so on stdout, exit 0)"
       say "       kosmos feedback list [--mine]      (--mine: only the days holding your own report)"
-      say "       kosmos feedback day                (your own day on this computer, for writing the report)"
+      say "       kosmos feedback day [--date YYYY-MM-DD]   (your own day on this computer, for writing the report; --date an earlier one)"
       say "       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)"
       say "       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]"
       say "       (triage with no --dir reads the pulled reports if any, else this computer's own; it says which)"
@@ -9455,6 +9473,7 @@ case "${1:-}" in
   agent) shift; cmd_agent "$@" ;;
   *)
     [ -n "${1:-}" ] && printf '\n  Unknown: kosmos %s\n' "$1"
+    [ -n "${1:-}" ] && _did_you_mean "$1"   # kosmos#8948
     kosmos_command_list
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2

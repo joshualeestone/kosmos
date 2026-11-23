@@ -208,7 +208,7 @@ const USAGE = {
     '       kosmos feedback note [--date YYYY-MM-DD] [--body-file <file>] [text]  (add a note to a report you already wrote, marked as added later)',
     '       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence saying so on stdout, exit 0)',
     '       kosmos feedback list [--mine]      (--mine: only the days holding your own report)',
-    '       kosmos feedback day                (your own day on this computer, for writing the report)',
+    '       kosmos feedback day [--date YYYY-MM-DD]   (your own day on this computer, for writing the report; --date an earlier one)',
     '       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)',
     '       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]',
     "       (triage with no --dir reads the pulled reports if any, else this computer's own; it says which)",
@@ -3535,12 +3535,15 @@ async function feedbackShow(ctx, args) {
 
 /* kosmos#7875: the asking agent's own day on this computer, as install/kosmos's `feedback day` prints it. */
 async function feedbackDay(ctx, args) {
-  if (args && args.length) { ctx.err('Usage: kosmos feedback day'); return 2; }
   let day;
   try { day = ctx.engine('feedbackday'); } catch { ctx.err('Kosmos cannot find its own runtime, so it cannot read your day.'); return 2; }
+  // kosmos#8948, as install/kosmos: --date YYYY-MM-DD reads an earlier day, checked in feedbackday.dayArg.
+  const arg = typeof day.dayArg === 'function' ? day.dayArg(args || [])
+    : ((args && args.length) ? { error: 'Usage: kosmos feedback day' } : { date: null });   // an older engine: as before
+  if (arg.error) { ctx.err(arg.error); return 2; }
   const who = day.recordWho(ctx.env);
   if (!who) { ctx.err("Kosmos cannot tell which agent is asking, so it prints nobody's day. Run this from your own agent session."); return 1; }
-  ctx.out(day.digest(who).join('\n'));
+  ctx.out(day.digest(arg.date ? { ...who, date: arg.date, asked: true } : who).join('\n'));
   return 0;
 }
 
@@ -4570,6 +4573,8 @@ async function main(argv, io) {
       return 0;
     }
     if (verb) err('Unknown: kosmos ' + verb);
+    // kosmos#8948 part 2: the command most likely meant, by install/kosmos's rule (engine/didyoumean.js), from VERBS.
+    if (verb) { try { const dym = (o.engine && o.engine.didyoumean) || require(path.join(engineDir(), 'didyoumean.js')); const s = dym.line(verb, VERBS); if (s) err('  ' + s); } catch { /* no suggestion; the list follows */ } }
     err(BANNER);
     err(COMMAND_LIST);
     return 2;

@@ -81,7 +81,8 @@ function taskChanges(files, readTask, names, date, dateKey) {
   return out.sort((a, b) => (a.project < b.project ? -1 : a.project > b.project ? 1 : a.number - b.number));
 }
 
-/* The task files touched on `date` by their modification time: a file not written today has no row from today. */
+/* The task files that can hold a row from `date`, by their modification time: a file last written before that day has none.
+   kosmos#8948: on or after, not on, so an earlier day (feedback day --date) still finds a file written again since. */
 function listTaskFilesIn(dir, date, dateKey) {
   let names;
   try { names = fs.readdirSync(dir); } catch (err) {
@@ -95,12 +96,34 @@ function listTaskFilesIn(dir, date, dateKey) {
       if (err && err.code === 'ENOENT') return false;   // removed since the listing
       throw err;   // cannot be inspected: the digest says so rather than "no change"
     }
-    return dateKey(st.mtime) === date;
+    return dateKey(st.mtime) >= date;   // YYYY-MM-DD keys compare in date order
   }).map((n) => {
     // taskchat.read answers [] for a file it cannot open, which would read as "no change": check it can be read here.
     fs.accessSync(path.join(dir, n), fs.constants.R_OK);
     return n;
   });
+}
+
+/* The day before `date` (YYYY-MM-DD), by the same local calendar, or null. Noon, so a daylight-saving change cannot skip a day. */
+function dayBefore(date, dateKey) {
+  const d = new Date(String(date) + 'T12:00:00');
+  if (!Number.isFinite(d.getTime())) return null;
+  d.setDate(d.getDate() - 1);
+  return dateKey(d);
+}
+
+const DAY_USAGE = 'Usage: kosmos feedback day [--date YYYY-MM-DD]';
+/* kosmos#8948 part 3: `feedback day`'s arguments, for both CLIs: none is today, `--date YYYY-MM-DD` is that day.
+   Returns { date } (null for today) or { error, usage }. A day that is not real, or is after today, is refused, as
+   `feedback note --date` refuses it. */
+function dayArg(args, now) {
+  const a = Array.isArray(args) ? args : [];
+  if (a.length === 0) return { date: null };
+  if (a.length !== 2 || a[0] !== '--date') return { error: DAY_USAGE, usage: true };
+  const fb = require('./feedback');
+  const t = Number.isFinite(now) ? now : Date.now();
+  if (!fb.isDateKey(a[1]) || a[1] > fb.dateKey(new Date(t))) return { error: '--date must be a real day, as YYYY-MM-DD, and not after today.' };
+  return { date: a[1] };
 }
 
 /**
@@ -151,6 +174,10 @@ function digest(o) {
   const fb = require('./feedback');
   const dateKey = o.dateKey || fb.dateKey;
   const date = o.date || fb.today();
+  // kosmos#8948 part 3: a day the agent asked for (--date; the CLIs pass asked: true) says that day where today says
+  // "today". Without it the day is today, as before (o.date is then the caller's own today, as the tests fix it).
+  const isToday = o.asked !== true;
+  const when = isToday ? 'today' : 'on ' + date;
   const name = o.name;
   const names = [name, ...(Array.isArray(o.also) ? o.also : [])];
   const readThread = o.readThread || ((n) => { const chat = require('./chat'); return chat.readThread(chat.DIRECT, n).messages; });
@@ -183,8 +210,8 @@ function digest(o) {
        conversation Kosmos never sees, so a bare "nothing today" or "0 from you" read as a day of ignoring them. */
     const elsewhere = replyChannelOf(o, name);
     const theirs = talk.filter((t) => !t.mine).length;
-    if (talk.length === 0) lines.push('Your conversation with your person in Kosmos: nothing today.');
-    else lines.push('Your conversation with your person in Kosmos today: ' + theirs + ' from them, ' + (talk.length - theirs) + ' from you.');
+    if (talk.length === 0) lines.push('Your conversation with your person in Kosmos: nothing ' + when + '.');
+    else lines.push('Your conversation with your person in Kosmos ' + when + ': ' + theirs + ' from them, ' + (talk.length - theirs) + ' from you.');
     if (elsewhere) {
       lines.push('  You told Kosmos you answer your person on ' + elsewhere + '. Kosmos cannot see that, so what you said there is not counted here.');
     } else if (theirs > 0 && theirs === talk.length) {
@@ -197,13 +224,19 @@ function digest(o) {
   lines.push('');
   let changes;
   try { changes = taskChanges(listTaskFiles(), readTask, names, date, dateKey); } catch { changes = null; }
-  if (changes == null) lines.push('Tasks you changed today: Kosmos could not read them on this computer.');
-  else if (changes.length === 0) lines.push('Tasks you changed today: none.');
+  if (changes == null) lines.push('Tasks you changed ' + when + ': Kosmos could not read them on this computer.');
+  else if (changes.length === 0) lines.push('Tasks you changed ' + when + ': none.');
   else {
-    lines.push('Tasks you changed today (read one with kosmos task activity <project> <number>):');
+    lines.push('Tasks you changed ' + when + ' (read one with kosmos task activity <project> <number>):');
     for (const c of changes) lines.push('  ' + c.project + ' #' + c.number + ': ' + c.kinds.join(', '));
+  }
+  /* kosmos#8948 part 3: a session resumed across days (an account switch) has its work on an earlier day, so an empty
+     today points there instead of standing as the whole answer. Only when both halves were read and are empty. */
+  if (isToday && Array.isArray(talk) && talk.length === 0 && Array.isArray(changes) && changes.length === 0) {
+    const before = dayBefore(date, dateKey);
+    if (before) lines.push('', 'Nothing here today. If this session began on an earlier day, read that day too: kosmos feedback day --date ' + before);
   }
   return lines;
 }
 
-module.exports = { digest, recordWho, listTaskFilesIn, conversation, taskChanges, firstLine, MAX_MESSAGES, LINE_MAX };
+module.exports = { digest, dayArg, dayBefore, DAY_USAGE, recordWho, listTaskFilesIn, conversation, taskChanges, firstLine, MAX_MESSAGES, LINE_MAX };

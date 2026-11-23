@@ -4085,6 +4085,8 @@ function blockRules(sessionName, cliShown) {
       'The indented lines are tasks written down for you. When you take one up,',
       'report it as "task <number> of <project>": the number alone is ambiguous',
       'when you are on two projects.',
+      // kosmos#8948 part 1: these lines are rewritten when a task changes, but a write can fail; the live list decides.
+      `If these lines ever disagree with \`${cliShown} task list <project-id> --mine\`, the live list is right.`,
       /* #3951: the only way a task reaches the Tasks page's "Built but waiting" tile. Taught here, beside the tasks
          it applies to, and re-spliced on every membership change so existing agents learn it too. */
       `When you have built one and it is waiting to be released or checked, mark it:`,
