@@ -1140,7 +1140,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
          drops the note, as before. Review 6: only the marker's own, so a checker's --waiting never puts the builder's words
          under the checker's name or passes the checks' note rule on an account the checker never gave. Before that rule,
          so a kept note that said how the checks went still says it. */
-      correction = !said && !print && !isPerson && Boolean(sent || dropWaits) && Boolean(t.builtAt) && who !== null && (t.builtBy || null) === who;
+      // Review 7: and no --commit (a mark that records a commit is new work, so it says its own note).
+      correction = !said && !print && !landed && !isPerson && Boolean(sent || dropWaits) && Boolean(t.builtAt) && who !== null && (t.builtBy || null) === who;
       if (correction && typeof t.builtNote === 'string' && t.builtNote) {
         said = t.builtNote;
         saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
