@@ -52,5 +52,13 @@ Servers left by an earlier pinned version (another cli.js path) are not matched.
 - Fixed: a Windows arm: one listing, each pid alone, the older process under a reused parent pid spared, a live parent leaves everything.
 - Fixed: every ended process is logged (time, agent, pid, command) to playwright-mcp/ended-servers.log, so a wrong one could be traced.
 - Fixed: the cli.js is matched as a whole argument, like --output-dir.
-- Changed (repo CLAUDE.md rule 3): the fail-closed gate is kept. The process-wide live-execution switch is not opened in the shim or the Windows supervisor (it would arm store.js and other gated modules there, a change I cannot measure on Windows). Instead a narrow opt-in for this feature: `live` passed only from the shim's require.main path and the Windows supervisor's require.main entry; anything else (every test, any other caller) fails closed, as does a test process with no ender (removing that check turns its test red).
+- Changed (repo CLAUDE.md rule 3): the fail-closed gate is kept. The process-wide live-execution switch is not opened in the shim or the Windows supervisor (it would arm store.js and other gated modules there, a change I cannot measure on Windows). Instead a narrow opt-in for this feature: `live` passed only from the shim's require.main path and the Windows supervisor's require.main entry; anything else (every test, any other caller) fails closed, and (added in iteration 3) a node --test process never acts even when told live.
 - Noted: servers from an earlier pinned version are not matched (the safe direction).
+
+## Challenge loop iteration 3 (sonnet)
+- Fixed: iteration 2's notes claimed a test-process check that the code did not have. Added: a node --test process never acts, even with live; removing it turns its test red.
+- Fixed: the Windows listing's line shape is now tested (UTC creation time, quoted paths with spaces, a process with no time), and a failed listing is logged, so a dead feature on Windows leaves a line in ended-servers.log.
+- Fixed: the Mac sweep has a 2 s budget (ps timeout 2 s), so a slow ps cannot hold a launch for long.
+- Fixed: the header now says what Windows does NOT do: one listing is its only read (no per-pid re-read); its guards are the creation-time rule, the server's live parent, and ending each pid alone. It also says a browser whose server already died is not matched.
+- Fixed: the log rotates past 1 MB.
+- Deferred: browsers whose server already died (nothing names their agent; the safe direction). Windows per-pid re-reads (a PowerShell start each).
