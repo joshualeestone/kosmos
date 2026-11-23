@@ -33,7 +33,7 @@ opens nothing.
 
 ## Tests
 - web.fedinvreturn-8938.test.js: lifted functions against a stand-in storage; shape, marking both ways, same view,
-  waits (and the one projects read), gone project, boot routing, page wiring, the full-stop nit. Mutation-checked:
+  waits (and the projects read it asks for, at most 3), gone project, boot routing, page wiring, the full-stop nit. Mutation-checked:
   removing the readiness wait, the per-kind mark check or the full-stop trim each turns a test red.
 - web.stepupreturn-8728.test.js: harness lifts the new shared pieces; review 4 list includes the invite key.
 - docs/browser-checks/render-fedinvreturn-8938.js: hermetic; R1 refusal and note, R2 the return through the ask's own
