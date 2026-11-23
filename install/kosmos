@@ -7798,8 +7798,6 @@ cmd_task() {
             fi
             say "Marked task $num on ${project:-the project} built, waiting $_waits. Closing it clears the mark.${_left:+ Your part only. $_left}${told:+ $told}"
             case "$waiting" in ?*) case "$body" in *"\"builtWaitingOn\":\"$waiting\""*) ;; *) say "This Kosmos did not record what it waits on: it may be older than --waiting. Update it, then mark the task again." ;; esac ;; esac
-            # kosmos#8934: the working rules have no room for it, so the option is named where the mark is made.
-            [ -n "$waiting" ] || say "To show the person what it waits on, mark it with --waiting person, review or release (kosmos task --how)."
             # #6761: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
             [ -z "$fingerprint" ] || say "Fingerprint sent: $fingerprint for $file"
             [ -z "$fingerprint" ] || [ -n "$file_abs" ] || say "Its path was not sent (Kosmos keeps only a plain local path: absolute, with no . or .. in it, no control characters, not a network path, and 1024 characters at most), so kosmos task files cannot check this mark."   # kosmos#8214 review 2: a path dropped is said, not silent
@@ -7812,7 +7810,11 @@ cmd_task() {
                   else say "Recorded commit ${csha:0:7}. It is not pushed yet: push it so it is not only on this computer."; fi ;;
                 *) say "This Kosmos did not record the commit: it may be older than --commit. Update it, then mark the task again." ;;
               esac
-            fi; fi ;;
+            fi
+            # kosmos#8934: the working rules have no room for it, so the option is named where the mark is made, last,
+            # after what the mark sent.
+            [ -n "$waiting" ] || say "To show the person what it waits on, mark it with --waiting person, review or release (kosmos task --how)."
+          fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not mark that task: ${because:-it did not say why}."; exit 1 ;;
