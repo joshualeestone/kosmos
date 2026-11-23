@@ -68,3 +68,9 @@ Evidence: run-tests --only agentbrowser.test.js 35/35, none skipped; guard call 
 - Fixed: the comment said "the config is written only into a sandboxed runners folder"; it now says launchConfig does, since ensureInstalled/ensureShell are not covered.
 - Checked, no change: every test file that names launchConfig or agent-browser-config (14 files) under run-tests --only: 346 pass, 10 skipped (pre-existing), 0 fail. The supervisor shell tests that drive the shim (wait, env, codexhome-leak-3430, codex-isolation-4592, retrust-2808, ccd-leak-3417, model-2140, agentbrowser-3633): all pass.
 - Deferred (same as iterations 1 and 3): a silent null for a real board whose temp folder is `tmp/kt<n>`.
+
+## Challenge loop iteration 8 (opus)
+- Fixed: a new arm for the most likely real writer, a node --test child spawned with NODE_TEST_CONTEXT and nothing else. Mutation (store.isTestProcess ignoring NODE_TEST_CONTEXT) turns exactly this arm red; before it, every arm stayed green.
+- Fixed: the comment now says managedRoot falls back to this account's default runners folder (the real install's on a Mac with Kosmos), not unconditionally "the real install's".
+- Deferred (as before): ensureInstalled/ensureShell and a minimal-env child; a silent null for a real temp folder under tmp/kt<n>; plainTmp under /tmp is left behind only if the watchdog kills the run.
+- Disclosure: that mutation edited store.js for about a minute while a full validation run was reading this worktree. That run was already superseded by this commit; the closing validation runs fresh.

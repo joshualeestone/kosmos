@@ -238,6 +238,11 @@ test('#8929 the shim inside a test run leaves the fallback config untouched; CON
   assert.equal(inRun.status, 0);
   assert.equal(inRun.stdout.trim(), '', 'the shim inside a test run asked for a config');
   assert.equal(fs.readFileSync(cfg, 'utf8'), 'LIVE CONFIG 8929\n', 'the shim inside a test run rewrote the fallback config');
+  /* A node --test test that spawns the shim with its own env: NODE_TEST_CONTEXT and nothing else. */
+  const nodeTest = run({ NODE_TEST_CONTEXT: 'child-v8' });
+  assert.equal(nodeTest.status, 0, 'the shim exited');
+  assert.equal(nodeTest.stdout.trim(), '', 'a node --test child asked for a config');
+  assert.equal(fs.readFileSync(cfg, 'utf8'), 'LIVE CONFIG 8929\n', 'a node --test child rewrote the fallback config');
   /* The store's rule alone: KOSMOS_TEST_RUN names a plain folder and the temp folder is inside it, no kt folder. */
   const storeOnly = path.join(plainTmp, 'run-sub');
   fs.mkdirSync(storeOnly, { recursive: true });
