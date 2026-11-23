@@ -243,6 +243,11 @@ function supervise(spec, opts) {
  * and tested -- it is the adoption watcher, and the measured knowledge in it is
  * worth keeping -- but nothing in production selects it.
  */
+/* kosmos#8928: the agent's own browser config, asked by its name. A function of the spec so a test can check the
+   name reaches launchConfig without starting an agent. */
+function browserFor(spec, ab) {
+  return () => (ab || require('./agentbrowser')).launchConfig({ agent: spec.name });
+}
 function main(argv, deps) {
   const d = deps || {};
   const spec = specFromArgv(argv);
@@ -278,7 +283,7 @@ function main(argv, deps) {
      reaches it on its next restart. Claude only for now; codex is a follow-up. */
   const perTurn = spec.runner === 'codex' || spec.runner === 'gemini' || spec.runner === 'grok' || spec.runner === 'antigravity';   // #3568: agy too (engine/win32agy.js)
   if (!perTurn) {
-    const browser = d.agentBrowser || (() => require('./agentbrowser').launchConfig({ agent: spec.name }));   // kosmos#8928
+    const browser = d.agentBrowser || browserFor(spec);
     spec.mcpConfig = () => browser();
     /* #5406: the agent does not stop on a prompt the person's own ask rules raise (a Kosmos-owned settings file with
        one PermissionRequest hook, engine/agentpermission.js). Asked per launch, like the browser; never throws. */
@@ -906,5 +911,5 @@ function superviseStreaming(spec, opts) {
 module.exports = {
   THROTTLE_MS, POLL_MS, REGISTRATION_GRACE_MS,
   isAlive, ourLiveSession, ensureRunning, supervise, superviseStreaming, specFromArgv, usageDirFor,
-  setLiveReader, liveSessions, main,
+  setLiveReader, liveSessions, main, browserFor,
 };

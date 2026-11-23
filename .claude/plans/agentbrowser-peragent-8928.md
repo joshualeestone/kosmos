@@ -25,3 +25,11 @@ That the agent name ($SESSION on a Mac, the spec name on Windows) is stable acro
 - run-tests --only engine/agentbrowser.test.js: 34/34. tools/test-supervisor-agentbrowser-3633.sh: passes, including the two new checks (the config is agents/ab-3633.json; its --output-dir names ab-3633).
 - Mutations, each red: the supervisor no longer passes "$SESSION" (both new shell checks FAIL); the name sanitizing removed ("../../escape" leaves the agents folder).
 - Not tested end to end: the Windows default (win32supervisor passes spec.name); win32supervisor.test.js injects agentBrowser, so the default is not reached there.
+
+## Challenge loop iteration 1 (sonnet)
+- Fixed: two agents could share one file (names that clean to the same text, or differ only by case on a case-insensitive disk). The key is now lowercase, at most 48 characters, never ends in a dot, and gets an 8-character hash of the original name whenever cleaning changed it. An ordinary lowercase name (mona-lisa) is used as it is.
+- Fixed: Windows device names (con, nul, com1, NUL.txt) would make the write fail and the agent lose its browser. They get a leading underscore and the hash.
+- Fixed: the Windows default is now win32supervisor.browserFor(spec), tested with a fake launchConfig: it passes the agent's name.
+- Fixed: the name test now checks every key's characters, that none ends in a dot or is a device name, that every file stays directly in the agents folder, and that 17 distinct names give 17 distinct keys. Removing the hash turns it red.
+- Deferred: falling back to the shared file when a per-agent write fails. The hash removes the naming causes; any other write failure would hit the shared file too.
+- Plan wording: the shared mcp-config.json is still written by a launch with no name (the old "Open" line said nobody reads it).

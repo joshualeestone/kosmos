@@ -114,12 +114,21 @@ function treeDir() { return path.join(homeDir(), PIN.version); }
 function cliPath() { return path.join(treeDir(), 'node_modules', '@playwright', 'mcp', 'cli.js'); }
 function markerPath() { return path.join(treeDir(), '.verified'); }
 /* kosmos#8928: one config per agent, named for it, so every browser server names its agent on its own command line
-   (--output-dir below) and a server left running after its session can be traced to that agent. Only letters, digits,
-   dot, dash and underscore survive, so a name can never leave the agents folder; a name with nothing left, or `.`/`..`,
-   is treated as no name, which keeps the shared file. */
+   (--output-dir below) and a server left running after its session can be traced to that agent. The key is
+   lowercase letters, digits, dot, dash and underscore, at most 48 of them, never ending in a dot. When that changed
+   the name, or the name is one Windows reserves for a device (con, nul, com1 ...), a short hash of the original name
+   is added (and a device name gets a leading underscore), so two agents whose names clean to the same text still
+   get two files. An empty name keeps the shared
+   file. */
+const WIN_DEVICE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\.|$)/;
 function agentKey(agent) {
-  const k = String(agent || '').replace(/[^A-Za-z0-9._-]/g, '_');
-  return /^[._]*$/.test(k) ? '' : k;
+  const raw = String(agent || '');
+  if (!raw) return '';
+  const base = raw.toLowerCase().replace(/[^a-z0-9._-]/g, '_').slice(0, 48).replace(/\.+$/, '');
+  if (base === raw && !/^[._]*$/.test(base) && !WIN_DEVICE.test(base)) return base;
+  const tag = require('node:crypto').createHash('sha256').update(raw).digest('hex').slice(0, 8);
+  const safe = /^[._]*$/.test(base) ? 'agent' : WIN_DEVICE.test(base) ? '_' + base : base;
+  return safe + '-' + tag;
 }
 function configPath(agent) {
   const k = agentKey(agent);
