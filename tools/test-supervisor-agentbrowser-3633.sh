@@ -77,7 +77,9 @@ run_claude() {
   # The caller's own opt-out must not leak in and turn arm 1 red for no reason.
   # Bounded: a shim that regressed to installing would otherwise hold the launch on a
   # real download, and the arm would hang instead of going red.
-  env -u KOSMOS_AGENT_BROWSER "$@" STUB_DIR="$dir" AGENT_WORKFORCE_RUNNERS_DIR="$dir/runners" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
+  # kosmos#8928: the shim now makes the agent's output folder under its temp folder, so that is the sandbox's own.
+  mkdir -p "$dir/tmp"
+  env -u KOSMOS_AGENT_BROWSER "$@" STUB_DIR="$dir" TMPDIR="$dir/tmp" AGENT_WORKFORCE_RUNNERS_DIR="$dir/runners" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
     /usr/bin/perl -e 'alarm 60; exec @ARGV' bash "$dir/bin/agent-supervisor.sh" ab-3633 "$dir/work" /usr/bin/true "$dir/tmux" "$dir/start.log" "$model" claude \
     > "$dir/out.log" 2>&1 || true
 }

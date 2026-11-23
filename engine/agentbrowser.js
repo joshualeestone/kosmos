@@ -114,8 +114,6 @@ function treeDir() { return path.join(homeDir(), PIN.version); }
 function cliPath() { return path.join(treeDir(), 'node_modules', '@playwright', 'mcp', 'cli.js'); }
 function markerPath() { return path.join(treeDir(), '.verified'); }
 /* kosmos#8928: one config per agent, named for it, so every browser server names its agent on its own command line
-   (--output-dir below) and a server left running after its session can be traced to that agent. The key is
-/* kosmos#8928: one config per agent, named for it, so every browser server names its agent on its own command line
    (--output-dir below) and a server left running after its session can be traced to that agent. The key is the name
    in lowercase letters, digits, dot, dash and underscore, at most 48 of them, never ending in a dot. A name that
    cleaning changed, one made only of dots and underscores, or one Windows reserves for a device (con, nul, com1, with
@@ -284,6 +282,7 @@ function launchConfig(opts) {
       node: o.node || process.execPath, cli: cliPath(), outputDir: outputDir(o.agent),
       platform, executablePath: mac ? shellExe(o.arch) : undefined,
     }), null, 2) + '\n';
+    if (o.agent) fs.mkdirSync(outputDir(o.agent), { recursive: true });   // kosmos#8928: the agent's own output folder exists before its server starts
     const file = configPath(o.agent);
     return writeConfigIfNeeded(file, text) ? file : null;
   } catch { return null; }
