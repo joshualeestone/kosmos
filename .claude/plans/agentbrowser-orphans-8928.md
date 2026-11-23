@@ -15,7 +15,7 @@ Slice 1 (each server's `--output-dir` names its agent: `<tmp>/kosmos-agent-brows
 Exact pids only (never pkill/pattern), force: an orphaned server serves no one, and one that outlived its session is likely hung, so SIGTERM may do nothing. Mac: its descendants deepest first, then the server, SIGKILL, each pid re-read just before it is ended and skipped unless it is still what was selected. Windows: one listing with creation times plans it (descendants created after their parent, then the server; never a tree kill: Windows keeps a dead parent's pid and reuses pids); one PowerShell (WIN_END, plan on stdin) re-reads each planned pid and Stop-Process -Force only if its creation time and command line still match exactly.
 
 ## Where
-`endOrphanedServers(agent, deps)` in engine/agentbrowser.js, called from launchConfig when an agent is named; never throws. Mac: inline (ps takes milliseconds). Windows: asynchronous, after the launch has gone ahead, without blocking the supervisor. Fails closed: with no ender handed in it acts only when its caller says `live` (the shim run as a program; the Windows supervisor called with no deps), never in a test run. Each process ended is appended to playwright-mcp/ended-servers.log. Listing, re-check and ending are injectable.
+`endOrphanedServers(agent, deps)` in engine/agentbrowser.js, called from launchConfig when an agent is named; never throws. Mac: inline (ps takes milliseconds). Windows: asynchronous, after the launch has gone ahead, without blocking the supervisor. Fails closed: with no ender handed in it acts only when its caller says `live` (the shim run as a program, on a Mac; the Windows supervisor only with an explicit endOrphans, off for real starts until measured), never in a test run. Each process ended is appended to playwright-mcp/ended-servers.log. Listing, re-check and ending are injectable.
 
 ## Tests
 - Pure selection over a fixture process table: own orphan selected; own server with a live parent NOT; another agent's orphan NOT; a prefix-named agent (`mona` vs `mona-lisa`) NOT; a non-Playwright process with the same folder NOT; a different install's cli.js NOT.
@@ -96,3 +96,7 @@ Servers left by an earlier pinned version (another cli.js path) are not matched.
 ## Challenge loop iteration 9 (sonnet)
 - Nothing new unsafe. Taken: a child is re-checked on its command as well as its parent (dropping it turns the new test red); the shim's live is Mac-only, so Windows stays off by construction; comments say a server under another node binary is not matched, and that an injected ender acts in tests.
 - Deferred: an early exit before the first ps when no line names the agent (the sweep is already capped at 2 s).
+
+## Challenge loop iteration 10 (opus)
+- Measured by the reviewer on this Mac (read-only): every live Playwright MCP server is a direct child of its Claude process, and its interpreter is the runtime node that both the config and the sweep take from the supervisor's NODE_BIN. So on a Mac "parent gone" does mean the session is gone.
+- Fixed: the header still said a real Windows start turns it on (true before iteration 8); now it says only an explicit endOrphans does. The plan's "Where" said the same and is corrected. A comment now says the cli.js match, not only the test-run check, keeps tests away from real servers.
