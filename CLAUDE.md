@@ -283,6 +283,12 @@ from a night in this codebase, kosmos#2616.)
    `engine/create.live-gate-1598.test.js`, `engine/update.livegate-1726.test.js`, and
    `engine/platform-gate-wiring.test.js`.
 
+   One narrow exception, kept fail-closed (kosmos#8928): `engine/agentbrowser.js`'s `endOrphanedServers` ends an
+   agent's own orphaned browser servers from two processes that never open the process-wide switch (the Mac shim
+   `engine/agent-browser-config.js` and the Windows supervisor). Opening it there would arm every other gated module
+   in those processes, so each passes a feature-only `live` flag instead, from its `require.main` path only. With no
+   flag (and no injected ender) it does nothing, and it never acts in a test run (`store.isTestProcess`).
+
 4. **A committed `web/` change needs a `docs/browser-checks/` assertion or a
    `Browser-check: <reason>` trailer.** `tools/run-tests.sh` (its call to `kosmos_browser_check_gate`, via
    `tools/lib/browser-check-gate.sh`) refuses a branch that changes a rendered surface without

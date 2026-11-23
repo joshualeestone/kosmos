@@ -48,7 +48,7 @@ Servers left by an earlier pinned version (another cli.js path) are not matched.
 ## Challenge loop iteration 2 (opus)
 - Fixed: Windows `taskkill /T` could reach an unrelated process (a dead parent's pid stays on its children and pids are reused). Descendants now count only if created after their parent, and each pid is ended alone (no /T). Removing the creation-time rule turns the Windows test red.
 - Fixed: the Windows run blocked the supervisor (execFileSync in a setImmediate). It is now async throughout (execP), and launchConfig never waits on it.
-- Fixed: nothing tested that launchConfig calls the sweep; a launchConfig arm now does (removing the call turns it red). And launchConfig passes its own platform.
+- Fixed: nothing tested that launchConfig calls the sweep; a launchConfig arm now does (removing the call turns it red). launchConfig passes its own platform; `orphans.platform` can override it, a test seam only (that arm uses it).
 - Fixed: a Windows arm: one listing, each pid alone, the older process under a reused parent pid spared, a live parent leaves everything.
 - Fixed: every ended process is logged (time, agent, pid, command) to playwright-mcp/ended-servers.log, so a wrong one could be traced.
 - Fixed: the cli.js is matched as a whole argument, like --output-dir.
@@ -62,3 +62,11 @@ Servers left by an earlier pinned version (another cli.js path) are not matched.
 - Fixed: the header now says what Windows does NOT do: one listing is its only read (no per-pid re-read); its guards are the creation-time rule, the server's live parent, and ending each pid alone. It also says a browser whose server already died is not matched.
 - Fixed: the log rotates past 1 MB.
 - Deferred: browsers whose server already died (nothing names their agent; the safe direction). Windows per-pid re-reads (a PowerShell start each).
+
+## Challenge loop iteration 4 (opus)
+- Fixed (BLOCKER): on Windows the kill acted on a listing up to 15 s old, while the orphan may be exiting by itself, so a reused pid could be ended. Now ONE PowerShell (WIN_END) re-reads each planned pid and ends it only if its creation time and whole command line still equal the listing's; a pid with no creation time is left. The test pins what WIN_END compares (it runs only on Windows, so this is the weakest-tested part: Homer's box is where it can be measured).
+- Fixed: never acts in a test run by the store's rule (--test, an inherited NODE_TEST_CONTEXT, run-tests.sh's KOSMOS_TEST_RUN), not only --test.
+- Fixed: the Mac wiring is tested: the shim, spawned as a program with this run's markers removed, ends the agent's own orphan and spares another agent's; setting its live to false turns it red.
+- Fixed: the Mac budget covers the whole sweep (listing included), each ps timed to what is left.
+- Fixed: repo CLAUDE.md rule 3 now records this exception and why.
+- Fixed: a Windows row's creation time must look like one; the stand-in's cli.js restore is registered before it is replaced.
