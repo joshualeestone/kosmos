@@ -302,7 +302,7 @@ function xlsxText(buf) {
   if (clip.uncalc || /<(?:\w+:)?calcPr\b[^<>]*fullCalcOnLoad="(?:1|true)"/.test(wb)) {
     if (formulas) notes.add('Some formulas were never calculated by the program that made this file, so they show as formulas (or as 0), not as results.');
   } else if (formulas) notes.add('Formulas are shown as the values they had when the file was last saved.');
-  if (anyRows) notes.add('Each line is one row, with the sheet\u2019s own row number. Under a header, (blank) is an empty cell; inside a value, \\n is a line break, \\| is a pipe and \\\\ is one backslash.');   // #8940
+  if (anyRows) notes.add('Each line that starts with Row is one row, numbered as in the sheet. Under a header, (blank) is an empty cell; inside a value, \\n is a line break, \\| is a pipe and \\\\ is one backslash.');   // #8940
   if (clip.cols) notes.add('Only the first ' + MAX_COLS + ' columns of a sheet are converted.');
   if (clip.cell) notes.add('A cell longer than ' + MAX_CELL + ' characters is cut short.');
   let styles = null;
