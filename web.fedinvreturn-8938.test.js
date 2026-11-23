@@ -11,7 +11,7 @@ const { scriptOf, lift } = require('./test-support/page');
 
 const SCRIPT = scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
 
-function page({ projects = ['p1'], loaded = true, fed = true, visible = [], storage = new Map(), stayOff = false, dialogs = [] } = {}) {
+function page({ projects = ['p1'], loaded = true, fed = true, visible = [], storage = new Map(), stayOff = false, dialogs = [], covers = [], archived = [] } = {}) {
   const calls = [];
   const els = { 'fedinv-modal': { hidden: true }, 'fedinv-msg': { textContent: '' } };
   for (const id of ['acct-add-modal', 'firstrun', 'fr-choice']) els[id] = { hidden: !visible.includes(id) };
@@ -25,7 +25,8 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
   const listeners = [];
   const document = {
     getElementById: (id) => els[id] || null,
-    querySelector: (sel) => (sel === '.rm-back:not([hidden]):not([hidden] *)' ? rmBack().find((el) => !el.hidden) || null : null),
+    // The page's one busy selector: its first part is the .rm-back test; `covers` stands for the rest (an update screen...).
+    querySelector: (sel) => (sel.startsWith('.rm-back:not([hidden]):not([hidden] *), ') ? (rmBack().find((el) => !el.hidden) || (covers.length ? {} : null)) : null),
     addEventListener: (type, fn, capture) => listeners.push({ type, fn, capture }),
     removeEventListener: (type, fn) => { const i = listeners.findIndex((l) => l.type === type && l.fn === fn); if (i > -1) listeners.splice(i, 1); },
   };
@@ -57,7 +58,7 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
     'with (env) { ' + wrapped + ' }')(
     sessionStorage, document, performance, (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     () => { calls.push(['fetch']); return Promise.resolve({ ok: false }); }, [], () => calls.push(['reauth']),
-    () => state.fed, (id) => (projects.includes(id) ? { id } : null),
+    () => state.fed, (id) => (projects.includes(id) ? { id, archived: archived.includes(id) } : null),
     (id) => { calls.push(['openProject', id]); if (!stayOff) state.current = id; },
     (opener, prefill) => { calls.push(['fedInviteOpen', opener, prefill]); els['fedinv-modal'].hidden = false; els['fedinv-msg'].textContent = ''; },
     (tab) => calls.push(['showTab', tab]),
@@ -131,7 +132,7 @@ test('#8938 item 4: in the SAME page view, or never pressed, the note opens noth
 });
 
 test('#8938 item 4: not ready yet (projects not read, inviting off, a dialog up) waits and keeps the note; then acts', () => {
-  for (const setup of [{ loaded: false }, { fed: false }, { visible: ['acct-add-modal'] }, { visible: ['firstrun'] }, { dialogs: ['am-modal'] }, { dialogs: ['whatsnew'] }]) {
+  for (const setup of [{ loaded: false }, { fed: false }, { visible: ['acct-add-modal'] }, { visible: ['firstrun'] }, { dialogs: ['am-modal'] }, { dialogs: ['whatsnew'] }, { covers: ['.upd-back'] }]) {
     const p = page(setup);
     earlier(p);
     assert.equal(p.resumeFedInviteReturn(), false, 'did not wait for ' + JSON.stringify(setup));
@@ -251,6 +252,11 @@ test('#8938 item 4: a project no longer listed, or one that did not open, opens 
   assert.equal(gone.resumeFedInviteReturn(), true);
   assert.deepEqual(gone.calls, []);
   assert.equal(gone.storage.has(gone.KEY), false);
+  const arch = page({ archived: ['p1'] });
+  earlier(arch);
+  arch.resumeFedInviteReturn();
+  assert.deepEqual(arch.calls, [], 'an archived project opened an invite sheet');
+  assert.equal(arch.storage.has(arch.KEY), false);
   const stuck = page({ stayOff: true });
   earlier(stuck);
   stuck.resumeFedInviteReturn();
@@ -264,6 +270,8 @@ test('#8938 item 4: an invite note is not an account note, and boot routes it to
   assert.deepEqual(p.calls, [], 'the account return acted on an invite note');
   assert.equal(p.storage.has(p.KEY), true, 'and the note was lost');
   p.stepUpReturnBoot();
+  assert.equal(p.timers.length, 1, 'the wait starts on a timer, after the whole script has run');
+  p.timers.shift().fn();
   assert.ok(!p.calls.some((c) => c[0] === 'fetch'), 'boot read the account list for an invite note');
   assert.deepEqual(p.calls.map((c) => c[0]), ['showTab', 'openProject', 'fedInviteOpen']);
   // A note of the wrong invite shape is removed, as #8728's are.
@@ -298,6 +306,7 @@ test('#8942 review nit: a company line ending in a full stop is not doubled into
   assert.doesNotMatch(t, /\.;|\.\./);
   // Only ONE stop goes: an ellipsis keeps two.
   assert.match(fn({ reports: ['Usage...'] }), /Reported: Usage\.\.\.$/);
+  assert.match(fn({ reports: ['Is usage sent?'] }), /Reported: Is usage sent\?$/, 'a "?" got a stop after it');
   assert.match(fn({ reports: ['Usage\u2026'] }), /Reported: Usage\u2026$/, 'a closing stop after an ellipsis character');
   assert.equal(fn({ reports: ['Usage...', 'Token use'] }), 'Your company\u2019s words for this computer. Reported: Usage...; Token use.', 'an ellipsis lost a dot mid-list');
   assert.equal(fn({ reports: ['Agent names .', 'Token use'] }), 'Your company\u2019s words for this computer. Reported: Agent names; Token use.', 'the space before a closing stop was left in front of the ";"');

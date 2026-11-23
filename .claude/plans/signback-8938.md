@@ -32,6 +32,10 @@ opens nothing.
 - A press or key while first run or a dialog is up, or inside one, does not count as moving on (dismissing it is not a
   choice of where to go); the return waits behind both. "A dialog is up" is the board's own test (the gutter CSS):
   `.rm-back:not([hidden]):not([hidden] *)`; the dialogs built on demand (What's New, the invite step) are removed on close.
+- Busy is the board's own: the dialog test above plus what tipModalOpen counts as covering the page (first screens,
+  update and restart screens, an open <dialog>, the phone menu). An archived project opens nothing.
+- Known limit: presses are watched only during the 60 tries. A later reload inside the note's 10 minutes, after the
+  person worked elsewhere, still opens the sheet once.
 - Decided, from review 2: a page whose 3 projects reads all fail opens nothing (the note stays for a reload). That is
   today's behaviour, and more reads would poll a board that is not answering.
 - The words claim no sign-in (#8728 review 3: a log-out can fail and the person reload).

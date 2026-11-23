@@ -33055,8 +33055,10 @@ function fedInviteReturnTouched(e) {
 }
 function fedInviteReturnBusy() {
   if (stepUpReturnBusy()) return true;
-  // The board's own test for an open dialog (its gutter CSS): not hidden, and not inside a hidden section.
-  return !!document.querySelector('.rm-back:not([hidden]):not([hidden] *)');
+  // A dialog is the board's own test (its gutter CSS): not hidden, and not inside a hidden section. The rest is what
+  // tipModalOpen counts as covering the page: the first screens, an update or restart screen, an open <dialog>, the
+  // phone menu.
+  return !!document.querySelector('.rm-back:not([hidden]):not([hidden] *), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open], #pnav:not([hidden])');
 }
 function resumeFedInviteReturn() {
   const n = peekStepUpReturn();
@@ -33075,7 +33077,8 @@ function resumeFedInviteReturn() {
   }
   if (!fedShow()) return false;
   forgetStepUpReturn();
-  if (!pjById(n.project)) return true;
+  const proj = pjById(n.project);
+  if (!proj || proj.archived) return true;   // gone, not this person's, or archived: nothing to invite into
   if (typeof showTab === 'function') showTab('projects');   // the page may have loaded on another tab
   openProject(n.project);
   if (PJ_CURRENT !== n.project) return true;
@@ -33101,7 +33104,7 @@ function fedInviteReturnWait(tries = 60) {
 function stepUpReturnBoot() {
   const n = peekStepUpReturn();
   if (!n) return;
-  if (n.kind === 'fed-invite') { fedInviteReturnWait(); return; }
+  if (n.kind === 'fed-invite') { setTimeout(() => fedInviteReturnWait(), 0); return; }   // after the whole script has run, however it is loaded
   fetch('/api/accounts', { cache: 'no-store' })
     .then((res) => (res.ok ? res.json() : null))
     .then((body) => { if (body && Array.isArray(body.accounts)) resumeStepUpReturn(body.accounts); })
@@ -58422,10 +58425,10 @@ function plusOrgPaint() {
    reportWords: its report lines, its backup lines and its never lines), on the member's own screen. Shown for a company only, while this
    Kosmos reports; nothing when the words are missing. */
 function plusOrgSeesText(words) {
-  // A line's own closing full stop goes (one, not an ellipsis's), so a list never reads ".;" (Renet's review of #8942),
-  // and a list whose last line ends in an ellipsis gets no further stop.
+  // A line's closing full stop goes (one, not an ellipsis's), so a list never reads ".;" (Renet's review of #8942); a
+  // closing abbreviation's stop goes too ("U.S."). A list whose last line ends in an ellipsis, "?" or "!" gets no stop.
   const clean = (l) => (Array.isArray(l) ? l.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim().replace(/(^|[^.])\.$/, '$1').trim()).filter(Boolean) : []);
-  const list = (l) => l.join('; ') + (/[.\u2026]$/.test(l[l.length - 1]) ? '' : '.');
+  const list = (l) => l.join('; ') + (/[.\u2026?!]$/.test(l[l.length - 1]) ? '' : '.');
   const reports = clean(words && words.reports);
   if (!reports.length) return '';
   const backsUp = clean(words && words.backsUp);
