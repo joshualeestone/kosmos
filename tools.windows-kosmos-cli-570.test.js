@@ -517,9 +517,11 @@ test('no verb, or an unknown one, is a usage error', async () => {
 test('#6330: task built prints the board\'s sentence about who was told; an older board sends none and nothing is claimed', async () => {
   const older = await run(['task', 'built', 'proj/1', '4', 'merged'], () => ({ body: { task: { number: 4 }, changed: true } }));
   assert.equal(older.code, 0);
-  assert.equal(older.out, 'Marked task 4 on proj/1 built, waiting to be released or checked. Closing it clears the mark.');
+  // kosmos#8934: a mark without --waiting ends with the line naming the option.
+  const HINT = '\nTo show the person what it waits on, mark it with --waiting person, review or release (kosmos task --how).';
+  assert.equal(older.out, 'Marked task 4 on proj/1 built, waiting to be released or checked. Closing it clears the mark.' + HINT);
   const said = await run(['task', 'built', 'proj/1', '4', 'merged'], () => ({ body: { task: { number: 4 }, changed: true, delivered: [], summary: 'Told zed.' } }));
-  assert.equal(said.out, 'Marked task 4 on proj/1 built, waiting to be released or checked. Closing it clears the mark. Told zed.');
+  assert.equal(said.out, 'Marked task 4 on proj/1 built, waiting to be released or checked. Closing it clears the mark. Told zed.' + HINT);
 });
 
 test('#6330 slice 2: task built --file sends the file\'s sha256 and keeps the path out of the note; a missing file, --file with no path, and --file with --clear never reach the board', async () => {
@@ -535,7 +537,9 @@ test('#6330 slice 2: task built --file sends the file\'s sha256 and keeps the pa
     const none = await run(['task', 'built', 'proj/1', '4', 'merged'], () => ({ body: { task: { number: 4 }, changed: true } }));
     assert.equal('fingerprint' in none.calls[0].body, false, 'CONTROL: a mark without --file sent a fingerprint');
     // #6761: the fingerprint sent is printed, whole, under the mark's sentence; a mark without --file prints none.
-    assert.equal(ok.out, 'Marked task 4 on proj/1 built, waiting to be released or checked. Closing it clears the mark.\nFingerprint sent: ' + want + ' for ' + file);
+    // kosmos#8934: the line naming --waiting comes last, after what the mark sent.
+    assert.equal(ok.out, 'Marked task 4 on proj/1 built, waiting to be released or checked. Closing it clears the mark.\nFingerprint sent: ' + want + ' for ' + file
+      + '\nTo show the person what it waits on, mark it with --waiting person, review or release (kosmos task --how).');
     assert.doesNotMatch(none.out, /Fingerprint sent/);
     for (const [argv, said] of [[['--file', path.join(dir, 'missing')], /cannot read that file/], [['--file'], /--file needs the path/], [['--file', ''], /cannot read that file/], [['--clear', '--file', file], /takes no file/]]) {
       const r = await run(['task', 'built', 'proj/1', '4', ...argv]);

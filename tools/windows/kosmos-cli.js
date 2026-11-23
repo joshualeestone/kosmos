@@ -2208,8 +2208,6 @@ async function taskBuilt(ctx, args) {
       : 'Marked task ' + num + ' on ' + project + ' built, waiting ' + waitsWords + '. Closing it clears the mark.' + left + told);
     // kosmos#8934, as install/kosmos: said when an older board did not record what it waits on.
     if (!clear && waiting && !recorded) ctx.out('This Kosmos did not record what it waits on: it may be older than --waiting. Update it, then mark the task again.');
-    // kosmos#8934, as install/kosmos: the working rules have no room for it, so the option is named where the mark is made.
-    if (!clear && !waiting) ctx.out('To show the person what it waits on, mark it with --waiting person, review or release (kosmos task --how).');
     // #6761, as install/kosmos: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
     if (!clear && fingerprint) ctx.out('Fingerprint sent: ' + fingerprint + ' for ' + file);
     if (!clear && fingerprint && !filePath && pathWhy) ctx.out('Its path was not sent (' + pathWhy + '), so kosmos task files cannot check this mark.');
@@ -2220,6 +2218,9 @@ async function taskBuilt(ctx, args) {
       if (r.json.task.landedCommit === commit.sha) ctx.out('Recorded commit ' + commit.sha.slice(0, 7) + '.' + (commit.onRemote ? '' : ' It is not pushed yet: push it so it is not only on this computer.'));
       else ctx.out('This Kosmos did not record the commit: it may be older than --commit. Update it, then mark the task again.');
     }
+    // kosmos#8934, as install/kosmos: the working rules have no room for it, so the option is named where the mark is made, last, after
+    // what the mark sent.
+    if (!clear && !waiting) ctx.out('To show the person what it waits on, mark it with --waiting person, review or release (kosmos task --how).');
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not mark that task: ' + ctx.refusedBy(r) + '.'); return 1; }
