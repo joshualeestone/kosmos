@@ -68,6 +68,7 @@ const ALSO = ['storecheck-8863.test.js',   // kosmos#8863: the start check and l
   'hookscripts-5774.test.js', 'startupfiles-5774.test.js', 'startplugins-5774.test.js', 'launchpath-5516.test.js',
   'configstart-5516.test.js', 'launchprune-5663.test.js', 'boardkeychain-4491.test.js',
   'feedbackday-7875.test.js',   // #7875: kosmos feedback day, run through the Windows CLI's own handler
+  'howhint.test.js', 'howhint-cli-8935.test.js',   // kosmos#8935: the first-use pointer through the Windows CLI (a launch-token agent); its bash half skips there with a reason
   'communityguide.test.js', 'taskguide.test.js', 'claimguide.test.js', 'postguide.test.js', 'agentguide.test.js',   // kosmos#8735: kosmos community --how, kosmos task --how, kosmos claim --how, kosmos post --how and kosmos agent --how through the Windows CLI; their bash halves skip there with a reason
   'agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
   'create.test.js', 'create.apostrophe-8784.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js',

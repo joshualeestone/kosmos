@@ -17,14 +17,14 @@ test('#8935 each guided command maps to its guide; reading the guide is recognis
   assert.deepEqual(hh.classify('claim', ['proj', '12']), { guide: 'kosmos claim --how', readsIt: false });
   assert.deepEqual(hh.classify('claim', ['--how']), { guide: 'kosmos claim --how', readsIt: true });
   assert.deepEqual(hh.classify('report', ['needs_you', '--held']), { guide: 'kosmos report --help', readsIt: false });
-  assert.deepEqual(hh.classify('report', ['--help']), { guide: 'kosmos report --help', readsIt: true });
-  assert.equal(hh.classify('report', ['--how']).readsIt, false, 'report has no --how: only --help reads its guide');
+  assert.equal(hh.classify('report', ['--how']).readsIt, false, 'report has no --how (its guide is --help, answered before this runs)');
   assert.equal(hh.classify('task', ['built', 'p', '3']), null, 'kosmos#8934 names the task guide on task built');
   assert.deepEqual(hh.classify('task', ['add', 'p', 'x']), { guide: 'kosmos task --how', readsIt: false });
   assert.equal(hh.classify('msg', ['x']), null, 'CONTROL: a command with no longer guide');
   for (const c of ['post', 'community', 'connections']) assert.equal(hh.classify(c, ['x']).guide, 'kosmos ' + c + ' --how');
   assert.equal(hh.classify('report', []), null, 'a bare call (the report hook\'s status probe, or a usage request) does not count');
   assert.equal(hh.classify('report', ['working', '--auto', 'running Bash']), null, 'the report hook\'s own --auto calls do not count');
+  assert.equal(hh.classify('post', ['p', 'use --auto here']).guide, 'kosmos post --how', 'CONTROL: --auto in a message body is just text');
 });
 
 test('#8935 the first use points at the guide once per agent per guide; CONTROL: a second use, another guide, another agent', () => {
@@ -41,8 +41,6 @@ test('#8935 reading the guide first counts as seen, so that agent is never point
   const file = fresh();
   assert.equal(hh.hint('task', ['--how'], { env: envFor('mona', file) }), '');
   assert.equal(hh.hint('task', ['add', 'p', 'x'], { env: envFor('mona', file) }), '', 'pointed at a guide it already read');
-  assert.equal(hh.hint('report', ['--help'], { env: envFor('mona', file) }), '');
-  assert.equal(hh.hint('report', ['needs_you', '--held'], { env: envFor('mona', file) }), '');
 });
 
 test('#8935 a person (no KOSMOS_AGENT_SESSION) never sees it and nothing is written; task built neither points nor marks', () => {
@@ -89,9 +87,9 @@ test('#8935 bare and --auto calls neither point nor mark; a test run without its
   /* A test run with no record of its own named shows and writes nothing. The store is a stand-in so only the test-run
      check decides: CONTROL, the same call outside a test run points (into this sandbox). */
   const dir = path.join(SANDBOX, 'store-' + (++n));
-  const asTest = { isTestProcess: () => true, root: () => dir };
+  const asTest = { isTestProcess: () => true, currentDataRoot: () => dir };
   assert.equal(hh.hint('claim', ['p'], { env: { KOSMOS_AGENT_SESSION: 'mona' }, store: asTest }), '');
   assert.equal(fs.existsSync(path.join(dir, 'how-hints.json')), false, 'a test run wrote a record');
-  const asReal = { isTestProcess: () => false, root: () => dir };
+  const asReal = { isTestProcess: () => false, currentDataRoot: () => dir };
   assert.match(hh.hint('claim', ['p'], { env: { KOSMOS_AGENT_SESSION: 'mona' }, store: asReal }), /kosmos claim --how/, 'CONTROL: outside a test run it points');
 });

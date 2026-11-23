@@ -5,10 +5,11 @@
  * More of the detailed rules live in on-demand guides now (`kosmos claim --how` and the like). That depends on an
  * agent remembering to read one the first time a case comes up, and an agent acting from memory of older text gets it
  * wrong quietly. So each such command prints one line naming its guide, once per agent per guide. Running the guide
- * itself counts as seen. Only an agent's call counts: KOSMOS_AGENT_SESSION (a Mac agent's name, so once per agent) or
+ * itself (`--how`) counts as seen. `--help` is answered before this runs on both CLIs, so it does not count, and
+ * report's pointer (to its --help) can show once to an agent that already read it. Only an agent's call counts: KOSMOS_AGENT_SESSION (a Mac agent's name, so once per agent) or
  * KOSMOS_AGENT_TOKEN (all a Windows agent carries; minted per launch, so there it is once per launch, and only a hash
  * of it is stored). A person in their own Terminal has neither. A call with no arguments (a usage request, or the
- * report hook's status probe) and any `--auto` call (the report hook's own) neither points nor marks. A test run never
+ * report hook's status probe) and a `report ... --auto` call (the report hook's own) neither points nor marks. A test run never
  * points unless it names its own record (KOSMOS_HOWHINT_FILE).
  *
  * Both CLIs call this one module (install/kosmos through `node howhint.js <command> [args]`, the Windows CLI through
@@ -34,9 +35,10 @@ function classify(command, args) {
   const guide = GUIDES[command];
   if (!guide) return null;
   const list = Array.isArray(args) ? args.map(String) : [];
-  if (!list.length || list.includes('--auto')) return null;   // a usage request, a status probe, or the report hook
+  if (!list.length) return null;   // a usage request, or the report hook's status probe
+  if (command === 'report' && list.includes('--auto')) return null;   // the report hook's own reports
   const first = list[0];
-  const readsIt = command === 'report' ? (first === '--help' || first === '-h') : first === '--how';
+  const readsIt = command !== 'report' && first === '--how';   // report has no --how; its --help never reaches here
   /* `kosmos task built` ends with its own line naming the task guide (kosmos#8934): not pointed at twice. */
   if (command === 'task' && first === 'built') return null;
   return { guide, readsIt };
@@ -44,7 +46,7 @@ function classify(command, args) {
 
 function recordFile(env, store) {
   if (env && env.KOSMOS_HOWHINT_FILE) return env.KOSMOS_HOWHINT_FILE;   // test-only seam: where a test keeps its record
-  return path.join(store.root(), 'how-hints.json');
+  return path.join(store.currentDataRoot(), 'how-hints.json');   // no migration, no folder made, from an agent's command
 }
 /* A record with no prototype, so an agent named like an Object key (`__proto__`) is stored as a key like any other. */
 function readRecord(file) {
@@ -56,12 +58,10 @@ function readRecord(file) {
   return rec;
 }
 function writeRecord(file, rec) {
-  const tmp = file + '.' + process.pid + '.tmp';
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(tmp, JSON.stringify(rec) + '\n');
-    fs.renameSync(tmp, file);
-  } catch { try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ } }
+    require('./store').saveFlushed(file, JSON.stringify(rec) + '\n');   // the store's flushed write: a unique temp, then the rename
+  } catch { /* nothing recorded: the pointer may show again */ }
 }
 
 /* Who is calling: a Mac agent's name, or a hash of a Windows agent's launch token (never the token itself). */
@@ -95,6 +95,7 @@ function hint(command, args, opts) {
     const rec = readRecord(file);
     const seen = Array.isArray(rec[agent]) ? rec[agent] : [];
     if (seen.includes(command)) return '';
+    delete rec[agent];   // re-added last, so the cap below keeps recently seen agents
     rec[agent] = seen.concat(command);
     capRecord(rec);
     writeRecord(file, rec);

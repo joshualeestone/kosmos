@@ -235,7 +235,7 @@ test('kosmos#7875 item 2: the block is short and points at the guide; the guide 
 test('kosmos#7875 item 2: both CLIs print the guide with connections --how', async () => {
   const root = path.join(__dirname, '..');
   const sh = fs.readFileSync(path.join(root, 'install', 'kosmos'), 'utf8');
-  assert.match(sh, /connections\) shift; cmd_connections "\$@" ;;/);
+  assert.match(sh, /connections\) shift; (_how_hint connections "\$@"; )?cmd_connections "\$@" ;;/);   // kosmos#8935 may name the guide first
   /* The Mac script itself, run (no board needed for --how): its stdout is the guide, and an extra word is usage (2). */
   const { spawnSync } = require('node:child_process');
   const tmp = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'conn-how-'));
