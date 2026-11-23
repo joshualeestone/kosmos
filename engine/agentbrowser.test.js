@@ -100,6 +100,25 @@ test('a proven install, then every launch gets a flag for a file holding exactly
   assert.deepEqual(JSON.parse(fs.readFileSync(p, 'utf8')), written);
 });
 
+/* kosmos#8929: inside a test run the live config is never written unless the runners folder is sandboxed: the rule is
+   asked of the environment it is given, so each arm here names its own. */
+test('#8929 a test run writes no config unless the runners folder is sandboxed; CONTROL: sandboxed, or no test run, it writes', () => {
+  assert.equal(ab.inTestRunUnsandboxed({ KOSMOS_TEST_RUN: '/tmp/kt1' }), true, 'run-tests.sh without a sandbox');
+  assert.equal(ab.inTestRunUnsandboxed({ NODE_TEST_CONTEXT: 'child-v8' }), true, 'node --test without a sandbox');
+  assert.equal(ab.inTestRunUnsandboxed({ KOSMOS_TEST_RUN: '/tmp/kt1', AGENT_WORKFORCE_RUNNERS_DIR: '/tmp/sbx' }), false, 'CONTROL: sandboxed');
+  assert.equal(ab.inTestRunUnsandboxed({}), false, 'CONTROL: not a test run (the board, a real launch)');
+
+  assert.equal(ab.isInstalled(), true, 'fixture: the earlier test installed the fake tree');
+  const p = ab.configPath();
+  fs.writeFileSync(p, 'LIVE CONFIG 8929\n');
+  assert.equal(ab.launchConfig({ platform: 'win32', node: 'C:\\T\\node.exe', env: { KOSMOS_TEST_RUN: '/tmp/kt1' } }), null,
+    'a test run without a sandbox still asked for a config');
+  assert.equal(fs.readFileSync(p, 'utf8'), 'LIVE CONFIG 8929\n', 'a test run without a sandbox rewrote the config');
+  /* CONTROL: the same call with the runners folder sandboxed writes, so the refusal above is the guard, not a failure. */
+  assert.equal(ab.launchConfig({ platform: 'win32', node: 'C:\\T\\node.exe', env: { KOSMOS_TEST_RUN: '/tmp/kt1', AGENT_WORKFORCE_RUNNERS_DIR: process.env.AGENT_WORKFORCE_RUNNERS_DIR } }), p);
+  assert.notEqual(fs.readFileSync(p, 'utf8'), 'LIVE CONFIG 8929\n', 'CONTROL: a sandboxed call did not write');
+});
+
 /* ── the Mac half (#3633) ───────────────────────────────────────────────── */
 
 const shellSeams = (arch, over) => Object.assign({
@@ -183,6 +202,33 @@ test('a proven shell, then a Mac launch gets a flag for a file naming exactly th
   assert.deepEqual(JSON.parse(fs.readFileSync(p, 'utf8')),
     ab.configFor({ platform: 'darwin', node: '/K/node', cli: ab.cliPath(), outputDir: ab.outputDir(), executablePath: ab.shellExe('arm64') }));
   assert.equal(ab.launchConfig({ platform: 'darwin', arch: 'x64', install: false , env: {} }), null, 'the other CPU is not installed');
+});
+
+/* kosmos#8929, the path the bug took: the supervisor's shim, as a child process, with NO runners sandbox, so it falls
+   back to HOME's .local/share/kosmos/runners as it does from a worktree. HOME is a sandbox holding a copy of the fake
+   install, so the fallback lands on a file this test owns. */
+test('#8929 the shim inside a test run leaves the fallback config untouched; CONTROL: outside a test run it writes it', { skip: process.platform !== 'darwin' && 'the shim writes a config only on a Mac or Windows; this arm runs where the suite runs, a Mac' }, () => {
+  const { spawnSync } = require('node:child_process');
+  assert.equal(ab.isInstalled(), true, 'fixture: the fake tree is installed');
+  assert.equal(ab.shellInstalled(), true, 'fixture: this CPU\'s fake shell is installed (the Mac test above)');
+  const home = path.join(SANDBOX, 'home-8929');
+  const root = path.join(home, '.local', 'share', 'kosmos', 'runners');
+  fs.mkdirSync(root, { recursive: true });
+  fs.cpSync(ab.homeDir(), path.join(root, 'playwright-mcp'), { recursive: true });
+  const cfg = path.join(root, 'playwright-mcp', 'mcp-config.json');
+  fs.writeFileSync(cfg, 'LIVE CONFIG 8929\n');
+  const base = { ...process.env, HOME: home };
+  for (const k of ['AGENT_WORKFORCE_RUNNERS_DIR', 'NODE_TEST_CONTEXT', 'KOSMOS_TEST_RUN', 'KOSMOS_AGENT_BROWSER']) delete base[k];
+  const shim = path.join(__dirname, 'agent-browser-config.js');
+  const run = (extra) => spawnSync(process.execPath, [shim], { env: { ...base, ...extra }, encoding: 'utf8', timeout: 30000 });
+  const inRun = run({ KOSMOS_TEST_RUN: path.join(SANDBOX, 'kt8929') });
+  assert.equal(inRun.status, 0);
+  assert.equal(inRun.stdout.trim(), '', 'the shim inside a test run asked for a config');
+  assert.equal(fs.readFileSync(cfg, 'utf8'), 'LIVE CONFIG 8929\n', 'the shim inside a test run rewrote the fallback config');
+  const outside = run({});
+  assert.equal(outside.status, 0);
+  assert.equal(outside.stdout.trim(), cfg, 'CONTROL: outside a test run the shim did not write (the guard is what refused above)');
+  assert.notEqual(fs.readFileSync(cfg, 'utf8'), 'LIVE CONFIG 8929\n');
 });
 
 test('the supervisor shim prints the path once installed, prints nothing otherwise, and always exits 0', async (t) => {
