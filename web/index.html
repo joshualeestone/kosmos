@@ -36128,6 +36128,8 @@ function acctPolicyNote() {
   const visit = ACCT_ADD_VISIT;
   return fetch('/api/org').then((r) => r.json()).then((j) => {
     if (visit !== ACCT_ADD_VISIT) return;
+    const done = document.getElementById('acct-success');
+    if (done && !done.hidden) return;   // connected already: the success view keeps the line hidden
     const t = acctPolicyNoteText(j);
     el.textContent = t; el.hidden = !t;
   }).catch(() => {});
@@ -58329,8 +58331,8 @@ function plusOrgSeesText(words) {
   if (!reports.length) return '';
   const backsUp = clean(words && words.backsUp);
   const never = clean(words && words.never);
-  return 'Reported to your company: ' + reports.join('; ') + '.'
-    + (backsUp.length ? ' Your company may back up: ' + backsUp.join('; ') + '.' : '')
+  return 'Your company\u2019s words for this computer. Reported: ' + reports.join('; ') + '.'
+    + (backsUp.length ? ' May back up: ' + backsUp.join('; ') + '.' : '')
     + (never.length ? ' Never sent: ' + never.join('; ') + '.' : '');
 }
 function plusOrgSees(st) {

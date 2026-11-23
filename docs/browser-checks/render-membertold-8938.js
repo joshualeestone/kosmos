@@ -118,7 +118,7 @@ async function welcome(page) {
       const { page, errs } = await open(browser, STATES.company, 'company');
       const m1 = await companySees(page);
       chk(m1.say && /work Kosmos for Testville Municipal/.test(m1.say), 'M1 the company line shows', String(m1.say));
-      chk(m1.sees === 'Reported to your company: agent names, the AI provider and model each uses; project names. Your company may back up: agent folders and their files. Never sent: keys and passwords.', 'M1 the company\u2019s own report words show', String(m1.sees));
+      chk(m1.sees === 'Your company\u2019s words for this computer. Reported: agent names, the AI provider and model each uses; project names. May back up: agent folders and their files. Never sent: keys and passwords.', 'M1 the company\u2019s own report words show', String(m1.sees));
       chk(m1.order, 'M1 it sits right under the company line');
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'membertold-' + TAG + '-settings.png') }).catch(() => {});
       const m2 = await providers(page);

@@ -1139,7 +1139,7 @@ test('kosmos#8938: the never lines a join accepts are kept and read back by acce
   const root = world(t);
   await oe.enroll('ACME-JOIN-1234', true, { root, remote: coordinator(), consentHash: HASH,
     consent: { reports: ['agent names'], backsUp: [], never: ['keys and passwords', '', 7, 'your other Kosmoses on this computer'] } });
-  accept(root, null, true);   // CONTROL first: words with no never lines (accept writes reports only)
+  accept(root, null, true);   // CONTROL: replace the stored words with ones that carry no never lines (accept writes reports only)
   assert.deepEqual(oe.acceptedNever({ root }), [], 'words with no never lines');
   const root2 = world(t);
   await oe.enroll('ACME-JOIN-1234', true, { root: root2, remote: coordinator(), consentHash: HASH,

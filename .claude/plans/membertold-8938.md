@@ -12,8 +12,9 @@ allow, before connecting one. A family, a Kosmos in no company, and a company wi
    "Work Kosmos for (company)" under the member line (only for a Kosmos+ member, where that line shows). One reader, workOrgPaint(), from /api/org, at most once a minute.
    Company only. The sentence goes through plusOrgIn like every "your work Kosmos" (web.familysay-6251 counts it).
    Dropped: the model step's "Your agents run on your own subscription" is TRUE for a member, so it stays.
-2. Settings, Kosmos+, under "Your company": the company's own words as accepted on this computer, "Reported to your
-   company: <report lines>. Your company may back up: <backsUp lines>. Never sent: <never lines>." (/api/org
+2. Settings, Kosmos+, under "Your company": the company's own words as accepted on this computer, "Your company's words for
+   this computer. Reported: <report lines>. May back up: <backsUp lines>. Never sent: <never lines>." (attributed:
+   these are the company's claims; each line is bounded by cleanList when kept) (/api/org
    reportWords: acceptedConsent().reports and .backsUp, and the new orgenroll.acceptedNever()). rememberConsent now
    keeps the never lines it was handed (it kept reports and backsUp only); a computer that joined before this keeps
    none until its words are accepted again, and then shows no "Never sent" part (round 3). Company only, and only while this Kosmos reports. Challenge round 2 showed a

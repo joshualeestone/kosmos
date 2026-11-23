@@ -54,6 +54,16 @@ test('an answer meant for an earlier open of the dialog is dropped; one for this
   assert.equal(el.textContent, 'Your company allows only OpenAI for new agents in this Kosmos.');
 });
 
+test('an answer that lands on the success view stays hidden (CONTROL: the form view shows it)', async () => {
+  for (const [success, shown] of [[{ hidden: false }, false], [{ hidden: true }, true]]) {
+    const el = { hidden: true, textContent: '' };
+    const fetch = async () => ({ json: async () => ({ enrolled: true, org: { name: 'T', kind: 'company' }, allowedProviderNames: ['OpenAI'] }) });
+    const mk = new Function('document', 'fetch', 'let ACCT_ADD_VISIT = 1;\n' + page.lift(SCRIPT, 'acctPolicyNoteText') + '\n' + page.lift(SCRIPT, 'acctPolicyNote') + '\nreturn acctPolicyNote;');
+    await mk({ getElementById: (id) => (id === 'acct-policy-note' ? el : id === 'acct-success' ? success : null) }, fetch)();
+    assert.equal(el.hidden, !shown, 'success panel hidden=' + success.hidden);
+  }
+});
+
 test('a family is told about its family, never its company', () => {
   assert.match(noteText({ enrolled: true, org: { name: 'The Smiths', kind: 'family' }, allowedProviderNames: ['OpenAI'] }), /^Your family allows only OpenAI /);
 });
@@ -68,10 +78,10 @@ test('no list, not enrolled, no org or a malformed answer says nothing (CONTROL 
 test('what your company sees is the company\u2019s own accepted words: its report lines, then its never lines', () => {
   const text = new Function(page.lift(SCRIPT, 'plusOrgSeesText') + '\nreturn plusOrgSeesText;')();
   assert.equal(text({ reports: ['agent names, the AI provider and model each uses', ' project names '], never: ['keys and passwords'] }),
-    'Reported to your company: agent names, the AI provider and model each uses; project names. Never sent: keys and passwords.');
-  assert.equal(text({ reports: ['agent names'], never: [] }), 'Reported to your company: agent names.', 'no never lines: no "Never sent"');
+    'Your company\u2019s words for this computer. Reported: agent names, the AI provider and model each uses; project names. Never sent: keys and passwords.');
+  assert.equal(text({ reports: ['agent names'], never: [] }), 'Your company\u2019s words for this computer. Reported: agent names.', 'no never lines: no "Never sent"');
   assert.equal(text({ reports: ['agent names'], backsUp: ['agent folders and their files'], never: ['keys and passwords'] }),
-    'Reported to your company: agent names. Your company may back up: agent folders and their files. Never sent: keys and passwords.');
+    'Your company\u2019s words for this computer. Reported: agent names. May back up: agent folders and their files. Never sent: keys and passwords.');
   for (const w of [null, undefined, {}, { reports: [] }, { reports: ['', '  '] }, { reports: 'agent names' }]) assert.equal(text(w), '', JSON.stringify(w));
 });
 
@@ -81,7 +91,7 @@ test('plusOrgSees shows the words when handed a state, and hides when handed non
   const sees = new Function('document', page.lift(SCRIPT, 'plusOrgSeesText') + '\n' + page.lift(SCRIPT, 'plusOrgSees') + '\nreturn plusOrgSees;')(document);
   sees({ reportWords: { reports: ['agent names'], never: ['keys and passwords'] } });
   assert.equal(el.hidden, false);
-  assert.equal(el.textContent, 'Reported to your company: agent names. Never sent: keys and passwords.');
+  assert.equal(el.textContent, 'Your company\u2019s words for this computer. Reported: agent names. Never sent: keys and passwords.');
   sees(null);
   assert.equal(el.hidden, true);
   assert.equal(el.textContent, '');
