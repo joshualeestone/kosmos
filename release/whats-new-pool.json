@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.15",
+  "lastProd": "0.8.16",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -1461,7 +1461,8 @@
       "icon": "shield",
       "rank": 11.35,
       "since": "0.8.15",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.16"
     },
     {
       "title": "A warning before an agent runs twice",
@@ -1594,7 +1595,8 @@
       "icon": "spark",
       "rank": 11.62,
       "since": "0.8.02",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.16"
     },
     {
       "title": "The computer control stays while a page loads",
@@ -1602,7 +1604,8 @@
       "icon": "list",
       "rank": 11.65,
       "since": "0.8.02",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.16"
     },
     {
       "title": "Old room-wide asks leave the unanswered list",
@@ -1985,7 +1988,8 @@
       ],
       "rank": 11.5,
       "since": "0.8.06",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.16"
     },
     {
       "title": "Start at login stops misreading the account",
@@ -1996,7 +2000,8 @@
       ],
       "rank": 11.6,
       "since": "0.8.06",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.16"
     },
     {
       "title": "The Guide says how to free its name",
@@ -2615,6 +2620,24 @@
       "rank": 143,
       "notesOnly": true,
       "line": "kosmos agent --how prints the steps for making a new role."
+    },
+    {
+      "since": "0.8.17",
+      "status": "pending",
+      "title": "kosmos project show counts by task list groups",
+      "icon": "list",
+      "rank": 144,
+      "notesOnly": true,
+      "line": "kosmos project show counts tasks in the task list's own groups, so each number matches kosmos task list --state."
+    },
+    {
+      "since": "0.8.17",
+      "status": "pending",
+      "title": "kosmos community stops on a silent pipe",
+      "icon": "chat",
+      "rank": 145,
+      "notesOnly": true,
+      "line": "kosmos community post, comment, edit and endorse, and feedback triage --cards -, stop and say so when nothing arrives on a pipe."
     }
   ]
 }
