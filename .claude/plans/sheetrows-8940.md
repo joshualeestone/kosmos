@@ -15,8 +15,11 @@ One line per row, with the sheet's own row number, each value named by its colum
 - Inside a value: backslash doubled, a line break as `\n`, a pipe as `\|`, so one line is one row.
 - Boolean cells (t="b") read TRUE / FALSE.
 - One note says how to read the lines, only when a row was shown.
-- Row number: the first cell reference's digits, else the row before plus one (the format's rule). Not `<row r>`:
-  `oc.blocks` yields the inside only, and a second walker over hostile input would be a second place to keep linear.
+- Row number: the row's own `r`, else its first cell reference's digits, else the row before plus one (the format's
+  rule). `oc.blocks` takes an optional callback that is handed the opening tag it already found, so no second walk
+  over the file is needed (round 1 of review).
+- A row whose cells hold only spaces is left out, as an empty row is; a header cell of only spaces is ignored by the
+  header rule; U+0085, U+2028 and U+2029 are escaped as \n too; a sheet name goes through the same escaping.
 
 Unchanged: sheet order, every cap, every other note, the worker thread and its limits, the linear readers, docx (still
 uses tableInto), pdf.
@@ -27,9 +30,11 @@ uses tableInto), pdf.
 - Guessing "required" columns: every blank under a header is listed instead.
 
 ## Weakest premise
-The header rule: a sheet with no header whose first row is all distinct text gets that row taken as the header. The
-header line names its row, so an agent can see it. Residual: a cell whose text is literally "(blank)" reads like an
-empty one.
+The header rule, both ways. A sheet with no header whose first row is all distinct text gets that row taken as the
+header; a real header that holds a number (`Region | 2023 | 2024`) is refused, and the sheet is named by column
+letters. The header line names its row, so an agent can see which happened. Residuals, all rare: a cell whose text is
+literally "(blank)" reads like an empty one; a header word that is itself a column letter, or that contains ": ",
+reads like the separator or a letter-named value.
 
 ## Tests
 - engine/attachtext-8940.test.js (new): the reported shape exactly, a second sheet with a gap / header off column A /
