@@ -113,11 +113,25 @@ function homeDir() { return path.join(runners.managedRoot(), 'playwright-mcp'); 
 function treeDir() { return path.join(homeDir(), PIN.version); }
 function cliPath() { return path.join(treeDir(), 'node_modules', '@playwright', 'mcp', 'cli.js'); }
 function markerPath() { return path.join(treeDir(), '.verified'); }
-function configPath() { return path.join(homeDir(), 'mcp-config.json'); }
+/* kosmos#8928: one config per agent, named for it, so every browser server names its agent on its own command line
+   (--output-dir below) and a server left running after its session can be traced to that agent. Only letters, digits,
+   dot, dash and underscore survive, so a name can never leave the agents folder; a name with nothing left, or `.`/`..`,
+   is treated as no name, which keeps the shared file. */
+function agentKey(agent) {
+  const k = String(agent || '').replace(/[^A-Za-z0-9._-]/g, '_');
+  return /^[._]*$/.test(k) ? '' : k;
+}
+function configPath(agent) {
+  const k = agentKey(agent);
+  return k ? path.join(homeDir(), 'agents', k + '.json') : path.join(homeDir(), 'mcp-config.json');
+}
 /* Where the server drops auto-named files (page snapshots, console logs). Its
    default is `.playwright-mcp` inside the agent's working folder, which on this
    platform can be a person's own project folder -- so they go to temp instead. */
-function outputDir() { return path.join(os.tmpdir(), 'kosmos-agent-browser'); }
+function outputDir(agent) {
+  const k = agentKey(agent);
+  return k ? path.join(os.tmpdir(), 'kosmos-agent-browser', k) : path.join(os.tmpdir(), 'kosmos-agent-browser');
+}
 /* The Mac browser, per CPU, beside the server tree. hostArch() is the one place a
    default CPU comes from: the board that installs and the shim that asks both call
    it, so they agree when both run the same node (the bundled one, installed). */
@@ -258,10 +272,11 @@ function launchConfig(opts) {
       return null;
     }
     const text = JSON.stringify(configFor({
-      node: o.node || process.execPath, cli: cliPath(), outputDir: outputDir(),
+      node: o.node || process.execPath, cli: cliPath(), outputDir: outputDir(o.agent),
       platform, executablePath: mac ? shellExe(o.arch) : undefined,
     }), null, 2) + '\n';
-    return writeConfigIfNeeded(configPath(), text) ? configPath() : null;
+    const file = configPath(o.agent);
+    return writeConfigIfNeeded(file, text) ? file : null;
   } catch { return null; }
 }
 
@@ -578,6 +593,6 @@ function installWithRetry(opts) {
 module.exports = {
   inKtRunRoot,   // kosmos#8929
   PIN, SHELL, SERVER_NAME, configFor, launchConfig, ensureInstalled, ensureShell, kickInstall, isInstalled,
-  installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir,
+  installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir, agentKey,
   optOutPath, lockPath, disabled,
 };

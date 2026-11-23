@@ -1648,7 +1648,7 @@ if [ -z "$adopt" ]; then
     # --dangerously-skip-permissions, a flag, which ends its list.
     MCP_ARGS=()
     if [ -n "${_eng:-}" ] && [ -f "$_eng/agent-browser-config.js" ] && [ -n "${NODE_BIN:-}" ]; then
-      _mcp="$("$NODE_BIN" "$_eng/agent-browser-config.js" 2>/dev/null || true)"
+      _mcp="$("$NODE_BIN" "$_eng/agent-browser-config.js" "$SESSION" 2>/dev/null || true)"   # kosmos#8928: one config per agent
       # Absolute only: claude runs from $WORKDIR, where a relative path would not resolve.
       case "$_mcp" in /*) if [ -f "$_mcp" ]; then MCP_ARGS=(--mcp-config "$_mcp"); fi ;; esac
       unset _mcp

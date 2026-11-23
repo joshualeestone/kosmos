@@ -13,7 +13,7 @@
  * fine, an agent that does not start is not.
  */
 try {
-  const p = require('./agentbrowser').launchConfig({ install: false, node: process.execPath });
+  const p = require('./agentbrowser').launchConfig({ install: false, node: process.execPath, agent: process.argv[2] });   // kosmos#8928
   if (p) process.stdout.write(p + '\n');
 } catch { /* no browser this launch */ }
 /* exitCode, not exit(): a natural exit lets stdout finish writing to the pipe. */

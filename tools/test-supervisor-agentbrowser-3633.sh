@@ -95,6 +95,10 @@ if [ -n "$cfg" ] && [ -f "$cfg" ] && grep -q '"kosmos-browser"' "$cfg" && grep -
 else
   bad "installed: the --mcp-config file is missing or wrong: $cfg"
 fi
+# kosmos#8928: the agent's OWN config, named for it, and its server's output folder names it too, so a server left
+# running after its session can be traced to this agent from its command line.
+case "$cfg" in */playwright-mcp/agents/ab-3633.json) ok "installed: the config is this agent's own file (agents/ab-3633.json)" ;; *) bad "installed: not a per-agent config: $cfg" ;; esac
+if [ -n "$cfg" ] && [ -f "$cfg" ] && grep -q 'kosmos-agent-browser/ab-3633"' "$cfg"; then ok "installed: the server's --output-dir names the agent"; else bad "installed: --output-dir does not name the agent: $(grep -A1 -- '--output-dir' "$cfg" 2>/dev/null | tr '\n' ' ')"; fi
 nxt="$(grep -A2 -x -- '--mcp-config' "$A" | sed -n 3p)"
 # #5406: the permission settings come next (a flag, so the variadic list ends there), as a file that exists, and then
 # the autonomy flag: the supervisor really passes it, measured in the launch it records.
