@@ -63,3 +63,8 @@ run-tests --only agentbrowser.test.js 35/35, not skipped. Mutations, each red un
 - Fixed: every shim arm now asserts the shim exited 0, so a crash cannot read as a refusal.
 - Deferred (same as the weakest premise): a minimal-env child and direct ensureInstalled/ensureShell calls still reach the real runners folder from a worktree.
 Evidence: run-tests --only agentbrowser.test.js 35/35, none skipped; guard call removed -> red; store call removed -> red; lints and neighbours 127/127; test-supervisor-agentbrowser-3633.sh passes.
+
+## Challenge loop iteration 7 (sonnet)
+- Fixed: the comment said "the config is written only into a sandboxed runners folder"; it now says launchConfig does, since ensureInstalled/ensureShell are not covered.
+- Checked, no change: every test file that names launchConfig or agent-browser-config (14 files) under run-tests --only: 346 pass, 10 skipped (pre-existing), 0 fail. The supervisor shell tests that drive the shim (wait, env, codexhome-leak-3430, codex-isolation-4592, retrust-2808, ccd-leak-3417, model-2140, agentbrowser-3633): all pass.
+- Deferred (same as iterations 1 and 3): a silent null for a real board whose temp folder is `tmp/kt<n>`.
