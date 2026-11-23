@@ -41,3 +41,5 @@ name; a test that reaches it another way (through a helper) would not be in that
 - Nit taken: the skip check reads a missing git's stdout safely.
 - Unchanged: adding the data root moves the store root to SANDBOX/data/Kosmos, which none of the six reads a fixture
   from, so what each measures is the same (reasoned by the reviewer, one file measured).
+
+## Round 2 (sonnet, whole branch): nothing above nit. Converged. (The 30-test re-sweep is my measurement; the reviewer re-ran the six changed tests and the new one, and found no leaks.)
