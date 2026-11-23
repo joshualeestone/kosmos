@@ -221,13 +221,34 @@ function writeConfigIfNeeded(file, text) {
  * the agent's next (re)launch picks it up. The board starts the same install at
  * boot, so on a normal machine it is long done before the first agent is made.
  */
-/* kosmos#8929: inside a test run (node --test, or tools/run-tests.sh's KOSMOS_TEST_RUN), the config is written only into
-   a sandboxed runners folder. From a worktree runners.managedRoot() falls back to the REAL install's folder, so a test
-   that reached this (the supervisor's shim, say) rewrote the live config with the test's node and a temp folder its run
-   then removed, and every agent the board started next got it. kickInstall keeps the same rule for the download. */
+/* kosmos#8929: inside a test run, the config is written only into a sandboxed runners folder. From a worktree
+   runners.managedRoot() falls back to the REAL install's folder, so a test that reached this (the supervisor's shim,
+   say) rewrote the live config with the test's node and a temp folder its run then removed, and every agent the board
+   started next got it. (kickInstall's own guard is narrower: it checks NODE_TEST_CONTEXT only.)
+   testRunMarked: NODE_TEST_CONTEXT; or tools/run-tests.sh's KOSMOS_TEST_RUN counted only when the temp folder is that
+   run's folder or inside it (the store's rule, so the variable alone left in a shell does not switch a real board's
+   browser off); or a temp folder inside a run root named kt<pid> (a test that scrubbed its environment but kept TMPDIR:
+   the live config that found this named such a folder). Pure, so each arm is tested. */
+function testRunMarked(env, tmp) {
+  const e = env || {};
+  const t = String(tmp || '');
+  if (e.NODE_TEST_CONTEXT) return true;
+  const run = e.KOSMOS_TEST_RUN;
+  if (run && path.isAbsolute(run)) {
+    const r = path.resolve(run);
+    const rt = path.resolve(t);
+    if (rt === r || rt.startsWith(r.endsWith(path.sep) ? r : r + path.sep)) return true;
+  }
+  return /(^|[\/\\])kt\d+([\/\\]|$)/.test(t);
+}
+/* The write location comes from THIS process's environment (runners.managedRoot reads process.env), so the sandbox is
+   read there too; a test-run mark counts from this process or from the env a caller passed (review 1). */
 function inTestRunUnsandboxed(env) {
-  const e = env || process.env;
-  return Boolean((e.NODE_TEST_CONTEXT || e.KOSMOS_TEST_RUN) && !e.AGENT_WORKFORCE_RUNNERS_DIR);
+  if (process.env.AGENT_WORKFORCE_RUNNERS_DIR) return false;
+  const tmp = os.tmpdir();
+  let marked = testRunMarked(process.env, tmp) || (env && env !== process.env && testRunMarked(env, tmp));
+  try { marked = marked || require('./live-execution').inTestProcess(); } catch { /* not knowable: the marks above decide */ }
+  return Boolean(marked);
 }
 function launchConfig(opts) {
   const o = opts || {};
@@ -560,7 +581,7 @@ function installWithRetry(opts) {
 }
 
 module.exports = {
-  inTestRunUnsandboxed,   // kosmos#8929
+  inTestRunUnsandboxed, testRunMarked,   // kosmos#8929
   PIN, SHELL, SERVER_NAME, configFor, launchConfig, ensureInstalled, ensureShell, kickInstall, isInstalled,
   installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir,
   optOutPath, lockPath, disabled,
