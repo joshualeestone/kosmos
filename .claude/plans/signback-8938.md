@@ -25,12 +25,18 @@ opens nothing.
   nothing; else showTab('projects'), openProject, fedInviteOpen(null, { label, kind }), and the line. 60 tries,
   one now and then every 500 ms. If the person presses or types anything meanwhile (outside first run), they have moved
   on: nothing opens and the note goes.
+- Each new attempt forgets only a note of its own kind (forgetStepUpReturnOfKind): a Claude start never erases an
+  invite note, and an invite attempt never a Claude one. A second Make that fails for another reason leaves the first
+  refusal's ask up with no note behind it (Sign in again then returns nothing): accepted, the person is already on the
+  sheet.
+- Presses inside first run or an open .rm-back dialog do not count as moving on (closing a dialog is not a choice of
+  where to go); the return waits behind both.
 - Decided, from review 2: a page whose 3 projects reads all fail opens nothing (the note stays for a reload). That is
   today's behaviour, and more reads would poll a board that is not answering.
 - The words claim no sign-in (#8728 review 3: a log-out can fail and the person reload).
 - fedInviteMake and pjMintInvite clear an older INVITE note before their request (forgetFedInviteReturn), never a
   Claude note, whose ask may still be on screen. pjMintInvite (the create form) never writes one: it has no sheet to come back to.
-- Renet's nit 1 on #8942: plusOrgSeesText drops ONE closing full stop per line (and the space before it) before
+- Renet's nit 1 on #8942: plusOrgSeesText drops ONE closing full stop per line (not one ending an ellipsis, and the space before it) before
   joining, so no ".;".
 
 ## Tests

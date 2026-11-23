@@ -32966,12 +32966,15 @@ function noteFedInviteReturn(project, label, invitedKind) {
 function forgetStepUpReturn() {
   try { sessionStorage.removeItem(STEPUP_RETURN_KEY); } catch { /* nothing to forget */ }
 }
-// Only an invite note: an invite attempt must not erase a Claude sign-in's note whose ask may still be on screen.
-function forgetFedInviteReturn() {
+// A new attempt forgets only a note of its own kind: an invite attempt never erases a Claude sign-in's note, nor a Claude
+// start an invite's, since the other's ask may still be on screen.
+function forgetStepUpReturnOfKind(kind) {
   let n = null;
   try { n = JSON.parse(sessionStorage.getItem(STEPUP_RETURN_KEY) || 'null'); } catch { n = null; }
-  if (n && typeof n === 'object' && n.kind === 'fed-invite') forgetStepUpReturn();
+  if (n && typeof n === 'object' && n.kind === kind) forgetStepUpReturn();
 }
+function forgetFedInviteReturn() { forgetStepUpReturnOfKind('fed-invite'); }
+function forgetClaudeSignInReturn() { forgetStepUpReturnOfKind('claude-signin'); }
 // A note of a kind this page knows, with every field it needs.
 function stepUpNoteShaped(n) {
   if (!n || typeof n !== 'object' || typeof n.at !== 'number') return false;
@@ -33040,13 +33043,13 @@ const FEDINV_RETURN_LINE = 'Your invitation is filled in again. Press Make an in
 const FEDINV_RETURN_READ_MAX = 3;
 let FEDINV_RETURN_READS = 0;        // projects reads this return asked for
 let FEDINV_RETURN_READING = false;  // one of them is still being answered
-/* The person pressed or typed something since this page loaded (outside first run, whose dismissal is not a choice of
-   where to go): they have moved on, so the return opens nothing and the note goes. Listened for only while an invite
-   note waits (fedInviteReturnWait). */
+/* The person pressed or typed something since this page loaded, outside first run and outside any open .rm-back dialog
+   (dismissing either is not a choice of where to go, and the return waits behind both): they have moved on, so the
+   return opens nothing and the note goes. Listened for only while an invite note waits (fedInviteReturnWait). */
 let FEDINV_RETURN_TOUCHED = false;
 function fedInviteReturnTouched(e) {
   const t = e && e.target;
-  if (t && t.closest && t.closest('#firstrun, #fr-choice')) return;
+  if (t && t.closest && t.closest('#firstrun, #fr-choice, .rm-back')) return;
   FEDINV_RETURN_TOUCHED = true;
 }
 function fedInviteReturnBusy() {
@@ -33125,7 +33128,7 @@ async function acctAddStart(installConfirmed) {
   btn.disabled = true;
   note.textContent = '';
   ACCT_FLOW_LAST = null;
-  if (typeof forgetStepUpReturn === 'function') forgetStepUpReturn();   // kosmos#8728: a new start clears an older note
+  if (typeof forgetClaudeSignInReturn === 'function') forgetClaudeSignInReturn();   // kosmos#8728: a new start clears an older Claude note
   const reauthDir = ACCT_REAUTH_DIR;   // kosmos#8728: read before any await; a refusal's note uses it
   try {
     const res = await fetch('/api/connect/start', {
@@ -58417,15 +58420,17 @@ function plusOrgPaint() {
    reportWords: its report lines, its backup lines and its never lines), on the member's own screen. Shown for a company only, while this
    Kosmos reports; nothing when the words are missing. */
 function plusOrgSeesText(words) {
-  // A line's own closing full stop goes (one), so a list never reads ".;" (Renet's review of #8942).
-  const clean = (l) => (Array.isArray(l) ? l.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim().replace(/\.$/, '').trim()).filter(Boolean) : []);
+  // A line's own closing full stop goes (one, not an ellipsis's), so a list never reads ".;" (Renet's review of #8942),
+  // and a list whose last line ends in an ellipsis gets no further stop.
+  const clean = (l) => (Array.isArray(l) ? l.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim().replace(/(^|[^.])\.$/, '$1').trim()).filter(Boolean) : []);
+  const list = (l) => l.join('; ') + (l[l.length - 1].endsWith('.') ? '' : '.');
   const reports = clean(words && words.reports);
   if (!reports.length) return '';
   const backsUp = clean(words && words.backsUp);
   const never = clean(words && words.never);
-  return 'Your company\u2019s words for this computer. Reported: ' + reports.join('; ') + '.'
-    + (backsUp.length ? ' May back up: ' + backsUp.join('; ') + '.' : '')
-    + (never.length ? ' Never sent: ' + never.join('; ') + '.' : '');
+  return 'Your company\u2019s words for this computer. Reported: ' + list(reports)
+    + (backsUp.length ? ' May back up: ' + list(backsUp) : '')
+    + (never.length ? ' Never sent: ' + list(never) : '');
 }
 function plusOrgSees(st) {
   const el = document.getElementById('plus-org-sees');
@@ -92160,7 +92165,7 @@ async function frConnectStart(opts) {
 }
 
 async function frConnectStartConfirmed(installConfirmed, opener) {
-  if (typeof forgetStepUpReturn === 'function') forgetStepUpReturn();   // kosmos#8728 slice 2 review 5: a first-run start supersedes an older note
+  if (typeof forgetClaudeSignInReturn === 'function') forgetClaudeSignInReturn();   // kosmos#8728 slice 2 review 5: a first-run start supersedes an older Claude note
   const msg = document.getElementById('fr-sub-msg');
   msg.textContent = '';
   const next = document.getElementById('fr-next');

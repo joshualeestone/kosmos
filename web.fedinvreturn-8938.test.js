@@ -42,12 +42,12 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
     SCRIPT.match(/let FEDINV_RETURN_READING = [^;]*;/)[0],
     SCRIPT.match(/let FEDINV_RETURN_TOUCHED = [^;]*;/)[0],
     lift(SCRIPT, 'fedInviteReturnTouched'),
-    lift(SCRIPT, 'noteFedInviteReturn'), lift(SCRIPT, 'noteStepUpReturn'), lift(SCRIPT, 'forgetStepUpReturn'), lift(SCRIPT, 'forgetFedInviteReturn'),
+    lift(SCRIPT, 'noteFedInviteReturn'), lift(SCRIPT, 'noteStepUpReturn'), lift(SCRIPT, 'forgetStepUpReturn'), lift(SCRIPT, 'forgetStepUpReturnOfKind'), lift(SCRIPT, 'forgetFedInviteReturn'), lift(SCRIPT, 'forgetClaudeSignInReturn'),
     lift(SCRIPT, 'fedInviteReturnBusy'),
     lift(SCRIPT, 'stepUpNoteShaped'), lift(SCRIPT, 'markStepUpReturnGoing'), lift(SCRIPT, 'peekStepUpReturn'),
     lift(SCRIPT, 'stepUpReturnBusy'), lift(SCRIPT, 'resumeStepUpReturn'), lift(SCRIPT, 'resumeFedInviteReturn'),
     lift(SCRIPT, 'fedInviteReturnWait'), lift(SCRIPT, 'stepUpReturnBoot'),
-    'return { forgetFedInviteReturn, noteFedInviteReturn, noteStepUpReturn, markStepUpReturnGoing, resumeFedInviteReturn, resumeStepUpReturn, fedInviteReturnWait, stepUpReturnBoot, KEY: STEPUP_RETURN_KEY, LINE: FEDINV_RETURN_LINE };',
+    'return { forgetFedInviteReturn, forgetClaudeSignInReturn, noteFedInviteReturn, noteStepUpReturn, markStepUpReturnGoing, resumeFedInviteReturn, resumeStepUpReturn, fedInviteReturnWait, stepUpReturnBoot, KEY: STEPUP_RETURN_KEY, LINE: FEDINV_RETURN_LINE };',
   ].join('\n');
   // PJ_LOADED_ONCE and PJ_CURRENT are read as globals by the page: given here as getters on `with`-free parameters.
   const wrapped = 'return (function () { ' + src + ' })();';
@@ -197,6 +197,17 @@ test('#8938 item 4 review: an invite attempt forgets only an invite note, never 
   p.storage.set(p.KEY, 'not json');
   p.forgetFedInviteReturn();   // unreadable: left to peekStepUpReturn, which removes it
   assert.equal(p.storage.get(p.KEY), 'not json');
+  // review 3, the reverse: a Claude start forgets only a Claude note, never an invite's.
+  const q = page();
+  q.noteFedInviteReturn('p1', 'Dana', 'person');
+  q.forgetClaudeSignInReturn();
+  assert.equal(JSON.parse(q.storage.get(q.KEY)).kind, 'fed-invite', 'a Claude start erased the invite note');
+  q.noteStepUpReturn('/Users/someone/.claude');
+  q.forgetClaudeSignInReturn();
+  assert.equal(q.storage.has(q.KEY), false, 'CONTROL: a Claude note is forgotten');
+  // And the page wires both Claude starts to the kind-scoped forget.
+  assert.doesNotMatch(SCRIPT.slice(SCRIPT.indexOf('async function acctAddStart('), SCRIPT.indexOf("await fetch('/api/connect/start'", SCRIPT.indexOf('async function acctAddStart('))), /forgetStepUpReturn\(\)/);
+  assert.doesNotMatch(lift(SCRIPT, 'frConnectStartConfirmed'), /forgetStepUpReturn\(\)/);
 });
 
 test('#8938 item 4 review 2: the person pressed or typed after the page loaded: they moved on, so nothing opens and the note goes', () => {
@@ -204,9 +215,10 @@ test('#8938 item 4 review 2: the person pressed or typed after the page loaded: 
   earlier(p);
   p.fedInviteReturnWait();
   assert.deepEqual(p.listeners.map((l) => [l.type, l.capture]), [['pointerdown', true], ['keydown', true]]);
-  // A key inside first run (dismissing it) is not a choice of where to go.
-  const inFirstRun = { target: { closest: (sel) => (sel === '#firstrun, #fr-choice' ? {} : null) } };
-  p.listeners[1].fn(inFirstRun);
+  // A key inside first run, or a press inside an open dialog (closing it), is not a choice of where to go.
+  const inside = { target: { closest: (sel) => (sel === '#firstrun, #fr-choice, .rm-back' ? {} : null) } };
+  p.listeners[1].fn(inside);
+  p.listeners[0].fn(inside);
   p.state.loaded = true;
   p.timers.shift().fn();
   assert.deepEqual(p.calls.map((c) => c[0]).filter((c) => c !== 'loadProjects'), ['showTab', 'openProject', 'fedInviteOpen'], 'a first-run key stopped the return');
@@ -276,5 +288,6 @@ test('#8942 review nit: a company line ending in a full stop is not doubled into
   assert.doesNotMatch(t, /\.;|\.\./);
   // Only ONE stop goes: an ellipsis keeps two.
   assert.match(fn({ reports: ['Usage...'] }), /Reported: Usage\.\.\.$/);
-  assert.equal(fn({ reports: ['Agent names .', 'Token use'] }), 'Your company\u2019s words for this computer. Reported: Agent names; Token use.', 'a space before the stop is left before the ";"');
+  assert.equal(fn({ reports: ['Usage...', 'Token use'] }), 'Your company\u2019s words for this computer. Reported: Usage...; Token use.', 'an ellipsis lost a dot mid-list');
+  assert.equal(fn({ reports: ['Agent names .', 'Token use'] }), 'Your company\u2019s words for this computer. Reported: Agent names; Token use.', 'the space before a closing stop was left in front of the ";"');
 });
