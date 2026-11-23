@@ -336,6 +336,15 @@ function acceptedConsent(opts) {
     everyKosmosUsageConsented: reports.some((l) => NAMES_EVERY_KOSMOS.test(l) && NAMES_USAGE.test(l)), capConsented: reports.some((l) => NAMES_CAP.test(l)),
     projectUsageConsented: reports.some((l) => NAMES_PROJECT_USAGE.test(l) && NAMES_USAGE.test(l)) };
 }
+/* kosmos#8938: the never lines of the words accepted here (what the company's words say is never sent), for the
+   member's own Settings; [] when there are none or no words are on record. The same record acceptedConsent reads. */
+function acceptedNever(opts) {
+  if (!mayReport(opts)) return [];
+  const rec = readEnrollment(opts);
+  if (!rec) return [];
+  const j = readConsents(opts).byHash[rec.consentHash];
+  return j && Array.isArray(j.never) ? j.never.filter((l) => typeof l === 'string' && l) : [];
+}
 /* #5791 (Josh 10-10: the company decided; no member consent step): the board takes the company's current words and
    re-accepts them itself, with no screen: the same codeless enroll a person's Accept used to send (review: true),
    under the hash the company serves now. Called after a report is refused because the words changed, and by the
@@ -1281,7 +1290,7 @@ function applyPolicy(token, opts, orgId) {
   }
 }
 
-module.exports = {
+module.exports = { acceptedNever,
   onEnrollmentEnded,   // #6232 review 10
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, JOIN_UNKNOWN_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindStrict, kindNow, kindOf, codeOf,
   cleanReviewerGrants, MAX_REVIEWER_GRANTS, // kosmos#6752

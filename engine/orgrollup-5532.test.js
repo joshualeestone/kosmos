@@ -1133,3 +1133,17 @@ test('#5532: another Kosmos\'s usage needs ONE accepted line naming both every K
   accept(root, [USAGE_ONLY, BOTH], true);
   assert.equal(oe.acceptedConsent({ root }).everyKosmosUsageConsented, true, 'CONTROL: the line naming both was not read');
 });
+
+test('kosmos#8938: acceptedNever reads the never lines of the words on record (CONTROL: words with none give [])', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root, ['agent names'], true);
+  assert.deepEqual(oe.acceptedNever({ root }), [], 'words with no never lines');
+  const f = path.join(root, oe.CONSENT_FILE);
+  const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+  j.byHash[HASH].never = ['keys and passwords', '', 7, 'your other Kosmoses on this computer'];
+  fs.writeFileSync(f, JSON.stringify(j));
+  assert.deepEqual(oe.acceptedNever({ root }), ['keys and passwords', 'your other Kosmoses on this computer'], 'only real lines, in order');
+  assert.deepEqual(oe.acceptedConsent({ root }).reports, ['agent names'], 'the same record acceptedConsent reads');
+});

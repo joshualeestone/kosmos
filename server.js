@@ -13886,9 +13886,12 @@ const server = http.createServer(async (req, res) => {
         const op = require('./engine/orgpolicy');
         const pol = here ? op.current() : null;
         const list = pol && pol.providers_allowed;
-        allowedProviderNames = Array.isArray(list) ? [...new Set(list.filter((p) => typeof p === 'string').map(op.providerName))] : null;
+        allowedProviderNames = Array.isArray(list) ? [...new Set(list.filter((p) => typeof p === 'string').map(op.providerName))].filter((n) => n !== op.providerName('')) : null;
       } catch { allowedProviderNames = null; }
-      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired, backupLate, ...(handover ? { handover } : {}), ...(allowedProviderNames ? { allowedProviderNames } : {}),   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
+      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired, backupLate, ...(handover ? { handover } : {}), ...(allowedProviderNames ? { allowedProviderNames } : {}),
+       // kosmos#8938: the report words this computer accepted (the company's own lines: what it reports, what it never
+       // sends), to the screen only, so Settings can show the member exactly those words.
+       ...(here && accepted && accepted.reports.length ? { reportWords: { reports: accepted.reports, never: oe.acceptedNever() } } : {}),   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
        // kosmos#6752: recent reviewer grants, to the screen only and only when there are some (the not-joined shape is unchanged).
        ...(here && rec && Array.isArray(rec.reviewerGrants) && rec.reviewerGrants.length ? { reviewerGrants: oe.cleanReviewerGrants(rec.reviewerGrants),
          ...(Number.isFinite(rec.reviewerGrantsAt) ? { reviewerGrantsAt: rec.reviewerGrantsAt } : {}) } : {}),   // kosmos#6817: when the list was last confirmed

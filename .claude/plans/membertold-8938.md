@@ -9,17 +9,18 @@ allow, before connecting one. A family, a Kosmos in no company, and a company wi
 
 ## Items (card numbering)
 1. Setup welcome adds "This is your work Kosmos for (company)." under Josh's words (kept verbatim); the You menu adds
-   "Work Kosmos for (company)" under the member line. One reader, workOrgPaint(), from /api/org, at most once a minute.
+   "Work Kosmos for (company)" under the member line (only for a Kosmos+ member, where that line shows). One reader, workOrgPaint(), from /api/org, at most once a minute.
    Company only. The sentence goes through plusOrgIn like every "your work Kosmos" (web.familysay-6251 counts it).
    Dropped: the model step's "Your agents run on your own subscription" is TRUE for a member, so it stays.
-2. Settings, Kosmos+, under "Your company": one line listing what the report holds (engine/orgrollup.js build():
-   agents, providers, models, status, projects and their token use, last active, tokens and cost, last backup, policy
-   state; plus #5683's blocked/flagged events), that it goes daily and on change, and that chats, files and keys never
-   do. Company only, and only while this Kosmos reports (st.reporting).
+2. Settings, Kosmos+, under "Your company": the company's own report words as accepted on this computer, "Reported
+   to your company: <its report lines>. Never sent: <its never lines>." (/api/org reportWords: acceptedConsent().reports
+   and the new orgenroll.acceptedNever()). Company only, and only while this Kosmos reports. Challenge round 2 showed a
+   hand-written list overstates what a company with narrower words receives; the accepted words are what the board
+   reports by, so they are true by construction.
 3. /api/org adds allowedProviderNames (orgpolicy.current().providers_allowed mapped through providerName, the menus'
    words, so the two Gemini rows stay distinct; screen-only branch; only while a list is in force; current() so a read
-   applies nothing). Add a provider shows one line under its intro: "Your company (or family) allows only X and Y
-   for agents on this computer. Agents cannot use any other provider here." Words only, by design (challenge round 1):
+   applies nothing; ids with no menu name are left out). Add a provider shows one line under its intro: "Your company
+   (or family) allows only X and Y for new agents on this computer." (new: running agents are not stopped). Words only, by design (challenge round 1):
    marking the options themselves raced the code that owns them (Meta Muse, the vendor switches, Windows Qwen),
    could not represent the Gemini subscription and key rows separately, and could strand a sign-in in flight.
 4. NOT in this PR: Sign in again returning the member to the invite sheet. The #8728 return mechanism is built around
@@ -31,5 +32,5 @@ allow, before connecting one. A family, a Kosmos in no company, and a company wi
 - web.reauth-1492 stubs the new openAcctAdd callee; web.familysay-6251 counts the new wrapped sentence.
 
 ## Weakest premise
-That "anything Kosmos blocked or flagged" is in every board's daily report: #5683's events are built, not yet seen on
-production.
+That the accepted report words are a complete account of what reaches the company: the board reports by them
+(orgrollup consults acceptedConsent), but the blocked-or-flagged events of #5683 travel on their own route.
