@@ -12,18 +12,15 @@
     {
       "icon": "shield",
       "title": "A warning before an agent runs twice",
-      "line": "Adding an agent that another login job also starts now warns first and names that job.",
+      "line": "Adding an agent that something else on this computer also starts at login now warns first and says what starts it.",
       "platforms": [
         "mac"
       ]
     },
     {
-      "icon": "spark",
-      "title": "A typed message survives other text beside it",
-      "line": "A message Kosmos was typing to an agent is kept if other text appears beside it, and sent once the box holds only it.",
-      "platforms": [
-        "mac"
-      ]
+      "icon": "list",
+      "title": "The Guide says how to free its name",
+      "line": "When a leftover holds the Kosmos Guide's name, Settings says how to free it in three more cases instead of saying to try again."
     },
     {
       "icon": "tasks",
