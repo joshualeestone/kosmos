@@ -1245,7 +1245,9 @@ kosmos_engine_module() {
 # is unchanged and stderr gains one first line, once; stdin is not touched (a `post --stdin` keeps all of its input);
 # and it never fails the command it sits in front of.
 _how_hint() {
-  [ -n "${KOSMOS_AGENT_SESSION:-}" ] || return 0
+  [ -n "${KOSMOS_AGENT_SESSION:-}${KOSMOS_AGENT_TOKEN:-}" ] || return 0
+  [ $# -ge 2 ] || return 0   # no arguments after the command: a usage request or a status probe (the report hook's)
+  case " $* " in *" --auto "*) return 0 ;; esac   # the report hook's own calls: no node on its hot path
   local _hn _hm
   _hn="$(kosmos_engine_node)" || return 0
   _hm="$(kosmos_engine_module howhint).js"
