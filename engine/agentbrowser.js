@@ -221,12 +221,21 @@ function writeConfigIfNeeded(file, text) {
  * the agent's next (re)launch picks it up. The board starts the same install at
  * boot, so on a normal machine it is long done before the first agent is made.
  */
+/* kosmos#8929: inside a test run (node --test, or tools/run-tests.sh's KOSMOS_TEST_RUN), the config is written only into
+   a sandboxed runners folder. From a worktree runners.managedRoot() falls back to the REAL install's folder, so a test
+   that reached this (the supervisor's shim, say) rewrote the live config with the test's node and a temp folder its run
+   then removed, and every agent the board started next got it. kickInstall keeps the same rule for the download. */
+function inTestRunUnsandboxed(env) {
+  const e = env || process.env;
+  return Boolean((e.NODE_TEST_CONTEXT || e.KOSMOS_TEST_RUN) && !e.AGENT_WORKFORCE_RUNNERS_DIR);
+}
 function launchConfig(opts) {
   const o = opts || {};
   try {
     const platform = o.platform || process.platform;
     if (platform !== 'win32' && platform !== 'darwin') return null;
     if (disabled(o.env)) return null;
+    if (inTestRunUnsandboxed(o.env)) return null;   // kosmos#8929
     const mac = platform === 'darwin';
     if (!isInstalled() || (mac && !shellInstalled(o.arch))) {
       if (o.install !== false) kickInstall({ platform, arch: o.arch });
@@ -551,6 +560,7 @@ function installWithRetry(opts) {
 }
 
 module.exports = {
+  inTestRunUnsandboxed,   // kosmos#8929
   PIN, SHELL, SERVER_NAME, configFor, launchConfig, ensureInstalled, ensureShell, kickInstall, isInstalled,
   installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir,
   optOutPath, lockPath, disabled,
