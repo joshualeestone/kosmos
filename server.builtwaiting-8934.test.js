@@ -149,6 +149,29 @@ test('engine: a mark with only a value and no note keeps the note, the time and 
   assert.equal(stored(n).builtWaitingOn, 'review', 'the plain mark dropped the value');
 });
 
+/* Review 6: a correction of the wait by the file's own sender keeps the file and is still a correction; a checker's
+   --waiting is not a correction, so it neither borrows the builder's note nor passes the checks' note rule. */
+test('engine: the sender\'s correction keeps the file; a checker\'s --waiting borrows no note', () => {
+  const P = 'sha256:' + 'c'.repeat(64);
+  const n = newTask('Deliver the flyer');
+  assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', note: 'flyer attached', fingerprint: P, filePath: '/tmp/flyer.pdf' }).ok, true);
+  const fix = tasks.setBuilt(projectId, n, { by: 'mona', waitingOn: 'person' });
+  assert.equal(fix.waitsOnly, true, 'the sender\'s correction was not a correction: ' + JSON.stringify(fix));
+  assert.equal(stored(n).builtFingerprint, P, 'the sender\'s correction withdrew the file');
+  assert.equal(stored(n).builtFilePath, '/tmp/flyer.pdf');
+  assert.equal(stored(n).builtReplaces, undefined, 'the file was moved to builtReplaces as withdrawn');
+  // CONTROL: the sender's own plain mark without --file still withdraws it, as before.
+  tasks.setBuilt(projectId, n, { by: 'mona', note: 'flyer attached' });
+  assert.equal(stored(n).builtFingerprint, undefined, 'CONTROL: a plain re-mark without --file kept the file');
+  const m = newTask('Deliver the poster');
+  tasks.setBuilt(projectId, m, { by: 'mona', note: 'poster done' });
+  const check = tasks.setBuilt(projectId, m, { by: 'zed', waitingOn: 'release' });
+  assert.equal(check.ok, true, JSON.stringify(check));
+  assert.equal(check.waitsOnly, undefined, 'a checker\'s mark was counted as a correction');
+  assert.equal('builtNote' in stored(m), false, 'the checker\'s bare mark carried the builder\'s note under its own name');
+  assert.equal(stored(m).builtBy, 'zed');
+});
+
 test('route: an agent\'s mark records it; a bad value answers 400 and marks nothing; the screen\'s mark ignores one', async () => {
   const n = newTask('Ship the page');
   const r = await post(`/api/project/${projectId}/task/${n}/built`, { note: 'shipped', waiting_on: 'release' }, asAgent('mona'));
@@ -252,7 +275,7 @@ for (const [name, run, skip] of [['Mac', mac, process.platform === 'win32' && 't
     assert.equal(stored(n).builtWaitingOn, 'person');
     assert.equal(stored(n).builtNote, 'the report is done', 'the value leaked into the note');
     assert.match(r.out, /built, waiting on the person\. Closing it clears the mark\./);
-    assert.equal(/--waiting person, review, release or none/.test(r.out), false, 'the hint was given to a mark that said it');
+    assert.equal(/--waiting person, review or release \(kosmos task --how\)/.test(r.out), false, 'the hint was given to a mark that said it');
     // CONTROL: the same command without --waiting goes through, reads as before, and names the option.
     const m = newTask(name + ' notes');
     const p = await run(['task', 'built', projectId, String(m), 'the notes are done']);
@@ -263,13 +286,13 @@ for (const [name, run, skip] of [['Mac', mac, process.platform === 'win32' && 't
     // Review 3: the same plain mark again changes nothing, so it is not given the hint either.
     const repeat = await run(['task', 'built', projectId, String(m), 'the notes are done']);
     assert.equal(repeat.code, 0, repeat.out);
-    assert.equal(/--waiting person, review, release or none/.test(repeat.out), false, 'the hint was given to a repeat of the same mark: ' + repeat.out);
+    assert.equal(/--waiting person, review or release \(kosmos task --how\)/.test(repeat.out), false, 'the hint was given to a repeat of the same mark: ' + repeat.out);
     // Review 2: the same task marked again without --waiting keeps it, says it, and is not given the hint.
     const again = await run(['task', 'built', projectId, String(n), 'the report is checked']);
     assert.equal(again.code, 0, again.out);
     assert.equal(stored(n).builtWaitingOn, 'person');
     assert.match(again.out, /built, waiting on the person\. Closing it clears the mark\./, again.out);
-    assert.equal(/--waiting person, review, release or none/.test(again.out), false, 'the hint was given to a task that waits on the person: ' + again.out);
+    assert.equal(/--waiting person, review or release \(kosmos task --how\)/.test(again.out), false, 'the hint was given to a task that waits on the person: ' + again.out);
     // Review 4: --waiting none takes it off, keeps the mark, and is never said to be unrecorded or given the hint.
     const off = newTask(name + ' summary');
     assert.equal((await run(['task', 'built', projectId, String(off), 'summed up', '--waiting', 'person'])).code, 0);
