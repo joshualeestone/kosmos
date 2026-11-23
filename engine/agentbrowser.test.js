@@ -100,23 +100,19 @@ test('a proven install, then every launch gets a flag for a file holding exactly
   assert.deepEqual(JSON.parse(fs.readFileSync(p, 'utf8')), written);
 });
 
-/* kosmos#8929: inside a test run the live config is never written unless the runners folder is sandboxed: the rule is
-   asked of the environment it is given, so each arm here names its own. */
-test('#8929 a test run writes no config unless the runners folder is sandboxed; CONTROL: sandboxed, or no test run, it writes', () => {
-  assert.equal(ab.inTestRunUnsandboxed({ KOSMOS_TEST_RUN: '/tmp/kt1' }), true, 'run-tests.sh without a sandbox');
-  assert.equal(ab.inTestRunUnsandboxed({ NODE_TEST_CONTEXT: 'child-v8' }), true, 'node --test without a sandbox');
-  assert.equal(ab.inTestRunUnsandboxed({ KOSMOS_TEST_RUN: '/tmp/kt1', AGENT_WORKFORCE_RUNNERS_DIR: '/tmp/sbx' }), false, 'CONTROL: sandboxed');
-  assert.equal(ab.inTestRunUnsandboxed({}), false, 'CONTROL: not a test run (the board, a real launch)');
-
+/* kosmos#8929: what counts as a test run (pure), and a sandboxed call still writes. The refusal itself is proven through
+   the shim below, the path the bug took, since this file's own runners folder is sandboxed. */
+test('#8929 what marks a test run; CONTROL: a stray KOSMOS_TEST_RUN, a plain temp folder and a kt-like name do not', () => {
+  assert.equal(ab.testRunMarked({ NODE_TEST_CONTEXT: 'child-v8' }, '/var/T'), true, 'node --test');
+  assert.equal(ab.testRunMarked({ KOSMOS_TEST_RUN: '/tmp/kt9' }, '/tmp/kt9/x'), true, 'run-tests.sh, temp inside its run');
+  assert.equal(ab.testRunMarked({}, '/var/T/kt23905'), true, 'a scrubbed env that kept a run root as its temp folder');
+  assert.equal(ab.testRunMarked({ KOSMOS_TEST_RUN: '/tmp/kt9' }, '/var/T'), false, 'CONTROL: the variable alone, left in a shell');
+  assert.equal(ab.testRunMarked({}, '/var/T'), false, 'CONTROL: a real board');
+  assert.equal(ab.testRunMarked({}, '/var/T/ktx9'), false, 'CONTROL: a folder that only starts with kt');
   assert.equal(ab.isInstalled(), true, 'fixture: the earlier test installed the fake tree');
-  const p = ab.configPath();
-  fs.writeFileSync(p, 'LIVE CONFIG 8929\n');
-  assert.equal(ab.launchConfig({ platform: 'win32', node: 'C:\\T\\node.exe', env: { KOSMOS_TEST_RUN: '/tmp/kt1' } }), null,
-    'a test run without a sandbox still asked for a config');
-  assert.equal(fs.readFileSync(p, 'utf8'), 'LIVE CONFIG 8929\n', 'a test run without a sandbox rewrote the config');
-  /* CONTROL: the same call with the runners folder sandboxed writes, so the refusal above is the guard, not a failure. */
-  assert.equal(ab.launchConfig({ platform: 'win32', node: 'C:\\T\\node.exe', env: { KOSMOS_TEST_RUN: '/tmp/kt1', AGENT_WORKFORCE_RUNNERS_DIR: process.env.AGENT_WORKFORCE_RUNNERS_DIR } }), p);
-  assert.notEqual(fs.readFileSync(p, 'utf8'), 'LIVE CONFIG 8929\n', 'CONTROL: a sandboxed call did not write');
+  /* This process IS a test and its runners folder IS sandboxed: it writes, whatever the caller's env says. */
+  assert.equal(ab.launchConfig({ platform: 'win32', node: 'C:\\T\\node.exe', env: { KOSMOS_TEST_RUN: '/tmp/kt1' } }), ab.configPath(),
+    'a sandboxed test run was refused');
 });
 
 /* ── the Mac half (#3633) ───────────────────────────────────────────────── */
@@ -217,14 +213,26 @@ test('#8929 the shim inside a test run leaves the fallback config untouched; CON
   fs.cpSync(ab.homeDir(), path.join(root, 'playwright-mcp'), { recursive: true });
   const cfg = path.join(root, 'playwright-mcp', 'mcp-config.json');
   fs.writeFileSync(cfg, 'LIVE CONFIG 8929\n');
-  const base = { ...process.env, HOME: home };
+  const plainTmp = path.join(SANDBOX, 'plain-tmp-8929');
+  const runRoot = path.join(SANDBOX, 'kt8929');
+  fs.mkdirSync(plainTmp, { recursive: true });
+  fs.mkdirSync(path.join(runRoot, 'tmp'), { recursive: true });
+  const base = { ...process.env, HOME: home, TMPDIR: plainTmp };
   for (const k of ['AGENT_WORKFORCE_RUNNERS_DIR', 'NODE_TEST_CONTEXT', 'KOSMOS_TEST_RUN', 'KOSMOS_AGENT_BROWSER']) delete base[k];
   const shim = path.join(__dirname, 'agent-browser-config.js');
   const run = (extra) => spawnSync(process.execPath, [shim], { env: { ...base, ...extra }, encoding: 'utf8', timeout: 30000 });
-  const inRun = run({ KOSMOS_TEST_RUN: path.join(SANDBOX, 'kt8929') });
+  const inRun = run({ KOSMOS_TEST_RUN: runRoot, TMPDIR: path.join(runRoot, 'tmp') });
   assert.equal(inRun.status, 0);
   assert.equal(inRun.stdout.trim(), '', 'the shim inside a test run asked for a config');
   assert.equal(fs.readFileSync(cfg, 'utf8'), 'LIVE CONFIG 8929\n', 'the shim inside a test run rewrote the fallback config');
+  /* Review 1: a test that scrubbed its environment (no markers at all) but kept the run's temp folder. */
+  const scrubbed = run({ TMPDIR: path.join(runRoot, 'tmp') });
+  assert.equal(scrubbed.stdout.trim(), '', 'a scrubbed test child with a run root as its temp folder asked for a config');
+  assert.equal(fs.readFileSync(cfg, 'utf8'), 'LIVE CONFIG 8929\n', 'a scrubbed test child rewrote the fallback config');
+  /* Review 1, CONTROL for the store's rule: the variable alone, with a plain temp folder, is not a test run. */
+  const stray = run({ KOSMOS_TEST_RUN: runRoot });
+  assert.equal(stray.stdout.trim(), cfg, 'CONTROL: a stray KOSMOS_TEST_RUN switched a real launch off');
+  fs.writeFileSync(cfg, 'LIVE CONFIG 8929\n');
   const outside = run({});
   assert.equal(outside.status, 0);
   assert.equal(outside.stdout.trim(), cfg, 'CONTROL: outside a test run the shim did not write (the guard is what refused above)');
