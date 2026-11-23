@@ -144,6 +144,20 @@ test('the text list: the State and Built fields and the waits-on words say it; a
   assert.match(show(row({ onHold: true })), /State: +on hold.*; built$/m, 'CONTROL: a held built mark without one');
 });
 
+/* Review 3: the one-line rows of kosmos task list --all --built say what each waits on next (tasklist waitsWords, reached
+   through nextWords); a mark that says nothing reads as before. */
+test('the list rows: --all --built says what each built task waits on, and a plain mark reads as before', () => {
+  const now = Date.now();
+  const row = (n, extra) => ({ number: n, projectId: 'p1', sentence: 'Ship ' + n, builtAt: new Date(now).toISOString(), builtBy: 'mona', lastActivityAt: new Date(now).toISOString(), ...extra });
+  const out = tasklist.acrossLines({ all: true, listState: 'built', tasks: [row(1, { builtWaitingOn: 'person' }), row(2, { builtWaitingOn: 'release' }), row(3, { builtWaitingOn: 'review' }), row(4, {})] }, 'built', { now });
+  assert.equal(out.rc, 0, JSON.stringify(out));
+  const at = (n) => out.lines.find((l) => l.includes('#' + n + ' ')) || '';
+  assert.match(at(1), /waits on the person\)/, at(1));
+  assert.match(at(2), /waits on a release\)/, at(2));
+  assert.match(at(3), /waits on a review and close\)/, at(3));
+  assert.match(at(4), /waits on a review and close\)/, 'CONTROL: a plain mark lost its words: ' + at(4));
+});
+
 test('the board page: the row helper says "waiting on you" for the person, and nothing for a mark without one', () => {
   const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   const m = html.match(/function tskBuiltWaitsWords\(t\) \{[\s\S]*?\n\}/);
@@ -207,6 +221,10 @@ for (const [name, run, skip] of [['Mac', mac, process.platform === 'win32' && 't
     assert.equal('builtWaitingOn' in stored(m), false);
     assert.match(p.out, /built, waiting to be released or checked\./);
     assert.match(p.out, /mark it with --waiting person, review or release \(kosmos task --how\)/);
+    // Review 3: the same plain mark again changes nothing, so it is not given the hint either.
+    const repeat = await run(['task', 'built', projectId, String(m), 'the notes are done']);
+    assert.equal(repeat.code, 0, repeat.out);
+    assert.equal(/--waiting person, review or release/.test(repeat.out), false, 'the hint was given to a repeat of the same mark: ' + repeat.out);
     // Review 2: the same task marked again without --waiting keeps it, says it, and is not given the hint.
     const again = await run(['task', 'built', projectId, String(n), 'the report is checked']);
     assert.equal(again.code, 0, again.out);
