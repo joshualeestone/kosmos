@@ -65,14 +65,14 @@ test('#6565: every other "your work Kosmos" on the page reads "your family\'s Ko
     "plusOrgIn(j.org, ' was refused: you are its last admin. This Kosmos is your work Kosmos again')",
     "plusOrgIn(org0, ': your work Kosmos is elsewhere, so leave from there.')",
   ]) assert.ok(PAGE.includes(said), 'not passed through plusOrgIn: ' + said);
-  // Every "your work Kosmos" on the page, counted: 4 in plusOrgIn calls (the joined line, both leave-refused lines,
-  // stopped-reporting), 1 in the rule (the "for" rule; the general one is written ([Yy])our), 4 in comments. A new sentence that says it without plusOrgIn raises only the total:
+  // Every "your work Kosmos" on the page, counted: 5 in plusOrgIn calls (the joined line, both leave-refused lines,
+  // stopped-reporting, and kosmos#8938's setup welcome line), 1 in the rule (the "for" rule; the general one is written ([Yy])our), 4 in comments. A new sentence that says it without plusOrgIn raises only the total:
   // wrap it in plusOrgIn (and raise both counts), or the family sees company wording. A comment that mentions the phrase
   // raises the total too; then raise it here.
   const wrapped = (PAGE.match(/plusOrgIn\([^,()]+, '[^'\n]*your work Kosmos/g) || []).length;
   const total = PAGE.split('your work Kosmos').length - 1;
-  assert.equal(wrapped, 4, 'sentences passed through plusOrgIn');
-  assert.equal(total, 9, 'every "your work Kosmos" on the page: a new one outside plusOrgIn reaches a family as is');
+  assert.equal(wrapped, 5, 'sentences passed through plusOrgIn');
+  assert.equal(total, 10, 'every "your work Kosmos" on the page: a new one outside plusOrgIn reaches a family as is');
 });
 
 test('#6565: the page-only "your work Kosmos for" rule stays page-only: no engine sentence says it', () => {
