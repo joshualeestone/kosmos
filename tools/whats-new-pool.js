@@ -13,7 +13,7 @@
  * restart (optional, kosmos#7411) is "agents" when a running agent keeps the old behaviour until it restarts.
  * notesOnly (optional, kosmos#7411) is true for a note meant for `kosmos whats-new` only (an agent's command): `build`
  * never puts it in the window, whatever its rank, and the release notes keep it.
- * "prod" here is the Mac prod family (promote-channel.sh without --family win). Windows is promoted on its own and
+ * "prod" (lastProd) here is the Mac prod family (promote-channel.sh without --family win); Windows prod is recorded apart (lastProdWin, below). Windows is promoted on its own and
  * shows whichever list is current when its build is made (its number goes in the built file's "also", by hand,
  * on the release branch, tools/windows/RELEASING.md).
  * kosmos#8924: a Windows-only highlight (tagged windows, not mac) is never shown by the Mac, so `build` also reads what
@@ -261,7 +261,7 @@ function syncWithProd(pool, poolFile, env = process.env, root = ROOT) {
 }
 
 /* kosmos#8924: what WINDOWS prod serves, so a Windows-only highlight retires itself once Windows prod has shown it
-   (it used to be retired by hand). The Windows pointer, latest-win.json, sits beside the Mac one and names no manifest,
+   (it used to be retired by hand). The Windows pointer, latest-win.json, has a URL beside the Mac one but redirects to R2 (another host), and names no manifest,
    so the manifest is named from its version and arch, as the Windows build names it (tools/build-kosmos-windows.sh).
    KOSMOS_PROD_WIN_POINTER_URL points elsewhere for a test; with only KOSMOS_PROD_POINTER_URL set, the Windows pointer
    is read from the same folder, so a test that fakes Mac prod never reaches the live site for Windows. */

@@ -32,4 +32,4 @@
 
 ## Weakest premise
 
-That blocking a Mac What's New build on the Windows pointer being readable is acceptable. Both pointers are served by the same site, so in practice they fail together, and --offline is the way through.
+That blocking a Mac What's New build on the Windows pointer being readable is acceptable. They do NOT fail together (review 6, measured): the Mac pointer is served directly by the site, while latest-win.json and the Windows manifest redirect to R2, another host. So an R2 or redirect fault blocks a Mac What's New build while Mac prod reads fine. --offline is the way through, and prod-check answers 4 (a note, the cut goes on), so a cut is not held by it; only the What's New build is.

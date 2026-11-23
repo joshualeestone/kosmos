@@ -294,3 +294,12 @@ test('#8924 review 3: the Windows promote prints the pool-build NEXT hint, guard
   assert.ok(win.length > 0, 'the --family win branch of promote-channel.sh was not found');
   assert.match(win, /\[ "\$ALLOW_OLDER" = 1 \] \|\| echo "promote-channel: NEXT, once Windows users are served \$V: node tools\/whats-new-pool\.js build/);
 });
+
+test('#8924 review 6: readPool refuses a lastProdWin that is not a version, as it does lastProd; CONTROL: a version loads', () => {
+  const bad = poolFile({ lastProd: '0.8.16', lastProdWin: '0.8', items: [item('A', 1, 'pending')] });
+  const good = poolFile({ lastProd: '0.8.16', lastProdWin: '0.8.16', items: [item('A', 1, 'pending')] });
+  try {
+    assert.throws(() => tool.readPool(bad.file), /lastProdWin must be a version like 0\.8\.16, not "0\.8"/);
+    assert.equal(tool.readPool(good.file).lastProdWin, '0.8.16');
+  } finally { cleanup(bad.dir, good.dir); }
+});
