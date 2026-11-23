@@ -118,6 +118,28 @@ test('#8929 a temp folder inside a run root marks a test run; CONTROL: a plain t
     'a sandboxed test run was refused');
 });
 
+/* kosmos#8928: one config and one output folder per agent, named for it; no name keeps the shared file. */
+test('#8928 each agent gets its own config and output folder; a hostile name stays inside; CONTROL: no name keeps the shared file', () => {
+  assert.equal(ab.isInstalled(), true, 'fixture: the earlier test installed the fake tree');
+  const a = ab.launchConfig({ platform: 'win32', node: 'C:\\T\\node.exe', env: {}, agent: 'mona-lisa' });
+  const b = ab.launchConfig({ platform: 'win32', node: 'C:\\T\\node.exe', env: {}, agent: 'pigeonpete' });
+  assert.equal(a, path.join(ab.homeDir(), 'agents', 'mona-lisa.json'));
+  assert.equal(b, path.join(ab.homeDir(), 'agents', 'pigeonpete.json'));
+  const args = (f) => JSON.parse(fs.readFileSync(f, 'utf8')).mcpServers['kosmos-browser'].args;
+  const out = (f) => args(f)[args(f).indexOf('--output-dir') + 1];
+  assert.equal(out(a), path.join(os.tmpdir(), 'kosmos-agent-browser', 'mona-lisa'), 'the output folder names the agent');
+  assert.equal(out(b), path.join(os.tmpdir(), 'kosmos-agent-browser', 'pigeonpete'));
+  for (const bad of ['../../escape', 'a/b', 'a\\b', '..', '.', '']) {
+    const f = ab.configPath(bad);
+    assert.ok(f === ab.configPath() || path.dirname(f) === path.join(ab.homeDir(), 'agents'), 'a name left the agents folder: ' + JSON.stringify(bad) + ' -> ' + f);
+    assert.ok(path.dirname(ab.outputDir(bad)) === os.tmpdir() || path.dirname(ab.outputDir(bad)) === path.join(os.tmpdir(), 'kosmos-agent-browser'), 'an output folder left its parent: ' + JSON.stringify(bad));
+  }
+  assert.equal(ab.configPath('..'), ab.configPath(), 'a name with nothing safe left is no name');
+  const shared = ab.launchConfig({ platform: 'win32', node: 'C:\\T\\node.exe', env: {} });
+  assert.equal(shared, path.join(ab.homeDir(), 'mcp-config.json'), 'CONTROL: no name keeps the shared file');
+  assert.equal(out(shared), path.join(os.tmpdir(), 'kosmos-agent-browser'));
+});
+
 /* ── the Mac half (#3633) ───────────────────────────────────────────────── */
 
 const shellSeams = (arch, over) => Object.assign({
