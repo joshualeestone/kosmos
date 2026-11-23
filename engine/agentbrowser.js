@@ -214,7 +214,7 @@ function writeConfigIfNeeded(file, text) {
 /* kosmos#8929: inside a test run, the config is written only into a sandboxed runners folder. From a worktree
    runners.managedRoot() falls back to the REAL install's folder, so a test that reached this (the supervisor's shim,
    say) rewrote the live config with the test's node and a temp folder its run then removed, and every agent the board
-   started next got it. (kickInstall's own guard is narrower: it checks NODE_TEST_CONTEXT only.)
+   started next got it.
    What counts as a test run is the store's rule (store.isTestProcess), reused rather than re-derived, asked of this
    process and of the env a caller passed (whose KOSMOS_TEST_RUN is compared with THIS process's temp folder, the only
    one the store reads), plus one rule of its own, inKtRunRoot below. */

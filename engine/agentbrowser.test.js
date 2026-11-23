@@ -232,10 +232,8 @@ test('#8929 the shim inside a test run leaves the fallback config untouched; CON
      then rewrite the live config, the damage this card is about. */
   const where = spawnSync(process.execPath, ['-e', 'process.stdout.write(require(process.argv[1]).managedRoot())', path.join(__dirname, 'runners.js')],
     { env: base, encoding: 'utf8', timeout: 30000 });
-  if (where.status !== 0 || path.resolve(where.stdout) !== root) {
-    t.skip('the runners folder does not resolve into this test\'s HOME (' + where.stdout + '), so a writing arm could reach a real one');
-    return;
-  }
+  assert.equal(where.status === 0 && path.resolve(where.stdout), root,
+    'the runners folder does not resolve into this test\'s HOME, so a writing arm could reach a real one; no arm ran');
   const inRun = run({ KOSMOS_TEST_RUN: runRoot, TMPDIR: runRoot });
   assert.equal(inRun.status, 0);
   assert.equal(inRun.stdout.trim(), '', 'the shim inside a test run asked for a config');
