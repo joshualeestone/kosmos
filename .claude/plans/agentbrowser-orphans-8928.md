@@ -121,3 +121,9 @@ Servers left by an earlier pinned version (another cli.js path) are not matched.
 - Fixed: the Mac budget read left() twice, and a zero turned into a 2 s ps timeout; it is read once and a zero stays a zero, so the 2 s bound holds.
 - Fixed: the shim arm asserts its stand-in's child exists before going on (a missing one could have been left running reparented to pid 1).
 - Fixed: the plan's "Where" now says an injected ender acts, as CLAUDE.md does.
+
+## Challenge loop iteration 15 (sonnet)
+- Fixed: a source-asserted test pins the only production files that hand the sweep its orphans (the Mac shim and the Windows supervisor) and that endOrphanedServers is called only inside agentbrowser.js.
+- Fixed: the e2e test asserts the sandbox runners folder survived its env copy before the shim (which sends real signals) runs.
+- Fixed: endOrphansFor and browserFor moved back above main()'s doc comment.
+- Deferred (as before): the Mac parent-gone premise.
