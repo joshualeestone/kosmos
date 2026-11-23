@@ -37,11 +37,17 @@ function classify(command, args) {
 }
 
 function recordFile(env) {
-  if (env && env.KOSMOS_HOWHINT_FILE) return env.KOSMOS_HOWHINT_FILE;   // a test seam
+  if (env && env.KOSMOS_HOWHINT_FILE) return env.KOSMOS_HOWHINT_FILE;   // test-only seam: where a test keeps its record
   return path.join(require('./store').root(), 'how-hints.json');
 }
+/* A record with no prototype, so an agent named like an Object key (`__proto__`) is stored as a key like any other. */
 function readRecord(file) {
-  try { const v = JSON.parse(fs.readFileSync(file, 'utf8')); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; }
+  const rec = Object.create(null);
+  try {
+    const v = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (v && typeof v === 'object' && !Array.isArray(v)) for (const k of Object.keys(v)) rec[k] = v[k];
+  } catch { /* no record yet, or unreadable: start over */ }
+  return rec;
 }
 function writeRecord(file, rec) {
   const tmp = file + '.' + process.pid + '.tmp';

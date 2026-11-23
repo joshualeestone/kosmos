@@ -1241,15 +1241,17 @@ kosmos_engine_module() {
   printf '%s' "$_mod"
 }
 # kosmos#8935: the first time an agent uses a command with a longer guide, name the guide once (engine/howhint.js
-# decides and records). Only an agent's call reaches node; on stderr, so a command's own output is unchanged; and it
-# never fails the command it sits in front of.
+# decides and records). Only an agent's call reaches node (about 20 ms, measured); the line goes to stderr, so stdout
+# is unchanged and stderr gains one first line, once; stdin is not touched (a `post --stdin` keeps all of its input);
+# and it never fails the command it sits in front of.
 _how_hint() {
   [ -n "${KOSMOS_AGENT_SESSION:-}" ] || return 0
   local _hn _hm
   _hn="$(kosmos_engine_node)" || return 0
   _hm="$(kosmos_engine_module howhint).js"
   [ -f "$_hm" ] || return 0
-  "$_hn" "$_hm" "$@" >&2 2>/dev/null || true
+  # Order matters: the line (node's stdout) goes to OUR stderr, then node's own errors are dropped.
+  "$_hn" "$_hm" "$@" </dev/null >&2 2>/dev/null || true
   return 0
 }
 

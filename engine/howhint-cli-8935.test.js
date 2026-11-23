@@ -33,6 +33,15 @@ test('#8935 Mac CLI: first `kosmos claim` names its guide on stderr, once; CONTR
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { 't8935-mac': ['claim'], 't8935-reader': ['post'] });
 });
 
+test('#8935 Mac CLI: every guided command goes through the hint, which never reads stdin', { skip: process.platform === 'win32' && 'install/kosmos is the Mac and Linux CLI' }, () => {
+  const src = fs.readFileSync(path.join(ROOT, 'install', 'kosmos'), 'utf8');
+  const { GUIDES } = require('./howhint');
+  for (const cmd of Object.keys(GUIDES)) {
+    assert.match(src, new RegExp('\\n  ' + cmd + '\\)\\s+shift; _how_hint ' + cmd + ' "\\$@"; cmd_'), 'the dispatch for ' + cmd + ' does not call _how_hint');
+  }
+  assert.match(src, /"\$_hn" "\$_hm" "\$@" <\/dev\/null >&2 2>\/dev\/null \|\| true/, 'the hint must not read stdin, and must print to stderr');
+});
+
 test('#8935 Windows CLI: the same, through main()', async () => {
   const cli = require('../tools/windows/kosmos-cli');
   const file = path.join(SANDBOX, 'win.json');
