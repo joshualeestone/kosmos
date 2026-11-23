@@ -51,3 +51,7 @@ That the agent name ($SESSION on a Mac, the spec name on Windows) is stable acro
 - Fixed: a failure making the agent's output folder (a file in the way, a full or read-only disk) no longer costs the browser: it has its own catch.
 - Fixed: the unit test's cleanup removed the whole shared output folder, which in a direct `node --test` run is the real temp folder holding live agents' output folders. It now removes only the two folders it makes, under test-only names (t8928-alpha, t8928-beta).
 - Fixed: crypto required at the top; the comment says the base is cut to 48; the supervisor test's comment says the temp folder applies to the whole run; a stale plan line.
+
+## Challenge loop iteration 5 (sonnet): converged
+- No new findings. Repeats, deferred as before: per-agent files and folders of deleted agents (and the now-unused shared file) are not removed, for slice 2 or 3; slice 2 relies on stable agent names. Not a regression: the server must create its output folder if the temp cleaner pruned it, as it did for the shared folder before.
+- Taken after converging: an unverified sentence in the supervisor test's comment, deleted.
