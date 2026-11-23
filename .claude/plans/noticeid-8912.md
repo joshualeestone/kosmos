@@ -100,3 +100,12 @@ each time pays more than before; the bound (128 KB) caps that.
   heading claim (only Kosmos-written files are parsed, under the hash); the number is unbounded within a session (it
   resets at every session start).
 - Mutations after round 4, each red: as after round 3, with no earlier clause (2) and carried always (1).
+- Round 5 (opus): no BLOCKER or WARNING. NITs, recorded for a follow-up card: a start report that is not recorded
+  keeps the file, so "since you started" can be untrue then; the header's "each notice has its own entry" overstates
+  (a notice that names no file has none); readPlain's size check is from fstat, so a file growing during the read can
+  pass the limit (the hash still refuses it); the entriesOf comment omits fence and blank lines; a dead optional group
+  in three 7149 regexes; a caller without restoreChanges keeps the advanced number.
+- Full suite at 444bff504e: 2 red, both repo guards on this change, not behaviour. #1732 (an fs.constants platform
+  flag, unclassified): two INVENTORY rows for readPlain's O_NOFOLLOW and O_NONBLOCK, as server.js's download route
+  has. #1777 (a test file that branches on a win32 host and nothing runs on Windows): the new test file is added to
+  tools/windows-tests.js ALSO, so Windows runs it; only its FIFO arm skips there.
