@@ -1099,7 +1099,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   if (waitingOn != null && waitingOn !== '' && waitingOn !== WAITING_NONE && !WAITING_ON.includes(waitingOn)) return { ok: false, because: 'what a built task waits on is person, review, release or none' };
   const dropWaits = waitingOn === WAITING_NONE;
   const sent = waitingOn && !dropWaits && !(person === true) ? waitingOn : '';   // what this mark says; kept or dropped below
-  const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
+  let said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';   // let: kosmos#8934 review 5 below
   const landed = commit == null ? null : landedValue(commit);
   if (commit != null && !landed) return { ok: false, because: 'a commit is its full sha (40 or 64 lowercase hex characters), the absolute path of its repository, and whether a remote has it' };
   const print = fingerprint == null ? '' : fingerprint;
@@ -1110,7 +1110,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   if (filePath != null && (!sentPath || !print)) return { ok: false, because: 'a file path is sent with the fingerprint, as the local absolute path of that file' };
   /* #5705 review 3: format characters (zero-width and the like) are not a note, so a note of only those is none. Checked
      on a copy (review 4): the stored note keeps them, as an emoji or a right-to-left name needs them. */
-  const saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
+  let saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
   if (Array.from(said).length > BUILT_NOTE_MAX) return { ok: false, because: `keep the note to ${BUILT_NOTE_MAX} characters or fewer` };
   const isPerson = person === true;
   /* kosmos#8067: a command copied from a nudge with its placeholder unfilled. Quoted, the shell passes it, and it would replace a
@@ -1134,6 +1134,13 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       if (progressOf(t).closed) { closed = true; throw NO_WRITE; }
       if (t.repeat) { repeating = true; throw NO_WRITE; }   // kosmos#4787 review 3: a recurring job is never "built, waiting"
       if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; throw NO_WRITE; }
+      /* kosmos#8934 review 5: a mark that sends only --waiting (or none) and no note is a correction of the wait, so it
+         keeps the note the task has; a plain mark with no note still drops it, as before. Before the checks' note rule,
+         so a kept note that said how the checks went still says it. */
+      if (!said && !isPerson && (sent || dropWaits) && t.builtAt && typeof t.builtNote === 'string' && t.builtNote) {
+        said = t.builtNote;
+        saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
+      }
       /* #5705 (user feedback): a task stayed "built" though the work was never done. A task with done-when checks
          (#5152) says what finished means, so an agent's mark on it must say how the checks went; the rules already ask
          for that note, and now a bare mark is refused. The person's mark from the screen never is. After the
@@ -1228,7 +1235,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       const earlier = t.builtAt ? (Array.isArray(t.builtWho) ? t.builtWho : []) : [];
       const builtWho = who && !earlier.includes(who) ? earlier.concat([who]) : earlier;
       changed = {
-        ...withoutBuilt(t), builtAt: new Date().toISOString(), builtBy: who,
+        ...withoutBuilt(t), builtAt: waitsOnly && t.builtAt ? t.builtAt : new Date().toISOString(), builtBy: who,   // kosmos#8934 review 5: a correction of the wait is not a new delivery
         ...(isPerson ? { builtByPerson: true } : {}), builtWho,
         ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
         ...(said ? { builtNote: said } : {}),
@@ -1256,7 +1263,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   }
   if (personMark) return { ok: false, person: true, because: 'the person marked this task built, so only the person can change that mark' };
   if (same) return { ok: true, task: changed, changed: false };
-  taskchat.record(projectId, changed.number, { kind: 'built', by: who, ...(isPerson ? { person: true } : {}), ...(said ? { note: said } : {}) });
+  // kosmos#8934 review 5: a correction of only the wait writes no second "marked it built" line; the row shows the wait.
+  if (!waitsOnly) taskchat.record(projectId, changed.number, { kind: 'built', by: who, ...(isPerson ? { person: true } : {}), ...(said ? { note: said } : {}) });
   /* kosmos#8307: `replaced` only when this mark replaced a file, so the notice can say so and reach its checkers. */
   return { ok: true, task: changed, changed: true, ...(replacedNow ? { replaced: replacedNow } : {}), ...(waitsOnly ? { waitsOnly: true } : {}) };
 }
