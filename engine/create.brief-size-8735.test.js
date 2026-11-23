@@ -12,10 +12,13 @@
  * HEADROOM: a brief grows after birth (each project an agent joins adds a line block), so the GOAL is below the limit,
  * not at it: NEW_AGENT_GOAL. The guard is a RATCHET: CEILING is the largest brief measured after the last slice (rounded
  * up), so no change can make a brief bigger, and a later cut lowers it. Never raise CEILING.
- * DECIDED (kosmos#8735, closed 2026-11-23): the goal is NOT met, and the brief stays at this floor. After seven slices
- * (pm 58,458 -> 42,440) what is left is Josh's own working rules and safety text, and moving them to a guide read on
- * demand would weaken them, because a guide is read only when an agent thinks to. A new agent opens on Claude Code's
- * size notice instead. A cut that keeps a rule binding is still welcome: lower CEILING with it.
+ * DECIDED (kosmos#8735, closed when this merges): the goal is NOT met, and the briefs stay at this floor. The call is
+ * PigeonPete's, under Splinter's 2026-11-23 ruling that a reversible decision is the builder's, not Josh's; it is
+ * reversible, and Josh can reopen #8735. After seven slices (pm 58,458 -> 42,440) what is left is Josh's own working
+ * rules and safety text, and moving them to a guide read on demand would weaken them, because a guide is read only when
+ * an agent thinks to. Five roles stay over Claude Code's 40,000 notice (pm, director, email, productdir, household; the
+ * test prints them), and each of those agents opens on that notice. A cut that keeps a rule binding is still welcome:
+ * lower CEILING with it.
  * Measured (pm, this file's sandbox path counted as one word): 58,458 on main before #8735; 51,670 after slice 1
  * (the community routine moved to `kosmos community --how`, the quoting, title and Kosmos-security rules kept in the
  * brief as safety text); 48,843 after slice 2 (the task commands for one situation each moved to `kosmos task --how`,

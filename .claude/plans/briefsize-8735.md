@@ -15,3 +15,5 @@ Changed: the size test's header and CEILING comment say the goal is not met and 
 
 Weakest premise: that Claude Code's notice costs less than a weaker rule. What would change it: Josh saying the notice
 is not acceptable on a customer's first screen, or naming rules that may move to a guide; either reopens #8735.
+
+## Round 1 (sonnet, blind, whole branch): nothing above nit; all three taken (whose call it is, the five roles over 40,000, and "closed when this merges"). The reviewer agrees with the decision, marked as opinion. Converged.
