@@ -1081,11 +1081,12 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
   const watches = [];
   const exits = [];
   let hostChecks = 0;
+  const browserAsks = [];
   const handle = sup.main(['entry', cwd, '-', '-', 'claude'], {
     watchHost: (opts) => { const w = { opts, stopped: false, stop() { this.stopped = true; } }; watches.push(w); return w; },
     exitLater: (ms) => exits.push(ms),
     hostAlive: () => { hostChecks += 1; return true; },
-    agentBrowser: () => 'browser-config.json',
+    agentBrowserModule: { launchConfig: (o) => { browserAsks.push(o); return 'browser-config.json'; } },   // kosmos#8928: main()'s own default, faked one level down
     agentPermission: () => 'perm.json',   // #5406
     presence: () => ({ stop() {} }),   // kosmos#8415: no real presence pipe from this test
   });
@@ -1108,6 +1109,7 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
       '#5406: main() wires the permission settings into the launch');
     assert.equal(spawned[0].argv[spawned[0].argv.indexOf('--mcp-config') + 1], 'browser-config.json',
       'main() hands a claude agent its browser config');
+    assert.deepEqual(browserAsks, [{ agent: 'entry' }], 'kosmos#8928: main() asks for the browser config by the agent\'s name');
     assert.equal(typeof handle.send, 'function', 'so the supervisor can be told things');
     /* ⚠️ THE LOAD-BEARING NEGATIVE. The detached launch goes through `cmd /c start`;
        if main() ever goes back to it, this is the line that says so. */

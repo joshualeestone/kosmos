@@ -283,7 +283,7 @@ function main(argv, deps) {
      reaches it on its next restart. Claude only for now; codex is a follow-up. */
   const perTurn = spec.runner === 'codex' || spec.runner === 'gemini' || spec.runner === 'grok' || spec.runner === 'antigravity';   // #3568: agy too (engine/win32agy.js)
   if (!perTurn) {
-    const browser = d.agentBrowser || browserFor(spec);
+    const browser = d.agentBrowser || browserFor(spec, d.agentBrowserModule);
     spec.mcpConfig = () => browser();
     /* #5406: the agent does not stop on a prompt the person's own ask rules raise (a Kosmos-owned settings file with
        one PermissionRequest hook, engine/agentpermission.js). Asked per launch, like the browser; never throws. */

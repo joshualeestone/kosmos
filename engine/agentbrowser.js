@@ -115,11 +115,11 @@ function cliPath() { return path.join(treeDir(), 'node_modules', '@playwright', 
 function markerPath() { return path.join(treeDir(), '.verified'); }
 /* kosmos#8928: one config per agent, named for it, so every browser server names its agent on its own command line
    (--output-dir below) and a server left running after its session can be traced to that agent. The key is
-   lowercase letters, digits, dot, dash and underscore, at most 48 of them, never ending in a dot. When that changed
-   the name, or the name is one Windows reserves for a device (con, nul, com1 ...), a short hash of the original name
-   is added (and a device name gets a leading underscore), so two agents whose names clean to the same text still
-   get two files. An empty name keeps the shared
-   file. */
+/* kosmos#8928: one config per agent, named for it, so every browser server names its agent on its own command line
+   (--output-dir below) and a server left running after its session can be traced to that agent. The key is the name
+   in lowercase letters, digits, dot, dash and underscore, at most 48 of them, never ending in a dot. A name that
+   cleaning changed, one made only of dots and underscores, or one Windows reserves for a device (con, nul, com1, with
+   a leading underscore added) gets `~` and a short hash of the original name. An empty name keeps the shared file. */
 const WIN_DEVICE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\.|$)/;
 function agentKey(agent) {
   const raw = String(agent || '');
@@ -128,7 +128,7 @@ function agentKey(agent) {
   if (base === raw && !/^[._]*$/.test(base) && !WIN_DEVICE.test(base)) return base;
   const tag = require('node:crypto').createHash('sha256').update(raw).digest('hex').slice(0, 8);
   const safe = /^[._]*$/.test(base) ? 'agent' : WIN_DEVICE.test(base) ? '_' + base : base;
-  return safe + '-' + tag;
+  return safe + '~' + tag;   // `~` never survives the cleaning, so a hashed key cannot equal another agent's plain one
 }
 function configPath(agent) {
   const k = agentKey(agent);
