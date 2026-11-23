@@ -87,7 +87,7 @@ test('/api/org sends allowedProviderNames to the screen only, only while a list 
   assert.match(h, /\.\.\.\(allowedProviderNames \? \{ allowedProviderNames \} : \{\}\)/, 'sent only when there is a list');
   assert.match(h, /const pol = here \? op\.current\(\) : null;/, 'read only while enrolled, and by current(), which applies nothing');
   assert.match(h, /\.map\(op\.providerName\)/, 'in the menus\u2019 words, the same ones a refusal uses');
-  assert.match(h, /\.filter\(\(n\) => n !== op\.providerName\(''\)\)/, 'an id with no menu name is left out, never said as "this provider"');
+  assert.match(h, /allowedProviderNames = names && !names\.includes\(op\.providerName\(''\)\) \? \[\.\.\.new Set\(names\)\] : null;/, 'a list holding an id with no menu name is not sent at all');
   assert.doesNotMatch(agentAnswer, /reportWords/, 'an agent caller never gets the words');
   assert.match(h, /\.\.\.\(here && accepted && accepted\.reports\.length \? \{ reportWords: \{ reports: accepted\.reports, backsUp: accepted\.backsUp, never: oe\.acceptedNever\(\) \} \} : \{\}\)/, 'the accepted words, only while there are some');
 });
