@@ -64,3 +64,6 @@ dist/
 # kosmos#8930: the supervisor puts agent secrets in ${AGENT_WORKFORCE_DATA:-$_app}/launch-secrets, and from a source
 # checkout with no AGENT_WORKFORCE_DATA, $_app is this checkout. A broad `git add` must never pick those files up.
 /launch-secrets/
+# And its run logs: with no AGENT_WORKFORCE_DATA, record_run writes <folder above bin>/runs/<key>.log (review 1). *.log
+# catches the logs but not a .log.tmp a killed trim leaves.
+/runs/

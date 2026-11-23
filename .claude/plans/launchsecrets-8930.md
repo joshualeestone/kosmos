@@ -28,3 +28,16 @@
 
 Weakest premise: that these six are all the makers. They are all among the 30 node tests that spawn the supervisor by
 name; a test that reaches it another way (through a helper) would not be in that list. The .gitignore rule covers it.
+
+## Round 1 (opus, blind): no blocker; one should-fix and two nits taken
+- Should-fix, MEASURED by the reviewer: the same six also wrote <checkout>/runs/<key>.log (record_run with no
+  AGENT_WORKFORCE_DATA). *.log caught the logs but not a .log.tmp a killed trim leaves. Added a root /runs/ rule; the
+  data-root fix already stops the writes. I removed the 16 leftover logs from my own before-fix sweep (all named for the
+  six tests' agents, untracked). Re-swept all 30 supervisor-spawning tests one at a time for BOTH folders: all pass,
+  none leaves either (this covers the 24 unchanged tests for runs/ too).
+- Nit taken: the notes/launch-secrets.md control could not fail (a folder rule never matches a file). Replaced with a
+  root FILE named launch-secrets (fails if the trailing slash is lost) and engine/runs/x.log.tmp (anchoring). With both
+  rules made unanchored and slashless, the check goes red.
+- Nit taken: the skip check reads a missing git's stdout safely.
+- Unchanged: adding the data root moves the store root to SANDBOX/data/Kosmos, which none of the six reads a fixture
+  from, so what each measures is the same (reasoned by the reviewer, one file measured).
