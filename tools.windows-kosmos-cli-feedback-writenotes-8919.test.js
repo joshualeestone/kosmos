@@ -27,6 +27,6 @@ test('a write after a note says the note went with the old report; CONTROL: a wr
   assert.equal(cli(['feedback', 'note', 'a later line']).code, 0);
   const again = cli(['feedback', 'write', 'rewritten']);
   assert.equal(again.code, 0, again.err);
-  assert.match(again.out, /This replaced your earlier report for that day, and with it the note added to it later\. If one still applies, add it again with kosmos feedback note\.$/, again.out);
+  assert.match(again.out, /This replaced your earlier report for that day, and with it the note added to it later\. If it still applies, add it again with kosmos feedback note\.$/, again.out);
   assert.doesNotMatch(cli(['feedback', 'write', 'third']).out, /replaced your earlier report/, 'CONTROL');
 });

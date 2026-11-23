@@ -190,8 +190,9 @@ function write(body, opts) {
     }
     const mine = { key, text: neutral(String(body == null ? '' : body).replace(/\s*$/, '')) };
     const at = prior.findIndex((x) => x.key.toLowerCase() === key.toLowerCase());   // review 1: Mara and mara are one agent
-    // kosmos#8919: the notes the replaced section carried (kosmos feedback note), so the CLIs can say they went with it.
-    const notesReplaced = at >= 0 ? notesIn(prior[at].text) : 0;
+    // kosmos#8919: the notes the replaced section carried (kosmos feedback note) that the new text does not carry, so
+    // the CLIs can say they went with it. Review 1: a rewrite made by editing what `show` printed keeps them.
+    const notesReplaced = at >= 0 ? notesLost(prior[at].text, mine.text) : 0;
     if (at >= 0) prior[at] = mine; else prior.push(mine);
     const content = header + render(prior);
     require('./store').saveFlushed(dest, content);   // #5434 slice 21: flushed before the rename (a unique temp, removed on failure; the folder after on POSIX)
@@ -202,12 +203,28 @@ function write(body, opts) {
    "Added later (YYYY-MM-DD HH:MM UTC):" line, which note() writes and neutral() leaves as it is. */
 const NOTE_LINE = /^Added later \(\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\):$/gm;
 function notesIn(text) { return (String(text == null ? '' : text).match(NOTE_LINE) || []).length; }
+/* kosmos#8919 review 1: the notes in `was` whose whole block (its heading line and the text up to the next heading or
+   the end) is not in `now`. A heading carries its minute, so a note kept in a rewrite is found, and one edited or
+   dropped is counted as gone. */
+function notesLost(was, now) {
+  const w = String(was == null ? '' : was);
+  const n = String(now == null ? '' : now);
+  const starts = [];
+  NOTE_LINE.lastIndex = 0;
+  for (let m = NOTE_LINE.exec(w); m; m = NOTE_LINE.exec(w)) starts.push(m.index);
+  let lost = 0;
+  for (let k = 0; k < starts.length; k += 1) {
+    const block = w.slice(starts[k], k + 1 < starts.length ? starts[k + 1] : w.length).trim();
+    if (!n.includes(block)) lost += 1;
+  }
+  return lost;
+}
 /* kosmos#8919: the sentence both CLIs add after `kosmos feedback write` saves, when the report it replaced carried notes
-   (the write replaces the whole section, notes included, by design since #5317), or '' when it carried none. */
+   and the new text dropped (the write replaces the whole section by design since #5317), or '' when none went. */
 function replacedNotesLine(n) {
   if (!Number.isSafeInteger(n) || n < 1) return '';
   return 'This replaced your earlier report for that day, and with it ' + (n === 1 ? 'the note' : 'the ' + n + ' notes')
-    + ' added to it later. If one still applies, add it again with kosmos feedback note.';
+    + ' added to it later. If ' + (n === 1 ? 'it' : 'one') + ' still applies, add it again with kosmos feedback note.';
 }
 /* The stored body for a day's sections: a day with only the unnamed section is stored bare, as before #5317; otherwise
    each section is its marker, heading and text. write() and note() both store through this, so they cannot drift. */
@@ -535,4 +552,4 @@ function mineLines(from) {
   const mine = daysOf(from);
   return mine.length ? mine : [noneOfYoursWords()];
 }
-module.exports = { notesIn, replacedNotesLine, noReportsWords, noneOfYoursWords, unreadableWords, mineLines, daysOf, listNote, dir, dateKey, isDateKey, today, pathFor, write, note, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
+module.exports = { notesIn, notesLost, replacedNotesLine, noReportsWords, noneOfYoursWords, unreadableWords, mineLines, daysOf, listNote, dir, dateKey, isDateKey, today, pathFor, write, note, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };

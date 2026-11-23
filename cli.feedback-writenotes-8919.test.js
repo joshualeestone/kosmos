@@ -37,8 +37,26 @@ test('a write after a note says the note went with the old report; CONTROL: a wr
   assert.equal((await run(['feedback', 'note', 'a later line'], h)).code, 0);
   const again = await run(['feedback', 'write', 'rewritten'], h);
   assert.equal(again.code, 0, again.both);
-  assert.match(again.out, /This replaced your earlier report for that day, and with it the note added to it later\. If one still applies, add it again with kosmos feedback note\./, again.out);
+  assert.match(again.out, /This replaced your earlier report for that day, and with it the note added to it later\. If it still applies, add it again with kosmos feedback note\./, again.out);
   assert.doesNotMatch(again.both, /SAVED/);
   const third = await run(['feedback', 'write', 'third'], h);
   assert.doesNotMatch(third.out, /replaced your earlier report/, 'CONTROL: a write with no notes since said some went');
+});
+
+test('review 1: when the send sentence cannot be made, the fallback message still carries the replaced-notes sentence', async () => {
+  const h = makeHome();
+  // An engine folder whose feedbacksend says nothing usable: every other file is the real one.
+  fs.unlinkSync(path.join(h.home, 'app', 'engine'));
+  const eng = path.join(h.home, 'app', 'engine');
+  fs.mkdirSync(eng);
+  for (const f of fs.readdirSync(path.join(__dirname, 'engine'))) {
+    if (f !== 'feedbacksend.js') fs.symlinkSync(path.join(__dirname, 'engine', f), path.join(eng, f));
+  }
+  fs.writeFileSync(path.join(eng, 'feedbacksend.js'), "module.exports = { sendNow: () => Promise.resolve({ state: 'sent' }), writeMessage: () => { throw new Error('no sentence'); } };\n");
+  assert.equal((await run(['feedback', 'write', 'first'], h)).code, 0);
+  assert.equal((await run(['feedback', 'note', 'a later line'], h)).code, 0);
+  const again = await run(['feedback', 'write', 'rewritten'], h);
+  assert.equal(again.code, 0, again.both);
+  assert.match(again.out, /Kosmos could not check whether it was sent\. This replaced your earlier report for that day, and with it the note added to it later\./, again.out);
+  assert.doesNotMatch(again.both, /GONE/, 'the marker line leaked into what the agent reads');
 });

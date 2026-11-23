@@ -14,17 +14,19 @@ the write (blocks a legitimate regenerate). Weakest premise: that agents rewrite
 rewrite to add, keeping notes would be the better default, and this sentence at least shows them what went.
 
 ## Change
-- engine/feedback.js: `write()` returns `notesReplaced`, the number of "Added later (YYYY-MM-DD HH:MM UTC):" lines in the
-  section it replaced (`notesIn`, anchored to a whole line). `replacedNotesLine(n)` is the one sentence both CLIs add:
-  "This replaced your earlier report for that day, and with it the note added to it later. If one still applies, add
-  it again with kosmos feedback note." ('' for 0). note()'s comment updated.
+- engine/feedback.js: `write()` returns `notesReplaced`, the number of notes in the section it replaced whose whole
+  block (its "Added later (YYYY-MM-DD HH:MM UTC):" line, anchored, and the text up to the next one) the new text does
+  not carry (`notesLost`), so a rewrite made by editing what `show` printed keeps them and is not told they went. `replacedNotesLine(n)` is the one sentence both CLIs add:
+  "This replaced your earlier report for that day, and with it the note added to it later. If it still applies, add
+  it again with kosmos feedback note." ("one" for several; '' for 0). note()'s comment updated.
 - install/kosmos and tools/windows/kosmos-cli.js: after saving, the send sentence is followed by that sentence when
-  notes went, including on the "could not check whether it was sent" path.
+  notes went. In install/kosmos node prints it on its own GONE line after SAVED and the shell adds it to whichever
+  message it prints, so its own fallback ("could not check whether it was sent") carries it too.
 - Not changed: the board's own /api/feedback route (it writes the unnamed section and prints nothing to an agent).
   #8900's queued resend carries only the day and sends what the file then holds.
 
 ## Tests
-- engine/feedback-writenotes-8919.test.js (4): two notes then a write counts 2 and they are gone, CONTROL the next
+- engine/feedback-writenotes-8919.test.js (5 after round 1): two notes then a write counts 2 and they are gone, CONTROL the next
   write counts 0; another writer's note is kept and not counted; only a whole note-heading line counts; the sentence.
 - cli.feedback-writenotes-8919.test.js (1) and tools.windows-kosmos-cli-feedback-writenotes-8919.test.js (1): write,
   note, write prints the sentence; CONTROL first and third writes do not.
@@ -32,4 +34,11 @@ rewrite to add, keeping notes would be the better default, and this sentence at 
 - The 11 existing test files that call feedback write: 166 pass.
 
 ## Review
-(rounds recorded below)
+- Round 1 (opus): WARNING, a rewrite that keeps a note (an edit of what show printed) was told the note went, and an
+  agent doing as told would add it twice. Fixed: notesLost counts only blocks the new text does not hold; test with an
+  edited-note CONTROL. WARNING, install/kosmos's own fallback message dropped the sentence. Fixed with the GONE line;
+  test forces the fallback with an engine whose feedbacksend cannot make a sentence. CONVENTION, a literal em dash in
+  my test's regex: now an escape. NIT taken: "If it still applies" for one note. NIT not taken: a heading-shaped line
+  typed into a note's own text counts (rare, over-counts in the safe direction).
+- Mutations after round 1, each red: never counted (5), kept notes counted (1), unanchored (1), Mac CLI silent (2),
+  Windows CLI silent (1).

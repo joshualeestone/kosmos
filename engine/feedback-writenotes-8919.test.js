@@ -24,6 +24,19 @@ test('a write after two notes replaces them and says it replaced two; the next w
   assert.equal(fb.write('again', { from: 'ada', date: day }).notesReplaced, 0, 'CONTROL: a write with no notes since counted some');
 });
 
+test('review 1: a rewrite that keeps a note (an edit of what show printed) does not count it; an edited one counts', () => {
+  const day = '2026-11-18';
+  const t = Date.parse(day + 'T12:00:00Z');
+  fb.write('first', { from: 'ada', date: day });
+  assert.equal(fb.note('ada', 'keep me', day, t).ok, true);
+  const shown = fb.sections(fb.stripFrontmatter(fb.read(day))).find((x) => x.key === 'ada').text;
+  const kept = fb.write(shown + '\nand one more line', { from: 'ada', date: day });
+  assert.equal(kept.notesReplaced, 0, 'a note carried into the rewrite was reported lost');
+  assert.match(fb.read(day), /keep me/);
+  const edited = fb.write(shown.replace('keep me', 'kept, reworded'), { from: 'ada', date: day });
+  assert.equal(edited.notesReplaced, 1, 'CONTROL: an edited note was not counted as gone');
+});
+
 test('another writer\'s notes the same day are kept and not counted', () => {
   const day = '2026-11-19';
   const t = Date.parse(day + 'T12:00:00Z');
@@ -43,7 +56,7 @@ test('a line that merely looks like a note heading inside a report is not counte
 test('the sentence: none for 0, one note, several notes, and no apostrophe or em dash', () => {
   assert.equal(fb.replacedNotesLine(0), '');
   assert.equal(fb.replacedNotesLine(undefined), '');
-  assert.equal(fb.replacedNotesLine(1), 'This replaced your earlier report for that day, and with it the note added to it later. If one still applies, add it again with kosmos feedback note.');
+  assert.equal(fb.replacedNotesLine(1), 'This replaced your earlier report for that day, and with it the note added to it later. If it still applies, add it again with kosmos feedback note.');
   assert.match(fb.replacedNotesLine(3), /and with it the 3 notes added to it later\./);
-  assert.ok(!/['—]/.test(fb.replacedNotesLine(2)));
+  assert.ok(!/['\u2014]/.test(fb.replacedNotesLine(2)));
 });

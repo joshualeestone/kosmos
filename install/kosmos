@@ -6488,11 +6488,12 @@ cmd_feedback() {
         try { const fb = require(app + "/engine/feedback"); const w = fb.write(process.env.KOSMOS_FEEDBACK_BODY || "", { from: fb.writer(process.env), ...(process.env.KOSMOS_FEEDBACK_DAY ? { date: process.env.KOSMOS_FEEDBACK_DAY } : {}) }); d = w.date; try { gone = typeof fb.replacedNotesLine === "function" ? fb.replacedNotesLine(w.notesReplaced) : ""; } catch { gone = ""; } } catch { process.exit(3); }
         if (!d) process.exit(3);
         process.stdout.write("SAVED\n");   /* review 3: proof of the save; without it the CLI says not saved */
+        /* kosmos#8919 review 1: the replaced-notes sentence on its own line, so the shell adds it to whichever message it prints */
+        if (gone) process.stdout.write("GONE " + gone + "\n");
         let fbs;
-        const tail = gone ? " " + gone : "";
-        try { fbs = require(app + "/engine/feedbacksend"); } catch { process.stdout.write("Saved the product-feedback report on this computer. Kosmos could not check whether it was sent." + tail); process.exit(0); }
-        fbs.sendNow(d).then((r) => process.stdout.write(fbs.writeMessage(r && r.state) + tail),
-          () => process.stdout.write(fbs.writeMessage("failed") + tail));
+        try { fbs = require(app + "/engine/feedbacksend"); } catch { process.stdout.write("Saved the product-feedback report on this computer. Kosmos could not check whether it was sent."); process.exit(0); }
+        fbs.sendNow(d).then((r) => process.stdout.write(fbs.writeMessage(r && r.state)),
+          () => process.stdout.write(fbs.writeMessage("failed")));
       ' "$KOSMOS_HOME/app")" && fb_rc=0 || fb_rc=$?   # under set -e, a plain `; fb_rc=$?` would never run (see :392)
       # review 3: SAVED on the first line is the only proof of the save (a node that cannot run, or a throw before the
       # write, prints nothing). Without it: not saved, the safe direction. With it, a later failure is said as such.
@@ -6500,7 +6501,15 @@ cmd_feedback() {
         SAVED|SAVED$'\n'*) fb_msg="${fb_msg#SAVED}"; fb_msg="${fb_msg#$'\n'}" ;;
         *) say "We could not save that report."; exit 1 ;;
       esac
+      # kosmos#8919 review 1: a GONE line after SAVED is the replaced-notes sentence; it is added to the message below,
+      # the fallback included.
+      local fb_gone=""
+      case "$fb_msg" in
+        "GONE "*) fb_gone="${fb_msg%%$'\n'*}"; fb_gone="${fb_gone#GONE }"
+          case "$fb_msg" in *$'\n'*) fb_msg="${fb_msg#*$'\n'}" ;; *) fb_msg="" ;; esac ;;
+      esac
       { [ "$fb_rc" -ne 0 ] || [ -z "$fb_msg" ]; } && fb_msg="Saved the product-feedback report on this computer. Kosmos could not check whether it was sent."
+      [ -n "$fb_gone" ] && fb_msg="$fb_msg $fb_gone"
       say "$fb_msg"
       exit 0
       ;;
