@@ -198,7 +198,7 @@ signed again (an old `.sig` no longer verifies, and the stage refuses it).
    Windows-only highlight retires itself once Windows users have seen it. That happens at the next
    `node tools/whats-new-pool.js build <the next cut's version>`, merged to main. Until then the next
    Mac cut stops at its What's New check (`prod-check` exit 3, naming Windows prod). Say on the release
-   thread that Windows `<v>` is promoted, so whoever cuts next builds the pool first.
+   thread that Windows `<v>` is promoted, so whoever cuts next builds the pool first. Push the commit this build was made from (the version bump and any `"also"` edit) to origin BEFORE promoting: the pool reads Windows prod's What's New at that commit, and every later `build` refuses while it is not fetchable.
 
 ## A check that "decided nothing" (#7951)
 

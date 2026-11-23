@@ -40,7 +40,11 @@ improvement it gained would have died with the session that wrote it.
    when prod is newer than the pool's `lastProd`, marks that version's highlights shown and records it, so
    commit `release/whats-new-pool.json` with the build. It refuses, writing nothing, if it cannot read prod or
    match what prod showed; `--offline` builds without the check and says so, and the next online build catches
-   up. Since kosmos#8924 it reads what Windows prod serves the same way (`latest-win.json`, the manifest named from its version, the window at its commit), retires that window's Windows-only highlights and records `lastProdWin`; `prod-check` also stops (3) when Windows prod is newer than `lastProdWin`, so a Windows promote stops the next Mac cut until the pool is built again, and an unreadable Windows pointer gives the same 4 note as the Mac one. The cut checks it too: step 1b-ii runs `node tools/whats-new-pool.js prod-check` and stops when prod is
+   up. Since kosmos#8924 it reads what Windows prod serves the same way (`latest-win.json`, the manifest named from
+   its version, the window at its commit), retires that window's Windows-only highlights and records `lastProdWin`;
+   `prod-check` also stops (3) when Windows prod is newer than `lastProdWin`, so a Windows promote stops the next
+   Mac cut until the pool is built again, and an unreadable Windows pointer gives the same 4 note as the Mac one.
+   The cut checks it too: step 1b-ii runs `node tools/whats-new-pool.js prod-check` and stops when prod is
    newer than the pool records (build again and commit), and (kosmos#7617) stops when `web/whats-new.json` is no
    longer what the pool builds for the version (its highlights), so a branch that adds or edits a pool item must
    rebuild the list in the same branch. It checks the frozen tree again at 2b-ii. Since kosmos#7349 release.sh also runs the 1b-ii checks
