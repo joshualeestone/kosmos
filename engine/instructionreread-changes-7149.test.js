@@ -372,7 +372,7 @@ test('review 13: the real chain, end to end: a start copy, a landed line naming 
   const p = passArgs({ owed: { ida: debt() }, o: real });
   await ir.passOnce(p.o);
   assert.equal(p.sent.length, 1);
-  const named = /listed in (\S+) \(a pointer only/.exec(p.sent[0][1]);
+  const named = /listed in (\S+?)(?:, under Notice \d+(?: \([^)]*\))?)? \(a pointer only/.exec(p.sent[0][1]);
   assert.ok(named, 'the landed line named no changes file: ' + p.sent[0][1]);
   assert.match(fs.readFileSync(named[1], 'utf8'), /- Post at least once a day\.\n\+ Post at least once a week\./);
   assert.equal(ir.readSeen('ida'), AFTER, 'the copy did not move to what the agent now reads');
@@ -381,14 +381,19 @@ test('review 13: the real chain, end to end: a start copy, a landed line naming 
   fs.writeFileSync(f, THIRD);
   const q = passArgs({ owed: { ida: debt() }, o: real });
   await ir.passOnce(q.o);
-  const body = fs.readFileSync(/listed in (\S+) \(a pointer only/.exec(q.sent[0][1])[1], 'utf8');
-  assert.match(body, /- Vote honestly\.\n\+ Vote honestly, never on your own work\./);
-  assert.doesNotMatch(body, /once a day/, 'an already-announced change was listed again');
+  const body = fs.readFileSync(/listed in (\S+?)(?:, under Notice \d+(?: \([^)]*\))?)? \(a pointer only/.exec(q.sent[0][1])[1], 'utf8');
+  // kosmos#8912 slice 2: the second notice is its own entry; the first stays above it, so a turn that never read it loses nothing.
+  const entries = ir.entriesOf(body);
+  assert.deepEqual(entries.map((e) => e.n), [1, 2], 'the second notice did not add its own entry under the first');
+  assert.match(q.sent[0][1], /The entries above Notice 2 in that file are earlier notices since you started/);
+  assert.match(entries[1].text, /- Vote honestly\.\n\+ Vote honestly, never on your own work\./);
+  assert.doesNotMatch(entries[1].text, /once a day/, 'an already-announced change was listed again in the new entry');
+  assert.match(entries[0].text, /- Post at least once a day\./, 'the first notice was replaced by the second');
   // An UNCONFIRMED line keeps its file (the debt ends; the agent may have it); CONTROL above: PLACED keeps it too.
   fs.writeFileSync(f, THIRD + 'One more.\n');
   const u = passArgs({ owed: { ida: debt() }, o: { ...real, deliver: async (s, line) => { u.sent.push([s, line]); return { state: D.UNCONFIRMED }; } } });
   await ir.passOnce(u.o);
-  const kept = /listed in (\S+) \(a pointer only/.exec(u.sent[0][1])[1];
+  const kept = /listed in (\S+?)(?:, under Notice \d+(?: \([^)]*\))?)? \(a pointer only/.exec(u.sent[0][1])[1];
   assert.ok(fs.existsSync(kept), 'an UNCONFIRMED line lost its changes file');
 });
 
@@ -573,6 +578,7 @@ test('kosmos#8743 review 3: an agent switched to not taking part gets nothing le
   // CONTROL: the same old text with a new section that still takes part leaves the routine line out, with the note.
   const taking = '# You are Una\n\n' + projects.spliceBlock('', cb.blockBody(), cb.START, cb.END) + '\n## Who you report to\nSplinter.\n';
   agentFile('una', taking);
+  ir.forget('una');   // kosmos#8912 slice 2: a separate case, not a second notice under the first (forget clears the file and its number)
   assert.equal(ir.remember('una', before), true);
   const ctl = fs.readFileSync(ir.prepareChanges('una').path, 'utf8');
   assert.ok(!ctl.includes('- ' + routine) && /Left out: 1 line removed/.test(ctl), 'CONTROL: the taking-part case did not leave the routine line out');
@@ -596,12 +602,14 @@ test('kosmos#8743 review 4: two community blocks (a damaged file) hide nothing; 
   const before2 = '# You are Vi\n\n' + block(cb.blockBody() + '\n' + reworded) + '\n## Who you report to\nSplinter.\n';
   const now = '# You are Vi\n\n' + block(cb.blockBody()) + '\n## Who you report to\nSplinter.\n';
   agentFile('vi', now);
+  ir.forget('vi');   // kosmos#8912 slice 2: a separate case, not a second notice under the first (forget clears the file and its number)
   assert.equal(ir.remember('vi', before2), true);
   const body = fs.readFileSync(ir.prepareChanges('vi').path, 'utf8');
   assert.ok(body.includes('- ' + reworded), 'fixture: the reworded line is not listed');
   assert.match(body, /A line marked - under The Kosmos\+ community may be in kosmos community --how too, reworded: read it before you treat it as dropped\./);
   // CONTROL: a pure move (the guide's own line) leaves no line marked there, so no conditional sentence.
   agentFile('vi', now);
+  ir.forget('vi');   // kosmos#8912 slice 2: a separate case, not a second notice under the first (forget clears the file and its number)
   assert.equal(ir.remember('vi', '# You are Vi\n\n' + block(cb.blockBody() + '\n' + routine) + '\n## Who you report to\nSplinter.\n'), true);
   const clean = fs.readFileSync(ir.prepareChanges('vi').path, 'utf8');
   assert.ok(/Left out: 1 line removed/.test(clean) && !/may be in kosmos community --how too/.test(clean), 'CONTROL: the conditional sentence came with nothing marked');

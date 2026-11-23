@@ -249,6 +249,7 @@ function rememberRead(session) {
   const dropCopy = () => { const p = seenFile(session); if (p) { try { fs.unlinkSync(p); } catch { /* none kept */ } } forgetMarks(session); return false; };
   try {
     dropChanges(session);
+    forgetBody(session);   // kosmos#8912 slice 2: a session start begins the numbering again, at Notice 1
     const got = require('./instructions').read(session);
     if (!(got && got.exists === true && typeof got.text === 'string')) return dropCopy();
     // kosmos#8416: it read every section just now; marks that could not be saved are dropped, never left old.
@@ -259,6 +260,7 @@ function rememberRead(session) {
 /* The agent's files are deleted (engine/delete-leftover.js): its copy and changes file go with them (review 2). */
 function forget(session) {
   dropChanges(session);
+  forgetBody(session);
   forgetMarks(session);
   const p = seenFile(session);
   if (p) { try { fs.unlinkSync(p); } catch { /* none kept */ } }
@@ -460,9 +462,114 @@ function changedLines(before, after, moved = null) {
   if (!within(text)) text = compose(NOTE);
   return text;
 }
+/* kosmos#8912 slice 2: the changes file's own header. Reviews 14-17 of kosmos#7149: a pointer, ranking nothing, and never
+   calling a removed line current. With entries, a later one wins over an earlier one. */
+const CHANGES_TITLE = '# What changed in your instructions file since you last read it\n';
+const CHANGES_HEADER = CHANGES_TITLE + '\n'
+  + 'Kosmos wrote this when it told you the file changed. A line starting with - was removed, one starting with + was added.\n'
+  + 'This is a pointer only: read the sections the notice named. It lists the changes since you last read the file, changes elsewhere in it included: a line marked + is in your instructions now, wherever it is, and a line marked - no longer applies, unless a note in this file says where it went. If it ends with a note that more changed, it is not complete: that note names the sections to read in full.\n'
+  + 'Each notice since your session started that names this file has its own entry below, numbered, oldest first; the notice names the one it is about. A later entry wins over an earlier one: a line one entry marks + may be marked - in a later one.\n\n';
+// The whole file's bound: the oldest entries go first, and the file says so.
+const CHANGES_FILE_MAX = 4 * CHANGES_BYTES_MAX;
+const NOTICE_LINE = /^## Notice (\d+), written /;
+/* kosmos#8912 slice 2 review 1: what Kosmos last wrote to an agent's changes file, as a hash kept in the board's own data
+   folder beside the `seen` copy, so a file in the agent's folder is carried into the next one only when it is exactly
+   that (a file anyone else wrote there, even one starting with the title, is never republished as Kosmos's). */
+const bodyHash = (t) => require('node:crypto').createHash('sha256').update(String(t)).digest('hex');
+function bodyFile(session) { const p = seenFile(session); return p ? p.replace(/\.md$/, '.changes') : null; }
+/* Round 2: the last notice number is kept with the hash, so a changes file that is gone (the agent deleted or edited it,
+   or Kosmos removed it: dropChanges keeps the number) does not make the next notice Notice 1 again. Only a session start
+   (rememberRead) and deleting the agent (forget) clear it, and numbering then starts at 1, as the line's "since you
+   started" says. If this file itself cannot be written, both are lost and the next notice is Notice 1: the line then
+   still says to read the sections themselves. */
+function rememberBody(session, body, notice) {
+  const f = bodyFile(session);
+  if (!f) return;
+  try { fs.mkdirSync(seenDir(), { recursive: true, mode: 0o700 }); require('./securewrite').writeSecret(f, bodyHash(body) + '\n' + (Number.isSafeInteger(notice) && notice > 0 ? notice : 0) + '\n', 0o600, { atomicOnly: true, ownTempsOnly: true }); }
+  catch { forgetBody(session); }
+}
+/* What rememberBody kept: { hash, notice }, or null. */
+function readBody(session) {
+  const f = bodyFile(session);
+  try {
+    const [hash, n] = fs.readFileSync(f, 'utf8').split('\n');
+    const notice = Number(n);
+    return { hash: String(hash || '').trim(), notice: Number.isSafeInteger(notice) && notice > 0 ? notice : 0 };
+  } catch { return null; }
+}
+function forgetBody(session) { const f = bodyFile(session); if (f) { try { fs.unlinkSync(f); } catch { /* none kept */ } } }
+/* The file at `p` read without following a link or waiting on a pipe (O_NOFOLLOW and O_NONBLOCK where the platform has
+   them, then the open file itself must be a plain file), and no larger than a file Kosmos writes, or null. */
+function readPlain(p) {
+  let fd = null;
+  try {
+    // Round 3 BLOCKER: O_NONBLOCK, so a named pipe left at the path cannot hold the board's one thread in open().
+    fd = fs.openSync(p, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.size > CHANGES_FILE_MAX + 64 * 1024) return null;
+    return fs.readFileSync(fd, 'utf8');
+  } catch { return null; } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
+}
+/* The changes file as Kosmos last wrote it, or null (absent, a link, too large, or not what Kosmos wrote). */
+function readOwnChanges(session, p) {
+  const t = readPlain(p);
+  if (t === null || !t.startsWith(CHANGES_TITLE)) return null;
+  const kept = readBody(session);
+  return kept && kept.hash && kept.hash === bodyHash(t) ? t : null;
+}
+/* Pure: the entries of a changes file, each { n, text } with its text from its own heading line to the next. A heading
+   line can only be Kosmos's: every diff line starts with + or -, and every note with a word or a bracket. */
+function entriesOf(body) {
+  const lines = String(body).split('\n');
+  const out = [];
+  let cur = null;
+  for (const line of lines) {
+    const m = NOTICE_LINE.exec(line);
+    if (m) { if (cur) out.push(cur); cur = { n: Number(m[1]), lines: [line] }; }
+    else if (cur) cur.lines.push(line);
+  }
+  if (cur) out.push(cur);
+  return out.map((e) => ({ n: e.n, text: e.lines.join('\n').replace(/\n*$/, '') + '\n\n' })).filter((e) => Number.isSafeInteger(e.n) && e.n > 0);
+}
+/* When a notice was written, on the board's own clock: 17:40 on 22 Nov 2026. */
+function noticeStamp(now) {
+  const d = now instanceof Date && Number.isFinite(now.getTime()) ? now : new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ' on ' + dayOf(d);
+}
+function dayOf(d) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
+}
+/* A line that did not land: the changes file as it was before this notice's entry (`previous`), or none when there was
+   none. Review 1 BLOCKER: only while the file is still the one this notice wrote (`wrote`). A session start during the
+   send (rememberRead, from the started report) removes the file; putting the pre-start entries back would tell the agent
+   "since you started" about changes from before it started. Anything else there is left as it is. */
+function restoreChanges(session, previous, wrote) {
+  const p = changesPath(session);
+  if (!p || typeof wrote !== 'string') return;
+  // Round 3: the number goes back to the one before this notice's, which never reached the agent.
+  const mine = entriesOf(wrote);
+  const before = mine.length ? mine[mine.length - 1].n - 1 : 0;
+  if (readPlain(p) !== wrote) {
+    /* Not this notice's file any more. A session start forgot the kept hash too, and then nothing is touched. Otherwise
+       the agent or someone else changed the file: it is left as it is, and only the number goes back. */
+    const k = readBody(session);
+    // The hash of '' can match no file Kosmos reads (every one starts with the title), so only the number is kept.
+    if (k && k.hash === bodyHash(wrote)) rememberBody(session, '', before);
+    return;
+  }
+  if (typeof previous !== 'string') { dropChanges(session); rememberBody(session, '', before); return; }
+  try {
+    require('./securewrite').writeSecret(p, previous, 0o600, { atomicOnly: true, ownTempsOnly: true });
+    rememberBody(session, previous, before);
+  }
+  catch { dropChanges(session); rememberBody(session, '', before); }
+}
 /* Before a line: the current file, and (when a copy of what the agent last read exists and differs) the path of the
-   changes file written beside it. { text, path } or null when the file cannot be read. Never throws. */
-function prepareChanges(session) {
+   changes file written beside it. { text, path, notice, previous, wrote } (kosmos#8912 slice 2: the entry's number, the
+   file before it and the file as written; path null when it names none) or null when the file cannot be read. Never
+   throws. */
+function prepareChanges(session, now = new Date()) {
   try {
     const instructions = require('./instructions');
     const got = instructions.read(session);
@@ -585,15 +692,29 @@ function prepareChanges(session) {
     // A path with a double quote is not named: the #5304 reader takes quoted text in the line for section headings.
     // Review 2: nor one with whitespace or a control character, which would make the unquoted path in the line ambiguous.
     if (!diff || !p || /["\s\u0000-\u001f\u007f]/.test(p)) return none();
-    const body = '# What changed in your instructions file since you last read it\n\n'
-      + 'Kosmos wrote this when it told you the file changed. A line starting with - was removed, one starting with + was added.\n'
-      /* Reviews 14-17: a pointer, ranking nothing, and never calling a removed line current: an added line anywhere is part
-         of your instructions now, a removed one is not. Complete unless it ends with the more-changed note. */
-      + 'This is a pointer only: read the sections the notice named. It lists the changes since you last read the file, changes elsewhere in it included: a line marked + is in your instructions now, wherever it is, and a line marked - no longer applies, unless a note in this file says where it went. If it ends with a note that more changed, it is not complete: that note names the sections to read in full.\n'
-      + diff + '\n';
-    // Review 1 BLOCKER: through securewrite, so a link planted in the agent's folder is never followed; 0600.
+    /* kosmos#8912 slice 2: each notice is its own entry, numbered, under the earlier ones since the agent's last session
+       start, so a notice whose turn never read the file (a limit, say) is not replaced by the next one. `previous` is the
+       file as it was, so a line that does not land puts it back (restoreChanges) rather than deleting earlier entries. */
+    const previous = readOwnChanges(session, p);
+    let earlier = previous === null ? [] : entriesOf(previous);
+    const kept = readBody(session);
+    const notice = Math.max(earlier.length ? earlier[earlier.length - 1].n : 0, kept ? kept.notice : 0) + 1;
+    const entry = '## Notice ' + notice + ', written ' + noticeStamp(now) + '\n' + diff + '\n\n';
+    const compose = (list) => {
+      const firstKept = list.length ? list[0].n : notice;
+      const gone = firstKept > 1
+        ? (firstKept === 2 ? 'Notice 1 is' : 'Notices 1 to ' + (firstKept - 1) + ' are') + ' no longer in this file. If you did not read '
+          + (firstKept === 2 ? 'it' : 'them') + ', read the sections ' + (firstKept === 2 ? 'its notice' : 'their notices') + ' named in full.\n\n'
+        : '';
+      return CHANGES_HEADER + gone + list.map((e) => e.text).join('') + entry;
+    };
+    // The bound counts the whole file (review 1): the header and the removed note too.
+    let body = compose(earlier);
+    while (earlier.length && Buffer.byteLength(body) > CHANGES_FILE_MAX) { earlier = earlier.slice(1); body = compose(earlier); }
+    // Review 1 BLOCKER (kosmos#7149): through securewrite, so a link planted in the agent's folder is never followed; 0600.
     require('./securewrite').writeSecret(p, body, 0o600, { atomicOnly: true, ownTempsOnly: true });
-    return { text: got.text, path: p };
+    rememberBody(session, body, notice);
+    return { text: got.text, path: p, notice, previous, wrote: body, carried: earlier.length > 0 };
   } catch { return null; }
 }
 
@@ -768,7 +889,7 @@ function trueSectionsFor(session, sections) {
 }
 
 /* The one line for an agent's debt, naming every section it owes. */
-function lineFor(sections, { communityStopped = false, changesAt = null } = {}) {
+function lineFor(sections, { communityStopped = false, changesAt = null, notice = null, carried = false } = {}) {
   const named = (Array.isArray(sections) ? sections : []).filter((s) => Object.prototype.hasOwnProperty.call(SECTIONS, s));
   if (!named.length) return null;
   const list = named.map((s) => (s === 'policy' ? policySection() : SECTIONS[s]));
@@ -796,7 +917,12 @@ function lineFor(sections, { communityStopped = false, changesAt = null } = {}) 
         + 'read it there before you next take part. ';
   // kosmos#7149: where the changed lines are, so the agent need not re-read a long block to find a short change.
   const changes = typeof changesAt === 'string' && changesAt
-    ? 'To help you find what changed, the changed lines are listed in ' + changesAt + ' (a pointer only: still read the sections themselves; a line it marks + elsewhere is current too, and a line it marks - no longer applies, unless a note in it says where it went). '
+    ? 'To help you find what changed, the changed lines are listed in ' + changesAt
+      // kosmos#8912 slice 2: the entry this notice is about, so an agent can tell whether it has read it.
+      + (Number.isSafeInteger(notice) && notice > 0 ? ', under Notice ' + notice : '')
+      + ' (a pointer only: still read the sections themselves; a line it marks + elsewhere is current too, and a line it marks - no longer applies, unless a note in it says where it went). '
+      // Round 4: only when the file holds earlier entries (after a dropped or deleted file it holds none, and says so).
+      + (Number.isSafeInteger(notice) && notice > 1 && carried === true ? 'The entries above Notice ' + notice + ' in that file are earlier notices since you started: read one only if you have not. ' : '')
     : '';
   // Review 5: after the replaces sentence, so its "it" stays the instructions file, not the changes file.
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
@@ -901,7 +1027,7 @@ async function passOnce(o) {
       if (!off.length && typeof o.prepareChanges === 'function') { try { prepared = o.prepareChanges(session); } catch { prepared = null; } }
       // Review 3: a line that names no changes file leaves none behind (a held section, or prepareChanges not reached).
       if (!(prepared && prepared.path) && typeof o.dropChanges === 'function') { try { o.dropChanges(session); } catch { /* the next start removes it */ } }
-      const line = lineFor(on, { communityStopped: stoppedNow, changesAt: prepared && prepared.path });
+      const line = lineFor(on, { communityStopped: stoppedNow, changesAt: prepared && prepared.path, notice: prepared && prepared.path ? prepared.notice : null, carried: !!(prepared && prepared.path && prepared.carried) });
       /* kosmos#8416: the text the line is about, read before it is typed, so a block rewritten while it is sent keeps
          its old mark and is named when it is owed. */
       let toldText = prepared && typeof prepared.text === 'string' ? prepared.text : null;
@@ -920,7 +1046,10 @@ async function passOnce(o) {
       if (after[session]) {
         out.push({ session, act: 'kept', state: (v && v.state) || null });
         // Review 6: a line that did not land leaves no changes file behind; the next pass writes a fresh one.
-        if (prepared && prepared.path && typeof o.dropChanges === 'function') { try { o.dropChanges(session); } catch { /* the next start removes it */ } }
+        /* kosmos#8912 slice 2: only this notice's entry goes; the earlier ones were named by lines that landed. A caller
+           with no restoreChanges drops the whole file, as before. */
+        if (prepared && prepared.path && typeof o.restoreChanges === 'function') { try { o.restoreChanges(session, prepared.previous, prepared.wrote); } catch { /* the next start removes it */ } }
+        else if (prepared && prepared.path && typeof o.dropChanges === 'function') { try { o.dropChanges(session); } catch { /* the next start removes it */ } }
       }
       else {
         end(session, 'sent');
@@ -964,4 +1093,4 @@ async function passOnce(o) {
   return out;
 }
 
-module.exports = { CHANGES_LINES_MAX, CHANGES_BYTES_MAX, trueSections, trueSectionsFor, sectionBody, markRead, readMarks, forgetMarks, printOf, changedLines, prepareChanges, remember, rememberRead, forget, dropChanges, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };
+module.exports = { CHANGES_LINES_MAX, CHANGES_BYTES_MAX, trueSections, trueSectionsFor, sectionBody, markRead, readMarks, forgetMarks, printOf, changedLines, prepareChanges, restoreChanges, entriesOf, remember, rememberRead, forget, dropChanges, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };
