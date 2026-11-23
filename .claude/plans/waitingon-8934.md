@@ -12,9 +12,10 @@ task "waits on a review and close", whatever it really waits on.
 One optional, fixed field on the built mark: `builtWaitingOn`, one of `person`, `review`, `release`.
 
 - engine/tasks.js `setBuilt(..., { waitingOn })`: validated against WAITING_ON (anything else refuses, nothing
-  written); stored as `builtWaitingOn`; in BUILT_FIELDS, so a clear and a later mark without it drop it, as the note
-  is dropped (each mark says its own state); part of the "same mark again" comparison, so changing only what it waits
-  on is a change.
+  written); stored as `builtWaitingOn`; in BUILT_FIELDS, so a clear drops it. An agent's later mark without one keeps
+  it, as a checker's mark keeps the fingerprint (review 2: the usual next mark is a checker's, and dropping it lost the
+  builder's "waiting on you"); a mark with one replaces it; the person's own mark drops it. Part of the "same mark
+  again" comparison, so changing only what it waits on is a change.
 - server.js `POST /api/project/:id/task/:n/built`: `waiting_on` from an agent only; the screen sends none. The notice
   to the people the work goes to says what it waits on.
 - install/kosmos and tools/windows/kosmos-cli.js: `kosmos task built ... --waiting person|review|release`, checked
@@ -34,7 +35,8 @@ One optional, fixed field on the built mark: `builtWaitingOn`, one of `person`, 
 - A built task waiting on the person stays in the Built group; it is not moved to Needs Your Decision.
 
 ## Weakest premise
-That three values cover what agents mean. "Waiting on another agent's work" is not among them. Free text still goes in
+That three values cover what agents mean, and (review 2) that nobody needs to set it back to "says nothing" short
+of taking the mark off. "Waiting on another agent's work" is not among them. Free text still goes in
 the note.
 
 ## Tests

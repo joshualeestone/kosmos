@@ -7808,10 +7808,10 @@ cmd_task() {
             # kosmos#8137: marking covers only the marker, so say who else still has their part open (none from an older board).
             local _left; _left=$(printf '%s' "$body" | sed -n 's/.*"stillToFinish":"\([^"]*\)".*/\1/p')
             # kosmos#8934: what it waits on, when the board recorded it (an older board drops a field it does not know).
-            local _waits="to be released or checked"
-            if [ -n "$waiting" ]; then
-              case "$body" in *"\"builtWaitingOn\":\"$waiting\""*) case "$waiting" in person) _waits="on the person" ;; review) _waits="on a review" ;; release) _waits="on a release" ;; esac ;; esac
-            fi
+            # kosmos#8934 review 2: the value the board answered with, sent now or kept from an earlier mark.
+            local _waits="to be released or checked" _wnow=""
+            case "$body" in *'"builtWaitingOn":"person"'*) _wnow=person ;; *'"builtWaitingOn":"review"'*) _wnow=review ;; *'"builtWaitingOn":"release"'*) _wnow=release ;; esac
+            case "$_wnow" in person) _waits="on the person" ;; review) _waits="on a review" ;; release) _waits="on a release" ;; esac
             say "Marked task $num on ${project:-the project} built, waiting $_waits. Closing it clears the mark.${_left:+ Your part only. $_left}${told:+ $told}"
             case "$waiting" in ?*) case "$body" in *"\"builtWaitingOn\":\"$waiting\""*) ;; *) say "This Kosmos did not record what it waits on: it may be older than --waiting. Update it, then mark the task again." ;; esac ;; esac
             # #6761: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
@@ -7829,7 +7829,8 @@ cmd_task() {
             fi
             # kosmos#8934: the working rules have no room for it, so the option is named where the mark is made, last,
             # after what the mark sent.
-            [ -n "$waiting" ] || say "To show the person what it waits on, mark it with --waiting person, review or release (kosmos task --how)."
+            # Review 2: only when the task waits on nothing named and this mark changed it (not a repeat of the same mark).
+            if [ -z "$waiting" ] && [ -z "$_wnow" ]; then case "$body" in *'"changed":false'*) ;; *) say "To show the person what it waits on, mark it with --waiting person, review or release (kosmos task --how)." ;; esac; fi
           fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')

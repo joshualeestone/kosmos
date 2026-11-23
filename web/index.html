@@ -73424,8 +73424,9 @@ function paintProjectTasks(p) {
          knows its words came from outside. Inline, not a shared helper: the tests lift this
          function and run it alone. The Tasks view row carries the same line (tsk-from). */
       + (t.addedVia === 'webhook' ? '<span class="tkcard-from">' + (t.addedBy ? 'From ' + esc(t.addedBy) + ' (a webhook)' : 'From a webhook') + '</span>' : '')
-      /* kosmos#8934: what the mark says it waits on. The person, or a mark that does not say, is "you"; inline, as the
-         tests lift this function alone. */
+      /* kosmos#8934: what the mark says it waits on. The person, or a mark that does not say, is "you": on this card, the
+         person's own column, an unnamed wait has always meant theirs (#6501), so that default is kept on purpose. Inline,
+         as the tests lift this function alone. */
       + who + (builtOpen ? '<span class="tkcard-built">Built, ' + (t.builtWaitingOn === 'review' ? 'waiting on a review' : t.builtWaitingOn === 'release' ? 'waiting on a release' : 'waiting for you to check it') + '</span>' : '')
       /* kosmos#8137: this column is the list most people see (the Tasks tab stays hidden under 25 tasks). typeof: tests lift this function alone. */
       + (typeof tkWhoLeftWords === 'function' && tkWhoLeftWords(t, (m) => tkMemberName(p, m))
