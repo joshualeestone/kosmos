@@ -2,22 +2,22 @@
 pre_challenge: true
 method: challenge-loop
 branch: signback-8938
-diff_hash: 9c3977f801e1200f28accb939dfcb79891b634044b23dfd5334d8137d0312efb
+diff_hash: 1a1355a63b20216d5f14796427083c0ed5a9b5362a4161eb61c88dea4ef51a76
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-23T19:34:55Z
-iterations: 8
+timestamp: 2026-11-23T22:06:09Z
+iterations: 9
 converged: false
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8
-**Converged:** No (stopped after iteration 8 at the operator's standing cap of 8 review rounds; round 8 read the whole branch, its two warnings were decided and recorded in the plan, not changed)
+**Iterations:** 9
+**Converged:** No (stopped after iteration 8 at the operator's standing cap of 8 review rounds; round 8 read the whole branch, its two warnings were decided and recorded in the plan. Then PR #8947's browser-checks job ran past its 2-hour limit because CI selected 291 checks off restated selectors; the fix (reuse stepUpReturnBusy/tipModalOpen, 136 selected) got its own blind round 9, whose one warning was fixed. Stopped there.)
 **Total findings:** 46 (0 BLOCKERs, 15 WARNINGs, 0 CONVENTIONs, 23 NITs, rest strengths)
 **Fixed:** 17 (warnings and nits acted on) | **Deferred:** 6 | **Asked (awaiting user):** 0
 
-Full validation at the end (6j): validation-log PASSED for hash 9c3977f801e1, 30,738 node tests, 0 failed; subdir audit clean.
+Full validation at the end (6j), re-run on the final head: validation-log PASSED for hash 1a1355a63b20, 30,738 node tests, 0 failed; subdir audit clean.
 
 ### Per-Iteration Breakdown
 
@@ -86,6 +86,13 @@ Full validation at the end (6j): validation-log PASSED for hash 9c3977f801e1, 30
 - [WARNING] no-email focus on Make --> DEFERRED: decided in the plan, Enter makes exactly the invitation asked for
 - [NIT] bundled full-stop change --> PR description says so; [NIT] stub hides fedInviteOpen --> browser check R2/R3 cover it (run, 14 PASS)
 
+#### Iteration 9 (after CI)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 4 NITs
+**Self-generated:** 1 of the above (the test harness this loop wrote)
+- [WARNING] web.fedinvreturn-8938.test.js: harness injected its own tipModalOpen, blind to a rename --> FIXED (681e3ce0df, lifts the real one)
+- [NIT] stale harness comment --> FIXED; [NIT] two stale plan phrases --> FIXED; [NIT] edge on the press side --> FIXED (plan); [NIT] cause of the remaining 136 --> FIXED (plan)
+
 ### Final Ledger
 
 Origin was assigned by reading which commit wrote the cited code, not by the 6c-bis blame lookup, so treat it as
@@ -111,6 +118,8 @@ deleted on the strength of it.
 | 15 | 7 | WARNING | render-fedinvreturn-8938.js | BRANCH | consolidated layout untested | DEFERRED | plan limit |
 | 16 | 8 | WARNING | web/index.html (fedInviteReturnTouched) | SELF | Tab/touch end the return | DEFERRED | plan limit (c) |
 | 17 | 8 | WARNING | web/index.html (resumeFedInviteReturn) | BRANCH | no-email focus on Make | DEFERRED | plan decision |
+| 18 | CI | WARNING | web/index.html (fedInviteReturnBusy) | SELF | restated selectors made CI select 291 checks, job timed out | FIXED | 982e5687ce |
+| 19 | 9 | WARNING | web.fedinvreturn-8938.test.js | SELF | harness blind to a tipModalOpen rename | FIXED | 681e3ce0df |
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 - none
