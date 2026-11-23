@@ -74,3 +74,10 @@ Servers left by an earlier pinned version (another cli.js path) are not matched.
 ## Challenge loop iteration 5 (sonnet)
 - No new finding about what is ended. Windows robustness, since this code has never run on Windows: both scripts now go as -EncodedCommand (no Node-to-PowerShell quoting can break them; a test decodes the argument back to the exact script); the plan goes on stdin (no 32K environment limit); output is UTF-8 (non-English names and temp paths still match); times use the invariant culture; the identity compare is case-sensitive (-cne); a failed end is logged, as a failed listing already was.
 - Plan spec sections brought up to date with the code (they still described taskkill).
+
+## Challenge loop iteration 6 (opus)
+- Fixed (BLOCKER): the Windows half never ran in production. Tasks start the anchored boot shim (win32anchor.BOOT_JS), which calls `main(args)` with no deps, so the `require.main` opt-in never applied. Now `main()` called with no deps is a real start (endOrphansFor): that covers shims already on disk, with no re-anchoring. Every test passes deps; the sweep refuses in a test run regardless. Tested, and BOOT_JS's call shape is pinned; making it require endOrphans turns the test red.
+- Fixed: runPs decodes stdout as one UTF-8 stream (a character split across chunks stayed broken), and PowerShell writes UTF-8 without a byte-order mark (stripped anyway), so the first `ended` line is never missed in the log.
+- Fixed: cli.js must be the interpreter's script argument, not named anywhere; an orphaned `tail` on the same paths is not a match (loosening it turns the test red).
+- Fixed: on Windows a "parent" created after the server holds a reused pid, so the server counts as orphaned (removing the rule turns the test red; a parent older than the server is the control).
+- Changed: the opt-in is `live` only; the process-wide live-execution switch no longer arms it, so the board process can never run a blocking sweep.

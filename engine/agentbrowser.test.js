@@ -173,6 +173,7 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
     { pid: 104, ppid: 1, command: cmd('/T/kosmos-agent-browser/pigeonpete') },    // another agent: left
     { pid: 105, ppid: 1, command: cmd(mine, '/OTHER/node_modules/@playwright/mcp/cli.js') },   // another install: left
     { pid: 106, ppid: 1, command: 'vim ' + mine },                                // not a server: left
+    { pid: 111, ppid: 1, command: 'tail -f ' + cli + ' --output-dir ' + mine },   // names both, but cli.js is not its script: left
     { pid: 107, ppid: 1, command: cmd('/T/kosmos-agent-browser') },               // the shared folder: left
     { pid: 108, ppid: 901, command: cmd(mine) },                                  // mine, parent gone (not 1): ENDED
     { pid: 109, ppid: 1, command: '"C:\\K\\node.exe" "' + cli + '" --output-dir "' + mine + '"' },   // quoted, Windows style: ENDED
@@ -233,6 +234,11 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
   assert.deepEqual(await pending, [311, 301]);
   assert.deepEqual(wended, [311, 301], 'the older process under a reused parent pid was not spared');
   assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', procs: () => wtable, alive: () => true, end: async (pid) => { wended.push(pid); } }), [], 'CONTROL: a live parent on Windows, nothing ended');
+  /* Windows: a "parent" created after the server holds a reused pid, so the server's real parent is gone. */
+  const reused = wtable.concat([{ pid: 50, ppid: 4, created: '20261123130000.000000', command: 'svchost.exe' }]);
+  assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', procs: () => reused, alive: () => true, end: async () => {} }), [311, 301]);
+  const older = wtable.concat([{ pid: 50, ppid: 4, created: '20261123100000.000000', command: 'claude.exe' }]);
+  assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', procs: () => older, alive: () => true, end: async () => {} }), [], 'CONTROL: a parent older than the server is its live parent');
   /* A Windows process with no creation time has no proof of identity: left. */
   const notime = [Object.assign({}, wtable[0], { created: '' })];
   assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', procs: () => notime, alive: (pid) => pid !== 50, end: async () => { throw new Error('must not end'); } }), []);
@@ -241,7 +247,7 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
   assert.match(ab.WIN_END, /\$c -cne \$s\.created -or \$p\.CommandLine -cne \$s\.command/);
   assert.match(ab.WIN_END, /\[Console\]::In\.ReadToEnd\(\)/, 'the plan comes on stdin');
   for (const script of [ab.WIN_END, ab.WIN_TABLE]) {
-    assert.match(script, /OutputEncoding = \[Text\.Encoding\]::UTF8/);
+    assert.match(script, /New-Object Text\.UTF8Encoding \$false; \[Console\]::OutputEncoding = \$u/, 'UTF-8 with no byte-order mark');
     assert.match(script, /'yyyyMMddHHmmss\.ffffff', \$ic\)/, 'times in the invariant culture');
     const args = ab.psArgs(script);
     assert.equal(args[2], '-EncodedCommand');

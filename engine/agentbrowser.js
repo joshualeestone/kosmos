@@ -265,9 +265,11 @@ function inTestRunUnsandboxed() {
    Servers left by an earlier pinned version run another cli.js and are not matched (the safe direction). */
 function escapeRe(t) { return String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function serverMatch(command, o) {
-  const arg = (v) => new RegExp('(^|\\s)"?' + escapeRe(v) + '"?(\\s|$)');
+  /* The cli.js must be the script the interpreter runs (its first argument), not merely named somewhere on the line,
+     so a `tail` or an editor opened on the same paths is never a match. */
+  const script = new RegExp('^\\s*("[^"]*"|\\S+)\\s+"?' + escapeRe(o.cli) + '"?(\\s|$)');
   const dir = new RegExp('(^|\\s)--output-dir\\s+"?' + escapeRe(o.outputDir) + '"?(\\s|$)');
-  return typeof command === 'string' && arg(o.cli).test(command) && dir.test(command);
+  return typeof command === 'string' && script.test(command) && dir.test(command);
 }
 function orphanedServers(procs, o) {
   const x = o || {};
@@ -277,7 +279,7 @@ function orphanedServers(procs, o) {
     .filter((p) => p && Number.isInteger(p.pid) && p.pid > 1 && Number.isInteger(p.ppid) && p.ppid >= 1)
     .filter((p) => p.pid !== x.self)
     .filter((p) => serverMatch(p.command, x))
-    .filter((p) => parentGone(p.ppid))
+    .filter((p) => parentGone(p.ppid, p))
     .map((p) => p.pid);
 }
 /* What to end for one server, in order: its descendants deepest first, then the server, each with the parent it must
@@ -306,7 +308,7 @@ function parseTable(out, windows) {
 /* The Windows scripts. Each runs as -EncodedCommand (base64 UTF-16LE), so no quoting between Node and PowerShell can
    break it; output is UTF-8, so a non-English name or temp path still matches; times are UTC in the invariant culture,
    so the listing and the ender always spell them the same way. */
-const WIN_PRELUDE = '[Console]::OutputEncoding = [Text.Encoding]::UTF8; [Console]::InputEncoding = [Text.Encoding]::UTF8; $ic = [Globalization.CultureInfo]::InvariantCulture';
+const WIN_PRELUDE = '$u = New-Object Text.UTF8Encoding $false; [Console]::OutputEncoding = $u; [Console]::InputEncoding = $u; $ic = [Globalization.CultureInfo]::InvariantCulture';
 const WIN_TABLE = WIN_PRELUDE + '\n' + 'Get-CimInstance Win32_Process | ForEach-Object { $c = if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString(\'yyyyMMddHHmmss.ffffff\', $ic) } else { \'0\' }; "$($_.ProcessId) $($_.ParentProcessId) $c $($_.CommandLine)" } | Out-String -Width 32767';
 const WIN_END = WIN_PRELUDE + '\n' + [
   '$plan = [Console]::In.ReadToEnd() | ConvertFrom-Json',   // the plan arrives on stdin: no length limit
@@ -327,10 +329,12 @@ function runPs(script, input, timeoutMs) {
     let err = '';
     const child = spawn('powershell.exe', psArgs(script), { windowsHide: true });
     const timer = setTimeout(() => { try { child.kill(); } catch { /* gone */ } reject(new Error('timed out')); }, timeoutMs || 15000);
-    child.stdout.on('data', (b) => { out += b; });
-    child.stderr.on('data', (b) => { err += b; });
+    child.stdout.setEncoding('utf8');   // one decoder for the stream, so a character split across chunks stays whole
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (t) => { out += t; });
+    child.stderr.on('data', (t) => { err += t; });
     child.on('error', (e) => { clearTimeout(timer); reject(e); });
-    child.on('close', (code) => { clearTimeout(timer); if (code === 0) resolve(out); else reject(new Error('exit ' + code + ' ' + err.slice(0, 200))); });
+    child.on('close', (code) => { clearTimeout(timer); if (code === 0) resolve(out.replace(/^\uFEFF/, '')); else reject(new Error('exit ' + code + ' ' + err.slice(0, 200))); });
     child.stdin.on('error', () => { /* it exited early; close reports why */ });
     child.stdin.end(input || '');
   });
@@ -360,12 +364,14 @@ function note(line) {
 function noteEnded(agent, p) { note(agentKey(agent) + ' pid ' + p.pid + ' ' + String(p.command || '').slice(0, 500)); }
 function noteListFailed(agent) { return (e) => note(agentKey(agent) + ' could not list processes: ' + String((e && e.message) || e).slice(0, 200)); }
 /* Ends this agent's orphaned servers and their browsers. Never throws. Fails closed: with no `end` handed in, it acts
-   only when its caller says `live` (the Mac shim run as a program, and the Windows supervisor's own entry, pass it) or
-   live execution is armed (engine/live-execution.js), and never in a test run. Mac: inline, the whole sweep within a
+   only when its caller says `live` (the Mac shim run as a program, and the Windows supervisor started for real), and
+   never in a test run. Mac: inline, the whole sweep within a
    2 s budget; each pid is re-read just before SIGKILL and skipped unless it is still what was selected. Windows:
    async, after the launch has gone ahead; one listing plans it, and one PowerShell ends each planned pid only if its
    creation time and command line are still exactly as listed (a pid with no creation time is left). A browser whose
-   server already died is not matched (nothing names its agent). Returns the pids ended (Mac), or a promise of them. */
+   server already died is not matched (nothing names its agent). At logon every Windows agent lists at about the same
+   moment (a few PowerShells together, after their launches, bounded by timeouts). Returns the pids ended (Mac), or a
+   promise of them. */
 function endOrphanedServers(agent, deps) {
   const d = deps || {};
   if (!agentKey(agent)) return [];
@@ -373,24 +379,28 @@ function endOrphanedServers(agent, deps) {
   let end = d.end;
   if (!end) {
     let armed = false;
-    try {
-      const le = require('./live-execution');
-      /* Never in a test run, by the store's rule (--test, an inherited NODE_TEST_CONTEXT, or tools/run-tests.sh's
-         KOSMOS_TEST_RUN with the temp folder inside it). */
-      armed = !require('./store').isTestProcess(process.env) && (d.live === true || le.liveExecutionAllowed());
-    } catch { /* not knowable: closed */ }
+    /* Never in a test run, by the store's rule (--test, an inherited NODE_TEST_CONTEXT, or tools/run-tests.sh's
+       KOSMOS_TEST_RUN with the temp folder inside it). */
+    try { armed = d.live === true && !require('./store').isTestProcess(process.env); } catch { /* not knowable: closed */ }
     if (!armed) return [];
     end = defaultEnd(platform);
   }
   const windows = platform === 'win32';
   const alive = d.alive || ((pid) => require('./win32orphan').pidState(pid) !== 'gone');
-  const o = { cli: cliPath(), outputDir: outputDir(agent), self: process.pid, parentGone: (ppid) => (!windows && ppid === 1) || !alive(ppid) };
+  let listed = [];
+  const o = { cli: cliPath(), outputDir: outputDir(agent), self: process.pid, parentGone: (ppid, p) => {
+    if (!windows) return ppid === 1 || !alive(ppid);
+    /* Windows keeps a dead parent's pid on its child and reuses pids: a "parent" created after the server is not it. */
+    const parent = listed.find((x) => x.pid === ppid);
+    if (parent && p && parent.created && p.created && parent.created > p.created) return true;
+    return !alive(ppid);
+  } };
   const plan = (procs) => {
     const steps = [];
     for (const server of orphanedServers(procs, o)) steps.push(...endingOrder(procs, server, windows));
     return steps;
   };
-  const stillSelected = (now, step) => !!now && (step.parent === null ? serverMatch(now.command, o) && o.parentGone(now.ppid) : now.ppid === step.parent);
+  const stillSelected = (now, step) => !!now && (step.parent === null ? serverMatch(now.command, o) && o.parentGone(now.ppid, now) : now.ppid === step.parent);
   if (!windows) {
     try {
       const until = Date.now() + (d.budgetMs || 2000);   // the whole sweep, listing included; the rest waits for the next launch
@@ -410,6 +420,7 @@ function endOrphanedServers(agent, deps) {
   const runWin = async () => {
     try {
       const procs = await (d.procs ? Promise.resolve(d.procs()) : winTable(noteListFailed(agent)));
+      listed = procs;
       const steps = plan(procs).map((step) => ({ step, p: procs.find((x) => x.pid === step.pid) || null }))
         .filter(({ step, p }) => stillSelected(p, step) && p.created);   // no creation time, no proof of identity: left
       /* A test hands in its own ender (d.recheck does not apply on this path). Otherwise ONE PowerShell re-reads each
