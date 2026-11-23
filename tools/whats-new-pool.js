@@ -337,7 +337,7 @@ function syncWithWinProd(pool, poolFile, env = process.env, root = ROOT) {
   if (!served.ok) return { ok: false, because: served.because + '. Build again when the site answers, or pass --offline (the cut\'s prod-check then holds it until the pool is current)' };
   const obj = shownAt(served.version, root, served.commit);
   if (!obj) {
-    return { ok: false, because: 'Windows prod serves ' + served.version + ' (built from ' + served.commit + '), but this checkout has no What\'s New for it at that commit. git fetch, then build again' };
+    return { ok: false, because: 'Windows prod serves ' + served.version + ' (built from ' + served.commit + '), but this checkout has no What\'s New for it at that commit. git fetch, then build again; or, ONLY if ' + served.version + ' shipped to Windows with no What\'s New of its own, set "lastProdWin": "' + served.version + '" in release/whats-new-pool.json by hand and commit it (nothing else records a Windows release)' };
   }
   const r = markShownWin(pool, served.version, obj, 'the What\'s New at ' + served.commit);
   if (!r.ok) return { ok: false, because: 'Windows prod serves ' + served.version + ', and recording what it showed failed: ' + r.because };
@@ -430,20 +430,20 @@ function main(argv) {
       const sync = syncWithProd(pool, poolFile);
       if (!sync.ok) { process.stderr.write(sync.because + '; nothing written\n'); return 3; }
       syncNote = sync.note[0].toUpperCase() + sync.note.slice(1) + '.';
-      synced = sync.wrote || null;
+      synced = sync.wrote ? 'prod ' + sync.wrote : null;   // kosmos#8924: each record carries its own label
       // kosmos#8924: then what Windows prod has shown, so a Windows-only line retires itself.
       const winSync = syncWithWinProd(pool, poolFile);
       if (!winSync.ok) {
-        process.stderr.write(winSync.because + '; nothing written' + (synced ? ' (The pool was already updated to record prod ' + synced + ': commit release/whats-new-pool.json to main.)' : '') + '\n');
+        process.stderr.write(winSync.because + '; nothing written' + (synced ? ' (The pool was already updated to record ' + synced + ': commit release/whats-new-pool.json to main.)' : '') + '\n');
         return 3;
       }
       syncNote += ' ' + winSync.note[0].toUpperCase() + winSync.note.slice(1) + '.';
-      if (winSync.wrote) synced = (synced ? synced + ' and ' : '') + 'Windows prod ' + winSync.wrote;
+      if (winSync.wrote) synced = (synced ? synced + ' and ' : '') + 'Windows prod ' + winSync.wrote;   // "prod 0.8.17 and Windows prod 0.8.17", or "Windows prod 0.8.17" alone
     }
     /* Review 1: a refusal AFTER the sync wrote the pool says so, or the next build would report "already records"
        and the pool's change would never be committed. */
     const refuse = (msg, code) => {
-      process.stderr.write(msg + (synced ? ' (The pool was already updated to record prod ' + synced + ': commit release/whats-new-pool.json to main.)' : '') + '\n');
+      process.stderr.write(msg + (synced ? ' (The pool was already updated to record ' + synced + ': commit release/whats-new-pool.json to main.)' : '') + '\n');
       return code;
     };
     // Every pending item must be one the window can show, checked now rather than the day it reaches the top 5.

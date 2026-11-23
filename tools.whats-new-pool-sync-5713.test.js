@@ -139,9 +139,11 @@ test('#5713: the sync keeps #5711 review 9: a Windows-only highlight prod showed
 
 /* main() reads process.env for the prod pointer: set it for one call. */
 function withProd(env, fn) {
-  const saved = process.env.KOSMOS_PROD_POINTER_URL;
-  process.env.KOSMOS_PROD_POINTER_URL = env.KOSMOS_PROD_POINTER_URL;
-  try { return fn(); } finally { if (saved === undefined) delete process.env.KOSMOS_PROD_POINTER_URL; else process.env.KOSMOS_PROD_POINTER_URL = saved; }
+  // kosmos#8924 review 2: both pointers, so a Windows pointer in the caller's environment cannot replace the derived one.
+  const keys = ['KOSMOS_PROD_POINTER_URL', 'KOSMOS_PROD_WIN_POINTER_URL'];
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  for (const k of keys) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; }
+  try { return fn(); } finally { for (const k of keys) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } }
 }
 
 test('#5713 review 1: prod-check (the cut\'s check) is 0 when the pool records prod, 3 when prod is newer, 4 when unreadable, and writes nothing', () => {
