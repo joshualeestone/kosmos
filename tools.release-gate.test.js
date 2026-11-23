@@ -1278,13 +1278,13 @@ test('#5713: prod that cannot be read is a NOTE, and the cut goes on; CONTROL: a
   const { dir, home, site } = git_sandbox('0.6.02');
   const ok = run_git(dir, '0.6.03', home, site);
   assert.match(ok.said, /== 2\. the version, in one place ==/, 'CONTROL: the in-place check did not let the cut through');
-  assert.doesNotMatch(ok.said, /could not read what prod serves/, 'CONTROL: the pointer the sandbox serves was not read');
+  assert.doesNotMatch(ok.said, /could not read what (Windows )?prod/, 'CONTROL: the pointer the sandbox serves was not read');
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(site, { recursive: true, force: true });
   const s2 = git_sandbox('0.6.02');
   fs.rmSync(path.join(s2.site, 'dist', 'latest.json'));
   const r = run_git(s2.dir, '0.6.03', s2.home, s2.site);
-  assert.match(r.said, /NOTE: could not read what prod serves, so the What's New pool was not checked against it; the cut goes on\./, r.said.slice(0, 1200));
+  assert.match(r.said, /NOTE: could not read what prod \(Mac or Windows\) serves, so the What's New pool was not checked against it; the cut goes on\./, r.said.slice(0, 1200));
   assert.match(r.said, /== 2\. the version, in one place ==/, 'an unreadable prod stopped the cut');
   fs.rmSync(s2.dir, { recursive: true, force: true });
   fs.rmSync(s2.site, { recursive: true, force: true });

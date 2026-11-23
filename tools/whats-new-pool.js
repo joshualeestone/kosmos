@@ -15,7 +15,7 @@
  * never puts it in the window, whatever its rank, and the release notes keep it.
  * "prod" here is the Mac prod family (promote-channel.sh without --family win). Windows is promoted on its own and
  * shows whichever list is current when its build is made (its number goes in the built file's "also", by hand,
- * on the release branch, docs/windows RELEASING.md).
+ * on the release branch, tools/windows/RELEASING.md).
  * kosmos#8924: a Windows-only highlight (tagged windows, not mac) is never shown by the Mac, so `build` also reads what
  * WINDOWS prod serves (latest-win.json, its manifest's app commit, and the What's New at that commit) and marks that
  * window's Windows-only highlights shown, with shownIn the Windows version, recording it as lastProdWin. Nothing is
@@ -42,8 +42,8 @@
  *   node tools/whats-new-pool.js shown <version> --promoted --none [--pool=<file>]
  *       #5713: records a version that reached prod with NO What's New (a cut with KOSMOS_CUT_NO_WHATS_NEW=1), nothing marked.
  *   node tools/whats-new-pool.js prod-check [--pool=<file>]
- *       #5713, the cut's read-only check (release.sh 1b-ii): exit 0 when the pool records what Mac prod serves, 3 when
- *       prod is newer (build again and commit the pool), 4 when prod cannot be read. Writes nothing.
+ *       #5713, the cut's read-only check (release.sh 1b-ii): exit 0 when the pool records what Mac prod and (kosmos#8924) Windows prod serve, 3 when
+ *       either is newer (build again and commit the pool), 4 when either cannot be read. Writes nothing.
  *   node tools/whats-new-pool.js shown <version> --promoted [--pool=<file>] (--from-history --ref=<frozen sha> | --from=<file>)
  *       after <version> is PROMOTED to prod: every pool entry whose title is in that version's What's New becomes
  *       shown (shownIn <version>), and lastProd becomes <version>. Run it from the promote, not the cut: --promoted is
@@ -334,15 +334,21 @@ function syncWithWinProd(pool, poolFile, env = process.env, root = ROOT) {
     return { ok: true, note: 'Windows prod serves ' + ptr.version + '; the pool already records Windows prod ' + pool.lastProdWin };
   }
   const served = servedWinProd(env);
-  if (!served.ok) return { ok: false, because: served.because + '. Build again when the site answers, or pass --offline (the cut\'s prod-check then holds it until the pool is current)' };
+  if (!served.ok) return { ok: false, because: served.because + '. Build again when the site answers, or pass --offline (the cut\'s prod-check then holds it until the pool is current).'
+    + ' A manifest that names no app commit, or a dirty one, does not change by building again: ONLY if that Windows release cannot be read at all,'
+    + ' set "lastProdWin": "' + ptr.version + '" in release/whats-new-pool.json by hand and commit it, and retire its Windows-only lines by hand' };
   const obj = shownAt(served.version, root, served.commit);
   if (!obj) {
     return { ok: false, because: 'Windows prod serves ' + served.version + ' (built from ' + served.commit + '), but this checkout has no What\'s New for it at that commit. git fetch, then build again; or, ONLY if ' + served.version + ' shipped to Windows with no What\'s New of its own, set "lastProdWin": "' + served.version + '" in release/whats-new-pool.json by hand and commit it (nothing else records a Windows release)' };
   }
+  const before = pool.lastProdWin || null;
   const r = markShownWin(pool, served.version, obj, 'the What\'s New at ' + served.commit);
   if (!r.ok) return { ok: false, because: 'Windows prod serves ' + served.version + ', and recording what it showed failed: ' + r.because };
   writePool(pool, poolFile);
+  /* Review 3: only the version Windows prod serves NOW can be read here, as on the Mac (#5713 review 1), so a
+     Windows-only line shown only by a version promoted in between is not seen; the note says so. */
   return { ok: true, wrote: served.version, note: 'Windows prod serves ' + served.version + ': ' + r.marked + ' Windows-only highlight(s) marked shown there, and the pool now records it'
+    + (before && !nextPatch(before, served.version) ? '. If a Windows version between ' + before + ' and ' + served.version + ' also reached Windows prod, set the Windows-only lines its window showed to "status": "shown", "shownIn": "<that version>" by hand' : '')
     + (env.KOSMOS_PROD_WIN_POINTER_URL || env.KOSMOS_PROD_POINTER_URL ? ' [Windows prod read from ' + winPointerUrl(env) + ']' : '') };
 }
 
@@ -383,8 +389,8 @@ function main(argv) {
     return 0;
   }
   /* #5713 review 1: `prod-check` is the cut's read-only check (release.sh 1b-ii): 0 when the pool records what Mac prod
-     serves (or newer), 3 when prod is newer (a promote since the last build: build again and commit the pool),
-     4 when prod cannot be read. Writes nothing. */
+     serves (or newer) and, kosmos#8924, what Windows prod serves too; 3 when either is newer (a promote since the last build: build again and commit the pool),
+     4 when either cannot be read. Writes nothing. */
   if (positional.length === 1 && positional[0] === 'prod-check') {
     const pool = readPool(opt(argv, 'pool', POOL));
     const served = servedPointer();   // review 3: the version is all this check needs
