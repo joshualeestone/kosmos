@@ -9,8 +9,9 @@
  *       opens Projects, that project and its invite sheet with "Dana" and "Their agent" filled in, focus on Make, and
  *       the line "Your invitation is filled in again. Press Make an invite code."; nothing is sent (no code is made);
  * The press is the ask's own #stepup-form submit (navigation stopped), so the key the ask records is the key the mark
- * accepts. And the CONTROLS, each its own page: a reload with NO press opens no sheet; a press, then a reload where the
- * project is gone, opens no sheet and drops the note; a 403 that offers no Sign in again leaves no note.
+ * accepts. And the CONTROLS, each its own page: a reload with NO press opens no sheet; a press on the page after the
+ * reload, before the return can act, opens no sheet and drops the note; a press, then a reload where the project is
+ * gone, opens no sheet and drops the note; a 403 that offers no Sign in again leaves no note.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-fedinvreturn-8938.js [shots-dir]
  */
@@ -107,13 +108,14 @@ const press = (page) => page.evaluate(() => {
   window.addEventListener('submit', (e) => e.preventDefault());
   document.getElementById('stepup-form').requestSubmit();
 });
-async function afterReload(page) {
+async function afterReload(page, beforeGate) {
   await page.reload();
   // First run comes up on this stubbed board; the return waits behind it (and keeps the note) until it goes.
   if (await page.isVisible('#firstrun')) { await page.waitForTimeout(700); await page.keyboard.press('Escape'); }
   // The gate, stamped as /api/status's tick stamps it (this stub's status reply is too thin for the tick to get there;
   // render-federation-invite-4649 stamps it the same way). Until then inviting is off, and the return waits.
   await page.waitForTimeout(700);
+  if (beforeGate) await beforeGate(page);
   await page.evaluate((fed) => fedGateStamp(fed), FED);
   await page.waitForFunction(() => { const m = document.getElementById('fedinv-modal'); return m && !m.hidden; }, null, { timeout: 8000 }).catch(() => {});
   await page.waitForTimeout(300);
@@ -162,6 +164,16 @@ async function afterReload(page) {
       await refusedMake(page);
       const r = await afterReload(page);
       chk('CONTROL a reload without Sign in again opens no sheet, and keeps the note', !r.open && r.note !== null, JSON.stringify(r));
+      await ctx.close();
+    }
+    // CONTROL: back from Sign in again, the person presses something on the page before the return can act (inviting is
+    // not on yet): they have moved on, so no sheet opens and the note goes.
+    {
+      const { ctx, page } = await newPage(browser);
+      await refusedMake(page);
+      await press(page);
+      const r = await afterReload(page, (pg) => pg.mouse.click(640, 40));
+      chk('CONTROL a press on the page before the return acts opens no sheet, and the note goes', !r.open && r.note === null, JSON.stringify(r));
       await ctx.close();
     }
     // CONTROL: the project is gone after the sign-in.

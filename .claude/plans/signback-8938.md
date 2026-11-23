@@ -34,6 +34,8 @@ opens nothing.
   `.rm-back:not([hidden]):not([hidden] *)`; the dialogs built on demand (What's New, the invite step) are removed on close.
 - Busy is the board's own: the dialog test above plus what tipModalOpen counts as covering the page (first screens,
   update and restart screens, an open <dialog>, the phone menu). An archived project opens nothing.
+- Known limit: a Make whose sheet is force-closed while it is answered (federation turning off) writes no note, so
+  that refusal's ask returns nothing. Rare: the sheet refuses to close while Make is in flight.
 - Known limit: presses are watched only during the 60 tries. A later reload inside the note's 10 minutes, after the
   person worked elsewhere, still opens the sheet once.
 - Decided, from review 2: a page whose 3 projects reads all fail opens nothing (the note stays for a reload). That is
