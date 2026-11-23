@@ -286,11 +286,10 @@ from a night in this codebase, kosmos#2616.)
    One narrow exception, kept fail-closed (kosmos#8928): `engine/agentbrowser.js`'s `endOrphanedServers` ends an
    agent's own orphaned browser servers from two processes that never open the process-wide switch (the Mac shim
    `engine/agent-browser-config.js` and the Windows supervisor). Opening it there would arm every other gated module
-   in those processes, so each passes a feature-only `live` flag instead: the shim from its `require.main` path, the
-   Windows supervisor when `main()` is called with no deps (the anchored boot shim, `win32anchor.BOOT_JS`, and its own
-   entry; every test passes deps). On Windows that makes it ON by default for a deps-less call, so its guard there is
-   the test-run check (`store.isTestProcess`), which also holds everywhere else. With no flag (and no injected ender)
-   it does nothing.
+   in those processes, so each passes a feature-only `live` flag instead: the shim from its `require.main` path, and
+   the Windows supervisor only with an explicit `endOrphans` (OFF for real Windows starts until measured on Windows;
+   `win32supervisor.endOrphansFor` says how to turn it on). With no flag (and no injected ender) it does nothing, and
+   it never acts in a test run (`store.isTestProcess`).
 
 4. **A committed `web/` change needs a `docs/browser-checks/` assertion or a
    `Browser-check: <reason>` trailer.** `tools/run-tests.sh` (its call to `kosmos_browser_check_gate`, via

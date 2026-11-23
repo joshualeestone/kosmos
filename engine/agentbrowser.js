@@ -265,9 +265,10 @@ function inTestRunUnsandboxed() {
    Servers left by an earlier pinned version run another cli.js and are not matched (the safe direction). */
 function escapeRe(t) { return String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function serverMatch(command, o) {
-  /* The cli.js must be the script the interpreter runs (its first argument), not merely named somewhere on the line,
-     so a `tail` or an editor opened on the same paths is never a match. */
-  const script = new RegExp('^\\s*"?[^"]*?[\\\\/]node(\\.exe)?"?\\s+"?' + escapeRe(o.cli) + '"?(\\s|$)', 'i');
+  /* The line must START with the interpreter that runs agents' servers (exactly that node binary, quoted or not) and
+     the cli.js must be its script argument, so a `tail`, an editor or a shell merely naming these paths never matches. */
+  if (!o.node) return false;   // no interpreter to compare with: nothing matches
+  const script = new RegExp('^\\s*"?' + escapeRe(o.node) + '"?\\s+"?' + escapeRe(o.cli) + '"?(\\s|$)', 'i');
   const dir = new RegExp('(^|\\s)--output-dir\\s+"?' + escapeRe(o.outputDir) + '"?(\\s|$)');
   return typeof command === 'string' && script.test(command) && dir.test(command);
 }
@@ -369,10 +370,11 @@ function noteListFailed(agent) { return (e) => note(agentKey(agent) + ' could no
 /* Ends this agent's orphaned servers and their browsers. Never throws. Fails closed: with no `end` handed in, it acts
    only when its caller says `live` (the Mac shim run as a program, and the Windows supervisor started for real), and
    never in a test run. Mac: inline, the whole sweep within a
-   2 s budget; each pid is re-read just before SIGKILL and skipped unless it is still what was selected. Windows:
-   async, after the launch has gone ahead; one listing plans it, and one PowerShell ends each planned pid only if its
+   2 s budget; each pid is re-read just before SIGKILL and skipped unless it is still what was selected. Windows: its
+   PowerShell starts during launchConfig but nothing waits on it; one listing plans it, and one PowerShell ends each planned pid only if its
    creation time and command line are still exactly as listed (a pid with no creation time is left). A browser whose
-   server already died is not matched (nothing names its agent). At logon every Windows agent lists at about the same
+   server already died is not matched (nothing names its agent). Nothing is swept when the browser is off or not
+   installed, or when the agent's output folder is gone (a temp cleaner can remove it; the next launch sweeps). At logon every Windows agent lists at about the same
    moment (a few PowerShells together, after their launches, bounded by timeouts). Returns the pids ended (Mac), or a
    promise of them. */
 function endOrphanedServers(agent, deps) {
@@ -391,7 +393,7 @@ function endOrphanedServers(agent, deps) {
   const windows = platform === 'win32';
   const alive = d.alive || ((pid) => require('./win32orphan').pidState(pid) !== 'gone');
   let listed = [];
-  const o = { cli: cliPath(), outputDir: outputDir(agent), self: process.pid, parentGone: (ppid, p) => {
+  const o = { node: d.node || process.execPath, cli: cliPath(), outputDir: outputDir(agent), self: process.pid, parentGone: (ppid, p) => {
     if (!windows) return ppid === 1 || !alive(ppid);
     /* Windows keeps a dead parent's pid on its child and reuses pids: a "parent" created after the server is not it. */
     const parent = listed.find((x) => x.pid === ppid);
@@ -482,7 +484,7 @@ function launchConfig(opts) {
        could have left a server, so there is nothing to sweep (and on Windows no PowerShell to start). */
     let hadSession = false;
     if (o.agent) { try { hadSession = fs.existsSync(outputDir(o.agent)); fs.mkdirSync(outputDir(o.agent), { recursive: true }); } catch { /* the server can still make it; never costs the browser */ } }   // kosmos#8928
-    if (o.agent && hadSession) { const r = endOrphanedServers(o.agent, Object.assign({ platform }, o.orphans)); if (r && r.catch) r.catch(() => {}); }   // never throws, never waits on Windows
+    if (o.agent && hadSession) { const r = endOrphanedServers(o.agent, Object.assign({ platform, node: o.node || process.execPath }, o.orphans)); if (r && r.catch) r.catch(() => {}); }   // never throws, never waits on Windows
     const file = configPath(o.agent);
     return writeConfigIfNeeded(file, text) ? file : null;
   } catch { return null; }
