@@ -8,7 +8,8 @@
  *   R2  after Sign in again is pressed for it and the page loads again (the fresh sign-in navigating back), the page
  *       opens Projects, that project and its invite sheet with "Dana" and "Their agent" filled in, focus on Make, and
  *       the line "Your invitation is filled in again. Press Make an invite code."; nothing is sent (no code is made);
- * and the CONTROLS, each its own page: a reload with NO press opens no sheet; a press, then a reload where the
+ * The press is the ask's own #stepup-form submit (navigation stopped), so the key the ask records is the key the mark
+ * accepts. And the CONTROLS, each its own page: a reload with NO press opens no sheet; a press, then a reload where the
  * project is gone, opens no sheet and drops the note; a 403 that offers no Sign in again leaves no note.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-fedinvreturn-8938.js [shots-dir]
@@ -43,7 +44,11 @@ function initStub(cfg) {
       try { body = JSON.parse(String((opts && opts.body) || 'null')); } catch { body = 'unreadable'; }
       window.__posts.push(body);
       const refuse = sessionStorage.getItem('check-refuse') || 'stepup';
-      return refuse === 'plain' ? enc(403, { error: 'Forbidden' }) : enc(403, cfg.stepup);
+      const res = refuse === 'plain' ? enc(403, { error: 'Forbidden' }) : enc(403, cfg.stepup);
+      // A constructed Response has no url; a real board's reply carries its own address, which the step-up ask records
+      // as the refused request (requestKey: method and path). Given here so the ask records what it records live.
+      Object.defineProperty(res, 'url', { value: new URL('/api/federation/invite', location.href).href });
+      return res;
     }
     if (u.includes('/api/federation/members')) return enc(200, { owner: true, sealed: false, invites: [], checked_at: 1791115200 });
     if (/\/api\/projects(\?|$)/.test(u) && method === 'GET') {
@@ -95,11 +100,13 @@ async function refusedMake(page) {
     return { posts: window.__posts.length, note: sessionStorage.getItem(k), askShown: !!box && !box.hidden, askFor: box ? box.stepUpFor : null };
   }, KEY);
 }
-// Sign in again, pressed: the same mark the #stepup-form submit runs in capture (web.stepupreturn-8728 pins that
-// wiring), without the navigation a file:// page cannot follow. On file:// a stubbed reply has no url, so the ask records
-// the page's own path; a real board's reply records 'POST /api/federation/invite' (requestKey, pinned there too), which
-// is the key pressed here.
-const press = (page) => page.evaluate(() => markStepUpReturnGoing('POST /api/federation/invite'));
+// Sign in again, pressed: the ask's own form is submitted, so the page's capture listener marks the note from the key
+// the ask recorded. Only the navigation is stopped (a bubbling listener on the window, after the page's own), since the
+// fresh sign-in page does not exist on file://; the reload below stands in for coming back from it.
+const press = (page) => page.evaluate(() => {
+  window.addEventListener('submit', (e) => e.preventDefault());
+  document.getElementById('stepup-form').requestSubmit();
+});
 async function afterReload(page) {
   await page.reload();
   // First run comes up on this stubbed board; the return waits behind it (and keeps the note) until it goes.
@@ -135,7 +142,7 @@ async function afterReload(page) {
       const { ctx, page, errs } = await newPage(browser);
       const r1 = await refusedMake(page);
       const note = r1.note ? JSON.parse(r1.note) : null;
-      chk('R1 Make was sent once and refused for a fresh sign-in; the ask is up', r1.posts === 1 && r1.askShown && /^POST /.test(r1.askFor || ''), JSON.stringify(r1));
+      chk('R1 Make was sent once and refused for a fresh sign-in; the ask is up for POST /api/federation/invite', r1.posts === 1 && r1.askShown && r1.askFor === 'POST /api/federation/invite', JSON.stringify(r1));
       chk('R1 the tab note holds the project, the label and the kind, and nothing else',
         !!note && note.kind === 'fed-invite' && note.project === 'k' && note.label === 'Dana' && note.invitedKind === 'agent'
         && Object.keys(note).sort().join() === 'at,invitedKind,kind,label,project', r1.note);

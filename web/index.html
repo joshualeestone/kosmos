@@ -32966,6 +32966,12 @@ function noteFedInviteReturn(project, label, invitedKind) {
 function forgetStepUpReturn() {
   try { sessionStorage.removeItem(STEPUP_RETURN_KEY); } catch { /* nothing to forget */ }
 }
+// Only an invite note: an invite attempt must not erase a Claude sign-in's note whose ask may still be on screen.
+function forgetFedInviteReturn() {
+  let n = null;
+  try { n = JSON.parse(sessionStorage.getItem(STEPUP_RETURN_KEY) || 'null'); } catch { n = null; }
+  if (n && typeof n === 'object' && n.kind === 'fed-invite') forgetStepUpReturn();
+}
 // A note of a kind this page knows, with every field it needs.
 function stepUpNoteShaped(n) {
   if (!n || typeof n !== 'object' || typeof n.at !== 'number') return false;
@@ -33026,22 +33032,30 @@ function resumeStepUpReturn(list = ACCOUNTS) {
   const note = document.getElementById('acct-add-note');
   if (note) note.textContent = 'Press Sign in again to sign this account in to Claude.';
 }
-/* On load, with a note this page may act on: read the account list once and resume from THAT list. It is not stored as
-   the page's list (review 2): the page's own reads keep their sequencing. Without a note, nothing is read here. */
-/* kosmos#8938 item 4: the invite note's return, once the page can show it: the projects read has landed, inviting is
-   on (fedShow), and no dialog or first run is up. Until then it waits and the note is kept. Then the note goes, and only
-   a project this board still lists opens (one that went, or is not this person's, opens nothing). True when nothing is
-   left to wait for. The words claim no sign-in (as #8728 review 3): a log-out can fail and the person reload. */
+/* kosmos#8938 item 4: the invite note's return. It waits, keeping the note, while first run or any .rm-back dialog is on
+   screen, until the projects read has landed, and until inviting is on (fedShow). Then the note goes, and only a project
+   this board still lists opens (one that went, or is not this person's, opens nothing). True when nothing is left to
+   wait for. The words claim no sign-in (as #8728 review 3): a log-out can fail and the person reload. */
 const FEDINV_RETURN_LINE = 'Your invitation is filled in again. Press Make an invite code.';
-let FEDINV_RETURN_READ = false;
+const FEDINV_RETURN_READ_MAX = 3;
+let FEDINV_RETURN_READS = 0;        // projects reads this return asked for
+let FEDINV_RETURN_READING = false;  // one of them is still being answered
+function fedInviteReturnBusy() {
+  if (stepUpReturnBusy()) return true;
+  return [...document.querySelectorAll('.rm-back')].some((el) => !el.hidden);
+}
 function resumeFedInviteReturn() {
   const n = peekStepUpReturn();
   if (!n || n.kind !== 'fed-invite') return true;
-  if (stepUpReturnBusy()) return false;
+  if (fedInviteReturnBusy()) return false;
   // In the tab layout the projects are read only when Projects is shown, and the page may load on another tab: the
-  // return asks for that read itself, once.
+  // return asks for that read itself, one at a time and at most FEDINV_RETURN_READ_MAX times.
   if (!PJ_LOADED_ONCE) {
-    if (!FEDINV_RETURN_READ) { FEDINV_RETURN_READ = true; Promise.resolve().then(() => loadProjects()).catch(() => { /* the next try sees it */ }); }
+    if (!FEDINV_RETURN_READING && FEDINV_RETURN_READS < FEDINV_RETURN_READ_MAX) {
+      FEDINV_RETURN_READS++;
+      FEDINV_RETURN_READING = true;
+      Promise.resolve().then(() => loadProjects()).catch(() => {}).then(() => { FEDINV_RETURN_READING = false; });
+    }
     return false;
   }
   if (!fedShow()) return false;
@@ -33056,12 +33070,15 @@ function resumeFedInviteReturn() {
   if (modal && !modal.hidden && msg) msg.textContent = FEDINV_RETURN_LINE;
   return true;
 }
-// Tried every half second for up to 30 seconds after load; a page that is still not ready keeps the note (its window
-// is the same 10 minutes), so a later load can still use it.
+// Tried now and then every half second, 60 tries in all; a page that is still not ready keeps the note (its window is
+// the same 10 minutes), so a later load can still use it.
 function fedInviteReturnWait(tries = 60) {
   if (resumeFedInviteReturn() || tries <= 1) return;
   setTimeout(() => fedInviteReturnWait(tries - 1), 500);
 }
+/* On load, with a note this page may act on: an invite note goes to fedInviteReturnWait (no account read). A Claude note
+   reads the account list once and resumes from THAT list. It is not stored as the page's list (review 2): the page's
+   own reads keep their sequencing. Without a note, nothing is read here. */
 function stepUpReturnBoot() {
   const n = peekStepUpReturn();
   if (!n) return;
@@ -58387,7 +58404,7 @@ function plusOrgPaint() {
    Kosmos reports; nothing when the words are missing. */
 function plusOrgSeesText(words) {
   // A line's own closing full stop goes (one), so a list never reads ".;" (Renet's review of #8942).
-  const clean = (l) => (Array.isArray(l) ? l.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim().replace(/\.$/, '')).filter(Boolean) : []);
+  const clean = (l) => (Array.isArray(l) ? l.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim().replace(/\.$/, '').trim()).filter(Boolean) : []);
   const reports = clean(words && words.reports);
   if (!reports.length) return '';
   const backsUp = clean(words && words.backsUp);
@@ -87899,7 +87916,7 @@ async function pjMintInvite(invitedKind) {
   document.getElementById('pj-invite-panel').hidden = false;
   codeEl.value = '';
   status.textContent = 'Making a code…';
-  if (typeof forgetStepUpReturn === 'function') forgetStepUpReturn();   // kosmos#8938 item 4: its press must not return the sheet's older note
+  if (typeof forgetFedInviteReturn === 'function') forgetFedInviteReturn();   // kosmos#8938 item 4: its press must not return the sheet's older note
   try {
     const res = await fetch('/api/federation/invite', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -89419,7 +89436,7 @@ async function fedInviteMake() {
     return;
   }
   pjFieldOk('fedinv-email', 'fedinv-msg');
-  if (typeof forgetStepUpReturn === 'function') forgetStepUpReturn();   // kosmos#8938 item 4: a new Make clears an older note
+  if (typeof forgetFedInviteReturn === 'function') forgetFedInviteReturn();   // kosmos#8938 item 4: a new Make clears an older invite note
   const seq = ++FEDINV_SEQ;
   const askedFor = FEDINV_PROJECT;
   make.disabled = true;

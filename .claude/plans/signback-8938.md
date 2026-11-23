@@ -19,21 +19,25 @@ opens nothing.
   `POST /api/federation/invite` for an invite note. One `stepUpNoteShaped` decides both shapes.
 - `resumeStepUpReturn` (the account list) ignores an invite note. `stepUpReturnBoot` routes an invite note to
   `fedInviteReturnWait` (no account read).
-- `resumeFedInviteReturn` waits (note kept) while a dialog or first run is up, until the projects read has landed
-  (in the tab layout projects are read only on Projects, so it asks for that read once itself), and until inviting
-  is on (fedShow). Then the note goes; a project no longer listed opens nothing; else showTab('projects'),
-  openProject, fedInviteOpen(null, { label, kind }), and the line. Tried every 500 ms for 30 s.
+- `resumeFedInviteReturn` waits (note kept) while first run or any `.rm-back` dialog is on screen, until the projects
+  read has landed (in the tab layout projects are read only on Projects, so it asks for that read itself, one at a
+  time, at most 3 times), and until inviting is on (fedShow). Then the note goes; a project no longer listed opens
+  nothing; else showTab('projects'), openProject, fedInviteOpen(null, { label, kind }), and the line. 60 tries,
+  one now and then every 500 ms. Not covered: the person moving to another tab inside that window (the projects read
+  usually lands in well under a second).
 - The words claim no sign-in (#8728 review 3: a log-out can fail and the person reload).
-- fedInviteMake and pjMintInvite clear an older note before their request, so a note always belongs to the latest
-  refusal. pjMintInvite (the create form) never writes one: it has no sheet to come back to.
-- Renet's nit 1 on #8942: plusOrgSeesText drops ONE closing full stop per line before joining, so no ".;".
+- fedInviteMake and pjMintInvite clear an older INVITE note before their request (forgetFedInviteReturn), never a
+  Claude note, whose ask may still be on screen. pjMintInvite (the create form) never writes one: it has no sheet to come back to.
+- Renet's nit 1 on #8942: plusOrgSeesText drops ONE closing full stop per line (and the space before it) before
+  joining, so no ".;".
 
 ## Tests
 - web.fedinvreturn-8938.test.js: lifted functions against a stand-in storage; shape, marking both ways, same view,
   waits (and the one projects read), gone project, boot routing, page wiring, the full-stop nit. Mutation-checked:
   removing the readiness wait, the per-kind mark check or the full-stop trim each turns a test red.
 - web.stepupreturn-8728.test.js: harness lifts the new shared pieces; review 4 list includes the invite key.
-- docs/browser-checks/render-fedinvreturn-8938.js: hermetic; R1 refusal and note, R2 the return; three controls.
+- docs/browser-checks/render-fedinvreturn-8938.js: hermetic; R1 refusal and note, R2 the return through the ask's own
+  #stepup-form submit (navigation stopped, the stubbed reply carrying the real API address); three controls.
 
 ## Weakest premise
 That the fresh sign-in navigates back to this same tab (sessionStorage is per tab). #8728 rests on the same premise

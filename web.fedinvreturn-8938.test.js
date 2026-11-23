@@ -11,7 +11,7 @@ const { scriptOf, lift } = require('./test-support/page');
 
 const SCRIPT = scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
 
-function page({ projects = ['p1'], loaded = true, fed = true, visible = [], storage = new Map(), stayOff = false } = {}) {
+function page({ projects = ['p1'], loaded = true, fed = true, visible = [], storage = new Map(), stayOff = false, dialogs = [] } = {}) {
   const calls = [];
   const els = { 'fedinv-modal': { hidden: true }, 'fedinv-msg': { textContent: '' } };
   for (const id of ['acct-add-modal', 'firstrun', 'fr-choice']) els[id] = { hidden: !visible.includes(id) };
@@ -20,7 +20,9 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
     setItem: (k, v) => { storage.set(k, String(v)); },
     removeItem: (k) => { storage.delete(k); },
   };
-  const document = { getElementById: (id) => els[id] || null };
+  // .rm-back dialogs: the invite sheet itself plus any the arm puts on screen (dialogs: ids shown).
+  const rmBack = () => [els['fedinv-modal'], ...dialogs.map((id) => ({ id, hidden: false }))];
+  const document = { getElementById: (id) => els[id] || null, querySelectorAll: (sel) => (sel === '.rm-back' ? rmBack() : []) };
   const performance = { timeOrigin: Date.now() };
   const state = { loaded, fed, current: null };
   const timers = [];
@@ -30,12 +32,15 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
     SCRIPT.match(/const STEPUP_RETURN_FOR = [^;]*;/)[0],
     SCRIPT.match(/const STEPUP_RETURN_FED_FOR = [^;]*;/)[0],
     SCRIPT.match(/const FEDINV_RETURN_LINE = [^;]*;/)[0],
-    SCRIPT.match(/let FEDINV_RETURN_READ = [^;]*;/)[0],
-    lift(SCRIPT, 'noteFedInviteReturn'), lift(SCRIPT, 'noteStepUpReturn'), lift(SCRIPT, 'forgetStepUpReturn'),
+    SCRIPT.match(/const FEDINV_RETURN_READ_MAX = [^;]*;/)[0],
+    SCRIPT.match(/let FEDINV_RETURN_READS = [^;]*;/)[0],
+    SCRIPT.match(/let FEDINV_RETURN_READING = [^;]*;/)[0],
+    lift(SCRIPT, 'noteFedInviteReturn'), lift(SCRIPT, 'noteStepUpReturn'), lift(SCRIPT, 'forgetStepUpReturn'), lift(SCRIPT, 'forgetFedInviteReturn'),
+    lift(SCRIPT, 'fedInviteReturnBusy'),
     lift(SCRIPT, 'stepUpNoteShaped'), lift(SCRIPT, 'markStepUpReturnGoing'), lift(SCRIPT, 'peekStepUpReturn'),
     lift(SCRIPT, 'stepUpReturnBusy'), lift(SCRIPT, 'resumeStepUpReturn'), lift(SCRIPT, 'resumeFedInviteReturn'),
     lift(SCRIPT, 'fedInviteReturnWait'), lift(SCRIPT, 'stepUpReturnBoot'),
-    'return { noteFedInviteReturn, noteStepUpReturn, markStepUpReturnGoing, resumeFedInviteReturn, resumeStepUpReturn, fedInviteReturnWait, stepUpReturnBoot, KEY: STEPUP_RETURN_KEY, LINE: FEDINV_RETURN_LINE };',
+    'return { forgetFedInviteReturn, noteFedInviteReturn, noteStepUpReturn, markStepUpReturnGoing, resumeFedInviteReturn, resumeStepUpReturn, fedInviteReturnWait, stepUpReturnBoot, KEY: STEPUP_RETURN_KEY, LINE: FEDINV_RETURN_LINE };',
   ].join('\n');
   // PJ_LOADED_ONCE and PJ_CURRENT are read as globals by the page: given here as getters on `with`-free parameters.
   const wrapped = 'return (function () { ' + src + ' })();';
@@ -48,7 +53,7 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
     (id) => { calls.push(['openProject', id]); if (!stayOff) state.current = id; },
     (opener, prefill) => { calls.push(['fedInviteOpen', opener, prefill]); els['fedinv-modal'].hidden = false; els['fedinv-msg'].textContent = ''; },
     (tab) => calls.push(['showTab', tab]),
-    () => { calls.push(['loadProjects']); },
+    () => { calls.push(['loadProjects']); if (state.readLands) state.loaded = true; return Promise.resolve(true); },
     { get PJ_LOADED_ONCE() { return state.loaded; }, get PJ_CURRENT() { return state.current; } });
   return { ...fns, storage, calls, els, state, timers, performance };
 }
@@ -118,7 +123,7 @@ test('#8938 item 4: in the SAME page view, or never pressed, the note opens noth
 });
 
 test('#8938 item 4: not ready yet (projects not read, inviting off, a dialog up) waits and keeps the note; then acts', () => {
-  for (const setup of [{ loaded: false }, { fed: false }, { visible: ['acct-add-modal'] }, { visible: ['firstrun'] }]) {
+  for (const setup of [{ loaded: false }, { fed: false }, { visible: ['acct-add-modal'] }, { visible: ['firstrun'] }, { dialogs: ['am-modal'] }, { dialogs: ['whatsnew'] }]) {
     const p = page(setup);
     earlier(p);
     assert.equal(p.resumeFedInviteReturn(), false, 'did not wait for ' + JSON.stringify(setup));
@@ -139,23 +144,52 @@ test('#8938 item 4: not ready yet (projects not read, inviting off, a dialog up)
   const never = page({ fed: false });
   earlier(never);
   never.fedInviteReturnWait();
-  while (never.timers.length) { const t = never.timers.shift(); t.fn(); if (never.timers.length > 100) break; }
+  let scheduled = 0;
+  while (never.timers.length) { scheduled++; const t = never.timers.shift(); t.fn(); if (scheduled > 100) break; }
+  assert.equal(scheduled, 59, '60 tries in all: one now and 59 on the timer');
   assert.equal(never.storage.has(never.KEY), true);
 });
 
-test('#8938 item 4: projects not read yet (the tab layout reads them only on Projects): the return asks for the read, once, and waits', async () => {
+test('#8938 item 4: projects not read yet (the tab layout reads them only on Projects): the return asks for the read, one at a time, at most 3 times', async () => {
+  const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
   const p = page({ loaded: false });
   earlier(p);
   p.resumeFedInviteReturn();
-  p.resumeFedInviteReturn();
-  await Promise.resolve(); await Promise.resolve();
-  assert.deepEqual(p.calls, [['loadProjects']], 'asked for the read more than once, or opened before it landed');
+  p.resumeFedInviteReturn();   // the first read is still being answered: no second one
+  await flush();
+  assert.deepEqual(p.calls, [['loadProjects']], 'asked again while a read was in flight, or opened before it landed');
+  // Each read concludes without the list (a failed read): asked again, up to 3 in all, then no more.
+  for (let i = 0; i < 5; i++) { p.resumeFedInviteReturn(); await flush(); }
+  assert.equal(p.calls.filter((c) => c[0] === 'loadProjects').length, 3, 'a failed read was not retried, or retried without a cap');
+  assert.equal(p.storage.has(p.KEY), true, 'the note was lost while waiting');
+  // A read that lands: the next try opens the sheet.
+  const q = page({ loaded: false });
+  q.state.readLands = true;
+  earlier(q);
+  q.resumeFedInviteReturn();
+  await flush();
+  q.resumeFedInviteReturn();
+  assert.deepEqual(q.calls.map((c) => c[0]), ['loadProjects', 'showTab', 'openProject', 'fedInviteOpen']);
   // CONTROL: a dialog up asks for nothing (it waits whole).
   const busy = page({ loaded: false, visible: ['firstrun'] });
   earlier(busy);
   busy.resumeFedInviteReturn();
-  await Promise.resolve(); await Promise.resolve();
+  await flush();
   assert.deepEqual(busy.calls, []);
+});
+
+test('#8938 item 4 review: an invite attempt forgets only an invite note, never a Claude sign-in note', () => {
+  const p = page();
+  p.noteStepUpReturn('/Users/someone/.claude');
+  p.forgetFedInviteReturn();
+  assert.equal(JSON.parse(p.storage.get(p.KEY)).kind, 'claude-signin', 'an invite attempt erased the Claude note');
+  // CONTROL: an invite note is forgotten.
+  p.noteFedInviteReturn('p1', 'Dana', 'person');
+  p.forgetFedInviteReturn();
+  assert.equal(p.storage.has(p.KEY), false);
+  p.storage.set(p.KEY, 'not json');
+  p.forgetFedInviteReturn();   // unreadable: left to peekStepUpReturn, which removes it
+  assert.equal(p.storage.get(p.KEY), 'not json');
 });
 
 test('#8938 item 4: a project no longer listed, or one that did not open, opens no sheet; the note goes', () => {
@@ -192,10 +226,12 @@ test('#8938 item 4: an invite note is not an account note, and boot routes it to
 test('#8938 item 4: the page wires it: the sheet notes only the refusal that offers Sign in again; Make and the create form clear older notes', () => {
   const make = lift(SCRIPT, 'fedInviteMake');
   assert.match(make, /res\.status === 403 && body && body\.code === 'remote_step_up' && body\.signInAgain === true && typeof noteFedInviteReturn === 'function'\) noteFedInviteReturn\(askedFor, label, kind\)/);
-  const clear = make.indexOf('forgetStepUpReturn();');
+  assert.doesNotMatch(make, /forgetStepUpReturn\(/, 'Make erases any note, a Claude one too');
+  const clear = make.indexOf('forgetFedInviteReturn();');
   assert.ok(clear > -1 && clear < make.indexOf("fetch('/api/federation/invite'"), 'Make does not clear an older note before its request');
   const mint = lift(SCRIPT, 'pjMintInvite');
-  const mclear = mint.indexOf('forgetStepUpReturn();');
+  assert.doesNotMatch(mint, /forgetStepUpReturn\(/, 'the create form erases any note, a Claude one too');
+  const mclear = mint.indexOf('forgetFedInviteReturn();');
   assert.ok(mclear > -1 && mclear < mint.indexOf("fetch('/api/federation/invite'"), 'the create form does not clear an older note');
   assert.doesNotMatch(mint, /noteFedInviteReturn/, 'the create form has no sheet to come back to');
   assert.equal(SCRIPT.match(/const STEPUP_RETURN_FED_FOR = '([^']*)';/)[1], 'POST /api/federation/invite');
@@ -209,4 +245,5 @@ test('#8942 review nit: a company line ending in a full stop is not doubled into
   assert.doesNotMatch(t, /\.;|\.\./);
   // Only ONE stop goes: an ellipsis keeps two.
   assert.match(fn({ reports: ['Usage...'] }), /Reported: Usage\.\.\.$/);
+  assert.equal(fn({ reports: ['Agent names .', 'Token use'] }), 'Your company\u2019s words for this computer. Reported: Agent names; Token use.', 'a space before the stop is left before the ";"');
 });
