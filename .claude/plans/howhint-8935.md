@@ -45,4 +45,10 @@ That agents read a command's stderr. Claude Code shows it with the output; a run
 - Fixed: a data folder under the system temp folder (a CLI test's sandbox, when its node grandchild carries no test marker) is never written to.
 - Fixed: the Mac --auto skip applies to report only, as on Windows.
 - Comments: the record is in store.currentDataRoot(); KOSMOS_HOWHINT_FILE is honoured anywhere (an agent controls its own env).
-- Tests: 10/10 in the two files; mutations for these two guards NOT yet run (next step).
+- Tests: 10/10 in the two files; mutations for these two guards run 10:3x, both red (each at its own case).
+
+## Challenge loop iteration 5 (sonnet)
+- Fixed: the Mac --auto skip matched the word anywhere in the arguments; it now matches a whole argument, as Windows does.
+- Fixed: a call with no guide returns before the token is hashed.
+- Plan: KOSMOS_HOWHINT_FILE is honoured for any caller (it skips the folder, temp and test-run guards and may make its folder); harmless, since an agent only steers its own pointer record.
+- Deferred (as iteration 1): every guided agent call pays a node start (~20 ms), not only the first; a shell-side marker was rejected (a second derivation of the data folder).
