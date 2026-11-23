@@ -278,7 +278,7 @@ function* blocks(text, tag, onOpen) {
     if (i < 0) return;
     const gt = text.indexOf('>', i);
     if (gt < 0) return;
-    if (onOpen) onOpen(text.slice(i, gt + 1));   // kosmos#8940: the opening tag already found, for its attributes
+    if (onOpen) onOpen(text.slice(i, gt + 1));   // kosmos#8940: before this block is yielded; attachtext-8940's row-number tests fail otherwise
     if (text[gt - 1] === '/') { at = gt + 1; yield ''; continue; }   // <row/>: an empty block
     const end = text.indexOf(close, gt);
     if (end < 0) return;
