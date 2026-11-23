@@ -403,6 +403,26 @@ test('#5957 slice 3: a removal takes the agent\'s last report with it, so a recr
   assert.equal(liveness.read(name).found, false, 'the last report outlived the removal');
 });
 
+/* kosmos#8916 item 4: and the .changes sidecar beside its seen copy (the hash and number of what Kosmos last wrote to its
+   changes file), so a recreate of the name starts at Notice 1. */
+test('kosmos#8916: a removal takes the changes-file sidecar with it', () => {
+  const ir = require('./instructionreread');
+  const name = foreignAgent('sidecar');
+  boardShows(name, `${name}-discord`);
+  world();
+  remove.setDryRun(false);
+  // The sidecar sits beside the seen copy, under the same hashed name (instructionreread.bodyFile).
+  assert.equal(ir.remember(name, '# You are ' + name + '\n'), true, 'precondition: no seen copy was kept');
+  const seenDir = nodePath.join(require('./store').ROOT, 'instruction-reread-seen');
+  const copy = fs.readdirSync(seenDir).find((n) => n.startsWith(name + '-') && n.endsWith('.md'));
+  assert.ok(copy, 'precondition: the seen copy is not where the sidecar is kept beside');
+  const sidecar = nodePath.join(seenDir, copy.replace(/\.md$/, '.changes'));
+  fs.writeFileSync(sidecar, 'abc\n3\n');
+  assert.equal(fs.existsSync(sidecar), true, 'precondition: a sidecar is on file');
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(fs.existsSync(sidecar), false, 'the changes-file sidecar outlived the removal');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The round trip
 // ─────────────────────────────────────────────────────────────────────────────

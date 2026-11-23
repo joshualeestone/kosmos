@@ -372,7 +372,7 @@ test('review 13: the real chain, end to end: a start copy, a landed line naming 
   const p = passArgs({ owed: { ida: debt() }, o: real });
   await ir.passOnce(p.o);
   assert.equal(p.sent.length, 1);
-  const named = /listed in (\S+?)(?:, under Notice \d+(?: \([^)]*\))?)? \(a pointer only/.exec(p.sent[0][1]);
+  const named = /listed in (\S+?)(?:, under Notice \d+)? \(a pointer only/.exec(p.sent[0][1]);
   assert.ok(named, 'the landed line named no changes file: ' + p.sent[0][1]);
   assert.match(fs.readFileSync(named[1], 'utf8'), /- Post at least once a day\.\n\+ Post at least once a week\./);
   assert.equal(ir.readSeen('ida'), AFTER, 'the copy did not move to what the agent now reads');
@@ -381,7 +381,7 @@ test('review 13: the real chain, end to end: a start copy, a landed line naming 
   fs.writeFileSync(f, THIRD);
   const q = passArgs({ owed: { ida: debt() }, o: real });
   await ir.passOnce(q.o);
-  const body = fs.readFileSync(/listed in (\S+?)(?:, under Notice \d+(?: \([^)]*\))?)? \(a pointer only/.exec(q.sent[0][1])[1], 'utf8');
+  const body = fs.readFileSync(/listed in (\S+?)(?:, under Notice \d+)? \(a pointer only/.exec(q.sent[0][1])[1], 'utf8');
   // kosmos#8912 slice 2: the second notice is its own entry; the first stays above it, so a turn that never read it loses nothing.
   const entries = ir.entriesOf(body);
   assert.deepEqual(entries.map((e) => e.n), [1, 2], 'the second notice did not add its own entry under the first');
@@ -393,7 +393,7 @@ test('review 13: the real chain, end to end: a start copy, a landed line naming 
   fs.writeFileSync(f, THIRD + 'One more.\n');
   const u = passArgs({ owed: { ida: debt() }, o: { ...real, deliver: async (s, line) => { u.sent.push([s, line]); return { state: D.UNCONFIRMED }; } } });
   await ir.passOnce(u.o);
-  const kept = /listed in (\S+?)(?:, under Notice \d+(?: \([^)]*\))?)? \(a pointer only/.exec(u.sent[0][1])[1];
+  const kept = /listed in (\S+?)(?:, under Notice \d+)? \(a pointer only/.exec(u.sent[0][1])[1];
   assert.ok(fs.existsSync(kept), 'an UNCONFIRMED line lost its changes file');
 });
 
@@ -466,7 +466,8 @@ test('kosmos#8416: the board pass is handed trueSections (read as source)', () =
   assert.match(src, /trueSections: \(session, sections\) => ir\.trueSectionsFor\(session, sections\),/);
   assert.match(src, /markRead: \(session, sections, text\) => ir\.markRead\(session, sections, text\),/);
   assert.match(src, /forgetMarks: \(session, sections\) => ir\.forgetMarks\(session, sections\),/);
-  assert.match(src, /else if \(body\.state === 'started'\) \{ try \{ require\('\.\/engine\/instructionreread'\)\.forgetMarks\(who\);/, 'an unrecorded start keeps the old marks');
+  // kosmos#8916: the unrecorded start now calls startedUnrecorded, which drops the marks (measured in the test below) and the changes file.
+  assert.match(src, /else if \(body\.state === 'started'\) \{ try \{ require\('\.\/engine\/instructionreread'\)\.startedUnrecorded\(who\);/, 'an unrecorded start keeps the old marks');
   assert.match(src, /readText: \(session\) => \{ const g = require\('\.\/engine\/instructions'\)\.read\(session\);/);
   assert.match(src, /\['sent', 'restarted', 'gone', 'expired', 'unchanged'\]\.includes\(d\.act\)/, 'a debt ended as unchanged leaves no log line');
 });
@@ -948,4 +949,14 @@ test('kosmos#8735 doctrine 62: without the v61 line in the last-read copy, nothi
   const body = fs.readFileSync(ir.prepareChanges('tqb').path, 'utf8');
   assert.ok(body.includes('- A rule about reacting that a later version removed.'), 'fixture: the removed line is not in the changes file');
   assert.ok(!/kosmos report --help/.test(body), 'a removal unrelated to the held cut was pointed at kosmos report --help');
+});
+
+/* kosmos#8916: startedUnrecorded still drops the marks, as the forgetMarks it replaced in server.js did (kosmos#8416). */
+test('kosmos#8916: startedUnrecorded drops the agent\'s marks; CONTROL: another agent\'s stay', () => {
+  assert.equal(ir.markRead('una', ['community'], '# You are Una\n\n## The Kosmos+ community\nPost.\n'), true);
+  assert.equal(ir.markRead('ula', ['community'], '# You are Ula\n\n## The Kosmos+ community\nPost.\n'), true);
+  assert.ok(ir.readMarks().una, 'precondition: no marks were kept');
+  ir.startedUnrecorded('una');
+  assert.equal(ir.readMarks().una, undefined, 'an unrecorded start kept the old marks');
+  assert.ok(ir.readMarks().ula, 'CONTROL: another agent\'s marks went too');
 });

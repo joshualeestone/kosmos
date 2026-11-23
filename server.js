@@ -20255,7 +20255,7 @@ const server = http.createServer(async (req, res) => {
         // Review 7: only a RECORDED start, the same row startedSince ends a debt on, so the copy never runs ahead of it.
         if (body.state === 'started' && kept && kept.recorded === true) { try { require('./engine/instructionreread').rememberRead(who); } catch { /* the next notice is as before */ } }
         // kosmos#8416: a start that was not recorded still read the whole file, so its old marks no longer say what it read.
-        else if (body.state === 'started') { try { require('./engine/instructionreread').forgetMarks(who); } catch { /* the next notice names more */ } }
+        else if (body.state === 'started') { try { require('./engine/instructionreread').startedUnrecorded(who); } catch { /* the next notice names more */ } }
         /* #2146 WORK-ACTIVITY MARKER (Renet Tilley). A separate, WORK-SPECIFIC
            signal, distinct from the liveness beat below. It records that the
            agent was ACTIVELY WORKING at a moment, so #2146's activeWhileWaiting

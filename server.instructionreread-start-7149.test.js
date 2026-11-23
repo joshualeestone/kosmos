@@ -72,3 +72,26 @@ test('review 11: a started report that is NOT recorded takes no copy (the row st
     assert.equal(ir.readSeen('mia'), '# You are Mia\n');
   } finally { selfreport.record = real; board.restore(); }
 });
+
+/* kosmos#8916 item 1: a started report that is not recorded still read the whole file, so the changes file and its
+   kept number from before go too (before, only the marks did). The copy stays, as review 11 above requires. */
+test('kosmos#8916: a started report that is NOT recorded drops the changes file and its number, and keeps the copy', { skip: /["\s]/.test(SANDBOX) ? 'the sandbox path has whitespace or a quote, and Kosmos names no changes file there' : false }, async () => {
+  const board = fleet.install([fleet.agent('nia', { state: 'idle' })]);
+  const selfreport = require('./engine/selfreport');
+  const real = selfreport.record;
+  try {
+    const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'nia');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# You are Nia\n\n## The Kosmos+ community\nPost once a week.\n');
+    TOKEN = sendertoken.mint('nia').token;
+    assert.equal(ir.remember('nia', '# You are Nia\n\n## The Kosmos+ community\nPost once a day.\n'), true);
+    const made = ir.prepareChanges('nia');
+    assert.ok(made && made.path && fs.existsSync(made.path), 'CONTROL: no changes file was made to drop');
+    selfreport.record = () => ({ recorded: false, because: 'we could not save that report' });
+    const refused = await report({ state: 'started', text: 'session start' });
+    assert.notEqual(refused.recorded, true, JSON.stringify(refused));
+    assert.equal(fs.existsSync(made.path), false, 'an unrecorded start left the changes file');
+    assert.equal(ir.readSeen('nia'), '# You are Nia\n\n## The Kosmos+ community\nPost once a day.\n', 'an unrecorded start moved the copy');
+    assert.equal(ir.prepareChanges('nia').notice, 1, 'the number from before the start continued');
+  } finally { selfreport.record = real; board.restore(); }
+});

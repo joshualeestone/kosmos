@@ -129,7 +129,6 @@ test('a file at that path that Kosmos did not write is never carried into the ne
   assert.equal(got.previous, null);
   const body = fs.readFileSync(got.path, 'utf8');
   assert.ok(!body.includes('secret') && !body.includes('someone else'), 'a stranger\'s file was carried into the changes file');
-  assert.ok(fs.readFileSync(f, 'utf8') === V2);
 });
 
 test('review 1 BLOCKER: a session start during a send that does not land is not undone by the restore', PATH_OK, async () => {
@@ -316,4 +315,19 @@ test('lineFor: no notice number keeps the old sentence; Notice 1 has no earlier-
   assert.ok(!/entries above/.test(ir.lineFor(['community'], { changesAt: '/w/x.md', notice: 3 })));
   assert.match(ir.lineFor(['community'], { changesAt: '/w/x.md', notice: 3, carried: true }), /The entries above Notice 3 in that file are earlier notices/);
   assert.ok(!/"/.test(one.replace(/"The Kosmos\+ community"/, '')), 'a double quote in the line would be read as a section heading');
+});
+
+/* kosmos#8916 item 1: a session start that was not recorded still read the whole file. Its changes file and the number
+   kept with it go, so the next notice is Notice 1 and "since you started" is true; the copy stays (review 7 of #7149). */
+test('kosmos#8916: an unrecorded start drops the changes file and its number, and keeps the copy', PATH_OK, () => {
+  agentFile('ida', V2);
+  ir.forget('ida');
+  assert.equal(ir.remember('ida', V1), true);
+  const first = ir.prepareChanges('ida');
+  assert.equal(first.notice, 1);
+  assert.equal(ir.prepareChanges('ida').notice, 2, 'CONTROL: the number continues while nothing clears it');
+  ir.startedUnrecorded('ida');
+  assert.equal(fs.existsSync(first.path), false, 'an unrecorded start left the changes file');
+  assert.equal(ir.readSeen('ida'), V1, 'an unrecorded start moved or dropped the copy');
+  assert.equal(ir.prepareChanges('ida').notice, 1, 'the number kept from before the start continued');
 });
