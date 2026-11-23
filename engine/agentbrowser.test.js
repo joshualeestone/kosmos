@@ -158,6 +158,7 @@ test('#8928 each agent gets its own config and output folder; a hostile name sta
 
 /* kosmos#8928 slice 2: which leftover servers are ended. Every "never touch" case over a plain table. */
 test('#8928 slice 2: only this agent\'s own server whose parent is gone is selected; CONTROL: every near miss is left', async (t) => {
+  assert.equal(ab.isInstalled(), true, 'fixture: the earlier test installed the fake tree');
   t.after(() => {   // only the output folder this test's launch makes, and the parent only if empty
     try { fs.rmSync(ab.outputDir('t8928-orphan'), { recursive: true, force: true }); } catch { /* best effort */ }
     try { fs.rmdirSync(path.dirname(ab.outputDir('t8928-orphan'))); } catch { /* not empty or gone */ }
@@ -237,7 +238,15 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
   assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', procs: () => notime, alive: (pid) => pid !== 50, end: async () => { throw new Error('must not end'); } }), []);
   /* The Windows ender re-reads each pid in the same call and ends it only if creation time AND command line still match;
      never a tree kill. (It runs only on Windows; this pins what it checks.) */
-  assert.match(ab.WIN_END, /\$c -ne \$s\.created -or \$p\.CommandLine -ne \$s\.command/);
+  assert.match(ab.WIN_END, /\$c -cne \$s\.created -or \$p\.CommandLine -cne \$s\.command/);
+  assert.match(ab.WIN_END, /\[Console\]::In\.ReadToEnd\(\)/, 'the plan comes on stdin');
+  for (const script of [ab.WIN_END, ab.WIN_TABLE]) {
+    assert.match(script, /OutputEncoding = \[Text\.Encoding\]::UTF8/);
+    assert.match(script, /'yyyyMMddHHmmss\.ffffff', \$ic\)/, 'times in the invariant culture');
+    const args = ab.psArgs(script);
+    assert.equal(args[2], '-EncodedCommand');
+    assert.equal(Buffer.from(args[3], 'base64').toString('utf16le'), script, 'PowerShell receives the script exactly');
+  }
   assert.match(ab.WIN_END, /Stop-Process -Id \(\[int\]\$s\.pid\) -Force/);
   assert.doesNotMatch(ab.WIN_END, /\/T\b|taskkill/i);
   /* Fail closed: with no ender handed in, nothing is listed unless the caller says live, and in a node --test process

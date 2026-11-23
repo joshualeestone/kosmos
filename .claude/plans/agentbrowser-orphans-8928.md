@@ -12,7 +12,7 @@ Slice 1 (each server's `--output-dir` names its agent: `<tmp>/kosmos-agent-brows
 3. Its parent is gone: Mac, ppid 1 (reparented to launchd) or a ppid that no longer exists; Windows, ParentProcessId not alive (win32orphan.pidState === 'gone'; 'unknown' counts as alive, never kill on doubt).
 
 ## Ending
-Exact pids only (never pkill/pattern), force: an orphaned server serves no one, and one that outlived its session is likely hung, so SIGTERM may do nothing. Mac: its descendants deepest first, then the server, SIGKILL, each pid re-read just before it is ended and skipped unless it is still what was selected. Windows: one fresh listing with creation times; descendants created after their parent, then the server, each ended alone with `taskkill /PID <pid> /F` (never /T: Windows keeps a dead parent's pid and reuses pids, so /T can reach an unrelated process).
+Exact pids only (never pkill/pattern), force: an orphaned server serves no one, and one that outlived its session is likely hung, so SIGTERM may do nothing. Mac: its descendants deepest first, then the server, SIGKILL, each pid re-read just before it is ended and skipped unless it is still what was selected. Windows: one listing with creation times plans it (descendants created after their parent, then the server; never a tree kill: Windows keeps a dead parent's pid and reuses pids); one PowerShell (WIN_END, plan on stdin) re-reads each planned pid and Stop-Process -Force only if its creation time and command line still match exactly.
 
 ## Where
 `endOrphanedServers(agent, deps)` in engine/agentbrowser.js, called from launchConfig when an agent is named; never throws. Mac: inline (ps takes milliseconds). Windows: asynchronous, after the launch has gone ahead, without blocking the supervisor. Fails closed: with no ender handed in it acts only when its caller says `live` (the shim run as a program; the Windows supervisor's own entry) or live execution is armed. Each process ended is appended to playwright-mcp/ended-servers.log. Listing, re-check and ending are injectable.
@@ -20,7 +20,7 @@ Exact pids only (never pkill/pattern), force: an orphaned server serves no one, 
 ## Tests
 - Pure selection over a fixture process table: own orphan selected; own server with a live parent NOT; another agent's orphan NOT; a prefix-named agent (`mona` vs `mona-lisa`) NOT; a non-Playwright process with the same folder NOT; a different install's cli.js NOT.
 - Mac end to end with a real throwaway child: spawn a stand-in "server" whose argv matches, orphan it (parent exits), launch the shim for that agent, assert the stand-in is gone; CONTROL: a stand-in with a live parent survives; a stand-in for another agent survives.
-- Windows: selection and the taskkill call through the seam.
+- Windows: selection, ordering and the creation-time rule through the seam; what WIN_END compares, and that PowerShell receives each script exactly (-EncodedCommand round trip). WIN_END itself runs only on Windows.
 
 ## Weakest premise
 That ppid 1 / a dead parent means the session is over. A server deliberately detached by a live session would be ended at that agent's next launch; nothing in Kosmos detaches them today.
@@ -70,3 +70,7 @@ Servers left by an earlier pinned version (another cli.js path) are not matched.
 - Fixed: the Mac budget covers the whole sweep (listing included), each ps timed to what is left.
 - Fixed: repo CLAUDE.md rule 3 now records this exception and why.
 - Fixed: a Windows row's creation time must look like one; the stand-in's cli.js restore is registered before it is replaced.
+
+## Challenge loop iteration 5 (sonnet)
+- No new finding about what is ended. Windows robustness, since this code has never run on Windows: both scripts now go as -EncodedCommand (no Node-to-PowerShell quoting can break them; a test decodes the argument back to the exact script); the plan goes on stdin (no 32K environment limit); output is UTF-8 (non-English names and temp paths still match); times use the invariant culture; the identity compare is case-sensitive (-cne); a failed end is logged, as a failed listing already was.
+- Plan spec sections brought up to date with the code (they still described taskkill).
