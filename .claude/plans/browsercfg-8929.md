@@ -39,3 +39,9 @@ tools/run-tests.sh --only engine/agentbrowser.test.js: 35/35 (the run review 2 s
 
 ## Evidence after iteration 2
 run-tests --only agentbrowser.test.js 35/35, not skipped. Mutations, each red under run-tests: the guard call removed (shim test), the store call removed (the new store-only arm). fixture-discipline, engine.reachable, launchpath-5516, win32supervisor under run-tests --only: 127/127.
+
+## Challenge loop iteration 3 (sonnet)
+- Fixed: the comment said the rule took "either separator", for a Windows shape that cannot occur (iteration 2 removed Temp for the same reason). The regex is now exactly the machine-wide _KOSMOS_KT_RE, and the claim is gone.
+- Fixed: the comment now names the shape the guard does not catch (a minimal-env child).
+- Deferred (same concern as iteration 1): a real board with a `.../tmp/kt5` temp folder loses its browser silently. A stderr line was rejected: it would print in every unsandboxed test run, which is the case this guard exists for.
+- NITs noted: the refusal also stops kickInstall in an unsandboxed test (intended: kickInstall writes under the same root); the regression guard skips off a Mac.
