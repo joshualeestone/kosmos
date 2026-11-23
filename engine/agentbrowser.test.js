@@ -852,6 +852,9 @@ test('#8928 slice 2: an agent\'s launch ends its own orphaned server and its bro
   assert.equal(alive(again), false, 'the shim, run as a program, did not end the agent\'s orphaned server');
   assert.equal(alive(againChild), false, 'nor its browser');
   assert.equal(alive(other) && alive(otherChild), true, 'CONTROL: the shim ended another agent\'s orphan');
+  /* Only a pid above 1 may be signalled (checked as a value: nothing here signals anything). */
+  for (const bad of [1, 0, -1, -77, 1.5, NaN, '123', null, undefined]) assert.equal(ab.endablePid(bad), false, 'endable: ' + String(bad));
+  assert.equal(ab.endablePid(4242), true, 'CONTROL: an ordinary pid');
   /* The launch itself still gets its config (its sweep does nothing here: a test process with no ender). */
   assert.ok(ab.launchConfig({ platform: 'darwin', arch: process.arch, install: false, env: {}, agent: 't8928-e2e' }), 'the launch still gets its config');
 });

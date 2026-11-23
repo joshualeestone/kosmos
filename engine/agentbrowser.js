@@ -355,8 +355,14 @@ async function winTable(onFail) {
   catch (e) { if (onFail) onFail(e); return []; }
 }
 /* The Mac ender. Windows ends through WIN_END above, which re-reads each pid in the same call. */
+/* A pid that may be signalled: an integer above 1. 0, -1 and below would signal a process group or every process the
+   user owns, and 1 is launchd. Pure, so it is tested without signalling anything. */
+function endablePid(pid) { return Number.isInteger(pid) && pid > 1; }
 function defaultEnd(platform) {
-  return platform === 'win32' ? null : (pid) => process.kill(pid, 'SIGKILL');
+  return platform === 'win32' ? null : (pid) => {
+    if (!endablePid(pid)) throw new Error('not a pid to end: ' + pid);
+    process.kill(pid, 'SIGKILL');
+  };
 }
 /* Each process ended is written down, so a wrong one could be traced. */
 function note(line) {
@@ -481,11 +487,14 @@ function launchConfig(opts) {
       node: o.node || process.execPath, cli: cliPath(), outputDir: outputDir(o.agent),
       platform, executablePath: mac ? shellExe(o.arch) : undefined,
     }), null, 2) + '\n';
-    /* kosmos#8928 slice 2: an agent whose output folder did not exist before this launch has had no session that
-       could have left a server, so there is nothing to sweep (and on Windows no PowerShell to start). */
+    /* kosmos#8928 slice 2: an agent's first launch (its output folder did not exist yet) has had no session that could
+       have left a server, so it sweeps nothing. Every later launch sweeps (on a Mac, within its 2 s budget). */
     let hadSession = false;
     if (o.agent) { try { hadSession = fs.existsSync(outputDir(o.agent)); fs.mkdirSync(outputDir(o.agent), { recursive: true }); } catch { /* the server can still make it; never costs the browser */ } }   // kosmos#8928
-    if (o.agent && hadSession) { const r = endOrphanedServers(o.agent, Object.assign({ platform, node: o.node || process.execPath }, o.orphans)); if (r && r.catch) r.catch(() => {}); }   // never throws, never waits on Windows
+    if (o.agent && hadSession) {
+      try { const r = endOrphanedServers(o.agent, Object.assign({ platform, node: o.node || process.execPath }, o.orphans)); if (r && r.catch) r.catch(() => {}); }
+      catch { /* a sweep never costs the launch its config */ }
+    }
     const file = configPath(o.agent);
     return writeConfigIfNeeded(file, text) ? file : null;
   } catch { return null; }
@@ -804,6 +813,6 @@ function installWithRetry(opts) {
 module.exports = {
   inKtRunRoot,   // kosmos#8929
   PIN, SHELL, SERVER_NAME, configFor, launchConfig, ensureInstalled, ensureShell, kickInstall, isInstalled,
-  installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir, agentKey, orphanedServers, endingOrder, endOrphanedServers, defaultEnd, parseTable, WIN_END, WIN_TABLE, psArgs,
+  installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir, agentKey, orphanedServers, endingOrder, endOrphanedServers, defaultEnd, endablePid, parseTable, WIN_END, WIN_TABLE, psArgs,
   optOutPath, lockPath, disabled,
 };
