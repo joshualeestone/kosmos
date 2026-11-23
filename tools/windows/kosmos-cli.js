@@ -1982,12 +1982,12 @@ async function taskMessage(ctx, args) {
   return 1;
 }
 
-/* kosmos#7180, as install/kosmos's task list: what a held task waits for, as the board stored it, or nothing. */
 /* kosmos#8934, as install/kosmos's list: the [built] tag names what the mark says it waits on. */
 function builtTag(x) {
   const w = { person: ', waiting on the person', review: ', waiting on a review', release: ', waiting on a release' };
   return '[built' + (Object.hasOwn(w, String(x.builtWaitingOn)) ? w[x.builtWaitingOn] : '') + '] ';
 }
+/* kosmos#7180, as install/kosmos's task list: what a held task waits for, as the board stored it, or nothing. */
 function holdUntilWords(x) {
   const u = x && x.onHoldUntil;
   if (u && Number.isInteger(u.task)) return ' until task ' + u.task + ' is closed';
@@ -2104,7 +2104,10 @@ async function taskBuilt(ctx, args) {
   for (const a of rest) {
     if (wantFile) { file = a; wantFile = false; continue; }
     if (wantCommit) { cref = a; wantCommit = false; continue; }
-    if (wantWaiting) { waiting = a; wantWaiting = false; continue; }   // kosmos#8934
+    if (wantWaiting) {   // kosmos#8934: refused as it is read, as install/kosmos refuses it, before --file and --commit
+      if (!['person', 'review', 'release'].includes(a)) { ctx.err('--waiting says what the task waits on: person, review or release (got ' + a + ').'); return 2; }
+      waiting = a; wantWaiting = false; continue;
+    }
     if (!past && a === '--') { past = true; continue; }
     if (!past && a === '--clear') { clear = true; continue; }
     if (!past && a === '--file') { wantFile = true; continue; }   // #6330 slice 2
@@ -2115,14 +2118,11 @@ async function taskBuilt(ctx, args) {
   }
   if (wantFile) { ctx.err('--file needs the path of the delivered file.'); return 2; }
   if (wantCommit || cref === '') { ctx.err('--commit needs the commit the fix landed as, for example --commit HEAD.'); return 2; }
+  if (wantWaiting) { ctx.err('--waiting says what the task waits on: person, review or release.'); return 2; }   // kosmos#8934, after --file and --commit, as install/kosmos
   if (cref !== null && cref.startsWith('-')) { ctx.err('--commit needs the commit the fix landed as, for example --commit HEAD (got ' + cref + ').'); return 2; }   // review 2: not the next option
   const note = words.join(' ');
   if (clear && note) { ctx.err('--clear takes the mark off, so it takes no note. Run it without the note.'); return 2; }
   /* kosmos#8934, as install/kosmos: what it waits on, one of three words, checked here as the board checks it. */
-  if (wantWaiting || (waiting !== null && !['person', 'review', 'release'].includes(waiting))) {
-    ctx.err('--waiting says what the task waits on: person, review or release' + (waiting !== null && !wantWaiting ? ' (got ' + waiting + ')' : '') + '.');
-    return 2;
-  }
   if (clear && waiting !== null) { ctx.err('--clear takes the mark off, so it takes no --waiting. Run it without --waiting.'); return 2; }
   /* #6330 slice 2: the delivered file's fingerprint, worked out here; the board never reads the file. kosmos#6849: the one
      engine/fileprint.js gives, as the Mac and `kosmos fingerprint` do (a PDF's own dates and document ID left out). */

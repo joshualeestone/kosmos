@@ -269,7 +269,7 @@ function stateWords(x) {
     return 'on hold' + until + confirmedWords(x) + (x.onHoldByPerson === true ? ', put on hold by the person (only they can take it off)' : '')
       + (x.onHoldForPerson === true ? ', waiting on the person' + toldWords(x) : '')
       + (x.projectPaused === true ? '; its project is paused too' : '')   // review 5
-      + (x.builtAt ? '; built' : '');   // review 2: as the list's [on hold] [built], so delivered work is not hidden
+      + (x.builtAt ? '; built' + builtWaitsWords(x) : '');   // review 2: as the list's [on hold] [built], so delivered work is not hidden; kosmos#8934: and what it waits on
   }
   if (x.builtAt) return 'built' + builtWaitsWords(x) + (x.projectPaused === true ? ' (its project is paused)' : '');
   if (x.projectPaused === true) return 'on hold (its project is paused)';

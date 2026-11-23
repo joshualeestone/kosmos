@@ -128,6 +128,9 @@ test('the text list: the State and Built fields and the waits-on words say it; a
   assert.equal(/waiting on/.test(plain), false, plain);
   // A stored value that is not one of the three says nothing (never "waiting on undefined" or a function's text).
   assert.equal(/waiting on/.test(show(row({ builtWaitingOn: 'constructor' }))), false);
+  // Review 1: a held task that is also built says what the mark waits on, as the list's [on hold] [built, ...] tags do.
+  assert.match(show(row({ onHold: true, builtWaitingOn: 'review' })), /State: +on hold.*; built, waiting on a review/);
+  assert.match(show(row({ onHold: true })), /State: +on hold.*; built$/m, 'CONTROL: a held built mark without one');
 });
 
 test('the board page: the row helper says "waiting on you" for the person, and nothing for a mark without one', () => {
@@ -204,16 +207,80 @@ for (const [name, run, skip] of [['Mac', mac, process.platform === 'win32' && 't
     const bad = await run(['task', 'built', projectId, String(n), 'done', '--waiting', 'agents']);
     assert.equal(bad.code, 2, bad.out);
     assert.match(bad.out, /--waiting says what the task waits on: person, review or release \(got agents\)/);
+    // Review 1: the same refusal first in both CLIs, an unknown value before a --file with no path.
+    const first = await run(['task', 'built', projectId, String(n), 'done', '--waiting', 'bogus', '--file']);
+    assert.equal(first.code, 2, first.out);
+    assert.match(first.out, /\(got bogus\)/, 'refused for another reason first: ' + first.out);
     const empty = await run(['task', 'built', projectId, String(n), 'done', '--waiting']);
     assert.equal(empty.code, 2, empty.out);
     assert.match(empty.out, /--waiting says what the task waits on: person, review or release/);
+    assert.equal(stored(n).builtAt, undefined, 'a refused --waiting still marked the task');
+    // Review 1: marked first, so the clear's refusal is what keeps the mark (a clear of an unmarked task sets nothing either way).
+    assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', note: 'first' }).ok, true);
     const both = await run(['task', 'built', projectId, String(n), '--clear', '--waiting', 'review']);
     assert.equal(both.code, 2, both.out);
     assert.match(both.out, /takes no --waiting/);
-    assert.equal(stored(n).builtAt, undefined, 'a refused --waiting still marked the task');
+    assert.equal(typeof stored(n).builtAt, 'string', 'a refused --clear --waiting still took the mark off');
     // CONTROL: a good value on the same task goes through.
     const ok = await run(['task', 'built', projectId, String(n), 'done', '--waiting', 'review']);
     assert.equal(ok.code, 0, ok.out);
     assert.equal(stored(n).builtWaitingOn, 'review');
   });
 }
+
+/* Review 1: a board from before kosmos#8934 keeps no builtWaitingOn and answers without it. A proxy in front of this board
+   takes the field out of every answer, so each CLI is shown an older board; the CONTROL is the same command against the
+   board itself, above, which says what it waits on. */
+const http = require('node:http');
+/* Started inside the test, not in a before hook: a hook registered after the run began never ran (measured: the CLI
+   was pointed at port "undefined"). */
+async function startOlder() {
+  const older = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', async () => {
+      const headers = { ...req.headers };
+      // The hop-by-hop headers curl sends are refused by fetch, so they are not passed on.
+      for (const h of ['host', 'content-length', 'connection', 'keep-alive', 'transfer-encoding', 'expect', 'upgrade', 'proxy-connection']) delete headers[h];
+      try {
+        const r = await fetch(base + req.url, { method: req.method, headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : Buffer.concat(chunks) });
+        let text = await r.text();
+        try { const j = JSON.parse(text); if (j && j.task) delete j.task.builtWaitingOn; text = JSON.stringify(j); } catch { /* not JSON: as sent */ }
+        res.writeHead(r.status, { 'content-type': r.headers.get('content-type') || 'application/json' });
+        res.end(text);
+      } catch (e) { res.writeHead(502, { 'content-type': 'text/plain' }); res.end('proxy: ' + e.message); }
+    });
+  });
+  await new Promise((resolve) => older.listen(0, '127.0.0.1', resolve));
+  return older;
+}
+
+test('review 1: against an older board, both CLIs say it was not recorded, and the sentence does not claim it', async () => {
+  const olderServer = await startOlder();
+  const olderPort = olderServer.address().port;
+  try {
+  const older = [
+    ['Mac', (args) => mac(args, { KOSMOS_PORT: String(olderPort) }), process.platform === 'win32'],
+    ['Windows', async (args) => {
+      const out = [];
+      const code = await winCli.main(args, {
+        env: { KOSMOS_AGENT_TOKEN: sendertoken.mint('mona').token, KOSMOS_PORT: String(olderPort) },
+        out: (x) => out.push(x), err: (x) => out.push(x),
+        fetch: async (url, init) => { const u = new URL(url); const res = await fetch('http://127.0.0.1:' + olderPort + u.pathname + u.search, { method: init.method, headers: init.headers, body: init.body }); return { status: res.status, text: async () => res.text() }; },
+      });
+      return { code, out: out.join('\n') };
+    }, false],
+  ];
+  for (const [name, run, skip] of older) {
+    if (skip) continue;
+    const n = newTask(name + ' older board');
+    const r = await run(['task', 'built', projectId, String(n), 'done', '--waiting', 'release']);
+    assert.equal(r.code, 0, name + ': ' + r.out);
+    assert.equal(stored(n).builtWaitingOn, 'release', name + ': PRE-CONTROL: the board behind the proxy did record it');
+    assert.match(r.out, /built, waiting to be released or checked./, name + ': ' + r.out);
+    assert.doesNotMatch(r.out, /waiting on a release/, name + ': it claimed what the board did not say: ' + r.out);
+    assert.match(r.out, /This Kosmos did not record what it waits on: it may be older than --waiting/, name + ': ' + r.out);
+    assert.doesNotMatch(r.out, /--waiting person, review or release \(kosmos task --how\)/, name + ': the hint was given to a mark that sent --waiting: ' + r.out);
+  }
+  } finally { olderServer.close(); }
+});

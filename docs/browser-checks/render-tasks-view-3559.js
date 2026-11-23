@@ -674,6 +674,22 @@ function chk(ok, label, extra) {
         tasks.setBuilt(news.id, 3, { by: 'rex', note: 'waiting on the release' });
         await page.evaluate(() => tskLoad());
         await page.waitForTimeout(300);
+        /* kosmos#8934: a mark that says what it waits on says it on the row, a fixed phrase before the agent's note. The
+           CONTROL is the plain mark checked above, whose row has no such phrase. Marked plain again after, so the checks
+           below see the fixture as it was. */
+        const rowWhy = () => page.evaluate(() => { const r = [...document.querySelectorAll('#tsk-groups .tsk-row')].find((x) => x.querySelector('.tl').textContent === 'Ship the signup form');
+          return r ? [...r.querySelectorAll('.why')].map((x) => x.textContent).join(' ') : null; });
+        tasks.setBuilt(news.id, 3, { by: 'rex', note: 'waiting on the release', waitingOn: 'release' });
+        await page.evaluate(() => tskLoad());
+        await page.waitForTimeout(300);
+        const waitsWhy = await rowWhy();
+        chk(waitsWhy !== null && /^Marked built by Rex .+, waiting on a release: waiting on the release Undo$/.test(waitsWhy),
+          `${tag} a built mark that says what it waits on says it on the row (kosmos#8934)`, JSON.stringify(waitsWhy));
+        tasks.setBuilt(news.id, 3, { by: 'rex', note: 'waiting on the release' });
+        await page.evaluate(() => tskLoad());
+        await page.waitForTimeout(300);
+        const plainWhy = await rowWhy();
+        chk(plainWhy !== null && !/waiting on a release:/.test(plainWhy), `${tag} the plain mark again has no waits-on phrase (kosmos#8934)`, JSON.stringify(plainWhy));
         /* kosmos#4787: a repeating task's row says its rule, its last run (who and their note) and its next run, from the
            board's words; and it stays in its owner's group (Assigned), not Unassigned. Made repeating and cleared here,
            so every count above and below sees the fixture as it was. Control: before the rule, the row has no line. */
