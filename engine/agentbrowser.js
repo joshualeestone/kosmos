@@ -267,7 +267,7 @@ function escapeRe(t) { return String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
 function serverMatch(command, o) {
   /* The cli.js must be the script the interpreter runs (its first argument), not merely named somewhere on the line,
      so a `tail` or an editor opened on the same paths is never a match. */
-  const script = new RegExp('^\\s*("[^"]*"|\\S+)\\s+"?' + escapeRe(o.cli) + '"?(\\s|$)');
+  const script = new RegExp('^\\s*"?[^"]*?[\\\\/]node(\\.exe)?"?\\s+"?' + escapeRe(o.cli) + '"?(\\s|$)', 'i');
   const dir = new RegExp('(^|\\s)--output-dir\\s+"?' + escapeRe(o.outputDir) + '"?(\\s|$)');
   return typeof command === 'string' && script.test(command) && dir.test(command);
 }
@@ -308,7 +308,7 @@ function parseTable(out, windows) {
 /* The Windows scripts. Each runs as -EncodedCommand (base64 UTF-16LE), so no quoting between Node and PowerShell can
    break it; output is UTF-8, so a non-English name or temp path still matches; times are UTC in the invariant culture,
    so the listing and the ender always spell them the same way. */
-const WIN_PRELUDE = '$u = New-Object Text.UTF8Encoding $false; [Console]::OutputEncoding = $u; [Console]::InputEncoding = $u; $ic = [Globalization.CultureInfo]::InvariantCulture';
+const WIN_PRELUDE = '$u = New-Object Text.UTF8Encoding $false; try { [Console]::OutputEncoding = $u; [Console]::InputEncoding = $u } catch { }; $ic = [Globalization.CultureInfo]::InvariantCulture';
 const WIN_TABLE = WIN_PRELUDE + '\n' + 'Get-CimInstance Win32_Process | ForEach-Object { $c = if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString(\'yyyyMMddHHmmss.ffffff\', $ic) } else { \'0\' }; "$($_.ProcessId) $($_.ParentProcessId) $c $($_.CommandLine)" } | Out-String -Width 32767';
 const WIN_END = WIN_PRELUDE + '\n' + [
   '$plan = [Console]::In.ReadToEnd() | ConvertFrom-Json',   // the plan arrives on stdin: no length limit
@@ -327,7 +327,10 @@ function runPs(script, input, timeoutMs) {
     const { spawn } = require('node:child_process');
     let out = '';
     let err = '';
-    const child = spawn('powershell.exe', psArgs(script), { windowsHide: true });
+    /* By full path, like the repo's other PowerShell callers: this script ends processes, so no stray powershell.exe
+       found on the way may stand in for it. */
+    const ps = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const child = spawn(ps, psArgs(script), { windowsHide: true });
     const timer = setTimeout(() => { try { child.kill(); } catch { /* gone */ } reject(new Error('timed out')); }, timeoutMs || 15000);
     child.stdout.setEncoding('utf8');   // one decoder for the stream, so a character split across chunks stays whole
     child.stderr.setEncoding('utf8');
@@ -432,10 +435,12 @@ function endOrphanedServers(agent, deps) {
         return ended;
       }
       if (!steps.length) return ended;
+      note(agentKey(agent) + ' ending ' + steps.map(({ p }) => p.pid + '@' + p.created).join(' '));   // written first: a crash below still leaves the plan
       const planJson = JSON.stringify(steps.map(({ p }) => ({ pid: p.pid, created: p.created, command: p.command })));
       let out = '';
       try { out = await runPs(WIN_END, planJson, 30000); } catch (e) { note(agentKey(agent) + ' could not end processes: ' + String((e && e.message) || e).slice(0, 200)); return ended; }
       for (const m of String(out).matchAll(/^failed (\d+) (.*)$/gm)) note(agentKey(agent) + ' could not end pid ' + m[1] + ': ' + m[2].slice(0, 200));
+      if (!/^ended \d+/m.test(out)) note(agentKey(agent) + ' ended none of ' + steps.length + ' planned');
       for (const m of String(out || '').matchAll(/^ended (\d+)\s*$/gm)) {
         const pid = Number(m[1]);
         ended.push(pid);
@@ -473,8 +478,11 @@ function launchConfig(opts) {
       node: o.node || process.execPath, cli: cliPath(), outputDir: outputDir(o.agent),
       platform, executablePath: mac ? shellExe(o.arch) : undefined,
     }), null, 2) + '\n';
-    if (o.agent) { try { fs.mkdirSync(outputDir(o.agent), { recursive: true }); } catch { /* the server can still make it; never costs the browser */ } }   // kosmos#8928
-    if (o.agent) { const r = endOrphanedServers(o.agent, Object.assign({ platform }, o.orphans)); if (r && r.catch) r.catch(() => {}); }   // kosmos#8928 slice 2: never throws, never waits on Windows
+    /* kosmos#8928 slice 2: an agent whose output folder did not exist before this launch has had no session that
+       could have left a server, so there is nothing to sweep (and on Windows no PowerShell to start). */
+    let hadSession = false;
+    if (o.agent) { try { hadSession = fs.existsSync(outputDir(o.agent)); fs.mkdirSync(outputDir(o.agent), { recursive: true }); } catch { /* the server can still make it; never costs the browser */ } }   // kosmos#8928
+    if (o.agent && hadSession) { const r = endOrphanedServers(o.agent, Object.assign({ platform }, o.orphans)); if (r && r.catch) r.catch(() => {}); }   // never throws, never waits on Windows
     const file = configPath(o.agent);
     return writeConfigIfNeeded(file, text) ? file : null;
   } catch { return null; }

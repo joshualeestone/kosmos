@@ -174,6 +174,7 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
     { pid: 105, ppid: 1, command: cmd(mine, '/OTHER/node_modules/@playwright/mcp/cli.js') },   // another install: left
     { pid: 106, ppid: 1, command: 'vim ' + mine },                                // not a server: left
     { pid: 111, ppid: 1, command: 'tail -f ' + cli + ' --output-dir ' + mine },   // names both, but cli.js is not its script: left
+    { pid: 112, ppid: 1, command: '/Users/A B/K/node ' + cli + ' --output-dir ' + mine },   // a node path with a space, unquoted as ps prints it: ENDED
     { pid: 107, ppid: 1, command: cmd('/T/kosmos-agent-browser') },               // the shared folder: left
     { pid: 108, ppid: 901, command: cmd(mine) },                                  // mine, parent gone (not 1): ENDED
     { pid: 109, ppid: 1, command: '"C:\\K\\node.exe" "' + cli + '" --output-dir "' + mine + '"' },   // quoted, Windows style: ENDED
@@ -181,7 +182,7 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
   ];
   const alive = new Set([900]);
   const got = ab.orphanedServers(procs, { cli, outputDir: mine, self: 110, parentGone: (pp) => pp === 1 || !alive.has(pp) });
-  assert.deepEqual(got, [101, 108, 109]);
+  assert.deepEqual(got, [101, 112, 108, 109]);
   assert.deepEqual(ab.orphanedServers(procs, { cli, outputDir: mine }), [], 'CONTROL: with no way to tell a parent is gone, nothing is selected');
   assert.deepEqual(ab.orphanedServers(procs, { cli: '', outputDir: mine, parentGone: () => true }), [], 'CONTROL: no cli path, nothing');
   /* endOrphanedServers: children first, then the server; each pid re-read before it is ended and skipped unless it is
@@ -212,7 +213,12 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
   });
   assert.deepEqual(moved, [201], 'a re-parented child is not ended');
   assert.deepEqual(ab.endOrphanedServers('', { procs: () => { throw new Error('must not be asked'); } }), [], 'CONTROL: no name, no listing');
-  /* launchConfig really calls it, for the agent it launches, on its own platform. */
+  /* launchConfig really calls it, for the agent it launches, once that agent has had a session (its output folder exists).
+     CONTROL first: before any session, nothing is listed. */
+  let listedFirst = false;
+  fs.rmSync(ab.outputDir('t8928-orphan'), { recursive: true, force: true });
+  ab.launchConfig({ platform: 'win32', node: 'C:\\K\\node.exe', env: {}, agent: 't8928-orphan', orphans: { platform: 'darwin', procs: () => { listedFirst = true; return []; }, end: () => {} } });
+  assert.equal(listedFirst, false, 'CONTROL: an agent with no earlier session was swept');
   const viaLaunch = [];
   assert.ok(ab.launchConfig({ platform: 'win32', node: 'C:\\K\\node.exe', env: {}, agent: 't8928-orphan', orphans: {
     platform: 'darwin', procs: () => table, alive: () => true, recheck: (pid) => table.find((x) => x.pid === pid) || null,
@@ -247,7 +253,7 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
   assert.match(ab.WIN_END, /\$c -cne \$s\.created -or \$p\.CommandLine -cne \$s\.command/);
   assert.match(ab.WIN_END, /\[Console\]::In\.ReadToEnd\(\)/, 'the plan comes on stdin');
   for (const script of [ab.WIN_END, ab.WIN_TABLE]) {
-    assert.match(script, /New-Object Text\.UTF8Encoding \$false; \[Console\]::OutputEncoding = \$u/, 'UTF-8 with no byte-order mark');
+    assert.match(script, /New-Object Text\.UTF8Encoding \$false; try \{ \[Console\]::OutputEncoding = \$u; \[Console\]::InputEncoding = \$u \} catch \{ \}/, 'UTF-8 with no byte-order mark, the setters guarded');
     assert.match(script, /'yyyyMMddHHmmss\.ffffff', \$ic\)/, 'times in the invariant culture');
     const args = ab.psArgs(script);
     assert.equal(args[2], '-EncodedCommand');
@@ -826,6 +832,7 @@ test('#8928 slice 2: an agent\'s launch ends its own orphaned server and its bro
   recorded.push(againChild);
   const env = Object.assign({}, process.env);
   delete env.NODE_TEST_CONTEXT; delete env.KOSMOS_TEST_RUN;
+  fs.mkdirSync(ab.outputDir('t8928-e2e'), { recursive: true });   // the agent has had a session
   const shim = spawnSync(process.execPath, [path.join(__dirname, 'agent-browser-config.js'), 't8928-e2e'], { env, encoding: 'utf8', timeout: 30000 });
   assert.equal(shim.status, 0);
   for (let i = 0; i < 50 && (alive(again) || alive(againChild)); i++) await new Promise((r) => setTimeout(r, 100));
