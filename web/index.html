@@ -15130,7 +15130,7 @@ window.kosmosMeasureScrollbarWidth();
      browser sign-in, OpenAI pasted key) are unchanged, just reached
      through a dialog instead of always sitting on the page. -->
 <div class="rm-back" id="acct-add-modal" hidden>
-  <div class="rm-box rm-box-form" id="acct-add-dialog" role="dialog" aria-modal="true" aria-labelledby="acct-add-t" aria-describedby="acct-add-in">
+  <div class="rm-box rm-box-form" id="acct-add-dialog" role="dialog" aria-modal="true" aria-labelledby="acct-add-t" aria-describedby="acct-add-in acct-policy-note">
     <h2 class="rm-title" id="acct-add-t">Add a provider</h2>
     <p class="rm-small" id="acct-add-in">Pick which AI provider you want to connect. Anthropic Claude, OpenAI, Google Gemini, xAI Grok and Alibaba Qwen work today; the rest are listed so you can see what is coming.</p>
     <!-- kosmos#8938: the AI providers a company's or family's policy allows (acctPolicyMark). -->
@@ -20898,7 +20898,7 @@ window.kosmosMeasureScrollbarWidth();
         <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say" tabindex="-1"></p>
-          <!-- kosmos#8938: a member is told, on their own computer, what goes in the company's daily report (engine/orgrollup.js build()) and what never does. A company only; a family has its own words (#6239). -->
+          <!-- kosmos#8938: the company's own accepted words, on the member's own computer (plusOrgSees). A company only; a family has its own words (#6239). -->
           <p class="fhint" id="plus-org-sees" hidden></p>
           <!-- kosmos#6752: every member sees when someone is made a reviewer (kosmos#6594): the grants of the last 30 days,
                from the hourly status read. Shown only when there are some. -->
@@ -58280,6 +58280,7 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
 function plusOrgPaint() {
   const st = PLUS_ORG.state || {};
   const here = st.enrolled === true && st.org;
+  if (PLUS_ORG.state) workOrgFrom(st);   // kosmos#8938
   // The whole block only for someone it concerns (Splinter/Josh 10-08); everyone else gets the one button.
   /* A line on screen opens the block, so the person sees what it is about (a company note, "You left").
      🛑 Every writer of #plus-org-msg relies on this: a NEW message for a computer with no company would reveal the
@@ -58320,14 +58321,17 @@ function plusOrgPaint() {
   if (here) recoveryNoteSeenList(st);   // kosmos#5536: likewise
 }
 /* kosmos#8938: what this computer reports to its company, in the company's own words as accepted here (/api/org
-   reportWords: its report lines and its never lines), on the member's own screen. Shown for a company only, while this
+   reportWords: its report lines, its backup lines and its never lines), on the member's own screen. Shown for a company only, while this
    Kosmos reports; nothing when the words are missing. */
 function plusOrgSeesText(words) {
   const clean = (l) => (Array.isArray(l) ? l.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim()) : []);
   const reports = clean(words && words.reports);
   if (!reports.length) return '';
+  const backsUp = clean(words && words.backsUp);
   const never = clean(words && words.never);
-  return 'Reported to your company: ' + reports.join('; ') + '.' + (never.length ? ' Never sent: ' + never.join('; ') + '.' : '');
+  return 'Reported to your company: ' + reports.join('; ') + '.'
+    + (backsUp.length ? ' Your company may back up: ' + backsUp.join('; ') + '.' : '')
+    + (never.length ? ' Never sent: ' + never.join('; ') + '.' : '');
 }
 function plusOrgSees(st) {
   const el = document.getElementById('plus-org-sees');
@@ -91152,10 +91156,16 @@ function workOrgPaint() {
   workOrgShow(WORK_ORG.org);
   if (WORK_ORG.busy || Date.now() - WORK_ORG.at < 60000) return;
   WORK_ORG.busy = true;
-  WORK_ORG.at = Date.now();
   fetch('/api/org').then((r) => r.json()).then((j) => {
     WORK_ORG.org = j && j.enrolled === true && j.org && j.org.kind !== 'family' ? j.org : null;
+    WORK_ORG.at = Date.now();   // only a read that answered counts: a failed one is tried again next time
   }).catch(() => {}).finally(() => { WORK_ORG.busy = false; workOrgShow(WORK_ORG.org); });
+}
+/* plusOrgPaint holds a fresh /api/org answer (a join, a leave, a read): the welcome and the You menu follow it at once. */
+function workOrgFrom(st) {
+  WORK_ORG.org = st && st.enrolled === true && st.org && st.org.kind !== 'family' ? st.org : null;
+  WORK_ORG.at = Date.now();
+  workOrgShow(WORK_ORG.org);
 }
 function frGo(step) {
   /**

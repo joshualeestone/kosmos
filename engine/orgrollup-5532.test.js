@@ -1134,16 +1134,18 @@ test('#5532: another Kosmos\'s usage needs ONE accepted line naming both every K
   assert.equal(oe.acceptedConsent({ root }).everyKosmosUsageConsented, true, 'CONTROL: the line naming both was not read');
 });
 
-test('kosmos#8938: acceptedNever reads the never lines of the words on record (CONTROL: words with none give [])', async (t) => {
+test('kosmos#8938: the never lines a join accepts are kept and read back by acceptedNever (CONTROL: words with none give [])', async (t) => {
+  // Through the real path: enroll stores the words it was handed (rememberConsent), nothing planted in the file.
   const root = world(t);
-  const c = coordinator();
-  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
-  accept(root, ['agent names'], true);
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: coordinator(), consentHash: HASH,
+    consent: { reports: ['agent names'], backsUp: [], never: ['keys and passwords', '', 7, 'your other Kosmoses on this computer'] } });
+  accept(root, null, true);   // CONTROL first: words with no never lines (accept writes reports only)
   assert.deepEqual(oe.acceptedNever({ root }), [], 'words with no never lines');
-  const f = path.join(root, oe.CONSENT_FILE);
-  const j = JSON.parse(fs.readFileSync(f, 'utf8'));
-  j.byHash[HASH].never = ['keys and passwords', '', 7, 'your other Kosmoses on this computer'];
-  fs.writeFileSync(f, JSON.stringify(j));
-  assert.deepEqual(oe.acceptedNever({ root }), ['keys and passwords', 'your other Kosmoses on this computer'], 'only real lines, in order');
-  assert.deepEqual(oe.acceptedConsent({ root }).reports, ['agent names'], 'the same record acceptedConsent reads');
+  const root2 = world(t);
+  await oe.enroll('ACME-JOIN-1234', true, { root: root2, remote: coordinator(), consentHash: HASH,
+    consent: { reports: ['agent names'], backsUp: [], never: ['keys and passwords', '', 7, 'your other Kosmoses on this computer'] } });
+  const rec = JSON.parse(fs.readFileSync(path.join(root2, oe.ENROLLMENT_FILE), 'utf8'));
+  if (rec.consentHash !== HASH) { rec.consentHash = HASH; fs.writeFileSync(path.join(root2, oe.ENROLLMENT_FILE), JSON.stringify(rec)); }
+  assert.deepEqual(oe.acceptedNever({ root: root2 }), ['keys and passwords', 'your other Kosmoses on this computer'], 'the never lines the join kept, only real ones, in order');
+  assert.deepEqual(oe.acceptedConsent({ root: root2 }).reports, ['agent names'], 'the same record acceptedConsent reads');
 });

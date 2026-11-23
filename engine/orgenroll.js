@@ -315,7 +315,9 @@ function rememberConsent(hash, consent, opts) {
   const byHash = {};
   // kosmos#7404: backsUp is kept too: a personal backup uploads only under words that name something backed up.
   const backsUp = Array.isArray(consent.backsUp) ? consent.backsUp.filter((l) => typeof l === 'string' && l) : [];
-  for (const h of order) byHash[h] = h === hash ? { reports, backsUp, usageConsented: reports.some((l) => NAMES_USAGE.test(l)) } : all.byHash[h];
+  // kosmos#8938: never is kept too, so the member's Settings can show the company's own never lines.
+  const never = Array.isArray(consent.never) ? consent.never.filter((l) => typeof l === 'string' && l) : [];
+  for (const h of order) byHash[h] = h === hash ? { reports, backsUp, never, usageConsented: reports.some((l) => NAMES_USAGE.test(l)) } : all.byHash[h];
   try { writeWhole(path.join(storeRoot(opts), CONSENT_FILE), JSON.stringify({ byHash, order }) + '\n'); return true; } catch { return false; }
 }
 /* The accepted words for the hash on this world's record, or null: only while it may report (mayReport), and only when
@@ -1290,10 +1292,11 @@ function applyPolicy(token, opts, orgId) {
   }
 }
 
-module.exports = { acceptedNever,
+module.exports = {
   onEnrollmentEnded,   // #6232 review 10
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, JOIN_UNKNOWN_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindStrict, kindNow, kindOf, codeOf,
   cleanReviewerGrants, MAX_REVIEWER_GRANTS, // kosmos#6752
   cleanRecoveries, MAX_RECOVERIES, // kosmos#5536
-  worldId, siblingId, SIBLING_ID_FILE, STOPPED_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, stoppedKind, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, memberCheck, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
+  worldId, siblingId, SIBLING_ID_FILE, STOPPED_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, stoppedKind, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, memberCheck, CONSENT_FILE, acceptedConsent, acceptedNever,   // kosmos#8938: acceptedNever
+  consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };
