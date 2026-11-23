@@ -17,3 +17,16 @@ converged: true
 - Mutations: removing the row call fails 4 row checks; removing the page call fails 3 page checks.
 - [BLOCKER] none. [WARNING] none.
 - Rebased after review onto main (Baron's #8934 landed with three more commits); none of them touched the web wording or the stored values this copies, checked by diff.
+
+## What the reviewer read and confirmed, item by item
+- Web row (web/index.html, the builtLine): Marked built, by you or by name, the time, tskBuiltWaitsWords, then ": note". iOS builtLine builds the same order.
+- Empty time: the web adds a space only for a non-empty time; iOS does the same with `if !a.isEmpty`, so the words attach directly.
+- No note and no who: each part is appended only when present, on both sides.
+- Web page (the builtWords line): words after who, before the note; iOS stateLine the same.
+- The table is identical: person "you", review "a review", release "a release", joined as ", waiting on " + words.
+- Unknown value: the web guards with a string type check and Object.hasOwn; the Swift dictionary lookup gives the same result.
+- Decoding: the tasks read uses str(row, "builtWaitingOn"); the page read uses text(...), which maps empty and non-strings to nil.
+- Payloads: server.js builds each Tasks row with Object.assign from the stored task, and engine/tasks.js stores builtWaitingOn in its built fields.
+- Other iOS surfaces: only TodayView builds a built line; out of scope (the web Today card uses its own words).
+- Tests: each table case fails on a wrong word, order or comma; "the moon" fails if a raw value leaks; the no-note case fails if the words drop; the decode case fails if the field is not read; the premise check fails if the web table changes.
+- Reviewer NIT, not acted on: the page's __proto__ case adds little over the row's "the moon" case; kept as a second unknown value.
