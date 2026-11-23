@@ -34,7 +34,7 @@ fs.writeFileSync(FAKE_TMUX, [
 function runOver(paneCmd, runner, model) {
   const rec = nodePath.join(SANDBOX, `rec-${Math.random().toString(36).slice(2)}.txt`);
   const r = spawnSync('/bin/bash', [SUP, 'zara', SANDBOX, '/usr/bin/true', FAKE_TMUX, '', model, runner], {
-    env: { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_HOME: SANDBOX, REC: rec, MARK: 'zara', PANE_CMD: paneCmd },
+    env: { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_HOME: SANDBOX, AGENT_WORKFORCE_DATA: nodePath.join(SANDBOX, 'data'), REC: rec, MARK: 'zara', PANE_CMD: paneCmd },
     encoding: 'utf8', timeout: 20000,
   });
   const calls = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
