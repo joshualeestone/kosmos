@@ -174,17 +174,22 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
     { pid: 105, ppid: 1, command: cmd(mine, '/OTHER/node_modules/@playwright/mcp/cli.js') },   // another install: left
     { pid: 106, ppid: 1, command: 'vim ' + mine },                                // not a server: left
     { pid: 111, ppid: 1, command: 'tail -f ' + cli + ' --output-dir ' + mine },   // names both, but cli.js is not its script: left
-    { pid: 112, ppid: 1, command: '/Users/A B/K/node ' + cli + ' --output-dir ' + mine },   // a node path with a space, unquoted as ps prints it: ENDED
+    { pid: 113, ppid: 1, command: '/bin/sh -c /K/node ' + cli + ' --output-dir ' + mine },   // a shell naming the line: not the interpreter, left
+    { pid: 114, ppid: 1, command: '/OTHER/node ' + cli + ' --output-dir ' + mine },   // another node binary: left
     { pid: 107, ppid: 1, command: cmd('/T/kosmos-agent-browser') },               // the shared folder: left
     { pid: 108, ppid: 901, command: cmd(mine) },                                  // mine, parent gone (not 1): ENDED
-    { pid: 109, ppid: 1, command: '"C:\\K\\node.exe" "' + cli + '" --output-dir "' + mine + '"' },   // quoted, Windows style: ENDED
     { pid: 110, ppid: 1, command: cmd(mine) },                                    // this very process: left
   ];
   const alive = new Set([900]);
-  const got = ab.orphanedServers(procs, { cli, outputDir: mine, self: 110, parentGone: (pp) => pp === 1 || !alive.has(pp) });
-  assert.deepEqual(got, [101, 112, 108, 109]);
-  assert.deepEqual(ab.orphanedServers(procs, { cli, outputDir: mine }), [], 'CONTROL: with no way to tell a parent is gone, nothing is selected');
-  assert.deepEqual(ab.orphanedServers(procs, { cli: '', outputDir: mine, parentGone: () => true }), [], 'CONTROL: no cli path, nothing');
+  const got = ab.orphanedServers(procs, { node: '/K/node', cli, outputDir: mine, self: 110, parentGone: (pp) => pp === 1 || !alive.has(pp) });
+  assert.deepEqual(got, [101, 108]);
+  /* Quoted Windows style, and a node path with a space unquoted as a Mac ps prints it. */
+  const winNode = 'C:\\K\\node.exe';
+  assert.deepEqual(ab.orphanedServers([{ pid: 109, ppid: 1, command: '"' + winNode + '" "' + cli + '" --output-dir "' + mine + '"' }], { node: winNode, cli, outputDir: mine, parentGone: () => true }), [109]);
+  assert.deepEqual(ab.orphanedServers([{ pid: 112, ppid: 1, command: '/Users/A B/K/node ' + cli + ' --output-dir ' + mine }], { node: '/Users/A B/K/node', cli, outputDir: mine, parentGone: () => true }), [112]);
+  assert.deepEqual(ab.orphanedServers(procs, { cli, outputDir: mine, parentGone: () => true }), [], 'CONTROL: no interpreter to compare with, nothing');
+  assert.deepEqual(ab.orphanedServers(procs, { node: '/K/node', cli, outputDir: mine }), [], 'CONTROL: with no way to tell a parent is gone, nothing is selected');
+  assert.deepEqual(ab.orphanedServers(procs, { node: '/K/node', cli: '', outputDir: mine, parentGone: () => true }), [], 'CONTROL: no cli path, nothing');
   /* endOrphanedServers: children first, then the server; each pid re-read before it is ended and skipped unless it is
      still what was selected; a failure ending one does not stop the rest. */
   const dir = ab.outputDir('t8928-orphan');
@@ -197,7 +202,7 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
   ];
   const ended = [];
   const r = ab.endOrphanedServers('t8928-orphan', {
-    platform: 'darwin', procs: () => table, alive: () => true,
+    platform: 'darwin', node: '/K/node', procs: () => table, alive: () => true,
     recheck: (pid) => (pid === 202 ? { pid, ppid: 77, command: 'something else now' } : table.find((x) => x.pid === pid) || null),
     end: (pid) => { if (pid === 212) throw new Error('ESRCH'); ended.push(pid); },
   });
@@ -207,7 +212,7 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
   /* A child that has moved to another parent by the time it is ended is left. */
   const moved = [];
   ab.endOrphanedServers('t8928-orphan', {
-    platform: 'darwin', procs: () => table.slice(0, 2), alive: () => true,
+    platform: 'darwin', node: '/K/node', procs: () => table.slice(0, 2), alive: () => true,
     recheck: (pid) => (pid === 211 ? { pid, ppid: 999, command: 'x' } : table.find((x) => x.pid === pid)),
     end: (pid) => moved.push(pid),
   });
@@ -221,7 +226,7 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
   assert.equal(listedFirst, false, 'CONTROL: an agent with no earlier session was swept');
   const viaLaunch = [];
   assert.ok(ab.launchConfig({ platform: 'win32', node: 'C:\\K\\node.exe', env: {}, agent: 't8928-orphan', orphans: {
-    platform: 'darwin', procs: () => table, alive: () => true, recheck: (pid) => table.find((x) => x.pid === pid) || null,
+    platform: 'darwin', node: '/K/node', procs: () => table, alive: () => true, recheck: (pid) => table.find((x) => x.pid === pid) || null,
     end: (pid) => viaLaunch.push(pid) } }));
   assert.deepEqual(viaLaunch, [212, 211, 201, 202], 'launchConfig ended the agent\'s orphaned servers and their browsers');
   /* Each one ended is written down. */
@@ -235,19 +240,19 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
     { pid: 321, ppid: 301, created: '20261123110000.000000', command: 'notepad.exe' },   // older than 301: its parent pid was reused
   ];
   const wended = [];
-  const pending = ab.endOrphanedServers('t8928-orphan', { platform: 'win32', procs: () => wtable, alive: (pid) => pid !== 50, end: async (pid) => { wended.push(pid); } });
+  const pending = ab.endOrphanedServers('t8928-orphan', { platform: 'win32', node: 'C:\\K\\node.exe', procs: () => wtable, alive: (pid) => pid !== 50, end: async (pid) => { wended.push(pid); } });
   assert.equal(typeof pending.then, 'function', 'Windows answers a promise: the launch does not wait');
   assert.deepEqual(await pending, [311, 301]);
   assert.deepEqual(wended, [311, 301], 'the older process under a reused parent pid was not spared');
-  assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', procs: () => wtable, alive: () => true, end: async (pid) => { wended.push(pid); } }), [], 'CONTROL: a live parent on Windows, nothing ended');
+  assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', node: 'C:\\K\\node.exe', procs: () => wtable, alive: () => true, end: async (pid) => { wended.push(pid); } }), [], 'CONTROL: a live parent on Windows, nothing ended');
   /* Windows: a "parent" created after the server holds a reused pid, so the server's real parent is gone. */
   const reused = wtable.concat([{ pid: 50, ppid: 4, created: '20261123130000.000000', command: 'svchost.exe' }]);
-  assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', procs: () => reused, alive: () => true, end: async () => {} }), [311, 301]);
+  assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', node: 'C:\\K\\node.exe', procs: () => reused, alive: () => true, end: async () => {} }), [311, 301]);
   const older = wtable.concat([{ pid: 50, ppid: 4, created: '20261123100000.000000', command: 'claude.exe' }]);
-  assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', procs: () => older, alive: () => true, end: async () => {} }), [], 'CONTROL: a parent older than the server is its live parent');
+  assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', node: 'C:\\K\\node.exe', procs: () => older, alive: () => true, end: async () => {} }), [], 'CONTROL: a parent older than the server is its live parent');
   /* A Windows process with no creation time has no proof of identity: left. */
   const notime = [Object.assign({}, wtable[0], { created: '' })];
-  assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', procs: () => notime, alive: (pid) => pid !== 50, end: async () => { throw new Error('must not end'); } }), []);
+  assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', node: 'C:\\K\\node.exe', procs: () => notime, alive: (pid) => pid !== 50, end: async () => { throw new Error('must not end'); } }), []);
   /* The Windows ender re-reads each pid in the same call and ends it only if creation time AND command line still match;
      never a tree kill. (It runs only on Windows; this pins what it checks.) */
   assert.match(ab.WIN_END, /\$c -cne \$s\.created -or \$p\.CommandLine -cne \$s\.command/);

@@ -243,11 +243,13 @@ function supervise(spec, opts) {
  * and tested -- it is the adoption watcher, and the measured knowledge in it is
  * worth keeping -- but nothing in production selects it.
  */
-/* kosmos#8928 slice 2: whether this run may end the agent's orphaned browser servers. A real start calls main(args) with
-   no deps: the anchored boot shim every task runs (win32anchor.BOOT_JS, `require(entry).main(args)`, including shims
-   written before this existed) and the direct entry below. Every test passes deps, and the sweep also refuses in any
-   test run on its own. */
-function endOrphansFor(deps) { return deps === undefined || (deps !== null && typeof deps === 'object' && deps.endOrphans === true); }
+/* kosmos#8928 slice 2: whether this run may end the agent's orphaned browser servers. OFF on Windows until measured
+   there: the scripts have never run on Windows, and one premise (that a server whose parent is gone belongs to an
+   ended session) would end a LIVE session's browser if Claude on Windows started its server through a process that
+   exits. When a Windows box has measured the real parent chain and one real pass, turning it on is this line: a real
+   start calls main(args) with no deps (the anchored boot shim, win32anchor.BOOT_JS, and the entry below), so return
+   `deps === undefined || ...`. */
+function endOrphansFor(deps) { return deps !== null && typeof deps === 'object' && deps.endOrphans === true; }
 /* kosmos#8928: the agent's own browser config, asked by its name. A function of the spec so a test can check the
    name reaches launchConfig without starting an agent. */
 function browserFor(spec, ab, live) {

@@ -1,7 +1,7 @@
 # kosmos#8928 slice 2: at an agent's launch, end its own browser servers whose session is gone
 
 ## Finished looks like
-When an agent (re)launches, any Playwright MCP server still running from that SAME agent's earlier session, whose parent (the Claude session that started it) has exited, is ended. On a Mac and on Windows. Nothing else is ever touched: not another agent's server, not a server whose session is alive, not anything that merely resembles one.
+When an agent (re)launches, any Playwright MCP server still running from that SAME agent's earlier session, whose parent (the Claude session that started it) has exited, is ended. On a Mac now; on Windows the code and tests ship but it stays OFF until measured on a Windows box (iteration 8). Nothing else is ever touched: not another agent's server, not a server whose session is alive, not anything that merely resembles one.
 
 ## Depends on
 Slice 1 (each server's `--output-dir` names its agent: `<tmp>/kosmos-agent-browser/<key>`).
@@ -9,7 +9,7 @@ Slice 1 (each server's `--output-dir` names its agent: `<tmp>/kosmos-agent-brows
 ## Match rule (all three, exact)
 1. The command line contains this install's `cli.js` path (cliPath()).
 2. It contains `--output-dir` followed by EXACTLY outputDir(agent) (whole argument, not a prefix: `mona` must not match `mona-lisa`).
-3. Its parent is gone: Mac, ppid 1 (reparented to launchd) or a ppid that no longer exists; Windows, ParentProcessId not alive (win32orphan.pidState === 'gone'; 'unknown' counts as alive, never kill on doubt).
+3. Its parent is gone: Mac, ppid 1 (reparented to launchd) or a ppid that no longer exists; Windows, ParentProcessId not alive (win32orphan.pidState === 'gone'; 'unknown' counts as alive, never kill on doubt), or a "parent" created after the server (a reused pid).
 
 ## Ending
 Exact pids only (never pkill/pattern), force: an orphaned server serves no one, and one that outlived its session is likely hung, so SIGTERM may do nothing. Mac: its descendants deepest first, then the server, SIGKILL, each pid re-read just before it is ended and skipped unless it is still what was selected. Windows: one listing with creation times plans it (descendants created after their parent, then the server; never a tree kill: Windows keeps a dead parent's pid and reuses pids); one PowerShell (WIN_END, plan on stdin) re-reads each planned pid and Stop-Process -Force only if its creation time and command line still match exactly.
@@ -86,3 +86,9 @@ Servers left by an earlier pinned version (another cli.js path) are not matched.
 - No finding of a process ended wrongly. Taken: PowerShell by full path; the encoding setters guarded; a log line when a plan ends nothing; the plan logged before the ender runs; the interpreter matched as any path ending in node/node.exe (a Mac ps prints a path with spaces unquoted, which the earlier pattern missed: now a table case); no sweep when the agent had no earlier session (its output folder did not exist), so most Windows launches start no PowerShell (control tested).
 - Recorded honestly in CLAUDE.md: on Windows the opt-in is on for a deps-less call; its guard there is the test-run check.
 - Deferred, needs Windows: whether Claude on Windows starts the MCP server through an intermediate process that exits (then a live session's server would look orphaned). Only that agent's own server could be affected; Homer's box can measure the parent chain.
+
+## Challenge loop iteration 8 (opus): decided, Windows ships OFF
+- The call: the Windows half (code, tests, guards) ships switched off; the Mac half ships on. Rejected: on by default on Windows. Why: none of the Windows code has run on Windows, and one premise fails unsafe (if Claude on Windows starts its MCP server through a process that exits, a LIVE session's server looks orphaned and would be ended, costing that agent its browser mid-work), while leaving it off only costs memory. Weakest premise of this call: the measured leak (21 servers) is on Windows, so the card's main symptom stays until a Windows box measures the parent chain and one real WIN_END pass; then turning it on is one line in win32supervisor.endOrphansFor. A follow-up is on the card.
+- Fixed: the interpreter is matched as exactly the node binary that runs agents' servers (the sweeping process's own unless given), so a shell or tail merely naming the line never matches; loosening it turns the test red.
+- Fixed: comments say the Windows PowerShell starts during launchConfig (nothing waits on it), and when nothing is swept (browser off, not installed, output folder gone). Plan spec sections updated.
+- NITs left: a JSON listing instead of lines (WIN_END's exact re-check already makes a forged row harmless); a direct node --test run may remove the shared output folder only when empty.

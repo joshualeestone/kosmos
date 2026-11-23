@@ -1419,10 +1419,10 @@ test('#8928 the default browser config is asked for by the agent\'s name; CONTRO
   /* kosmos#8928 slice 2: only the real entry (main called with endOrphans) may end orphaned servers. */
   sup.browserFor({ name: 'x' }, fake, true)();
   assert.deepEqual(seen[2], { agent: 'x', orphans: { live: true } });
-  /* A real start calls main(args) with no deps: the anchored boot shim on disk does exactly that, so the sweep is on there;
-     every test passes deps, so it is off here. */
-  assert.equal(sup.endOrphansFor(undefined), true, 'a real start (no deps) ends orphaned servers');
-  assert.equal(sup.endOrphansFor({}), false, 'CONTROL: a caller with deps does not');
-  assert.equal(sup.endOrphansFor({ endOrphans: true }), true);
+  /* Off on Windows until measured there (see endOrphansFor): a real start (no deps) does not end anything yet; only an
+     explicit endOrphans does. */
+  assert.equal(sup.endOrphansFor(undefined), false, 'the Windows sweep is on before it was measured on Windows');
+  assert.equal(sup.endOrphansFor({}), false);
+  assert.equal(sup.endOrphansFor({ endOrphans: true }), true, 'CONTROL: the explicit switch still turns it on');
   assert.match(require('./win32anchor').BOOT_JS, /require\(entry\)\.main\(args\);/, 'the boot shim calls main(args) with no deps');
 });
