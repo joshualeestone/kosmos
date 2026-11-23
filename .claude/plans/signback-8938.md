@@ -29,8 +29,9 @@ opens nothing.
   invite note, and an invite attempt never a Claude one. A second Make that fails for another reason leaves the first
   refusal's ask up with no note behind it (Sign in again then returns nothing): accepted, the person is already on the
   sheet.
-- Presses inside first run or an open .rm-back dialog do not count as moving on (closing a dialog is not a choice of
-  where to go); the return waits behind both.
+- A press or key while first run or a dialog is up, or inside one, does not count as moving on (dismissing it is not a
+  choice of where to go); the return waits behind both. "A dialog is up" is the board's own test (the gutter CSS):
+  `.rm-back:not([hidden]):not([hidden] *)`; the dialogs built on demand (What's New, the invite step) are removed on close.
 - Decided, from review 2: a page whose 3 projects reads all fail opens nothing (the note stays for a reload). That is
   today's behaviour, and more reads would poll a board that is not answering.
 - The words claim no sign-in (#8728 review 3: a log-out can fail and the person reload).

@@ -33043,18 +33043,20 @@ const FEDINV_RETURN_LINE = 'Your invitation is filled in again. Press Make an in
 const FEDINV_RETURN_READ_MAX = 3;
 let FEDINV_RETURN_READS = 0;        // projects reads this return asked for
 let FEDINV_RETURN_READING = false;  // one of them is still being answered
-/* The person pressed or typed something since this page loaded, outside first run and outside any open .rm-back dialog
-   (dismissing either is not a choice of where to go, and the return waits behind both): they have moved on, so the
-   return opens nothing and the note goes. Listened for only while an invite note waits (fedInviteReturnWait). */
+/* The person pressed or typed something since this page loaded while neither first run nor a dialog was up, and not
+   inside either (dismissing one is not a choice of where to go, and the return waits behind both): they have moved on,
+   so the return opens nothing and the note goes. Listened for only while an invite note waits (fedInviteReturnWait). */
 let FEDINV_RETURN_TOUCHED = false;
 function fedInviteReturnTouched(e) {
+  if (fedInviteReturnBusy()) return;   // first run or a dialog is up: the key or press is about that, wherever focus is
   const t = e && e.target;
   if (t && t.closest && t.closest('#firstrun, #fr-choice, .rm-back')) return;
   FEDINV_RETURN_TOUCHED = true;
 }
 function fedInviteReturnBusy() {
   if (stepUpReturnBusy()) return true;
-  return [...document.querySelectorAll('.rm-back')].some((el) => !el.hidden);
+  // The board's own test for an open dialog (its gutter CSS): not hidden, and not inside a hidden section.
+  return !!document.querySelector('.rm-back:not([hidden]):not([hidden] *)');
 }
 function resumeFedInviteReturn() {
   const n = peekStepUpReturn();
@@ -58423,7 +58425,7 @@ function plusOrgSeesText(words) {
   // A line's own closing full stop goes (one, not an ellipsis's), so a list never reads ".;" (Renet's review of #8942),
   // and a list whose last line ends in an ellipsis gets no further stop.
   const clean = (l) => (Array.isArray(l) ? l.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim().replace(/(^|[^.])\.$/, '$1').trim()).filter(Boolean) : []);
-  const list = (l) => l.join('; ') + (l[l.length - 1].endsWith('.') ? '' : '.');
+  const list = (l) => l.join('; ') + (/[.\u2026]$/.test(l[l.length - 1]) ? '' : '.');
   const reports = clean(words && words.reports);
   if (!reports.length) return '';
   const backsUp = clean(words && words.backsUp);

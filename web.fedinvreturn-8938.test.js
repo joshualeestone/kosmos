@@ -24,7 +24,8 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
   const rmBack = () => [els['fedinv-modal'], ...dialogs.map((id) => ({ id, hidden: false }))];
   const listeners = [];
   const document = {
-    getElementById: (id) => els[id] || null, querySelectorAll: (sel) => (sel === '.rm-back' ? rmBack() : []),
+    getElementById: (id) => els[id] || null,
+    querySelector: (sel) => (sel === '.rm-back:not([hidden]):not([hidden] *)' ? rmBack().find((el) => !el.hidden) || null : null),
     addEventListener: (type, fn, capture) => listeners.push({ type, fn, capture }),
     removeEventListener: (type, fn) => { const i = listeners.findIndex((l) => l.type === type && l.fn === fn); if (i > -1) listeners.splice(i, 1); },
   };
@@ -223,6 +224,15 @@ test('#8938 item 4 review 2: the person pressed or typed after the page loaded: 
   p.timers.shift().fn();
   assert.deepEqual(p.calls.map((c) => c[0]).filter((c) => c !== 'loadProjects'), ['showTab', 'openProject', 'fedInviteOpen'], 'a first-run key stopped the return');
   assert.deepEqual(p.listeners, [], 'the listeners stay after the wait ended');
+  // review 4: a key while first run is up, with focus outside it (on the page), is about first run too.
+  const r = page({ loaded: false, visible: ['firstrun'] });
+  earlier(r);
+  r.fedInviteReturnWait();
+  r.listeners[1].fn({ target: { closest: () => null } });
+  r.els.firstrun.hidden = true;
+  r.state.loaded = true;
+  r.timers.shift().fn();
+  assert.deepEqual(r.calls.map((c) => c[0]).filter((c) => c !== 'loadProjects'), ['showTab', 'openProject', 'fedInviteOpen'], 'Escape from the page while first run was up dropped the return');
   // A press anywhere else: the return gives up and drops the note.
   const q = page({ loaded: false });
   earlier(q);
@@ -288,6 +298,7 @@ test('#8942 review nit: a company line ending in a full stop is not doubled into
   assert.doesNotMatch(t, /\.;|\.\./);
   // Only ONE stop goes: an ellipsis keeps two.
   assert.match(fn({ reports: ['Usage...'] }), /Reported: Usage\.\.\.$/);
+  assert.match(fn({ reports: ['Usage\u2026'] }), /Reported: Usage\u2026$/, 'a closing stop after an ellipsis character');
   assert.equal(fn({ reports: ['Usage...', 'Token use'] }), 'Your company\u2019s words for this computer. Reported: Usage...; Token use.', 'an ellipsis lost a dot mid-list');
   assert.equal(fn({ reports: ['Agent names .', 'Token use'] }), 'Your company\u2019s words for this computer. Reported: Agent names; Token use.', 'the space before a closing stop was left in front of the ";"');
 });
