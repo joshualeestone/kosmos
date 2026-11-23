@@ -1076,8 +1076,10 @@ function withoutBuilt(t) {
  *   builtCheckedBy         (kosmos#8307) the agents who checked THIS file: another named agent's mark that kept the
  *                          fingerprint (the checker's mark above). builtCheckedByPerson: the person's mark kept it. Never
  *                          the sender's own mark
- *   builtWaitingOn         (kosmos#8934) what it waits on, one of WAITING_ON, from an agent's `waitingOn`; each mark says
- *                          its own (a mark without one drops it, as it drops the note), and the person's mark sends none
+ *   builtWaitingOn         (kosmos#8934) what it waits on, one of WAITING_ON, from an agent's `waitingOn`. An agent's mark
+ *                          without one keeps it (review 2: a checker's mark, the usual next mark, dropped the builder's
+ *                          "waiting on you"), as a checker's mark keeps the fingerprint; a mark with one replaces it. The
+ *                          person's mark drops it (they have looked) and so does a clear
  *   builtReplaces          (kosmos#8307) the file this one replaced: a mark with a DIFFERENT fingerprint replaces the one
  *                          kept, and the old one is kept here as { fingerprint, by, at, checkedBy, checkedByPerson? } (no path, review 4),
  *                          so its checks read as out of date and their agents can be told. Only the one previous file.
@@ -1091,7 +1093,7 @@ function withoutBuilt(t) {
 function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false, fingerprint = null, commit = null, filePath = null, waitingOn = null } = {}) {
   // kosmos#8934: checked before anything is read, so an unknown value writes nothing.
   if (waitingOn != null && waitingOn !== '' && !WAITING_ON.includes(waitingOn)) return { ok: false, because: 'what a built task waits on is person, review or release' };
-  const waits = waitingOn && !(person === true) ? waitingOn : '';
+  const sent = waitingOn && !(person === true) ? waitingOn : '';   // what this mark says; kept or dropped below
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
   const landed = commit == null ? null : landedValue(commit);
   if (commit != null && !landed) return { ok: false, because: 'a commit is its full sha (40 or 64 lowercase hex characters), the absolute path of its repository, and whether a remote has it' };
@@ -1118,6 +1120,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   let unsaid = 0;
   let unmetSaid = false;   // #8464: every check reported, some not met
   let replacedNow = null;
+  let waits = '';   // kosmos#8934: what the mark leaves it waiting on, worked out inside the write
   try {
     projects.mutate(projectId, (p) => {
       const t = byNumber(p, n);
@@ -1200,6 +1203,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       replacedNow = replacing ? { ...replaces, kind: 'replaced' } : dropping ? { ...replaces, kind: 'withdrawn' } : null;
       /* kosmos#8555: a remote's copy, once the board has seen it, is kept: a re-mark of the same commit by an agent whose
          checkout had not fetched it says "not on the remote", which is older news than the board's own check. */
+      /* kosmos#8934 review 2: an agent's mark without a value keeps the one the task has; the person's mark drops it. */
+      waits = sent || (!isPerson && t.builtAt && WAITING_ON.includes(t.builtWaitingOn) ? t.builtWaitingOn : '');
       const landedOnRemoteNow = landed && (landed.onRemote || (t.landedOnRemote === true && t.landedCommit === landed.sha && t.landedRepo === landed.repo));
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
         && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who) && (t.builtFilePath || '') === keptPath

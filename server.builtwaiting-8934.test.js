@@ -3,7 +3,8 @@
 /**
  * kosmos#8934 (agent feedback, four installs): a built task says what it waits on, a fixed choice (person, review,
  * release) that a screen and a list can read, where the built note is only words. `kosmos task built ... --waiting <who>`
- * (both CLIs) sends it; the board keeps it as builtWaitingOn; each mark says its own; the screen's mark sends none.
+ * (both CLIs) sends it; the board keeps it as builtWaitingOn; an agent's later mark without one keeps it (review 2: a
+ * checker's mark is the usual next one), a mark with one replaces it, and the person's mark and a clear drop it.
  * Every refusal has a control that the same command with a good value goes through.
  *
  * ⚠️ SANDBOX EVERY ROOT BEFORE ANY REQUIRE (HOME included).
@@ -86,14 +87,24 @@ test('engine: each value is stored; an unknown one is refused and writes nothing
   assert.equal('builtWaitingOn' in stored(p), false, 'the person\'s own mark said it waits on the person');
 });
 
-test('engine: a change of only the value is a change; the same mark again is not; a re-mark without it and a clear drop it', () => {
+test('engine: a change of only the value is a change; the same mark again is not; a later mark without one keeps it; the person and a clear drop it', () => {
   const n = newTask('Deliver the report');
   assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', note: 'done', waitingOn: 'review' }).changed, true);
   assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', note: 'done', waitingOn: 'review' }).changed, false, 'the same mark again was recorded');
   assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', note: 'done', waitingOn: 'person' }).changed, true, 'a new value alone was skipped as the same mark');
   assert.equal(stored(n).builtWaitingOn, 'person');
-  assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', note: 'done' }).changed, true, 'dropping the value alone was skipped as the same mark');
-  assert.equal('builtWaitingOn' in stored(n), false, 'a mark without --waiting kept the old value');
+  // Review 2: the builder's own re-mark without --waiting keeps it, and is the same mark again (nothing new said).
+  assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', note: 'done' }).changed, false, 'a re-mark that kept everything was recorded as new');
+  assert.equal(stored(n).builtWaitingOn, 'person', 'the builder\'s re-mark without --waiting dropped it');
+  // Review 2: a checker's mark (another agent, no --waiting) keeps the builder's "waiting on the person".
+  assert.equal(tasks.setBuilt(projectId, n, { by: 'zed', note: 'checked it' }).changed, true);
+  assert.equal(stored(n).builtWaitingOn, 'person', 'a checker\'s mark dropped what the builder said it waits on');
+  // CONTROL: a mark that says another value replaces it.
+  assert.equal(tasks.setBuilt(projectId, n, { by: 'zed', note: 'checked it', waitingOn: 'release' }).changed, true);
+  assert.equal(stored(n).builtWaitingOn, 'release');
+  // The person's own mark drops it: they have looked.
+  assert.equal(tasks.setBuilt(projectId, n, { person: true }).ok, true);
+  assert.equal('builtWaitingOn' in stored(n), false, 'the person\'s mark kept a wait on the person');
   tasks.setBuilt(projectId, n, { by: 'mona', note: 'done', waitingOn: 'release' });
   assert.equal(tasks.clearBuilt(projectId, n, { by: 'mona' }).ok, true);
   assert.equal('builtWaitingOn' in stored(n), false, 'a clear kept what it waited on');
@@ -196,6 +207,12 @@ for (const [name, run, skip] of [['Mac', mac, process.platform === 'win32' && 't
     assert.equal('builtWaitingOn' in stored(m), false);
     assert.match(p.out, /built, waiting to be released or checked\./);
     assert.match(p.out, /mark it with --waiting person, review or release \(kosmos task --how\)/);
+    // Review 2: the same task marked again without --waiting keeps it, says it, and is not given the hint.
+    const again = await run(['task', 'built', projectId, String(n), 'the report is checked']);
+    assert.equal(again.code, 0, again.out);
+    assert.equal(stored(n).builtWaitingOn, 'person');
+    assert.match(again.out, /built, waiting on the person\. Closing it clears the mark\./, again.out);
+    assert.equal(/--waiting person, review or release/.test(again.out), false, 'the hint was given to a task that waits on the person: ' + again.out);
     const l = await run(['task', 'list', projectId]);
     assert.equal(l.code, 0, l.out);
     assert.match(l.out, new RegExp('\\[' + n + '\\] \\[built, waiting on the person\\] '), l.out);

@@ -2203,7 +2203,10 @@ async function taskBuilt(ctx, args) {
     const left = typeof r.json.stillToFinish === 'string' && r.json.stillToFinish.trim() ? ' Your part only. ' + r.json.stillToFinish.trim() : '';
     // kosmos#8934: what it waits on, only when the board's answer carries it.
     const recorded = Boolean(waiting && r.json.task.builtWaitingOn === waiting);
-    const waitsWords = recorded ? { person: 'on the person', review: 'on a review', release: 'on a release' }[waiting] : 'to be released or checked';
+    // Review 2, as install/kosmos: the value the board answered with, sent now or kept from an earlier mark.
+    const wordsFor = { person: 'on the person', review: 'on a review', release: 'on a release' };
+    const wnow = Object.hasOwn(wordsFor, String(r.json.task.builtWaitingOn)) ? r.json.task.builtWaitingOn : '';
+    const waitsWords = wnow ? wordsFor[wnow] : 'to be released or checked';
     ctx.out(clear ? (r.json.changed === false ? 'Task ' + num + ' on ' + project + ' was not marked built.' : 'Took the built mark off task ' + num + ' on ' + project + '.')
       : 'Marked task ' + num + ' on ' + project + ' built, waiting ' + waitsWords + '. Closing it clears the mark.' + left + told);
     // kosmos#8934, as install/kosmos: said when an older board did not record what it waits on.
@@ -2220,7 +2223,8 @@ async function taskBuilt(ctx, args) {
     }
     // kosmos#8934, as install/kosmos: the working rules have no room for it, so the option is named where the mark is made, last, after
     // what the mark sent.
-    if (!clear && !waiting) ctx.out('To show the person what it waits on, mark it with --waiting person, review or release (kosmos task --how).');
+    // Review 2: only when the task waits on nothing named and this mark changed it (not a repeat of the same mark).
+    if (!clear && !waiting && !wnow && r.json.changed !== false) ctx.out('To show the person what it waits on, mark it with --waiting person, review or release (kosmos task --how).');
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not mark that task: ' + ctx.refusedBy(r) + '.'); return 1; }
