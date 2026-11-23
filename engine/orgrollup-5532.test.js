@@ -1145,7 +1145,7 @@ test('kosmos#8938: the never lines a join accepts are kept and read back by acce
   await oe.enroll('ACME-JOIN-1234', true, { root: root2, remote: coordinator(), consentHash: HASH,
     consent: { reports: ['agent names'], backsUp: [], never: ['keys and passwords', '', 7, 'your other Kosmoses on this computer'] } });
   const rec = JSON.parse(fs.readFileSync(path.join(root2, oe.ENROLLMENT_FILE), 'utf8'));
-  if (rec.consentHash !== HASH) { rec.consentHash = HASH; fs.writeFileSync(path.join(root2, oe.ENROLLMENT_FILE), JSON.stringify(rec)); }
+  assert.equal(rec.consentHash, HASH, 'the join recorded the hash of the words it accepted');
   assert.deepEqual(oe.acceptedNever({ root: root2 }), ['keys and passwords', 'your other Kosmoses on this computer'], 'the never lines the join kept, only real ones, in order');
   assert.deepEqual(oe.acceptedConsent({ root: root2 }).reports, ['agent names'], 'the same record acceptedConsent reads');
 });
