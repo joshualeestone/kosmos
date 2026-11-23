@@ -129,12 +129,21 @@ test('#8928 each agent gets its own config and output folder; a hostile name sta
   const out = (f) => args(f)[args(f).indexOf('--output-dir') + 1];
   assert.equal(out(a), path.join(os.tmpdir(), 'kosmos-agent-browser', 'mona-lisa'), 'the output folder names the agent');
   assert.equal(out(b), path.join(os.tmpdir(), 'kosmos-agent-browser', 'pigeonpete'));
-  for (const bad of ['../../escape', 'a/b', 'a\\b', '..', '.', '']) {
-    const f = ab.configPath(bad);
-    assert.ok(f === ab.configPath() || path.dirname(f) === path.join(ab.homeDir(), 'agents'), 'a name left the agents folder: ' + JSON.stringify(bad) + ' -> ' + f);
-    assert.ok(path.dirname(ab.outputDir(bad)) === os.tmpdir() || path.dirname(ab.outputDir(bad)) === path.join(os.tmpdir(), 'kosmos-agent-browser'), 'an output folder left its parent: ' + JSON.stringify(bad));
+  /* Every name, hostile or not, lands directly in the agents folder with a key of only safe characters. */
+  const names = ['../../escape', 'a/b', 'a\\b', '..', '.', '_', 'a b', 'a_b', 'Foo', 'foo', 'con', 'NUL.txt', 'com1', 'a.', 'a', 'x'.repeat(300), '\u65e5\u672c'];
+  for (const n of names) {
+    const k = ab.agentKey(n);
+    assert.match(k, /^[a-z0-9._-]{1,57}$/, 'unsafe key for ' + JSON.stringify(n) + ': ' + k);
+    assert.ok(!/\.$/.test(k), 'a key ends in a dot: ' + k);
+    assert.ok(!/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\.|$)/.test(k), 'a Windows device name: ' + k);
+    assert.equal(path.dirname(ab.configPath(n)), path.join(ab.homeDir(), 'agents'), 'left the agents folder: ' + JSON.stringify(n));
+    assert.equal(path.dirname(ab.outputDir(n)), path.join(os.tmpdir(), 'kosmos-agent-browser'), 'output left its parent: ' + JSON.stringify(n));
   }
-  assert.equal(ab.configPath('..'), ab.configPath(), 'a name with nothing safe left is no name');
+  /* Distinct names never share a file, even when they clean to the same text or differ only by case. */
+  const keys = names.map((n) => ab.agentKey(n).toLowerCase());
+  assert.equal(new Set(keys).size, names.length, 'two names share a key: ' + JSON.stringify(keys));
+  assert.equal(ab.agentKey('mona-lisa'), 'mona-lisa', 'CONTROL: an ordinary name is used as it is');
+  assert.equal(ab.agentKey(''), '', 'CONTROL: no name keeps the shared file');
   const shared = ab.launchConfig({ platform: 'win32', node: 'C:\\T\\node.exe', env: {} });
   assert.equal(shared, path.join(ab.homeDir(), 'mcp-config.json'), 'CONTROL: no name keeps the shared file');
   assert.equal(out(shared), path.join(os.tmpdir(), 'kosmos-agent-browser'));

@@ -1406,3 +1406,12 @@ test('#2281 a re-arm retires the prior pending registration timer (crash loop)',
   assert.deepEqual(cleared, [1], 'arming the restart cleared the first start pending timer');
   h.stop();
 });
+
+/* kosmos#8928: the default browser asks launchConfig by the agent's own name. */
+test('#8928 the default browser config is asked for by the agent\'s name; CONTROL: another name is passed as is', () => {
+  const seen = [];
+  const fake = { launchConfig: (o) => { seen.push(o); return 'x.json'; } };
+  assert.equal(sup.browserFor({ name: 'mona-lisa' }, fake)(), 'x.json');
+  assert.equal(sup.browserFor({ name: 'pigeonpete' }, fake)(), 'x.json');
+  assert.deepEqual(seen, [{ agent: 'mona-lisa' }, { agent: 'pigeonpete' }]);
+});
