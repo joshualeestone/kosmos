@@ -166,11 +166,14 @@ test('kosmos#8230: the board names its skip and logs an automatic turn end it re
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const at = src.indexOf("if (pathname === '/api/report' && req.method === 'POST') {");
   assert.ok(at >= 0, 'the /api/report route is not where this test looks');
-  /* kosmos#8923: the route itself, up to the next top-level route, not a fixed 20,000 characters (the skip was at 19,932,
-     so any addition above it would have redded this with nothing it guards changed). */
-  const next = src.slice(at + 1).search(/\n {2}if \(pathname === /);
-  assert.ok(next > 0, 'no route after /api/report, so its end cannot be found');
-  const route = src.slice(at, at + 1 + next);
+  /* kosmos#8923: the route itself, up to its own closing brace at two-space indent (its body is indented deeper), not a
+     fixed 20,000 characters (the skip was at 19,932, so any addition above it would have redded this with nothing it
+     guards changed). Review 1: not up to the next route, which would also take in anything written between the two. */
+  const close = src.slice(at).search(/\n {2}\}\r?\n/);
+  assert.ok(close > 0, 'the /api/report route has no closing brace at two-space indent, so its end cannot be found');
+  const route = src.slice(at, at + close);
+  // A brace that closed early or late would show as another route inside the bound (this can fail: see the plan).
+  assert.doesNotMatch(route, /\n {2}if \(pathname === /, 'the bound runs into another route');
   assert.match(route, /skipped: String\(kept\.skipped\)/, 'the record\'s skip is not named in the answer');
   const refusals = route.match(/noteTurnEndRefusal\(body, /g) || [];
   assert.equal(refusals.length, 2, 'the roster and sender refusals should both log a refused turn end');
