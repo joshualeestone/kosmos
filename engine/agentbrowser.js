@@ -211,10 +211,11 @@ function writeConfigIfNeeded(file, text) {
   return same();
 }
 
-/* kosmos#8929: inside a test run, launchConfig writes the config only into a sandboxed runners folder. From a worktree
-   runners.managedRoot() falls back to this account's default runners folder (the real install's, on a Mac with
-   Kosmos), so a test that reached this (the supervisor's shim, say) rewrote the live config with the test's node and a
-   temp folder its run then removed, and every agent the board started next got it.
+/* kosmos#8929: inside a test run, launchConfig writes the config only into a runners folder named by
+   AGENT_WORKFORCE_RUNNERS_DIR. From a worktree runners.managedRoot() falls back to this account's default runners
+   folder (the real install's, on a Mac with Kosmos), so a test that reached this (the supervisor's shim, say) rewrote
+   the live config with the test's node and a temp folder its run then removed, and every agent the board started
+   next got it.
    What counts as a test run is the store's rule (store.isTestProcess), reused rather than re-derived, plus one rule
    of its own, inKtRunRoot below. */
 /* The machine-wide test-sandbox rule (tools/lib/process-fixture.sh _KOSMOS_KT_RE): a temp folder inside a
