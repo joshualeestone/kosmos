@@ -33047,22 +33047,18 @@ const FEDINV_RETURN_EMAIL_LINE = 'Your invitation is filled in again, except the
 const FEDINV_RETURN_READ_MAX = 3;
 let FEDINV_RETURN_READS = 0;        // projects reads this return asked for
 let FEDINV_RETURN_READING = false;  // one of them is still being answered
-/* The person pressed or typed something since this page loaded while neither first run nor a dialog was up, and not
-   inside either (dismissing one is not a choice of where to go, and the return waits behind both): they have moved on,
-   so the return opens nothing and the note goes. Listened for only while an invite note waits (fedInviteReturnWait). */
+/* The person pressed or typed something since this page loaded while nothing covered the page (dismissing first run or
+   a dialog is not a choice of where to go, and the return waits behind both): they have moved on, so the return opens
+   nothing and the note goes. Listened for only while an invite note waits (fedInviteReturnWait). */
 let FEDINV_RETURN_TOUCHED = false;
-function fedInviteReturnTouched(e) {
-  if (fedInviteReturnBusy()) return;   // first run or a dialog is up: the key or press is about that, wherever focus is
-  const t = e && e.target;
-  if (t && t.closest && t.closest('#firstrun, #fr-choice, .rm-back')) return;
+function fedInviteReturnTouched() {
+  if (fedInviteReturnBusy()) return;   // something covers the page: the key or press is about that, wherever focus is
   FEDINV_RETURN_TOUCHED = true;
 }
+// The Claude return's own test, and everything the board counts as covering the page (tipModalOpen: dialogs, the
+// first screens, an update or restart screen, an open <dialog>, the phone menu).
 function fedInviteReturnBusy() {
-  if (stepUpReturnBusy()) return true;
-  // A dialog is the board's own test (its gutter CSS): not hidden, and not inside a hidden section. The rest is what
-  // tipModalOpen counts as covering the page: the first screens, an update or restart screen, an open <dialog>, the
-  // phone menu.
-  return !!document.querySelector('.rm-back:not([hidden]):not([hidden] *), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open], #pnav:not([hidden])');
+  return stepUpReturnBusy() || (typeof tipModalOpen === 'function' && tipModalOpen());
 }
 function resumeFedInviteReturn() {
   const n = peekStepUpReturn();

@@ -31,11 +31,13 @@ opens nothing.
   invite note, and an invite attempt never a Claude one. A second Make that fails for another reason leaves the first
   refusal's ask up with no note behind it (Sign in again then returns nothing): accepted, the person is already on the
   sheet.
-- A press or key while first run or a dialog is up, or inside one, does not count as moving on (dismissing it is not a
-  choice of where to go); the return waits behind both. "A dialog is up" is the board's own test (the gutter CSS):
-  `.rm-back:not([hidden]):not([hidden] *)`; the dialogs built on demand (What's New, the invite step) are removed on close.
-- Busy is the board's own: the dialog test above plus what tipModalOpen counts as covering the page (first screens,
-  update and restart screens, an open <dialog>, the phone menu). An archived project opens nothing.
+- A press or key while anything covers the page does not count as moving on (dismissing first run or a dialog is not a
+  choice of where to go); the return waits behind both.
+- Busy is the board's own: stepUpReturnBusy (first run, the account dialog) or tipModalOpen (dialogs, the first
+  screens, an update or restart screen, an open <dialog>, the phone menu). Reused rather than restated: CI selects
+  browser checks by the selectors and names a page diff's lines contain, and restating them selected 291 of them and
+  ran the job past its 2-hour limit (PR #8947, first run). Known edge: a dialog left open inside a hidden section
+  makes the return wait (it keeps the note), the safe direction. An archived project opens nothing.
 - Known limit: a Make whose sheet is force-closed while it is answered (federation turning off) writes no note, so
   that refusal's ask returns nothing. Rare: the sheet refuses to close while Make is in flight.
 - Known limit: presses are watched only during the 60 tries. A later reload inside the note's 10 minutes, after the

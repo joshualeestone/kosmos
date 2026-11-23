@@ -26,7 +26,7 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
   const document = {
     getElementById: (id) => els[id] || null,
     // The page's one busy selector: its first part is the .rm-back test; `covers` stands for the rest (an update screen...).
-    querySelector: (sel) => (sel.startsWith('.rm-back:not([hidden]):not([hidden] *), ') ? (rmBack().find((el) => !el.hidden) || (covers.length ? {} : null)) : null),
+    querySelector: () => null,
     addEventListener: (type, fn, capture) => listeners.push({ type, fn, capture }),
     removeEventListener: (type, fn) => { const i = listeners.findIndex((l) => l.type === type && l.fn === fn); if (i > -1) listeners.splice(i, 1); },
   };
@@ -55,7 +55,7 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
   // PJ_LOADED_ONCE and PJ_CURRENT are read as globals by the page: given here as getters on `with`-free parameters.
   const wrapped = 'return (function () { ' + src + ' })();';
   const fns = new Function('sessionStorage', 'document', 'performance', 'setTimeout', 'fetch', 'ACCOUNTS', 'openAcctReauth', 'fedShow', 'pjById',
-    'openProject', 'fedInviteOpen', 'showTab', 'loadProjects', 'env',
+    'openProject', 'fedInviteOpen', 'showTab', 'loadProjects', 'tipModalOpen', 'env',
     'with (env) { ' + wrapped + ' }')(
     sessionStorage, document, performance, (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     () => { calls.push(['fetch']); return Promise.resolve({ ok: false }); }, [], () => calls.push(['reauth']),
@@ -64,6 +64,8 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
     (opener, prefill) => { calls.push(['fedInviteOpen', opener, prefill]); els['fedinv-modal'].hidden = false; els['fedinv-msg'].textContent = ''; },
     (tab) => calls.push(['showTab', tab]),
     () => { calls.push(['loadProjects']); if (state.readLands) state.loaded = true; return Promise.resolve(true); },
+    // The page's own tipModalOpen, as it answers: an open .rm-back dialog, or anything else covering the page (covers).
+    () => rmBack().some((el) => !el.hidden) || covers.length > 0,
     { get PJ_LOADED_ONCE() { return state.loaded; }, get PJ_CURRENT() { return state.current; } });
   return { ...fns, storage, calls, els, state, timers, performance, listeners };
 }
@@ -248,19 +250,20 @@ test('#8938 item 4 review 2: the person pressed or typed after the page loaded: 
   earlier(p);
   p.fedInviteReturnWait();
   assert.deepEqual(p.listeners.map((l) => [l.type, l.capture]), [['pointerdown', true], ['keydown', true]]);
-  // A key inside first run, or a press inside an open dialog (closing it), is not a choice of where to go.
-  const inside = { target: { closest: (sel) => (sel === '#firstrun, #fr-choice, .rm-back' ? {} : null) } };
-  p.listeners[1].fn(inside);
-  p.listeners[0].fn(inside);
+  // A key or press while a dialog is up (closing it) is not a choice of where to go.
+  p.els['fedinv-modal'].hidden = false;   // stands for any open .rm-back dialog
+  p.listeners[1].fn({});
+  p.listeners[0].fn({});
+  p.els['fedinv-modal'].hidden = true;
   p.state.loaded = true;
   p.timers.shift().fn();
-  assert.deepEqual(p.calls.map((c) => c[0]).filter((c) => c !== 'loadProjects'), ['showTab', 'openProject', 'fedInviteOpen'], 'a first-run key stopped the return');
+  assert.deepEqual(p.calls.map((c) => c[0]).filter((c) => c !== 'loadProjects'), ['showTab', 'openProject', 'fedInviteOpen'], 'a key while a dialog was up stopped the return');
   assert.deepEqual(p.listeners, [], 'the listeners stay after the wait ended');
   // review 4: a key while first run is up, with focus outside it (on the page), is about first run too.
   const r = page({ loaded: false, visible: ['firstrun'] });
   earlier(r);
   r.fedInviteReturnWait();
-  r.listeners[1].fn({ target: { closest: () => null } });
+  r.listeners[1].fn({});
   r.els.firstrun.hidden = true;
   r.state.loaded = true;
   r.timers.shift().fn();
@@ -269,7 +272,7 @@ test('#8938 item 4 review 2: the person pressed or typed after the page loaded: 
   const q = page({ loaded: false });
   earlier(q);
   q.fedInviteReturnWait();
-  q.listeners[0].fn({ target: { closest: () => null } });
+  q.listeners[0].fn({});
   q.state.loaded = true;
   q.timers.shift().fn();
   assert.deepEqual(q.calls.filter((c) => c[0] !== 'loadProjects'), [], 'opened over what the person had moved on to');
