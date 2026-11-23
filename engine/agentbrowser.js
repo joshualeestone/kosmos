@@ -369,8 +369,8 @@ function note(line) {
 function noteEnded(agent, p) { note(agentKey(agent) + ' pid ' + p.pid + ' ' + String(p.command || '').slice(0, 500)); }
 function noteListFailed(agent) { return (e) => note(agentKey(agent) + ' could not list processes: ' + String((e && e.message) || e).slice(0, 200)); }
 /* Ends this agent's orphaned servers and their browsers. Never throws. Fails closed: with no `end` handed in, it acts
-   only when its caller says `live` (the Mac shim run as a program, and the Windows supervisor started for real), and
-   never in a test run (a caller that injects its own `end`, as tests do on purpose, acts with it). Mac: inline, the whole sweep within a
+   only when its caller says `live` (the Mac shim run as a program; the Windows supervisor only with an explicit
+   endOrphans, which no real start passes yet), and never in a test run (a caller that injects its own `end`, as tests do on purpose, acts with it). Mac: inline, the whole sweep within a
    2 s budget; each pid is re-read just before SIGKILL and skipped unless it is still what was selected. Windows: its
    PowerShell starts during launchConfig but nothing waits on it; one listing plans it, and one PowerShell ends each planned pid only if its
    creation time and command line are still exactly as listed (a pid with no creation time is left). A browser whose
@@ -388,6 +388,8 @@ function endOrphanedServers(agent, deps) {
     /* Never in a test run, by the store's rule (--test, an inherited NODE_TEST_CONTEXT, or tools/run-tests.sh's
        KOSMOS_TEST_RUN with the temp folder inside it). */
     try { armed = d.live === true && !require('./store').isTestProcess(process.env); } catch { /* not knowable: closed */ }
+    /* A scrubbed test child is stopped earlier by launchConfig's own guard, or runs against a sandboxed runners folder
+       whose cli.js no real server runs: the match, not only this check, is what keeps a test away from real servers. */
     if (!armed) return [];
     end = defaultEnd(platform);
   }
