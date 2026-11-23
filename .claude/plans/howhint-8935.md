@@ -33,3 +33,9 @@ That agents read a command's stderr. Claude Code shows it with the output; a run
 - Fixed: a test run that names no record of its own never points or writes (store.isTestProcess, through an opts.store seam so its test can fail; removing the check turns it red).
 - Decided: `--help` does not count as reading for the --how commands (only `--how` does); report's guide is its --help, which no longer marks either, so an agent that read report --help may still see the pointer once.
 - Evidence: 10/10 in the two files; mutations red (token key, --auto skip, test-run guard). Wide run: 1256 tests (40 Windows CLI files, 20 agent-CLI files, lints): 1248 pass, 0 fail.
+
+## Initial validation (on the first build) and challenge loop iteration 3 (sonnet)
+- The first build's full suite had 19 failures. The #4466/#4580 CLI tests were gone on the iteration 2 head (test runs never point). Three lints remained, fixed: the new tests added to tools/windows-tests.js (also iteration 3's finding); the record written through store.saveFlushed (no raw writeFileSync); engine/connections.test.js's pinned dispatch line allows the hint call. The four files plus the two new ones: 105/105.
+- Fixed: `--help` is answered before the hint on both CLIs, so the report "reads it" branch was unreachable; removed, and the comment says report's pointer can show once to an agent that read its --help.
+- Fixed: the record's folder comes from store.currentDataRoot() (now exported), not store.root(), so an agent's command never triggers the legacy-store migration.
+- Fixed: the --auto skip applies to report only (a post whose text says --auto is just text); the record cap keeps recently seen agents.
