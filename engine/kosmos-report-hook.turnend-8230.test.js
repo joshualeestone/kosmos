@@ -162,12 +162,46 @@ test('kosmos#8230: every phrase the hook treats as a keep is still said by the b
 });
 
 // The route's behaviour is measured in server.report-turnend-8230.test.js; this pins where the two refusals call it.
+/* kosmos#8922: the /api/report handler, from its own `if (pathname === ...) {` line to its closing brace at the same
+   indent, instead of a fixed 20,000-character window (#8916 left the guarded line at 19,932). null when the handler's
+   start or end cannot be found, so a renamed route fails loudly rather than reading the rest of the file. */
+const REPORT_HEAD = "if (pathname === '/api/report' && req.method === 'POST') {";
+function reportRoute(src) {
+  const i = src.indexOf(REPORT_HEAD);
+  if (i < 0 || src.indexOf(REPORT_HEAD, i + 1) >= 0) return null;
+  const indent = src.slice(src.lastIndexOf('\n', i) + 1, i);
+  if (!/^ *$/.test(indent)) return null;
+  const end = src.indexOf('\n' + indent + '}\n', i);
+  return end < 0 ? null : src.slice(i, end + indent.length + 2);
+}
+const guardsOf = (route) => ({
+  names: /skipped: String\(kept\.skipped\)/.test(route),
+  refusals: (route.match(/noteTurnEndRefusal\(body, /g) || []).length,
+});
 test('kosmos#8230: the board names its skip and logs an automatic turn end it refuses before the record', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const route = src.slice(src.indexOf("if (pathname === '/api/report' && req.method === 'POST') {"));
-  assert.match(route.slice(0, 20000), /skipped: String\(kept\.skipped\)/, 'the record\'s skip is not named in the answer');
-  const refusals = route.slice(0, 20000).match(/noteTurnEndRefusal\(body, /g) || [];
-  assert.equal(refusals.length, 2, 'the roster and sender refusals should both log a refused turn end');
+  const route = reportRoute(src);
+  assert.ok(route, 'the /api/report handler (its head line, once, and its closing brace) was not found in server.js');
+  assert.ok(route.endsWith('\n  }'), 'the handler did not end at its own closing brace');
+  const g = guardsOf(route);
+  assert.equal(g.names, true, 'the record\'s skip is not named in the answer');
+  assert.equal(g.refusals, 2, 'the roster and sender refusals should both log a refused turn end');
+});
+test('kosmos#8922 CONTROLS: the anchored check fails without the guarded line, and does not depend on the handler\'s length', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  // Without the guarded line, the check fails (the control the old window had to keep).
+  const removed = src.replace('skipped: String(kept.skipped)', 'skipped: null');
+  assert.notEqual(removed, src, 'the guarded line was not in server.js to remove');
+  assert.equal(guardsOf(reportRoute(removed)).names, false, 'the check still passed with the guarded line removed');
+  // A handler 40,000 characters longer (a comment before the line) still passes: the old window would have failed.
+  const at = src.indexOf(REPORT_HEAD) + REPORT_HEAD.length;
+  const longer = src.slice(0, at) + '\n    /* ' + 'x'.repeat(40000) + ' */' + src.slice(at);
+  assert.equal(guardsOf(longer.slice(longer.indexOf(REPORT_HEAD), longer.indexOf(REPORT_HEAD) + 20000)).names, false, 'CONTROL: the old 20,000-character window would still have found it');
+  assert.equal(guardsOf(reportRoute(longer)).names, true, 'a longer handler hid the guarded line');
+  // The guarded text in the NEXT route does not count: the slice ends at this handler's own closing brace.
+  const r = reportRoute(src);
+  const after = src.slice(src.indexOf(r) + r.length);
+  assert.match(after, /^\n\n  if \(pathname === /, 'the slice did not end where the next route starts');
 });
 
 test('kosmos#8230/#8233: a caller that does not wait for the hook (noRetry) sends once, in the short window, and a loss is noted at once', async () => {
