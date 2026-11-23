@@ -37,8 +37,10 @@ test('kosmos#8948: an earlier day is named as that day, not "today"', () => {
 });
 
 test('kosmos#8948: an empty today points to the day before; a today with anything in it does not', () => {
+  // Review 1: digest reads its own today, so a run that crosses midnight checks nothing rather than reading red.
   const today = fb.today();
   const empty = day.digest({ name: 'Dana', readThread: () => [], ...seams }).join('\n');
+  if (fb.today() !== today) return;
   assert.match(empty, new RegExp('Nothing here today\\. If this session began on an earlier day, read that day too: kosmos feedback day --date ' + day.dayBefore(today, fb.dateKey)));
   const said = [{ from: 'Dana', text: 'done', at: new Date().toISOString() }];
   const busy = day.digest({ name: 'Dana', readThread: () => said, ...seams }).join('\n');
@@ -58,4 +60,31 @@ test('kosmos#8948: a task file written again after the asked day is still read f
   assert.deepEqual(day.listTaskFilesIn(dir, fb.dateKey(before), fb.dateKey), ['proj.task-7.jsonl'], 'a file written since the asked day was skipped');
   fs.utimesSync(f, before, before);
   assert.deepEqual(day.listTaskFilesIn(dir, fb.dateKey(after), fb.dateKey), [], 'CONTROL: a file last written before the asked day was read');
+});
+
+/* Review 1: --date reaches the digest through the Windows CLI with the real dayArg, marked as asked for; a bad day is
+   refused before the agent is even looked up. (Before this, only a stub without dayArg ran here.) */
+test('kosmos#8948: the Windows CLI hands --date to the digest as an asked day, and refuses a bad one first', async () => {
+  const cli = require('../tools/windows/kosmos-cli');
+  async function win(argv) {
+    const seen = { who: 0, digest: null };
+    const engine = { feedbackday: { dayArg: day.dayArg,
+      recordWho: () => { seen.who += 1; return { name: 'dana', also: [] }; },
+      digest: (o) => { seen.digest = o; return ['DAY']; } } };
+    const out = []; const err = [];
+    const code = await cli.main(argv, { env: {}, out: (x) => out.push(x), err: (x) => err.push(x), engine });
+    return { code, err: err.join('\n'), seen };
+  }
+  const asked = await win(['feedback', 'day', '--date', '2026-11-21']);
+  assert.equal(asked.code, 0, asked.err);
+  assert.equal(asked.seen.digest.date, '2026-11-21', '--date did not reach the digest');
+  assert.equal(asked.seen.digest.asked, true, 'the day was not marked as asked for, so it would read "today"');
+  const plain = await win(['feedback', 'day']);
+  assert.equal(plain.code, 0);
+  assert.equal(plain.seen.digest.asked, undefined, 'CONTROL: a plain call was marked as an asked day');
+  for (const bad of [['--date', '2099-01-01'], ['--date', 'soon'], ['--date'], ['more']]) {
+    const r = await win(['feedback', 'day', ...bad]);
+    assert.equal(r.code, 2, 'refused with the wrong code: ' + bad.join(' '));
+    assert.equal(r.seen.who, 0, 'the agent was looked up before a bad argument was refused: ' + bad.join(' '));
+  }
 });

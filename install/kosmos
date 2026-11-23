@@ -1240,10 +1240,7 @@ kosmos_engine_module() {
   [ -f "$_mod.js" ] || _mod="$KOSMOS_HOME/engine/$1"
   printf '%s' "$_mod"
 }
-# kosmos#8935: the first time an agent uses a command with a longer guide, name the guide once (engine/howhint.js
-# decides and records). Only an agent's call reaches node (about 20 ms, measured); the line goes to stderr, so stdout
-# is unchanged and stderr gains one first line, once; stdin is not touched (a `post --stdin` keeps all of its input);
-# and it never fails the command it sits in front of.
+
 # kosmos#8948 part 2: after "Unknown: kosmos <word>", one line naming the command most likely meant (engine/didyoumean.js,
 # the Windows CLI's rule too), from the names kosmos_command_list prints. Prints nothing when nothing is close, or
 # when node or the module is missing; never fails the answer.
@@ -1259,6 +1256,10 @@ _did_you_mean() {
   return 0
 }
 
+# kosmos#8935: the first time an agent uses a command with a longer guide, name the guide once (engine/howhint.js
+# decides and records). Only an agent's call reaches node (about 20 ms, measured); the line goes to stderr, so stdout
+# is unchanged and stderr gains one first line, once; stdin is not touched (a `post --stdin` keeps all of its input);
+# and it never fails the command it sits in front of.
 _how_hint() {
   [ -n "${KOSMOS_AGENT_SESSION:-}${KOSMOS_AGENT_TOKEN:-}" ] || return 0
   [ $# -ge 2 ] || return 0   # no arguments after the command: a usage request or a status probe (the report hook's)

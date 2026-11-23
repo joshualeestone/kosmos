@@ -36,3 +36,14 @@ reliable session start; bigger than this card).
 
 Weakest premise: part 1's cause on the reporting installs is not measured; the sentence answers the agent's
 confusion, not the stale write itself.
+
+## Round 1 (opus, blind): no blocker; two should-fix (test gaps), taken; nits taken
+- Nothing tested that --date reaches the digest: a Windows main() test now runs the real dayArg and checks date and
+  asked: true reach the digest, a plain call is not marked asked (CONTROL), and four bad arguments exit 2 before the
+  agent is looked up. Putting the Windows call back to digest(who) turns it red. The Mac arm stays pinned by source
+  (it needs a staged agent identity to run); both CLIs share dayArg and digest.
+- _did_you_mean moved above the #8935 comment block, so that comment sits on _how_hint again.
+- The empty-today test skips its check on a run that crosses midnight instead of reading red.
+- Measured by the reviewer: shell metacharacters in the unknown word print only the Unknown line and run nothing;
+  dayBefore holds across daylight saving in three zones 2010 to 2026; 12 block-reading test files pass.
+- Left, noted: Mac feedback day errors now go to stderr (as Windows); suggestions draw only on the listed commands.
