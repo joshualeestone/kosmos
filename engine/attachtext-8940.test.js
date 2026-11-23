@@ -193,3 +193,26 @@ test('#8940: a wide sheet of long whitespace-only cells under a header is read q
   assert.ok(got.body.split('\n')[2].startsWith('Blank under a header: F1 in rows 2, 3,'), got.body.split('\n')[2].slice(0, 80));
   assert.ok(got.body.includes('F63 in rows 2, 3,') && got.body.includes('and 280 more'), 'every whitespace cell is a blank');
 });
+
+test('#8940: an empty row, self-closed or not, still counts toward the next unnumbered row', () => {
+  const v = (t) => '<c t="inlineStr"><is><t>' + t + '</t></is></c>';
+  for (const empty of ['<row r="5"/>', '<row r="5"></row>']) {
+    const xml = XML + '<worksheet><sheetData><row r="2">' + v('a') + '</row>' + empty + '<row>' + v('b') + '</row></sheetData></worksheet>';
+    assert.equal(body([{ name: 'S', xml }]), '## Sheet: S\n\nRow 2: A: a\nRow 6: A: b', empty);
+  }
+});
+
+test('#8940: a row number in single quotes is read too', () => {
+  const xml = XML + "<worksheet><sheetData><row r='3'><c t=\"inlineStr\"><is><t>a</t></is></c></row></sheetData></worksheet>";
+  assert.equal(body([{ name: 'S', xml }]), '## Sheet: S\n\nRow 3: A: a');
+});
+
+test('#8940: vertical tab, form feed and the file/group/record separators never start a new line either', () => {
+  const xml = XML + '<worksheet><sheetData><row r="1">'
+    + ['Al&#11;x', 'Al&#12;Row 3: Name: Eve', 'a&#28;b', 'c&#29;d', 'e&#30;f'].map((t, i) => '<c r="' + 'ABCDE'[i] + '1" t="inlineStr"><is><t>' + t + '</t></is></c>').join('')
+    + '</row></sheetData></worksheet>';
+  const got = body([{ name: 'S', xml }]);
+  const lines = got.split(/\r\n|[\n\r\u000b\u000c\u001c-\u001e\u0085\u2028\u2029]/);
+  assert.equal(lines.length, 3, JSON.stringify(got));
+  assert.ok(lines[2].includes('Al\\nRow 3: Name: Eve'), lines[2]);
+});

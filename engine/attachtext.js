@@ -142,7 +142,7 @@ function sheetRows(sheet, shared, clip) {
   let last = 0;
   let rowR = null;
   const rowNumber = (ref) => { const d = /^([A-Z]{0,3})([1-9]\d{0,6})$/.exec(ref || ''); return d ? Number(d[2]) : null; };
-  const rowRAttr = (open) => { const m = /\sr="([^"]*)"/.exec(open); return m ? m[1] : null; };   // r itself, never x:r
+  const rowRAttr = (open) => { const m = /\sr=(?:"([^"]*)"|'([^']*)')/.exec(open); return m ? (m[1] != null ? m[1] : m[2]) : null; };   // r itself, never x:r
   for (const rowText of oc.blocks(sheet, 'row', (open) => { rowR = rowNumber(rowRAttr(open)); })) {
     const row = [];
     let next = 0;
@@ -183,7 +183,7 @@ function sheetRows(sheet, shared, clip) {
 
 /* kosmos#8940: one value on one line. A line break shows as the two characters \n and a pipe as \|, with a backslash
    doubled first, so one line is always one row and the escapes cannot be confused with the data. */
-const lineValue = (v) => String(v == null ? '' : v).slice(0, MAX_CELL).trim().replace(/\\/g, '\\\\').replace(/\r?\n|[\r\u0085\u2028\u2029]/g, '\\n').replace(/\|/g, '\\|');
+const lineValue = (v) => String(v == null ? '' : v).slice(0, MAX_CELL).trim().replace(/\\/g, '\\\\').replace(/\r?\n|[\r\u000b\u000c\u001c-\u001e\u0085\u2028\u2029]/g, '\\n').replace(/\|/g, '\\|');
 const colName = (i) => { let s = ''; for (let k = i + 1; k > 0; k = Math.floor((k - 1) / 26)) s = String.fromCharCode(65 + ((k - 1) % 26)) + s; return s; };
 const NUMBERISH = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/;
 const BLANK_ROWS_LISTED = 20;   // rows named per column in the blank line; more are counted
