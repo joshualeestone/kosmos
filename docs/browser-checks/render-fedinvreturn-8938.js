@@ -8,6 +8,8 @@
  *   R2  after Sign in again is pressed for it and the page loads again (the fresh sign-in navigating back), the page
  *       opens Projects, that project and its invite sheet with "Dana" and "Their agent" filled in, focus on Make, and
  *       the line "Your invitation is filled in again. Press Make an invite code."; nothing is sent (no code is made);
+ *   R3  with an email address typed, the note says only that one was (never the address), and the sheet comes back
+ *       saying to add it again, with focus on that field;
  * The press is the ask's own #stepup-form submit (navigation stopped), so the key the ask records is the key the mark
  * accepts. And the CONTROLS, each its own page: a reload with NO press opens no sheet; a press on the page after the
  * reload, before the return can act, opens no sheet and drops the note; a press, then a reload where the project is
@@ -76,7 +78,7 @@ async function newPage(browser) {
 }
 
 // The first view: the project open, the sheet filled in ("Dana", their agent), Make pressed and refused.
-async function refusedMake(page) {
+async function refusedMake(page, email) {
   await page.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; showTab('projects'); });
   await page.waitForFunction(() => typeof PJ_LOADED_ONCE !== 'undefined' && PJ_LOADED_ONCE && typeof pjById === 'function' && !!pjById('k'), null, { timeout: 8000 })
     .catch(() => console.log('NOTE  the projects read had not landed in 8 s'));
@@ -93,6 +95,7 @@ async function refusedMake(page) {
   await page.waitForFunction(() => !document.getElementById('fedinv-modal').hidden, null, { timeout: 5000 }).catch(() => {});
   await page.fill('#fedinv-label', 'Dana');
   await page.click('label:has(#fedinv-kind-agent)');   // the label is what a person presses
+  if (email) await page.fill('#fedinv-email', email);
   await page.click('#fedinv-make');
   await page.waitForFunction(() => document.getElementById('fedinv-msg').textContent && !/Making/.test(document.getElementById('fedinv-msg').textContent), null, { timeout: 5000 }).catch(() => {});
   await page.waitForTimeout(300);
@@ -126,6 +129,7 @@ async function afterReload(page, beforeGate) {
       label: document.getElementById('fedinv-label').value,
       agent: document.getElementById('fedinv-kind-agent').checked,
       msg: document.getElementById('fedinv-msg').textContent,
+      email: document.getElementById('fedinv-email').value,
       focus: document.activeElement ? document.activeElement.id : null,
       current: typeof PJ_CURRENT !== 'undefined' ? PJ_CURRENT : null,
       posts: window.__posts.length,
@@ -156,6 +160,19 @@ async function afterReload(page, beforeGate) {
       chk('R2 the sheet says what to do, and claims no sign-in', r2.msg === 'Your invitation is filled in again. Press Make an invite code.', JSON.stringify(r2.msg));
       chk('R2 nothing was sent after the return (no code is made by itself), and the note is gone', r2.posts === 0 && r2.note === null, JSON.stringify(r2));
       chk('R1/R2 no page error', errs.length === 0, errs.join(' | '));
+      await ctx.close();
+    }
+    // R3: an email address was typed. It is never kept: the note says only that one was, and the sheet says to add it
+    // again, with focus on that field (not on Make, where Enter would make a code anyone can use).
+    {
+      const { ctx, page } = await newPage(browser);
+      const r1 = await refusedMake(page, 'dana@example.com');
+      chk('R3 the note says an address was typed and holds no address', !!r1.note && !r1.note.includes('@') && JSON.parse(r1.note).hadEmail === true, r1.note);
+      await press(page);
+      const r = await afterReload(page);
+      chk('R3 the sheet comes back, says to add the address again, and puts focus on that field',
+        r.open && r.email === '' && r.focus === 'fedinv-email'
+        && r.msg === 'Your invitation is filled in again, except the email address. Add it again if only they should use the code.', JSON.stringify(r));
       await ctx.close();
     }
     // CONTROL: a reload with no press opens nothing and keeps the note.

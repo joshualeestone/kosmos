@@ -14,7 +14,9 @@ opens nothing.
 - Reuses #8728's one tab note (sessionStorage `kosmos-stepup-return`, 10 minutes, acted on only on the load after the
   press). New kind `fed-invite`: { project, label (80 max, the sheet's own limit), invitedKind, at }. No email, no
   code. Decided: the optional email is not carried (it is the one field that identifies a person outside; retyping
-  it costs little, keeping it in storage costs more).
+  it costs little, keeping it in storage costs more). The note keeps only `hadEmail: true` when one was typed, so the
+  sheet says "Your invitation is filled in again, except the email address. Add it again if only they should use the
+  code." with focus on that field, never on Make (review 7: Enter there would make a code anyone can use).
 - `markStepUpReturnGoing` marks a note only for its own request: `POST /api/connect/start` for a Claude note,
   `POST /api/federation/invite` for an invite note. One `stepUpNoteShaped` decides both shapes.
 - `resumeStepUpReturn` (the account list) ignores an invite note. `stepUpReturnBoot` routes an invite note to
@@ -38,6 +40,11 @@ opens nothing.
   that refusal's ask returns nothing. Rare: the sheet refuses to close while Make is in flight.
 - Known limit: presses are watched only during the 60 tries. A later reload inside the note's 10 minutes, after the
   person worked elsewhere, still opens the sheet once.
+- Known limits from review 7: (a) measured in the tab layout only; in the consolidated layout the board may auto-open
+  its first project on the return's projects read, and the return then switches to the noted one. (b) Sign in again
+  the logout way lets another Kosmos+ account sign in in the same tab within the 10 minutes; if it also lists the
+  project, it sees the first person's "Who is it for?" filled in. (c) On a phone a touch to scroll is a press, so it
+  ends the return (which usually acts within a second).
 - Decided, from review 2: a page whose 3 projects reads all fail opens nothing (the note stays for a reload). That is
   today's behaviour, and more reads would poll a board that is not answering.
 - The words claim no sign-in (#8728 review 3: a log-out can fail and the person reload).

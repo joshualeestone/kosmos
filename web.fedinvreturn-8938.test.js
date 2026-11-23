@@ -13,7 +13,7 @@ const SCRIPT = scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'
 
 function page({ projects = ['p1'], loaded = true, fed = true, visible = [], storage = new Map(), stayOff = false, dialogs = [], covers = [], archived = [] } = {}) {
   const calls = [];
-  const els = { 'fedinv-modal': { hidden: true }, 'fedinv-msg': { textContent: '' } };
+  const els = { 'fedinv-modal': { hidden: true }, 'fedinv-msg': { textContent: '' }, 'fedinv-email': { focus() { calls.push(['focus', 'fedinv-email']); } } };
   for (const id of ['acct-add-modal', 'firstrun', 'fr-choice']) els[id] = { hidden: !visible.includes(id) };
   const sessionStorage = {
     getItem: (k) => (storage.has(k) ? storage.get(k) : null),
@@ -39,6 +39,7 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
     SCRIPT.match(/const STEPUP_RETURN_FOR = [^;]*;/)[0],
     SCRIPT.match(/const STEPUP_RETURN_FED_FOR = [^;]*;/)[0],
     SCRIPT.match(/const FEDINV_RETURN_LINE = [^;]*;/)[0],
+    SCRIPT.match(/const FEDINV_RETURN_EMAIL_LINE = [^;]*;/)[0],
     SCRIPT.match(/const FEDINV_RETURN_READ_MAX = [^;]*;/)[0],
     SCRIPT.match(/let FEDINV_RETURN_READS = [^;]*;/)[0],
     SCRIPT.match(/let FEDINV_RETURN_READING = [^;]*;/)[0],
@@ -49,7 +50,7 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
     lift(SCRIPT, 'stepUpNoteShaped'), lift(SCRIPT, 'markStepUpReturnGoing'), lift(SCRIPT, 'peekStepUpReturn'),
     lift(SCRIPT, 'stepUpReturnBusy'), lift(SCRIPT, 'resumeStepUpReturn'), lift(SCRIPT, 'resumeFedInviteReturn'),
     lift(SCRIPT, 'fedInviteReturnWait'), lift(SCRIPT, 'stepUpReturnBoot'),
-    'return { forgetFedInviteReturn, forgetClaudeSignInReturn, noteFedInviteReturn, noteStepUpReturn, markStepUpReturnGoing, resumeFedInviteReturn, resumeStepUpReturn, fedInviteReturnWait, stepUpReturnBoot, KEY: STEPUP_RETURN_KEY, LINE: FEDINV_RETURN_LINE };',
+    'return { forgetFedInviteReturn, forgetClaudeSignInReturn, noteFedInviteReturn, noteStepUpReturn, markStepUpReturnGoing, resumeFedInviteReturn, resumeStepUpReturn, fedInviteReturnWait, stepUpReturnBoot, KEY: STEPUP_RETURN_KEY, LINE: FEDINV_RETURN_LINE, EMAIL_LINE: FEDINV_RETURN_EMAIL_LINE };',
   ].join('\n');
   // PJ_LOADED_ONCE and PJ_CURRENT are read as globals by the page: given here as getters on `with`-free parameters.
   const wrapped = 'return (function () { ' + src + ' })();';
@@ -99,6 +100,36 @@ test('#8938 item 4: the note holds only project, who it is for, the kind and whe
     q.noteFedInviteReturn(...args);
     assert.equal(q.storage.has(q.KEY), false, 'noted from ' + JSON.stringify(args));
   }
+});
+
+test('#8938 item 4 review 7: an email typed before the refusal is never kept, and the sheet says so and puts focus on that field', () => {
+  const p = page();
+  p.noteFedInviteReturn('p1', 'Dana', 'person', true);
+  const n = JSON.parse(p.storage.get(p.KEY));
+  assert.deepEqual(Object.keys(n).sort(), ['at', 'hadEmail', 'invitedKind', 'kind', 'label', 'project'], 'more than a yes was kept about the address');
+  assert.equal(n.hadEmail, true);
+  p.markStepUpReturnGoing('POST /api/federation/invite');
+  assert.equal(JSON.parse(p.storage.get(p.KEY)).hadEmail, true, 'the press dropped the flag');
+  const q = page();
+  earlier(q, { hadEmail: true });
+  q.resumeFedInviteReturn();
+  assert.equal(q.els['fedinv-msg'].textContent, 'Your invitation is filled in again, except the email address. Add it again if only they should use the code.');
+  assert.deepEqual(q.calls.at(-1), ['focus', 'fedinv-email'], 'focus stayed on Make, where Enter makes an unbound code');
+  assert.doesNotMatch(q.EMAIL_LINE, /signed in/i);
+  // CONTROL: no email typed, the plain line and no move to the email field.
+  const r = page();
+  earlier(r);
+  r.resumeFedInviteReturn();
+  assert.equal(r.els['fedinv-msg'].textContent, r.LINE);
+  assert.ok(!r.calls.some((c) => c[0] === 'focus'));
+  // A flag of any other value is a bad note: removed, nothing opens.
+  const bad = page();
+  earlier(bad, { hadEmail: 'x@example.com' });
+  bad.resumeFedInviteReturn();
+  assert.deepEqual(bad.calls, []);
+  assert.equal(bad.storage.has(bad.KEY), false);
+  // The page passes whether an address was typed, never the address.
+  assert.match(lift(SCRIPT, 'fedInviteMake'), /noteFedInviteReturn\(askedFor, label, kind, !!email\)/);
 });
 
 test('#8938 item 4: only Sign in again pressed for the invite marks the invite note; the Claude start does not, nor the reverse', () => {
@@ -286,7 +317,7 @@ test('#8938 item 4: an invite note is not an account note, and boot routes it to
 
 test('#8938 item 4: the page wires it: the sheet notes only the refusal that offers Sign in again; Make and the create form clear older notes', () => {
   const make = lift(SCRIPT, 'fedInviteMake');
-  assert.match(make, /res\.status === 403 && body && body\.code === 'remote_step_up' && body\.signInAgain === true && typeof noteFedInviteReturn === 'function'\) noteFedInviteReturn\(askedFor, label, kind\)/);
+  assert.match(make, /res\.status === 403 && body && body\.code === 'remote_step_up' && body\.signInAgain === true && typeof noteFedInviteReturn === 'function'\) noteFedInviteReturn\(askedFor, label, kind, !!email\)/);
   assert.doesNotMatch(make, /forgetStepUpReturn\(/, 'Make erases any note, a Claude one too');
   const clear = make.indexOf('forgetFedInviteReturn();');
   assert.ok(clear > -1 && clear < make.indexOf("fetch('/api/federation/invite'"), 'Make does not clear an older note before its request');

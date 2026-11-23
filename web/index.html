@@ -32956,12 +32956,14 @@ function noteStepUpReturn(dir) {
 }
 /* kosmos#8938 item 4: an outside invite (POST /api/federation/invite from the invite sheet) refused the same way leaves
    the same one note, of its own kind: which project, who it is for (the sheet's own "Who is it for?", 80 characters at
-   most) and person or agent. No email address and no code. Back from the fresh sign-in, the page opens that project's
-   invite sheet with those filled in; it never makes the code by itself. */
-function noteFedInviteReturn(project, label, invitedKind) {
+   most), person or agent, and whether an email address was typed (never the address). No code. Back from the fresh
+   sign-in, the page opens that project's invite sheet with those filled in; it never makes the code by itself. */
+function noteFedInviteReturn(project, label, invitedKind, hadEmail) {
   if (typeof project !== 'string' || !project || typeof label !== 'string' || !label) return;
   if (invitedKind !== 'person' && invitedKind !== 'agent') return;
-  try { sessionStorage.setItem(STEPUP_RETURN_KEY, JSON.stringify({ kind: 'fed-invite', project, label: label.slice(0, 80), invitedKind, at: Date.now() })); } catch { /* the return is a courtesy */ }
+  const n = { kind: 'fed-invite', project, label: label.slice(0, 80), invitedKind, at: Date.now() };
+  if (hadEmail === true) n.hadEmail = true;
+  try { sessionStorage.setItem(STEPUP_RETURN_KEY, JSON.stringify(n)); } catch { /* the return is a courtesy */ }
 }
 function forgetStepUpReturn() {
   try { sessionStorage.removeItem(STEPUP_RETURN_KEY); } catch { /* nothing to forget */ }
@@ -32981,7 +32983,7 @@ function stepUpNoteShaped(n) {
   if (n.kind === 'claude-signin') return typeof n.dir === 'string' && !!n.dir;
   if (n.kind === 'fed-invite') {
     return typeof n.project === 'string' && !!n.project && typeof n.label === 'string' && !!n.label && n.label.length <= 80
-      && (n.invitedKind === 'person' || n.invitedKind === 'agent');
+      && (n.invitedKind === 'person' || n.invitedKind === 'agent') && (n.hadEmail === undefined || n.hadEmail === true);
   }
   return false;
 }
@@ -32998,7 +33000,7 @@ function markStepUpReturnGoing(forKey, now = Date.now()) {
   if (forKey !== (n.kind === 'fed-invite' ? STEPUP_RETURN_FED_FOR : STEPUP_RETURN_FOR)) return;   // a press for another request
   if (now - n.at > STEPUP_RETURN_MS) return;
   const kept = n.kind === 'fed-invite'
-    ? { kind: 'fed-invite', project: n.project, label: n.label, invitedKind: n.invitedKind, at: n.at, went: now }
+    ? { kind: 'fed-invite', project: n.project, label: n.label, invitedKind: n.invitedKind, ...(n.hadEmail ? { hadEmail: true } : {}), at: n.at, went: now }
     : { kind: 'claude-signin', dir: n.dir, at: n.at, went: now };
   try { sessionStorage.setItem(STEPUP_RETURN_KEY, JSON.stringify(kept)); } catch { /* the return is a courtesy */ }
 }
@@ -33035,11 +33037,13 @@ function resumeStepUpReturn(list = ACCOUNTS) {
   const note = document.getElementById('acct-add-note');
   if (note) note.textContent = 'Press Sign in again to sign this account in to Claude.';
 }
-/* kosmos#8938 item 4: the invite note's return. It waits, keeping the note, while first run or any .rm-back dialog is on
-   screen, until the projects read has landed, and until inviting is on (fedShow). Then the note goes, and only a project
+/* kosmos#8938 item 4: the invite note's return. It waits, keeping the note, while anything covers the page
+   (fedInviteReturnBusy), until the projects read has landed, and until inviting is on (fedShow). Then the note goes, and only a project
    this board still lists opens (one that went, or is not this person's, opens nothing). True when nothing is left to
    wait for. The words claim no sign-in (as #8728 review 3): a log-out can fail and the person reload. */
 const FEDINV_RETURN_LINE = 'Your invitation is filled in again. Press Make an invite code.';
+// The address is never kept, so the sheet does not claim to be whole when one was typed, and focus goes to that field.
+const FEDINV_RETURN_EMAIL_LINE = 'Your invitation is filled in again, except the email address. Add it again if only they should use the code.';
 const FEDINV_RETURN_READ_MAX = 3;
 let FEDINV_RETURN_READS = 0;        // projects reads this return asked for
 let FEDINV_RETURN_READING = false;  // one of them is still being answered
@@ -33085,7 +33089,11 @@ function resumeFedInviteReturn() {
   fedInviteOpen(null, { label: n.label, kind: n.invitedKind });
   const modal = document.getElementById('fedinv-modal');
   const msg = document.getElementById('fedinv-msg');
-  if (modal && !modal.hidden && msg) msg.textContent = FEDINV_RETURN_LINE;
+  if (modal && !modal.hidden && msg) {
+    msg.textContent = n.hadEmail ? FEDINV_RETURN_EMAIL_LINE : FEDINV_RETURN_LINE;
+    const email = n.hadEmail ? document.getElementById('fedinv-email') : null;
+    if (email) email.focus();
+  }
   return true;
 }
 // Tried now and then every half second, 60 tries in all; a page that is still not ready keeps the note (its window is
@@ -89500,7 +89508,7 @@ async function fedInviteMake() {
       }
       // kosmos#8938 item 4: the refusal that offers Sign in again leaves a note, so the sheet comes back filled in. It
       // replaces any Claude note: the one ask on screen now belongs to this refusal.
-      if (res.status === 403 && body && body.code === 'remote_step_up' && body.signInAgain === true && typeof noteFedInviteReturn === 'function') noteFedInviteReturn(askedFor, label, kind);
+      if (res.status === 403 && body && body.code === 'remote_step_up' && body.signInAgain === true && typeof noteFedInviteReturn === 'function') noteFedInviteReturn(askedFor, label, kind, !!email);
       msg.textContent = res.status === 403 ? (fedRemoteSays(body) || fallback)
         : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback);
       document.getElementById('fedinv-label').focus();   // back in the field (pjFieldBad's way), not on <body>
