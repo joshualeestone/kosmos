@@ -268,7 +268,7 @@ function stripBlocks(text, tag) {
 /* Each <tag ...>...</tag> block's inner text, found by walking with indexOf. A regex with a lazy body rescans to the
    end of the text for every opener that has no closer, which a crafted sheet can make quadratic on the board's only
    thread; this stops at the first opener without a closer. */
-function* blocks(text, tag) {
+function* blocks(text, tag, onOpen) {
   const open = '<' + tag;
   const close = '</' + tag + '>';
   let at = 0;
@@ -278,6 +278,7 @@ function* blocks(text, tag) {
     if (i < 0) return;
     const gt = text.indexOf('>', i);
     if (gt < 0) return;
+    if (onOpen) onOpen(text.slice(i, gt + 1));   // kosmos#8940: the opening tag already found, for its attributes
     if (text[gt - 1] === '/') { at = gt + 1; yield ''; continue; }   // <row/>: an empty block
     const end = text.indexOf(close, gt);
     if (end < 0) return;

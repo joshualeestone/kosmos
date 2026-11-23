@@ -120,3 +120,39 @@ test('#8940: a workbook with rows carries one note saying how to read the lines'
   assert.equal(said.length, 1, JSON.stringify(got.notes));
   assert.equal(said[0], 'Each line is one row, with the sheet’s own row number. Under a header, (blank) is an empty cell; inside a value, \\n is a line break and \\| is a pipe.');
 });
+
+test('#8940: a header cell holding only spaces does not cost the sheet its header', () => {
+  const got = body([{ name: 'S', rows: { 1: ['Name', 'Email', ' '], 2: ['x', 'y'] } }]);
+  assert.ok(got.includes('Row 1 (header): Name | Email'), got);
+  assert.ok(got.includes('Row 2: Name: x | Email: y'), got);
+});
+
+test('#8940: the row number comes from <row r> when the cells carry no reference', () => {
+  const xml = XML + '<worksheet><sheetData><row r="3"><c t="inlineStr"><is><t>a</t></is></c></row>'
+    + '<row r="8"><c t="inlineStr"><is><t>b</t></is></c></row><row><c t="inlineStr"><is><t>c</t></is></c></row></sheetData></worksheet>';
+  assert.equal(body([{ name: 'S', xml }]), '## Sheet: S\n\nRow 3: A: a\nRow 8: A: b\nRow 9: A: c');
+});
+
+test('#8940: a row whose cells hold only spaces is left out, as an empty row is', () => {
+  assert.equal(body([{ name: 'S', rows: { 1: ['a'], 2: [' ', '  '], 3: ['b'] } }]), '## Sheet: S\n\nRow 1: A: a\nRow 3: A: b');
+});
+
+test('#8940: a line or paragraph separator in a value, or a line break in a sheet name, never starts a new line', () => {
+  const got = body([{ name: 'S\nRow 9 (header): fake', rows: { 1: ['a\u2028b', 'c\u2029d', 'e\u0085f'] } }]);
+  const lines = got.split(/\r\n|[\n\r\u0085\u2028\u2029]/);
+  assert.deepEqual(lines, ['## Sheet: S\\nRow 9 (header): fake', '', 'Row 1 (header): a\\nb | c\\nd | e\\nf'], JSON.stringify(got));
+});
+
+test('#8940: long header names repeated on every row stay inside the output cap, quickly', () => {
+  const COLS = 256, ROWS = 400;
+  const big = (i) => 'H' + i + 'x'.repeat(4000);
+  const colRef = (i) => { let s = ''; for (let k = i + 1; k > 0; k = Math.floor((k - 1) / 26)) s = String.fromCharCode(65 + ((k - 1) % 26)) + s; return s; };
+  const header = '<row r="1">' + Array.from({ length: COLS }, (_, i) => '<c r="' + colRef(i) + '1" t="inlineStr"><is><t>' + big(i) + '</t></is></c>').join('') + '</row>';
+  const data = Array.from({ length: ROWS }, (_, r) => '<row r="' + (r + 2) + '"><c r="A' + (r + 2) + '"><v>' + r + '</v></c></row>').join('');
+  const xml = XML + '<worksheet><sheetData>' + header + data + '</sheetData></worksheet>';
+  const t0 = Date.now();
+  const got = at.xlsxText(book([{ name: 'Wide', xml }]));
+  assert.ok(Date.now() - t0 < 5000, 'took ' + (Date.now() - t0) + ' ms');
+  assert.equal(got.full, true, 'the named lines reach the cap and stop there');
+  assert.ok(got.body.length <= at.MAX_OUT, String(got.body.length));
+});

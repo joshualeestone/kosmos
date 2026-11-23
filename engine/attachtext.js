@@ -135,22 +135,22 @@ function zipOf(buf, what) {
 
 /* ── xlsx ──────────────────────────────────────────────────────────────────────────────────── */
 
-/* kosmos#8940: each row is { n, cells }, n being the spreadsheet's own row number, so the preview can say "Row 6" back
-   to the person. It is read from the row's first cell reference that carries one (B6 is row 6), else the row before's
-   plus one, which is the format's own rule for a row written without a number. Not from <row r>: `oc.blocks` yields a
-   block's inside only, and a second walker over a person's file would be a second place to keep linear. */
+/* kosmos#8940: each row is { n, cells }, n being the spreadsheet's own row number: the row's r, else its first cell
+   reference's (B6 is row 6), else the row before's plus one. */
 function sheetRows(sheet, shared, clip) {
   const rows = [];
   let truncated = false;
   let last = 0;
-  for (const rowText of oc.blocks(sheet, 'row')) {
+  let rowR = null;
+  const rowNumber = (ref) => { const d = /^([A-Z]{0,3})([1-9]\d{0,6})$/.exec(ref || ''); return d ? Number(d[2]) : null; };
+  for (const rowText of oc.blocks(sheet, 'row', (open) => { rowR = rowNumber(oc.attr(open, 'r')); })) {
     const row = [];
     let next = 0;
-    let n = null;
+    let n = rowR;
     for (const cell of oc.cells(rowText)) {
       const tag = '<c' + cell.attrs + '>';
       const ref = oc.attr(tag, 'r');
-      if (n == null && ref) { const d = /^[A-Z]{1,3}([1-9]\d{0,6})$/.exec(ref); if (d) n = Number(d[1]); }
+      if (n == null && ref && /^[A-Z]/.test(ref)) n = rowNumber(ref);
       const at = oc.colIndex(ref);
       const i = at == null ? next : at;
       if (i >= MAX_COLS) { clip.cols = true; break; }
@@ -174,7 +174,7 @@ function sheetRows(sheet, shared, clip) {
     }
     last = n == null ? last + 1 : n;   // an empty row still counts, so the numbers after it stay the sheet's own
     const dense = Array.from(row, (x) => x || '');
-    if (!dense.some((v) => v !== '')) continue;
+    if (!dense.some((v) => v.trim() !== '')) continue;   // #8940: a row of spaces has nothing to show
     if (rows.length >= MAX_SHEET_ROWS) { truncated = true; break; }
     rows.push({ n: last, cells: dense });
   }
@@ -183,7 +183,7 @@ function sheetRows(sheet, shared, clip) {
 
 /* kosmos#8940: one value on one line. A line break shows as the two characters \n and a pipe as \|, with a backslash
    doubled first, so one line is always one row and the escapes cannot be confused with the data. */
-const lineValue = (v) => String(v == null ? '' : v).slice(0, MAX_CELL).replace(/\\/g, '\\\\').replace(/\r?\n|\r/g, '\\n').replace(/\|/g, '\\|').trim();
+const lineValue = (v) => String(v == null ? '' : v).slice(0, MAX_CELL).replace(/\\/g, '\\\\').replace(/\r?\n|[\r\u0085\u2028\u2029]/g, '\\n').replace(/\|/g, '\\|').trim();
 const colName = (i) => { let s = ''; for (let k = i + 1; k > 0; k = Math.floor((k - 1) / 26)) s = String.fromCharCode(65 + ((k - 1) % 26)) + s; return s; };
 const NUMBERISH = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/;
 const BLANK_ROWS_LISTED = 20;   // rows named per column in the closing blank line; more are counted
@@ -193,7 +193,7 @@ const BLANK_ROWS_LISTED = 20;   // rows named per column in the closing blank li
    and shown as it is. Any other first row means the sheet has no header, and values are named by column letter. */
 function headerOf(rows) {
   for (let r = 0; r < rows.length; r += 1) {
-    const vals = rows[r].cells.filter((v) => v !== '');
+    const vals = rows[r].cells.filter((v) => v.trim() !== '');
     if (vals.length < 2) continue;
     const seen = new Set();
     for (const v of vals) {
@@ -274,7 +274,7 @@ function xlsxText(buf) {
     const target = targets.get(rid);
     if (!target) continue;
     const part = target.startsWith('/') ? target.slice(1) : 'xl/' + target.replace(/^\.\//, '');
-    out.add((first ? '' : '\n') + '## Sheet: ' + name + '\n\n');
+    out.add((first ? '' : '\n') + '## Sheet: ' + lineValue(name) + '\n\n');   // #8940: a name cannot start a line of its own
     first = false;
     if (seen.has(part)) { out.add('(the same sheet as one above)\n'); continue; }   // iteration 2: one part listed many times is read once
     seen.add(part);
