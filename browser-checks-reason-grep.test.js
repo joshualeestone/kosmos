@@ -427,6 +427,7 @@ const SITE_COUNTS = {
   'render-layer-gutter-4494.js': [3, 2],
   'render-limit-until-5805.js': [1, 1],
   'render-made-before.js': [1, 0],
+  'render-membertold-8938.js': [1, 1],
   'render-mobilenav-4823.js': [3, 1],
   'render-model-restart-interstitial.js': [1, 1],
   'render-model-spinners-2365.js': [2, 2],
