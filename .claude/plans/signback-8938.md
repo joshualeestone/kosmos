@@ -21,12 +21,12 @@ opens nothing.
   `POST /api/federation/invite` for an invite note. One `stepUpNoteShaped` decides both shapes.
 - `resumeStepUpReturn` (the account list) ignores an invite note. `stepUpReturnBoot` routes an invite note to
   `fedInviteReturnWait` (no account read).
-- `resumeFedInviteReturn` waits (note kept) while first run or any `.rm-back` dialog is on screen, until the projects
+- `resumeFedInviteReturn` waits (note kept) while anything covers the page (see Busy below), until the projects
   read has landed (in the tab layout projects are read only on Projects, so it asks for that read itself, one at a
   time, at most 3 times), and until inviting is on (fedShow). Then the note goes; a project no longer listed opens
   nothing; else showTab('projects'), openProject, fedInviteOpen(null, { label, kind }), and the line. 60 tries,
-  one now and then every 500 ms. If the person presses or types anything meanwhile (outside first run), they have moved
-  on: nothing opens and the note goes.
+  one now and then every 500 ms. If the person presses or types anything meanwhile while nothing covers the page, they
+  have moved on: nothing opens and the note goes.
 - Each new attempt forgets only a note of its own kind (forgetStepUpReturnOfKind): a Claude start never erases an
   invite note, and an invite attempt never a Claude one. A second Make that fails for another reason leaves the first
   refusal's ask up with no note behind it (Sign in again then returns nothing): accepted, the person is already on the
@@ -37,7 +37,8 @@ opens nothing.
   screens, an update or restart screen, an open <dialog>, the phone menu). Reused rather than restated: CI selects
   browser checks by the selectors and names a page diff's lines contain, and restating them selected 291 of them and
   ran the job past its 2-hour limit (PR #8947, first run). Known edge: a dialog left open inside a hidden section
-  makes the return wait (it keeps the note), the safe direction. An archived project opens nothing.
+  makes the return wait (it keeps the note) and presses not count, the safe direction. What remains selected after
+  this (136 checks) is mostly the functions the return really calls (showTab, PJ_CURRENT, openProject). An archived project opens nothing.
 - Known limit: a Make whose sheet is force-closed while it is answered (federation turning off) writes no note, so
   that refusal's ask returns nothing. Rare: the sheet refuses to close while Make is in flight.
 - Known limit: presses are watched only during the 60 tries. A later reload inside the note's 10 minutes, after the

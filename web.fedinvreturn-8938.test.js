@@ -20,13 +20,15 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
     setItem: (k, v) => { storage.set(k, String(v)); },
     removeItem: (k) => { storage.delete(k); },
   };
-  // .rm-back dialogs: the invite sheet itself plus any the arm puts on screen (dialogs: ids shown).
+  // .rm-back dialogs: the invite sheet itself plus any the arm puts on screen (dialogs: ids shown). covers: anything
+  // else the page's real tipModalOpen counts (an update screen...).
   const rmBack = () => [els['fedinv-modal'], ...dialogs.map((id) => ({ id, hidden: false }))];
   const listeners = [];
   const document = {
     getElementById: (id) => els[id] || null,
     // The page's one busy selector: its first part is the .rm-back test; `covers` stands for the rest (an update screen...).
-    querySelector: () => null,
+    // Answers the page's real tipModalOpen selector only: an open .rm-back, or one of `covers`.
+    querySelector: (sel) => (sel.includes('.rm-back:not([hidden])') && (rmBack().some((el) => !el.hidden) || covers.length) ? {} : null),
     addEventListener: (type, fn, capture) => listeners.push({ type, fn, capture }),
     removeEventListener: (type, fn) => { const i = listeners.findIndex((l) => l.type === type && l.fn === fn); if (i > -1) listeners.splice(i, 1); },
   };
@@ -46,7 +48,7 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
     SCRIPT.match(/let FEDINV_RETURN_TOUCHED = [^;]*;/)[0],
     lift(SCRIPT, 'fedInviteReturnTouched'),
     lift(SCRIPT, 'noteFedInviteReturn'), lift(SCRIPT, 'noteStepUpReturn'), lift(SCRIPT, 'forgetStepUpReturn'), lift(SCRIPT, 'forgetStepUpReturnOfKind'), lift(SCRIPT, 'forgetFedInviteReturn'), lift(SCRIPT, 'forgetClaudeSignInReturn'),
-    lift(SCRIPT, 'fedInviteReturnBusy'),
+    lift(SCRIPT, 'fedInviteReturnBusy'), lift(SCRIPT, 'tipModalOpen'),
     lift(SCRIPT, 'stepUpNoteShaped'), lift(SCRIPT, 'markStepUpReturnGoing'), lift(SCRIPT, 'peekStepUpReturn'),
     lift(SCRIPT, 'stepUpReturnBusy'), lift(SCRIPT, 'resumeStepUpReturn'), lift(SCRIPT, 'resumeFedInviteReturn'),
     lift(SCRIPT, 'fedInviteReturnWait'), lift(SCRIPT, 'stepUpReturnBoot'),
@@ -55,7 +57,7 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
   // PJ_LOADED_ONCE and PJ_CURRENT are read as globals by the page: given here as getters on `with`-free parameters.
   const wrapped = 'return (function () { ' + src + ' })();';
   const fns = new Function('sessionStorage', 'document', 'performance', 'setTimeout', 'fetch', 'ACCOUNTS', 'openAcctReauth', 'fedShow', 'pjById',
-    'openProject', 'fedInviteOpen', 'showTab', 'loadProjects', 'tipModalOpen', 'env',
+    'openProject', 'fedInviteOpen', 'showTab', 'loadProjects', 'env',
     'with (env) { ' + wrapped + ' }')(
     sessionStorage, document, performance, (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     () => { calls.push(['fetch']); return Promise.resolve({ ok: false }); }, [], () => calls.push(['reauth']),
@@ -64,8 +66,6 @@ function page({ projects = ['p1'], loaded = true, fed = true, visible = [], stor
     (opener, prefill) => { calls.push(['fedInviteOpen', opener, prefill]); els['fedinv-modal'].hidden = false; els['fedinv-msg'].textContent = ''; },
     (tab) => calls.push(['showTab', tab]),
     () => { calls.push(['loadProjects']); if (state.readLands) state.loaded = true; return Promise.resolve(true); },
-    // The page's own tipModalOpen, as it answers: an open .rm-back dialog, or anything else covering the page (covers).
-    () => rmBack().some((el) => !el.hidden) || covers.length > 0,
     { get PJ_LOADED_ONCE() { return state.loaded; }, get PJ_CURRENT() { return state.current; } });
   return { ...fns, storage, calls, els, state, timers, performance, listeners };
 }
