@@ -262,7 +262,8 @@ function inTestRunUnsandboxed() {
    exact match is touched: the server's script argument is THIS install's cli.js, its --output-dir is exactly THIS
    agent's folder (both whole arguments, so `mona` never matches `mona-lisa`), and its parent is gone. A parent that
    might be alive counts as alive: on doubt, nothing is ended. Pure, so every "never touch" case is tested over a table.
-   Servers left by an earlier pinned version run another cli.js and are not matched (the safe direction). */
+   Servers left by an earlier pinned version run another cli.js, and servers started under another node binary (the
+   runtime moved, or a different NODE_BIN) name another interpreter: neither is matched (the safe direction). */
 function escapeRe(t) { return String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function serverMatch(command, o) {
   /* The line must START with the interpreter that runs agents' servers (exactly that node binary, quoted or not) and
@@ -292,7 +293,7 @@ function endingOrder(procs, server, windows) {
   const kids = (parent) => list.filter((p) => p && p.ppid === parent.pid && p.pid !== parent.pid
     && (!windows || (p.created && parent.created && p.created > parent.created)));
   const out = [];
-  const walk = (parent, depth) => { if (depth > 8) return; for (const k of kids(parent)) { walk(k, depth + 1); out.push({ pid: k.pid, parent: parent.pid }); } };
+  const walk = (parent, depth) => { if (depth > 8) return; for (const k of kids(parent)) { walk(k, depth + 1); out.push({ pid: k.pid, parent: parent.pid, command: k.command }); } };
   if (me) walk(me, 0);
   out.push({ pid: server, parent: null });
   return out;
@@ -369,7 +370,7 @@ function noteEnded(agent, p) { note(agentKey(agent) + ' pid ' + p.pid + ' ' + St
 function noteListFailed(agent) { return (e) => note(agentKey(agent) + ' could not list processes: ' + String((e && e.message) || e).slice(0, 200)); }
 /* Ends this agent's orphaned servers and their browsers. Never throws. Fails closed: with no `end` handed in, it acts
    only when its caller says `live` (the Mac shim run as a program, and the Windows supervisor started for real), and
-   never in a test run. Mac: inline, the whole sweep within a
+   never in a test run (a caller that injects its own `end`, as tests do on purpose, acts with it). Mac: inline, the whole sweep within a
    2 s budget; each pid is re-read just before SIGKILL and skipped unless it is still what was selected. Windows: its
    PowerShell starts during launchConfig but nothing waits on it; one listing plans it, and one PowerShell ends each planned pid only if its
    creation time and command line are still exactly as listed (a pid with no creation time is left). A browser whose
@@ -405,7 +406,7 @@ function endOrphanedServers(agent, deps) {
     for (const server of orphanedServers(procs, o)) steps.push(...endingOrder(procs, server, windows));
     return steps;
   };
-  const stillSelected = (now, step) => !!now && (step.parent === null ? serverMatch(now.command, o) && o.parentGone(now.ppid, now) : now.ppid === step.parent);
+  const stillSelected = (now, step) => !!now && (step.parent === null ? serverMatch(now.command, o) && o.parentGone(now.ppid, now) : now.ppid === step.parent && now.command === step.command);
   if (!windows) {
     try {
       const until = Date.now() + (d.budgetMs || 2000);   // the whole sweep, listing included; the rest waits for the next launch

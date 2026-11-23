@@ -18,7 +18,7 @@
 try {
   /* kosmos#8928 slice 2: run as a program (the supervisor's real launch), it may end this agent's own orphaned browser
      servers; required by anything else, it may not. */
-  const live = require.main === module;
+  const live = require.main === module && process.platform === 'darwin';   // Windows stays off until measured there
   const p = require('./agentbrowser').launchConfig({ install: false, node: process.execPath, agent: process.argv[2], orphans: { live } });   // kosmos#8928
   if (p) process.stdout.write(p + '\n');
 } catch { /* no browser this launch */ }

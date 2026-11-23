@@ -208,7 +208,15 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
   });
   assert.deepEqual(ended, [211, 201], 'the browser, then its server; the reused pid 202 and the other agent are left');
   assert.deepEqual(r, [211, 201], 'a pid that could not be ended is not reported as ended');
-  assert.deepEqual(ab.endingOrder(table, 201), [{ pid: 212, parent: 211 }, { pid: 211, parent: 201 }, { pid: 201, parent: null }], 'deepest first');
+  assert.deepEqual(ab.endingOrder(table, 201).map(({ pid, parent }) => ({ pid, parent })), [{ pid: 212, parent: 211 }, { pid: 211, parent: 201 }, { pid: 201, parent: null }], 'deepest first');
+  /* A child whose pid now runs something else (same parent) is left too. */
+  const swapped = [];
+  ab.endOrphanedServers('t8928-orphan', {
+    platform: 'darwin', node: '/K/node', procs: () => table.slice(0, 2), alive: () => true,
+    recheck: (pid) => (pid === 211 ? { pid, ppid: 201, command: 'something else' } : table.find((x) => x.pid === pid)),
+    end: (pid) => swapped.push(pid),
+  });
+  assert.deepEqual(swapped, [201], 'a child pid now running something else is not ended');
   /* A child that has moved to another parent by the time it is ended is left. */
   const moved = [];
   ab.endOrphanedServers('t8928-orphan', {

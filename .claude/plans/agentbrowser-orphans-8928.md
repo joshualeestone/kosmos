@@ -92,3 +92,7 @@ Servers left by an earlier pinned version (another cli.js path) are not matched.
 - Fixed: the interpreter is matched as exactly the node binary that runs agents' servers (the sweeping process's own unless given), so a shell or tail merely naming the line never matches; loosening it turns the test red.
 - Fixed: comments say the Windows PowerShell starts during launchConfig (nothing waits on it), and when nothing is swept (browser off, not installed, output folder gone). Plan spec sections updated.
 - NITs left: a JSON listing instead of lines (WIN_END's exact re-check already makes a forged row harmless); a direct node --test run may remove the shared output folder only when empty.
+
+## Challenge loop iteration 9 (sonnet)
+- Nothing new unsafe. Taken: a child is re-checked on its command as well as its parent (dropping it turns the new test red); the shim's live is Mac-only, so Windows stays off by construction; comments say a server under another node binary is not matched, and that an injected ender acts in tests.
+- Deferred: an early exit before the first ps when no line names the agent (the sweep is already capped at 2 s).
