@@ -156,3 +156,8 @@ test('#8940: long header names repeated on every row stay inside the output cap,
   assert.equal(got.full, true, 'the named lines reach the cap and stop there');
   assert.ok(got.body.length <= at.MAX_OUT, String(got.body.length));
 });
+
+test('#8940: a namespaced attribute ending in r (x:r) on a row is not taken for its number', () => {
+  const xml = XML + '<worksheet><sheetData><row x:r="9" r="2"><c t="inlineStr"><is><t>a</t></is></c></row></sheetData></worksheet>';
+  assert.equal(body([{ name: 'S', xml }]), '## Sheet: S\n\nRow 2: A: a');
+});
