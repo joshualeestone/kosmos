@@ -119,13 +119,13 @@ function modernPdf() {
   ]);
 }
 
-test('#6098 xlsx: every sheet under its name, as a table, formulas as saved values, charts noted', () => {
+test('#6098 xlsx: every sheet under its name, one line per row (#8940), formulas as saved values, charts noted', () => {
   const { body, notes } = at.xlsxText(xlsx());
-  assert.match(body, /## Sheet: Sales & Costs\n\n\| Region \| Revenue \|\n\| --- \| --- \|\n\| North \| 10 \|/);
-  assert.ok(body.includes('| South \\| West | 20 |'), 'a pipe in a value is escaped so the table stays a table: ' + body);
-  assert.ok(body.includes('| Total | 30 |'), 'the formula shows its saved value');
+  assert.match(body, /## Sheet: Sales & Costs\n\nRow 1 \(header\): Region \| Revenue\nRow 2: Region: North \| Revenue: 10\n/);   // #8940: one line per row, named
+  assert.ok(body.includes('Region: South \\| West | Revenue: 20'), 'a pipe in a value is escaped so one line stays one row: ' + body);
+  assert.ok(body.includes('Region: Total | Revenue: 30'), 'the formula shows its saved value');
   assert.ok(body.indexOf('## Sheet: Notes') > body.indexOf('## Sheet: Sales'), 'sheets in workbook order');
-  assert.ok(body.includes('| Check the West figure |'), 'a sheet whose first cell is in column C still reads');
+  assert.ok(body.includes(': C: Check the West figure'), 'a sheet whose first cell is in column C still reads, named by its column: ' + body);
   assert.ok(notes.some((n) => /Formulas/.test(n)), 'says formulas are values');
   assert.ok(notes.some((n) => /Charts/.test(n)), 'says charts are not converted');
 });
@@ -346,7 +346,7 @@ test('#6098 review 2: one sheet part listed many times is read once; more than 2
     entry('xl/worksheets/sheet1.xml', XML + '<worksheet><sheetData>' + wide + '</sheetData></worksheet>'),
   ]);
   const got = at.xlsxText(book);
-  assert.equal((got.body.match(/\| v0 \|/g) || []).length, 1, 'the part is converted once');
+  assert.equal((got.body.match(/\(header\): v0 \| v1 /g) || []).length, 1, 'the part is converted once');
   assert.ok(got.body.includes('(the same sheet as one above)'));
   assert.ok(got.notes.some((n) => /256 columns/.test(n)), JSON.stringify(got.notes));
   assert.ok(got.notes.some((n) => /256 sheets/.test(n)), 'the sheet cap says so');
@@ -643,7 +643,7 @@ test('#6098 review 11: a sheet larger than the part limit shows its first rows a
   assert.ok(xml.length > 21 * 1024 * 1024, 'the sheet must exceed the 20 MB part limit: ' + xml.length);
   const got = at.xlsxText(book1(xml));
   assert.ok(!got.body.includes('could not be read'), got.body.slice(0, 200));
-  assert.ok(got.body.includes('| 10 | 11 | 12 |'), got.body.slice(0, 200));
+  assert.ok(got.body.includes('Row 1: A: 10 | B: 11 | C: 12 |'), got.body.slice(0, 200));
   assert.ok(got.notes.some((n) => /larger than Kosmos reads/.test(n)), JSON.stringify(got.notes));
 });
 
@@ -711,7 +711,7 @@ test('#6098 review 12: a stored (not deflated) sheet over the part limit, and sh
     stored('xl/worksheets/sheet1.xml', sheet), stored('xl/sharedStrings.xml', sst),
   ]);
   const got = at.xlsxText(book);
-  assert.ok(got.body.includes('| beta |'), got.body.slice(0, 200));
+  assert.ok(got.body.includes(': A: beta | B: 999'), got.body.slice(0, 200));
   assert.ok(got.notes.some((n) => /A sheet is larger/.test(n)), JSON.stringify(got.notes));
   assert.ok(got.notes.some((n) => /text is larger than Kosmos reads/.test(n)), JSON.stringify(got.notes));
 });
@@ -745,8 +745,8 @@ const calcBook = (cells, calcPr) => buildZip([
 test('#6098 review 15: a formula never calculated (openpyxl) shows as the formula, its row is kept, and the note says so', () => {
   const got = at.xlsxText(calcBook('<row r="1"><c r="A1" t="inlineStr"><is><t>Apples</t></is></c><c r="B1"><v>3</v></c><c r="C1"><f>B1*2</f><v /></c></row>'
     + '<row r="2"><c r="C2"><f>SUM(C1:C1)</f><v></v></c></row>', '<calcPr fullCalcOnLoad="1"/>'));
-  assert.ok(got.body.includes('| Apples | 3 | =B1*2 |'), got.body);
-  assert.ok(got.body.includes('=SUM(C1:C1)'), 'a row of formulas only is kept: ' + got.body);
+  assert.ok(got.body.includes('Row 1: A: Apples | B: 3 | C: =B1*2\n'), got.body);
+  assert.ok(got.body.includes('Row 2: C: =SUM(C1:C1)'), 'a row of formulas only is kept: ' + got.body);
   assert.ok(got.notes.some((n) => /never calculated/.test(n)), JSON.stringify(got.notes));
   assert.ok(!got.notes.some((n) => /last saved/.test(n)), JSON.stringify(got.notes));
 });
@@ -809,7 +809,7 @@ test('#6098 review 17: a spreadsheet written with a namespace prefix (<x:row>) r
     entry('xl/sharedStrings.xml', XML + '<x:sst xmlns:x="m"><x:si><x:t>Widgets</x:t></x:si></x:sst>'),
   ]);
   const got = at.xlsxText(book);
-  assert.ok(got.body.includes('| Widgets | 42 |'), got.body);
+  assert.ok(got.body.includes('Row 1: A: Widgets | B: 42'), got.body);
 });
 
 test('#6098 review 17: a non-breaking hyphen and a positioned tab are kept', () => {
