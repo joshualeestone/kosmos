@@ -170,6 +170,13 @@ test('engine: the sender\'s correction keeps the file; a checker\'s --waiting bo
   assert.equal(check.waitsOnly, undefined, 'a checker\'s mark was counted as a correction');
   assert.equal('builtNote' in stored(m), false, 'the checker\'s bare mark carried the builder\'s note under its own name');
   assert.equal(stored(m).builtBy, 'zed');
+  // Review 7: a mark that sends a commit is new work, never a correction, so it borrows no note.
+  const k = newTask('Deliver the fix');
+  tasks.setBuilt(projectId, k, { by: 'mona', note: 'fixed it' });
+  const withCommit = tasks.setBuilt(projectId, k, { by: 'mona', waitingOn: 'review', commit: { sha: 'd'.repeat(40), repo: '/work/kosmos/.git', onRemote: true } });
+  assert.equal(withCommit.ok, true, JSON.stringify(withCommit));
+  assert.equal(withCommit.waitsOnly, undefined, 'a mark with a commit was counted as a correction');
+  assert.equal('builtNote' in stored(k), false, 'a mark with a commit borrowed the old note');
 });
 
 test('route: an agent\'s mark records it; a bad value answers 400 and marks nothing; the screen\'s mark ignores one', async () => {
@@ -231,7 +238,18 @@ test('the board page: the row helper says "waiting on you" for the person, and n
   assert.equal(fn({}), '');
   assert.equal(fn({ builtWaitingOn: 'toString' }), '');
   // Both places a built mark is said call it: the Tasks row and the task's own page.
-  assert.equal((html.match(/tskBuiltWaitsWords\(t\)/g) || []).length, 3, 'the row or the task page does not use it');
+  // Review 7: the two call sites (the definition is not counted).
+  assert.equal((html.match(/tskBuiltWaitsWords\(t\) :/g) || []).length, 2, 'the row or the task page does not use it');
+});
+
+/* Review 7: the phone notice is skipped for a correction of only the wait, as the typed notice and the community prompt
+   are (those two are pinned in server.builttell-6330 and server.communitytaskdone-5313). A source check, as 5313's is. */
+test('the built route\'s phone notice is guarded by waitsOnly', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const at = src.indexOf("phonenotify.happened({ kind: 'ready', id: 'built:'");
+  assert.notEqual(at, -1, 'PRE-CONTROL: the built phone notice is not where this looks');
+  const guard = src.lastIndexOf('if (!viaScreen && body.clear !== true && out.changed && out.waitsOnly !== true && card) {', at);
+  assert.ok(guard !== -1 && at - guard < 400, 'the built phone notice is not guarded by out.waitsOnly !== true');
 });
 
 test('kosmos task --how says when to use each value', () => {
