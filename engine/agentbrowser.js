@@ -304,15 +304,15 @@ function parseTable(out, windows) {
       : { pid: Number(m[1]), ppid: Number(m[2]), command: m[3] }));
 }
 const WIN_TABLE = 'Get-CimInstance Win32_Process | ForEach-Object { $c = if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString(\'yyyyMMddHHmmss.ffffff\') } else { \'0\' }; "$($_.ProcessId) $($_.ParentProcessId) $c $($_.CommandLine)" } | Out-String -Width 32767';
-function macTable(pids) {
+function macTable(pids, onFail) {
   try {
     const args = pids ? ['-ww', '-o', 'pid=,ppid=,command=', '-p', pids.join(',')] : ['-axww', '-o', 'pid=,ppid=,command='];
-    return parseTable(require('node:child_process').execFileSync('/bin/ps', args, { encoding: 'utf8', timeout: 3000, maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }));
-  } catch { return []; }
+    return parseTable(require('node:child_process').execFileSync('/bin/ps', args, { encoding: 'utf8', timeout: 2000, maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }));
+  } catch (e) { if (onFail) onFail(e); return []; }
 }
-async function winTable() {
+async function winTable(onFail) {
   try { return parseTable(await execP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WIN_TABLE], { timeout: 15000, windowsHide: true, maxBuffer: 32 * 1024 * 1024 }), true); }
-  catch { return []; }
+  catch (e) { if (onFail) onFail(e); return []; }
 }
 function defaultEnd(platform) {
   return platform === 'win32'
@@ -320,23 +320,33 @@ function defaultEnd(platform) {
     : (pid) => process.kill(pid, 'SIGKILL');
 }
 /* Each process ended is written down, so a wrong one could be traced. */
-function noteEnded(agent, p) {
-  try { fs.appendFileSync(path.join(homeDir(), 'ended-servers.log'), new Date().toISOString() + ' ' + agentKey(agent) + ' pid ' + p.pid + ' ' + String(p.command || '').slice(0, 500) + '\n'); } catch { /* best effort */ }
+function note(line) {
+  try {
+    const f = path.join(homeDir(), 'ended-servers.log');
+    try { if (fs.statSync(f).size > 1024 * 1024) fs.renameSync(f, f + '.1'); } catch { /* no log yet */ }
+    fs.appendFileSync(f, new Date().toISOString() + ' ' + line + '\n');
+  } catch { /* best effort */ }
 }
+function noteEnded(agent, p) { note(agentKey(agent) + ' pid ' + p.pid + ' ' + String(p.command || '').slice(0, 500)); }
+function noteListFailed(agent) { return (e) => note(agentKey(agent) + ' could not list processes: ' + String((e && e.message) || e).slice(0, 200)); }
 /* Ends this agent's orphaned servers and their browsers. Never throws. Fails closed: with no `end` handed in, it acts
    only when its caller says `live` (the Mac shim run as a program, and the Windows supervisor's own entry, pass it) or
-   live execution is armed (engine/live-execution.js); otherwise nothing is listed or signalled, so no test can. Mac:
-   inline (ps takes milliseconds); each pid is re-read just before SIGKILL and skipped unless it is still what was
-   selected. Windows: after the launch has gone ahead and without blocking the supervisor (async); one fresh listing,
-   then each pid ended alone (taskkill /F, no /T). Returns the pids ended (Mac or `sync`), or a promise of them. */
+   live execution is armed (engine/live-execution.js), and never in a node --test process. Mac: inline, within a 2 s
+   budget; each pid is re-read just before SIGKILL and skipped unless it is still what was selected. Windows: async,
+   after the launch has gone ahead; ONE listing is the only read (no per-pid re-read), so its guards are the creation
+   time rule, the server's live parent check, and ending each pid alone (taskkill /F, no /T). A browser whose server
+   already died is not matched (nothing names its agent). Returns the pids ended (Mac), or a promise of them (Windows). */
 function endOrphanedServers(agent, deps) {
   const d = deps || {};
   if (!agentKey(agent)) return [];
   const platform = d.platform || process.platform;
   let end = d.end;
   if (!end) {
-    let armed = d.live === true;
-    try { armed = armed || require('./live-execution').liveExecutionAllowed(); } catch { /* not knowable: closed */ }
+    let armed = false;
+    try {
+      const le = require('./live-execution');
+      armed = !le.inTestProcess() && (d.live === true || le.liveExecutionAllowed());   // a node --test process never acts
+    } catch { /* not knowable: closed */ }
     if (!armed) return [];
     end = defaultEnd(platform);
   }
@@ -351,10 +361,12 @@ function endOrphanedServers(agent, deps) {
   const stillSelected = (now, step) => !!now && (step.parent === null ? serverMatch(now.command, o) && o.parentGone(now.ppid) : now.ppid === step.parent);
   if (!windows) {
     try {
-      const procs = (d.procs || (() => macTable()))();
+      const procs = (d.procs || (() => macTable(null, noteListFailed(agent))))();
       const recheck = d.recheck || ((pid) => macTable([pid]).find((p) => p.pid === pid) || null);
+      const until = Date.now() + (d.budgetMs || 2000);   // a launch never waits on this for long; the rest waits for the next launch
       const ended = [];
       for (const step of plan(procs)) {
+        if (Date.now() > until) break;
         const now = recheck(step.pid);
         if (!stillSelected(now, step)) continue;
         try { end(step.pid); ended.push(step.pid); noteEnded(agent, now); } catch { /* gone already, or not ours */ }
@@ -364,7 +376,7 @@ function endOrphanedServers(agent, deps) {
   }
   const runWin = async () => {
     try {
-      const procs = await (d.procs ? Promise.resolve(d.procs()) : winTable());
+      const procs = await (d.procs ? Promise.resolve(d.procs()) : winTable(noteListFailed(agent)));
       const ended = [];
       for (const step of plan(procs)) {
         const now = procs.find((p) => p.pid === step.pid) || null;
@@ -723,6 +735,6 @@ function installWithRetry(opts) {
 module.exports = {
   inKtRunRoot,   // kosmos#8929
   PIN, SHELL, SERVER_NAME, configFor, launchConfig, ensureInstalled, ensureShell, kickInstall, isInstalled,
-  installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir, agentKey, orphanedServers, endingOrder, endOrphanedServers, defaultEnd,
+  installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir, agentKey, orphanedServers, endingOrder, endOrphanedServers, defaultEnd, parseTable,
   optOutPath, lockPath, disabled,
 };

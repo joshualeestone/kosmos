@@ -210,7 +210,6 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
   });
   assert.deepEqual(moved, [201], 'a re-parented child is not ended');
   assert.deepEqual(ab.endOrphanedServers('', { procs: () => { throw new Error('must not be asked'); } }), [], 'CONTROL: no name, no listing');
-  /* Inside a node --test process nothing is listed or signalled unless an ender is handed in. */
   /* launchConfig really calls it, for the agent it launches, on its own platform. */
   const viaLaunch = [];
   assert.ok(ab.launchConfig({ platform: 'win32', node: 'C:\\K\\node.exe', env: {}, agent: 't8928-orphan', orphans: {
@@ -233,9 +232,17 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
   assert.deepEqual(await pending, [311, 301]);
   assert.deepEqual(wended, [311, 301], 'the older process under a reused parent pid was not spared');
   assert.deepEqual(await ab.endOrphanedServers('t8928-orphan', { platform: 'win32', procs: () => wtable, alive: () => true, end: async (pid) => { wended.push(pid); } }), [], 'CONTROL: a live parent on Windows, nothing ended');
+  /* Fail closed: with no ender handed in, nothing is listed unless the caller says live, and in a node --test process
+     not even then. */
   let asked = false;
   assert.deepEqual(ab.endOrphanedServers('t8928-orphan', { platform: 'darwin', procs: () => { asked = true; return []; } }), []);
-  assert.equal(asked, false, 'a test process with no ender listed processes (it must stop before, so it can never signal one)');
+  assert.equal(asked, false, 'with no ender and no live, processes were listed');
+  assert.deepEqual(ab.endOrphanedServers('t8928-orphan', { platform: 'darwin', live: true, procs: () => { asked = true; return []; } }), []);
+  assert.equal(asked, false, 'a node --test process acted on live');
+  /* The Windows listing's line shape: creation time (UTC), quoted paths with spaces; a missing time is no time. */
+  const rows = ab.parseTable('4321 1234 20261123120000.123456 "C:\\Program Files\\K\\node.exe" "C:\\Users\\A B\\cli.js" --output-dir "C:\\Users\\A B\\AppData\\Local\\Temp\\kosmos-agent-browser\\mona"\r\n4 0 0 System\r\n', true);
+  assert.deepEqual(rows[0], { pid: 4321, ppid: 1234, created: '20261123120000.123456', command: '"C:\\Program Files\\K\\node.exe" "C:\\Users\\A B\\cli.js" --output-dir "C:\\Users\\A B\\AppData\\Local\\Temp\\kosmos-agent-browser\\mona"' });
+  assert.equal(rows[1].created, '', 'a process with no creation time');
 });
 
 /* ── the Mac half (#3633) ───────────────────────────────────────────────── */
@@ -786,6 +793,6 @@ test('#8928 slice 2: an agent\'s launch ends its own orphaned server and its bro
   assert.equal(alive(mineChild), false, 'its browser was not ended');
   assert.equal(alive(live) && alive(liveChild), true, 'CONTROL: a server whose session is alive, or its browser, was ended');
   assert.equal(alive(other) && alive(otherChild), true, 'CONTROL: another agent\'s orphaned server, or its browser, was ended');
-  /* And launchConfig calls it: in a test process with no ender it lists nothing and the launch still gets its config. */
+  /* The launch itself still gets its config (its sweep does nothing here: a test process with no ender). */
   assert.ok(ab.launchConfig({ platform: 'darwin', arch: process.arch, install: false, env: {}, agent: 't8928-e2e' }), 'the launch still gets its config');
 });
