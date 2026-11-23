@@ -40,8 +40,8 @@ values), so its column is named A; nothing else is lost, since a blank cell ther
 ## Tests
 - engine/attachtext-8940.test.js (new): the reported shape exactly, a second sheet with a gap / header off column A /
   booleans, the no-header refusals with a control, letter naming, backslash escaping, the blank list cap, unnumbered
-  rows, empty sheet, the reading note. Control: 7 of its 8 original tests fail against origin/main's attachtext.js
-  (the one that passes, empty sheet, held before too).
+  rows, empty sheet, the reading note. Control, measured at baaa14b35a with origin/main's attachtext.js and orgchartfile.js swapped in:
+  17 of its 18 tests fail; the one that passes (an empty sheet says so) held on main too.
 - engine/attachtext-6098.test.js: the assertions that pinned the table are rewritten to the exact new lines, each
   keeping what it guarded (pipe escaping, saved formula values, column C, column and sheet caps, partial reads,
   namespace prefixes).
