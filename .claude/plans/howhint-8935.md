@@ -58,3 +58,13 @@ That agents read a command's stderr. Claude Code shows it with the output; a run
 - Fixed: the Windows CLI test asserts `claim p` exits 2 (a local usage error), so it cannot quietly start reaching the network.
 - Plan: the record is in store.currentDataRoot(); the finished sentence carries the report exception.
 - Deferred to the closing full validation (it is the measurement): a CLI test that strips TMPDIR and the test markers but keeps an agent name and an existing sandbox data folder would get the pointer first on stderr.
+
+## Challenge loop iteration 7 (sonnet)
+- No new findings. Coverage stated by the reviewer: howhint.js and the CLI, store and lint diffs; not the tests or the report hook, so iteration 8 covered those.
+- Closing validation on 6ad0ddd17c (the iteration 6 head) PASSED in full (validation rc=0, no failing test). This settles iteration 6's deferred question: no CLI test sees the pointer.
+
+## Challenge loop iteration 8 (opus, tests and report hook)
+- Fixed (WARNING, and worse than reported): the test-run guard's test had been vacuous since iteration 4. Its data folder did not exist, so the folder guard returned first, and its stand-in answered true for both envs. Now the folder exists and is not under the stand-in temp folder, each half of the guard has its own case, and a control points. Mutations: removing either half turns its own assertion red.
+- Fixed (NIT): the Windows CLI test checks post --how exits 0 and reads the record: both launches are keyed by a hash of the token, reading the guide is recorded as seen, and no token is written down.
+- Checked, no change: every `kosmos report` call in the report hook is bare or carries --auto as a whole argument; the Windows hook posts to the API and never calls the CLI; tools/windows-tests.js lists both files.
+- Not done (NIT): a test that runs the shell's own --auto short-circuit. node's classify makes the same decision, so a broken shell loop costs only speed, never a wrong pointer.
