@@ -1127,6 +1127,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   let replacedNow = null;
   let waits = '';   // kosmos#8934: what the mark leaves it waiting on, worked out inside the write
   let waitsOnly = false;   // review 4: only what it waits on changed
+  let correction = false;   // review 5/6: the marker's own mark with only a value or none
   try {
     projects.mutate(projectId, (p) => {
       const t = byNumber(p, n);
@@ -1134,10 +1135,13 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       if (progressOf(t).closed) { closed = true; throw NO_WRITE; }
       if (t.repeat) { repeating = true; throw NO_WRITE; }   // kosmos#4787 review 3: a recurring job is never "built, waiting"
       if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; throw NO_WRITE; }
-      /* kosmos#8934 review 5: a mark that sends only --waiting (or none) and no note is a correction of the wait, so it
-         keeps the note the task has; a plain mark with no note still drops it, as before. Before the checks' note rule,
+      /* kosmos#8934 review 5: a mark that sends only --waiting (or none), with no note and no file, by the agent whose mark
+         it is, is a correction of the wait: it keeps that agent's note (and, below, the file). A plain mark with no note still
+         drops the note, as before. Review 6: only the marker's own, so a checker's --waiting never puts the builder's words
+         under the checker's name or passes the checks' note rule on an account the checker never gave. Before that rule,
          so a kept note that said how the checks went still says it. */
-      if (!said && !isPerson && (sent || dropWaits) && t.builtAt && typeof t.builtNote === 'string' && t.builtNote) {
+      correction = !said && !print && !isPerson && Boolean(sent || dropWaits) && Boolean(t.builtAt) && who !== null && (t.builtBy || null) === who;
+      if (correction && typeof t.builtNote === 'string' && t.builtNote) {
         said = t.builtNote;
         saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
       }
@@ -1155,7 +1159,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
          review 3) keeps it; its sender's own mark without one drops it (review 5), as above. */
       /* The person's mark keeps it (they did not change the file); an unnamed agent's drops it, as it cannot be told
          from an unnamed sender and a dropped fingerprint is safer than a false match (review 6: null matched null). */
-      const keep = !print && t.builtAt && t.builtFingerprint && (isPerson || (who !== null && (t.builtFingerprintBy || null) !== who));
+      // kosmos#8934 review 6: a correction of the wait keeps its sender's own file too (its own mark without one would withdraw it).
+      const keep = !print && t.builtAt && t.builtFingerprint && (isPerson || correction || (who !== null && (t.builtFingerprintBy || null) !== who));
       const kept = print || (keep ? t.builtFingerprint : '');
       const keptBy = print ? who : (keep ? t.builtFingerprintBy || null : null);
       const keptPath = print ? sentPath : (keep ? t.builtFilePath || '' : '');   // kosmos#8214: the path goes with its fingerprint
@@ -1182,7 +1187,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       const dropping = Boolean(!kept && hadPrint);
       const sameFile = Boolean(kept && hadPrint && kept === hadPrint);
       const priorChecked = sameFile ? names(t.builtCheckedBy) : sentBack ? names(withdrawn.checkedBy) : [];
-      const checking = sameFile && !print && keep;
+      const checking = sameFile && !print && keep && !correction;   // kosmos#8934 review 6: a correction of the wait is not a check of the file
       // Past CHECKED_BY_MAX the oldest checker is dropped, and is then not told of a replacement (bounded; in the plan).
       const added = checking && who && !isPerson && !priorChecked.includes(who) ? priorChecked.concat([who]).slice(-CHECKED_BY_MAX) : priorChecked;
       // Review 1: the sender is never its own checker, so a checker who sends the file itself leaves the list.
@@ -1226,10 +1231,11 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         && sameList(t.builtCheckedBy, checkedBy) && (t.builtCheckedByPerson === true) === checkedByPerson
         && JSON.stringify(t.builtReplaces || null) === JSON.stringify(replaces || null)
         && (!landed || (t.landedCommit === landed.sha && t.landedRepo === landed.repo && t.landedOnRemote === landedOnRemoteNow));
-      waitsOnly = Boolean(sameButWaits()) && (t.builtWaitingOn || '') !== waits;
+      const restSame = Boolean(sameButWaits());
+      waitsOnly = restSame && (t.builtWaitingOn || '') !== waits;
       // kosmos#8934: a change of only what it waits on is a change (sameButWaits holds every other field, the replaced file
       // included: #8307 review 4, so a change to it alone is never skipped as the same mark).
-      if (sameButWaits() && (t.builtWaitingOn || '') === waits) {
+      if (restSame && (t.builtWaitingOn || '') === waits) {
         same = true; changed = t; throw NO_WRITE;
       }
       const earlier = t.builtAt ? (Array.isArray(t.builtWho) ? t.builtWho : []) : [];

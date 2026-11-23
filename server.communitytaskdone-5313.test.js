@@ -53,8 +53,9 @@ test('the task-BUILT route fires the prompt AFTER the 200, guarded, with trigger
   assert.equal(SRC.indexOf("trigger: 'built'", at + 1), -1, 'more than one built-route prompt');
   const line = SRC.slice(SRC.lastIndexOf('\n', at) + 1, SRC.indexOf('\n', at));
   assert.match(line, /promptCommunityOnTaskDone\(/, 'the built trigger does not call the helper');
-  const guard = SRC.lastIndexOf('if (!viaScreen && body.clear !== true && out.changed && card) {', at);
-  assert.notEqual(guard, -1, 'the built prompt is not guarded by !viaScreen && body.clear !== true && out.changed && card');
+  // kosmos#8934 review 4: and not for a mark that changed only what it waits on (a correction, not new work).
+  const guard = SRC.lastIndexOf('if (!viaScreen && body.clear !== true && out.changed && out.waitsOnly !== true && card) {', at);
+  assert.notEqual(guard, -1, 'the built prompt is not guarded by !viaScreen && body.clear !== true && out.changed && out.waitsOnly !== true && card');
   const builtSend = SRC.indexOf('sendJson(res, 200, { task: out.task');
   assert.notEqual(builtSend, -1, 'the built route 200 was not found');
   assert.ok(builtSend < at, 'the built prompt does not fire after the 200 (it could delay the response)');
