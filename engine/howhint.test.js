@@ -85,14 +85,20 @@ test('#8935 bare and --auto calls neither point nor mark; a test run without its
   assert.equal(fs.existsSync(file), false, 'a hook call marked the report guide seen');
   assert.match(hh.hint('report', ['needs_you', '--held'], { env: envFor('mona', file) }), /kosmos report --help/, 'CONTROL: a real report still points');
   /* A test run with no record of its own named shows and writes nothing. The store is a stand-in so only the test-run
-     check decides: CONTROL, the same call outside a test run points (into this sandbox). */
-  const dir = path.join(SANDBOX, 'store-' + (++n));
-  const asTest = { isTestProcess: () => true, currentDataRoot: () => dir };
-  assert.equal(hh.hint('claim', ['p'], { env: { KOSMOS_AGENT_SESSION: 'mona' }, store: asTest }), '');
-  assert.equal(fs.existsSync(path.join(dir, 'how-hints.json')), false, 'a test run wrote a record');
-  const asReal = { isTestProcess: () => false, currentDataRoot: () => dir };
-  const notTmp = path.join(SANDBOX, 'elsewhere');   // stands in for the system temp folder, so dir is "not under temp"
+     check decides: its data folder exists and is not under the (stand-in) temp folder, so every other guard would let
+     it point. Each half of the check gets its own case: the env handed in (a Mac CLI test's node) and this process's
+     env (a Windows CLI test, whose main() gets a small env with no test marker). */
+  const notTmp = path.join(SANDBOX, 'elsewhere');   // stands in for the system temp folder, so a sandbox folder is "not under temp"
   fs.mkdirSync(notTmp, { recursive: true });
+  const ready = path.join(SANDBOX, 'store-ready-' + (++n));
+  fs.mkdirSync(ready, { recursive: true });
+  const handed = { env: { KOSMOS_AGENT_SESSION: 'mona' }, tmpdir: notTmp };
+  assert.equal(hh.hint('claim', ['p'], { ...handed, store: { isTestProcess: (e) => e === process.env, currentDataRoot: () => ready } }), '', 'this process is a test run, the env handed in is not');
+  assert.equal(hh.hint('claim', ['p'], { ...handed, store: { isTestProcess: (e) => e !== process.env, currentDataRoot: () => ready } }), '', 'the env handed in is a test run');
+  assert.equal(fs.existsSync(path.join(ready, 'how-hints.json')), false, 'a test run wrote a record');
+  assert.match(hh.hint('claim', ['p'], { ...handed, store: { isTestProcess: () => false, currentDataRoot: () => ready } }), /kosmos claim --how/, 'CONTROL: the same call outside a test run points');
+  const dir = path.join(SANDBOX, 'store-' + (++n));
+  const asReal = { isTestProcess: () => false, currentDataRoot: () => dir };
   /* No data folder yet: nothing shown, nothing made (making it would block the legacy-store migration). */
   assert.equal(hh.hint('claim', ['p'], { env: { KOSMOS_AGENT_SESSION: 'mona' }, store: asReal, tmpdir: notTmp }), '');
   assert.equal(fs.existsSync(dir), false, 'the hint made the data folder');
