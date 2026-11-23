@@ -267,6 +267,59 @@ function inTestRunUnsandboxed() {
  * the agent's next (re)launch picks it up. The board starts the same install at
  * boot, so on a normal machine it is long done before the first agent is made.
  */
+/* kosmos#8928 slice 2: a browser server left running after its Claude session ended (the session exited by itself, so
+   nothing stopped its children) is ended at that agent's next launch. Only an exact match is touched: the command
+   line runs THIS install's cli.js, its --output-dir is exactly THIS agent's folder (a whole argument, so `mona` never
+   matches `mona-lisa`), and its parent is gone. A parent that might be alive counts as alive: on doubt, nothing is
+   ended. Pure, so every "never touch" case is tested over a table. */
+function escapeRe(t) { return String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function orphanedServers(procs, o) {
+  const x = o || {};
+  if (!x.cli || !x.outputDir) return [];
+  const dir = new RegExp('(^|\\s)--output-dir\\s+"?' + escapeRe(x.outputDir) + '"?(\\s|$)');
+  const parentGone = typeof x.parentGone === 'function' ? x.parentGone : () => false;
+  return (procs || [])
+    .filter((p) => p && Number.isInteger(p.pid) && p.pid > 1 && typeof p.command === 'string')
+    .filter((p) => p.pid !== x.self)
+    .filter((p) => p.command.includes(x.cli) && dir.test(p.command))
+    .filter((p) => parentGone(p.ppid))
+    .map((p) => p.pid);
+}
+/* The live process table, bounded so a launch never waits long. Mac: ps. Windows: one CIM query for node processes.
+   Any failure answers [] (nothing is ended). */
+function processTable(platform) {
+  const { execFileSync } = require('node:child_process');
+  try {
+    if (platform === 'darwin') {
+      const out = execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8', timeout: 3000, maxBuffer: 16 * 1024 * 1024 });
+      return out.split('\n').map((l) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l)).filter(Boolean)
+        .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), command: m[3] }));
+    }
+    const script = "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId) $($_.CommandLine)\" } | Out-String -Width 32767";
+    const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 8000, windowsHide: true, maxBuffer: 16 * 1024 * 1024 });
+    return out.split(/\r?\n/).map((l) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l)).filter(Boolean)
+      .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), command: m[3] }));
+  } catch { return []; }
+}
+function endOrphanedServers(agent, deps) {
+  const d = deps || {};
+  if (!agentKey(agent)) return [];
+  try {
+    const platform = d.platform || process.platform;
+    const procs = (d.procs || (() => processTable(platform)))();
+    const alive = d.alive || ((pid) => require('./win32orphan').pidState(pid) !== 'gone');
+    const pids = orphanedServers(procs, {
+      cli: cliPath(), outputDir: outputDir(agent), self: process.pid,
+      parentGone: (ppid) => (platform === 'darwin' && ppid === 1) || !alive(ppid),
+    });
+    const end = d.end || ((pid) => (platform === 'win32'
+      ? require('node:child_process').execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { timeout: 8000, windowsHide: true, stdio: 'ignore' })
+      : process.kill(pid, 'SIGTERM')));
+    const ended = [];
+    for (const pid of pids) { try { end(pid); ended.push(pid); } catch { /* gone already, or not ours to end */ } }
+    return ended;
+  } catch { return []; }
+}
 function launchConfig(opts) {
   const o = opts || {};
   try {
@@ -284,6 +337,7 @@ function launchConfig(opts) {
       platform, executablePath: mac ? shellExe(o.arch) : undefined,
     }), null, 2) + '\n';
     if (o.agent) { try { fs.mkdirSync(outputDir(o.agent), { recursive: true }); } catch { /* the server can still make it; never costs the browser */ } }   // kosmos#8928
+    if (o.agent) endOrphanedServers(o.agent, o.orphans);   // kosmos#8928 slice 2: never throws
     const file = configPath(o.agent);
     return writeConfigIfNeeded(file, text) ? file : null;
   } catch { return null; }
@@ -602,6 +656,6 @@ function installWithRetry(opts) {
 module.exports = {
   inKtRunRoot,   // kosmos#8929
   PIN, SHELL, SERVER_NAME, configFor, launchConfig, ensureInstalled, ensureShell, kickInstall, isInstalled,
-  installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir, agentKey,
+  installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir, agentKey, orphanedServers, endOrphanedServers,
   optOutPath, lockPath, disabled,
 };
