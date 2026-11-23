@@ -111,6 +111,7 @@ test('#8929 what marks a test run; CONTROL: a stray KOSMOS_TEST_RUN, a plain tem
   assert.equal(ab.testRunMarked({}, '/var/T/ktx9'), false, 'CONTROL: a folder that only starts with kt');
   assert.equal(ab.testRunMarked({}, 'C:\\Users\\kt1\\AppData\\Local\\Temp'), false, 'CONTROL (review 2): a Windows user named kt1');
   assert.equal(ab.testRunMarked({}, '/home/kt12/tmp'), false, 'CONTROL (review 2): a home folder named kt12');
+  assert.equal(ab.testRunMarked({}, '/var/TEMP/kt3'), false, 'CONTROL: the same case-sensitive bases as the machine-wide rule, nothing wider');
   assert.equal(ab.testRunMarked({}, 'C:\\Users\\a\\AppData\\Local\\Temp\\kt77'), true, 'run-tests.sh on Windows');
   assert.equal(ab.isInstalled(), true, 'fixture: the earlier test installed the fake tree');
   /* This process IS a test and its runners folder IS sandboxed: it writes, whatever the caller's env says. */
