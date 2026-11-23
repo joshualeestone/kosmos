@@ -215,32 +215,25 @@ function writeConfigIfNeeded(file, text) {
    runners.managedRoot() falls back to the REAL install's folder, so a test that reached this (the supervisor's shim,
    say) rewrote the live config with the test's node and a temp folder its run then removed, and every agent the board
    started next got it. (kickInstall's own guard is narrower: it checks NODE_TEST_CONTEXT only.)
-   testRunMarked: NODE_TEST_CONTEXT; or tools/run-tests.sh's KOSMOS_TEST_RUN counted only when the temp folder is that
-   run's folder or inside it (the store's rule, so the variable alone left in a shell does not switch a real board's
-   browser off); or a temp folder inside a run root named kt<pid> right under a temp base (a test that scrubbed its environment but kept TMPDIR:
-   the live config that found this named such a folder). Pure, so each arm is tested. */
-function testRunMarked(env, tmp) {
-  const e = env || {};
-  const t = String(tmp || '');
-  if (e.NODE_TEST_CONTEXT) return true;
-  const run = e.KOSMOS_TEST_RUN;
-  if (run && path.isAbsolute(run)) {
-    const r = path.resolve(run);
-    const rt = path.resolve(t);
-    if (rt === r || rt.startsWith(r.endsWith(path.sep) ? r : r + path.sep)) return true;
-  }
-  /* The machine-wide test-sandbox rule (tools/lib/process-fixture.sh _KOSMOS_KT_RE, (T|tmp)/kt<digits>), with Windows'
-     separator and its Temp folder added. */
-  return /(^|[\/\\])(T|tmp|Temp)[\/\\]kt\d+([\/\\]|$)/.test(t);
+   What counts as a test run is the store's rule (store.isTestProcess), reused rather than re-derived, asked of this
+   process and of the env a caller passed (whose KOSMOS_TEST_RUN is compared with THIS process's temp folder, the only
+   one the store reads), plus one rule of its own, inKtRunRoot below. */
+/* The machine-wide test-sandbox rule (tools/lib/process-fixture.sh _KOSMOS_KT_RE, (T|tmp)/kt<digits>), with either
+   separator: a temp folder inside a tools/run-tests.sh run root marks a test that scrubbed its environment but kept
+   TMPDIR, the shape of the live config that found this. Pure, so it is tested on its own. */
+const KT_RUN_ROOT = /(^|[\/\\])(T|tmp)[\/\\]kt\d+([\/\\]|$)/;
+function inKtRunRoot(tmp) {
+  return KT_RUN_ROOT.test(String(tmp || ''));
 }
 /* The write location comes from THIS process's environment (runners.managedRoot reads process.env), so the sandbox is
-   read there too; a test-run mark counts from this process or from the env a caller passed (review 1). */
+   read there too. */
 function inTestRunUnsandboxed(env) {
   if (process.env.AGENT_WORKFORCE_RUNNERS_DIR) return false;
-  const tmp = os.tmpdir();
-  let marked = testRunMarked(process.env, tmp) || (env && env !== process.env && testRunMarked(env, tmp));
-  try { marked = marked || require('./live-execution').inTestProcess(); } catch { /* not knowable: the marks above decide */ }
-  return Boolean(marked);
+  try {
+    const store = require('./store');
+    if (store.isTestProcess(process.env) || (env && env !== process.env && store.isTestProcess(env))) return true;
+  } catch { /* not knowable: the temp-folder rule decides */ }
+  return inKtRunRoot(os.tmpdir());
 }
 /**
  * The config path for ONE agent launch, or null. Sync and NEVER throws: it sits
@@ -583,7 +576,7 @@ function installWithRetry(opts) {
 }
 
 module.exports = {
-  inTestRunUnsandboxed, testRunMarked,   // kosmos#8929
+  inTestRunUnsandboxed, inKtRunRoot,   // kosmos#8929
   PIN, SHELL, SERVER_NAME, configFor, launchConfig, ensureInstalled, ensureShell, kickInstall, isInstalled,
   installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir,
   optOutPath, lockPath, disabled,
