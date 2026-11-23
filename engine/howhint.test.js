@@ -61,4 +61,8 @@ test('#8935 never throws: a corrupt record starts over, an unwritable one only m
   assert.match(hh.hint('claim', [], { env: envFor('mona', unwritable) }), /kosmos claim --how/);
   assert.match(hh.hint('claim', [], { env: envFor('mona', unwritable) }), /kosmos claim --how/, 'nothing could be recorded, so it shows again');
   assert.equal(hh.hint(undefined, undefined, { env: envFor('mona', file) }), '');
+  /* An agent named like an Object key is recorded like any other. */
+  const odd = fresh();
+  assert.match(hh.hint('claim', [], { env: envFor('__proto__', odd) }), /kosmos claim --how/);
+  assert.equal(hh.hint('claim', [], { env: envFor('__proto__', odd) }), '', 'an agent named __proto__ was pointed twice');
 });
