@@ -12,6 +12,9 @@
 - `prod-check` also refuses (3) when Windows prod is newer than `lastProdWin`, and answers 4 when the Windows pointer cannot be read, so the cut's step 1b-ii sees it.
 - The Windows pointer defaults to the live site; `KOSMOS_PROD_WIN_POINTER_URL` overrides it; with only `KOSMOS_PROD_POINTER_URL` set it is read from the same folder, so a test that fakes Mac prod never reaches the live site for Windows.
 
+- **The first cut after merge (review 1).** The pool ships with `lastProdWin: "0.8.16"`, which is what a live build recorded: Windows prod serves 0.8.16, and that window's two Windows-only lines were already retired by hand in 0.8.17's pool. Without it, main's next `prod-check` would refuse (3) until someone built and committed. A Windows promote of 0.8.17 later moves it on the next build.
+- One helper, `shownAt`, reads what a version showed at its commit for both syncs (review 1: the two copies could drift).
+
 ## Rejected
 
 - Recording Windows promotes from `promote-channel.sh --family win`: it needs a write from the Windows PC's path into this repo. Reading what Windows prod serves at build time is the pull model the Mac already uses.
