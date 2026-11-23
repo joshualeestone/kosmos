@@ -37,6 +37,14 @@ literally "(blank)" reads like an empty one; a header word that is itself a colu
 reads like the separator or a letter-named value. A one-column sheet never has a header (the rule needs two
 values), so its column is named A; nothing else is lost, since a blank cell there is an empty row, which is skipped.
 
+## Cost (measured in review round 5)
+Naming the column on every value makes an ordinary sheet about 1.7 times the characters of the old table. A plain
+5000-row by 20-column sheet was 1,238,064 characters as a table and now reaches the 2 MB output cap (MAX_OUT) at
+about row 3732; any sheet after it in the same workbook is then not shown. The cut is said in the rendering's note
+("The rendering stops at ..."), as before. Kept, because a value an agent does not have to place by counting pipes
+is the point of the card. Not raised: MAX_OUT is shared with docx and pdf and the worker's memory limit was sized
+against it, so a larger cap is a decision of its own, not part of this card.
+
 ## Tests
 - engine/attachtext-8940.test.js (new): the reported shape exactly, a second sheet with a gap / header off column A /
   booleans, the no-header refusals with a control, letter naming, backslash escaping, the blank list cap, unnumbered
