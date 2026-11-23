@@ -49,6 +49,7 @@ function world(remote) {
     ASK: { confirm: null, pending: [], done: {} },
     paintAsk: () => {}, plusSecondDisarm: () => {}, pollAsk: () => {},
     plusCountdown: () => {}, PLUS_COUNTDOWN: null, PLUS_CODE_WORDS: {},
+    workOrgFrom: () => {},   // kosmos#8938: plusOrgPaint hands its state to the welcome and You menu (tested in web.membertold-8938)
     PLUS_EPOCH: 0, console,
     setInterval: () => 0, clearInterval: () => {},
     setTimeout: () => 0, clearTimeout: () => {},
