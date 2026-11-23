@@ -20,7 +20,7 @@
     {
       "icon": "shield",
       "title": "A company computer says whose it is",
-      "line": "A company member's Kosmos says which company it belongs to, what it reports there, and which AI providers are allowed."
+      "line": "A company member's Kosmos names its company and what it reports there, and which AI providers the company allows, if it limits them."
     },
     {
       "icon": "chat",
