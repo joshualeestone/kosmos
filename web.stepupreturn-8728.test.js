@@ -28,8 +28,9 @@ function page({ accounts = [], storage = new Map(), throws = false, visible = []
     SCRIPT.match(/const STEPUP_RETURN_KEY = [^;]*;/)[0],
     SCRIPT.match(/const STEPUP_RETURN_MS = [^;]*;/)[0],
     SCRIPT.match(/const STEPUP_RETURN_FOR = [^;]*;/)[0],
+    SCRIPT.match(/const STEPUP_RETURN_FED_FOR = [^;]*;/)[0],   // kosmos#8938 item 4: the invite note shares these
     'let ACCT_ADD_RETURN_FOCUS = "an older opener";',
-    lift(SCRIPT, 'noteStepUpReturn'), lift(SCRIPT, 'forgetStepUpReturn'), lift(SCRIPT, 'markStepUpReturnGoing'), lift(SCRIPT, 'peekStepUpReturn'),
+    lift(SCRIPT, 'noteStepUpReturn'), lift(SCRIPT, 'forgetStepUpReturn'), lift(SCRIPT, 'stepUpNoteShaped'), lift(SCRIPT, 'markStepUpReturnGoing'), lift(SCRIPT, 'peekStepUpReturn'),
     lift(SCRIPT, 'stepUpReturnBusy'), lift(SCRIPT, 'resumeStepUpReturn'), lift(SCRIPT, 'stepUpReturnBoot'),
     'return { noteStepUpReturn, forgetStepUpReturn, markStepUpReturnGoing, peekStepUpReturn, resumeStepUpReturn, stepUpReturnBoot, KEY: STEPUP_RETURN_KEY, focus: () => ACCT_ADD_RETURN_FOCUS };',
   ].join('\n');
@@ -89,7 +90,7 @@ test('#8728 slice 2 review 2: a reload WITHOUT pressing Sign in again opens noth
 test('#8728 slice 2 review 4: Sign in again pressed for ANOTHER refused write does not mark the Claude note', () => {
   const p = page({ accounts: ACCOUNTS });
   p.noteStepUpReturn(DIR);
-  for (const other of ['POST /api/agents', 'POST /api/update', '', undefined]) p.markStepUpReturnGoing(other);
+  for (const other of ['POST /api/agents', 'POST /api/update', 'POST /api/federation/invite', '', undefined]) p.markStepUpReturnGoing(other);
   assert.equal(JSON.parse(p.storage.get(p.KEY)).went, undefined, 'another refusal marked the Claude note');
   // CONTROL: the Claude start's own refusal does mark it.
   p.markStepUpReturnGoing('POST /api/connect/start');
