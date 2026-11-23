@@ -121,6 +121,34 @@ test('engine: a change of only the value is a change; the same mark again is not
   assert.equal('builtWaitingOn' in stored(n), false, 'a clear kept what it waited on');
 });
 
+/* Review 5: the hint's advice followed literally (only --waiting, no note) corrects the wait and nothing else: the note is
+   kept, the mark's time is kept, and the history gets no second "marked it built" line. CONTROL: a plain mark with no
+   note still drops the note, as it always has, and a new note writes a history line. */
+test('engine: a mark with only a value and no note keeps the note, the time and the history; a plain mark still drops the note', () => {
+  const taskchat = require('./engine/taskchat');
+  const n = newTask('Deliver the brochure');
+  tasks.setBuilt(projectId, n, { by: 'mona', note: 'printed proof attached' });
+  const at = stored(n).builtAt;
+  const lines = () => taskchat.read(projectId, n).filter((e) => e.kind === 'built').length;
+  const before = lines();
+  const fix = tasks.setBuilt(projectId, n, { by: 'mona', waitingOn: 'person' });
+  assert.equal(fix.ok, true, JSON.stringify(fix));
+  assert.equal(fix.waitsOnly, true, 'a value-only correction was not said to be one');
+  assert.equal(stored(n).builtNote, 'printed proof attached', 'the note was lost');
+  assert.equal(stored(n).builtWaitingOn, 'person');
+  assert.equal(stored(n).builtAt, at, 'the mark\'s time moved for a correction of the wait');
+  assert.equal(lines(), before, 'a correction of the wait wrote a second "marked it built" line');
+  assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', waitingOn: 'none' }).waitsOnly, true, 'none with no note');
+  assert.equal(stored(n).builtNote, 'printed proof attached', 'none with no note lost the note');
+  // CONTROL: a new note is a new delivery: a history line, and the value is kept.
+  tasks.setBuilt(projectId, n, { by: 'mona', note: 'final print approved', waitingOn: 'review' });
+  assert.equal(lines(), before + 1, 'CONTROL: a new note wrote no history line');
+  // CONTROL: a plain mark with no note and no value drops the note, as before.
+  tasks.setBuilt(projectId, n, { by: 'mona' });
+  assert.equal('builtNote' in stored(n), false, 'a plain mark with no note kept the old note');
+  assert.equal(stored(n).builtWaitingOn, 'review', 'the plain mark dropped the value');
+});
+
 test('route: an agent\'s mark records it; a bad value answers 400 and marks nothing; the screen\'s mark ignores one', async () => {
   const n = newTask('Ship the page');
   const r = await post(`/api/project/${projectId}/task/${n}/built`, { note: 'shipped', waiting_on: 'release' }, asAgent('mona'));
