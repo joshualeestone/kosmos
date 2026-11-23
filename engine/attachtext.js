@@ -6,7 +6,8 @@
  * spreadsheet and rebuilt its table from raw XML by hand (feedback, 2026-10-13).
  *
  * What each becomes:
- *   xlsx  every sheet, in workbook order, under its name, as a table (formulas as their last saved values)
+ *   xlsx  every sheet, in workbook order, under its name, one line per row with the sheet's row number, each value named
+ *         by its column (formulas as their last saved values; #8940)
  *   docx  the body's paragraphs and tables, in order (headings marked, list items bulleted)
  *   pdf   the text of each page, with page breaks, from the reader below (Flate streams, object streams, the page tree,
  *         fonts with a ToUnicode map). Where its text does not read as text, or a font uses its own encoding or has no character map, a Mac asks macOS's own PDFKit, which knows
@@ -134,15 +135,23 @@ function zipOf(buf, what) {
 
 /* ── xlsx ──────────────────────────────────────────────────────────────────────────────────── */
 
+/* kosmos#8940: each row is { n, cells }, n being the spreadsheet's own row number, so the preview can say "Row 6" back
+   to the person. It is read from the row's first cell reference that carries one (B6 is row 6), else the row before's
+   plus one, which is the format's own rule for a row written without a number. Not from <row r>: `oc.blocks` yields a
+   block's inside only, and a second walker over a person's file would be a second place to keep linear. */
 function sheetRows(sheet, shared, clip) {
   const rows = [];
   let truncated = false;
+  let last = 0;
   for (const rowText of oc.blocks(sheet, 'row')) {
     const row = [];
     let next = 0;
+    let n = null;
     for (const cell of oc.cells(rowText)) {
       const tag = '<c' + cell.attrs + '>';
-      const at = oc.colIndex(oc.attr(tag, 'r'));
+      const ref = oc.attr(tag, 'r');
+      if (n == null && ref) { const d = /^[A-Z]{1,3}([1-9]\d{0,6})$/.exec(ref); if (d) n = Number(d[1]); }
+      const at = oc.colIndex(ref);
       const i = at == null ? next : at;
       if (i >= MAX_COLS) { clip.cols = true; break; }
       const type = oc.attr(tag, 't');
@@ -150,7 +159,8 @@ function sheetRows(sheet, shared, clip) {
       if (type === 'inlineStr') v = oc.xmlText((oc.innerOf(cell.inner, 'is') || '').slice(0, MAX_CELL * 4));
       else {
         const raw = oc.innerOf(cell.inner, 'v');
-        if (raw != null && raw !== '') v = type === 's' ? (shared[Number(raw)] || '') : oc.xmlText(raw.slice(0, MAX_CELL));
+        if (raw != null && raw !== '' && type === 'b') v = raw.trim() === '1' ? 'TRUE' : raw.trim() === '0' ? 'FALSE' : oc.xmlText(raw.slice(0, MAX_CELL));   // #8940: not 1 and 0
+        else if (raw != null && raw !== '') v = type === 's' ? (shared[Number(raw)] || '') : oc.xmlText(raw.slice(0, MAX_CELL));
         else if (type !== 'str' && /<(?:\w+:)?f[\s>/]/.test(cell.inner)) {   // iteration 16: t="str" with an empty value is a formula that returned "" (Excel's IF(..,""))
           /* Iteration 15: a formula with no saved result (openpyxl writes <v/>) shows as the formula, so a blank is
              never passed off as the value; a shared formula's follower has no text of its own and shows as "=". */
@@ -162,12 +172,77 @@ function sheetRows(sheet, shared, clip) {
       row[i] = v.slice(0, MAX_CELL);
       next = i + 1;
     }
+    last = n == null ? last + 1 : n;   // an empty row still counts, so the numbers after it stay the sheet's own
     const dense = Array.from(row, (x) => x || '');
     if (!dense.some((v) => v !== '')) continue;
     if (rows.length >= MAX_SHEET_ROWS) { truncated = true; break; }
-    rows.push(dense);
+    rows.push({ n: last, cells: dense });
   }
   return { rows, truncated };
+}
+
+/* kosmos#8940: one value on one line. A line break shows as the two characters \n and a pipe as \|, with a backslash
+   doubled first, so one line is always one row and the escapes cannot be confused with the data. */
+const lineValue = (v) => String(v == null ? '' : v).slice(0, MAX_CELL).replace(/\\/g, '\\\\').replace(/\r?\n|\r/g, '\\n').replace(/\|/g, '\\|').trim();
+const colName = (i) => { let s = ''; for (let k = i + 1; k > 0; k = Math.floor((k - 1) / 26)) s = String.fromCharCode(65 + ((k - 1) % 26)) + s; return s; };
+const NUMBERISH = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/;
+const BLANK_ROWS_LISTED = 20;   // rows named per column in the closing blank line; more are counted
+
+/* kosmos#8940: the header is the first row holding two or more values, when every value in it is text (not a number,
+   TRUE/FALSE or a formula) and no two are the same. A row with one value above it (a title, a note) is passed over,
+   and shown as it is. Any other first row means the sheet has no header, and values are named by column letter. */
+function headerOf(rows) {
+  for (let r = 0; r < rows.length; r += 1) {
+    const vals = rows[r].cells.filter((v) => v !== '');
+    if (vals.length < 2) continue;
+    const seen = new Set();
+    for (const v of vals) {
+      const k = v.trim().toLowerCase();
+      if (!k || NUMBERISH.test(k) || k === 'true' || k === 'false' || k.startsWith('=') || seen.has(k)) return -1;
+      seen.add(k);
+    }
+    return r;
+  }
+  return -1;
+}
+
+/* kosmos#8940: a sheet as one line per row, each value named by its column (the header's word, else the column letter),
+   with the sheet's own row numbers. Under a header every named column is listed, a blank one as (blank), and the
+   sheet ends with one line naming the blanks, so an agent checking an import sees what is missing without counting. */
+function rowLinesInto(out, rows) {
+  if (!rows.length) return out.add('(no cells with values)\n');
+  const h = headerOf(rows);
+  const names = [];
+  if (h >= 0) rows[h].cells.forEach((v, i) => { if (v.trim()) names[i] = lineValue(v); });   // headerOf allows no repeats
+  const blanks = new Map();   // column index -> row numbers
+  for (let r = 0; r < rows.length; r += 1) {
+    const { n, cells } = rows[r];
+    let line;
+    if (r === h) line = 'Row ' + n + ' (header): ' + cells.map((v) => lineValue(v)).filter(Boolean).join(' | ');
+    else {
+      const parts = [];
+      const width = Math.max(cells.length, r > h && h >= 0 ? names.length : 0);
+      for (let i = 0; i < width; i += 1) {
+        const v = lineValue(cells[i]);
+        const named = r > h && h >= 0 && names[i] != null;
+        if (named) {
+          parts.push(names[i] + ': ' + (v || '(blank)'));
+          if (!v) { if (!blanks.has(i)) blanks.set(i, []); blanks.get(i).push(n); }
+        } else if (v) parts.push(colName(i) + ': ' + v);
+      }
+      line = 'Row ' + n + ': ' + parts.join(' | ');
+    }
+    if (!out.add(line + '\n')) return false;
+  }
+  if (blanks.size) {
+    const said = [...blanks.keys()].sort((a, b) => a - b).map((i) => {
+      const ns = blanks.get(i);
+      const shown = ns.slice(0, BLANK_ROWS_LISTED).join(', ') + (ns.length > BLANK_ROWS_LISTED ? ' and ' + (ns.length - BLANK_ROWS_LISTED) + ' more' : '');
+      return names[i] + ' in row' + (ns.length > 1 ? 's ' : ' ') + shown;
+    });
+    if (!out.add('Blank under a header: ' + said.join('; ') + '.\n')) return false;
+  }
+  return true;
 }
 
 function xlsxText(buf) {
@@ -189,6 +264,7 @@ function xlsxText(buf) {
   const seen = new Set();
   const clip = { cols: false, cell: false, uncalc: false };
   let sheets = 0;
+  let anyRows = false;   // #8940: the reading note below is given only when a row was shown
   for (const m of wb.matchAll(/<(?:\w+:)?sheet\b[^<>]*>/g)) {
     if (out.full) break;
     sheets += 1;
@@ -209,7 +285,8 @@ function xlsxText(buf) {
     if (big) notes.add('A sheet is larger than Kosmos reads, so only its first rows are shown.');   // iteration 11: its first rows, not nothing
     if (/<(?:\w+:)?f[\s>]/.test(sheet)) formulas = true;
     const { rows, truncated } = sheetRows(sheet, shared, clip);
-    tableInto(out, rows);
+    if (rows.length) anyRows = true;
+    rowLinesInto(out, rows);
     if (truncated) out.add('\n(only the first ' + MAX_SHEET_ROWS + ' rows with values are shown)\n');
   }
   /* Iteration 15: a writer that never calculates (openpyxl leaves results empty, xlsxwriter stores 0) marks the workbook
@@ -217,6 +294,7 @@ function xlsxText(buf) {
   if (clip.uncalc || /<(?:\w+:)?calcPr\b[^<>]*fullCalcOnLoad="(?:1|true)"/.test(wb)) {
     if (formulas) notes.add('Some formulas were never calculated by the program that made this file, so they show as formulas (or as 0), not as results.');
   } else if (formulas) notes.add('Formulas are shown as the values they had when the file was last saved.');
+  if (anyRows) notes.add('Each line is one row, with the sheet\u2019s own row number. Under a header, (blank) is an empty cell; inside a value, \\n is a line break and \\| is a pipe.');   // #8940
   if (clip.cols) notes.add('Only the first ' + MAX_COLS + ' columns of a sheet are converted.');
   if (clip.cell) notes.add('A cell longer than ' + MAX_CELL + ' characters is cut short.');
   let styles = null;
