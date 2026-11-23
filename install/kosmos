@@ -1247,7 +1247,7 @@ kosmos_engine_module() {
 _how_hint() {
   [ -n "${KOSMOS_AGENT_SESSION:-}${KOSMOS_AGENT_TOKEN:-}" ] || return 0
   [ $# -ge 2 ] || return 0   # no arguments after the command: a usage request or a status probe (the report hook's)
-  if [ "$1" = report ]; then case " $* " in *" --auto "*) return 0 ;; esac; fi   # the report hook's own calls: no node on its hot path
+  if [ "$1" = report ]; then local _ha; for _ha in "$@"; do [ "$_ha" = --auto ] && return 0; done; fi   # the report hook's own calls (a whole --auto argument, as on Windows): no node on its hot path
   local _hn _hm
   _hn="$(kosmos_engine_node)" || return 0
   _hm="$(kosmos_engine_module howhint).js"

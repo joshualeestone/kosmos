@@ -83,10 +83,10 @@ function capRecord(rec) {
 function hint(command, args, opts) {
   try {
     const env = (opts && opts.env) || process.env;
+    const c = classify(command, args);   // first: most calls have no guide, and need no hash
+    if (!c) return '';
     const agent = agentKeyOf(env);
     if (!agent) return '';
-    const c = classify(command, args);
-    if (!c) return '';
     const store = (opts && opts.store) || require('./store');   // opts.store: a test's stand-in
     if (!env.KOSMOS_HOWHINT_FILE) {
       try { if (store.isTestProcess(env)) return ''; } catch { return ''; }
