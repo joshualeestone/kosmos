@@ -12,10 +12,10 @@ Slice 1 (each server's `--output-dir` names its agent: `<tmp>/kosmos-agent-brows
 3. Its parent is gone: Mac, ppid 1 (reparented to launchd) or a ppid that no longer exists; Windows, ParentProcessId not alive (win32orphan.pidState === 'gone'; 'unknown' counts as alive, never kill on doubt).
 
 ## Ending
-Exact pids only (never pkill/pattern). Mac: SIGTERM, then SIGKILL after a short wait if still there. Windows: `taskkill /PID <pid> /T /F` through the existing win32stop path, so the browser it started goes too.
+Exact pids only (never pkill/pattern), force: an orphaned server serves no one, and one that outlived its session is likely hung, so SIGTERM may do nothing. Mac: its descendants deepest first, then the server, SIGKILL, each pid re-read just before it is ended and skipped unless it is still what was selected. Windows: `taskkill /PID <pid> /T /F` (the tree), after a fresh listing.
 
 ## Where
-`endOrphanedServers(agent, deps)` in engine/agentbrowser.js, called from launchConfig when an agent is named, before the config is returned; never throws, never delays the launch more than a bounded read (one ps / one CIM query, with a deadline). Process listing and killing are injectable for tests.
+`endOrphanedServers(agent, deps)` in engine/agentbrowser.js, called from launchConfig when an agent is named; never throws. Mac: inline (ps takes milliseconds). Windows: after the launch has gone ahead (setImmediate in the long-lived supervisor), never in front of it. Inside a `node --test` process nothing is listed or signalled unless the caller hands in an ender. Listing, re-check and ending are injectable.
 
 ## Tests
 - Pure selection over a fixture process table: own orphan selected; own server with a live parent NOT; another agent's orphan NOT; a prefix-named agent (`mona` vs `mona-lisa`) NOT; a non-Playwright process with the same folder NOT; a different install's cli.js NOT.
@@ -34,3 +34,13 @@ Slice 3 (`kosmos browser stop`), and removing deleted agents' per-agent files an
 - Mac end to end with real processes: the agent's own orphaned stand-in is ended at its launch; a stand-in with a live parent and another agent's orphan survive.
 - Mutations, each red: the call removed from launchConfig (own orphan survives); parentGone always true (the live-parented control is ended).
 - Found while proving the control: liveness by kill(pid, 0) called the ended child alive (a zombie until reaped), so the live-parent control could not fail. It now reads ps state. Same trap as the handoff's note on zombies under spawnSync.
+
+## Challenge loop iteration 1 (sonnet)
+- Fixed: SIGTERM only, which a hung server (the kind that outlives its session) can ignore. Now SIGKILL, browser children first (Mac), taskkill /T /F (Windows).
+- Fixed: a pid reused between the listing and the kill. Each pid is re-read just before it is ended and skipped unless it still matches (the server) or still has the same parent (a child).
+- Fixed: on Windows the PowerShell listing sat in front of every launch. It now runs after the launch has gone ahead.
+- Fixed: ps -ww, so a COLUMNS in the environment cannot cut the command and quietly defeat the match.
+- Fixed: the test's cleanup killed every process whose command named its marker. My own tool shell named it (in a grep), and the cleanup killed it, twice. It now signals only pids the test recorded (and their children), and only while each still starts with this node binary and names the stand-in.
+- Fixed: the guard's test could not fail (a throwing listing was caught either way); it now records whether the listing was asked for at all.
+- Deferred, decided: the live-execution gate (#1598) opens only in the board's own process; the Mac shim and the Windows supervisor never open it, so using it would switch this off where it must run. Its intent is kept instead: inside a node --test process nothing is signalled unless an ender is handed in.
+- Mutations, each red: the re-check skipped; children not ended; every parent counted gone; the test-process guard removed.

@@ -178,21 +178,38 @@ test('#8928 slice 2: only this agent\'s own server whose parent is gone is selec
   assert.deepEqual(got, [101, 108, 109]);
   assert.deepEqual(ab.orphanedServers(procs, { cli, outputDir: mine }), [], 'CONTROL: with no way to tell a parent is gone, nothing is selected');
   assert.deepEqual(ab.orphanedServers(procs, { cli: '', outputDir: mine, parentGone: () => true }), [], 'CONTROL: no cli path, nothing');
-  /* endOrphanedServers ends exactly the selected pids, and a failure ending one does not stop the rest. */
+  /* endOrphanedServers: children first, then the server; each pid re-read before it is ended and skipped unless it is
+     still what was selected; a failure ending one does not stop the rest. */
+  const dir = ab.outputDir('t8928-orphan');
+  const table = [
+    { pid: 201, ppid: 1, command: cmd(dir, ab.cliPath()) },        // orphaned server
+    { pid: 211, ppid: 201, command: 'chrome-headless-shell --a' },  // its browser
+    { pid: 212, ppid: 211, command: 'chrome renderer' },            // the browser's child
+    { pid: 202, ppid: 1, command: cmd(dir, ab.cliPath()) },        // a second orphaned server, whose pid is reused before the end
+    { pid: 203, ppid: 1, command: cmd(ab.outputDir('t8928-other'), ab.cliPath()) },
+  ];
   const ended = [];
   const r = ab.endOrphanedServers('t8928-orphan', {
-    platform: 'darwin',
-    procs: () => [
-      { pid: 201, ppid: 1, command: cmd(ab.outputDir('t8928-orphan'), ab.cliPath()) },
-      { pid: 202, ppid: 1, command: cmd(ab.outputDir('t8928-orphan'), ab.cliPath()) },
-      { pid: 203, ppid: 1, command: cmd(ab.outputDir('t8928-other'), ab.cliPath()) },
-    ],
-    alive: () => true,
-    end: (pid) => { if (pid === 201) throw new Error('ESRCH'); ended.push(pid); },
+    platform: 'darwin', procs: () => table, alive: () => true,
+    recheck: (pid) => (pid === 202 ? { pid, ppid: 77, command: 'something else now' } : table.find((x) => x.pid === pid) || null),
+    end: (pid) => { if (pid === 212) throw new Error('ESRCH'); ended.push(pid); },
   });
-  assert.deepEqual(ended, [202]);
-  assert.deepEqual(r, [202], 'a pid that could not be ended is not reported as ended');
+  assert.deepEqual(ended, [211, 201], 'the browser, then its server; the reused pid 202 and the other agent are left');
+  assert.deepEqual(r, [211, 201], 'a pid that could not be ended is not reported as ended');
+  assert.deepEqual(ab.endingOrder(table, 201), [{ pid: 212, parent: 211 }, { pid: 211, parent: 201 }, { pid: 201, parent: null }], 'deepest first');
+  /* A child that has moved to another parent by the time it is ended is left. */
+  const moved = [];
+  ab.endOrphanedServers('t8928-orphan', {
+    platform: 'darwin', procs: () => table.slice(0, 2), alive: () => true,
+    recheck: (pid) => (pid === 211 ? { pid, ppid: 999, command: 'x' } : table.find((x) => x.pid === pid)),
+    end: (pid) => moved.push(pid),
+  });
+  assert.deepEqual(moved, [201], 'a re-parented child is not ended');
   assert.deepEqual(ab.endOrphanedServers('', { procs: () => { throw new Error('must not be asked'); } }), [], 'CONTROL: no name, no listing');
+  /* Inside a node --test process nothing is listed or signalled unless an ender is handed in. */
+  let asked = false;
+  assert.deepEqual(ab.endOrphanedServers('t8928-orphan', { platform: 'darwin', procs: () => { asked = true; return []; } }), []);
+  assert.equal(asked, false, 'a test process with no ender listed processes (it must stop before, so it can never signal one)');
 });
 
 /* ── the Mac half (#3633) ───────────────────────────────────────────────── */
@@ -686,45 +703,63 @@ test('a first-try install is logged; an install that was already there is not', 
 });
 
 /* kosmos#8928 slice 2, end to end on a Mac with real processes: a stand-in "server" (a node script AT this sandbox's
-   cli.js path, so it matches exactly) is orphaned by a parent that exits; the agent's next launch ends it. CONTROLS: a
-   stand-in whose parent is alive, and one for another agent, both survive. Only pids this test started are ever
-   signalled, in the test and in its cleanup. */
-test('#8928 slice 2: an agent\'s launch ends its own orphaned server; CONTROL: a live-parented one and another agent\'s survive', { skip: process.platform !== 'darwin' && 'ppid 1 for an orphan is the macOS shape this arm uses' }, async (t) => {
+   cli.js path, so it matches exactly) that starts its own stand-in "browser" child, orphaned by a parent that exits;
+   the agent's next launch ends both. CONTROLS: a stand-in whose parent is alive, and one for another agent, survive
+   with their children. Cleanup signals only processes it can still identify by this test's own marker. */
+test('#8928 slice 2: an agent\'s launch ends its own orphaned server and its browser; CONTROL: a live-parented one and another agent\'s survive', { skip: process.platform !== 'darwin' && 'ppid 1 for an orphan is the macOS shape this arm uses' }, async (t) => {
   const { spawn, spawnSync } = require('node:child_process');
   await ensureShellFor(process.arch);
+  const MARK = 't8928-e2e-stand-in';
   const cli = ab.cliPath();
   const keepCli = fs.readFileSync(cli);
-  fs.writeFileSync(cli, 'setInterval(() => {}, 1000);\n');   // a stand-in server that just stays up
-  const started = [];
+  fs.writeFileSync(cli, "require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', '" + MARK + "'], { stdio: 'ignore' });\nsetInterval(() => {}, 1000);\n");
+  const table = () => spawnSync('/bin/ps', ['-axww', '-o', 'pid=,ppid=,stat=,command='], { encoding: 'utf8' }).stdout.split('\n')
+    .map((l) => /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(l)).filter(Boolean).map((m) => ({ pid: +m[1], ppid: +m[2], stat: m[3], command: m[4] }));
+  /* Only pids this test recorded, and only while each is still this test's stand-in: its command starts with this
+     node binary and names the stand-in. Never a match on the marker alone: any process (a shell grepping for it, say)
+     can carry the text. */
+  const recorded = [];
+  const stillOurs = (p) => p.command.startsWith(process.execPath + ' ') && (p.command.includes(MARK) || p.command.includes(cli));
   t.after(() => {
-    for (const pid of started) { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
+    const now = table();
+    for (const x of now) if (recorded.includes(x.ppid) && !recorded.includes(x.pid)) recorded.push(x.pid);   // children not yet recorded
+    for (const pid of recorded) {
+      const p = now.find((x) => x.pid === pid);
+      if (p && !p.stat.startsWith('Z') && stillOurs(p)) { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
+    }
     fs.writeFileSync(cli, keepCli);
     for (const n of ['t8928-e2e', 't8928-e2e-other']) { try { fs.rmSync(ab.outputDir(n), { recursive: true, force: true }); } catch { /* best effort */ } }
     try { fs.rmdirSync(path.dirname(ab.outputDir('t8928-e2e'))); } catch { /* not empty or gone */ }
   });
-  /* From ps state, not kill(pid, 0): a child of this process that was ended stays a zombie until reaped, and kill(0)
-     would call it alive, which made the live-parent control unable to fail. */
-  const alive = (pid) => { const st = spawnSync('/bin/ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim(); return st !== '' && !st.startsWith('Z'); };
-  /* An orphan: a shell starts the stand-in in the background, prints its pid and exits, so launchd adopts it. */
+  /* From ps state, not kill(pid, 0): an ended child of this process stays a zombie until reaped. */
+  const alive = (pid) => { const p = table().find((x) => x.pid === pid); return !!p && !p.stat.startsWith('Z'); };
+  const childOf = (pid) => (table().find((x) => x.ppid === pid && x.command.includes(MARK)) || {}).pid;
   const orphan = (agent) => {
     const r = spawnSync('/bin/sh', ['-c', '"$1" "$2" --output-dir "$3" >/dev/null 2>&1 & echo $!', 'sh', process.execPath, cli, ab.outputDir(agent)], { encoding: 'utf8' });
     const pid = Number(r.stdout.trim());
     assert.ok(pid > 1, 'fixture: the stand-in started');
-    started.push(pid);
     return pid;
   };
-  const mineOrphan = orphan('t8928-e2e');
-  const otherOrphan = orphan('t8928-e2e-other');
-  const liveChild = spawn(process.execPath, [cli, '--output-dir', ab.outputDir('t8928-e2e')], { stdio: 'ignore' });
-  started.push(liveChild.pid);
-  /* Wait until launchd has adopted the orphans (ppid 1), so the test measures the rule, not a race. */
-  const ppid = (pid) => Number(spawnSync('/bin/ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim());
-  for (let i = 0; i < 50 && (ppid(mineOrphan) !== 1 || ppid(otherOrphan) !== 1); i++) await new Promise((r) => setTimeout(r, 100));
-  assert.equal(ppid(mineOrphan), 1, 'fixture: the stand-in is orphaned');
-  const p = ab.launchConfig({ platform: 'darwin', arch: process.arch, install: false, env: {}, agent: 't8928-e2e' });
-  assert.ok(p, 'the launch still gets its config');
-  for (let i = 0; i < 50 && alive(mineOrphan); i++) await new Promise((r) => setTimeout(r, 100));
-  assert.equal(alive(mineOrphan), false, 'the agent\'s own orphaned server was not ended');
-  assert.equal(alive(liveChild.pid), true, 'CONTROL: a server whose session is alive was ended');
-  assert.equal(alive(otherOrphan), true, 'CONTROL: another agent\'s orphaned server was ended');
+  const mine = orphan('t8928-e2e');
+  const other = orphan('t8928-e2e-other');
+  const live = spawn(process.execPath, [cli, '--output-dir', ab.outputDir('t8928-e2e')], { stdio: 'ignore' }).pid;
+  recorded.push(mine, other, live);   // at once, so a failed fixture below still cleans them up
+  const ppid = (pid) => (table().find((x) => x.pid === pid) || {}).ppid;
+  for (let i = 0; i < 50 && (ppid(mine) !== 1 || ppid(other) !== 1 || !childOf(mine) || !childOf(other) || !childOf(live)); i++) await new Promise((r) => setTimeout(r, 100));
+  assert.equal(ppid(mine), 1, 'fixture: the stand-in is orphaned');
+  const mineChild = childOf(mine);
+  const otherChild = childOf(other);
+  const liveChild = childOf(live);
+  assert.ok(mineChild && otherChild && liveChild, 'fixture: each stand-in started its browser');
+  recorded.push(mine, other, live, mineChild, otherChild, liveChild);
+  /* The real Mac ender, handed in on purpose: inside a test process nothing is signalled without one. */
+  const ended = ab.endOrphanedServers('t8928-e2e', { platform: 'darwin', end: ab.defaultEnd('darwin') });
+  assert.deepEqual(ended, [mineChild, mine], 'ended its browser, then the server');
+  for (let i = 0; i < 50 && (alive(mine) || alive(mineChild)); i++) await new Promise((r) => setTimeout(r, 100));
+  assert.equal(alive(mine), false, 'the agent\'s own orphaned server was not ended');
+  assert.equal(alive(mineChild), false, 'its browser was not ended');
+  assert.equal(alive(live) && alive(liveChild), true, 'CONTROL: a server whose session is alive, or its browser, was ended');
+  assert.equal(alive(other) && alive(otherChild), true, 'CONTROL: another agent\'s orphaned server, or its browser, was ended');
+  /* And launchConfig calls it: in a test process with no ender it lists nothing and the launch still gets its config. */
+  assert.ok(ab.launchConfig({ platform: 'darwin', arch: process.arch, install: false, env: {}, agent: 't8928-e2e' }), 'the launch still gets its config');
 });
