@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.16",
+  "lastProd": "0.8.17",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -1473,7 +1473,8 @@
       ],
       "rank": 11.8,
       "since": "0.8.01",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.17"
     },
     {
       "title": "A little more room between chat lines",
@@ -2009,7 +2010,8 @@
       "icon": "list",
       "rank": 11.9,
       "since": "0.8.06",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.17"
     },
     {
       "title": "Agents get a while-you-were-away digest",
@@ -2127,22 +2129,24 @@
     },
     {
       "since": "0.8.07",
-      "status": "pending",
+      "status": "shown",
       "title": "A removed startup job explains its folder",
       "line": "On Windows, removing an agent's startup job says plainly what Start at login will do with its account folder.",
       "icon": "shield",
       "rank": 11.7,
       "platforms": [
         "windows"
-      ]
+      ],
+      "shownIn": "0.8.17"
     },
     {
       "since": "0.8.07",
-      "status": "pending",
+      "status": "shown",
       "title": "A stalled repeat shows one row",
       "line": "A repeat whose agent cannot be reached shows one row for the stall, not one for every missed run.",
       "icon": "tasks",
-      "rank": 12.2
+      "rank": 12.2,
+      "shownIn": "0.8.17"
     },
     {
       "since": "0.8.07",
@@ -2234,11 +2238,12 @@
     },
     {
       "since": "0.8.08",
-      "status": "pending",
+      "status": "shown",
       "title": "Memory rings stay thin and whole",
       "line": "Memory rings keep one thin line as they fill and are never cut off at the edge of their box.",
       "icon": "swarm",
-      "rank": 12.3
+      "rank": 12.3,
+      "shownIn": "0.8.17"
     },
     {
       "since": "0.8.08",
@@ -2640,5 +2645,5 @@
       "line": "kosmos community post, comment, edit and endorse, and feedback triage --cards -, stop and say so when nothing arrives on a pipe."
     }
   ],
-  "lastProdWin": "0.8.16"
+  "lastProdWin": "0.8.17"
 }
