@@ -28,7 +28,7 @@
 - `tools.whats-new-pool-win-8924.test.js` (13 tests after three review rounds): a Windows-only line in Windows prod's window retires with shownIn the Windows version, while Mac-only and untagged lines in the same window and a Windows-only line outside it stay pending; a recorded pool writes nothing (control: one a version behind syncs); every unreadable case refuses and writes nothing; the pointer URL derivation; prod-check 0/3/4; through build, a Windows refusal after a no-op Mac sync claims nothing and writes nothing (control: --offline builds).
 - Mutant: marking every title instead of only Windows-only ones fails the first test.
 - `tools.whats-new-pool-sync-5713.test.js` and `tools.release-gate.test.js`: fixtures gain a Windows pointer (and `lastProdWin` where a pool is meant to be fully recorded); the real-0.7.35 refusal now names both records. The two negative checks that matched the old exit-4 note text (release-gate and test-whats-new-early-7349.sh) now match the shared prefix, so they can still fail.
-- Live, read only: on a copy of main's pool with 0.8.17's two hand-retired lines set back to pending, `build` against real Windows prod 0.8.16 retired both with shownIn 0.8.16; on main's pool as it is, it records lastProdWin 0.8.16 and marks 0.
+- Live, read only: on a copy of main's pool with 0.8.17's two hand-retired lines set back to pending, `build` against real Windows prod 0.8.16 retired both with shownIn 0.8.16; on main's pool at the time, it recorded lastProdWin 0.8.16 and marked 0 (superseded: the pool now ships what a later live build recorded, 0.8.17 on both; see Decisions).
 
 ## Weakest premise
 

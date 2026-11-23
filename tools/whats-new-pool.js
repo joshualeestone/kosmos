@@ -339,7 +339,8 @@ function syncWithWinProd(pool, poolFile, env = process.env, root = ROOT) {
     + ' set "lastProdWin": "' + ptr.version + '" in release/whats-new-pool.json by hand and commit it, and retire its Windows-only lines by hand' };
   const obj = shownAt(served.version, root, served.commit);
   if (!obj) {
-    return { ok: false, because: 'Windows prod serves ' + served.version + ' (built from ' + served.commit + '), but this checkout has no What\'s New for it at that commit. git fetch, then build again; or, ONLY if ' + served.version + ' shipped to Windows with no What\'s New of its own, set "lastProdWin": "' + served.version + '" in release/whats-new-pool.json by hand and commit it (nothing else records a Windows release)' };
+    return { ok: false, because: 'Windows prod serves ' + served.version + ' (built from ' + served.commit + '), but this checkout has no What\'s New for it at that commit. That commit may be on a Windows release branch that was never pushed: push it, git fetch, then build again.'
+      + ' ONLY if that Windows release cannot be read at all, set "lastProdWin": "' + served.version + '" in release/whats-new-pool.json by hand and commit it, and retire its Windows-only lines by hand (nothing else records a Windows release)' };
   }
   const before = pool.lastProdWin || null;
   const r = markShownWin(pool, served.version, obj, 'the What\'s New at ' + served.commit);
@@ -440,7 +441,7 @@ function main(argv) {
       // kosmos#8924: then what Windows prod has shown, so a Windows-only line retires itself.
       const winSync = syncWithWinProd(pool, poolFile);
       if (!winSync.ok) {
-        process.stderr.write(winSync.because + '; nothing written' + (synced ? ' (The pool was already updated to record ' + synced + ': commit release/whats-new-pool.json to main.)' : '') + '\n');
+        process.stderr.write(winSync.because + '; the Windows record was not written' + (synced ? ' (The pool was already updated to record ' + synced + ': commit release/whats-new-pool.json to main.)' : '') + '\n');
         return 3;
       }
       syncNote += ' ' + winSync.note[0].toUpperCase() + winSync.note.slice(1) + '.';
