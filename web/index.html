@@ -20891,6 +20891,8 @@ window.kosmosMeasureScrollbarWidth();
         <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say" tabindex="-1"></p>
+          <!-- kosmos#8938: a member is told, on their own computer, what goes in the company's daily report (engine/orgrollup.js build()) and what never does. A company only; a family has its own words (#6239). -->
+          <p class="fhint" id="plus-org-sees" hidden></p>
           <!-- kosmos#6752: every member sees when someone is made a reviewer (kosmos#6594): the grants of the last 30 days,
                from the hourly status read. Shown only when there are some. -->
           <div id="plus-org-reviewers" hidden>
@@ -58278,10 +58280,21 @@ function plusOrgPaint() {
   if (here && st.wordsNeeded === true && PLUS_ORG.wordsRefused) document.getElementById('plus-org-say').textContent = 'This Kosmos still shows ' + (st.org.name || 'a family account') + ' on this computer, and it reports nothing to the family.';
   else if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words are not accepted on this computer, so it reports nothing until a parent or guardian reads and accepts them.' + (st.reportingRequired === true ? PLUS_ORG_REQUIRED_WAIT_FAMILY : '');   // kosmos#7586 review (Pete): the child card already says so
   else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') + plusOrgRequiredWait(st) : '') + plusOrgBackupLate(st) + plusOrgHandover(st));
+  plusOrgSees(here && st.org && st.org.kind !== 'family' && st.wordsNeeded !== true);   // kosmos#8938
   plusOrgReviewers(here ? st : null);   // kosmos#6752
   plusOrgRecoveries(here ? st : null);   // kosmos#5536
   if (here) reviewerNoteSeenList(st);   // kosmos#6817: the list on screen counts as seen
   if (here) recoveryNoteSeenList(st);   // kosmos#5536: likewise
+}
+/* kosmos#8938: what a company member's computer sends its company, said on the member's own screen. The list follows
+   engine/orgrollup.js build() (names, provider and model, status, projects, last active, tokens and estimated cost) and
+   the blocked-or-flagged events (#5683); nothing in that body carries a chat, a file, a task's words or a key. */
+const PLUS_ORG_SEES = 'Once a day your company sees: your agents\u2019 names, the AI provider and model each one uses, and whether it is running; your projects\u2019 names and which agents are on them; when you were last active; tokens used and their estimated cost; and anything Kosmos blocked or flagged. Your chats, files and keys are never in it.';
+function plusOrgSees(show) {
+  const el = document.getElementById('plus-org-sees');
+  if (!el) return;
+  el.hidden = !show;
+  el.textContent = show ? PLUS_ORG_SEES : '';
 }
 /* kosmos#6752: what follows the reviewer's name on one grant's line, leading with what is true now (Mona Lisa's review):
    every grant is inside 30 days, so a date has no year and no time, except a grant that lands within a day, the one
