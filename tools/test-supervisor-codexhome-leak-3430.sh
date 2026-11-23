@@ -18,6 +18,9 @@
 # 🛑 SANDBOX EVERY ROOT. All temp dirs ride the ONE trap.
 set -u
 cd "$(dirname "$0")/.." || exit 1
+# kosmos#8929: the supervisor driven here asks agent-browser-config.js for a browser config, and from a worktree that
+# lands on this account's REAL runners folder. This test is not about the browser: switch it off for the whole run.
+export KOSMOS_AGENT_BROWSER=off
 FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
