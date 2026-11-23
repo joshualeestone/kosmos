@@ -99,11 +99,6 @@ signed again (an old `.sig` no longer verifies, and the stage refuses it).
    `"platforms": ["mac"]` is not shown on Windows (#5224); if every highlight is Mac-only, this
    build stops: tag one for Windows, or set `KOSMOS_CUT_NO_WHATS_NEW=1`.
 
-   **After the promote (#8924).** The pool records what Windows prod serves (`lastProdWin`), so a
-   Windows-only highlight retires itself once Windows users have seen it. That happens at the next
-   `node tools/whats-new-pool.js build <the next cut's version>`, merged to main. Until then the next
-   Mac cut stops at its What's New check (`prod-check` exit 3, naming Windows prod). Say on the release
-   thread that Windows `<v>` is promoted, so whoever cuts next builds the pool first.
 
    ```
    bash tools/build-kosmos-windows.sh
@@ -198,6 +193,12 @@ signed again (an old `.sig` no longer verifies, and the stage refuses it).
    pwsh tools\windows\publish-r2.ps1 -Promote -ApprovedVersion <v> -ApprovedSha <sha> -ApprovalRef '<Slack ts or permalink>' -DryRun
    pwsh tools\windows\publish-r2.ps1 -Promote -ApprovedVersion <v> -ApprovedSha <sha> -ApprovalRef '<Slack ts or permalink>'
    ```
+
+   **After the promote (#8924).** The pool records what Windows prod serves (`lastProdWin`), so a
+   Windows-only highlight retires itself once Windows users have seen it. That happens at the next
+   `node tools/whats-new-pool.js build <the next cut's version>`, merged to main. Until then the next
+   Mac cut stops at its What's New check (`prod-check` exit 3, naming Windows prod). Say on the release
+   thread that Windows `<v>` is promoted, so whoever cuts next builds the pool first.
 
 ## A check that "decided nothing" (#7951)
 
