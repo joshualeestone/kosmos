@@ -36083,6 +36083,7 @@ function openAcctAdd(ev) {
   document.getElementById('acct-add-note').textContent = '';
   document.getElementById('acct-claude-msg').textContent = '';   // kosmos#8040: it can now outlive the key step
   document.getElementById('acct-openai-msg').textContent = '';
+  acctPolicyMark();   // kosmos#8938: providers the company does not allow are marked, not offered
   modal.hidden = false;
   loginAdvInert(true);
   // Reopening onto a sign-in already in flight lands focus on whatever
@@ -36098,6 +36099,39 @@ function openAcctAdd(ev) {
   } else {
     sel.focus();
   }
+}
+/* kosmos#8938: on a company's work Kosmos, Add a provider marks the providers the company's policy does not allow
+   (/api/org providersAllowed, board ids; the picker says "claude" for anthropic) instead of letting the member connect
+   one that every agent create would then refuse (#5534). Only options this marked are ever restored, so the Windows
+   Qwen line and the coming-soon rows keep their own words. No list (not a company, or not restricted): nothing marked. */
+const ACCT_POLICY_ID = { claude: 'anthropic', openai: 'openai', google: 'google', xai: 'xai', alibaba: 'alibaba', meta: 'meta' };
+function acctPolicyApply(allowed) {
+  const sel = document.getElementById('acct-provider-pick');
+  if (!sel) return;
+  for (const opt of sel.querySelectorAll('option[value]')) {
+    const id = ACCT_POLICY_ID[opt.value];
+    if (!id) continue;
+    const off = Array.isArray(allowed) && !allowed.includes(id);
+    if (off && opt.dataset.policyOff !== '1') {
+      if (opt.selected) sel.value = '';
+      opt.dataset.policyOff = '1';
+      opt.dataset.policyWas = JSON.stringify({ text: opt.textContent, disabled: opt.disabled, off: opt.dataset.off === undefined ? null : opt.dataset.off });
+      opt.disabled = true;
+      opt.textContent = opt.textContent.split(' \u00b7 ')[0] + ' \u00b7 not allowed by your company';
+      opt.dataset.off = 'Not allowed by your company';
+    } else if (!off && opt.dataset.policyOff === '1') {
+      let was = null;
+      try { was = JSON.parse(opt.dataset.policyWas || 'null'); } catch { was = null; }
+      delete opt.dataset.policyOff; delete opt.dataset.policyWas;
+      if (was) {
+        opt.textContent = was.text; opt.disabled = was.disabled === true;
+        if (was.off === null) delete opt.dataset.off; else opt.dataset.off = was.off;
+      }
+    }
+  }
+}
+function acctPolicyMark() {
+  return fetch('/api/org').then((r) => r.json()).then((j) => acctPolicyApply(j && j.enrolled === true ? j.providersAllowed : null)).catch(() => {});
 }
 function closeAcctAdd() {
   ACCT_ADD_VISIT += 1;   // #3939 slice 3c-2: a late answer from this visit acts on nothing

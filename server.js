@@ -13877,7 +13877,16 @@ const server = http.createServer(async (req, res) => {
       // while there are some.
       let handover = null;
       try { handover = here ? require('./engine/handoversend').notice() : null; } catch { handover = null; }
-      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired, backupLate, ...(handover ? { handover } : {}),   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
+      /* kosmos#8938: the providers the company's policy allows (engine/orgpolicy.js inForce(), board ids), so Add a provider
+         can mark the rest before the member connects one that every agent create would refuse (#5534). Screen only, and
+         only while a list is in force; null means not restricted. */
+      let providersAllowed = null;
+      try {
+        const pol = here ? require('./engine/orgpolicy').inForce() : null;
+        const list = pol && pol.providers_allowed;
+        providersAllowed = Array.isArray(list) ? list.filter((p) => typeof p === 'string' && /^[a-z]{1,20}$/.test(p)) : null;
+      } catch { providersAllowed = null; }
+      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired, backupLate, ...(handover ? { handover } : {}), ...(providersAllowed ? { providersAllowed } : {}),   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
        // kosmos#6752: recent reviewer grants, to the screen only and only when there are some (the not-joined shape is unchanged).
        ...(here && rec && Array.isArray(rec.reviewerGrants) && rec.reviewerGrants.length ? { reviewerGrants: oe.cleanReviewerGrants(rec.reviewerGrants),
          ...(Number.isFinite(rec.reviewerGrantsAt) ? { reviewerGrantsAt: rec.reviewerGrantsAt } : {}) } : {}),   // kosmos#6817: when the list was last confirmed
