@@ -259,13 +259,15 @@ function inTestRunUnsandboxed() {
 }
 /* kosmos#8928 slice 2: a browser server left running after its Claude session ended (the session exited by itself, so
    nothing stopped its children) is ended at that agent's next launch, with the headless browser it started. Only an
-   exact match is touched: the command line runs THIS install's cli.js, its --output-dir is exactly THIS agent's
-   folder (a whole argument, so `mona` never matches `mona-lisa`), and its parent is gone. A parent that might be
-   alive counts as alive: on doubt, nothing is ended. Pure, so every "never touch" case is tested over a table. */
+   exact match is touched: the server's script argument is THIS install's cli.js, its --output-dir is exactly THIS
+   agent's folder (both whole arguments, so `mona` never matches `mona-lisa`), and its parent is gone. A parent that
+   might be alive counts as alive: on doubt, nothing is ended. Pure, so every "never touch" case is tested over a table.
+   Servers left by an earlier pinned version run another cli.js and are not matched (the safe direction). */
 function escapeRe(t) { return String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function serverMatch(command, o) {
+  const arg = (v) => new RegExp('(^|\\s)"?' + escapeRe(v) + '"?(\\s|$)');
   const dir = new RegExp('(^|\\s)--output-dir\\s+"?' + escapeRe(o.outputDir) + '"?(\\s|$)');
-  return typeof command === 'string' && command.includes(o.cli) && dir.test(command);
+  return typeof command === 'string' && arg(o.cli).test(command) && dir.test(command);
 }
 function orphanedServers(procs, o) {
   const x = o || {};
@@ -279,72 +281,100 @@ function orphanedServers(procs, o) {
     .map((p) => p.pid);
 }
 /* What to end for one server, in order: its descendants deepest first, then the server, each with the parent it must
-   still have when it is ended (re-checked then, so a pid reused in between is never touched). */
-function endingOrder(procs, server) {
-  const kids = (pid) => (procs || []).filter((p) => p && p.ppid === pid && p.pid !== pid);
+   still have when it is ended. On Windows a process keeps its parent's pid after the parent exits and pids are reused,
+   so a descendant counts only if it was created after its parent (the `created` field). */
+function endingOrder(procs, server, windows) {
+  const list = procs || [];
+  const me = list.find((p) => p && p.pid === server);
+  const kids = (parent) => list.filter((p) => p && p.ppid === parent.pid && p.pid !== parent.pid
+    && (!windows || (p.created && parent.created && p.created > parent.created)));
   const out = [];
-  const walk = (pid, depth) => { if (depth > 8) return; for (const k of kids(pid)) { walk(k.pid, depth + 1); out.push({ pid: k.pid, parent: pid }); } };
-  walk(server, 0);
+  const walk = (parent, depth) => { if (depth > 8) return; for (const k of kids(parent)) { walk(k, depth + 1); out.push({ pid: k.pid, parent: parent.pid }); } };
+  if (me) walk(me, 0);
   out.push({ pid: server, parent: null });
   return out;
 }
-/* The live process table, bounded. Mac: ps at full width (-ww: a COLUMNS in the environment would otherwise cut the
-   command and the match would quietly fail). Windows: one CIM query. Any failure answers [] (nothing is ended). */
-function parseTable(out) {
-  return String(out || '').split(/\r?\n/).map((l) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l)).filter(Boolean)
-    .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), command: m[3] }));
+/* The live process table. Mac: ps at full width (-ww: a COLUMNS in the environment would otherwise cut the command and
+   the match would quietly fail). Windows: one CIM query, with each process's creation time. Failure answers []. */
+function parseTable(out, windows) {
+  const re = windows ? /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/ : /^\s*(\d+)\s+(\d+)\s+(.*)$/;
+  return String(out || '').split(/\r?\n/).map((l) => re.exec(l)).filter(Boolean)
+    .map((m) => (windows
+      ? { pid: Number(m[1]), ppid: Number(m[2]), created: m[3] === '0' ? '' : m[3], command: m[4] }
+      : { pid: Number(m[1]), ppid: Number(m[2]), command: m[3] }));
 }
-function processTable(platform, pids) {
-  const { execFileSync } = require('node:child_process');
+const WIN_TABLE = 'Get-CimInstance Win32_Process | ForEach-Object { $c = if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString(\'yyyyMMddHHmmss.ffffff\') } else { \'0\' }; "$($_.ProcessId) $($_.ParentProcessId) $c $($_.CommandLine)" } | Out-String -Width 32767';
+function macTable(pids) {
   try {
-    if (platform === 'darwin') {
-      const args = pids ? ['-ww', '-o', 'pid=,ppid=,command=', '-p', pids.join(',')] : ['-axww', '-o', 'pid=,ppid=,command='];
-      return parseTable(execFileSync('/bin/ps', args, { encoding: 'utf8', timeout: 3000, maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }));
-    }
-    const filter = pids ? " -Filter 'ProcessId=" + pids.map(Number).join(' OR ProcessId=') + "'" : '';
-    const script = 'Get-CimInstance Win32_Process' + filter + ' | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.CommandLine)" } | Out-String -Width 32767';
-    return parseTable(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 8000, windowsHide: true, maxBuffer: 32 * 1024 * 1024 }));
+    const args = pids ? ['-ww', '-o', 'pid=,ppid=,command=', '-p', pids.join(',')] : ['-axww', '-o', 'pid=,ppid=,command='];
+    return parseTable(require('node:child_process').execFileSync('/bin/ps', args, { encoding: 'utf8', timeout: 3000, maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }));
   } catch { return []; }
+}
+async function winTable() {
+  try { return parseTable(await execP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WIN_TABLE], { timeout: 15000, windowsHide: true, maxBuffer: 32 * 1024 * 1024 }), true); }
+  catch { return []; }
 }
 function defaultEnd(platform) {
   return platform === 'win32'
-    ? (pid) => require('node:child_process').execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { timeout: 8000, windowsHide: true, stdio: 'ignore' })
+    ? (pid) => execP('taskkill', ['/PID', String(pid), '/F'], { timeout: 8000, windowsHide: true })   // one pid, never /T
     : (pid) => process.kill(pid, 'SIGKILL');
 }
-/* Ends this agent's orphaned servers and their browsers. Never throws. Inside a `node --test` process nothing is ever
-   signalled unless the caller hands in `end`. On Windows the listing (a PowerShell start) runs after the launch has gone
-   ahead, never in front of it, and taskkill /T takes the browser with the server. Each pid is re-read just before it
-   is ended, and skipped unless it is still what was selected. */
+/* Each process ended is written down, so a wrong one could be traced. */
+function noteEnded(agent, p) {
+  try { fs.appendFileSync(path.join(homeDir(), 'ended-servers.log'), new Date().toISOString() + ' ' + agentKey(agent) + ' pid ' + p.pid + ' ' + String(p.command || '').slice(0, 500) + '\n'); } catch { /* best effort */ }
+}
+/* Ends this agent's orphaned servers and their browsers. Never throws. Fails closed: with no `end` handed in, it acts
+   only when its caller says `live` (the Mac shim run as a program, and the Windows supervisor's own entry, pass it) or
+   live execution is armed (engine/live-execution.js); otherwise nothing is listed or signalled, so no test can. Mac:
+   inline (ps takes milliseconds); each pid is re-read just before SIGKILL and skipped unless it is still what was
+   selected. Windows: after the launch has gone ahead and without blocking the supervisor (async); one fresh listing,
+   then each pid ended alone (taskkill /F, no /T). Returns the pids ended (Mac or `sync`), or a promise of them. */
 function endOrphanedServers(agent, deps) {
   const d = deps || {};
   if (!agentKey(agent)) return [];
   const platform = d.platform || process.platform;
   let end = d.end;
   if (!end) {
-    try { if (require('./live-execution').inTestProcess()) return []; } catch { return []; }
+    let armed = d.live === true;
+    try { armed = armed || require('./live-execution').liveExecutionAllowed(); } catch { /* not knowable: closed */ }
+    if (!armed) return [];
     end = defaultEnd(platform);
   }
-  const run = () => {
+  const windows = platform === 'win32';
+  const alive = d.alive || ((pid) => require('./win32orphan').pidState(pid) !== 'gone');
+  const o = { cli: cliPath(), outputDir: outputDir(agent), self: process.pid, parentGone: (ppid) => (!windows && ppid === 1) || !alive(ppid) };
+  const plan = (procs) => {
+    const steps = [];
+    for (const server of orphanedServers(procs, o)) steps.push(...endingOrder(procs, server, windows));
+    return steps;
+  };
+  const stillSelected = (now, step) => !!now && (step.parent === null ? serverMatch(now.command, o) && o.parentGone(now.ppid) : now.ppid === step.parent);
+  if (!windows) {
     try {
-      const procs = (d.procs || (() => processTable(platform)))();
-      const alive = d.alive || ((pid) => require('./win32orphan').pidState(pid) !== 'gone');
-      const o = { cli: cliPath(), outputDir: outputDir(agent), self: process.pid, parentGone: (ppid) => (platform === 'darwin' && ppid === 1) || !alive(ppid) };
-      const recheck = d.recheck || ((pid) => processTable(platform, [pid]).find((p) => p.pid === pid) || null);
+      const procs = (d.procs || (() => macTable()))();
+      const recheck = d.recheck || ((pid) => macTable([pid]).find((p) => p.pid === pid) || null);
       const ended = [];
-      for (const server of orphanedServers(procs, o)) {
-        const steps = platform === 'win32' ? [{ pid: server, parent: null }] : endingOrder(procs, server);
-        for (const step of steps) {
-          const now = recheck(step.pid);
-          const ok = now && (step.parent === null ? serverMatch(now.command, o) && o.parentGone(now.ppid) : now.ppid === step.parent);
-          if (!ok) continue;
-          try { end(step.pid); ended.push(step.pid); } catch { /* gone already, or not ours to end */ }
-        }
+      for (const step of plan(procs)) {
+        const now = recheck(step.pid);
+        if (!stillSelected(now, step)) continue;
+        try { end(step.pid); ended.push(step.pid); noteEnded(agent, now); } catch { /* gone already, or not ours */ }
+      }
+      return ended;
+    } catch { return []; }
+  }
+  const runWin = async () => {
+    try {
+      const procs = await (d.procs ? Promise.resolve(d.procs()) : winTable());
+      const ended = [];
+      for (const step of plan(procs)) {
+        const now = procs.find((p) => p.pid === step.pid) || null;
+        if (!stillSelected(now, step)) continue;
+        try { await end(step.pid); ended.push(step.pid); noteEnded(agent, now); } catch { /* gone already, or not ours */ }
       }
       return ended;
     } catch { return []; }
   };
-  if (platform === 'win32' && !d.sync) { setImmediate(run); return []; }
-  return run();
+  return runWin();
 }
 
 /**
@@ -374,7 +404,7 @@ function launchConfig(opts) {
       platform, executablePath: mac ? shellExe(o.arch) : undefined,
     }), null, 2) + '\n';
     if (o.agent) { try { fs.mkdirSync(outputDir(o.agent), { recursive: true }); } catch { /* the server can still make it; never costs the browser */ } }   // kosmos#8928
-    if (o.agent) endOrphanedServers(o.agent, o.orphans);   // kosmos#8928 slice 2: never throws
+    if (o.agent) { const r = endOrphanedServers(o.agent, Object.assign({ platform }, o.orphans)); if (r && r.catch) r.catch(() => {}); }   // kosmos#8928 slice 2: never throws, never waits on Windows
     const file = configPath(o.agent);
     return writeConfigIfNeeded(file, text) ? file : null;
   } catch { return null; }
