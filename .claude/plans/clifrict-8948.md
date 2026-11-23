@@ -47,3 +47,5 @@ confusion, not the stale write itself.
 - Measured by the reviewer: shell metacharacters in the unknown word print only the Unknown line and run nothing;
   dayBefore holds across daylight saving in three zones 2010 to 2026; 12 block-reading test files pass.
 - Left, noted: Mac feedback day errors now go to stderr (as Windows); suggestions draw only on the listed commands.
+
+## Round 2 (sonnet, whole branch): no blocker, should-fix or nit. Converged.
