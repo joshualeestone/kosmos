@@ -13892,10 +13892,10 @@ const server = http.createServer(async (req, res) => {
         // An id with no menu name cannot be said truthfully, so then no list is sent and the page says nothing.
         allowedProviderNames = names && !names.includes(op.providerName('')) ? [...new Set(names)] : null;
       } catch { allowedProviderNames = null; }
-      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired, backupLate, ...(handover ? { handover } : {}), ...(allowedProviderNames ? { allowedProviderNames } : {}),
+      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired, backupLate, ...(handover ? { handover } : {}), ...(allowedProviderNames ? { allowedProviderNames } : {}),   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
        // kosmos#8938: the words this computer accepted (the company's own lines: what it reports, what it may back up, what
        // it never sends), to the screen only, so Settings can show the member exactly those words.
-       ...(here && accepted && accepted.reports.length ? { reportWords: { reports: accepted.reports, backsUp: accepted.backsUp, never: oe.acceptedNever() } } : {}),   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
+       ...(here && accepted && accepted.reports.length ? { reportWords: { reports: accepted.reports, backsUp: accepted.backsUp, never: oe.acceptedNever() } } : {}),
        // kosmos#6752: recent reviewer grants, to the screen only and only when there are some (the not-joined shape is unchanged).
        ...(here && rec && Array.isArray(rec.reviewerGrants) && rec.reviewerGrants.length ? { reviewerGrants: oe.cleanReviewerGrants(rec.reviewerGrants),
          ...(Number.isFinite(rec.reviewerGrantsAt) ? { reviewerGrantsAt: rec.reviewerGrantsAt } : {}) } : {}),   // kosmos#6817: when the list was last confirmed

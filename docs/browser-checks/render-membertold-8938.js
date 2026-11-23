@@ -125,6 +125,14 @@ async function welcome(page) {
       chk(m2.note === 'Your company allows only Anthropic Claude and OpenAI for new agents in this Kosmos.', 'M2 Add a provider says which providers the company allows', String(m2.note));
       chk(m2.under, 'M2 the line sits right under the intro');
       chk(untouched(m2.out), 'M2 the options are left as they were', JSON.stringify(m2.out));
+      // Closing the dialog clears the line, so a Sign in again opened next never carries it.
+      await page.evaluate(() => { showTab('settings'); settingsGo('accounts'); openAcctAdd(); });
+      await settle(page, 600);
+      const before = await seen(page, 'acct-policy-note');
+      await page.evaluate(() => { closeAcctAdd(); openAcctReauth('/Users/x/.claude-account-b', 'someone@example.com'); });
+      await settle(page, 300);
+      chk(!!before && (await seen(page, 'acct-policy-note')) === null, 'M2 a Sign in again opened after the dialog closed carries no provider line', String(before));
+      await page.evaluate(() => { if (!document.getElementById('acct-add-modal').hidden) closeAcctAdd(); });
       chk((await youMenu(page)) === 'Work Kosmos for Testville Municipal', 'M3 the You menu names the company');
       const m4 = await welcome(page);
       chk(m4.t === 'This is your work Kosmos for Testville Municipal.', 'M4 the welcome names the company', String(m4.t));

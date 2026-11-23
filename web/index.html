@@ -36136,6 +36136,7 @@ function acctPolicyNote() {
 }
 function closeAcctAdd() {
   ACCT_ADD_VISIT += 1;   // #3939 slice 3c-2: a late answer from this visit acts on nothing
+  { const pn = document.getElementById('acct-policy-note'); if (pn) { pn.hidden = true; pn.textContent = ''; } }   // kosmos#8938: never carried into a Sign in again
   /* Dismissing mid-confirm (this button, the backdrop, Escape) must not leave a
      disabled Start button behind a stale confirm panel for the next open, so
      the confirm is reset on the way out (#1587 review). */
@@ -91141,7 +91142,7 @@ function frFocusActiveHead(paneEl) {
 /* kosmos#8938: a company member's own Kosmos names the company where they first look: the setup welcome and the You
    menu. Read from /api/org (the screen's own read; agents get no company name there), at most once a minute; a
    family, a failed read or no company shows nothing, so a person's own Kosmos is unchanged. */
-const WORK_ORG = { at: 0, org: null, busy: false };
+const WORK_ORG = { at: 0, org: null, busy: false, gen: 0 };
 function workOrgShow(org) {
   const name = org && typeof org.name === 'string' ? org.name.trim() : '';
   // Through plusOrgIn like every work-Kosmos sentence on the page (web.familysay-6251 counts them); a family never reaches here.
@@ -91158,13 +91159,16 @@ function workOrgPaint() {
   workOrgShow(WORK_ORG.org);
   if (WORK_ORG.busy || Date.now() - WORK_ORG.at < 60000) return;
   WORK_ORG.busy = true;
+  const gen = WORK_ORG.gen;
   fetch('/api/org').then((r) => r.json()).then((j) => {
+    if (gen !== WORK_ORG.gen) return;   // plusOrgPaint wrote a fresher answer meanwhile
     WORK_ORG.org = j && j.enrolled === true && j.org && j.org.kind !== 'family' ? j.org : null;
     WORK_ORG.at = Date.now();   // only a read that answered counts: a failed one is tried again next time
   }).catch(() => {}).finally(() => { WORK_ORG.busy = false; workOrgShow(WORK_ORG.org); });
 }
 /* plusOrgPaint holds a fresh /api/org answer (a join, a leave, a read): the welcome and the You menu follow it at once. */
 function workOrgFrom(st) {
+  WORK_ORG.gen += 1;
   WORK_ORG.org = st && st.enrolled === true && st.org && st.org.kind !== 'family' ? st.org : null;
   WORK_ORG.at = Date.now();
   workOrgShow(WORK_ORG.org);

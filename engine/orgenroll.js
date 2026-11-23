@@ -339,7 +339,8 @@ function acceptedConsent(opts) {
     projectUsageConsented: reports.some((l) => NAMES_PROJECT_USAGE.test(l) && NAMES_USAGE.test(l)) };
 }
 /* kosmos#8938: the never lines of the words accepted here (what the company's words say is never sent), for the
-   member's own Settings; [] when there are none or no words are on record. The same record acceptedConsent reads. */
+   member's own Settings; [] when there are none or no words are on record. The same record acceptedConsent reads.
+   rememberConsent keeps never lines from kosmos#8938 on, so [] on a computer that joined earlier means not kept. */
 function acceptedNever(opts) {
   if (!mayReport(opts)) return [];
   const rec = readEnrollment(opts);
