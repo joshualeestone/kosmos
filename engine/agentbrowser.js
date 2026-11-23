@@ -211,16 +211,6 @@ function writeConfigIfNeeded(file, text) {
   return same();
 }
 
-/**
- * The config path for ONE agent launch, or null. Sync and NEVER throws: it sits
- * in the launch path, and no answer here may cost an agent its start.
- *
- * 🔑 NOT INSTALLED YET IS NOT A FAILURE. Unless asked not to (`install: false`,
- * as the Mac shim does), it starts the one-time install in the background and
- * answers null, so this launch goes ahead without a browser and
- * the agent's next (re)launch picks it up. The board starts the same install at
- * boot, so on a normal machine it is long done before the first agent is made.
- */
 /* kosmos#8929: inside a test run, the config is written only into a sandboxed runners folder. From a worktree
    runners.managedRoot() falls back to the REAL install's folder, so a test that reached this (the supervisor's shim,
    say) rewrote the live config with the test's node and a temp folder its run then removed, and every agent the board
@@ -239,9 +229,9 @@ function testRunMarked(env, tmp) {
     const rt = path.resolve(t);
     if (rt === r || rt.startsWith(r.endsWith(path.sep) ? r : r + path.sep)) return true;
   }
-  /* Review 2: only the shape run-tests.sh makes, ${TMPDIR:-/tmp}/kt$$, so a kt<n> folder right under a temp base
-     (T, tmp, Temp). A user folder named kt1 (C:\\Users\\kt1\\AppData\\Local\\Temp) is not a test run. */
-  return /(^|[\/\\])(T|tmp|temp)[\/\\]kt\d+([\/\\]|$)/i.test(t);
+  /* The machine-wide test-sandbox rule (tools/lib/process-fixture.sh _KOSMOS_KT_RE, (T|tmp)/kt<digits>), with Windows'
+     separator and its Temp folder added. */
+  return /(^|[\/\\])(T|tmp|Temp)[\/\\]kt\d+([\/\\]|$)/.test(t);
 }
 /* The write location comes from THIS process's environment (runners.managedRoot reads process.env), so the sandbox is
    read there too; a test-run mark counts from this process or from the env a caller passed (review 1). */
@@ -252,6 +242,16 @@ function inTestRunUnsandboxed(env) {
   try { marked = marked || require('./live-execution').inTestProcess(); } catch { /* not knowable: the marks above decide */ }
   return Boolean(marked);
 }
+/**
+ * The config path for ONE agent launch, or null. Sync and NEVER throws: it sits
+ * in the launch path, and no answer here may cost an agent its start.
+ *
+ * 🔑 NOT INSTALLED YET IS NOT A FAILURE. Unless asked not to (`install: false`,
+ * as the Mac shim does), it starts the one-time install in the background and
+ * answers null, so this launch goes ahead without a browser and
+ * the agent's next (re)launch picks it up. The board starts the same install at
+ * boot, so on a normal machine it is long done before the first agent is made.
+ */
 function launchConfig(opts) {
   const o = opts || {};
   try {

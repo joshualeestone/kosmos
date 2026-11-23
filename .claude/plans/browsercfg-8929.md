@@ -24,3 +24,9 @@ engine/agentbrowser.test.js: a unit arm (controls: sandboxed, and not a test run
 
 ## Evidence after review 2
 tools/run-tests.sh --only engine/agentbrowser.test.js: 35/35 (the run review 2 said I had never done). Mutation under the same runner, the guard call removed: the shim test goes red (34/35). fixture-discipline, engine.reachable, launchpath-5516 under run-tests --only: 63/63. tools/test-supervisor-agentbrowser-3633.sh: all passed. No plain-tmp-8929 folder left in /tmp.
+
+## Challenge loop iteration 1 (sonnet)
+- Fixed: the #8929 block had been inserted between launchConfig's doc comment and launchConfig, so "Sync and NEVER throws" read as testRunMarked's contract. The block now sits above that doc comment.
+- Fixed: the kt rule is now the machine-wide test-sandbox rule (tools/lib/process-fixture.sh _KOSMOS_KT_RE, `(T|tmp)/kt<digits>`, case-sensitive) plus Windows' backslash and Temp. Review 2's version was case-insensitive and wider than every other guard.
+- Deferred: a real board whose temp folder is literally `.../tmp/kt5` would lose its browser. Every other fixture guard on this machine already treats that path as a test sandbox, so this keeps one rule rather than inventing a stricter one here.
+- Deferred: the catch around live-execution fails open (toward writing), which is the old behaviour; the shim arm runs on a Mac only (the skip says so; the pure arm covers the Windows rule).
