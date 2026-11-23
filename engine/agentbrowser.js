@@ -220,7 +220,8 @@ function writeConfigIfNeeded(file, text) {
    one the store reads), plus one rule of its own, inKtRunRoot below. */
 /* The machine-wide test-sandbox rule (tools/lib/process-fixture.sh _KOSMOS_KT_RE): a temp folder inside a
    tools/run-tests.sh run root marks a test that scrubbed its environment but kept TMPDIR, the shape of the live config
-   that found this. Not caught: a test child given a minimal env ({ PATH }), with no marks and the default temp folder. */
+   that found this. Not caught: a test child given a minimal env ({ PATH }), with no marks and the default temp folder;
+   and a run root made under a TMPDIR whose last folder is not T or tmp (a custom scratch folder). */
 const KT_RUN_ROOT = /(^|\/)(T|tmp)\/kt\d+(\/|$)/;
 function inKtRunRoot(tmp) {
   return KT_RUN_ROOT.test(String(tmp || ''));

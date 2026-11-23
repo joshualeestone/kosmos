@@ -7,6 +7,7 @@ Inside a test run (node --test, or tools/run-tests.sh's KOSMOS_TEST_RUN), engine
 This Mac's live config, written 03:11 11-23, named /opt/homebrew's node (the test node, not Kosmos's bundled one) and an output folder inside a run-tests root (kt23905). From a worktree runners.managedRoot() falls back to the real ~/.local/share/kosmos/runners, and launchConfig had no test guard (kickInstall had one). Which test wrote it is not established.
 
 ## Change (after review 1)
+(SUPERSEDED by the challenge-loop sections below: the store's isTestProcess is reused, and the kt rule is exactly the machine-wide _KOSMOS_KT_RE.)
 launchConfig writes nothing when inTestRunUnsandboxed(env): this process's runners folder is not sandboxed (read from process.env, where runners.managedRoot reads it) AND it is a test run by testRunMarked (NODE_TEST_CONTEXT; KOSMOS_TEST_RUN only when the temp folder is inside that run, the store's rule; or a temp folder inside a kt<pid> run root, for a test that scrubbed its env but kept TMPDIR) or live-execution's inTestProcess.
 
 ## Weakest premise
@@ -17,6 +18,7 @@ Mutations, each red: the guard call removed; the run-root rule removed; a stray 
 engine/agentbrowser.test.js: a unit arm (controls: sandboxed, and not a test run) and a shim arm through engine/agent-browser-config.js with no runners sandbox (the path the bug took; CONTROL: outside a test run it writes). Removing the guard turns both red. With fixture-discipline, engine.reachable, launchpath-5516, win32supervisor: 162/162; tools/test-supervisor-agentbrowser-3633.sh passes.
 
 ## Review 2, taken
+(SUPERSEDED by the challenge-loop sections below: the store's isTestProcess is reused, and the kt rule is exactly the machine-wide _KOSMOS_KT_RE.)
 - BLOCKER fixed: the shim test made its "plain" temp folder inside SANDBOX, which under tools/run-tests.sh is itself inside a kt<pid> run root, so the two controls went silent. The plain folder is now made under /tmp (realpath), checked not to be inside a run root, and removed after the test. The run root the test fakes sits at SANDBOX/tmp/kt8929 and is used as TMPDIR directly (the live config's shape).
 - WARNING fixed: the kt<pid> rule now matches only a kt<n> folder right under a temp base (T, tmp, Temp, case-insensitive), the shape run-tests.sh makes (${TMPDIR:-/tmp}/kt$$). CONTROLS: C:\Users\kt1\AppData\Local\Temp and /home/kt12/tmp are not a test run; ...\Temp\kt77 is.
 - WARNING decided, not built: a test child spawned with a minimal env ({ PATH }) has no markers, TMPDIR falls back to /tmp, HOME to the real home, so it is not caught. Markers cannot see it. The structural fix (refuse to write the REAL account's runners folder from a source checkout) would also switch the browser off for a developer's source board, so I rejected it. What would change my mind: a second rewrite of the live config with no kt folder in it.
@@ -45,3 +47,8 @@ run-tests --only agentbrowser.test.js 35/35, not skipped. Mutations, each red un
 - Fixed: the comment now names the shape the guard does not catch (a minimal-env child).
 - Deferred (same concern as iteration 1): a real board with a `.../tmp/kt5` temp folder loses its browser silently. A stderr line was rejected: it would print in every unsandboxed test run, which is the case this guard exists for.
 - NITs noted: the refusal also stops kickInstall in an unsandboxed test (intended: kickInstall writes under the same root); the regression guard skips off a Mac.
+
+## Challenge loop iteration 4 (opus)
+- Fixed: the comment now also names a run root made under a custom TMPDIR (last folder not T or tmp) as not caught.
+- Fixed: the plan's earlier design sections are marked superseded.
+- NITs noted: the caller-env branch has no test that can fail (it is reached only with an unsandboxed runners folder, which this file never has); both #8929 tests lean on earlier tests' fixtures and assert them; no Windows end-to-end arm.
