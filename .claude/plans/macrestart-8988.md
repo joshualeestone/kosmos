@@ -19,14 +19,18 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
 ## Change
 - bin/agent-supervisor.sh
   - `died_file`: `<store root>/runs/<key>.died` (the run file's folder and key rule).
-  - `arm_death_record` (after new-session, Claude only): `remain-on-exit on` and a `pane-died` hook that writes
-    "<epoch> status <N>" or "<epoch> signal <name>" and kills the session. If the hook cannot be set, remain-on-exit
-    goes back off. A path or name with a single quote gets no hook (no record, as before).
-  - `session_all_dead` (every `#{pane_dead}` line is exactly 1) and `record_dead_pane`.
+  - `arm_death_record` (after new-session, Claude only): on the AGENT'S OWN PANE (its id, kept on the session as
+    `@kosmos_agent_pane`), `remain-on-exit on` and a pane `pane-died` hook that writes "<epoch> status <N>" or
+    "<epoch> signal <name>" and kills the session. Never the window or session: a pane a person splits off and closes
+    must neither end the agent nor be recorded (review 1 reproduced that). If the hook cannot be set, remain-on-exit goes
+    back off. A path or name with a single quote or a # (run-shell reads # as a format) gets no hook.
+  - `agent_dead` (that pane's `#{pane_dead}` is 1; with no pane id, every pane's must be exactly 1) and
+    `record_dead_pane` (that pane's exit).
   - The wait loop: a dead session is recorded and killed (then the usual sleep), so a missing hook cannot hold it.
   - Startup: an ours-session whose panes are all dead is recorded and replaced, never adopted.
 - engine/macrestart.js: `restartedFor(name)`: the died file, plus the LAST start in the run file, within 5 minutes after
-  the death (a later start is a launch of its own). Cleared by a self-report row idle "finished responding" (the
+  the death (a later start is a launch of its own). An exit with code 0 shows nothing: Claude closed on purpose
+  (a person typing /exit), not a crash to explain. Cleared by a self-report row idle "finished responding" (the
   report hook's Stop) at or after that start, not by an operator's row. Words from `win32streamstate.restartWhy`.
 - engine/status.js `restartedOf`: Windows as before; a Mac pane that is ours and runs Claude reads macrestart.
 
@@ -41,7 +45,9 @@ until the next turn's Stop. It fails toward showing a restart a little too long,
 
 ## Tests
 - supervisor.macrestart-8988.test.js: the shipped supervisor, a real tmux on a private socket in the test's folder.
-  Arms: CRASH (exit 7 recorded, read after the relaunch) and STOP (nothing recorded), SIGNAL, WAIT (hook removed: the
-  supervisor records and ends it), STARTUP (a planted dead session is replaced). Each supervisor piece was removed in
+  Arms: CRASH (exit 7 recorded, read after the relaunch) and STOP (nothing recorded), SIGNAL, SPLIT (a split pane
+  ending neither ends the agent nor is recorded), WAIT (hook removed: the supervisor records and ends it), STARTUP (a
+  planted dead session is replaced). Each supervisor piece was removed in
   turn and its arm failed.
-- engine/macrestart-8988.test.js: parsing, the window, a later start, the clearer and its controls.
+- engine/macrestart-8988.test.js: parsing, the window, a later start, exit 0, the clearer and its controls, and the card's
+  Mac branch of status.restartedOf (ours, not ours, another runner).
