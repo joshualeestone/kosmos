@@ -749,6 +749,18 @@ function publisher(name, opts) {
        message starting late. One carried from a process that stopped (`needsWrite`, lost or not: review 4) needs a later
        write: the process that took it in is gone, so no turn here can be it. */
     if (current.needsWrite === true && current.wroteAfterReport !== true) return;   // review 4: carried, whether lost or not
+    /* Review 17: the carried part is over, but messages this process reported and has not started are not: the report
+       becomes theirs (this process's own deadline report), rather than ending and dropping them unsaid. */
+    if (current.needsWrite === true) {
+      const left = current.msgs.filter((m) => m.reported === true && m.startedAt === null);
+      if (left.length) {
+        current.unstarted = { since: left.map((m) => m.since).sort()[0], count: left.length };
+        current.needsWrite = false;
+        current.wroteAfterReport = false;
+        current.clearArmedFor = null;
+        return;
+      }
+    }
     /* Review 13: a report the deadline made on this process ends once its messages have started (a late start), not on
        any turn: a wake-up or a newer message is not them. */
     if (current.needsWrite !== true && current.msgs.some((m) => m.reported === true && m.startedAt === null)) return;
@@ -886,7 +898,7 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, needsWrite: false, reportRan: false, clearArmedFor: null, msgs: [], mainTurnOpen: false, emptyOpenAt: null };
+      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, needsWrite: false, reportRan: false, clearArmedFor: null, msgs: [], mainTurnOpen: false, emptyOpenAt: null, turnOnReported: false };
       /* kosmos#8951: messages the previous process took in and never ran are this agent's still: said on the new
          process's record, so its card says so, until a turn starts. */
       const lost = lostOnStop;
@@ -931,6 +943,7 @@ function publisher(name, opts) {
              next message normally); a reported one is credited only when no other is ready (a late start). */
           const first = current.msgs.find((x) => x.startedAt === null && x.ready === true && x.reported !== true)
             || current.msgs.find((x) => x.startedAt === null && x.ready === true);
+          current.turnOnReported = !!first && first.reported === true;   // review 17: whose turn this is, for the join
           if (first) { startMsgs([first]); current.emptyOpenAt = null; } else current.emptyOpenAt = nowMs();
         }
         reportRan();
@@ -953,7 +966,9 @@ function publisher(name, opts) {
         if (closed && current.open.size === 0) {
           current.queued = 0;
           /* kosmos#8951 review 10: the waiting messages join this turn now, each started on this moment's clock. */
-          startMsgs(current.msgs.filter((m) => m.startedAt === null));
+          /* Review 17: a reported message joins only a turn credited to a reported one; in a newer message's turn it was not
+             in the queue (that is why the turn went to the newer one). */
+          startMsgs(current.msgs.filter((m) => m.startedAt === null && (m.reported !== true || current.turnOnReported === true)));
           reportRan();   // review 11: one written after a report may have just joined, so the report can end this event
         }
       }
@@ -963,6 +978,7 @@ function publisher(name, opts) {
            open a turn of their own by the deadline (review 1 W1). A result before any turn opened (B1) changes nothing. */
         if (current.opened === true) {
           current.mainTurnOpen = false;   // review 13
+          current.turnOnReported = false;
           current.emptyOpenAt = null;
           current.msgs = current.msgs.filter((m) => m.startedAt === null);
           for (const m of current.msgs) m.ready = true;

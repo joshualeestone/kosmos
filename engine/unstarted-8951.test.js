@@ -789,3 +789,47 @@ test('#8951 review 16: after a report clears, a second loss is said on the board
   ds.turnsToSay([{ ...board.card('homer'), state: 'idle', deliveryStall: null }], said);   // cleared
   assert.equal(ds.turnsToSay([card(1)], said).length, 1, 'a new loss after a clear is said');
 });
+
+test('#8951 review 17: a resend\'s tool call returning does not start the reported message it replaced', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.fire();                                   // A reported
+  r.pub.wrote(); r.pub.event(init);                          // B's turn
+  r.pub.event({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'x' } }] } });
+  r.pub.event({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } });
+  assert.equal(r.last().unstarted && r.last().unstarted.count, 1, 'A is still not started');
+});
+
+test('#8951 review 17: when a carried report is over, messages this process reported and has not started stay reported', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.stopped(); r.pub.started(7001, 'sid-1');   // M1 carried
+  r.clock.t += HOLD;
+  r.pub.wrote(); r.fire();                                        // M2 merged
+  assert.equal(r.last().unstarted.count, 2);
+  r.pub.wrote(); r.pub.event(init);                               // M3 runs: the carried part is over
+  r.clock.t += HOLD; r.fire();
+  assert.deepEqual(r.last().unstarted && { count: r.last().unstarted.count, lost: r.last().unstarted.lost }, { count: 1, lost: undefined }, 'M2 is still reported');
+});
+
+test('#8951 review 17: a stuck step with messages behind it outranks an unstarted report on the card', () => {
+  const dir = path.join(store.ROOT, 'win32-state');
+  fs.mkdirSync(dir, { recursive: true });
+  const since = new Date(Date.now() - 2 * 60 * MIN).toISOString();
+  fs.writeFileSync(path.join(dir, store.safeKey('stu') + '.json'), JSON.stringify({ v: 1, state: 'busy', sessionId: 's', pid: process.pid, at: since, stepSince: since, step: 'running "x"', queued: 1, unstarted: { since, count: 1 } }));
+  const win = { name: 'stu', command: 'claude.exe', runner: 'claude' };
+  ds.resetForTests();
+  const st = status.deliveryStallOf(win, { state: 'working' });
+  assert.ok(st && st.lastWhy === 'turn' && st.unstarted !== true && st.step, 'the stuck step: ' + JSON.stringify(st));
+  assert.equal(status.deliveryStallOf(win, { state: 'idle' }).unstarted, true, 'CONTROL: not on a step, the report shows');
+});
+
+test('#8951: the push for an unstarted report is a turn push, one per report', (t) => {
+  const board = fleet.install([fleet.agent('homer', { state: 'idle' })]);
+  t.after(() => board.restore());
+  const since = new Date(Date.now() - 10 * MIN).toISOString();
+  const ev = ds.stallEvent({ ...board.card('homer'), deliveryStall: ds.unstartedOf('homer', { since, count: 1 }) });
+  assert.equal(ev.kind, 'needs_you');
+  assert.match(ev.id, /^turn:\d+:/, 'the turn kind, so phonenotify treats it as a stuck turn, not a streak');
+  assert.ok(ev.id.endsWith(':' + board.card('homer').sessionName));
+});
