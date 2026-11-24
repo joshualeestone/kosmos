@@ -118,6 +118,27 @@ struct PermissionCard: View {
     }
 }
 
+// kosmos#8952 slice (c): a permission prompt too long to show here in full (its box top scrolled off the agent's window).
+// Nobody approves what they cannot read, so Yes stays on the computer; refusing is safe, so Deny works here.
+struct DenyOnlyCard: View {
+    let deny: Board.ChoiceOption
+    let state: ChoicesState
+    let widthShare: CGFloat
+    let press: (Board.ChoiceOption) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(Board.denyOnlyAsk).font(.body.weight(.semibold)).foregroundColor(Palette.primary)
+            Text(Board.denyOnlyYesNote).font(.body).foregroundColor(Palette.secondary)
+            if !state.settled {
+                ChoiceButton(option: deny, caption: "Deny", state: state, fill: true, spoken: "Deny", press: press)
+            }
+            ChoiceNote(state: state)
+        }
+        .modifier(AgentBubbleBackground(widthShare: widthShare))
+    }
+}
+
 // The options, wrapping like words; one per line, full width, at the accessibility text sizes.
 struct ChoiceButtons: View {
     let options: [Board.ChoiceOption]

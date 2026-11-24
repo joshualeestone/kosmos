@@ -6408,5 +6408,37 @@ do {
         check(!w.contains("\u{2014}") && !w.contains("\u{203A}") && !w.contains("Mac"), "no em dash, no chevron, no Mac: \(w)")
     }
 }
+// kosmos#8952 slice (c): a permission prompt too long to show whole can be refused from the phone, never approved.
+do {
+    func thread(_ json: String) -> Board.Thread? { Board.parseThread(Data(json.utf8)) }
+    let cut = thread(#"{"messages":[{"at":"2026-11-24T09:00:00Z","kind":"question","from":"cleo","text":"Do you want to proceed?","denyOnly":{"n":4,"label":"No","asked":"tail of the command"}}],"asking":true,"asked":null,"options":[{"n":1,"label":"Yes"},{"n":4,"label":"No"}]}"#)!
+    let row = cut.rows[0]
+    check(cut.choices == nil, "premise: no whole-request buttons without `asked`")
+    check(row.denyOnly == Board.DenyOnly(n: 4, label: "No", asked: "tail of the command") && row.wayThrough == .permission,
+          "the row's denyOnly is read, and the row is a permission")
+    let c = Board.choices(for: row, in: cut)
+    check(c?.denyOnly == true && c?.options == [Board.ChoiceOption(n: 4, label: "No", lasting: false)] && c?.asked == "tail of the command",
+          "its one choice is the prompt's own No, named by the visible identity")
+    var reported = row; reported.reported = true
+    check(Board.choices(for: reported, in: cut) == nil, "an agent's own reported words take no Deny")
+    let whole = thread(#"{"messages":[{"at":"2026-11-24T09:00:00Z","kind":"question","from":"cleo","text":"Q","denyOnly":{"n":2,"label":"No","asked":"x"}}],"asking":true,"asked":"Q","options":[{"n":1,"label":"Yes"},{"n":2,"label":"No"}]}"#)!
+    check(Board.choices(for: whole.rows[0], in: whole)?.denyOnly == false, "CONTROL: the whole request's buttons win when the Mac serves them")
+    for bad in [#"{"n":0,"label":"No","asked":"x"}"#, #"{"n":true,"label":"No","asked":"x"}"#, #"{"n":2,"label":"","asked":"x"}"#, #"{"n":2,"label":"No","asked":""}"#, #"{"n":2,"label":"No"}"#] {
+        let t = thread(#"{"messages":[{"at":null,"kind":"question","from":"cleo","text":"Q","denyOnly":"# + bad + "}]}")!
+        check(t.rows[0].denyOnly == nil && Board.choices(for: t.rows[0], in: t) == nil, "a denyOnly the Mac never makes is no Deny: \(bad)")
+    }
+    let mac = URL(string: "https://studio.kosmosplus.com")!
+    let pressed = Board.pressRequest(mac: mac, session: "cleo", option: c!.options[0], asked: c!.asked, request: c!.request, denyOnly: c!.denyOnly)!
+    let b = try! JSONSerialization.jsonObject(with: pressed.httpBody!) as! [String: Any]
+    check(b["denyOnly"] as? Bool == true && b["text"] as? String == "4" && b["chose"] as? String == "No" && b["asked"] as? String == "tail of the command" && b["request"] == nil,
+          "the press says it is the deny-only card, with the No's digit and words and the visible identity")
+    let plainPress = Board.pressRequest(mac: mac, session: "cleo", option: c!.options[0], asked: "Q")!
+    check((try! JSONSerialization.jsonObject(with: plainPress.httpBody!) as! [String: Any])["denyOnly"] == nil, "CONTROL: any other press does not")
+    check(Board.choicesState(.main(allow: -1, deny: 4), pressing: false, typing: false, answered: (sure: true, n: 4), armedN: nil, unsure: false).note == "Denied.",
+          "a sure press reads Denied.")
+    for words in [Board.denyOnlyAsk, Board.denyOnlyYesNote] {
+        check(!words.contains("\u{2014}") && !words.contains("board") && !words.contains("Esc"), "plain words, no dash, no terminal: \(words)")
+    }
+}
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
