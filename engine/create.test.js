@@ -1499,7 +1499,7 @@ test('the startup script names its session exactly, not by prefix', () => {
          cleanly once that session is gone, where the plain name falls back to a prefix match. */
       /* kosmos#8988: or the agent's pane id ("$_p", read from list-panes at launch): a pane id names exactly one pane,
          and remain-on-exit and the pane-died hook must be on the agent's pane alone, never the window or session. */
-      assert.match(line, cmd === 'set-option' && / -p[a-z]* /.test(line) ? /-t "\$(SESSION|_sid|_p)"/ : /-t "\$(SESSION|_sid)"/,
+      assert.match(line, cmd === 'set-option' && / -p[a-z]* /.test(line) ? /-t "\$_p"/ : /-t "\$(SESSION|_sid)"/,
         `${cmd} rejects the "=name" form outright ("no such session: =name"), so `
         + `this line would fail at runtime: ${line.trim()}`);
     }
