@@ -163,7 +163,9 @@ struct LockedWebView: UIViewRepresentable {
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             switch state.processEnded() {
             case .showCard: failed()
-            case .drawAgain: webView.load(page, mimeType: "text/html", characterEncodingName: "utf-8", baseURL: URL(string: "about:blank")!)
+            case .drawAgain:
+                Self.untappable(webView)
+                webView.load(page, mimeType: "text/html", characterEncodingName: "utf-8", baseURL: URL(string: "about:blank")!)
             }
         }
         private func failIfReal(_ error: Error) {
