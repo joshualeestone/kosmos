@@ -2443,7 +2443,9 @@ enum Board {
         return !rows[(at + 1)...].contains { $0.who == .person }
     }
     // Waiting on an answer, not needing the person for another reason (a crash loop, a stuck error, a trust prompt).
-    static func waitsOnAnswer(_ a: Agent) -> Bool { ["needs_you", "question", "approval"].contains(a.state) }
+    static func waitsOnAnswer(_ a: Agent) -> Bool {
+        ["needs_you", "question", "approval"].contains(a.state) && !a.crashLooping && !a.restartFailed
+    }
     // The words after the agent's name on that row, or nil for a row that keeps its link (a file, unsent words).
     static func askedLine(_ way: ChatRow.WayThrough, now: Bool) -> String? {
         switch way {

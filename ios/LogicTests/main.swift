@@ -6341,6 +6341,9 @@ do {
     check(!Board.waitsOnAnswer(agent("working", true)) && !Board.waitsOnAnswer(agent("needs_trust", false))
           && !Board.waitsOnAnswer(agent("connection_lost", false)),
           "CONTROL: needing the person for a crash loop, a trust prompt or a lost connection is not an open question")
+    var noRestart = agent("needs_you", false); noRestart.restartFailed = true
+    check(!Board.waitsOnAnswer(agent("needs_you", true)) && !Board.waitsOnAnswer(noRestart),
+          "a needs_you agent that keeps stopping or failed to restart is not waiting on its question")
     check(Board.askedLine(.permission, now: true) == " needs your permission. Answer it on your computer."
           && Board.askedLine(.permission, now: false) == " asked for your permission."
           && Board.askedLine(.question, now: true) == " asked you something. Answer it on your computer."

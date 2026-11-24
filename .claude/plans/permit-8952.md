@@ -21,10 +21,10 @@ options as the real prompt does, so the board and the phone get the same buttons
 ## Changes
 1. engine/status.js: CLAUDE_SCROLL_HINT (`↑/↓ N more line(s)`) is skipped in claudePermissionPrompt's option walk.
    permissionAnswerable is untouched (the #6054 gate).
-   Consequence, wanted: a cut-off box (the only real case for the line) now reads as a permission prompt everywhere
-   claudePermissionPrompt is asked, so server.js's 409 no longer offers "typing its number" for it and the asked-question
-   compare is uncut (#6054 review 3: a permission prompt is answered only by a press). It still gets no buttons and no
-   card: dmPressable, chat.js and permissionCard all require permissionAnswerable (tested).
+   Consequence: a cut-off box (the only real case for the line) now reads as a permission prompt. server.js keys its 409
+   wording ("typing its number") and its uncut question compare on claudePermissionPrompt, so those should follow it,
+   in line with #6054 review 3 (a permission prompt is answered only by a press). Not tested through the server. Tested:
+   such a box is still not permissionAnswerable and gets no permissionCard.
 2. ios BoardLogic.swift: Board.askingNow(row, in:, waiting:) (the newest question/permission row, nothing from the person
    after it, while the agent waits on an answer: Board.waitsOnAnswer, state needs_you/question/approval; review 1: needing
    the person for a crash loop or a stuck error is not an open question) and Board.askedLine(way, now:). ChatView: a question/permission WayThroughRow has no action and
