@@ -24,9 +24,16 @@ changes (when it restarts, what it resumes, what it retires).
 - The death waits for stdout to end (`end` or `close`), at most `STDOUT_DRAIN_MS` = 500 ms: measured on the box, a
   child's last stdout line arrived AFTER `exit` in 40 of 40 runs (stderr before it, 40 of 40), so without the wait the
   error that explains the death would almost never be on its line. The single-handler guard is set at once. Only a
-  stream that says it is still open (`readableEnded === false`) is waited on. During the wait the loop still holds the
-  dead child, so a `send()` in that half second fails its write and is reported unsure, as for any write to a child
-  that just died.
+  stream that says it is still open (`readableEnded === false`) is waited on. The drain uses the real clock on purpose
+  (the injected timer is a no-op in tests, and a death must never wait on it forever), and it is spent inside
+  `HOST_GONE_GRACE_MS` (noted there). During the wait the loop still holds the dead child, but it is marked exited,
+  so a `send()` in that half second is a definite "not running", never an unsure.
+- An error result's text is read from `errors: string[]` (the shape `saysNothingToResume` already reads), joined with
+  ` | `; `result` is the fallback.
+
+## Follow-up, not here
+A final stdout line with no trailing newline is never emitted by `win32streamstate.lineReader` (no flush on `end`), so a
+CLI error printed without a newline just before exit is missed. That is a change to the shared reader, its own card.
 - The `died` reason joins `it said: <stderr tail>` and `its last error on stdout: <...>` with `; `.
 - `taskLogLine(at, name, e)` builds every task-log line; only a `died` line adds `(exit code N)` (with
   `= 0xXXXXXXXX` for a Windows code past 255 or below 0, an NTSTATUS) or `(signal S)`. A death with neither reads as
