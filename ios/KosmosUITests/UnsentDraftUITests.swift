@@ -44,7 +44,7 @@ final class UnsentDraftUITests: XCTestCase {
         }
     }
 
-    // Put in the message box: the words wait in the box, and nothing is sent (the draft stays).
+    // Put in the message box: the words wait in the box, and the draft stays.
     func testPutInTheMessageBoxFillsTheBox() throws {
         let app = try launch()
         let put = app.buttons["Put in the message box"]
@@ -59,7 +59,8 @@ final class UnsentDraftUITests: XCTestCase {
         shot(app, "draft put in the message box")
     }
 
-    // Dismiss: the row goes, and stays gone past a read of the chat (ChatView reads every 5 s).
+    // Dismiss: the row goes, and a fresh read of the chat (closed and opened again, which reads before it draws) does
+    // not bring it back, so the dismiss reached what the chat reads, not only what it was showing.
     func testDismissTakesTheDraftAway() throws {
         let app = try launch()
         let dismiss = app.buttons["Dismiss"]
@@ -67,10 +68,15 @@ final class UnsentDraftUITests: XCTestCase {
         dismiss.tap()
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: bandText(app))
         waitForExpectations(timeout: 10)
-        Thread.sleep(forTimeInterval: 7)
-        XCTAssertFalse(bandText(app).exists, "the dismissed draft came back")
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", ": Great. What is left?")).firstMatch.exists,
-                      "the rest of the chat went with the draft")
         shot(app, "draft dismissed")
+        let back = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "no way back out of the chat")
+        back.tap()
+        let row = app.staticTexts["Dana"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "no Dana row on Agents")
+        row.tap()
+        let rest = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", ": Great. What is left?")).firstMatch
+        XCTAssertTrue(rest.waitForExistence(timeout: 20), "Dana's chat did not draw again")
+        XCTAssertFalse(bandText(app).exists, "the dismissed draft came back on a fresh read")
     }
 }
