@@ -2877,8 +2877,42 @@ EOF
 # VERDICT, because a send that fires and assumes success silently loses
 # messages -- the transport lesson this port exists to keep.
 
+# kosmos#8961: kosmos msg --status <id>: what happened to a direct message you sent (or were sent). The board reads
+# the message record and the recipient's turn reports (engine/msgstatus.js) and answers in one sentence: answered by
+# command, read and its turn ended with no answer, still in its turn, or not read yet. A read: nothing is sent.
+_msg_status() {
+  local id="${1:-}" body rc=0 sentence because
+  case "$id" in
+    m[123456789]*) case "${id#m}" in *[!0123456789]*) id="" ;; esac ;;
+    *) id="" ;;
+  esac
+  if [ -z "$id" ] || [ $# -ne 1 ]; then say "Usage: kosmos msg --status <message id>, like: kosmos msg --status m12"; exit 2; fi
+  if ! healthy; then say_not_up "nothing can be checked"; exit 1; fi
+  local esc_pane; esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  local _bt; _bt="$(agent_board_token || true)"
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+  body=$(printf '{"id":"%s","from_pane":"%s"}' "$id" "$esc_pane" | kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/msg/status" \
+    -H 'content-type: application/json' --data-binary @- 2>/dev/null) || rc=$?
+  if [ "$rc" -ne 0 ]; then say_unreached "check that message" "$rc"; exit 1; fi
+  case "$body" in
+    *'"error"'*)
+      because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+      say "Kosmos refused that request: ${because:-it did not say why}."
+      token_refused_hint "$_tok" "$body"
+      exit 1 ;;
+  esac
+  sentence=$(printf '%s' "$body" | sed -n 's/.*"sentence":"\([^"]*\)".*/\1/p')
+  case "$body" in
+    *'"found":true'*) say "${sentence:-Kosmos answered, but not in a shape this command can read.}" ;;
+    *) say "${sentence:-Kosmos could not read that message.}"; exit 1 ;;
+  esac
+}
+
 cmd_msg() {
   local to text body verdict state because _a
+  # kosmos#8961: --status <id> is its own verb (a read), never mixed with sending.
+  if [ "${1:-}" = "--status" ]; then shift; _msg_status "$@"; return; fi
   # #2909: --stdin (leading, or alone after the agent: kosmos#8769) reads the message from standard input, so backticks and $ reach the
   # agent as written; the shared _read_piped_message does the read. from_stdin also arms
   # _keep_piped, so every failure after the read keeps the message in a private file.
@@ -2936,6 +2970,7 @@ cmd_msg() {
   fi
   if [ -z "$to" ] || [ -z "$text" ]; then
     say "Usage: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and \$ arrive as written; --no-reply: they are told no answer is wanted)"
+    say "   or: kosmos msg --status <id>  (whether a message you sent was answered, or read with no answer, or not read yet)"   # kosmos#8961
     exit 2
   fi
   # With --stdin the pipe is read BEFORE this check on purpose (as in cmd_post): a live pipe cannot

@@ -538,7 +538,24 @@ function keepPipedCopy(ctx, text, maybe) {   // maybe (#4934): a first try may h
   }
 }
 
+/* kosmos#8961, as install/kosmos _msg_status: `kosmos msg --status <id>` reads what happened to a direct message (answered
+   by command, read with no answer, still in its turn, or not read yet). A read: nothing is sent, so no retry is needed. */
+const MSG_STATUS_USAGE = '   or: kosmos msg --status <id>  (whether a message you sent was answered, or read with no answer, or not read yet)';
+async function verbMsgStatus(ctx, args) {
+  const id = args.length === 1 ? String(args[0]) : '';
+  if (!/^m[1-9][0-9]*$/.test(id)) { ctx.err('Usage: kosmos msg --status <message id>, like: kosmos msg --status m12'); return 2; }
+  const r = await ctx.call('POST', '/api/msg/status', { id, from_pane: '' });
+  if (!r.reached) return ctx.unreachable('check that message');
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); return 1; }
+  const j = r.json || {};
+  if (j.found === true) { ctx.out(typeof j.sentence === 'string' && j.sentence ? j.sentence : 'Kosmos answered, but not in a shape this command can read.'); return 0; }
+  ctx.err(typeof j.sentence === 'string' && j.sentence ? j.sentence : 'Kosmos could not read that message.');
+  return 1;
+}
+
 async function verbMsg(ctx, args) {
+  // kosmos#8961: --status <id> is its own verb (a read), never mixed with sending.
+  if (args[0] === '--status') return verbMsgStatus(ctx, args.slice(1));
   /* #2909: --stdin (leading, or alone after the agent: kosmos#8769) reads the message from standard input, shared with post via
      readPipedMessage, and every failure after the read keeps it in a private file. */
   /* #7886 item 3: --in-reply-to <id> (leading, in any order with --stdin) answers a direct message, as install/kosmos. */
@@ -582,7 +599,7 @@ async function verbMsg(ctx, args) {
     if (got.code !== undefined) return got.code;
     text = got.text;
   }
-  if (!to || !text) { ctx.err(USAGE.msg); return 2; }
+  if (!to || !text) { ctx.err(USAGE.msg); ctx.err(MSG_STATUS_USAGE); return 2; }   // kosmos#8961: as install/kosmos
   const keepPiped = () => { if (fromStdin) keepPipedCopy(ctx, text); };
   const body = { to, text, from_pane: '' };
   if (inReplyTo) body.in_reply_to = inReplyTo;   // #7886 item 3

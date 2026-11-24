@@ -203,7 +203,10 @@ test('msg, post and react: never exempt for a network peer or with NO credential
      only, never a live check), and POST /api/connections/found, a WRITE whose handler resolves the caller with
      resolveAgentSender, token first, exactly as POST /api/toolfail does, and never reads a name from the body;
      measured in server.connfound-8519.test.js. */
-  assert.deepEqual(routes, ['GET /api/agents/list', 'GET /api/community/read', 'GET /api/connections/found', 'GET /api/project-file/who', 'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/tasks/mine', 'POST /api/agent/reply-channel', 'POST /api/connections/found', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail', 'POST /api/undo/keep', 'POST /api/whoami'],
+  /* kosmos#8961 added POST /api/msg/status, a READ (POST only to carry the id and the pane as /api/msg does): its handler
+     resolves the caller with resolveAgentSender, token first, answers only the message's sender or recipient, and
+     returns times and ids, never the message text; measured in server.msg-status-8961.test.js. */
+  assert.deepEqual(routes, ['GET /api/agents/list', 'GET /api/community/read', 'GET /api/connections/found', 'GET /api/project-file/who', 'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/tasks/mine', 'POST /api/agent/reply-channel', 'POST /api/connections/found', 'POST /api/msg', 'POST /api/msg/status', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail', 'POST /api/undo/keep', 'POST /api/whoami'],
     'AGENT_TOKEN_ROUTES changed: every write added here must be checked to identify its caller from the header token');
   /* #4491 slice 3: the parameterized routes, pinned exactly like the set. */
   const patterns = (src.match(/const AGENT_TOKEN_ROUTE_PATTERNS = \[[^\n]*\];/) || [''])[0];
