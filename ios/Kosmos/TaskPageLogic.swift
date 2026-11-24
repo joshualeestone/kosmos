@@ -26,9 +26,10 @@ extension Board {
     struct SubtaskRow: Equatable, Identifiable {
         let number: Int
         let sentence: String
-        // Done, Replaced, Built, On hold or Open (tkPaintSubtasks).
+        // Done, Replaced, Not run, Built, On hold or Open (tkPaintSubtasks).
         let status: String
         var id: Int { number }
+        var closed: Bool { status == "Done" || status == "Replaced" || status == "Not run" }
     }
 
     struct TaskPage: Equatable {
@@ -1276,10 +1277,11 @@ extension Board {
     static func subtaskAddedLine(number: Int?) -> String { "Added task " + (number.map { String($0) + " " } ?? "") + "as a subtask." }
 
     // What a refusal says: which task it stopped at, and what is closed by then. `at` nil is this task itself, asked last.
-    static func subtasksStopped(at: Int?, why: String, closed: Int) -> String {
+    // `open` is whether this task reads open after it (another device can close it meanwhile).
+    static func subtasksStopped(at: Int?, why: String, closed: Int, open: Bool = true) -> String {
         guard let at else { return why + ". Its built subtasks are closed." }
         let before = closed == 0 ? "" : " \(closed)" + (closed == 1 ? " subtask before it is" : " subtasks before it are") + " closed."
-        return "Task #\(at): " + why + "." + before + " This task is still open."
+        return "Task #\(at): " + why + "." + before + (open ? " This task is still open." : "")
     }
     // The Mac's answer to one of the closes: nil when it is closed. No answer, or a gateway's, says only that it stopped.
     enum CloseStop: Equatable { case refused(String), unsure }

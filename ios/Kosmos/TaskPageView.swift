@@ -293,19 +293,24 @@ struct TaskPageView: View {
                     // Said aloud: the button goes, and the one left reads Reopen.
                     if await model.closeWithSubtasks(names: names) { UIAccessibility.post(notification: .announcement, argument: Board.subtasksClosed) }
                 } } label: {
-                    Text(Board.subtasksCloseAll).font(.footnote).foregroundColor(Palette.link)
-                        .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                    HStack(spacing: 8) {
+                        if model.closingSubtasks { SweepDots(scales: false) }
+                        Text(Board.subtasksCloseAll).font(.footnote).foregroundColor(Palette.link)
+                    }
+                    .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil)
                 .opacity(model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil ? 0.6 : 1)
-                .accessibilityValue(model.pressing ? "In progress" : "")
+                .accessibilityValue(model.closingSubtasks ? "In progress" : "")
                 .accessibilityIdentifier("taskpage.closeall")
             }
             let act = p.act
+            // In progress on the one pressed, while it is there (a tick read mid-way can take Close them away).
+            let acting = model.pressing && !(model.closingSubtasks && p.allSubtasksBuilt)
             Button { model.touched(); Task { await model.press(act, names: names) } } label: {
                 HStack(spacing: 8) {
-                    if model.pressing { SweepDots(colour: Palette.card, scales: false) }
+                    if acting { SweepDots(colour: Palette.card, scales: false) }
                     Text(act.title).font(.headline)
                 }
                 .foregroundColor(Palette.card)
@@ -315,7 +320,7 @@ struct TaskPageView: View {
             .buttonStyle(.plain)
             .disabled(model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil)
             .opacity(model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil ? 0.6 : 1)
-            .accessibilityValue(model.pressing ? "In progress" : "")
+            .accessibilityValue(acting ? "In progress" : "")
             if let refusal = model.refusal {
                 Text(refusal).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
                     .onAppear { UIAccessibility.post(notification: .announcement, argument: refusal) }
@@ -409,6 +414,8 @@ struct TaskPageView: View {
         subHeld = nil
         let line = Board.subtaskAddedLine(number: number)
         subLine(line)
+        // The same task can be open under another tab: the page in front says it.
+        guard visible else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { UIAccessibility.post(notification: .announcement, argument: line) }
     }
 
