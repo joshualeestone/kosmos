@@ -108,7 +108,9 @@ test('#9011 the pill says what ended the wait, after #8979\'s restart line, on a
   const page = require('../test-support/page');
   const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8'));
   const stateReason = new Function(page.lift(SCRIPT, 'stateReason') + '\nreturn stateReason;')();
-  const at = new Date(Date.now() - 20 * 60e3);
+  /* Inside today, so the page says the bare clock at any hour (review round 1: 20 minutes back is yesterday before 00:20). */
+  const today = new Date(); today.setHours(0, 1, 0, 0);
+  const at = new Date(Math.max(Date.now() - 20 * 60e3, today.getTime()));
   const clock = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const wc = (by, state) => ({ at: at.toISOString(), by, state: state || 'needs_you', held: false });
   const say = (by, extra) => stateReason({ name: 'Ada', state: 'idle', waitCleared: wc(by), ...extra });

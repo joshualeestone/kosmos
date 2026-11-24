@@ -49,6 +49,10 @@ were each ended by the agent's own report, so which path the reporter hit is not
   The card now says "when its session ended". On Windows a supervisor `--resume` after a crash sends no SessionEnd, so
   the wait survives there.
 
+## Residual
+- A person's Clear on a provider block that was covering the agent's own question reads "closed ... by you": true
+  (the question is gone), though the person acted on the block they could see.
+
 ## Weakest premise
 That 12 hours is the right span to show it: long enough to be seen after an evening away, short enough not to explain
 yesterday's question forever. And that the 64 KB tail holds the wait: a very busy agent's wait can scroll out of it, and
@@ -59,5 +63,8 @@ then nothing is said (as for askedAt).
   named; a provider block and the hook's permission wait not said; the 12-hour window and a future time; the page
   sentence per kind, after #8979's line, idle or working only, never on the tile, never the old words. Mutations: the
   page sentence off fails 1 test; the record tracking off fails 2.
+- engine/status.waitcleared-9011.test.js: the real status.snapshot() puts waitCleared on a pane card and a paneless
+  card (controls: a standing wait and a stop with no wait carry null). Mutation: both cards fed waitClearedOf(null)
+  fails both tests.
 - docs/browser-checks/render-waitcleared-9011.js (+ gated.txt, README): 92 PASS headless; page sentence off: 40 FAIL.
 - engine selfreport/status/awaydigest/answeredq/restartcard suites 836/836; web*.test.js 3857/3857; server.test.js 368/0.
