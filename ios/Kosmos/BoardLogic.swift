@@ -2459,7 +2459,8 @@ enum Board {
     }
 
     // kosmos#8952 slice (c): the choices a press on this thread was for: the thread's buttons, or else the Deny of its live
-    // question row (the last unreported one). A refusal line stays while these keep the pressed key.
+    // question row (the last unreported one). A refusal line stays while these keep the pressed key. This matches the
+    // pressed Deny only because a Deny is drawn on that live row alone (choices(for:)).
     static func liveChoices(_ t: Thread) -> Choices? {
         if let c = t.choices { return c }
         guard let row = t.rows.last(where: { ($0.wayThrough == .question || $0.wayThrough == .permission) && !$0.reported }) else { return nil }
@@ -2482,8 +2483,8 @@ enum Board {
             || !rows[(at + 1)...].contains { $0.who == .person && $0.notSent == nil }
     }
     // Review 5: a permission the Mac cannot offer buttons for reaches the phone as a plain question row (the board adds
-    // `permission` only where it is pressable, and kosmos#8952's `denyOnly` only on a box it cannot show whole), so while the agent waits on its permission prompt (awaitingApproval)
-    // the asked row is a permission.
+    // `permission` only where it is pressable, and kosmos#8952's `denyOnly` only on a box it cannot show whole), so
+    // while the agent waits on its permission prompt (awaitingApproval) the asked row is a permission.
     static func askedWay(_ way: ChatRow.WayThrough, approval: Bool) -> ChatRow.WayThrough {
         way == .question && approval ? .permission : way
     }

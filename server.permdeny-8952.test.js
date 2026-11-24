@@ -116,6 +116,8 @@ test('#8952 (c): a denyOnly No for another identity sends nothing; CONTROL: the 
     assert.equal(other.status, 409, JSON.stringify(other.json));
     const plain = await post({ text: '4', chose: 'No', asked });
     assert.equal(plain.status, 409, 'a No without denyOnly went at a cut box: ' + JSON.stringify(plain.json));
+    // Refused by the #6054 gate (no whole box), not by some earlier check.
+    assert.match(String(plain.json && (plain.json.error || JSON.stringify(plain.json))), /could not tell which request/, JSON.stringify(plain.json));
     assert.deepEqual(calls.keys(), []);
   });
 });
