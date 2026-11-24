@@ -753,9 +753,10 @@ struct TaskPageView: View {
                         let before = model.undoSay
                         Task {
                             await model.undo(paths, of: list, names: names)
-                            // Nothing chosen twice running sets the same line in one turn, so it would not be heard again.
-                            if paths.isEmpty, before == Board.undoChoose {
-                                UIAccessibility.post(notification: .announcement, argument: Board.undoChoose)
+                            // A line this phone says itself, said twice running, is set in one turn, so it would not be heard
+                            // again. The Mac's answers clear the line first and are heard anyway.
+                            if let say = model.undoSay, say == before, say == Board.undoChoose || say == Board.undoClosedAgain {
+                                UIAccessibility.post(notification: .announcement, argument: say)
                             }
                         }
                     } label: {
