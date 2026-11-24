@@ -909,7 +909,7 @@ if [ "$FAMILY" != win ] && [ "$FORCE" = 1 ]; then
             "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$FORCED_HOST" "$(printf '%s' "$V" | tr '\t\n' '  ')" "$(printf '%s' "$SHA" | tr '\t\n' '  ')" "$HAND_CHECK" >> "$FORCED_LOG"; } 2>/dev/null; then
     echo "promote-channel: the forced promote and its hand check are recorded in $FORCED_LOG (on this machine, $FORCED_HOST)" >&2
   else
-    echo "promote-channel: WARNING could not append to ${FORCED_LOG:-the forced-promote log (no HOME and no KOSMOS_PLUS_VERIFY_DIR)}; this output is the only record of the hand check: $HAND_CHECK" >&2
+    echo "promote-channel: WARNING could not append to ${FORCED_LOG:-the forced-promote log (no HOME and no KOSMOS_PLUS_VERIFY_DIR)}; the hand check is not in promote-forced.log, so keep this output: $HAND_CHECK" >&2
   fi
 fi
 # #5032: the staging installer onto /setup (checked before any write, above), right after the pointer
