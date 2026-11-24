@@ -49,3 +49,6 @@ Finished when: from project info, adding a member, removing one and archiving th
 ## Challenge loop iteration 5 (opus)
 - Fixed (WARNING, reasoned from XCTest, not run): the UI test's scroll loops asked isHittable of rows that may not exist yet (off-screen List cells), which XCTest fails on rather than answering false. They now ask exists && isHittable, as NewChatListSwitchUITests does.
 - Fixed (NIT): the add sheet offers only agents the phone can send for (isAgentSession), so it never offers one it then refuses; a logic test covers it.
+
+## Challenge loop iteration 6 (sonnet): converged
+- No new findings. Device checks, as recorded: closing on archive, the confirm buttons posting, and whether dismissing the room pops the info page with it.
