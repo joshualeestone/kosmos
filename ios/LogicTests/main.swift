@@ -6346,7 +6346,7 @@ do {
           "a needs_you agent that keeps stopping or failed to restart is not waiting on its question")
     check(Board.askedLine(.permission, now: true) == " needs your permission. Answer it on your computer."
           && Board.askedLine(.permission, now: false) == " asked for your permission."
-          && Board.askedLine(.question, now: true) == " asked you something. Answer it on your computer."
+          && Board.askedLine(.question, now: true) == " asked you something. Reply here or on your computer."
           && Board.askedLine(.question, now: false) == " asked you something.",
           "the words: where to answer while asked, only what was asked once past")
     check(Board.askedLine(.attachment, now: true) == nil && Board.askedLine(.draft, now: false) == nil,

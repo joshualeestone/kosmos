@@ -6,7 +6,7 @@ computer's board ›"; the tap opened the whole web board in a navy sheet, showi
 
 ## Done when (this PR)
 In an agent's chat on the iPhone, a question or permission with no native buttons opens nothing: it says, in plain
-words, that the agent is waiting and to answer on the computer (while it is the one being asked), or only what was
+words, that the agent is waiting and where to answer it (while it is the one being asked), or only what was
 asked (once past). A permission prompt with a "↑ N more lines" scroll line between its options and its footer reads its
 options as the real prompt does, so the board and the phone get the same buttons whenever the #6054 gate allows them.
 
@@ -33,8 +33,9 @@ options as the real prompt does, so the board and the phone get the same buttons
 ## Decided
 - The link is removed, not relabelled: with no `choices` the board has no buttons either, so it only showed the raw
   window text Josh called "a blue alternate version of the app".
-- Words: "<name> needs your permission. Answer it on your computer." / "<name> asked you something. Answer it on your
-  computer." while asked; "<name> asked for your permission." / "<name> asked you something." once past.
+- Words: "<name> needs your permission. Answer it on your computer." / "<name> asked you something. Reply here or on your
+  computer." while asked (review 3: a typed reply answers a question, server.js closes its menu; a permission prompt
+  refuses typed words, #6054); "<name> asked for your permission." / "<name> asked you something." once past.
 
 ## Not in this PR (next slices, on the card)
 - A native card with a working No and "Yes needs your computer" when the box cannot be verified (needs a deny-only path
@@ -50,6 +51,9 @@ options as the real prompt does, so the board and the phone get the same buttons
   no chevron, no terminal words). Every run-*.sh green; the app builds for the simulator.
 
 ## Weakest premise
+Residual, accepted (review 3): a plain needs_you with neither reportedByAgent nor awaitingApproval (engine/cardlabel.js
+reasonOf 'waiting': a Codex hooks screen, the safeguards menu) counts as waiting, so an unanswered question row above it
+says to reply. The agent is waiting on its screen there, so the computer is still the right place.
 That "needs you" plus newest question row means the row is the one being asked. A reported safety check that timed
 out leaves the agent no longer needing the person, so the row reads as past ("asked for your permission"), which is
 true by then.

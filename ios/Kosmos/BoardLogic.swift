@@ -2442,14 +2442,17 @@ enum Board {
               rows[at].id == row.id else { return false }
         return !rows[(at + 1)...].contains { $0.who == .person }
     }
-    // Waiting on an answer, not needing the person for another reason (a crash loop, a stuck error, a trust prompt).
+    // The agent's state is a wait on the person (needs_you, question, approval), and it is neither crash looping nor failed
+    // to restart.
     static func waitsOnAnswer(_ a: Agent) -> Bool {
         ["needs_you", "question", "approval"].contains(a.state) && !a.crashLooping && !a.restartFailed
     }
-    // The words after the agent's name on that row, or nil for a row that keeps its link (a file, unsent words).
+    // The words after the agent's name on that row, or nil for a row that keeps its link (a file, unsent words). A question
+    // can be answered by a reply in this chat (server.js closes a question menu and sends the words); a permission only by
+    // a press, so only the computer.
     static func askedLine(_ way: ChatRow.WayThrough, now: Bool) -> String? {
         switch way {
-        case .question: return now ? " asked you something. Answer it on your computer." : " asked you something."
+        case .question: return now ? " asked you something. Reply here or on your computer." : " asked you something."
         case .permission: return now ? " needs your permission. Answer it on your computer." : " asked for your permission."
         case .attachment, .draft: return nil
         }
