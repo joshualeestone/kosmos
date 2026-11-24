@@ -889,7 +889,9 @@ function publisher(name, opts) {
       /* kosmos#8951: a sign of a turn means the message was started on, and the deadline is off. Review 1 B1: a `result`
          counts only after this process opened a turn (init, assistant or user): a resumed session with nothing to resume
          answers with one error `result` and no turn, and that must not erase what the dead process lost. */
-      const opens = !!e && (e.type === 'assistant' || e.type === 'user' || (e.type === 'system' && e.subtype === 'init'));
+      /* Review 12: the main agent's events only. A subagent's (parent_tool_use_id) runs inside a turn already open, or in
+         the background after it, and is no message of the person's starting; the join path below filters it the same way. */
+      const opens = !!e && !e.parent_tool_use_id && (e.type === 'assistant' || e.type === 'user' || (e.type === 'system' && e.subtype === 'init'));
       if (opens) current.opened = true;
       if (opens || (e && e.type === 'result' && current.opened === true)) {
         current.startDue = null;
