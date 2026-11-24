@@ -39,3 +39,9 @@ Finished when: from project info, adding a member, removing one and archiving th
 - Fixed (NIT): adding uses the room's own addMemberRequest (one validator, isAgentSession, for both paths); removing has a DELETE twin with the same checks; the add line is the room's ("Added X to this project."). The archive question names the board's list as "Archived". The busy state is an enum (no marker string a session could equal). VoiceOver hears "Removing" on the row.
 - Fixed (NIT): the UI test drops its web-view checks (the sample board admits no computer, so they could not fail) and asserts About's labelled hand-off is present before asserting the old row is absent.
 - Evidence: room 944/944; simulator SDK build succeeded; the 13 node tests that read ios/ pass. UI run still queued (1 ahead).
+
+## Challenge loop iteration 4 (sonnet): nits only, all taken
+- A session the phone will not send for (isAgentSession) is said as "cannot be changed from the phone", never "cannot tell" (nothing was sent).
+- The UI test waits for the sheet and both dialogs to be gone (waitForNonExistence), the Archive dialog included.
+- A comment on the slow-archive-after-a-push case, which fails safe.
+- Noted: the confirm buttons' wiring into changeMember and archive is a device check (the sample board admits no computer).

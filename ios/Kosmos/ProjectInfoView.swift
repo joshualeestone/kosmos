@@ -282,6 +282,10 @@ struct ProjectInfoView: View {
         guard memberBusy == nil else { return }
         memberLine = nil
         guard client.macURL != nil else { memberLine = spoken(Board.projectMemberLine(.notSent, add: add, name: name), false); return }
+        // Review 4: a session the phone will not send for is said as such, never as "cannot tell" (nothing was sent).
+        guard let mac = client.macURL, Board.projectMemberRequest(mac: mac, project: project.id, session: session, add: add) != nil else {
+            memberLine = spoken(Board.projectMemberNotHere, false); return
+        }
         memberBusy = add ? .adding : .removing(session)
         defer { memberBusy = nil }
         let id = project.id
@@ -309,6 +313,8 @@ struct ProjectInfoView: View {
         // Review 3: what the re-read shows decides it too: a lost answer to an archive that happened is still an archive.
         let archivedNow = result == .done || live()?.archived == true
         archiveLine = spoken(Board.projectArchiveLine(archivedNow ? .done : result), archivedNow)
+        // Review 4: if a chat or task page was pushed meanwhile (onScreen false), the room stays; that fails safe (the
+        // project is archived and the list re-read), and Back shows it.
         if archivedNow && onScreen { onArchived() }
     }
 

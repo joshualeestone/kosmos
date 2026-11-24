@@ -70,14 +70,14 @@ final class ProjectInfoUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Add a member"].waitForExistence(timeout: 5), "Add a member did not open natively")
         shot(app, "project-add-member")
         app.navigationBars["Add a member"].buttons["Cancel"].tap()
-        XCTAssertFalse(app.navigationBars["Add a member"].waitForExistence(timeout: 2), "Cancel did not close Add a member")
+        XCTAssertTrue(app.navigationBars["Add a member"].waitForNonExistence(timeout: 5), "Cancel did not close Add a member")
         let remove = app.buttons["project-remove-member"].firstMatch
         XCTAssertTrue(remove.waitForExistence(timeout: 5), "no member to remove")
         remove.tap()
         XCTAssertTrue(app.buttons["Remove from this project"].waitForExistence(timeout: 5), "Remove did not ask first")
         shot(app, "project-remove-member-ask")
         dismissDialog(app)
-        XCTAssertFalse(app.buttons["Remove from this project"].waitForExistence(timeout: 2), "the Remove question stayed after Cancel")
+        XCTAssertTrue(app.buttons["Remove from this project"].waitForNonExistence(timeout: 5), "the Remove question stayed after Cancel")
         let archive = app.buttons["project-archive"]
         for _ in 0..<4 where !archive.isHittable { app.swipeUp() }
         XCTAssertTrue(archive.waitForExistence(timeout: 5), "no Archive project")
@@ -86,6 +86,7 @@ final class ProjectInfoUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Archive Spring'")).firstMatch.waitForExistence(timeout: 5), "Archive did not ask first")
         shot(app, "project-archive-ask")
         dismissDialog(app)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Archive Spring'")).firstMatch.waitForNonExistence(timeout: 5), "the Archive question stayed after Cancel")
         XCTAssertTrue(app.buttons["project-outside-members"].waitForExistence(timeout: 5), "the labelled hand-off for members from other computers is missing")
         XCTAssertFalse(app.buttons["Open on your computer\u{2019}s board"].exists, "Settings still has the general board row")
         shot(app, "project-settings-lower")

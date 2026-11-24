@@ -1527,6 +1527,8 @@ extension Board {
         }
     }
     static let projectNotConnected = "Your computer is not connected, so nothing changed."
+    /* Review 4: a session the phone will not send for (isAgentSession). Nothing was sent; the board can still do it. */
+    static let projectMemberNotHere = "This member cannot be changed from the phone. Change it on your computer's board."
 
     /* Review 1: the archive reads its answer by the same rules as a member change, worded for itself. */
     enum ProjectArchiveResult: Equatable { case done, refused(String), cannotTell, notSent }
