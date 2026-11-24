@@ -56,6 +56,19 @@ person still runs.
 - The zsh message says "also inside double quotes"; the test header no longer overstates what the RAN list controls.
 - Mutations: refusing on any no, and no size cap: each turns the suite red.
 
+## Round 3 (opus, blind, whole branch) fixes
+- WARNING fixed: `<<` inside arithmetic ($((1<<3)), (( y = 1 << 2 ))) was read as a heredoc start, so the lines after
+  it were read flat and a flag in single quotes, a comment or a quoted heredoc was refused (the header claimed the
+  reverse). Arithmetic is now its own level, skipped to its )), in double quotes too; a flag inside it counts.
+  A backslash is now handled first in every level (an escaped backtick or \$(( opens nothing). Tests for each;
+  mutation (no arithmetic level) turns the reader test red.
+- Comments corrected: the case-pattern misread applies to any $( ), and "no allow hook" means no allow-hook env names;
+  residual recorded: those names reach a Claude started inside an agent's shell, so a person running Claude
+  interactively from an agent's terminal is treated as that agent.
+- A node past the clock gets TERM then KILL, so one ignoring TERM cannot hold the hook. Test nits: the slow fake node
+  execs its sleep (no orphan), waits 30 s against a 15 s bound, the missing-script case has its own path, and the file
+  skips with a reason where perl has no JSON::PP (the guard fails open there by design).
+
 ## Weakest premise
 The shapes are Claude Code 2.1.331's. A later version may refuse more (those still prompt, as today) or fewer (the
 guard then refuses a command that would have run with a prompt the allow hook steps aside from; the message names the

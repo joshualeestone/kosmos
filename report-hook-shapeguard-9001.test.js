@@ -25,6 +25,12 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it is the Mac and Linux report hook (install/kosmos-report-hook.sh), run through /bin/bash by an absolute POSIX path; Windows agents use engine/kosmos-report-hook.js');
+// The guard reads the payload with perl's JSON::PP (every Mac's /usr/bin/perl has it). Where it is missing the guard
+// lets every call run, by design, so the refusal cases cannot be shown there: skipped with the reason (review round 3).
+const PERL = fs.existsSync('/usr/bin/perl') ? '/usr/bin/perl' : 'perl';
+const NO_JSONPP = spawnSync(PERL, ['-MJSON::PP', '-e1'], { encoding: 'utf8' }).status !== 0
+  ? 'no perl with JSON::PP on this machine: the guard fails open here, so its refusals cannot be shown' : false;
+const SKIP = SKIP_POSIX_SHELL || NO_JSONPP;
 
 const HOOK = path.join(__dirname, 'install', 'kosmos-report-hook.sh');
 const ALLOW = path.join(__dirname, 'engine', 'kosmos-permission-allow.js');
@@ -96,7 +102,7 @@ const RAN = [
   ['T69 $a(', "echo '$a(a)'"], ['T70 ${a}(', "echo '${a}(a)'"], ['T71 a$$b(c)', "echo 'a$$b(c)'"],
 ];
 
-test('every command Claude Code refused (measured) is refused, with the matching way out', { skip: SKIP_POSIX_SHELL }, () => {
+test('every command Claude Code refused (measured) is refused, with the matching way out', { skip: SKIP }, () => {
   for (const [name, cmd, kind] of REFUSED) {
     const r = run(cmd);
     assert.equal(r.code, 2, `${name}: should be refused (got ${r.code}) ${r.stderr}`);
@@ -106,7 +112,7 @@ test('every command Claude Code refused (measured) is refused, with the matching
   }
 });
 
-test('every command Claude Code ran (measured) runs: no refusal, no message', { skip: SKIP_POSIX_SHELL }, () => {
+test('every command Claude Code ran (measured) runs: no refusal, no message', { skip: SKIP }, () => {
   for (const [name, cmd] of RAN) {
     const r = run(cmd);
     assert.equal(r.code, 0, `${name}: should run (got ${r.code}) ${r.stderr}`);
@@ -115,7 +121,7 @@ test('every command Claude Code ran (measured) runs: no refusal, no message', { 
 });
 
 test('only where the prompt would reach the person: the allow hook answers, it runs (as today); it steps aside, refused',
-  { skip: SKIP_POSIX_SHELL }, () => {
+  { skip: SKIP }, () => {
     const plain = "cat <<'PY'\nx = page.PID('a')\nPY";
     assert.equal(run(plain).code, 2, 'premise: a Kosmos agent, naming .claude: refused');
     assert.equal(run(plain, { protectedName: false }).code, 0, 'the allow hook answers: it runs, as today');
@@ -130,7 +136,7 @@ test('only where the prompt would reach the person: the allow hook answers, it r
     assert.equal(run(plain, { allowHook: false }).code, 0, "the person's own session: runs, the prompt is theirs");
     assert.equal(run('x=a; echo "ZF(f)x}"', { allowHook: false }).code, 0, "the person's own session, zsh");
     // An allow-hook path that is not the allow hook is no hook: left alone too.
-    assert.equal(run(plain, { allowHook: false, env: { KOSMOS_PERMISSION_ALLOW_NODE: process.execPath, KOSMOS_PERMISSION_ALLOW_SCRIPT: path.join(SANDBOX, 'kosmos-permission-allow.js') } }).code, 0,
+    assert.equal(run(plain, { allowHook: false, env: { KOSMOS_PERMISSION_ALLOW_NODE: process.execPath, KOSMOS_PERMISSION_ALLOW_SCRIPT: path.join(SANDBOX, 'missing', 'kosmos-permission-allow.js') } }).code, 0,
       'an allow-hook script that does not exist: not a Kosmos agent');
     // review round 2: an allow hook that cannot be asked is not one that steps aside. The command runs, as today.
     const node = (file, body) => { const p = path.join(SANDBOX, file); fs.writeFileSync(p, body, { mode: 0o755 }); return p; };
@@ -142,11 +148,11 @@ test('only where the prompt would reach the person: the allow hook answers, it r
     assert.equal(run(plain, { allowHook: false, env: { KOSMOS_PERMISSION_ALLOW_NODE: silent, KOSMOS_PERMISSION_ALLOW_SCRIPT: fakeAllow } }).code, 2,
       'control: a node that runs cleanly and answers nothing steps aside: refused');
     assert.equal(run(plain, { env: { TMPDIR: path.join(SANDBOX, 'no-such-folder') } }).code, 0, 'no temp file for the answer: runs');
-    const slow = node('node-slow', '#!/bin/sh\ncat >/dev/null; sleep 9\n');
+    const slow = node('node-slow', '#!/bin/sh\ncat >/dev/null; exec sleep 30\n');
     const t0 = Date.now();
     const r = run(plain, { allowHook: false, env: { KOSMOS_PERMISSION_ALLOW_NODE: slow, KOSMOS_PERMISSION_ALLOW_SCRIPT: fakeAllow } });
     assert.equal(r.code, 0, 'a node past the clock: runs');
-    assert.ok(Date.now() - t0 < 9000, 'and the clock stopped it');
+    assert.ok(Date.now() - t0 < 15000, 'and the clock stopped it, well before the node would end');
     // A very long command with a flag is not read (it runs): the reader's cost stays bounded.
     assert.equal(run('echo ZF(f)x}\n# ' + 'x'.repeat(300000)).code, 0, 'over 256 KB: runs');
     assert.equal(run('echo ZF(f)x}\n# ' + 'x'.repeat(200000)).code, 2, 'control: under 256 KB: read and refused');
@@ -155,7 +161,7 @@ test('only where the prompt would reach the person: the allow hook answers, it r
     assert.equal(run("cat <<'PY'\nx = page.PID('café ✓')\nPY").code, 2, 'non-ASCII, naming .claude');
   });
 
-test('controls: switched off, no perl, another tool, another event, unreadable input: all run', { skip: SKIP_POSIX_SHELL }, () => {
+test('controls: switched off, no perl, another tool, another event, unreadable input: all run', { skip: SKIP }, () => {
   const shape = "echo 'page.PID(a)'";
   assert.equal(run(shape).code, 2, 'premise: the shape is refused');
   assert.equal(run(shape, { env: { KOSMOS_SHAPE_GUARD: 'off' } }).code, 0, 'KOSMOS_SHAPE_GUARD=off');
@@ -169,7 +175,7 @@ test('controls: switched off, no perl, another tool, another event, unreadable i
   assert.equal(spawnSync('/bin/bash', [HOOK], { input: payload, env, encoding: 'utf8' }).status, 0, 'only PreToolUse refuses');
 });
 
-test('the reader: quotes, escapes, $\'...\', nested $( ) in double quotes, <<- heredocs', { skip: SKIP_POSIX_SHELL }, () => {
+test('the reader: quotes, escapes, $\'...\', nested $( ) in double quotes, <<- heredocs', { skip: SKIP }, () => {
   assert.equal(run("echo $'ZF(f)x}'").code, 0, "$'...' is literal");
   assert.equal(run('echo \\ZF(f)x}').code, 0, 'a backslash before the dollar');
   assert.equal(run('echo "\\ZF(f)x}"').code, 0, 'an escaped dollar in double quotes');
@@ -189,4 +195,12 @@ test('the reader: quotes, escapes, $\'...\', nested $( ) in double quotes, <<- h
   assert.equal(run("echo \"`echo 'ZF(f)x}'`\"").code, 0, 'single quotes inside backticks inside double quotes');
   assert.equal(run('echo `echo ZF(f)x}`').code, 2, 'a flag inside backticks');
   assert.equal(run("echo `echo 'a'` ZF(f)x}").code, 2, 'a flag after backticks close');
+  // review round 3: << inside arithmetic is a shift, not a heredoc that makes the lines after it read flat
+  assert.equal(run("echo $((1<<3))\npython3 - <<'EOF'\nprint('ZF(f)x}')\nEOF").code, 0, '$(( << )) then a quoted heredoc (T25 shape)');
+  assert.equal(run("(( y = 1 << 2 ))\necho 'ZF(f)x}'").code, 0, '(( << )) then single quotes');
+  assert.equal(run('echo $((1<<3))\necho a # ZF(f)x}').code, 0, '$(( << )) then a comment');
+  assert.equal(run('echo "$((1<<3))"\necho a # ZF(f)x}').code, 0, 'arithmetic inside double quotes');
+  assert.equal(run('echo $((1<<3)) ZF(f)x}').code, 2, 'control: a flag after the arithmetic is still read');
+  assert.equal(run('echo $(( ZF(f)x} + 1 ))').code, 2, 'a flag inside the arithmetic is read');
+  assert.equal(run('echo \\`echo ZF(f)x}').code, 2, 'an escaped backtick opens nothing');
 });

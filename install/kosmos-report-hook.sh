@@ -338,17 +338,20 @@ fi
 # # at the start of a word starts a comment; "..." is read, and a $( or a backtick inside it opens an unquoted level
 # until its ) or backtick; <<< is a here-string; a heredoc's body is read only when its delimiter is unquoted (no ' "
 # or \ in it), and a \$ in it is literal.
-# Known misreads (rare; review round 1): << inside $(( )) is read as a heredoc, so lines after it may go unread (lets
-# more run: the old behaviour); a case pattern's ) inside "$( )" ends that level early, and an unquoted heredoc body is
-# read flat, so '${(' in single quotes inside a $( ) there is refused although the shell does not read it.
+# $(( )) and (( )) are arithmetic, skipped to their )) (a << there is a shift, review round 3).
+# Known misreads (rare; reviews 1 and 3), both refusing a command the shell would not read the flag in: a case
+# pattern's ) inside a $( ) ends that level early (x="$(case a in a) echo '${(f)';; esac)"), and an unquoted heredoc
+# body is read flat, so '${(' in single quotes inside a $( ) there counts.
 # 🛑 IT REFUSES ONLY WHERE THE PROMPT WOULD REACH A PERSON. Kosmos's own PermissionRequest hook
 # (engine/kosmos-permission-allow.js, #5406) answers Claude Code's safety prompts with allow (Josh, 2026-10-22), so for
 # most commands these shapes run today with no prompt and no push, and refusing them would only cost the agent a
 # rewrite. That hook steps aside when the command names .claude, .claude.json or .git, and 8 of the 9 real refusals did
 # (a plan file under .claude/plans, mostly): those are the prompts that reached the phone. So the guard asks that same
 # hook (allow_hook_allows, run on this payload renamed PermissionRequest) and refuses only when it would not answer.
-# A session with no such hook is left alone (review round 1): it is the person's own Claude Code (setup wires this hook
-# into their settings too), where the prompt is theirs to answer, or an agent Kosmos did not start.
+# A session without the allow hook's two environment names is left alone (review round 1): the person's own Claude
+# Code (setup wires this hook into their settings too), where the prompt is theirs to answer, or an agent Kosmos did
+# not start. Residual (review round 3): those names reach a Claude started from inside an agent's shell, so a person
+# running Claude interactively from an agent's terminal is treated as that agent.
 # The check runs only when the raw input holds $$( or ${( at all, so every other call costs one bash pattern match.
 # Any failure (no perl, no JSON::PP, bad JSON) lets the call run, as before. KOSMOS_SHAPE_GUARD=off turns it off.
 # Not for Windows agents (their hook is engine/kosmos-report-hook.js) or Codex, Gemini and Grok (no such check).
@@ -376,8 +379,20 @@ sub flag_at { my $k = shift; return $k + 2 < $n && $ch[$k] eq '$' && $ch[$k+1] e
 sub word_start { my $k = shift; return $k == 0 || $ch[$k-1] =~ /[\s;&|()<>]/ }
 while ($i < $n && !$hit) {
   my $t = $ctx[-1][0]; my $x = $ch[$i];
+  if ($x eq '\\') { $i += 2; next }   # first, in every level: an escaped character is never the start of anything
+  # Arithmetic, $(( )) anywhere or (( )) at the start of an unquoted word: << there is a shift, not a heredoc (review
+  # round 3). Skipped to its matching )), refused only if a flag sits inside it.
+  if (($x eq '$' && substr($c, $i, 3) eq '$((') || ($t ne 'D' && $x eq '(' && substr($c, $i, 2) eq '((' && word_start($i))) {
+    my $k = $i + ($x eq '$' ? 3 : 2); my $dp = 0;
+    while ($k < $n) {
+      if ($ch[$k] eq '(') { $dp++ }
+      elsif ($ch[$k] eq ')') { if ($dp == 0 && $k + 1 < $n && $ch[$k+1] eq ')') { last } $dp-- if $dp > 0 }
+      $k++;
+    }
+    if (index(substr($c, $i, $k - $i), '${(') >= 0) { $hit = 1; last }
+    $i = $k + 2; next;
+  }
   if ($t eq 'D') {
-    if ($x eq '\\') { $i += 2; next }
     if ($x eq '"') { pop @ctx; $i++; next }
     if (flag_at($i)) { $hit = 1; last }
     if ($x eq '$' && $i + 1 < $n && $ch[$i+1] eq '(') { push @ctx, ['N', 0]; $i += 2; next }
@@ -386,7 +401,6 @@ while ($i < $n && !$hit) {
   }
   if ($x eq '`') { if ($t eq 'B') { pop @ctx } else { push @ctx, ['B', 0] } $i++; next }   # B: read as unquoted
   if ($x eq '<' && substr($c, $i, 3) eq '<<<') { $i += 3; next }   # a here-string, not a heredoc (review round 1)
-  if ($x eq '\\') { $i += 2; next }
   if ($x eq "'") { my $e = index($c, "'", $i + 1); $i = $e < 0 ? $n : $e + 1; next }
   if ($x eq '$' && $i + 1 < $n && $ch[$i+1] eq "'") {
     my $k = $i + 2; while ($k < $n && $ch[$k] ne "'") { $k += $ch[$k] eq '\\' ? 2 : 1 } $i = $k + 1; next;
@@ -566,7 +580,10 @@ allow_hook_allows() {
   printf '%s' "$1" | "$KOSMOS_PERMISSION_ALLOW_NODE" "$KOSMOS_PERMISSION_ALLOW_SCRIPT" > "$out" 2>/dev/null &
   p=$!
   while kill -0 "$p" 2>/dev/null && [ $((SECONDS - start)) -lt 6 ]; do sleep 0.1; done
-  if kill -0 "$p" 2>/dev/null; then kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; rm -f "$out" 2>/dev/null; return 2; fi
+  if kill -0 "$p" 2>/dev/null; then
+    kill "$p" 2>/dev/null; sleep 0.2; kill -9 "$p" 2>/dev/null   # one that ignores TERM cannot hold the hook
+    wait "$p" 2>/dev/null; rm -f "$out" 2>/dev/null; return 2
+  fi
   wait "$p" 2>/dev/null; n=$?
   grep -q '"behavior":"allow"' "$out" 2>/dev/null; r=$?
   rm -f "$out" 2>/dev/null
