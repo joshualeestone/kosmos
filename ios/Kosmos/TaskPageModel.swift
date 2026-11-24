@@ -440,6 +440,7 @@ final class TaskPageModel: ObservableObject {
         }
         let ownRead = pageReads + 1   // the number read() gives the read below
         await read()
+        guard current else { return false }
         if pageReadOK < ownRead { reviewerShown = want }
         await readActivity(names: names)
         guard current else { return false }
