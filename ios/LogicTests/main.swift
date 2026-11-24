@@ -3009,6 +3009,14 @@ section("native board loop: connecting")
         if case .thread(let withButtons) = (await c.threadRead(for: "dana")).read { check(withButtons.choices != nil, "CONTROL: the read itself carries the buttons") }
         else { check(false, "CONTROL: the read itself carries the buttons") }
         check(c.keptThread(for: "dana") != nil && c.keptThread(for: "dana")?.choices == nil, "the kept copy never carries a question's buttons")
+        // kosmos#8952 slice (c): nor a row's Deny.
+        w.threadAnswer = (200, #"{"messages":[{"at":"2026-11-02T20:00:01.000Z","text":"Morning Dana","from":null},{"at":null,"kind":"question","from":"dana","text":"Do you want to proceed?","denyOnly":{"n":3,"label":"No","asked":"tail"}}],"olderCount":420,"asking":true,"presence":"on"}"#)
+        if case .thread(let withDeny) = (await c.threadRead(for: "dana")).read {
+            check(withDeny.rows.last.flatMap { Board.choices(for: $0, in: withDeny) }?.denyOnly == true, "CONTROL: the read itself carries the Deny")
+        } else { check(false, "CONTROL: the read itself carries the Deny") }
+        let keptDeny = c.keptThread(for: "dana")
+        check(keptDeny != nil && keptDeny!.rows.allSatisfy { $0.denyOnly == nil } && keptDeny!.rows.compactMap { Board.choices(for: $0, in: keptDeny!) }.isEmpty,
+              "the kept copy never carries a row's Deny")
         w.threadAnswer = (200, body)
         let full = await c.threadRead(for: "dana")
         check(full.tag == #""t1""#, "the whole window comes with its ETag")

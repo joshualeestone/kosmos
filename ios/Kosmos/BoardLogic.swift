@@ -2482,7 +2482,7 @@ enum Board {
             || !rows[(at + 1)...].contains { $0.who == .person && $0.notSent == nil }
     }
     // Review 5: a permission the Mac cannot offer buttons for reaches the phone as a plain question row (the board adds
-    // `permission` only where it is pressable), so while the agent waits on its permission prompt (awaitingApproval)
+    // `permission` only where it is pressable, and kosmos#8952's `denyOnly` only on a box it cannot show whole), so while the agent waits on its permission prompt (awaitingApproval)
     // the asked row is a permission.
     static func askedWay(_ way: ChatRow.WayThrough, approval: Bool) -> ChatRow.WayThrough {
         way == .question && approval ? .permission : way

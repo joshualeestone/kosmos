@@ -29,9 +29,13 @@ instead, which is still a refusal.
 server.permdeny-8952.test.js (real routes, whole-box control, both gate halves mutation-checked),
 server.permscroll-8952.test.js unchanged, LogicTests 2228/2228 + 12 run-*.sh, simulator build, light/dark shots.
 
-## Also covered, on purpose
-A tall plan-mode prompt ("Would you like to proceed?") whose top is off screen gets the same card; Deny there presses its
-own No ("keep planning"), which is still a refusal. The card's words hold for it.
+## Not covered
+A plan-mode prompt never gets this card: status.claudePermissionPrompt requires the first option to be exactly "Yes",
+and plan mode's is not.
+
+## Declined in review
+Showing the visible part of the request on the card: the design rules out terminal text on the phone, and before this
+slice the row showed none either (a plain "needs your permission" line).
 
 ## Known edge, accepted
 The Deny's key is its visible identity plus the No's words, the same shape as the existing buttons' key. A second cut

@@ -800,7 +800,7 @@ final class BoardClient: ObservableObject {
     func keptThread(for session: String) -> Board.Thread? {
         guard let mac = admitted?.url.absoluteString, let file = threadFile(session, owner: chatsOwner, mac: mac),
               let data = try? Data(contentsOf: file), let t = Board.parseThread(data) else { return nil }
-        return Board.Thread(rows: t.rows, olderCount: t.olderCount)
+        return Board.withoutChoices(t)   // kosmos#8952 slice (c): nor a row's Deny
     }
     // One file per account, computer and agent, named by a hash of the three, so no name or address is in a file name.
     private func threadFile(_ session: String, owner: String?, mac: String) -> URL? {

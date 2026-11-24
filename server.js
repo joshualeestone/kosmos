@@ -21752,7 +21752,7 @@ const server = http.createServer(async (req, res) => {
       ? chat.permissionDenyOnly(view.text) : null;
     const denyAsked = denyRead && !chat.messageProblem(denyRead.label) ? chat.questionAbove(question.text) : null;
     const denyOnly = denyAsked ? { n: denyRead.n, label: chat.cleanMessage(denyRead.label), asked: denyAsked } : null;
-    // denyOnly rides only the LAST unreported question row (the live one), never an older stored one.
+    // denyOnly rides only the LAST unreported question row, which is the live one whenever withQuestionRow added it.
     let liveQ = -1;
     if (denyOnly && Array.isArray(servedRows)) servedRows.forEach((m, k) => { if (m && m.kind === 'question' && !m.reported) liveQ = k; });
     sendJsonTagged(req, res, 200, {
