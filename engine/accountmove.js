@@ -141,13 +141,14 @@ function view(m) {
    carryOn(name) -> Promise, optional: told to an agent that was asked and then not restarted (the person's stop), since
    the ask said the restart comes as soon as it is written; maybeRestarted(name, path) -> Promise, optional: after a
    saved handoff, told when the restart did not answer RESTARTED (it may or may not have happened: review 2);
-   askMs?, waitMs?, pollMs? }.
+   waitMs? (the ask and the wait share it), pollMs? }.
    Review 1: the file counts as written once it is fresh AND has not changed since the previous look, so a handoff
    written in several edits is not cut off after the first. Every failure here is "not saved"; nothing may stop the move. */
 const HANDOFF_WAIT_MS = 2 * 60 * 1000;
 const HANDOFF_POLL_MS = 3000;
-/* kosmos#9010 review 1: an agent asked for its handoff and then NOT restarted (a stop during the wait, a restart that
-   did not happen) is told to carry on: the ask said the restart comes as soon as it writes. Best effort, not awaited. */
+/* kosmos#9010 review 1: an agent asked for its handoff and then not restarted because the person STOPPED the move is told
+   to carry on: the ask said the restart comes as soon as it writes. (A restart of unknown outcome gets maybeRestarted
+   instead, review 2.) Best effort, not awaited. */
 function carryOn(deps, a) {
   const h = deps && deps.handoffFirst;
   if (!h || typeof h.carryOn !== 'function' || !a || !a.handoff || !a.handoff.asked) return;
@@ -165,19 +166,20 @@ async function saveFirst(deps, name, stopped) {
   const pollMs = Number.isFinite(h.pollMs) ? h.pollMs : HANDOFF_POLL_MS;
   const until = Date.now() + waitMs;
   let askTimer = null;
-  const slow = new Promise((resolve) => { askTimer = setTimeout(() => resolve({ asked: false, why: 'we could not reach it.' }), waitMs); if (askTimer && typeof askTimer.unref === 'function') askTimer.unref(); });
+  const slow = new Promise((resolve) => { askTimer = setTimeout(() => resolve({ asked: false, why: 'we could not reach it.', timedOut: true }), waitMs); if (askTimer && typeof askTimer.unref === 'function') askTimer.unref(); });
   let real;
   try { real = Promise.resolve(h.ask(name)); } catch (err) { real = Promise.reject(err); }
   try { asked = await Promise.race([real, slow]); } catch { asked = { asked: false, why: 'we could not reach it.' }; }
   finally { clearTimeout(askTimer); }
   /* Review 4: an ask that answers after its bound may still have been typed, into this session or the next one, telling
      it the restart comes as soon as it writes. It gets the line that is true either way. */
-  if (asked && asked.why === 'we could not reach it.' && asked.asked !== true) {
+  if (asked && asked.timedOut === true) {   // review 7: by a flag, not by the sentence
     real.then((late) => {
       if (late && late.asked === true && typeof h.maybeRestarted === 'function') { try { Promise.resolve(h.maybeRestarted(name, null)).catch(() => {}); } catch { /* best effort */ } }
     }, () => {});
   }
-  if (!asked || asked.asked !== true) return { asked: false, saved: false, why: (asked && asked.why) || 'we could not reach it.' };
+  // Review 7: a null reason is kept (not running: the move's own words already say so); only no answer at all is unreachable.
+  if (!asked || asked.asked !== true) return { asked: false, saved: false, why: asked && 'why' in asked ? asked.why : 'we could not reach it.' };
   let seen = null;
   for (;;) {
     let got = false;

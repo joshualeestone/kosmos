@@ -3363,11 +3363,11 @@ async function agentMove(ctx, args) {
   let outcome = a.outcome || (first.outcome === 'refused' ? 'refused' : '');
   let because = a.because || first.because || first.error || '';
   /* Each agent restarts in turn; a restart can take minutes (remove.restartAsync caps itself at 300 s), after the handoff
-     the move asks for first (kosmos#9010: up to 30 s to ask and 120 s to write). Review 2: the
+     the move asks for first (kosmos#9010: asking and writing share 120 s). Review 2: the
      wait is bounded by time, not by tries (a read that times out costs 15 s). */
   if (outcome === 'pending' && !first.id) outcome = 'unknown';   // review 4: a pending answer with no move id cannot be followed
   const t0 = ctx.now();
-  // kosmos#9010: plus the handoff the move asks for first (30 s to ask, 120 s to write), as the page waits.
+  // kosmos#9010: plus the handoff the move asks for first (asking and writing share 120 s), as the page waits.
   while (outcome === 'pending' && first.id && ctx.now() - t0 < 510000) {
     await ctx.sleep(3000);
     const g = await ctx.call('GET', '/api/agents/account-moves/' + encodeURIComponent(first.id), undefined, { person: true });

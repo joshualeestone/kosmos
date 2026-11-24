@@ -255,3 +255,13 @@ test('busy: never settled while busy, but a written handoff still counts at the 
   assert.ok(looks >= 3, 'settled while the agent was busy (' + looks + ' looks)');
   assert.equal(accountmove.read(out.body.id).agents[0].handoff.saved, true, 'a written handoff read as not written in time');
 });
+
+test('an agent that is not running adds no handoff clause: the move already says so', async () => {
+  const d = deps({ handoff: () => ({ ask: async () => ({ asked: false, why: null }), isFresh: () => false, pickup: async () => ({ ok: true }) }) });
+  d.restartAsync = async (name) => ({ outcome: 'partial', because: `${name} is not running, so there is nothing to restart.`, steps: [] });
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
+  await out.done;
+  const a = accountmove.read(out.body.id).agents[0];
+  assert.doesNotMatch(a.because, /handoff/, a.because);
+  assert.doesNotMatch(a.because, /could not reach it/);
+});

@@ -65,12 +65,13 @@ function recordSends(t) {
   return sent;
 }
 
-test('blocked by Claude Code\'s own usage-limit report, or signed out: not asked', async (t) => {
+test('signed out: not asked; a usage-limit report that may be stale IS asked (review 7: autobalance\'s own rule)', async (t) => {
   const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
   t.after(() => board.restore());
+  recordSends(t);
   const card = (extra) => [{ sessionName: 'mara', isNamedOurs: true, ...extra }];
-  const asBlocked = server._moveHandoffDepsForTest({ roster: () => card({ state: 'blocked', limitReported: true }) });
-  assert.deepEqual(await asBlocked.ask('mara'), { asked: false, why: 'it was out of usage, so it could not write one.' });
+  const asBlocked = server._moveHandoffDepsForTest({ roster: () => card({ state: 'blocked', limitReported: true }), startedAt: async () => 1 });
+  assert.equal((await asBlocked.ask('mara')).asked, true, 'a report that may be hours stale lost a handoff it could write');
   const signedOut = server._moveHandoffDepsForTest({ roster: () => card({ state: 'auth_failed' }) });
   assert.deepEqual(await signedOut.ask('mara'), { asked: false, why: 'it was signed out, so it could not write one.' });
 });
