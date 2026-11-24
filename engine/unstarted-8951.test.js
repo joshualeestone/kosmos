@@ -721,3 +721,17 @@ test('#8951 review 13: the per-process record list is capped at MSGS_MAX', () =>
   r.pub.stopped(); r.pub.started(7001, 'sid-1');
   assert.equal(r.last().unstarted.count, ss.MSGS_MAX, 'the oldest go, finished ones first (m0), and the list never grows past the cap');
 });
+
+test('#8951 review 14: a reported message that starts late leaves the report\'s count', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.wrote();                       // A and B, before any turn
+  r.fire();                                           // both reported
+  assert.equal(r.last().unstarted.count, 2);
+  r.pub.event(init);                                  // A starts late
+  assert.equal(r.last().unstarted.count, 1, 'only B is still not started');
+  r.pub.event({ type: 'assistant', message: { content: [] } }); r.pub.event(result);
+  r.clock.t += 30 * 1000;
+  r.pub.stopped(); r.pub.started(7001, 'sid-1');
+  assert.equal(r.last().unstarted.count, 1, 'a restart carries B only: A ran');
+});

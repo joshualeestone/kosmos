@@ -769,6 +769,11 @@ function publisher(name, opts) {
     for (const m of list) {
       m.startedAt = nowMs();
       if (m.afterReport === true && current.unstarted) current.wroteAfterReport = true;
+      /* Review 14: a reported message that starts (late) leaves the report's count, so the card, a stop and a restart
+         never say it was not started. */
+      if (m.reported === true && current.unstarted && Number.isInteger(current.unstarted.count)) {
+        current.unstarted = { ...current.unstarted, count: Math.max(0, current.unstarted.count - 1) };
+      }
     }
   }
   /* kosmos#8951 review 13: over the cap, the oldest records go. Turns start messages oldest first and the deadline
