@@ -545,3 +545,147 @@ extension Board {
         return Int(min(d, 1_000_000_000).rounded(.down))
     }
 }
+
+// MARK: Saying something, the due date, and the words (kosmos#8958 slice B1: the board's tkSayPost, saveTaskDue, tk-editform)
+
+extension Board {
+    static let taskSayPlaceholder = "Say something about this task"
+    static let taskSayLabel = "Add a message to this task"
+    static let taskSayNote = "A message is recorded on the task, shows in the activity above, and is sent to the agents assigned to the task."
+    static let taskSayMax = 2000
+    static let taskSayFailed = "we could not record that message"
+    static let taskSayUnreached = "we could not reach Kosmos to record that message"
+    static let taskDueFailed = "we could not set that due date"
+    static let taskDueUnreached = "we could not reach Kosmos to set that date"
+    static let taskEditOpen = "Edit title or detail"
+    static let taskEditTitle = "What needs doing?"
+    static let taskEditDetail = "Anything they should know"
+    static let taskEditTitleMax = 200
+    static let taskEditDetailMax = 2000
+    static let taskEditNeedsTitle = "A task needs a title: say what needs doing."
+    static let taskEditFailed = "we could not change that task"
+
+    private static func taskPost(_ url: URL?, _ body: [String: Any]) -> URLRequest? {
+        guard let url, let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        var r = URLRequest(url: url)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = data
+        return r
+    }
+
+    // POST .../task/<n>/message {text}: the words trimmed; nothing for an empty box (the board sends nothing either).
+    static func taskMessageRequest(mac: URL, project: String, number: Int, text: String) -> URLRequest? {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty else { return nil }
+        let say = taskPost(taskRoute(mac: mac, project: project, number: number, "message"), ["text": words])
+        return say
+    }
+
+    // POST .../task/<n>/due {dueDate}: a calendar date (YYYY-MM-DD), or nil to clear it.
+    static func taskDueRequest(mac: URL, project: String, number: Int, due: String?) -> URLRequest? {
+        if let due, dueDay(due) == nil { return nil }
+        let due = taskPost(taskRoute(mac: mac, project: project, number: number, "due"), ["dueDate": due.map { $0 as Any } ?? NSNull()])
+        return due
+    }
+
+    // POST .../task/<n>/text with only what changed (the board's form): nil when nothing did.
+    static func taskTextRequest(mac: URL, project: String, number: Int, body: [String: Any]) -> URLRequest? {
+        guard !body.isEmpty else { return nil }
+        let edit = taskPost(taskRoute(mac: mac, project: project, number: number, "text"), body)
+        return edit
+    }
+
+    // The day a due date names, read in the person's own calendar (the Mac keeps the date alone, no time zone).
+    private static func dueFormatter(_ calendar: Calendar) -> DateFormatter {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.timeZone = calendar.timeZone
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }
+    static func dueDay(_ s: String, calendar: Calendar = .current) -> Date? {
+        guard s.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil,
+              let d = dueFormatter(calendar).date(from: s), dueString(d, calendar: calendar) == s else { return nil }
+        return d
+    }
+    static func dueString(_ d: Date, calendar: Calendar = .current) -> String { dueFormatter(calendar).string(from: d) }
+
+    enum TaskEdit: Equatable { case nothing, needsTitle, send([String: String?]) }
+    // The board's Save: both trimmed; a title is needed; only what differs from what the form opened with is sent, and
+    // an emptied detail goes as null (cleared). Line ends compared as a textarea gives them back.
+    static func taskEdit(title: String, detail: String, openedTitle: String, openedDetail: String?) -> TaskEdit {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let d = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return .needsTitle }
+        var body: [String: String?] = [:]
+        if t != openedTitle.trimmingCharacters(in: .whitespacesAndNewlines) { body["sentence"] = t }
+        let was = (openedDetail ?? "").replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if d != was { body["detail"] = d.isEmpty ? .some(nil) : .some(d) }
+        return body.isEmpty ? .nothing : .send(body)
+    }
+    static func taskTextBody(_ edit: [String: String?]) -> [String: Any] {
+        edit.mapValues { $0.map { $0 as Any } ?? NSNull() }
+    }
+
+    // A write's answer: a 2xx is done; a refusal is the Mac's own words, else the board's; no answer, the board's
+    // could-not-reach words.
+    static func taskWriteResult(status: Int, body: Data?, failed: String, unreached: String) -> TaskActResult {
+        if (200...299).contains(status) { return .done }
+        if status == 0 { return .refused(unreached) }
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if let e = obj?["error"] as? String, !e.isEmpty { return .refused(e) }
+        return .refused(failed)
+    }
+
+    // #5842 on the board: who a message on the task did NOT reach, one line per agent (its worst outcome when listed
+    // twice), in the page's own sentences. nil when every assignee got it, or the answer had no list.
+    static func taskSaidLine(_ body: Data?, name: (String) -> String) -> String? {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        guard let all = obj?["delivered"] as? [Any] else { return nil }
+        let list = all.compactMap { $0 as? [String: Any] }
+        if list.isEmpty { return "No agent is assigned to this task, so nobody was told." }
+        func rank(_ s: String?) -> Int { s == "could_not" ? 3 : s == "placed" ? 0 : s == "held" ? 1 : 2 }
+        var order: [String] = []
+        var by: [String: [String: Any]] = [:]
+        for d in list {
+            // The board's String(d.agent == null ? '' : d.agent).trim().
+            let raw = d["agent"]
+            let key = raw == nil || raw is NSNull ? "" : String(describing: raw!).trimmingCharacters(in: .whitespacesAndNewlines)
+            if let had = by[key] { if rank(d["state"] as? String) > rank(had["state"] as? String) { by[key] = d } } else { order.append(key); by[key] = d }
+        }
+        var lines: [String] = []
+        for sn in order {
+            guard let d = by[sn] else { continue }
+            let state = d["state"] as? String ?? ""
+            if state == "placed" { continue }
+            let who = sn.isEmpty ? "an agent" : name(sn)
+            let lead = sn.isEmpty ? "An agent" : who
+            let why = d["because"] as? String ?? ""
+            func has(_ s: String) -> Bool { why.contains(s) }
+            if state == "could_not" {
+                let line = has("switched off in this project")
+                    ? lead + " is switched off in this project, so it was not told. Switch it on in the project's members to send it work here."
+                    : has("not on this project any more") ? lead + " is not on this project any more, so it was not told."
+                    : has("could not keep this one") ? "Kosmos could not keep your message for " + who + ", so it was not told."
+                    : has("input box already holds text") ? lead + "'s input box held text that had not been sent, so it was not told."
+                    : "Kosmos could not reach " + who + ", so it was not told."
+                lines.append(line + " Your message stays on the task.")
+            } else if state == "held" {
+                // The board names the reset time (quotaResetWords); the phone says the same sentence without it, as its
+                // other held lines do (AgentInfoLogic wakeHeldLine).
+                let out = (d["heldUntil"] as? String).flatMap(isoDate).map { $0 > Date() } == true
+                lines.append((d["heldFor"] as? String) == "signin" ? lead + " is signed out. Kosmos will try to send your message to " + who + " once it is signed in again."
+                    : out ? lead + " is out of usage. Kosmos will try to send your message to " + who + " once its usage resets."
+                    : has("still has messages kept") ? "Kosmos will try to send your message to " + who + " after the ones already waiting for it."
+                    : "Kosmos is keeping your message and will try to send it to " + who + " later.")
+            } else {
+                lines.append("Kosmos could not confirm that " + who + " got it.")
+            }
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: " ")
+    }
+}

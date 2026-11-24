@@ -20,6 +20,16 @@ final class TaskPageModel: ObservableObject {
     // A press in the air, and the Mac's sentence for the last one it refused.
     @Published private(set) var pressing = false
     @Published private(set) var refusal: String?
+    // kosmos#8958 slice B1: a message on its way, and the line under the box (who it did not reach, or the refusal).
+    @Published private(set) var saying = false
+    @Published private(set) var sayLine: String?
+    @Published private(set) var sayRefused = false
+    // The due date being saved, and the Mac's refusal of the last one.
+    @Published private(set) var dueSaving = false
+    @Published private(set) var dueRefusal: String?
+    // The title and detail being saved, and the line for the last save (the board's tk-msg for the form).
+    @Published private(set) var editSaving = false
+    @Published private(set) var editRefusal: String?
 
     private let send: Send
     // The project list parsed off the main thread (a large fleet's list every 5 seconds must not stall a scroll); a
@@ -190,6 +200,73 @@ final class TaskPageModel: ObservableObject {
         guard current else { return }
         pressing = false
     }
+
+    // kosmos#8958 slice B1: a message on the task (the board's tkSayPost). true when the Mac recorded it, so the box can
+    // be emptied; the line under it then says who it did not reach. Nothing is sent for an empty box or while one is
+    // on its way. Then the activity is read again, where the message now shows.
+    func say(_ text: String, name: @escaping (String) -> String, names: [String: String]) async -> Bool {
+        guard !saying, current, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        saying = true
+        sayLine = nil
+        sayRefused = false
+        let (project, number) = (self.project, self.number)
+        let answer = await send { Board.taskMessageRequest(mac: $0, project: project, number: number, text: text) }
+        guard current else { return false }
+        saying = false
+        let status = answer?.1.statusCode ?? 0
+        if case .refused(let why) = Board.taskWriteResult(status: status, body: answer?.0, failed: Board.taskSayFailed, unreached: Board.taskSayUnreached) {
+            sayLine = why
+            sayRefused = true
+            return false
+        }
+        sayLine = Board.taskSaidLine(answer?.0, name: name)
+        await readActivity(names: names)
+        return true
+    }
+
+    // The due date set (a YYYY-MM-DD) or cleared (nil), as the board's saveTaskDue; then the task and activity are read.
+    func setDue(_ due: String?, names: [String: String]) async {
+        guard !dueSaving, current else { return }
+        dueSaving = true
+        dueRefusal = nil
+        let (project, number) = (self.project, self.number)
+        let answer = await send { Board.taskDueRequest(mac: $0, project: project, number: number, due: due) }
+        guard current else { return }
+        if case .refused(let why) = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0,
+                                                          failed: Board.taskDueFailed, unreached: Board.taskDueUnreached) { dueRefusal = why }
+        await read()
+        await readActivity(names: names)
+        guard current else { return }
+        dueSaving = false
+    }
+
+    // The board's tk-editform Save: true when the form can close (saved, or nothing changed). The words compared are the
+    // ones the form opened with, so a change made elsewhere meanwhile is never sent back over.
+    func saveText(title: String, detail: String, openedTitle: String, openedDetail: String?, names: [String: String]) async -> Bool {
+        guard !editSaving, current else { return false }
+        editRefusal = nil
+        let body: [String: String?]
+        switch Board.taskEdit(title: title, detail: detail, openedTitle: openedTitle, openedDetail: openedDetail) {
+        case .nothing: return true
+        case .needsTitle: editRefusal = Board.taskEditNeedsTitle; return false
+        case .send(let b): body = b
+        }
+        editSaving = true
+        let (project, number) = (self.project, self.number)
+        let wire = Board.taskTextBody(body)
+        let answer = await send { Board.taskTextRequest(mac: $0, project: project, number: number, body: wire) }
+        guard current else { return false }
+        editSaving = false
+        if case .refused(let why) = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0,
+                                                          failed: Board.taskEditFailed, unreached: Board.taskEditFailed) {
+            editRefusal = why
+            return false
+        }
+        await read()
+        await readActivity(names: names)
+        return true
+    }
+    func clearEditRefusal() { editRefusal = nil }
 
     // POST .../seen for the activity state on screen, once per state, only while the person is there (present); a 5xx
     // or no answer is tried once more 3 s later, only if that state is still the one shown and they are still there

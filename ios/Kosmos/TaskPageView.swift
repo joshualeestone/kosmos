@@ -2,9 +2,9 @@ import SwiftUI
 
 // kosmos#7074 (a gap in #6838's plan): a task's page, native, opened from Today's Check it and from a Tasks row. It draws
 // what TaskPageLogic.swift says and does what TaskPageModel.swift does: the board's task page (web/index.html,
-// paintTaskPage) for reading, and its one human verb, Mark as done / Reopen. What this page does not do (the task's
-// composer, the due date and hold, parts, Add subtask, Close them and this task, the receipt) is on the board's page,
-// one tap away by the info button.
+// paintTaskPage) for reading, and its human verbs: Mark as done / Reopen, and (kosmos#8958 slice B1) a message on the
+// task, its due date, and editing its title or detail. What this page does not do yet (hold, repeat, parts, Add
+// subtask, Close them and this task, the receipt, undo) is on the board's page, one tap away by the info button.
 struct TaskPageRef: Hashable {
     let project: String
     let number: Int
@@ -19,6 +19,12 @@ struct TaskPageView: View {
     @State private var visible = false
     @State private var loop: Task<Void, Never>?
     @State private var openSub: Int?
+    // kosmos#8958 slice B1: the message being typed, and the edit form with the words it opened with.
+    @State private var sayText = ""
+    @FocusState private var sayFocused: Bool
+    @State private var editing: (title: String, detail: String?)?
+    @State private var editTitle = ""
+    @State private var editDetail = ""
 
     init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
         self.client = client
@@ -60,6 +66,7 @@ struct TaskPageView: View {
                 }
             }
             .background(subLink)
+            .sheet(isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) { editSheet }
             // The person in front of it (the board's tkPresent): on screen, the app in front, and a touch (or a key press
             // that reaches the window) in the last two minutes (PresenceProbe); opening the page or coming back counts.
             .background(PresenceProbe { model.touched() })
@@ -136,9 +143,11 @@ struct TaskPageView: View {
         VStack(alignment: .leading, spacing: 20) {
             header(p)
             doneBlock(p)
+            dueBlock(p)
             whoBlock(p)
             subtasksBlock(p)
             activityBlock
+            sayBlock(p)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -153,6 +162,17 @@ struct TaskPageView: View {
                 Text(Board.messageText(detail)).font(.body).foregroundColor(Palette.primary).tint(Palette.link)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // kosmos#8958 slice B1: the board's "Edit title or detail", on every task (closed ones too, as the board).
+            Button {
+                model.clearEditRefusal()
+                editTitle = p.sentence
+                editDetail = (p.detail ?? "").replacingOccurrences(of: "\r\n", with: "\n")
+                editing = (p.sentence, p.detail)
+            } label: {
+                Text(Board.taskEditOpen).font(.footnote).foregroundColor(Palette.link)
+                    .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             Text(p.stateLine(roster: roster)).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
                 .padding(.top, 4)
             if let w = p.whoLeftLine(roster: roster) {
@@ -258,6 +278,115 @@ struct TaskPageView: View {
                 .accessibilityLabel("Task \(s.number), \(s.sentence), \(s.status)")
                 .accessibilityAddTraits(.isButton)
                 .accessibilityHint("Opens task \(s.number).")
+            }
+        }
+    }
+
+    // kosmos#8958 slice B1: the board's tk-editform. Save sends only what changed from the words the form opened with;
+    // a refusal keeps the form open with the Mac's words.
+    private var editSheet: some View {
+        NavigationView {
+            Form {
+                Section(Board.taskEditTitle) {
+                    TextField(Board.taskEditTitle, text: $editTitle, axis: .vertical)
+                        .lineLimit(1...4)
+                        .onChange(of: editTitle) { t in if t.count > Board.taskEditTitleMax { editTitle = String(t.prefix(Board.taskEditTitleMax)) } }
+                }
+                Section(Board.taskEditDetail) {
+                    TextField(Board.taskEditDetail, text: $editDetail, axis: .vertical)
+                        .lineLimit(3...12)
+                        .onChange(of: editDetail) { t in if t.count > Board.taskEditDetailMax { editDetail = String(t.prefix(Board.taskEditDetailMax)) } }
+                }
+                if let why = model.editRefusal {
+                    Text(why).font(.footnote).foregroundColor(Palette.dangerWord)
+                        .onAppear { UIAccessibility.post(notification: .announcement, argument: why) }
+                }
+            }
+            .navigationTitle("Task \(ref.number)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { model.clearEditRefusal(); editing = nil } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        guard let opened = editing else { return }
+                        let (t, d) = (editTitle, editDetail)
+                        Task {
+                            if await model.saveText(title: t, detail: d, openedTitle: opened.title, openedDetail: opened.detail, names: names) { editing = nil }
+                        }
+                    }
+                    .disabled(model.editSaving)
+                    .accessibilityLabel("Save title and detail")
+                }
+            }
+        }
+        .interactiveDismissDisabled(model.editSaving)
+    }
+
+    // kosmos#8958 slice B1: the board's Due row, saved as soon as it is picked or cleared (saveTaskDue).
+    private func dueBlock(_ p: Board.TaskPage) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionTitle("Due")
+            if let due = p.dueDate, let day = Board.dueDay(due) {
+                HStack(spacing: 12) {
+                    DatePicker("Due date", selection: Binding(get: { day }, set: { d in
+                        model.touched()
+                        let s = Board.dueString(d)
+                        if s != due { Task { await model.setDue(s, names: names) } }
+                    }), displayedComponents: .date)
+                    .labelsHidden()
+                    .disabled(model.dueSaving)
+                    Button("Clear") { model.touched(); Task { await model.setDue(nil, names: names) } }
+                        .font(.footnote).foregroundColor(Palette.link).frame(minHeight: 44).disabled(model.dueSaving)
+                        .accessibilityLabel("Clear the due date")
+                }
+            } else {
+                Button {
+                    model.touched()
+                    // A week from today, the date the picker then shows for changing.
+                    let week = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
+                    Task { await model.setDue(Board.dueString(week), names: names) }
+                } label: {
+                    Text("Set a due date").font(.footnote).foregroundColor(Palette.link)
+                        .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(model.dueSaving)
+            }
+            if let why = model.dueRefusal {
+                Text(why).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
+                    .onAppear { UIAccessibility.post(notification: .announcement, argument: why) }
+            }
+        }
+    }
+
+    // kosmos#8958 slice B1: the board's message box under the activity (tk-say): recorded on the task and sent to its
+    // assignees; the line under it says who it did not reach, or why it was not recorded.
+    private func sayBlock(_ p: Board.TaskPage) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField(Board.taskSayPlaceholder, text: $sayText, axis: .vertical)
+                    .lineLimit(1...5)
+                    .focused($sayFocused)
+                    .padding(.horizontal, 10).padding(.vertical, 8)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
+                    .accessibilityLabel(Board.taskSayLabel)
+                    .onChange(of: sayText) { t in if t.count > Board.taskSayMax { sayText = String(t.prefix(Board.taskSayMax)) } }
+                Button {
+                    model.touched()
+                    let words = sayText
+                    Task { if await model.say(words, name: { p.name($0, roster: roster) }, names: names), sayText == words { sayText = "" } }
+                } label: {
+                    Text("Send").font(.body.weight(.semibold)).foregroundColor(Palette.link)
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(model.saying || sayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            Text(Board.taskSayNote).font(.caption).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+            if let line = model.sayLine {
+                Text(line).font(.footnote).foregroundColor(model.sayRefused ? Palette.dangerWord : Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onAppear { UIAccessibility.post(notification: .announcement, argument: line) }
             }
         }
     }
