@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.19",
+  "lastProd": "0.8.20",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -1281,7 +1281,8 @@
       "icon": "tasks",
       "rank": 17.5,
       "since": "0.7.96",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.20"
     },
     {
       "title": "Agents that answer you elsewhere say so",
@@ -1289,7 +1290,8 @@
       "icon": "chat",
       "rank": 18,
       "since": "0.7.96",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.20"
     },
     {
       "title": "An old Grok sign-in says since when",
@@ -1297,7 +1299,8 @@
       "icon": "shield",
       "rank": 19,
       "since": "0.7.96",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.20"
     },
     {
       "title": "An old Meta Muse sign-in says since when",
@@ -1308,7 +1311,8 @@
       ],
       "rank": 19.5,
       "since": "0.7.96",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.20"
     },
     {
       "title": "Your streak note comes out of the K mark",
@@ -2708,15 +2712,36 @@
     },
     {
       "since": "0.8.20",
-      "status": "pending",
+      "status": "shown",
       "title": "A message an agent never ran is reported",
       "line": "On Windows, if a Claude agent takes in your message but stops or never starts on it, its card says so and tells you to send it again.",
       "icon": "chat",
       "rank": 12.95,
       "platforms": [
         "windows"
+      ],
+      "shownIn": "0.8.20"
+    },
+    {
+      "since": "0.8.21",
+      "status": "pending",
+      "title": "A restarted agent says why",
+      "line": "On Windows, when a Claude agent stops and Kosmos starts it again, its card says when and why, such as a sign-in or a usage limit.",
+      "icon": "swarm",
+      "rank": 13.5,
+      "platforms": [
+        "windows"
       ]
+    },
+    {
+      "since": "0.8.20",
+      "status": "pending",
+      "title": "Agents can see whether a message was read",
+      "icon": "chat",
+      "rank": 140,
+      "notesOnly": true,
+      "line": "kosmos msg --status says whether a message was answered, read with no answer, or not yet delivered."
     }
   ],
-  "lastProdWin": "0.8.19"
+  "lastProdWin": "0.8.20"
 }
