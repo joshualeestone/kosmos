@@ -177,8 +177,10 @@ struct LoadFailureView: View {
 // kosmos#8957: under a button whose own word stays (Sign in, Make an agent), the line that says the tap leaves the app's
 // screens for the computer's board, with the same icon as every other hand-off.
 struct OpensOnBoardNote: View {
+    // The words: the board's by default; the Kosmos+ sign-in page for the sign-in fallbacks, which are not the board.
+    var words = Board.opensOnBoard
     var body: some View {
-        (Text(Image(systemName: Board.boardIcon)) + Text(" ") + Text(Board.opensOnBoard))
+        (Text(Image(systemName: Board.boardIcon)) + Text(" ") + Text(words))
             .font(.caption).foregroundColor(Palette.secondary)
             .accessibilityHidden(true)   // the button carries it as its hint (opensOnBoardHint)
     }
@@ -186,7 +188,7 @@ struct OpensOnBoardNote: View {
 
 extension View {
     /// The button's VoiceOver hint for a tap that opens the computer's board (kosmos#8957).
-    func opensOnBoardHint() -> some View { accessibilityHint(Board.opensOnBoard) }
+    func opensOnBoardHint(_ words: String = Board.opensOnBoard) -> some View { accessibilityHint(words) }
 }
 
 // kosmos#7389 (Mona Lisa's design): "Getting report.pdf" with Cancel at the bottom while a board file arrives.

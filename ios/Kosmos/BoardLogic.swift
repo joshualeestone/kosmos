@@ -2470,6 +2470,7 @@ enum Board {
     // "on your computer's board" and carries this icon (not a chevron, which reads as "more of this app").
     static let boardIcon = "arrow.up.forward.square"
     static let opensOnBoard = "Opens on your computer's board"
+    static let opensSignInPage = "Opens the Kosmos+ sign-in page"   // the sign-in fallbacks: a web page, not the board
 
     // DM_PERM_DOES.
     static func permissionDoes(_ kind: String) -> String {
