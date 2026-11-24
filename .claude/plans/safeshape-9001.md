@@ -1,0 +1,88 @@
+# safeshape-9001: refuse up front the shell shapes Claude Code's own check puts to the person (part 2 of kosmos#9001)
+
+Finished means: a Kosmos Claude agent that writes a Bash command Claude Code's built-in safety check would turn into a
+self-declining permission prompt (one that reaches the person's phone) is refused by the report hook before it runs,
+with the form that works, so the agent rewrites it at once; and every command that runs today without reaching the
+person still runs.
+
+## Measured (Claude Code 2.1.331, `claude -p`, bypass mode, no user settings, one command per run; 59 commands)
+- Refused: the three characters `$$(` ANYWHERE (unquoted, single or double quotes, a comment, a quoted heredoc body);
+  a zsh parameter flag `${(` unquoted, in double quotes, or in an UNQUOTED heredoc body.
+- Run: `${(` in single quotes, a comment or a quoted heredoc body; `$?(` `$!(` `$#(` `$1(` `$0(` `$_(` `$-(` `$*(`
+  `$@(` `$a(` `${a}(` `a$$b(`; escaped `\$\$(`; rm on a variable, unset variable, `$(...)` or loop path; `${=x}`,
+  `${f:t}`; a python heredoc; a literal rm -rf of a folder under home.
+- How found: the 9 real refusals of agents on this Mac (transcripts, 2026-11-09 to 11-24). 6 were zsh flags. Two
+  python heredocs were bisected line by line (delta debugging, 10 runs) down to `page.$$('...')`. 1 (an rm -rf and two
+  unlinks of literal folders, 11-19) did not reproduce.
+- Why they reached the phone: Kosmos's PermissionRequest allow hook (#5406, Josh 2026-10-22) answers these prompts
+  with allow, EXCEPT when the command names .claude, .claude.json or .git. 8 of the 9 did (a .claude/plans file,
+  mostly). Reproduced in this session: a command of mine with `page.$$(` and `.claude` was declined by Claude Code.
+
+## Built
+- install/kosmos-report-hook.sh: `_shape_reason` (perl, JSON::PP) reads tool_input.command of a Bash call: `pid` for
+  `$$(`, `zsh` for `${(` where the shell reads it (a small quote reader). On PreToolUse, when the raw input holds
+  either, it asks Kosmos's allow hook (`allow_hook_allows`, split out of `kosmos_allows`, on the same payload renamed
+  PermissionRequest) and refuses (exit 2, the way out on stderr) only when that hook would not answer.
+- report-hook-shapeguard-9001.test.js: every measured case both ways, the allow-hook arm, the controls.
+
+## Rejected
+- Refusing every match: for most commands the allow hook already lets them run; a blanket refusal would block work
+  that succeeds today (found by measurement mid-build, after a first version did exactly that).
+- A fleet hook in ~/.claude: reaches only this Mac; the report hook reaches every Kosmos install.
+- Refusing rm on a variable path or a cd into a variable folder (the card's guesses): Claude Code 2.1.331 runs them.
+
+## Round 1 (opus, blind) fixes
+- BLOCKER fixed: setup wires this hook into the person's own Claude Code too, where there is no allow hook and the
+  prompt is theirs to answer; the first version refused there. Now only an agent with Kosmos's allow hook present
+  (allow_hook_present, split out of allow_hook_allows) whose allow hook steps aside is refused. Tests: the person's own
+  session runs, naming .claude or not; a fake allow-hook path is no hook. This drops the one real refusal from an
+  agent with no allow hook (11-09): that prompt still shows, as today.
+- `<<<` was read as a heredoc (its quoted word became a delimiter that swallowed later lines; failed open). Fixed.
+- Backticks are now their own unquoted level, also inside double quotes. Remaining misreads documented in the header.
+- JSON::PP in UTF-8 both ways (a non-ASCII command is re-encoded intact for the allow hook; tested).
+- Messages: the $$( one keeps only the Write/Edit-a-file way (an unquoted heredoc expands every other $); the zsh one
+  adds `paste -sd, -` for a join.
+- Mutations checked: no own-session gate, no here-string rule, no backtick level: each turns the suite red.
+
+## Round 2 (sonnet, blind) fixes
+- WARNING fixed: an allow hook that could not be asked (node failed, past the 6 s clock, no temp file) read as "steps
+  aside", so a command that runs today was refused. allow_hook_allows now returns 0 allow, 1 ran cleanly and did not
+  answer, 2 could not be asked; the guard refuses only on 1. kosmos_allows reads any non-zero as no, as before (a node
+  that printed allow is still allow whatever its exit). Tests: failing node, slow node (stopped by the clock), no temp
+  folder all run; a clean node that answers nothing is refused (the control). The killed job is reaped quietly.
+- WARNING fixed: the reader's cost is bounded: past 256 KB of command it lets the call run (tested both sides).
+- Measured, not assumed: `\$$(` (a backslash before the first dollar only) IS refused by Claude Code (T80, T81), so the
+  raw substring rule is right; both are now test cases.
+- The zsh message says "also inside double quotes"; the test header no longer overstates what the RAN list controls.
+- Mutations: refusing on any no, and no size cap: each turns the suite red.
+
+## Round 3 (opus, blind, whole branch) fixes
+- WARNING fixed: `<<` inside arithmetic ($((1<<3)), (( y = 1 << 2 ))) was read as a heredoc start, so the lines after
+  it were read flat and a flag in single quotes, a comment or a quoted heredoc was refused (the header claimed the
+  reverse). Arithmetic is now its own level, skipped to its )), in double quotes too; a flag inside it counts.
+  A backslash is now handled first in every level (an escaped backtick or \$(( opens nothing). Tests for each;
+  mutation (no arithmetic level) turns the reader test red.
+- Comments corrected: the case-pattern misread applies to any $( ), and "no allow hook" means no allow-hook env names;
+  residual recorded: those names reach a Claude started inside an agent's shell, so a person running Claude
+  interactively from an agent's terminal is treated as that agent.
+- A node past the clock gets TERM then KILL, so one ignoring TERM cannot hold the hook. Test nits: the slow fake node
+  execs its sleep (no orphan), waits 30 s against a 15 s bound, the missing-script case has its own path, and the file
+  skips with a reason where perl has no JSON::PP (the guard fails open there by design).
+
+## Round 4 (sonnet, blind, whole branch): nothing above nit. Converged.
+- About 80 realistic agent commands through the reader (commit and PR heredocs, JSON one-liners, case arms, arithmetic,
+  here-strings, chained heredocs): all agree with the measured rules; no hang, bounded time.
+- Nits left, with reason: `$((cd x) | wc -l)` (a subshell inside $( )) is read as arithmetic: both ways need an
+  unusual command and cost one rewrite or one prompt. Perl runs (about 30 ms) on a Write or Edit whose raw input holds
+  a shape, then lets it run. The allow-hook test takes about 40 s (the 6 s clock, by design).
+
+## Replay against reality (after round 3)
+Every distinct Bash command holding either shape in this Mac's transcripts over 14 days (105), through the real hook
+with the real allow hook, against what Claude Code actually did: the guard refuses 19, every one of them a command
+Claude Code itself refused (9 by agents, 10 in my probes); it refuses none of the 71 that ran. It lets through 2 that
+Claude Code refused: neither named a protected place, so with the allow hook present those are answered allow today.
+
+## Weakest premise
+The shapes are Claude Code 2.1.331's. A later version may refuse more (those still prompt, as today) or fewer (the
+guard then refuses a command that would have run with a prompt the allow hook steps aside from; the message names the
+working form, so the cost is one rewrite).
