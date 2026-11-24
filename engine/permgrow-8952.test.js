@@ -44,7 +44,7 @@ test('premises, on the real captures', () => {
 });
 
 test('a cut prompt on an unwatched one-pane window grows it by the hidden rows, recording its size', () => {
-  assert.deepEqual(planOf({}), { acts: [{ act: 'grow', session: S, window: '0', size: { w: 80, h: 24 }, rows: 24 + 50 + pg.FIT_MARGIN }], judged: [] });
+  assert.deepEqual(planOf({}), { acts: [{ act: 'grow', session: S, window: '0', size: { w: 80, h: 24 }, rows: 24 + 50 + pg.FIT_MARGIN }], judged: [], unsure: [] });
 });
 
 test('no grow: whole box, no prompt, unreadable, watched, several panes, busy, not waiting, judged, not Claude, not ours', () => {
@@ -66,11 +66,12 @@ test('no grow: whole box, no prompt, unreadable, watched, several panes, busy, n
   none({ windows: [win({ markRaw: 'x', mark: null })] });
 });
 
-test('judged: a whole box, a cut box with no hint, or one taller than MAX_ROWS is read once per report', () => {
-  assert.deepEqual(planOf({ screenOf: () => WHOLE }).judged, ['ada']);
-  assert.deepEqual(planOf({ screenOf: () => CUT.replace(/↑ 50 more lines/, '') }).judged, ['ada'], 'no hint: never guess a height');
-  assert.deepEqual(planOf({ screenOf: () => CUT.replace(/↑ 50 more/, '↑ 500 more') }).judged, ['ada']);
-  assert.deepEqual(planOf({ screenOf: () => CUT.replace(/↑ 50 more/, '↑ 500 more') }).acts, []);
+test('judged only on a final verdict (whole, or taller than MAX_ROWS); no prompt yet or no hint yet is unsure', () => {
+  const v = (screen) => { const r = planOf({ screenOf: () => screen }); return [r.acts.length, r.judged, r.unsure]; };
+  assert.deepEqual(v(WHOLE), [0, ['ada'], []]);
+  assert.deepEqual(v(CUT.replace(/↑ 50 more/, '↑ 500 more')), [0, ['ada'], []]);
+  assert.deepEqual(v(CUT.replace(/↑ 50 more lines/, '')), [0, [], ['ada']], 'no hint: never guess a height, look again');
+  assert.deepEqual(v(IDLE), [0, [], ['ada']], 'the hook can report before the box is drawn: look again');
 });
 
 test('a grown window: kept while the prompt is up, restored when gone, watched, agentless or unreadable mark', () => {
@@ -79,12 +80,23 @@ test('a grown window: kept while the prompt is up, restored when gone, watched, 
   assert.deepEqual(p({ screenOf: () => WHOLE }), [], 'prompt still up: keep (and never regrow)');
   assert.deepEqual(p({ screenOf: () => null }), [], 'could not read: keep, ask next tick');
   assert.deepEqual(p({ screenOf: () => IDLE }), restore());
+  assert.deepEqual(planOf({ windows: [grownWin()], screenOf: () => IDLE }).judged, ['ada'], 'no regrow under the same report: no flapping');
   assert.deepEqual(p({ waiting: new Map(), screenOf: () => IDLE }), restore(), 'restored whether or not a report stands');
   assert.deepEqual(p({ windows: [grownWin({ attached: 1 })], screenOf: () => WHOLE }), restore());
   assert.deepEqual(p({ cards: [], screenOf: () => WHOLE }), restore(), 'no agent there any more');
   assert.deepEqual(p({ windows: [grownWin({ mark: { world: WORLD, size: null }, markRaw: `junk@${WORLD}` })] }), restore(pg.DEFAULT_SIZE),
     'a mark whose size does not read goes back to the size agents start at, never left tall');
   assert.deepEqual(p({ busy: () => true, screenOf: () => IDLE }), [], 'a press is reading the screen: leave it this tick');
+});
+
+test('a grown window whose box is still (or again) cut grows again by its hint, keeping the recorded size', () => {
+  const p = (screen, h = 78) => planOf({ windows: [grownWin({ size: { w: 80, h } })], screenOf: () => screen }).acts;
+  assert.deepEqual(p(CUT), [{ act: 'grow', session: S, window: '0', size: { w: 80, h: 24 }, rows: 78 + 50 + pg.FIT_MARGIN, again: true }]);
+  assert.deepEqual(p(CUT, 190), [], 'over MAX_ROWS: stays as it is');
+  assert.deepEqual(p(CUT.replace(/↑ 50 more lines/, '')), [], 'no hint: stays as it is');
+  const g = fakeTmux();
+  assert.equal(pg.run({ act: 'grow', session: S, window: '0', size: { w: 80, h: 24 }, rows: 132, again: true }, g.fn, WORLD), true);
+  assert.deepEqual(g.calls, [`resize-window -t =${S}:0 -y 132`], 'the mark (the size to go back to) is not rewritten');
 });
 
 test('another board on the same tmux server: its marks are never touched, and its windows are not ours to grow', () => {
@@ -170,6 +182,21 @@ test('sweepOnce reads the roster only when it could act, and a judged report is 
   const back = sweep({ roster, memory, tmux: listing(GROWN_ROW).fn, screenOf: () => IDLE, waits: () => new Map() });
   assert.equal(built, 3, 'a grown window of ours is always looked at, so it is put back after the report ends');
   assert.deepEqual(back.map((a) => a.act), ['restore']);
+});
+
+test('an unsure screen is read UNSURE_READS times per report, then left until a new report', () => {
+  const memory = pg.newMemory();
+  let reads = 0;
+  const tick = (at = 't1') => sweep({ roster: () => [card()], memory, tmux: listing(ROW).fn, screenOf: () => { reads += 1; return IDLE; }, waits: () => new Map([['ada', at]]) });
+  for (let i = 0; i < pg.UNSURE_READS + 2; i += 1) tick();
+  assert.equal(reads, pg.UNSURE_READS);
+  tick('t2');
+  assert.equal(reads, pg.UNSURE_READS + 1, 'a new report is looked at again');
+  let n = 0;
+  const m2 = pg.newMemory();
+  sweep({ roster: () => [card()], memory: m2, tmux: listing(ROW).fn, screenOf: () => (n++ === 0 ? IDLE : CUT) });
+  assert.deepEqual(sweep({ roster: () => [card()], memory: m2, tmux: listing(ROW).fn, screenOf: () => (n++ === 0 ? IDLE : CUT) }).map((a) => a.act), ['grow'],
+    'a box drawn a tick after the report is still grown');
 });
 
 test('the brake grows nothing and still puts grown windows back', () => {

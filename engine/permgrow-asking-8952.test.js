@@ -33,3 +33,15 @@ test('permissionWaits: none with no reports, none for an agent asking in its own
   selfreport.record('bo', { state: 'working', because: 'x', auto: true });
   assert.deepEqual([...pg.permissionWaits().keys()], [], 'answered');
 });
+
+test('permissionWaits with a cache: an unchanged report is not read again, a changed one is', () => {
+  const cache = new Map();
+  selfreport.record('cy', { state: 'needs_you', because: 'Claude needs your permission', auto: true });
+  assert.deepEqual([...pg.permissionWaits(cache).keys()], ['cy']);
+  const kept = cache.get('cy');
+  assert.ok(kept && kept.at, 'premise: kept with its stamp');
+  cache.set('cy', { ...kept, at: 'from-the-cache' });
+  assert.equal(pg.permissionWaits(cache).get('cy'), 'from-the-cache', 'file unchanged: the kept reading is used');
+  selfreport.record('cy', { state: 'working', because: 'x', auto: true });
+  assert.deepEqual([...pg.permissionWaits(cache).keys()], [], 'file changed: read again');
+});

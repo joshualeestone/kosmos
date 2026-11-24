@@ -36,3 +36,13 @@ last 25 lines; the prompt sits at the bottom). Checked in review.
 - Brake restores; an unreadable mark restores to 80x24; a failed grow puts the size back; failures back off 60 s and log once.
 - Skips a pane with a key answer or delivery under way (chat.paneKeysBusy); grouped-session clients count as watching.
 - Tests: default viewport path through chat's runner; brake; back-off; worlds; mutations checked (world, flat 200, busy).
+
+## Round 2 (sonnet) fixes
+- Judged only on a final verdict (whole, or over MAX_ROWS); no prompt yet / no hint yet is unsure, read again up to 3
+  times per report (the hook can report before the box is drawn).
+- A grown window whose box is still or again cut grows again by its hint (mark kept).
+- After a restore under a standing report, no regrow for that report (no grow/shrink loop).
+- Report reads cached by file size and mtime.
+- Deferred, with reason: restoring a window-size the window had set on purpose before the grow. Agents set none
+  (supervisor new-session passes no size, nothing sets window-size); recording it would add a third tmux read per grow
+  for a state that does not exist.
