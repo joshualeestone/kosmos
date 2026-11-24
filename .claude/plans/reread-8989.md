@@ -34,6 +34,11 @@ its start. That matches the report exactly: the file changed, the changes file s
   Ask 2 stays declined in words: a sentence inside the notice ("notices can be late") reaches only agents that got the
   notice. The #8948 line, "the live list is right", is what every agent reads.
   Out of scope, noted: a project renamed on the screen rewrites every member's task lines and owes no re-read.
+- Review 4, stated rather than changed: the part close/reopen route now resolves its caller (token, or a pane claim),
+  read-only and after the write, where it resolved nobody before. Holder and actor match by key whatever named the
+  actor, so a pane claim (advisory, forgeable) spelled as the holder suppresses that holder's notice: a missed notice,
+  the lenient direction, on a claim that is already trusted elsewhere. A previous holder who has since left the project
+  is synced too; the engine then finds no block to change and owes nothing.
 
 Rejected: a separate pane line ("task N was closed by X"). The re-read debt already persists, retries, waits for an idle
 pane and gives up after a week; a second mechanism would duplicate that and could type into a busy pane.

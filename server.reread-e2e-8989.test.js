@@ -28,10 +28,8 @@ const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
 const projectsEngine = require('./engine/projects');
 const tasksEngine = require('./engine/tasks');
-const messagesEngine = require('./engine/messages');
 
 const BOARD = 'BOARDTOKEN_test_8989_e2e_0123456789abcdef01';
-const GATE_REFUSAL = /this board belongs to the account that started it/;
 let base;
 
 test.before(async () => {
@@ -55,7 +53,6 @@ async function call(method, p, { headers = {}, body } = {}) {
   const text = await res.text().catch(() => '');
   return { code: res.status, text };
 }
-const refusedAtGate = (r) => r.code === 403 && GATE_REFUSAL.test(r.text);
 const asAgent = (t) => ({ 'x-kosmos-agent-token': t });
 const withBoard = (h = {}) => ({ 'x-kosmos-board-token': BOARD, ...h });
 
@@ -91,6 +88,8 @@ test('a manager closing the holder\'s task owes it a re-read; its own close does
   assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /draft the letter/, 'fixture: the own close must change the section');
   assert.equal(owed(), undefined, 'the agent closing its own task was owed a re-read');
 
+  // The board's own delivery pass (a long timer) could settle this debt between the close and the read; the read comes
+  // milliseconds after the close, so it never has.
   // The report: mara (a manager) closes the task otto holds. otto's section changes and otto is owed the re-read.
   clear();
   const other = await call('POST', `/api/project/${p.id}/task/${theirs.number}/close`, { headers: asAgent(mara) });

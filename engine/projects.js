@@ -4476,7 +4476,8 @@ function syncAgent(sessionName, roster, { byOther = false } = {}) {
   const mine = readAll().filter((p) => (p.agents || []).includes(key));
   const verdict = tellAgent(key, mine, roster);
   /* kosmos#5320: an agent reads this file only when its session starts. A write that changed the block's standing rules
-     (rulesChanged) owes it a re-read line; a task or membership change owes none, because the agent's own close made it.
+     (rulesChanged) owes it a re-read line; a task or membership change owes none by default (a joining or a new task is
+     announced by its own line, and an agent's own close is its own doing).
      kosmos#8989: unless someone else made it (`byOther`: the person on the screen, or another agent, such as a manager
      closing a task this agent holds). Then the agent did not see it happen, and kept working from the copy it read at
      its start, still holding the closed task; so any change to the block owes it the re-read. Never fails the write. */
