@@ -73,3 +73,15 @@ measure both.
   and none: only the good one unpacks, the rest warn and leave the folder empty (mutation: drop the checksum, red).
 - --products uses the products only when they hold exactly one .xctestrun (several test plans would make it a guess).
 - The new argument arms sit above the comment that belongs to -h; the flaky counter's skipped line says "did not succeed".
+
+## Round 5 (opus, final, whole branch): no blocker; fixes applied
+- Products from another commit, an unknown one, or with uncommitted changes under ios/ are NOT used: the app is built
+  here (a by-hand run could otherwise pass on yesterday's app). CI never takes it (one commit per run).
+- Both fallbacks say ::warning:: on GitHub, so a runner-image split that makes every UI job rebuild is visible.
+- A failed upload no longer turns uibuild red (continue-on-error); the UI jobs then build for themselves, warning.
+- Test: the two xcodebuild lines are read through every continuation line; the control now mutates the script text and
+  shows the comparison fails; both UI jobs' unpack blocks must be identical; the step runs under bash -e as on GitHub.
+- Header: names uibuild's --build-only, and that a --products folder is never deleted.
+- Card stays open after merge: this change cuts macOS job-minutes; whether queued-to-started and created-to-UI-verdict
+  improve is measured on the first runs after merge (the card's actual ask), and reported there.
+Loop: 5 rounds, opus/sonnet alternating; round 4 had no blocker or warning, round 5 (whole branch) no blocker.

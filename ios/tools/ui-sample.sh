@@ -6,7 +6,8 @@
 # (LaunchHandoverUITests, #7945), a sent message settling without a step (SendMovesOnceUITests, #7348), text-message
 # second-step setup on the phone, not the web page (TextSetupUITests, #8959), and a web page opening on the phone while
 # reaching nothing (WebFileUITests, #8953).
-# Run by the ios workflow's "ui tests (sample board)" job, with --uikit by its two "uikit list (sample board) 1/2" and "2/2" jobs (--shard, kosmos#8453), and by
+# Run by the ios workflow's "ui tests (sample board)" job, with --uikit by its two "uikit list (sample board) 1/2" and "2/2" jobs (--shard, kosmos#8453),
+# with --build-only by its "ui build (sample board)" job (kosmos#8993), and by
 # hand. Prints PASS, or FAIL with the failing check's own words.
 #
 #
@@ -27,7 +28,8 @@
 # Two of its checks open a project room, which draws the same either way: 12 of the 14 reach the UIKit list.
 #
 # The newest iOS runtime the selected Xcode's simulator SDK can run, and the smallest iPhone it offers (the least room above the keyboard). The simulator is
-# new for each run and deleted at the end, and so are the build and the results (--keep keeps them). SignInUITests is left
+# new for each run and deleted at the end, and so are its own build and the results (--keep keeps them; a --products folder
+# is never deleted). SignInUITests is left
 # out: it needs a real account (ios/tools/ui-signin.sh). The keyboard checks need the on-screen keyboard, so a run stops if
 # the Simulator's hardware keyboard preference is on (a setting others on a shared Mac use; it is never changed here).
 # UI_SAMPLE_FAILED_RESULT=<path>: on a failed run, copy the result bundle there before it is deleted (CI's job sets it).
@@ -177,13 +179,14 @@ if [ -n "$products" ]; then
   if [ -z "$cand" ]; then
     echo "ui-sample: not exactly one built test run in $products, so the app is built here"
   elif [ "$(cat "$products/xcode-version" 2>/dev/null)" != "$({ xcodebuild -version && uname -m; } 2>/dev/null)" ]; then
-    echo "ui-sample: the products were built by another Xcode or for another architecture ($(head -1 "$products/xcode-version" 2>/dev/null || echo unknown)), so the app is built here"
+    echo "${GITHUB_ACTIONS:+::warning::}ui-sample: the products were built by another Xcode or for another architecture ($(head -1 "$products/xcode-version" 2>/dev/null || echo unknown)), so the app is built here"
+  elif built="$(cat "$products/built-from" 2>/dev/null)"; head_now="$(git -C "$here/.." rev-parse HEAD 2>/dev/null)"; \
+       [ -z "$built" ] || [ -z "$head_now" ] || [ "$built" != "$head_now" ] || [ -n "$(git -C "$here/.." status --porcelain -- ios 2>/dev/null)" ]; then
+    # Another commit, an unknown one, or uncommitted changes under ios/: testing those products could pass a change
+    # they do not contain, so the app is built here. (CI never takes this: uibuild and the UI jobs share one commit.)
+    echo "${GITHUB_ACTIONS:+::warning::}ui-sample: the products were not built from this checkout as it is (${built:0:10}), so the app is built here"
   else
     run_file="$cand"
-    built="$(cat "$products/built-from" 2>/dev/null)"; head_now="$(git -C "$here/.." rev-parse HEAD 2>/dev/null)"
-    if [ -n "$built" ] && [ -n "$head_now" ] && [ "$built" != "$head_now" ]; then
-      echo "ui-sample: note: the products were built from ${built:0:10}, this checkout is ${head_now:0:10}"
-    fi
   fi
 fi
 if [ "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" = 1 ]; then

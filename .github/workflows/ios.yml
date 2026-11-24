@@ -287,7 +287,9 @@ jobs:
       # Only this run's UI jobs read it. One name per run (artifacts belong to their run), overwritten by "Re-run all jobs",
       # so "Re-run failed jobs" on a UI job finds the products its run built. Kept 3 days for such a re-run; past that the
       # UI job builds the app itself (see its download step). Sample-board Debug app and test runner: no account, no secrets.
+      # A failed upload is not a failed build: the UI jobs then find no shared build and build for themselves (with a warning).
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: ui-products
           path: |

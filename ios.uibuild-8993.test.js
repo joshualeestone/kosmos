@@ -59,12 +59,14 @@ test('CONTROL: the job reader can fail (a job that does not exist)', () => {
 });
 
 /* The two xcodebuild lines: the arguments after the verb and its app source, through the result bundle. */
-function testRuns() {
-  const lines = SH.split('\n');
+function testRuns(src = SH) {
+  const lines = src.split('\n');
   const grab = (re) => {
     const at = lines.findIndex((l) => re.test(l));
     assert.ok(at >= 0, `premise: ui-sample.sh has ${re}`);
-    return (lines[at] + ' ' + lines[at + 1]).replace(/\s+/g, ' ');
+    let i = at; let text = lines[i];
+    while (/\\\s*$/.test(lines[i])) { i += 1; text += ' ' + lines[i]; }   // every continuation line, however many
+    return text.replace(/\s+/g, ' ');
   };
   return { shared: grab(/xcodebuild test-without-building -xctestrun/), built: grab(/xcodebuild test -project Kosmos\.xcodeproj/) };
 }
@@ -79,9 +81,9 @@ test('the shared-products run passes exactly the test arguments a built run does
   assert.equal(sharedTail, builtTail, 'the same destination, retry, classes, skips, time limits, derived data and result bundle');
   assert.match(sharedTail, /^-destination "id=\$udid" \\? ?-retry-tests-on-failure -test-iterations 2 \$only \$skip \$allow -derivedDataPath "\$work\/dd" -resultBundlePath "\$work\/result\.xcresult"/);
   for (const [name, line] of [['shared', shared], ['built', built]]) assert.match(line, VARS, `${name}: the three test-runner variables`);
-  // CONTROL: one argument more on one side is seen.
-  assert.notEqual(sharedTail.replace('$allow', '$allow -parallel-testing-enabled YES'), builtTail);
-  assert.doesNotMatch(shared.replace('TEST_RUNNER_KOSMOS_UIKITLIST="$uikit"', ''), VARS);
+  // CONTROL: the same comparison on the script with one argument added to the shared line alone, on a line of its own.
+  const mutated = testRuns(SH.replace('-xctestrun "$run_file" -destination', '-xctestrun "$run_file" -parallel-testing-enabled YES \\\n      -destination'));
+  assert.notEqual(after(mutated.shared, '-xctestrun "$run_file"'), after(mutated.built, '-project Kosmos.xcodeproj -scheme Kosmos'));
 });
 
 test('a failure note reads the app from wherever it was tested, never only from a folder the shared run never made', () => {
@@ -122,13 +124,17 @@ test('ui-sample.sh refuses bad --build-only and --products uses before any Xcode
    whose checksum does not match, one that is cut short, and none at all. Only the good one is unpacked; the rest leave
    the folder empty and warn, so ui-sample.sh builds the app itself. */
 test('the unpack step: a good download is unpacked; a bad checksum, a cut-short tar or none falls back with a warning', () => {
-  const block = job('ui').split('\n');
-  const at = block.findIndex((l) => l.includes('- name: Unpack the shared build'));
-  assert.ok(at >= 0, 'premise: the ui job has the unpack step');
-  const runAt = block.findIndex((l, i) => i > at && /^ {8}run: \|$/.test(l));
-  const body = [];
-  for (let i = runAt + 1; i < block.length && /^( {10}|$)/.test(block[i]); i += 1) body.push(block[i].slice(10));
-  const script = body.join('\n');
+  const unpack = (name) => {
+    const block = job(name).split('\n');
+    const at = block.findIndex((l) => l.includes('- name: Unpack the shared build'));
+    assert.ok(at >= 0, `premise: the ${name} job has the unpack step`);
+    const runAt = block.findIndex((l, i) => i > at && /^ {8}run: \|$/.test(l));
+    const body = [];
+    for (let i = runAt + 1; i < block.length && /^( {10}|$)/.test(block[i]); i += 1) body.push(block[i].slice(10));
+    return body.join('\n');
+  };
+  const script = unpack('ui');
+  assert.equal(unpack('uikit'), script, 'both UI jobs unpack the same way (the one run here)');
   assert.match(script, /shasum -a 256 -c/, 'premise: the extracted block is the unpack step');
   const cases = [];
   const setup = (name, fn) => {
@@ -141,7 +147,7 @@ test('the unpack step: a good download is unpacked; a bad checksum, a cut-short 
     spawnSync('tar', ['-C', src, '-cf', path.join(d, 'ui-products.tar'), '.']);
     spawnSync('sh', ['-c', 'cd "$1" && shasum -a 256 ui-products.tar > ui-products.tar.sha256', 'sh', d]);
     fn(d);
-    const r = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...process.env, RUNNER_TEMP: rt } });
+    const r = spawnSync('bash', ['-e', '-c', script], { encoding: 'utf8', env: { ...process.env, RUNNER_TEMP: rt } });   // as GitHub runs it
     const got = fs.readdirSync(path.join(rt, 'ui-products'));
     cases.push(rt);
     return { r, got };
