@@ -3,8 +3,9 @@ import UniformTypeIdentifiers
 
 // kosmos#8959 slice B1a: the Kosmos+ account, native. Opened from the Settings tab's "Your Kosmos+ account" row, where
 // the web page used to open. The computers on the account (each with the web page's words, and Retire), Sign out and
-// Sign out everywhere; everything else on the account (billing, passkeys, the second step) is one row away on the web
-// page, until slices B1b, B1c and B2. The logic is AccountLogic.swift; the second step (slice B1b) is AccountSecondLogic.swift.
+// Sign out everywhere; billing and adding a computer are one row away on the web page, until slice B2. The logic is
+// AccountLogic.swift; the second step (slice B1b) is AccountSecondLogic.swift; passkeys and sign-ins from new places
+// (slice B1c) are AccountSecurityLogic.swift, with Apple's passkey sheet in PasskeyMaker.swift.
 struct AccountView: View {
     let coordinator: URL
     // The account's web page, for what is not here yet.
@@ -67,10 +68,28 @@ struct AccountView: View {
     @State private var code = ""
     @Environment(\.openURL) private var openURL
 
+    // kosmos#8959 slice B1c: passkeys and sign-ins from new places (AccountSecurityLogic.swift).
+    private enum PasskeyLoad: Equatable { case reading, off, loaded([AccountSecurity.Passkey]), failed(String) }
+    @State private var passkeys: PasskeyLoad = .reading
+    @State private var passkeyTicket = 0
+    @State private var passkeyNote: String?
+    @State private var passkeyDone: String?
+    @State private var passkeyBusy = false
+    @State private var passkeyFor: String?
+    @State private var removing: AccountSecurity.Passkey?
+    @State private var maker = PasskeyMaker()
+    @State private var newPlaces: [AccountSecurity.NewPlace] = []
+    @State private var placesTicket = 0
+    @State private var notMeFor: AccountSecurity.NewPlace?
+    @State private var notMeBusy = false
+    @State private var notMeNote: String?
+
     var body: some View {
         List {
             computers
             secondSection
+            passkeySection
+            newPlacesSection
             signOutSection
             more
         }
@@ -88,6 +107,8 @@ struct AccountView: View {
             busy = nil; busyFor = nil; askEverywhere = false; everywhereFor = nil; askLocalOnly = false
             setupBusy = false; setup = nil; setupFor = nil; setupNote = nil; secondNote = nil; phone = ""; code = ""
             second = .reading
+            maker.cancel(); passkeyBusy = false; passkeyFor = nil; removing = nil; passkeyNote = nil; passkeyDone = nil
+            passkeys = .reading; newPlaces = []; notMeFor = nil; notMeBusy = false; notMeNote = nil
             load = .reading
             Task { await read() }
         }
@@ -99,6 +120,21 @@ struct AccountView: View {
         } message: {
             Text("This ends every sign-in to your Kosmos+ account, on this iPhone and on every other phone and browser. Your computers keep running.")
         }
+        .confirmationDialog("Remove this passkey?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+                            titleVisibility: .visible, presenting: removing) { p in
+            Button("Remove \(p.name)", role: .destructive) { Task { await removePasskey(p) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { p in
+            Text(AccountSecurity.removeAsk(name: p.name))
+        }
+        .confirmationDialog("Not me?", isPresented: Binding(get: { notMeFor != nil }, set: { if !$0 { notMeFor = nil } }),
+                            titleVisibility: .visible, presenting: notMeFor) { p in
+            Button("Sign out everywhere", role: .destructive) { Task { await notMe(p) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text(AccountSecurity.notMeAsk)
+        }
+        .onDisappear { maker.cancel() }
     }
 
     // MARK: Computers
@@ -303,6 +339,82 @@ struct AccountView: View {
             .accessibilityIdentifier("account-second-code")
     }
 
+    // MARK: Passkeys and new places (kosmos#8959 slice B1c)
+
+    @ViewBuilder private var passkeySection: some View {
+        // 404: passkeys are off on this Kosmos+, and the section is not shown, as on the page.
+        if passkeys != .off {
+            Section {
+                switch passkeys {
+                case .reading, .off:
+                    HStack { SweepDots(label: "Reading your passkeys", scales: false); Text("Reading your passkeys").foregroundColor(Palette.secondary) }
+                case .failed(let why):
+                    Text(why).foregroundColor(Palette.secondary)
+                case .loaded(let rows):
+                    if rows.isEmpty { Text(AccountSecurity.noPasskeys).foregroundColor(Palette.secondary) }
+                    ForEach(rows, id: \.credentialID) { p in
+                        HStack(alignment: .firstTextBaseline) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(p.name).foregroundColor(Palette.primary)
+                                Text(AccountSecurity.passkeyLine(p, day: Self.day)).font(.footnote).foregroundColor(Palette.secondary)
+                            }
+                            Spacer()
+                            Button("Remove") { passkeyNote = nil; passkeyDone = nil; removing = p }
+                                .buttonStyle(.borderless).foregroundColor(Palette.dangerWord)
+                                .disabled(passkeyBusy || busy != nil)
+                                .accessibilityLabel("Remove " + p.name)
+                        }
+                        .frame(minHeight: 44)
+                        .accessibilityElement(children: .contain)
+                    }
+                    Button(passkeyBusy ? "Adding a passkey" : AccountSecurity.addButton) { Task { await addPasskey() } }
+                        .disabled(passkeyBusy || busy != nil)
+                        .accessibilityIdentifier("account-passkey-add")
+                }
+            } header: {
+                Text(AccountSecurity.passkeysTitle)
+            } footer: {
+                if let passkeyNote {
+                    Text(passkeyNote).font(.footnote).foregroundColor(Palette.dangerWord)
+                } else {
+                    Text(passkeyDone ?? AccountSecurity.passkeysWords).font(.footnote).foregroundColor(Palette.secondary)
+                }
+            }
+        }
+    }
+
+    // Shown only when there is a sign-in to list, as on the page.
+    @ViewBuilder private var newPlacesSection: some View {
+        if !newPlaces.isEmpty {
+            Section {
+                ForEach(newPlaces, id: \.id) { p in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(p.name).foregroundColor(Palette.primary)
+                        Text(AccountSecurity.newPlaceLine(p, when: Self.when)).font(.footnote).foregroundColor(Palette.secondary)
+                        if AccountSecurity.offersNotMe(p) {
+                            Button(AccountSecurity.notMeButton, role: .destructive) { notMeNote = nil; notMeFor = p }
+                                .buttonStyle(.borderless).foregroundColor(Palette.dangerWord)
+                                .disabled(notMeBusy || busy != nil)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .accessibilityElement(children: .contain)
+                }
+            } header: {
+                Text(AccountSecurity.newPlacesTitle)
+            } footer: {
+                Text(notMeNote ?? AccountSecurity.newPlacesWords)
+                    .font(.footnote).foregroundColor(notMeNote == nil ? Palette.secondary : Palette.dangerWord)
+            }
+        }
+    }
+
+    // As the page's passkeyWhen (day, short month, year) and newPlaceWhen (with the time), in this iPhone's own locale.
+    private static let dayFormat: DateFormatter = { let f = DateFormatter(); f.setLocalizedDateFormatFromTemplate("dMMMy"); return f }()
+    private static let whenFormat: DateFormatter = { let f = DateFormatter(); f.setLocalizedDateFormatFromTemplate("dMMMyjmm"); return f }()
+    private static func day(_ s: Int) -> String { dayFormat.string(from: Date(timeIntervalSince1970: Double(s))) }
+    private static func when(_ s: Int) -> String { whenFormat.string(from: Date(timeIntervalSince1970: Double(s))) }
+
     // MARK: Sign out
 
     private var signOutSection: some View {
@@ -350,7 +462,8 @@ struct AccountView: View {
             }
             .accessibilityIdentifier("account-more")
         } footer: {
-            Text("Your plan and billing, passkeys and adding a computer are on your Kosmos+ account page.")
+            Text(passkeys == .off ? "Your plan and billing, passkeys and adding a computer are on your Kosmos+ account page."
+                 : "Your plan and billing and adding a computer are on your Kosmos+ account page.")
                 .font(.footnote).foregroundColor(Palette.secondary)
         }
     }
@@ -369,7 +482,10 @@ struct AccountView: View {
 
     // `again`: this read follows one whose sign-in changed while it was out; it is not repeated a second time.
     @MainActor private func read(again: Bool = false) async {
-        if !again { async let s: Void = readSecond(); await readComputers(again: again); await s; return }
+        if !again {
+            async let s: Void = readSecond(), k: Void = readPasskeys(), n: Void = readNewPlaces()
+            await readComputers(again: again); await s; await k; await n; return
+        }
         await readComputers(again: again)
     }
 
@@ -612,6 +728,121 @@ struct AccountView: View {
         guard force || !setupBusy else { return }
         setup = nil; setupFor = nil; setupNote = nil; code = ""
     }
+
+    // MARK: Passkeys and new places, asking Kosmos+
+
+    @MainActor private func readPasskeys() async {
+        if sample { passkeys = .loaded(Self.samplePasskeys); return }
+        passkeyTicket += 1
+        let ticket = passkeyTicket
+        guard let session = currentSession() else { passkeys = .failed("You are signed out."); return }
+        let (status, data) = await send(AccountSecurity.listRequest(coordinator: coordinator, session: session))
+        guard !Task.isCancelled, ticket == passkeyTicket, currentSession() == session else {
+            if ticket == passkeyTicket, case .reading = passkeys { passkeys = .failed(AccountSecurity.listFailed) }
+            return
+        }
+        // No answer, or a failure: a list already shown stays, with the note; a first read says it could not list them.
+        guard let status else { if case .loaded = passkeys { passkeyNote = Account.reach } else { passkeys = .failed(Account.reach) }; return }
+        switch AccountSecurity.list(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) {
+        case .passkeys(let rows): passkeys = .loaded(rows)
+        case .off: passkeys = .off
+        case .signedOut: passkeys = .failed("You are signed out.")
+        case .failed: if case .loaded = passkeys { passkeyNote = AccountSecurity.listFailed } else { passkeys = .failed(AccountSecurity.listFailed) }
+        }
+    }
+
+    @MainActor private func readNewPlaces() async {
+        if sample { newPlaces = Self.sampleNewPlaces; return }
+        placesTicket += 1
+        let ticket = placesTicket
+        guard let session = currentSession() else { newPlaces = []; return }
+        let (status, data) = await send(AccountSecurity.newPlacesRequest(coordinator: coordinator, session: session))
+        guard !Task.isCancelled, ticket == placesTicket, currentSession() == session else { return }
+        // A blip leaves what was shown: the email is still how the owner hears of one.
+        guard let status else { return }
+        newPlaces = AccountSecurity.newPlaces(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) })
+    }
+
+    @MainActor private func addPasskey() async {
+        guard !passkeyBusy, let session = sample ? "sample" : currentSession() else { return }
+        passkeyNote = nil; passkeyDone = nil
+        if sample { passkeyDone = AccountSecurity.added; return }
+        passkeyBusy = true; passkeyFor = session
+        defer { if passkeyFor == session { passkeyBusy = false; passkeyFor = nil } }
+        let (status, data) = await send(AccountSecurity.beginRequest(coordinator: coordinator, session: session))
+        guard currentSession() == session else { return }
+        guard let status else { passkeyNote = Account.reach; return }
+        let begun = data.flatMap { try? JSONSerialization.jsonObject(with: $0) }
+        guard (200..<300).contains(status) else { passkeyNote = AccountSecurity.refusal(json: begun, fallback: AccountSecurity.addNotNow); return }
+        // A begin asking for what an iPhone passkey is not (another algorithm, an attestation) is refused here rather
+        // than making a passkey finish would turn away.
+        guard let reg = AccountSecurity.registration(status: status, json: begun) else { passkeyNote = AccountSecurity.addFailed; return }
+        switch await maker.make(reg) {
+        case .cancelled: if currentSession() == session { passkeyNote = AccountSecurity.addCancelled }; return
+        case .alreadyHere: if currentSession() == session { passkeyNote = AccountSecurity.addHave }; return
+        case .failed: if currentSession() == session { passkeyNote = AccountSecurity.addFailed }; return
+        case .made(let id, let att, let client):
+            // Signed out, or another sign-in, while Apple's sheet was open: nothing is sent for it.
+            guard currentSession() == session else { return }
+            guard let body = AccountSecurity.finishBody(credentialID: id, attestationObject: att, clientDataJSON: client,
+                                                        name: AccountSecurity.passkeyName)
+            else { passkeyNote = AccountSecurity.addFailed; return }
+            let (fs, fd) = await send(AccountSecurity.finishRequest(coordinator: coordinator, session: session, body: body))
+            guard currentSession() == session else { return }
+            guard let fs else { passkeyNote = Account.reach; await readPasskeys(); return }
+            guard (200..<300).contains(fs) else {
+                passkeyNote = AccountSecurity.refusal(json: fd.flatMap { try? JSONSerialization.jsonObject(with: $0) }, fallback: AccountSecurity.addFailed)
+                return
+            }
+            passkeyDone = AccountSecurity.added
+            await readPasskeys()
+        }
+    }
+
+    @MainActor private func removePasskey(_ p: AccountSecurity.Passkey) async {
+        removing = nil
+        guard !passkeyBusy, let session = sample ? "sample" : currentSession() else { return }
+        passkeyNote = nil; passkeyDone = nil
+        if sample { passkeyDone = AccountSecurity.removed; return }
+        passkeyBusy = true; passkeyFor = session
+        let (status, data) = await send(AccountSecurity.removeRequest(coordinator: coordinator, session: session, p))
+        if passkeyFor == session { passkeyBusy = false; passkeyFor = nil }
+        guard currentSession() == session else { return }
+        guard let status else { passkeyNote = Account.reach; return }
+        guard (200..<300).contains(status) else {
+            passkeyNote = AccountSecurity.refusal(json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }, fallback: AccountSecurity.removeFailed)
+            return
+        }
+        passkeyDone = AccountSecurity.removed
+        await readPasskeys()
+    }
+
+    @MainActor private func notMe(_ p: AccountSecurity.NewPlace) async {
+        notMeFor = nil
+        guard !notMeBusy, !sample, let session = currentSession() else { return }
+        notMeNote = nil
+        notMeBusy = true
+        let (status, data) = await send(AccountSecurity.notMeRequest(coordinator: coordinator, session: session, p))
+        notMeBusy = false
+        guard currentSession() == session else { return }
+        guard let status else { notMeNote = Account.reach; return }
+        switch AccountSecurity.notMe(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) {
+        // The account is signed out everywhere, this iPhone included: the app's own sign-out way.
+        case .signedOutEverywhere: signedOut(session)
+        case .refused(let why): notMeNote = why
+        }
+    }
+
+    private static let samplePasskeys: [AccountSecurity.Passkey] = {
+        let now = Int(Date().timeIntervalSince1970)
+        return [AccountSecurity.Passkey(credentialID: "sample-1", name: "iPhone", createdAt: now - 40 * 86400, lastUsedAt: now - 2 * 86400),
+                AccountSecurity.Passkey(credentialID: "sample-2", name: "MacBook", createdAt: now - 90 * 86400, lastUsedAt: nil)]
+    }()
+
+    private static let sampleNewPlaces: [AccountSecurity.NewPlace] = {
+        let now = Int(Date().timeIntervalSince1970)
+        return [AccountSecurity.NewPlace(id: "np-1", name: "Safari on a Mac", at: now - 3 * 3600, notMeAt: nil)]
+    }()
 
     private static let sampleRows: [Account.Computer] = {
         let now = Date().timeIntervalSince1970

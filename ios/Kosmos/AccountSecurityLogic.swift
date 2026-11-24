@@ -234,6 +234,43 @@ enum AccountSecurity {
         return .refused(SignIn.refusal((json as? [String: Any])?["error"]) ?? notMeFailed)
     }
 
+    // MARK: - Requests (built as AccountLogic builds its own: server.ios-routes-6838 reads this form)
+
+    static func listRequest(coordinator: URL, session: String) -> URLRequest { request(listPath, coordinator: coordinator, session: session) }
+    static func removeRequest(coordinator: URL, session: String, _ p: Passkey) -> URLRequest {
+        request(removePath, coordinator: coordinator, session: session, body: removeBody(p))
+    }
+    static func beginRequest(coordinator: URL, session: String) -> URLRequest {
+        request(beginPath, coordinator: coordinator, session: session, body: [:])
+    }
+    static func finishRequest(coordinator: URL, session: String, body: [String: Any]) -> URLRequest {
+        request(finishPath, coordinator: coordinator, session: session, body: body)
+    }
+    static func newPlacesRequest(coordinator: URL, session: String) -> URLRequest {
+        request(newPlacesPath, coordinator: coordinator, session: session)
+    }
+    static func notMeRequest(coordinator: URL, session: String, _ p: NewPlace) -> URLRequest {
+        request(notMePath, coordinator: coordinator, session: session, body: notMeBody(p))
+    }
+
+    private static func request(_ path: String, coordinator: URL, session: String, body: [String: Any]? = nil) -> URLRequest {
+        var r = URLRequest(url: coordinator.appendingPathComponent(String(path.dropFirst())))
+        r.httpMethod = body == nil ? "GET" : "POST"
+        r.timeoutInterval = 15
+        r.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")
+        if let body {
+            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            r.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        }
+        r.httpShouldHandleCookies = false
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+
+    /// The name a passkey made here is listed under: the page sends its device name, and an iPhone's own name is not
+    /// readable by an app since iOS 16, so the kind of device is the name.
+    static let passkeyName = "iPhone"
+
     // MARK: -
 
     /// A time in seconds as Kosmos+ sends it; 0, a negative number, a fraction or a string are not a time.
