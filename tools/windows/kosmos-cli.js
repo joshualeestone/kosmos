@@ -160,7 +160,7 @@ const USAGE = {
   project: [
     'Usage: kosmos project <list|show|who|create|pause|test|role|remove-member>',
     '  kosmos project list                                             every project: members, model families, tasks',
-    '  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member\'s family and summary',
+    '  kosmos project show <project-id>                                one project: folder, goal and done, tasks, last activity, each member\'s family and summary',
     '  kosmos project create "<name>" <folder> ["<description>"] [--test]   make a new project (it shows on your board, tagged as made by you); --test makes it a test project',
     '  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)',
     '  kosmos project test <project-id> on|off                         a test project: its agents do only what they are asked (Kosmos asks none of them to add tasks for it)',
