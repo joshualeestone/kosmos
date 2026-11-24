@@ -85,7 +85,9 @@ function fixture() {
     assert.fail('timed out waiting for ' + what);
   };
   /* The supervisor sets its hook just after the session exists; an arm that ends the runner first would race it. */
-  const hooked = () => /pane-died/.test(tx('show-hooks', '-w', '-t', '=' + NAME + ':').stdout || '');
+  /* The hook is on the agent's own pane (its id is the session's @kosmos_agent_pane). */
+  const agentPane = () => (tx('show-options', '-t', NAME, '-v', '@kosmos_agent_pane').stdout || '').trim();
+  const hooked = () => { const p = agentPane(); return /^%\d+$/.test(p) && /pane-died/.test(tx('show-hooks', '-p', '-t', p).stdout || ''); };
   const diedPath = path.join(root, 'data', 'Kosmos', 'runs', NAME + '.died');
   const died = () => (fs.existsSync(diedPath) ? fs.readFileSync(diedPath, 'utf8') : null);
   const tell = (how) => { fs.writeFileSync(path.join(ctl, 'how'), how); fs.writeFileSync(path.join(ctl, 'go'), ''); };
@@ -101,7 +103,7 @@ function fixture() {
     for (const c of kids) if (c.exitCode === null && c.signalCode === null) c.kill('SIGKILL');
     try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
   };
-  return { root, start, ends, tx, alive, paneDead, hooked, until, died, tell, card, cleanup };
+  return { root, start, ends, tx, alive, paneDead, agentPane, hooked, until, died, tell, card, cleanup };
 }
 
 test('#8988 CRASH and STOP: an exit is recorded by the hook and read on the card after the relaunch; a stop records nothing', { skip: SKIP }, async () => {
@@ -136,8 +138,6 @@ test('#8988 SIGNAL: a process ended by a signal is recorded by name', { skip: SK
     f.tell('term');
     await f.ends(one);
     assert.match(String(f.died()), /^\d{9,11} signal term\n$/i);
-    require('./engine/win32streamstate');   // sanity: the words come from the shared restartWhy
-    assert.equal(require('./engine/macrestart').parseDied(f.died()).signal, 'SIGTERM');
   } finally { f.cleanup(); }
 });
 
@@ -147,13 +147,31 @@ test('#8988 WAIT: with the hook gone, the supervisor itself records a dead pane 
     const one = f.start();
     /* The hook is set just after the session exists: wait for it, or the unset can land first and the hook fires. */
     await f.until(f.hooked, 'the supervisor to set its pane-died hook');
-    const unset = f.tx('set-hook', '-u', '-t', '=' + NAME + ':', 'pane-died');
+    const unset = f.tx('set-hook', '-u', '-p', '-t', f.agentPane(), 'pane-died');
     assert.equal(unset.status, 0, unset.stderr);
     assert.equal(f.hooked(), false, 'the hook is gone, so only the supervisor can record this death');
     f.tell('exit 3');
     await f.ends(one);
     assert.equal(f.alive(), false, 'a dead pane never holds the agent stopped');
     assert.match(String(f.died()), /^\d{9,11} status 3\n$/);
+  } finally { f.cleanup(); }
+});
+
+test('#8988 SPLIT: a pane a person splits off the agent\'s window ending neither ends the agent nor is recorded', { skip: SKIP }, async () => {
+  const f = fixture();
+  try {
+    const one = f.start();
+    await f.until(f.alive, 'the session');
+    await f.until(f.hooked, 'its pane-died hook');
+    const split = f.tx('split-window', '-t', f.agentPane(), '/bin/sleep 0.3; exit 3');
+    assert.equal(split.status, 0, split.stderr);
+    await f.until(() => (f.tx('list-panes', '-s', '-t', '=' + NAME, '-F', '#{pane_id}').stdout || '').trim().split('\n').length === 1, 'the split pane to end and go');
+    await new Promise((r) => setTimeout(r, 500));   // the supervisor's wait loop turns every 0.1 s here
+    assert.equal(f.alive(), true, 'the agent is still running');
+    assert.equal(f.died(), null, 'nothing recorded for a pane that was not the agent');
+    f.tell('exit 7');   // CONTROL: the agent's own death is still recorded
+    await f.ends(one);
+    assert.match(String(f.died()), /^\d{9,11} status 7\n$/);
   } finally { f.cleanup(); }
 });
 

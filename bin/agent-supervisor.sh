@@ -259,8 +259,31 @@ died_file() {
   mkdir -p "$_dir" 2>/dev/null || return 0
   printf '%s\n' "$_dir/$_key.died"
 }
-# kosmos#8988: every pane of this session has exited (kept by remain-on-exit). Only an answer of "1" on every line is
-# dead: an empty, unreadable or unexpected answer is not, since reading a live agent as dead would end it.
+# kosmos#8988: the agent's own pane (its id, kept on the session as @kosmos_agent_pane by arm_death_record), or
+# nothing when the session carries none (an older launch, another runner).
+agent_pane_id() {
+  local _sid _p
+  _sid="$(session_id_exact)"; [ -n "$_sid" ] || return 0
+  _p="$("$TMUX_BIN" show-options -t "$_sid" -v @kosmos_agent_pane 2>/dev/null)"
+  case "$_p" in %[0-9]*) printf '%s\n' "$_p" ;; esac
+  return 0
+}
+# kosmos#8988: the agent has exited and its pane is kept (remain-on-exit). With a known agent pane, that pane's own
+# #{pane_dead} decides (a person's split pane, live or not, does not); without one, every pane must be dead. Only an
+# answer of "1" is dead: an empty, unreadable or unexpected answer is not, since reading a live agent as dead would end
+# it.
+agent_dead() {
+  local _p _l
+  _p="$(agent_pane_id)"
+  if [ -n "$_p" ]; then
+    while IFS= read -r _l; do [ "$_l" = "$_p 1" ] && return 0; done <<EOF
+$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_id} #{pane_dead}' 2>/dev/null)
+EOF
+    return 1
+  fi
+  session_all_dead
+}
+# Every pane of this session is dead (see agent_dead).
 session_all_dead() {
   local _d _l
   _d="$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_dead}' 2>/dev/null)" || return 1
@@ -270,13 +293,20 @@ $_d
 EOF
   return 0
 }
-# kosmos#8988: the dead pane's own exit, written as the hook writes it, for a Claude agent only (its card's words).
+# kosmos#8988: the dead agent pane's own exit, written as the hook writes it, for a Claude agent only (its card's words).
 record_dead_pane() {
   [ "$RUNNER" = claude ] || return 0
-  local _f _line
+  local _f _line _p _all _l
   _f="$(died_file)"; [ -n "$_f" ] || return 0
-  _line="$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_dead_time} #{?pane_dead_signal,signal,status} #{?pane_dead_signal,#{pane_dead_signal},#{pane_dead_status}}' 2>/dev/null)"
-  _line="${_line%%$'\n'*}"
+  _p="$(agent_pane_id)"
+  _all="$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_id} #{pane_dead} #{pane_dead_time} #{?pane_dead_signal,signal,status} #{?pane_dead_signal,#{pane_dead_signal},#{pane_dead_status}}' 2>/dev/null)"
+  _line=""
+  while IFS= read -r _l; do
+    if [ -n "$_p" ]; then case "$_l" in "$_p 1 "*) _line="${_l#"$_p 1 "}"; break ;; esac
+    else case "$_l" in %*" 1 "*) _line="${_l#* 1 }"; break ;; esac; fi
+  done <<EOF
+$_all
+EOF
   case "$_line" in [0-9]*' status '[0-9]*|[0-9]*' signal '[a-zA-Z]*) { printf '%s\n' "$_line" > "$_f"; } 2>/dev/null ;; esac
   return 0
 }
@@ -335,8 +365,8 @@ while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
     # it read as "crashed" and the live agent was killed at the next login.
     # kosmos#8988: a pane kept after its process exited (remain-on-exit, which this script sets for the death
     # record) still names its last command, so the allowlist below would read a dead Claude as alive and watch it
-    # forever. A session whose every pane is dead crashed: its exit is recorded and it is replaced.
-    if session_all_dead; then
+    # forever. A session whose agent pane is dead crashed: its exit is recorded and it is replaced.
+    if agent_dead; then
       record_dead_pane
       "$TMUX_BIN" kill-session -t "$TARGET" 2>/dev/null
       break
@@ -845,22 +875,28 @@ if [ -z "$adopt" ]; then
     arm_death_record
   }
 
-  # kosmos#8988: when this Claude agent's process exits, tmux keeps the pane just long enough for its pane-died hook
-  # to write how it ended (died_file) and then ends the session, so the restart that follows is the one launchd makes
-  # today. A deliberate stop (kill-session) fires no pane-died, so it is never recorded as a death. If the hook cannot
-  # be set, remain-on-exit is switched back off, so a pane is never kept with nothing to end it. Best-effort.
+  # kosmos#8988: the AGENT'S OWN PANE (its id, never the window or session: a pane a person splits off must neither
+  # be kept nor end the agent when it exits) is kept after its process exits, just long enough for its pane-died hook
+  # to write how it ended (died_file) and end the session, so the restart that follows is the one launchd makes today.
+  # A deliberate stop (kill-session) fires no pane-died, so it is never recorded as a death. If the hook cannot be set,
+  # remain-on-exit is switched back off. The wait loop and the next launch catch a hook that never ran. Best-effort.
   arm_death_record() {
     [ "$RUNNER" = claude ] || return 0
-    local _f _inner _q _sid
+    local _f _inner _q _sid _p
     _f="$(died_file)"; [ -n "$_f" ] || return 0
-    case "$_f$SESSION" in *"'"*) return 0 ;; esac   # a quote cannot ride the hook's quoting: no record, as before
+    # A quote cannot ride the hook's quoting, and run-shell reads a # as a format: no record for such a path, as before.
+    case "$_f$SESSION" in *"'"*|*"#"*) return 0 ;; esac
     # The session's ID names exactly this session (a plain name falls back to a prefix match; #4530).
     _sid="$(session_id_exact)"; [ -n "$_sid" ] || return 0
-    "$TMUX_BIN" set-option -w -t "$_sid" remain-on-exit on 2>/dev/null || return 0
+    _p="$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_id}' 2>/dev/null)"
+    case "$_p" in %[0-9]*) ;; *) return 0 ;; esac
+    case "$_p" in *[!%0-9]*) return 0 ;; esac   # exactly one pane at launch, or nothing is armed
+    "$TMUX_BIN" set-option -t "$_sid" @kosmos_agent_pane "$_p" 2>/dev/null || return 0
+    "$TMUX_BIN" set-option -p -t "$_p" remain-on-exit on 2>/dev/null || return 0
     _inner="printf '%s %s %s\\n' '#{pane_dead_time}' '#{?pane_dead_signal,signal,status}' '#{?pane_dead_signal,#{pane_dead_signal},#{pane_dead_status}}' > '$_f' 2>/dev/null; true"
     _q="'$(printf '%s' "$_inner" | sed "s/'/'\\\\''/g")'"
-    "$TMUX_BIN" set-hook -t "$_sid" pane-died "run-shell $_q ; kill-session -t '=$SESSION'" 2>/dev/null \
-      || "$TMUX_BIN" set-option -w -t "$_sid" remain-on-exit off 2>/dev/null
+    "$TMUX_BIN" set-hook -p -t "$_p" pane-died "run-shell $_q ; kill-session -t '=$SESSION'" 2>/dev/null \
+      || "$TMUX_BIN" set-option -p -t "$_p" remain-on-exit off 2>/dev/null
     return 0
   }
 
@@ -1827,9 +1863,9 @@ unset _LAUNCH_TOKEN _LAUNCH_TOKEN_ONLY
 # long as the machine is on, while the agent looks perfectly healthy because the
 # first attempt worked.
 while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
-  # kosmos#8988: the pane-died hook ends a dead session at once; if it did not run, this does, so a kept pane can
-  # never hold the agent stopped.
-  if session_all_dead; then
+  # kosmos#8988: the pane-died hook ends a dead agent's session at once; if it did not run, this does, so a kept pane
+  # can never hold the agent stopped.
+  if agent_dead; then
     record_dead_pane
     "$TMUX_BIN" kill-session -t "$TARGET" 2>/dev/null   # then the usual wait, so a refused kill cannot spin
   fi

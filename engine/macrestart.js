@@ -23,14 +23,10 @@ function diedFileFor(sessionName) { return path.join(crashloop.dir(), store.safe
 
 /** { atMs, code, signal } from a died file's text, or null. A signal name is given as tmux prints it ("term"). */
 function parseDied(text) {
-  const m = /^(\d{9,11}) (status|signal) ([0-9]{1,10}|[A-Za-z]{1,16})$/.exec(String(text || '').split('\n')[0].trim());
+  const m = /^(\d{9,11}) (?:status ([0-9]{1,10})|signal ([A-Za-z]{1,16}))$/.exec(String(text || '').split('\n')[0].trim());
   if (!m) return null;
   const atMs = Number(m[1]) * 1000;
-  if (m[2] === 'status') {
-    if (!/^[0-9]+$/.test(m[3])) return null;
-    return { atMs, code: Number(m[3]), signal: null };
-  }
-  if (!/^[A-Za-z]+$/.test(m[3])) return null;
+  if (m[2] !== undefined) return { atMs, code: Number(m[2]), signal: null };
   const name = m[3].toUpperCase();
   return { atMs, code: null, signal: name.startsWith('SIG') ? name : 'SIG' + name };
 }
@@ -66,7 +62,8 @@ function restartedFor(sessionName, opts) {
     const history = o.history || ((n) => require('./selfreport').history(n));
     let died;
     try { died = parseDied(read(diedFileFor(sessionName))); } catch { return null; }
-    if (!died) return null;
+    /* An exit with code 0 is Claude closing on purpose (a person typing /exit): not a crash to explain. */
+    if (!died || died.code === 0) return null;
     let start;
     try { start = lastStartMs(read(crashloop.fileFor(sessionName))); } catch { return null; }
     if (start === null || start < died.atMs || start - died.atMs > RESTART_WINDOW_MS) return null;
