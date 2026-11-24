@@ -59,3 +59,16 @@ run again and check lookup), the safe side. The real-tool test pins the wording 
 - Slip, recorded: while measuring I ran `secrets-map.sh generate` once without SECRETS_DIR, which regenerated the real
   map README (the idempotent rebuild /add-secret runs; headers only, no values). Checked after: 107 rows, the target
   listed, lookup reads it as a bare token.
+
+## Round 5 (opus) fixes
+- 'unreadable': "no credential mapped" while the secrets folder, or a file in it, cannot be read from here (a sandbox
+  refusal looks exactly like a missing target): run the pull where it can read them; never "file it". Checked with
+  metadata only (a listing and an access check).
+- The fleet's own copy (~/.claude/scripts/secrets-map.sh, what /agent-refresh installs) is a third place; 'no-tool'
+  names all three and says install it with /agent-refresh, never file the token.
+- 'cannot-run' (a copy that could not be started: EACCES, EPERM, as in a sandbox) is apart from 'tool-broken' (an old
+  copy without `value`): run where it can run vs update it.
+- 'unread' no longer promises lookup explains a repeat failure (lookup just said the filing is healthy); it says the map
+  is slow or busy here, try when less busy.
+- The real-tool control never echoes what it read; a test that the "no credential" wording needs exit 1 too; test
+  names carry no review-round labels. Mutations checked: readable, cannot-run, third place.

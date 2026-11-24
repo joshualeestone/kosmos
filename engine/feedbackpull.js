@@ -97,8 +97,11 @@ function runSecrets(bin, args) {
  *   'unread'    one credential, consumed by `value`, and reading it failed or timed out: run again, never re-file.
  *   'unsure'    reading failed and the map did not answer the lookup either: run again; file only if a lookup says
  *               it is missing.
- *   'tool-broken' the secrets-map.sh found cannot run `value` (not executable, or an old copy without the verb) and no
- *               other place answered: running again cannot help; update the tool.
+ *   'tool-broken' the secrets-map.sh found is an old copy without `value`, and no other place answered: update it.
+ *   'cannot-run' the secrets-map.sh found could not be started here (not executable, or refused, as from inside a
+ *               sandbox), and no other place answered: run the pull where it can run.
+ *   'unreadable' the map says "no credential mapped", but the secrets folder, or a file in it, cannot be read from here
+ *               (a sandbox refusal reads exactly like a missing target): run the pull where it can read them.
  *   'no-tool'   no secrets-map.sh at either place.
  * Before #8992 every one of these read as "not filed yet", which told an agent to run /add-secret over a working token.
  * The lookup's report is metadata only (where the file is, its format, whether it can be used), never a value, and
@@ -111,8 +114,9 @@ function tokenReading() {
   // second candidate.
   let home = '';
   try { home = os.homedir() || ''; } catch { home = ''; }
+  // On PATH, the usual link, and the fleet's own copy (what /agent-refresh installs), in that order.
   const bins = ['secrets-map.sh'];
-  if (home) bins.push(path.join(home, '.local', 'bin', 'secrets-map.sh'));
+  if (home) bins.push(path.join(home, '.local', 'bin', 'secrets-map.sh'), path.join(home, '.claude', 'scripts', 'secrets-map.sh'));
   let fallback = null;   // what a place that could not be used said, if the next place cannot do better
   for (const bin of bins) {
     let got;
@@ -124,12 +128,13 @@ function tokenReading() {
        "unknown subcommand 'value'") is not this place's answer: the next place may work, as it did before #8992. If
        none does, the tool is broken, which running again cannot fix. Any other exit 2 is the verb refusing a filed
        credential's shape (an env file, say), which the lookup below names. A timeout does answer here, so a hung tool
-       costs one read and one lookup at this place (a broken first copy that is also slow adds the second place's wait).
-       A non-zero exit never yields a token, even with something on stdout: Kosmos reads the whole output, so it is
-       not the tool's broken-pipe case. */
+       costs one read and one lookup at this place (a broken first copy that is also slow adds the next place's wait).
+       A non-zero exit never yields a token, even with something on stdout: an old copy's own pipe can exit 141 after
+       printing it, and that is the tool to update, not a token to trust. */
     const timedOut = Boolean(got && got.error && got.error.code === 'ETIMEDOUT');
     const noVerb = Boolean(got && !got.error && got.status === 2 && /unknown subcommand 'value'/.test(String(got.stderr || '')));
-    if ((got && got.error && !timedOut) || noVerb) { fallback = 'tool-broken'; continue; }
+    if (got && got.error && !timedOut) { fallback = fallback || 'cannot-run'; continue; }
+    if (noVerb) { fallback = 'tool-broken'; continue; }
     // The tool is here and did not give the token: ask the map whether the target is in it, and in what state.
     let seen;
     try { seen = runSecrets(bin, ['lookup', FEEDBACK_TOKEN_TARGET]); } catch { seen = { error: new Error('could not run') }; }
@@ -143,22 +148,42 @@ function tokenReading() {
       return { why: creds === 1 && byValue.test(report) ? 'unread' : 'misfiled' };
     }
     const said = String((seen && seen.stderr) || '');
-    if (seen && !seen.error && seen.status === 1 && /no credential (mapped|dir at)/i.test(said)) return { why: 'missing' };
+    if (seen && !seen.error && seen.status === 1 && /no credential (mapped|dir at)/i.test(said)) {
+      // A folder or file this process cannot read gives the same answer as a missing target: say which it is.
+      return { why: secretsReadable() ? 'missing' : 'unreadable' };
+    }
     return { why: 'unsure' };
   }
   return { why: fallback || 'no-tool' };
 }
+/* Can this process read the secrets folder and every file in it? Metadata only (a listing and an access check, never a
+   read of a file's content). A folder that does not exist is readable in this sense: nothing is filed there. */
+function secretsReadable() {
+  let home = '';
+  try { home = os.homedir() || ''; } catch { home = ''; }
+  const dir = process.env.SECRETS_DIR || (home ? path.join(home, '.config', 'secrets') : '');
+  if (!dir) return true;
+  let names;
+  try { names = fs.readdirSync(dir); } catch (e) { return Boolean(e && e.code === 'ENOENT'); }
+  for (const n of names) {
+    try { fs.accessSync(path.join(dir, n), fs.constants.R_OK); } catch { return false; }
+  }
+  return true;
+}
+
 // The token or null, for callers that only need the token.
 function token() { return tokenReading().token || null; }
 
 // What a pull says when it has no token, by why (tokenReading). Only 'missing' says to file it.
 function noTokenBecause(why) {
   const t = 'secrets-map target "' + FEEDBACK_TOKEN_TARGET + '"';
-  if (why === 'unread') return 'the collected-feedback token is filed (' + t + ') but reading it failed or timed out just now. Run the pull again; do not file it again. If it fails again, `secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '` says why.';
+  if (why === 'unread') return 'the collected-feedback token is filed (' + t + ') but reading it failed or timed out just now. Run the pull again; do not file it again. If it keeps failing, the secrets map is slow or busy on this computer: try again when it is less busy.';
+  if (why === 'unreadable') return 'the secrets map could not read its folder, or a file in it, from here (as from inside a sandbox), so whether the collected-feedback token is filed (' + t + ') is unknown. Run the pull where the secrets folder can be read; do not file it again.';
+  if (why === 'cannot-run') return 'secrets-map.sh could not be started here (not executable, or refused, as from inside a sandbox), so the collected-feedback token (' + t + ') cannot be read. Run the pull where it can run; do not file the token again.';
   if (why === 'misfiled') return 'the collected-feedback token is filed (' + t + ') but the secrets map will not read it as filed: `secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '` shows why (a BLOCKED line, a shape other than a bare token, or more than one credential for it). Fix the filing with /add-secret, or the file\'s mode if it says not readable; running the pull again will not help.';
   if (why === 'unsure') return 'the collected-feedback token could not be read just now, and the secrets map did not answer whether it is filed (' + t + '). Run the pull again; file it with /add-secret only if `secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '` says it is missing.';
   if (why === 'tool-broken') return 'the secrets-map.sh on this computer cannot read the collected-feedback token (' + t + '): it could not be run, or it is an old copy without `value`. Update it with /agent-refresh, then run the pull again; do not file the token again.';
-  if (why === 'no-tool') return 'the secrets map tool (secrets-map.sh) is not on this computer, so the collected-feedback token (' + t + ') cannot be read here.';
+  if (why === 'no-tool') return 'secrets-map.sh was not found (on PATH, in ~/.local/bin or in ~/.claude/scripts), so the collected-feedback token (' + t + ') cannot be read here. Install it with /agent-refresh; do not file the token.';
   return 'the collected-feedback token is not filed yet (' + t + '). File it with /add-secret and re-run; nothing else changes. If you believe it is filed, run `secrets-map.sh audit` first: a credential whose header cannot be read looks unfiled.';
 }
 

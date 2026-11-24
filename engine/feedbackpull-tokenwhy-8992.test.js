@@ -45,7 +45,7 @@ test('a read that TIMED OUT on a filed target says run again, never file it', as
   assert.equal(r.ok, false);
   assert.equal(r.why, 'unread');
   assert.match(r.because, /reading it failed or timed out/);
-  assert.match(r.because, /Run the pull again; do not file it again\. If it fails again, `secrets-map.sh lookup vercel-blob-feedback` says why/);
+  assert.match(r.because, /Run the pull again; do not file it again\. If it keeps failing, the secrets map is slow or busy on this computer/);
   assert.doesNotMatch(r.because, /not filed|File it with/);
 });
 
@@ -56,12 +56,12 @@ test('a read that timed out after printing part of the token never uses the part
   assert.deepEqual(fp.tokenReading(), { why: 'unread' }, 'nor a part printed before a failing exit');
 });
 
-test('review 1: filed but the map will not read it as filed (BLOCKED, or two credentials): fix the filing, not run again', async () => {
+test('filed but the map will not read it as filed (BLOCKED, or two credentials): fix the filing, not run again', async () => {
   map({ value: { status: 1, stdout: '', stderr: 'secrets-map: refused\n' }, lookup: ok('cred:     /x/a\nformat:   bare-token   ** MISMATCH - the file looks like: sourceable-env **\nconsume:  BLOCKED until the mismatch above is resolved\n') });
   assert.deepEqual(fp.tokenReading(), { why: 'misfiled' });
   map({ value: { status: 1, stdout: '', stderr: '' }, lookup: ok(FILED + FILED) });
   assert.deepEqual(fp.tokenReading(), { why: 'misfiled' }, 'two credentials for one target');
-  // Review 2: shapes `value` refuses every time, though lookup shows no BLOCKED (secrets-map.sh lookup's other lines).
+  // Shapes `value` refuses every time, though lookup shows no BLOCKED (secrets-map.sh lookup's other lines).
   for (const consume of [`secrets-map.sh path ${T}   (consumed by PATH - never by value)`, 'shape undeterminable - inspect the file before using it',
     `eval "$(secrets-map.sh env ${T})"  (or: value ${T} <VAR>)`, `secrets-map.sh value ${T}X`]) {
     map({ value: { status: 1, stdout: '', stderr: '' }, lookup: ok(`cred:     /x/a\nconsume:  ${consume}\n`) });
@@ -73,20 +73,20 @@ test('review 1: filed but the map will not read it as filed (BLOCKED, or two cre
   assert.match(r.because, /Fix the filing with \/add-secret, or the file's mode if it says not readable; running the pull again will not help/);
 });
 
-test('review 1: no credential folder at all is missing (file it), as the tool itself says', () => {
+test('no credential folder at all is missing (file it), as the tool itself says', () => {
   const NODIR = 'secrets-map: no credential dir at /x/.config/secrets - add one via /add-secret.\n';
   map({ value: { status: 1, stdout: '', stderr: NODIR }, lookup: { status: 1, stdout: '', stderr: NODIR } });
   assert.deepEqual(fp.tokenReading(), { why: 'missing' });
 });
 
-test('review 1: a first copy that cannot be run, or does not know the verb, lets the second place answer', () => {
+test('a first copy that cannot be run, or does not know the verb, lets the second place answer', () => {
   const EACCES = Object.assign(new Error('spawnSync secrets-map.sh EACCES'), { code: 'EACCES' });
   const OLD = { status: 2, stdout: '', stderr: "secrets-map.sh: unknown subcommand 'value' (try --help)\n" };   // a copy without the verb
   for (const first of [{ error: EACCES }, OLD]) {
     fp.setSecretsRunner((bin, args) => (bin === 'secrets-map.sh' ? first : (args[0] === 'value' ? ok('tok2') : ok(''))));
     assert.deepEqual(fp.tokenReading(), { token: 'tok2' }, JSON.stringify(first));
     fp.setSecretsRunner((bin) => (bin === 'secrets-map.sh' ? first : { error: ENOENT }));
-    assert.deepEqual(fp.tokenReading(), { why: 'tool-broken' }, 'and with no second place: the tool is broken, not "no tool" and not "run again"');
+    assert.deepEqual(fp.tokenReading(), { why: first === OLD ? 'tool-broken' : 'cannot-run' }, 'and with no other place: never "no tool", never "run again"');
   }
   // A timeout answers at the first place (the wait stays one read and one lookup).
   const asked = [];
@@ -95,7 +95,17 @@ test('review 1: a first copy that cannot be run, or does not know the verb, lets
   assert.deepEqual(asked, ['first value', 'first lookup']);
 });
 
-test('a tool that cannot run value says update it, never run again or file it', async () => {
+test('a tool that cannot be started here (a sandbox refusal) says run it where it can, never update it or file it', async () => {
+  const EPERM = Object.assign(new Error('spawnSync secrets-map.sh EPERM'), { code: 'EPERM' });
+  fp.setSecretsRunner(() => ({ error: EPERM }));
+  const r = await fp.pull(path.join(SB, 'd8'));
+  assert.equal(r.why, 'cannot-run');
+  assert.match(r.because, /could not be started here/);
+  assert.match(r.because, /Run the pull where it can run; do not file the token again/);
+  assert.doesNotMatch(r.because, /agent-refresh|File it with/);
+});
+
+test('an old copy without value says update it, never run again or file it', async () => {
   fp.setSecretsRunner(() => ({ status: 2, stdout: '', stderr: "secrets-map.sh: unknown subcommand 'value' (try --help)\n" }));
   const r = await fp.pull(path.join(SB, 'd6'));
   assert.equal(r.why, 'tool-broken');
@@ -103,7 +113,7 @@ test('a tool that cannot run value says update it, never run again or file it', 
   assert.doesNotMatch(r.because, /File it with/);
 });
 
-test('round 4: any other exit 2 is the verb refusing a filed shape, which the lookup names: never "update the tool"', () => {
+test('any other exit 2 is the verb refusing a filed shape, which the lookup names: never "update the tool"', () => {
   const REFUSED = { status: 2, stdout: '', stderr: `secrets-map: '${T}' is a sourceable-env credential - it holds NAMED values,\n` };
   map({ value: REFUSED, lookup: ok(`cred:     /x/a\nformat:   sourceable-env\nconsume:  eval "$(secrets-map.sh env ${T})"  (or: value ${T} <VAR>)\n`) });
   assert.deepEqual(fp.tokenReading(), { why: 'misfiled' });
@@ -126,13 +136,42 @@ test('a read that failed some other way (exit 1, not "no credential") on a filed
 });
 
 test('a target the map does not have says not filed (the old message, still right here)', async () => {
+  const was = process.env.SECRETS_DIR;
+  process.env.SECRETS_DIR = path.join(SB, 'no-secrets-here');   // nothing to be unreadable: a true miss
   map({ value: { status: 1, stdout: '', stderr: MISSING }, lookup: { status: 1, stdout: '', stderr: MISSING } });
   assert.deepEqual(fp.tokenReading(), { why: 'missing' });
+  map({ value: { status: 1, stdout: '', stderr: MISSING }, lookup: { status: 2, stdout: '', stderr: MISSING } });
+  assert.deepEqual(fp.tokenReading(), { why: 'unsure' }, 'the wording with another exit is not proof of missing');
+  map({ value: { status: 1, stdout: '', stderr: MISSING }, lookup: { status: 1, stdout: '', stderr: MISSING } });
   const r = await fp.pull(path.join(SB, 'd2'));
   assert.equal(r.why, 'missing');
   assert.match(r.because, /token is not filed yet/);
   assert.match(r.because, /File it with \/add-secret/);
   assert.match(r.because, /run `secrets-map.sh audit` first/, 'a credential whose header cannot be read looks unfiled');
+  if (was === undefined) delete process.env.SECRETS_DIR; else process.env.SECRETS_DIR = was;
+});
+
+test('"no credential mapped" with a secrets file this process cannot read is unreadable, never "file it"', async () => {
+  const dir = path.join(SB, 'locked-secrets');
+  fs.mkdirSync(dir, { mode: 0o700 });
+  const f = path.join(dir, 'blob');
+  fs.writeFileSync(f, '# secret-map: fake\n', { mode: 0o600 });
+  fs.chmodSync(f, 0o000);
+  const was = process.env.SECRETS_DIR;
+  try {
+    let readable = true;
+    try { fs.accessSync(f, fs.constants.R_OK); } catch { readable = false; }
+    if (readable) return;   // root reads anything: nothing to show here
+    process.env.SECRETS_DIR = dir;
+    map({ value: { status: 1, stdout: '', stderr: MISSING }, lookup: { status: 1, stdout: '', stderr: MISSING } });
+    assert.deepEqual(fp.tokenReading(), { why: 'unreadable' });
+    const r = await fp.pull(path.join(SB, 'd9'));
+    assert.match(r.because, /could not read its folder, or a file in it, from here/);
+    assert.doesNotMatch(r.because, /File it with/);
+  } finally {
+    fs.chmodSync(f, 0o600);
+    if (was === undefined) delete process.env.SECRETS_DIR; else process.env.SECRETS_DIR = was;
+  }
 });
 
 test('the map does not answer the lookup either: run again, file only if a lookup says missing', async () => {
@@ -151,20 +190,24 @@ test('no secrets-map.sh at either place: says so, does not say "not filed"', asy
   const asked = [];
   fp.setSecretsRunner((bin, args) => { asked.push(bin + ' ' + args[0]); return { error: ENOENT }; });
   assert.deepEqual(fp.tokenReading(), { why: 'no-tool' });
-  assert.equal(asked.length, 2, 'both places were tried: ' + asked.join(', '));
+  assert.equal(asked.length, 3, 'PATH, ~/.local/bin and ~/.claude/scripts were tried: ' + asked.join(', '));
+  assert.ok(asked.some((a) => a.includes(path.join('.claude', 'scripts', 'secrets-map.sh'))), 'the fleet copy is one of them');
   const r = await fp.pull(path.join(SB, 'd4'));
-  assert.match(r.because, /secrets-map.sh\) is not on this computer/);
+  assert.match(r.because, /secrets-map.sh was not found \(on PATH, in ~\/.local\/bin or in ~\/.claude\/scripts\)/);
+  assert.match(r.because, /Install it with \/agent-refresh; do not file the token/);
   assert.doesNotMatch(r.because, /not filed/);
 });
 
 test('the first place missing, the second answering: the token from the second', () => {
   fp.setSecretsRunner((bin, args) => (bin === 'secrets-map.sh' ? { error: ENOENT } : (args[0] === 'value' ? ok('tok2') : ok(''))));
   assert.deepEqual(fp.tokenReading(), { token: 'tok2' });
+  fp.setSecretsRunner((bin, args) => (bin.includes(path.join('.claude', 'scripts')) ? (args[0] === 'value' ? ok('tok3') : ok('')) : { error: ENOENT }));
+  assert.deepEqual(fp.tokenReading(), { token: 'tok3' }, 'only the fleet copy: still read');
 });
 
 test('a runner that throws is a failed read, never a crash', () => {
   fp.setSecretsRunner(() => { throw new Error('boom'); });
-  assert.deepEqual(fp.tokenReading(), { why: 'tool-broken' }, 'it could not be run at either place');
+  assert.deepEqual(fp.tokenReading(), { why: 'cannot-run' }, 'it could not be run at any place');
 });
 
 test('the real secrets-map.sh, its secrets folder pointed at an empty and at an absent folder: tokenReading says missing', (t) => {
@@ -176,7 +219,7 @@ test('the real secrets-map.sh, its secrets folder pointed at an empty and at an 
   const wasPath = process.env.PATH;
   const empty = fs.mkdtempSync(path.join(SB, 'secrets-'));
   try {
-    // Review 2: the tool's own folder first, so the copy tokenReading finds on PATH is the one this test checked for.
+    // The tool's own folder first, so the copy tokenReading finds on PATH is the one this test checked for.
     process.env.PATH = path.dirname(real) + path.delimiter + (wasPath || '');
     /* Never let a token reach an assertion's message: if a copy of the tool ignored SECRETS_DIR and read the real one,
        a deepEqual diff would print it. Only whether a token came back is asserted, then the why. */
@@ -195,7 +238,7 @@ test('the real secrets-map.sh, its secrets folder pointed at an empty and at an 
 test('the real secrets-map.sh with FAKE credentials in a temp folder: a bare token is read, an env-shaped one is misfiled', (t) => {
   const real = path.join(os.homedir(), '.local', 'bin', 'secrets-map.sh');
   if (!fs.existsSync(real)) { t.skip('no secrets-map.sh on this computer'); return; }
-  // Measured 2026-11-24 (round 4): `value` exits 2 refusing an env-shaped credential, the same code an old copy gives
+  // Measured 2026-11-24: `value` exits 2 refusing an env-shaped credential, the same code an old copy gives
   // for an unknown verb; only the wording tells them apart. Fake values only, in a folder this test made.
   const was = process.env.SECRETS_DIR;
   const wasPath = process.env.PATH;
@@ -205,7 +248,7 @@ test('the real secrets-map.sh with FAKE credentials in a temp folder: a bare tok
     process.env.PATH = path.dirname(real) + path.delimiter + (wasPath || '');
     process.env.SECRETS_DIR = write(path.join(SB, 'fake-bare'), head + '# format: bare-token\nfake_blob_token_8992\n');
     const bare = fp.tokenReading();
-    assert.equal(bare.token, 'fake_blob_token_8992', 'CONTROL: a well-filed (fake) token is read');
+    assert.ok(bare.token === 'fake_blob_token_8992', 'CONTROL: the fake token was not the one read');   // never echoes what was read
     process.env.SECRETS_DIR = write(path.join(SB, 'fake-env'), head + '# format: sourceable-env\nFAKE_A=one\nFAKE_B=two\n');
     const env = fp.tokenReading();
     assert.ok(!Object.prototype.hasOwnProperty.call(env, 'token'), 'an env file must not read as a token');
