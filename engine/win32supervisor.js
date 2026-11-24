@@ -452,7 +452,11 @@ const STDOUT_DRAIN_MS = 500;
  * never leaves half of a surrogate pair on the log.
  */
 function stdoutError(e, line) {
-  const clip = (t) => Array.from(String(t).replace(/\s+/g, ' ').trim()).slice(0, STDOUT_ERROR_CHARS).join('');
+  /* Cut the raw text first: it runs on every stdout line, which lineReader lets through
+     at up to MAX_LINE_CHARS, and collapsing a 16 MB line whole would hold the loop. A
+     raw slice of 4x is room for the whitespace the collapse removes. */
+  const clip = (t) => Array.from(String(t).slice(0, STDOUT_ERROR_CHARS * 4).replace(/\s+/g, ' ').trim())
+    .slice(0, STDOUT_ERROR_CHARS).join('');
   if (e === null || e === undefined || typeof e !== 'object' || Array.isArray(e)) {
     const t = clip(line || '');
     return t ? 'a line that was not an event: ' + t : '';
@@ -465,6 +469,12 @@ function stdoutError(e, line) {
   const listed = Array.isArray(e.errors) ? e.errors.filter((m) => typeof m === 'string' && m.trim()) : [];
   const text = listed.length ? listed.join(' | ') : (typeof e.result === 'string' ? e.result : '');
   return clip((subtype || 'error') + (text ? ': ' + text : ''));
+}
+
+/** kosmos#8967: does this event close the story of the last stdout error? A result
+    (a success; an error one is recorded before this is asked) or a new turn's init. */
+function endsLastError(e) {
+  return Boolean(e) && typeof e === 'object' && (e.type === 'result' || (e.type === 'system' && e.subtype === 'init'));
 }
 
 /**
@@ -718,7 +728,7 @@ function superviseStreaming(spec, opts) {
         /* A success, or the start of a new turn, ends the last error's story (an
            error result, or a non-event line, alike): "its last error" means this
            turn's, never one from hours before. */
-        else if (e && typeof e === 'object' && (e.type === 'result' || (e.type === 'system' && e.subtype === 'init'))) stdoutSaid = '';
+        else if (endsLastError(e)) stdoutSaid = '';
         /* The record above is this child's own, so it is kept even once the child is
            replaced or has exited (its death's line still needs it); what follows
            publishes, and only the CURRENT child may. An exited child is no longer
@@ -772,6 +782,10 @@ function superviseStreaming(spec, opts) {
         finish(code, signal, wasCurrent);
         return;
       }
+      /* Not the child's own 'close' event, on purpose: that also waits for stderr and
+         stdin, has no bound (a grandchild holding any pipe holds it for good), and
+         gives no way to skip a stdout that has already ended or been destroyed. This
+         waits on stdout alone, the stream the reason needs, for at most stdoutDrainMs. */
       let done = false;
       let drainTimer = null;
       const once = () => {
@@ -1032,5 +1046,5 @@ module.exports = {
   THROTTLE_MS, POLL_MS, REGISTRATION_GRACE_MS,
   isAlive, ourLiveSession, ensureRunning, supervise, superviseStreaming, specFromArgv, usageDirFor,
   setLiveReader, liveSessions, main, browserFor, endOrphansFor,
-  stdoutError, exitWords, taskLogLine,
+  stdoutError, endsLastError, exitWords, taskLogLine,
 };

@@ -42,9 +42,9 @@ the log: a death is now written up to 500 ms later (the drain below), so the res
   dropped. Only the reason gathering, the `died` line and the restart decision wait.
 
 ## Tests (engine/win32supervisor.test.js)
-Twelve `#8967` tests: code and signal on the event; error vs successful result vs non-event line on the reason, and an
+Thirteen `#8967` tests: code and signal on the event; error vs successful result vs non-event line on the reason, and an
 old error cleared by a success and by a new turn; the death waiting for stdout in the real-world order (exit first);
-the drain bound when stdout never ends, a death released by close alone, and no wait for a stdout already destroyed or closed; process state settled at exit (stopped at once, a late flush not counted); a late line publishing nothing; a send during the drain; stdoutError and
+the drain bound when stdout never ends, a death released by close alone, and no wait for a stdout already destroyed or closed; process state settled at exit (stopped at once, a late flush not counted); a late line publishing nothing; a send during the drain; stdoutError (including a 16 MB line in bounded time) and
 taskLogLine directly. Each was run against the code before its fix and failed there (control runs on the box).
 
 ## Follow-ups, not here
