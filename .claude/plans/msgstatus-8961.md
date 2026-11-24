@@ -27,9 +27,19 @@ recipient's words are never relayed.
 - POST, not GET: the CLIs already send the pane in a JSON body on /api/msg, and resolveAgentSender reads it there.
 
 ## Weakest premise
-That the report hook's turn sentences are present. A provider whose hook does not send them reads as not_yet or
-maybe_read, never as read. And an automatic idle refused over a standing needs_you is not in the history, so such a
-turn reads as still reading.
+That the report hook's turn sentences are present. A provider whose hook does not send them reads as not_yet,
+in_turn or maybe_read, never as read. While the agent's own needs_you or blocked stands, selfreport.record refuses the
+hook's automatic working and idle rows (#900), so turns leave no marks: any wait standing at or after delivery makes
+the answer unknown unless a whole turn was still seen.
+
+## Review changes (challenge loop iteration 1)
+- in_turn: a turn running at delivery and still running is not "not read yet".
+- A held message counts from its held-delivered row; a held-dropped one says it was dropped.
+- Names compare through the roster (a row's `to` is as typed; delivery is case-insensitive, #989).
+- The route reads the longest history tail (HISTORY_MAX_BYTES).
+- A cut history's first mark is not read as between turns.
+- One refusal for a missing id and for another pair's message.
+- The turn sentences are exported from selfreport and pinned against both hooks' text.
 
 ## Tests
 - engine/msgstatus-8961.test.js (16, pure; failing control: dropping the between-turns rule fails one)

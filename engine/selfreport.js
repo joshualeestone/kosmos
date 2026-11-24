@@ -776,5 +776,5 @@ function withdrawnLine(question, why) {
   return (asked ? 'No longer asking: ' + asked : 'No longer asking my last question.') + '\nWhy: ' + reason;
 }
 
-module.exports = { withdrawnLine, turnTakenOf, TURN_STATES /* #7786 */, STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, untilTimeOf, untilDefers /* kosmos#6683 */, DIR, NO_READING, TAIL_BYTES, HISTORY_MAX_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean, finalOf,
+module.exports = { TURN_START_TEXT, TURN_END_TEXT /* kosmos#8961 */, withdrawnLine, turnTakenOf, TURN_STATES /* #7786 */, STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, untilTimeOf, untilDefers /* kosmos#6683 */, DIR, NO_READING, TAIL_BYTES, HISTORY_MAX_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean, finalOf,
   blockedOwnerNote, BLOCKED_PERSON_NOTE, NEEDS_YOU_ASK_NOTE, NEEDS_YOU_HELD_NOTE /* #7915 */ };
