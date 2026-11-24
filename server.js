@@ -21743,10 +21743,22 @@ const server = http.createServer(async (req, res) => {
       ? chat.permissionCard(view.text) : null;
     // kosmos#7017 part 2: with its fingerprint, which a phone's lock-screen press is checked against before it sends.
     const permCard = permRead ? { ...permRead, request: chat.permissionRequestId(permRead) } : null;
+    /* kosmos#8952 slice (c): a permission prompt whose box top scrolled away gets no card above (nobody may approve what
+       cannot be shown whole), but its own No may still be pressed: `denyOnly` on the live question row, with the visible
+       part's identity (questionAbove), which the press names and the key path checks again (answerQuestionMenuHeld). Only
+       on a Claude card, never in the setup guide's thread, for the live pane question, with a label a press could carry. */
+    const denyRead = (!pressable && !guideThread && card && String(card.runner || 'claude') === 'claude' && question
+      && question === paneQuestion && typeof question.text === 'string' && view && typeof view.text === 'string')
+      ? chat.permissionDenyOnly(view.text) : null;
+    const denyAsked = denyRead && !chat.messageProblem(denyRead.label) ? chat.questionAbove(question.text) : null;
+    const denyOnly = denyAsked ? { n: denyRead.n, label: chat.cleanMessage(denyRead.label), asked: denyAsked } : null;
+    // denyOnly rides only the LAST unreported question row, which is the live one whenever withQuestionRow added it.
+    let liveQ = -1;
+    if (denyOnly && Array.isArray(servedRows)) servedRows.forEach((m, k) => { if (m && m.kind === 'question' && !m.reported) liveQ = k; });
     sendJsonTagged(req, res, 200, {
       messages: permCard
         ? servedRows.map((m) => (m && m.kind === 'question' && !m.reported ? { ...m, permission: permCard } : m))
-        : servedRows,
+        : (liveQ >= 0 ? servedRows.map((m, k) => (k === liveQ ? { ...m, denyOnly } : m)) : servedRows),
       olderCount,
       historyBecause,
       historyUnfilable,
@@ -22275,6 +22287,12 @@ const server = http.createServer(async (req, res) => {
             const e = new Error('its screen is asking a question now, so this was not sent again. Answer it first.');
             e.status = 409; throw e;
           }
+          /* kosmos#8952 slice (c): a deny-only press is for a permission prompt only; at any other menu it is refused, never
+             sent as that menu's answer. */
+          if (cq && body.denyOnly === true && !cq.permission) {
+            const e = new Error('only No can be sent for a request too long to show in full, and its screen is asking something else now, so nothing was sent.');
+            e.status = 409; throw e;
+          }
           if (cq) {
             const said = String(body.text).trim();
             /* #6054 review 1: a permission prompt is answered only by a press of its button, which carries the prompt's identity
@@ -22308,6 +22326,7 @@ const server = http.createServer(async (req, res) => {
               };
               if (waitPressed) pressedWaits.set(askingCard.sessionName, waitPressed.at);
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}),
+                ...(cq.permission && body.denyOnly === true ? { denyOnly: true } : {}),   // kosmos#8952 slice (c): its No only
                 ...(cq.permission && requestGiven ? { request: body.request } : {}) }   // kosmos#7020: re-checked on the last look
               ).catch((err) => { pressFailed(); throw err; });
               if (!r.ok) pressFailed();

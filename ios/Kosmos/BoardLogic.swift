@@ -1609,6 +1609,9 @@ enum Board {
         // kosmos#7016: the Mac's reading of a permission prompt on a question row, and whether a question is the agent's
         // own reported words (which take no buttons, as on the board).
         var permission: Permission? = nil
+        // kosmos#8952 slice (c): a permission prompt too long to show whole (its box top scrolled away), which can only be
+        // refused from here: its own No, and the identity a press names.
+        var denyOnly: DenyOnly? = nil
         var reported = false
         // kosmos#7016 part 2: the files on the row, in the order sent (the board's pjFiles).
         var attachments: [Attachment] = []
@@ -2525,6 +2528,18 @@ enum Board {
         // kosmos#7020: a permission card's request (chat.permissionRequestId, on the live question row), sent with a
         // press so the Mac types it only at that same request. Part of `key`: two prompts can share `asked`.
         var request: String? = nil
+        // kosmos#8952 slice (c): the deny-only card's one choice; the press says so and the Mac types it only as the No.
+        var denyOnly = false
+    }
+
+    struct DenyOnly: Equatable { let n: Int; let label: String; let asked: String }
+
+    // The Mac's denyOnly on a question row: a whole number, words, and a non-empty identity, or nothing.
+    static func parseDenyOnly(_ any: Any?) -> DenyOnly? {
+        guard let d = any as? [String: Any], let n = integer(d["n"]), (1...9).contains(n),
+              let label = d["label"] as? String, !label.isEmpty,
+              let asked = d["asked"] as? String, !asked.isEmpty else { return nil }
+        return DenyOnly(n: n, label: label, asked: asked)
     }
 
     struct Permission: Equatable {
@@ -2613,7 +2628,27 @@ enum Board {
 
     // A question row takes the buttons only when it is not the agent's own reported words (dmChoicesHtml).
     static func choices(for row: ChatRow, in thread: Thread) -> Choices? {
-        row.wayThrough == .question || row.wayThrough == .permission ? (row.reported ? nil : thread.choices) : nil
+        guard row.wayThrough == .question || row.wayThrough == .permission, !row.reported else { return nil }
+        if let c = thread.choices { return c }
+        // kosmos#8952 slice (c): no buttons for the whole request, but its No, and only on the live (last unreported) row.
+        guard let d = row.denyOnly,
+              thread.rows.last(where: { ($0.wayThrough == .question || $0.wayThrough == .permission) && !$0.reported })?.id == row.id
+        else { return nil }
+        return Choices(options: [ChoiceOption(n: d.n, label: d.label, lasting: false)], asked: d.asked,
+                       key: "deny\u{3}" + d.asked + "\u{3}\(d.n)\u{1}" + d.label, denyOnly: true)
+    }
+
+    // kosmos#8952 slice (c): the choices a press on this thread was for: the thread's buttons, or else the Deny of its live
+    // question row (the last unreported one). A refusal line stays while these keep the pressed key. This matches the
+    // pressed Deny only because a Deny is drawn on that live row alone (choices(for:)).
+    static func liveChoices(_ t: Thread) -> Choices? {
+        if let c = t.choices { return c }
+        guard let row = t.rows.last(where: { ($0.wayThrough == .question || $0.wayThrough == .permission) && !$0.reported }) else { return nil }
+        return choices(for: row, in: t)
+    }
+    // No thread read, no buttons (dropChoices): the thread without its buttons and without any row's Deny.
+    static func withoutChoices(_ t: Thread) -> Thread {
+        Thread(rows: t.rows.map { var r = $0; r.denyOnly = nil; return r }, olderCount: t.olderCount)
     }
 
     // kosmos#8952: a question or permission row with no buttons opens nothing: the board draws none for it either (the same
@@ -2627,9 +2662,9 @@ enum Board {
         return askedWay(way, approval: approval) == .permission
             || !rows[(at + 1)...].contains { $0.who == .person && $0.notSent == nil }
     }
-    // Review 5: a permission the Mac cannot offer buttons for reaches the phone as a plain question row (the board adds
-    // `permission` only where it is pressable), so while the agent waits on its permission prompt (awaitingApproval)
-    // the asked row is a permission.
+    // Review 5: a permission row with neither `permission` (added only where it is pressable) nor kosmos#8952's
+    // `denyOnly` (already parsed as a permission) reaches the phone as a plain question row, so while the agent waits
+    // on its permission prompt (awaitingApproval) the asked row is a permission.
     static func askedWay(_ way: ChatRow.WayThrough, approval: Bool) -> ChatRow.WayThrough {
         way == .question && approval ? .permission : way
     }
@@ -2657,6 +2692,9 @@ enum Board {
     // An agent's native chat opens only when the phone's agents list has it; otherwise the tap opens the computer's board
     // (the room's needs-you button, a project member, Tasks' Answer), and only then says so.
     static func opensBoardFor(_ session: String, agents: [Agent]) -> Bool { !agents.contains { $0.session == session } }
+    // kosmos#8952 slice (c): the deny-only card's words (Mona Lisa's design, the card's comment 7120105744).
+    static let denyOnlyAsk = "Wants to do something that needs your permission."
+    static let denyOnlyYesNote = "Yes needs your computer: this request is too long to show here in full."
 
     // DM_PERM_DOES.
     static func permissionDoes(_ kind: String) -> String {
@@ -2704,7 +2742,7 @@ enum Board {
 
     // The option's digit is the key typed; its words are checked against the screen; `lasting` confirms a lasting choice;
     // `request` (#7020) names the permission request the card was drawn for.
-    static func pressRequest(mac: URL, session: String, option: ChoiceOption, asked: String, request: String? = nil) -> URLRequest? {
+    static func pressRequest(mac: URL, session: String, option: ChoiceOption, asked: String, request: String? = nil, denyOnly: Bool = false) -> URLRequest? {
         guard isAgentSession(session) else { return nil }
         var r = URLRequest(url: URL(string: "/api/agent/\(session)/thread", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "POST"
@@ -2713,6 +2751,7 @@ enum Board {
         var body: [String: Any] = ["text": String(option.n), "chose": option.label, "asked": asked]
         if let request { body["request"] = request }
         if option.lasting { body["lasting"] = true }
+        if denyOnly { body["denyOnly"] = true }   // kosmos#8952 slice (c)
         r.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return r
     }
@@ -2847,13 +2886,14 @@ enum Board {
             // A permission is read only on a question row (the board's m.kind === 'question' && m.permission).
             let permission = kind == "question" ? parsePermission(row["permission"]) : nil
             // Marked a permission prompt whenever the Mac says it is one; the card itself needs Allow and Deny it can read.
-            let isPermission = kind == "question" && row["permission"] is [String: Any]
+            let denyOnly = kind == "question" ? parseDenyOnly(row["denyOnly"]) : nil
+            let isPermission = kind == "question" && (row["permission"] is [String: Any] || denyOnly != nil)
             let way: ChatRow.WayThrough? = (row["draft"] as? Bool) == true ? .draft : isPermission ? .permission
                 : kind == "question" ? .question
                 : (row["attachment"] != nil || (row["attachments"] as? [Any])?.isEmpty == false) ? .attachment : nil
             return ChatRow(id: idPrefix + base + "#\(n)", atRaw: at, at: isoDate(at), text: text, who: who, notSent: notSent, wayThrough: way,
                            because: because, resendable: resendable, retryable: retryable, retrying: retrying,
-                           permission: permission, reported: isTrue(row["reported"]), attachments: parseAttachments(row),
+                           permission: permission, denyOnly: denyOnly, reported: isTrue(row["reported"]), attachments: parseAttachments(row),
                            replyTo: (row["replyTo"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                            reactions: parseReactions(row["reactions"]), from: from, earlierPart: isTrue(row["earlierPart"]),
                            preview: parseLinkPreview(row["preview"]))

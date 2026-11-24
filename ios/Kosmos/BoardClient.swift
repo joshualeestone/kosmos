@@ -800,7 +800,8 @@ final class BoardClient: ObservableObject {
     func keptThread(for session: String) -> Board.Thread? {
         guard let mac = admitted?.url.absoluteString, let file = threadFile(session, owner: chatsOwner, mac: mac),
               let data = try? Data(contentsOf: file), let t = Board.parseThread(data) else { return nil }
-        return Board.Thread(rows: t.rows, olderCount: t.olderCount)
+        // kosmos#8952 slice (c): nor a row's Deny. Such a row stays a permission row (parsed before the Deny went).
+        return Board.withoutChoices(t)
     }
     // One file per account, computer and agent, named by a hash of the three, so no name or address is in a file name.
     private func threadFile(_ session: String, owner: String?, mac: String) -> URL? {
@@ -1211,7 +1212,7 @@ final class BoardClient: ObservableObject {
     private func sendPress(_ option: Board.ChoiceOption, _ choices: Board.Choices, _ session: String) async -> Board.PressResult {
         // Not connected: nothing was sent, so the buttons come back.
         guard let held = admitted,
-              let request = Board.pressRequest(mac: held.url, session: session, option: option, asked: choices.asked, request: choices.request)
+              let request = Board.pressRequest(mac: held.url, session: session, option: option, asked: choices.asked, request: choices.request, denyOnly: choices.denyOnly)
         else { return .refused(Shell.macUnreachableTitle(shownMacName) + ". Try again in a moment.") }   // kosmos#7197: named
         let answer = await env.send(request)
         return Board.pressResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
@@ -1755,6 +1756,11 @@ final class BoardClient: ObservableObject {
         // Eli's shows a permission prompt (#7016): a command that deletes files, with a lasting choice under Show details.
         let eli = #"{"messages":[{"at":"2026-10-23T14:20:00Z","text":"The export folder still holds last week's files.","from":"eli"},{"at":null,"text":"Do you want to proceed?","from":"eli","kind":"question","permission":{"kind":"delete","title":"Bash command","says":"Clear last week's export before the new one","target":"rm -rf exports/2026-10-16","detail":"Bash command\n\n  rm -rf exports/2026-10-16\n  Clear last week's export before the new one","reason":"Commands that delete files always ask first.","allow":1,"deny":3}}],"olderCount":0,"question":{"text":"Do you want to proceed?"},"asking":true,"asked":"Do you want to proceed?","presence":"on","options":[{"n":1,"label":"Yes"},{"n":2,"label":"Yes, and don't ask again for rm commands in this folder","lasting":true},{"n":3,"label":"No, and tell Claude what to do differently"}]}"#
         if let t = Board.parseThread(Data(eli.utf8)) { sampleThreads["eli"] = t }
+        // KOSMOS_SAMPLE_DENYONLY=1 (kosmos#8952 slice c): Eli's prompt too long to show whole, so only its No (denyOnly).
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_DENYONLY"] == "1" {
+            let cut = #"{"messages":[{"at":"2026-10-23T14:20:00Z","text":"Running the release checks now.","from":"eli"},{"at":null,"text":"Do you want to proceed?","from":"eli","kind":"question","denyOnly":{"n":3,"label":"No","asked":"npm test && git commit -m release"}}],"olderCount":0,"question":{"text":"Do you want to proceed?"},"asking":true,"asked":null,"presence":"on","options":null}"#
+            if let t = Board.parseThread(Data(cut.utf8)) { sampleThreads["eli"] = t }
+        }
         // KOSMOS_SAMPLE_NOT_SENT=1: one message in Dana's chat that was not taken, for the not-sent screenshot.
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOT_SENT"] == "1" {
             pending["dana"] = [Board.PendingSend(id: "sample-failed", text: "Can you send me pages 1 to 8 now?", at: env.now(),

@@ -2094,7 +2094,12 @@ struct ChatView: View {
     // MARK: - Answering a question (kosmos#7016)
 
     @ViewBuilder private func choicesView(_ row: Board.ChatRow, _ choices: Board.Choices) -> some View {
-        if let p = row.permission, let card = Board.cardButtons(choices, p) {
+        if choices.denyOnly, let deny = choices.options.first {
+            // kosmos#8952 slice (c): too long to show whole, so only its No here. allow -1 is no option number, so
+            // "Allowed." never shows.
+            DenyOnlyCard(deny: deny, state: choicesState(choices, among: [deny], .main(allow: -1, deny: deny.n)),
+                         widthShare: widthShare, press: { press($0, choices, decided: true) })
+        } else if let p = row.permission, let card = Board.cardButtons(choices, p) {
             PermissionCard(permission: p, allow: card.allow, deny: card.deny, more: card.more,
                            mainState: choicesState(choices, among: [card.allow, card.deny], .main(allow: p.allow, deny: p.deny)),
                            moreState: choicesState(choices, among: card.more, .more),
@@ -2254,8 +2259,9 @@ struct ChatView: View {
     private func dropChoices() {
         // kosmos#7810: the shown window no longer matches the Mac's body, so the next read asks for it whole.
         threadTag = nil
-        guard let t = thread, t.choices != nil else { return }
-        thread = Board.Thread(rows: t.rows, olderCount: t.olderCount)
+        // kosmos#8952 slice (c): a row's Deny goes too.
+        guard let t = thread, t.choices != nil || t.rows.contains(where: { $0.denyOnly != nil }) else { return }
+        thread = Board.withoutChoices(t)
     }
 
     private func redraw(after seconds: TimeInterval) {
@@ -2849,7 +2855,7 @@ struct ChatView: View {
             // A moved reset leaves the top in view with nothing loading: the next read asks again.
             loadEarlier("read")
             // A line about a question that is no longer the one up would read as a warning about the next one.
-            if pressLine != nil, fresh.choices?.key != pressLineKey { pressLine = nil }
+            if pressLine != nil, Board.liveChoices(fresh)?.key != pressLineKey { pressLine = nil }   // kosmos#8952 (c): a Deny's key too
             #if DEBUG
             applySampleChoice(fresh)
             #endif
