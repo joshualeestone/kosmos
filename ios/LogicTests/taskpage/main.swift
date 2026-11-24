@@ -1283,6 +1283,36 @@ do {
 }
 await b5ModelTests()
 
+section("#8958 slice B6: subtasks")
+do {
+    // The board's own words, read from the page.
+    let pageURL = here.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("web/index.html")
+    let html = (try? String(contentsOf: pageURL, encoding: .utf8)) ?? ""
+    check(html.contains("function tkPaintSubtasks"), "premise: the board's page is there")
+    for words in [Board.subtasksNone, ">" + Board.subtaskAdd + "<", ">" + Board.subtasksCloseAll + "<", Board.subtasksCloseUnsure,
+                  "'" + Board.subtasksDoneLine(unrun: false) + "'", "'" + Board.subtasksDoneLine(unrun: true) + "'",
+                  "'The rest are built.' : 'All subtasks are built.') + ' Check each one first.'", "'. Its built subtasks are closed.'",
+                  "' subtask before it is' : ' subtasks before it are') + ' closed.'", "' This task is still open.'", "'as a subtask.'", "'we could not close it'"] {
+        check(html.contains(words), "the board says: \(words)")
+    }
+    check(Board.subtasksBuiltLine(unrun: false) == "All subtasks are built. Check each one first." && Board.subtasksBuiltLine(unrun: true) == "The rest are built. Check each one first.", "the built line, with and without one not run")
+    check(Board.subtaskAddedLine(number: 12) == "Added task 12 as a subtask." && Board.subtaskAddedLine(number: nil) == "Added task as a subtask.", "the added line")
+    check(Board.subtasksStopped(at: nil, why: "no", closed: 2) == "no. Its built subtasks are closed.", "stopped at this task")
+    check(Board.subtasksStopped(at: 4, why: "no", closed: 0) == "Task #4: no. This task is still open.", "stopped at the first")
+    check(Board.subtasksStopped(at: 4, why: "no", closed: 1) == "Task #4: no. 1 subtask before it is closed. This task is still open.", "stopped at the second")
+    check(Board.subtasksStopped(at: 4, why: "no", closed: 2) == "Task #4: no. 2 subtasks before it are closed. This task is still open.", "stopped at the third")
+    let e = Data(#"{"error":"no"}"#.utf8)
+    check(Board.closeStop(status: 204, body: nil) == nil && Board.closeStop(status: 409, body: e) == .refused("no") && Board.closeStop(status: 400, body: nil) == .refused("we could not close it"), "closed, refused with words, refused with none")
+    check(Board.closeStop(status: 500, body: e) == .refused("no"), "a 500 with the Mac's words is the Mac's")
+    for s in [0, 500, 502, 504] { check(Board.closeStop(status: s, body: s == 502 || s == 504 ? e : nil) == .unsure, "no answer, or a gateway's: unsure (\(s))") }
+    func kids(_ unrun: String, _ third: String) -> Board.TaskPage? {
+        synthetic(#"{"number":1,"sentence":"S"\#(unrun)},{"number":2,"sentence":"a","parent":1,"builtAt":"2026-11-24T15:00:00.000Z"},{"number":3,"sentence":"b","parent":1,\#(third)}"#)
+    }
+    check(kids("", #""closedAt":"2026-11-24T15:00:00.000Z","closedUnrun":true"#)?.subtasks.map(\.status) == ["Built", "Not run"], "a subtask closed without running reads Not run (kosmos#8301)")
+    check(kids(#","subtasks":{"unrun":1}"#, #""closedAt":"2026-11-24T15:00:00.000Z""#)?.subtasksUnrun == true && kids("", #""closedAt":"2026-11-24T15:00:00.000Z""#)?.subtasksUnrun == false, "the engine's count of those not run is read")
+}
+await b6ModelTests()
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
@@ -2301,5 +2331,95 @@ func b5ModelTests() async {
         fm.release()
         await second.value
         check(f.undoDone == nil && fm.asked.count == before, "the Mac switched while it is out: nothing said, nothing read")
+    }
+}
+
+@MainActor
+func b6ModelTests() async {
+    // Task 1 with three subtasks: 2 closed, 3 and 4 as given.
+    func tasks(_ three: [String: Any], _ four: [String: Any], own: [String: Any] = [:]) -> (Int, Data) {
+        var list: [[String: Any]] = [["number": 1, "sentence": "All", "progress": ["done": 0, "total": 1, "closed": false]].merging(own) { $1 },
+                                     ["number": 4, "sentence": "c", "parent": 1].merging(four) { $1 }, ["number": 3, "sentence": "b", "parent": 1].merging(three) { $1 }]
+        list.append(["number": 2, "sentence": "a", "parent": 1, "closedAt": "2026-11-24T15:00:00.000Z"])
+        return (200, (try? JSONSerialization.data(withJSONObject: ["projects": [["id": "springcatalogue", "name": "Spring", "tasks": list]]])) ?? Data())
+    }
+    let built: [String: Any] = ["builtAt": "2026-11-24T15:00:00.000Z"], closed: [String: Any] = ["closedAt": "2026-11-24T16:00:00.000Z", "progress": ["done": 1, "total": 1, "closed": true]]
+    func model(_ mac: FakeMac) async -> TaskPageModel {
+        let m = TaskPageModel(project: "springcatalogue", number: 1, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch })
+        m.onScreen = true
+        await m.read()
+        mac.asked = []
+        return m
+    }
+    func closes(_ mac: FakeMac) -> [String] { mac.asked.filter { $0.hasPrefix("POST ") }.map { $0.replacingOccurrences(of: "POST /api/project/springcatalogue/task/", with: "") } }
+
+    do {
+        let mac = FakeMac(); mac.projects = tasks(built, built); let m = await model(mac)
+        check(m.page?.allSubtasksBuilt == true, "premise: all built or done")
+        mac.onSend = { r in if r.url?.path.hasSuffix("/task/1/close") == true { mac.projects = tasks(closed, closed, own: closed) } }
+        await m.closeWithSubtasks(names: [:])
+        check(closes(mac) == ["3/close", "4/close", "1/close"], "each built subtask in number order, not the one already closed, then this task")
+        check(mac.asked.suffix(2) == ["GET /api/projects", "GET /api/project/springcatalogue/task/1/activity"], "then the task and its activity read again")
+        check(m.page?.closed == true && m.refusal == nil && !m.pressing, "closed, nothing refused")
+    }
+    for (what, answers, want, sent) in [("the second refused", [(200, "{}"), (409, #"{"error":"no"}"#)], "Task #4: no. 1 subtask before it is closed. This task is still open.", 2),
+                                        ("the first refused", [(409, #"{"error":"no"}"#)], "Task #3: no. This task is still open.", 1),
+                                        ("this task refused", [(200, "{}"), (200, "{}"), (409, #"{"error":"no"}"#)], "no. Its built subtasks are closed.", 3),
+                                        ("no answer", [(200, "{}"), nil], Board.subtasksCloseUnsure, 2)] as [(String, [(Int, String)?], String, Int)] {
+        let mac = FakeMac(); mac.projects = tasks(built, built); let m = await model(mac)
+        mac.actAnswers = answers
+        await m.closeWithSubtasks(names: [:])
+        check(m.refusal == want && closes(mac).count == sent && !m.pressing, "\(what): it stops there and says where")
+        check(mac.asked.contains("GET /api/projects") && mac.asked.contains("GET /api/project/springcatalogue/task/1/activity"), "\(what): the list is read again")
+    }
+    do {
+        let mac = FakeMac(); mac.projects = tasks(built, built); let m = await model(mac)
+        mac.actAnswers = [(200, "{}"), (200, "{}"), nil]
+        mac.onSend = { r in if r.url?.path.hasSuffix("/task/1/close") == true { mac.projects = tasks(closed, closed, own: closed) } }
+        await m.closeWithSubtasks(names: [:])
+        check(m.page?.closed == true && m.refusal == nil, "this task's answer lost, but it reads closed: nothing is said to have stopped")
+    }
+    for (what, three, four) in [("one open", built, [:]), ("one held", built, ["builtAt": "x", "onHold": true]), ("all done", closed, closed)] as [(String, [String: Any], [String: Any])] {
+        let mac = FakeMac(); mac.projects = tasks(three, four); let m = await model(mac)
+        await m.closeWithSubtasks(names: [:])
+        check(mac.asked.isEmpty, "\(what): nothing is sent")
+    }
+    do {
+        let mac = FakeMac(); mac.projects = tasks(built, built); let m = await model(mac)
+        mac.holdTheNext()
+        let going = Task { await m.closeWithSubtasks(names: [:]) }
+        await waitUntil({ mac.holding }, "the first close")
+        check(m.pressing && m.refusal == nil, "in progress while it is out")
+        await m.closeWithSubtasks(names: [:])
+        await m.press(.close, names: [:])
+        check(closes(mac).count == 1, "a second press, or Mark as done, sends nothing meanwhile")
+        mac.epoch += 1
+        mac.release()
+        await going.value
+        check(closes(mac).count == 1 && mac.asked.count == 1, "the Mac switched meanwhile: no more closes, nothing read")
+    }
+    do {
+        let mac = FakeMac(); mac.projects = tasks(built, built); let m = await model(mac)
+        mac.epoch += 1
+        await m.closeWithSubtasks(names: [:])
+        check(mac.asked.isEmpty, "switched before the press: nothing is sent")
+    }
+    do {
+        let mac = FakeMac(); mac.projects = tasks(built, built); let m = await model(mac)
+        mac.holdTheNext()
+        let going = Task { await m.press(.close, names: [:]) }
+        await waitUntil({ mac.holding }, "Mark as done")
+        await m.closeWithSubtasks(names: [:])
+        check(closes(mac).count == 1, "nothing while Mark as done is out")
+        mac.release()
+        await going.value
+        mac.asked = []
+        mac.holdTheNext()
+        let hold = Task { await m.toggleHold(wasOnHold: false, names: [:]) }
+        await waitUntil({ mac.holding }, "the hold")
+        await m.closeWithSubtasks(names: [:])
+        check(closes(mac).isEmpty, "nor a hold")
+        mac.release()
+        await hold.value
     }
 }

@@ -73,6 +73,8 @@ extension Board {
         // Every subtask done, or every one done or built (some only built), while this one is open.
         let allSubtasksDone: Bool
         let allSubtasksBuilt: Bool
+        // One of them was closed without running (kosmos#8301): the lines then do not say all are done.
+        var subtasksUnrun = false
         // The tasks this one replaced (theirs name it; the link is stored once).
         let replaces: [Int]
         // kosmos#8958 slice B3: the board's repeat fields (Board.fillRepeat) when the task repeats, for its line; and the
@@ -140,7 +142,7 @@ extension Board {
         let subtasks = kids.compactMap { x -> SubtaskRow? in
             guard let n = integer(x["number"]) else { return nil }
             // kosmos#8146 (the board's tkPaintSubtasks since #8140): a held one reads On hold, not Open.
-            let status = isClosed(x) ? (integer(x["replacedBy"]) != nil ? "Replaced" : "Done") : built(x) ? "Built"
+            let status = isClosed(x) ? (integer(x["replacedBy"]) != nil ? "Replaced" : x["closedUnrun"] as? Bool == true ? "Not run" : "Done") : built(x) ? "Built"
                 : x["onHold"] as? Bool == true ? "On hold" : "Open"
             return SubtaskRow(number: n, sentence: text(x["sentence"]) ?? "", status: status)
         }
@@ -165,6 +167,7 @@ extension Board {
             allSubtasksDone: !kids.isEmpty && kids.allSatisfy(isClosed) && !closed,
             allSubtasksBuilt: !kids.isEmpty && !kids.allSatisfy(isClosed) && kids.allSatisfy { isClosed($0) || built($0) } && !closed,
             replaces: replaces)
+        page.subtasksUnrun = ((t["subtasks"] as? [String: Any]).flatMap { Board.number($0["unrun"]) } ?? 0) > 0
         // kosmos#8958 slice B3: a task that repeats carries the board's words for its rule, runs and next run.
         var row = TaskRow(projectId: project, projectName: page.projectName, number: number, sentence: page.sentence, state: closed ? "done" : "open")
         fillRepeat(&row, t)
@@ -1252,5 +1255,33 @@ extension Board {
         }
         if let saved = out["savedIn"] as? String, !saved.isEmpty { bits.append("The versions from before the undo are saved in " + saved + ".") }
         return bits.joined(separator: " ")
+    }
+}
+
+// MARK: Subtasks: adding one, closing the built ones with this task (kosmos#8958 slice B6: the board's #3861 part 2, #6501)
+
+extension Board {
+    static let subtasksNone = "None yet. Break this task into smaller ones, each with its own page."
+    static let subtaskAdd = "+ Add subtask"
+    static let subtasksCloseAll = "Close them and this task"
+    static let subtasksCloseUnsure = "We could not finish closing them. The list below shows where it stopped."
+
+    static func subtasksDoneLine(unrun: Bool) -> String { unrun ? "All subtasks closed." : "All subtasks done." }
+    static func subtasksBuiltLine(unrun: Bool) -> String { (unrun ? "The rest are built." : "All subtasks are built.") + " Check each one first." }
+    static func subtaskAddedLine(number: Int?) -> String { "Added task " + (number.map { String($0) + " " } ?? "") + "as a subtask." }
+
+    // What a refusal says: which task it stopped at, and what is closed by then. `at` nil is this task itself, asked last.
+    static func subtasksStopped(at: Int?, why: String, closed: Int) -> String {
+        guard let at else { return why + ". Its built subtasks are closed." }
+        let before = closed == 0 ? "" : " \(closed)" + (closed == 1 ? " subtask before it is" : " subtasks before it are") + " closed."
+        return "Task #\(at): " + why + "." + before + " This task is still open."
+    }
+    // The Mac's answer to one of the closes: nil when it is closed. No answer, or a gateway's, says only that it stopped.
+    enum CloseStop: Equatable { case refused(String), unsure }
+    static func closeStop(status: Int, body: Data?) -> CloseStop? {
+        if (200...299).contains(status) { return nil }
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if let e = obj?["error"] as? String, !e.isEmpty, status != 0, status != 502, status != 504 { return .refused(e) }
+        return status == 0 || status >= 500 ? .unsure : .refused("we could not close it")
     }
 }
