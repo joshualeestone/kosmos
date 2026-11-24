@@ -146,7 +146,7 @@ if [ -n "${KOSMOS_GATE_EXPECT_VERSION:-}" ] && [ "$BOARD_VERSION" != "$KOSMOS_GA
   # What the operator can actually do (Baron's review: a prod-channel fleet board cannot take the candidate before
   # the promote, so "update it first" sent them nowhere).
   say "  To check $KOSMOS_GATE_EXPECT_VERSION here: point a board at staging (AGENT_WORKFORCE_UPDATE_CHANNEL=staging, or"
-  say "  KOSMOS_UPDATE_CHANNEL=staging on a fresh install). Or verify by hand, promote with --force, and once this board"
+  say "  KOSMOS_UPDATE_CHANNEL=staging on a fresh install). Or verify by hand, promote with --force --hand-check \"<what you checked>\", and once this board"
   say "  reports $KOSMOS_GATE_EXPECT_VERSION run: KOSMOS_GATE_EXPECT_VERSION=$KOSMOS_GATE_EXPECT_VERSION bash $(cd "$(dirname "$0")" && pwd)/staging-experience-check.sh $PORT"
   exit 2
 fi

@@ -146,6 +146,14 @@ S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash 
 S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check="$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ -f "$S8960a/dist/latest.json" ] && has "$out" "the hand check named for this --force: $HC8960" && pass "promote: #8960 CONTROL --force with a named check (= form) promotes and prints the check" || bad "promote 8960 control (rc=$rc, out=$out)"
 
+# the boundary, exactly: 19 characters refuses, 20 promotes (a space and a control character squeeze to one space)
+S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "1234567890123456789" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 a 19-character hand check refuses" || bad "promote 8960 19 chars (rc=$rc, out=$out)"
+S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "12345678901234567890" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 a 20-character hand check promotes" || bad "promote 8960 20 chars (rc=$rc, out=$out)"
+S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "$(printf ' \001%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25)" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 spaces and control characters alone are not a hand check" || bad "promote 8960 control-only (rc=$rc, out=$out)"
+
 # THE load-bearing guarantee: --force overrides ONLY the experience gate, NEVER the
 # same-bytes invariant. Prove it decisively -- a byte-refusal (wrong pointer sha) with
 # --force AND a PASSING gate (GATE_RC_WANT=0) must still refuse, because the byte-refusal
@@ -342,7 +350,8 @@ SHA_T="$(sed -n 's/.*"sha256": *"\([^"]*\)".*/\1/p' "$Sp2/dist/latest-staging.js
 # --force changes nothing for a missing record: still a warning, a promote, and one MORE log line.
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash "$PROMOTE" "$Sp2" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ -f "$Sp2/dist/latest.json" ] && [ "$(grep -c 'version=9.9.9' "$PLUS_LOG_T")" = 2 ] \
-  && pass "promote: plus gate 2 + --force -> promote, logged again" || bad "promote plus-gate-2-force (rc=$rc, out=$out)"
+  && [ "$(tail -1 "$PLUS_LOG_T" | grep -c "hand_check=$HC8960\$")" = 1 ] && [ "$(head -1 "$PLUS_LOG_T" | grep -c 'hand_check=none$')" = 1 ] \
+  && pass "promote: plus gate 2 + --force -> promote, logged again (#8960: the forced line names the hand check, the unforced one none)" || bad "promote plus-gate-2-force (rc=$rc, out=$out)"
 # A log that cannot be written never stops the promote; the output says so instead.
 Sp2b="$(make_site)"; bash "$PUBLISH" "$Sp2b" >/dev/null 2>&1
 out="$(KOSMOS_PLUS_VERIFY_DIR="$T/not-a-dir-file" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash -c ': > "$KOSMOS_PLUS_VERIFY_DIR"; exec bash "$0" "$1"' "$PROMOTE" "$Sp2b" 2>&1)"; rc=$?

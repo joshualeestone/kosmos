@@ -271,7 +271,7 @@ S="$(newsite)"; out="$(KOSMOS_PROMOTE_TUNNEL_GATE_CMD="bash $HOLD" bash "$HERE/p
 [ "$rc" = 2 ] && untouched "$S" && has "$out" "pass --force with --sha <8+ characters of 9.9.8's sha256> and --hand-check \"<what you checked>\" only after verifying remote access by hand" \
   && pass "named: the tunnel HOLD offers --force with --sha" || bad "named tunnel HOLD wording (rc=$rc, out=$out)"
 S="$(newsite)"; out="$(KOSMOS_PROMOTE_TUNNEL_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" 2>&1)"; rc=$?
-[ "$rc" = 2 ] && has "$out" "pass --force with --hand-check \"<what you checked>\" only after verifying remote access by hand" && pass "default: CONTROL the tunnel HOLD wording is unchanged" || bad "default tunnel HOLD wording (rc=$rc, out=$out)"
+[ "$rc" = 2 ] && has "$out" "pass --force with --hand-check \"<what you checked>\" only after verifying remote access by hand" && pass "default: CONTROL the tunnel HOLD offers --force with --hand-check (no --sha)" || bad "default tunnel HOLD wording (rc=$rc, out=$out)"
 
 # ---- a version older than prod's is a rollback, and needs --allow-older ----
 S="$(newsite)"; out="$(bash "$HERE/promote-channel.sh" "$S" 2>&1)"   # prod now serves 9.9.9
