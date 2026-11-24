@@ -20,7 +20,10 @@ final class AccountScreenUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Answering now"].waitForExistence(timeout: 5), "the answering computer's words are missing")
         XCTAssertTrue(app.staticTexts["Retired. Its address is free again."].exists, "the retired computer is not listed")
         XCTAssertTrue(app.staticTexts["Has not answered in 20 days. It may be off, or gone."].exists, "the silent computer's words are missing")
-        // The retired one has no Retire; the three others do.
+        // The retired one has no Retire; the three others each have their own. Two rows are named old-mini (one retired,
+        // one silent), so exactly one "Retire old-mini" shows the retired row has none.
+        XCTAssertTrue(app.buttons["Retire studio"].exists && app.buttons["Retire laptop"].exists, "Retire missing on a computer that answers")
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == 'Retire old-mini'")).count, 1, "the retired old-mini has a Retire, or the silent one has none")
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Retire '")).count, 3, "Retire on every computer not retired, and only those")
         shot(app, "account-screen")
 
