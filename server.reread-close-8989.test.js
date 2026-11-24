@@ -62,15 +62,18 @@ const withBoard = (h = {}) => ({ 'x-kosmos-board-token': BOARD, ...h });
 
 /* mara and otto are both on p8989. The close is recorded, not made; it hands back a task held by `holder`. What each
    assignee's sync was asked is recorded too (projects.syncAgent is stubbed, so no instructions file is written). */
-function world(t, holder) {
+function world(t, holder, { stored = [], closedWith } = {}) {
   const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('otto', { state: 'idle' })]);
-  const real = { readAll: projectsEngine.readAll, syncAgent: projectsEngine.syncAgent, close: tasksEngine.close, reopen: tasksEngine.reopen };
+  const real = { readAll: projectsEngine.readAll, syncAgent: projectsEngine.syncAgent, close: tasksEngine.close, reopen: tasksEngine.reopen,
+    setPartClosed: tasksEngine.setPartClosed, assignPart: tasksEngine.assignPart };
   const synced = [];
-  projectsEngine.readAll = () => [{ id: 'p8989', name: 'p8989', agents: ['mara', 'otto'], tasks: [], made: { via: 'screen', by: null } }];
+  projectsEngine.readAll = () => [{ id: 'p8989', name: 'p8989', agents: ['mara', 'otto'], tasks: stored, made: { via: 'screen', by: null } }];
   projectsEngine.syncAgent = (who, roster, opts) => { synced.push([who, !!(opts && opts.byOther)]); return { state: projectsEngine.TOLD.TOLD, changed: true }; };
-  tasksEngine.close = (id, n) => ({ number: Number(n), who: holder, state: 'closed' });
+  tasksEngine.close = (id, n) => ({ number: Number(n), who: holder, state: 'closed', ...(closedWith ? { closedWith } : {}) });
+  tasksEngine.setPartClosed = (id, n) => ({ ok: true, task: { number: Number(n), who: holder } });
+  tasksEngine.assignPart = (id, n, part, who) => ({ ok: true, changed: true, task: { number: Number(n), sentence: 'x', parts: [{ id: 1, who }] } });
   tasksEngine.reopen = (id, n) => ({ number: Number(n), who: holder, state: 'open' });
-  t.after(() => { Object.assign(projectsEngine, { readAll: real.readAll, syncAgent: real.syncAgent }); Object.assign(tasksEngine, { close: real.close, reopen: real.reopen }); board.restore(); });
+  t.after(() => { Object.assign(projectsEngine, { readAll: real.readAll, syncAgent: real.syncAgent }); Object.assign(tasksEngine, { close: real.close, reopen: real.reopen, setPartClosed: real.setPartClosed, assignPart: real.assignPart }); board.restore(); });
   return { synced, mara: sendertoken.mint('mara').token, otto: sendertoken.mint('otto').token };
 }
 
@@ -102,4 +105,34 @@ test('a reopen by another agent is owed the same way; the holder\'s own reopen i
   assert.equal(r.code, 200, r.text.slice(0, 200));
   assert.equal((await call('POST', '/api/project/p8989/task/1/reopen', { headers: withBoard(asAgent(w.otto)), body: { why: 'not done' } })).code, 200);
   assert.deepEqual(w.synced, [['otto', true], ['otto', false]]);
+});
+
+const screen = (h = {}) => withBoard({ 'sec-fetch-site': 'same-origin', ...h });
+
+test('the screen\'s close of several tasks owes every holder a re-read', async (t) => {
+  const w = world(t, 'otto', { stored: [{ number: 1, sentence: 'one', who: 'otto' }] });
+  const r = await call('POST', '/api/tasks/close', { headers: screen(), body: { tasks: [{ projectId: 'p8989', number: 1 }] } });
+  assert.equal(r.code, 200, r.text.slice(0, 200));
+  assert.deepEqual(w.synced, [['otto', true]]);
+});
+
+test('closing a task with its built subtasks: the closer is not owed, a subtask\'s other holder is', async (t) => {
+  const w = world(t, 'otto', { stored: [{ number: 1, sentence: 'one', who: 'otto' }, { number: 2, sentence: 'two', who: 'mara' }], closedWith: [2] });
+  const r = await call('POST', '/api/project/p8989/task/1/close', { headers: asAgent(w.otto) });
+  assert.equal(r.code, 200, r.text.slice(0, 200));
+  assert.deepEqual(w.synced, [['otto', false], ['mara', true]]);
+});
+
+test('a part closed by another agent is owed to its holder; its own part close is not', async (t) => {
+  const w = world(t, 'otto');
+  assert.equal((await call('POST', '/api/project/p8989/task/1/part/1/close', { headers: withBoard(asAgent(w.mara)), body: {} })).code, 200);
+  assert.equal((await call('POST', '/api/project/p8989/task/1/part/1/close', { headers: withBoard(asAgent(w.otto)), body: {} })).code, 200);
+  assert.deepEqual(w.synced, [['otto', true], ['otto', false]]);
+});
+
+test('a part moved away from its holder on the screen syncs the old holder too, as a change it did not make', async (t) => {
+  const w = world(t, 'mara', { stored: [{ number: 1, sentence: 'one', parts: [{ id: 1, who: 'otto' }] }] });
+  const r = await call('POST', '/api/project/p8989/task/1/part/1/who', { headers: screen(), body: { who: 'mara' } });
+  assert.equal(r.code, 200, r.text.slice(0, 200));
+  assert.deepEqual(w.synced.filter(([who]) => who === 'otto'), [['otto', true]], 'the agent it was taken from was not synced as told by another');
 });

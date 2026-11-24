@@ -13,14 +13,19 @@ its start. That matches the report exactly: the file changed, the changes file s
   not the agent the token named is `byOther` (no token: the person or their terminal, so everyone). The built subtasks
   closed with it are told the same way.
 - `/api/tasks/close` (screen only): every assignee is `byOther`.
+- Review 1: `/task/:n/part/:p/(close|reopen)` names its caller too (read after the change, never refusing it: the route
+  never checked one); `/task/:n/text` passes `byOther` for a title changed by someone else; `givePart` syncs the agent a
+  part was moved AWAY from (before, nobody synced it, so it kept listing the part), owed unless it moved it itself.
+  A hold set by someone else was already owed (rulesChangedIn compares hold marks).
 
 Rejected: a separate pane line ("task N was closed by X"). The re-read debt already persists, retries, waits for an idle
 pane and gives up after a week; a second mechanism would duplicate that and could type into a busy pane.
 Rejected: owing a re-read for every task change. An agent's own close would then type a notice into the pane that just
 closed it.
 
-Weakest premise: that `actor` from the token is always the holder when an agent closes its own task. An agent on an
-older CLI that sends no token is treated as "someone else" and gets one needless notice: the safe direction.
+Weakest premise: that `actor` from the token is always the holder when an agent closes its own task. An agent with no
+token (an older CLI, an agent the supervisor could not mint one for, agent-supervisor.sh 551/705, or one not started by
+the supervisor) is treated as "someone else" and gets one needless notice: the safe direction.
 
 ## Asks 2 and 3 on the card
 - The block already says (kosmos#8948) that `kosmos task list <project-id> --mine` is right when the lines disagree.
@@ -32,4 +37,5 @@ older CLI that sends no token is treated as "someone else" and gets one needless
 - engine/projects.test.js "#8989": own close owes nothing (control), another's close owes `projects`, an unchanged
   write owes nothing. A mutant without the byOther arm fails it.
 - server.reread-close-8989.test.js: manager close -> byOther true; own close -> false (control); no token -> true;
-  reopen by another -> true, own reopen -> false. A mutant dropping changedBy fails 3 of 4.
+  reopen by another -> true, own reopen -> false; bulk screen close; close with built subtasks; part close by another
+  and own; a part moved away on the screen syncs the old holder. Each new path has a mutant that fails its test.
