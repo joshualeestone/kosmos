@@ -201,7 +201,17 @@ async function claudeWork(dir, holds) {
   const seenTool = new Set();
   const prFirstInSession = new Map();   // "session\0owner/name#n" -> { repo, number, url, t }: that session's first row for it
   const found = [];
-  for (const d of transcriptDirs(dir)) found.push(...await transcriptsIn(d));
+  /* kosmos#8999: accounts often share one `projects` folder through a link, so one folder is listed once per account: each
+     real folder is read once (read again for every account, a first receipt took several times as long). Only here, not
+     in transcriptDirs: engine/agentevents.js compares those names as they are written. */
+  const readDirs = new Set();
+  for (const d of transcriptDirs(dir)) {
+    let real;
+    try { real = await fsp.realpath(d); } catch { continue; }   // no such folder under this account: nothing to read
+    if (readDirs.has(real)) continue;
+    readDirs.add(real);
+    found.push(...await transcriptsIn(d));
+  }
   for (const file of [...new Set(found)]) {
     let st;
     try { st = await fsp.stat(file); } catch { continue; }
