@@ -59,12 +59,12 @@ const withBoard = (h = {}) => ({ 'x-kosmos-board-token': BOARD, ...h });
 
 /* mara and otto are both on p8989. The close is recorded, not made; it hands back a task held by `holder`. What each
    assignee's sync was asked is recorded too (projects.syncAgent is stubbed, so no instructions file is written). */
-function world(t, holder, { stored = [], closedWith, record = {}, more = [] } = {}) {
-  const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('otto', { state: 'idle' })]);
+function world(t, holder, { stored = [], closedWith, record = {}, more = [], members = ['mara', 'otto'] } = {}) {
+  const board = fleet.install(members.map((m) => fleet.agent(m, { state: 'idle' })));
   const real = { readAll: projectsEngine.readAll, syncAgent: projectsEngine.syncAgent, close: tasksEngine.close, reopen: tasksEngine.reopen,
     setPartClosed: tasksEngine.setPartClosed, assignPart: tasksEngine.assignPart, setText: tasksEngine.setText };
   const synced = [];
-  projectsEngine.readAll = () => [{ id: 'p8989', name: 'p8989', agents: ['mara', 'otto'], tasks: stored, made: { via: 'screen', by: null }, ...record }, ...more];
+  projectsEngine.readAll = () => [{ id: 'p8989', name: 'p8989', agents: members, tasks: stored, made: { via: 'screen', by: null }, ...record }, ...more];
   projectsEngine.syncAgent = (who, roster, opts) => { synced.push([who, !!(opts && opts.byOther)]); return { state: projectsEngine.TOLD.TOLD, changed: true }; };
   tasksEngine.close = (id, n) => ({ number: Number(n), who: holder, state: 'closed', ...(closedWith ? { closedWith } : {}) });
   tasksEngine.setPartClosed = (id, n) => ({ ok: true, task: { number: Number(n), who: holder } });
@@ -74,7 +74,8 @@ function world(t, holder, { stored = [], closedWith, record = {}, more = [] } = 
   t.after(() => { Object.assign(projectsEngine, { readAll: real.readAll, syncAgent: real.syncAgent }); Object.assign(tasksEngine, { close: real.close, reopen: real.reopen, setPartClosed: real.setPartClosed, assignPart: real.assignPart, setText: real.setText }); board.restore(); });
   tasksEngine.reopen = (id, n) => ({ number: Number(n), who: holder, state: 'open' });
 
-  return { synced, mara: sendertoken.mint('mara').token, otto: sendertoken.mint('otto').token };
+  const tokens = Object.fromEntries(members.map((m) => [m, sendertoken.mint(m).token]));
+  return { synced, tokens, mara: tokens.mara, otto: tokens.otto };
 }
 
 /* kosmos#8989: the holder of a task someone else closed is owed a re-read of its projects section. */
@@ -208,4 +209,13 @@ test('a failover naming another source than the part\'s real previous holder sti
   try { g = await givePart('p8989', 1, 1, 'mara', { assigner: true, from: 'somebody-else' }); } finally { chat.deliver = realDeliver; }
   assert.equal(g.ok, true, g.because);
   assert.deepEqual(w.synced.filter(([who]) => who === 'otto'), [['otto', true]]);
+});
+
+// Review 7: two members whose names share a store key are two agents. One closing the other's task owes the holder its
+// notice; the key alone must not read them as one (the take route and heldByCaller refuse the same way).
+test('two members sharing a key: one closing the other\'s task owes the holder; each one\'s own close does not', async (t) => {
+  const w = world(t, 'Mona Lisa', { members: ['Mona Lisa', 'monalisa'] });
+  assert.equal((await call('POST', '/api/project/p8989/task/1/close', { headers: asAgent(w.tokens.monalisa) })).code, 200);
+  assert.equal((await call('POST', '/api/project/p8989/task/1/close', { headers: asAgent(w.tokens['Mona Lisa']) })).code, 200);
+  assert.deepEqual(w.synced, [['Mona Lisa', true], ['Mona Lisa', false]]);
 });
