@@ -112,7 +112,7 @@ final class AccountScreenUITests: XCTestCase {
         shot(app, "account-passkeys")
 
         removeRow.tap()
-        let question = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Remove iPhone, added ' AND label CONTAINS 'If it is saved on this iPhone, delete it in'")).firstMatch
+        let question = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Remove iPhone, added ' AND label CONTAINS 'If it is saved on this iPhone, also delete it in'")).firstMatch
         XCTAssertTrue(question.waitForExistence(timeout: 5), "Remove does not ask first, naming the passkey and where a saved one is deleted")
         shot(app, "account-passkey-remove")
         closeDialog(app)

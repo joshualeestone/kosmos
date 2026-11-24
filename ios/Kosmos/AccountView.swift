@@ -80,7 +80,8 @@ struct AccountView: View {
     @State private var passkeyDone: String?
     @State private var passkeyBusy = false
     @State private var passkeyFor: String?
-    @State private var passkeyAdding = false   // review 7: the Add button says "Adding" only for an Add, not a Remove
+    @State private var passkeyAdding = false
+    @State private var onScreen = false   // review 8: an Add whose begin answers after the screen went away opens no sheet   // review 7: the Add button says "Adding" only for an Add, not a Remove
     @State private var removing: AccountSecurity.Passkey?
     // Review 1 (B1c): the sign-in each dialog was opened for. A press after the sign-in changed does nothing, as B1a's
     // Sign out everywhere (everywhereFor).
@@ -148,7 +149,8 @@ struct AccountView: View {
         } message: { _ in
             Text(AccountSecurity.notMeQuestion)
         }
-        .onDisappear { maker.cancel() }
+        .onAppear { onScreen = true }
+        .onDisappear { onScreen = false; maker.cancel() }
     }
 
     // MARK: Computers
@@ -830,6 +832,7 @@ struct AccountView: View {
             heldAdd = (got, begunAt, first)
         }
         if let refusal = AccountSecurity.rpRefusal(reg, coordinator: coordinator) { passkeyNote = refusal; return }
+        guard onScreen else { return }   // the challenge stays held for the next Add
         if #available(iOS 17.4, *) {} else if !reg.exclude.isEmpty { passkeyNote = AccountSecurity.addNeedsNewer; return }
         switch await maker.make(reg, closeAfter: AccountSecurity.sheetSeconds(ageSeconds: Date().timeIntervalSince(begunAt))) {
         case .cancelled:
