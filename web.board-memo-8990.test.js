@@ -22,7 +22,7 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 
 const count = (re) => (PAGE.match(re) || []).length;
 
-test('the grid is written in exactly two places: setGridHtml and the failed-poll card', () => {
+test('the grid is written through grid.innerHTML only by setGridHtml (the failed-poll card is pinned below)', () => {
   assert.equal(count(/getElementById\('grid'\)\.innerHTML\s*=/g), 0, 'a direct write to #grid by id bypasses GRID_HTML');
   assert.equal(count(/\bgrid\.innerHTML\s*=/g), 1, 'a write to grid.innerHTML was added or removed (setGridHtml is the one)');
   assert.match(PAGE, /function setGridHtml\(html\) \{\s*const grid = document\.getElementById\('grid'\);\s*if \(!grid \|\| html === GRID_HTML\) return;\s*GRID_HTML = html;\s*grid\.innerHTML = html;\s*\}/,
