@@ -5,25 +5,50 @@ Slice B2 of kosmos#8958 (plan on the card, comment 7127094136): the board's tk-h
 (taskacts-8958); rebased onto main once B1 merges.
 
 ## Change
-- TaskPageLogic: taskHoldRequest (POST .../hold {onHold}), the board's words (holdTitle, and the refusal and pre-read
-  lines), holdNextLine (the unhold route's `next`, with the board's " To choose who, assign it now." cut: the phone has
-  no part picker yet). The hold hints that said "on your computer's board" say "here", as the board's do, now that the
-  page takes a hold off.
-- TaskPageModel.toggleHold: as the board's click. Putting on hold reads the task first (a screen hold sets exactly what
-  it sends and would replace an agent's hold not yet shown) and sends nothing if it is already on hold, gone, or could
-  not be read. Taking off posts at once. Then the page and activity are read; an unhold's sentence is said.
-- TaskPageView: the button under the hold hint on an open task, 44 pt, off while a press is out (Mark as done too).
+- TaskPageLogic:
+  - taskHoldRequest (POST .../hold {onHold}) and the board's words (holdTitle, and the refusal and check lines).
+  - holdNextLine: the unhold route's `next`. Where the board shows Choose who (the route's closing " To choose who,
+    assign it now.", or a free part beside one somebody is on: its looseBesideHeld), the ask is cut and
+    " To choose who, open this task on your computer's board." said instead: the phone has no part picker yet.
+  - holdNextSig, the board's tkHoldNextSig: open, held or closed; who is on each open part; the project's pause and
+    its members' session names. Narrower than the board's: a member with no session name, and the roster's order,
+    do not count.
+  - holdAnswerTask: the route's `task`, read as a task page, for the signature.
+  - The hold hints that said "on your computer's board" say "here", as the board's do.
+- TaskPageModel.toggleHold, as the board's click:
+  - Putting on hold reads the task fresh first, with its own read (the board's tkHoldFresh), never the shared tick
+    read, which a newer tick can overtake. Nothing is sent if the task is already on hold (said so, page re-read),
+    gone, or could not be read.
+  - Taking off posts at once.
+  - Then the page and activity are read. The next sentence is said only when the answer carries a `task` whose
+    signature matches the page now shown (the board's tkHoldSayNext), and is recorded with that signature: a later
+    read that differs, or the task going, takes it down.
+  - A refusal from the Mac is marked holdRefused and drawn as Mark as done's refusal is.
+  - Each press starts clean: holdSay, its signature and holdRefused are cleared.
+  - Put on hold and Mark as done each send nothing while the other is out.
+- TaskPageView: the button under the hold hint on an open task, 44 pt, off and dimmed while either press is out
+  (Mark as done too); the hold line, in the refusal colour when it is a refusal, announced to VoiceOver.
 - server.ios-routes-6838.test.js: the hold route declared.
 
 ## Rejected
 - The hold form (Wait for, Until, Why, Save): large, and its "Choose who" needs the part picker. It stays on the board's
   page, through the info button.
+- Reusing the shared numbered read for the check before a hold (review 1): a tick overtaking it left the check on the
+  task as it was before the press.
+- Recording the next line against the phone's own read after the post (review 2): it could never notice a hand-out that
+  landed in between.
 
-## Tests
-- run-taskpage.sh: the request and body both ways, the words, the next line with and without the assign ask; the
-  model: pre-read then post, already held sends nothing, Take off posts at once and says next, a refusal, a stale press.
+## Tests (ios/LogicTests/run-taskpage.sh)
+- The request and body both ways; the words; holdNextLine with the ask, a free part beside a held one, and a control;
+  an ask-only next; holdNextSig changing for a re-hold, a pause, another agent, and a nameless member.
+- The model: pre-read then post; already held sends nothing; Take off posts at once and says next; a refusal (and its
+  colour); a stale press; a tick read overtaking the check; two presses; Mark as done during a hold and a hold during
+  Mark as done; a closed task; gone and unreadable checks; sign-out mid-press; the line staying for a same read and
+  going for a re-hold or the task going; the answer's task differing, the read after failing, and no task in the
+  answer (with a control); each press starting clean.
+- Every guard above was removed once and its check went red.
 - TaskPageActionsUITests checks Put on hold is on the sample's open task.
 
 ## Weakest premise
-Cutting the assign ask leaves "so it waits for a person." with no way to choose who on the phone; the info button is
-that way, unlabelled for it.
+The phone says where to choose who but cannot choose. The person who unholds a task that waits for a person still has
+to go to the computer's board; the info button is one tap away, but it is not labelled for this.
