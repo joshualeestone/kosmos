@@ -2024,12 +2024,26 @@ enum Board {
         }
     }
 
+    // kosmos#8953: the name a fetched file is saved under. savedName, except that a page or markup file whose name does not
+    // say so (a "x.dat" typed text/html) takes its type's own extension, so the screens send it to WebFileView by its name
+    // (filePreview) and Quick Look never draws it.
+    static func fileName(_ name: String, type: String) -> String {
+        let saved = savedName(name, type: type)
+        guard isWebDocument(name: name, type: type), !isWebDocument(name: saved, type: "") else { return saved }
+        let ext = UTType(mimeType: type.lowercased())?.preferredFilenameExtension.flatMap { isWebDocument(name: "x." + $0, type: "") ? $0 : nil } ?? "html"
+        return saved + "." + ext
+    }
+
+    // kosmos#8953: the largest page, SVG or web archive WebFileView draws; a larger one is offered to Share instead.
+    static let webFileMaxBytes = 8 * 1024 * 1024
+
     // kosmos#8953: what WebFileView's web view draws for a file: a page with its links and forms taken out (withoutLinks),
     // an SVG as a picture (which can neither load nor link), a web archive's own page, as UTF-8. nil when there is nothing
-    // to draw.
+    // to draw: too large, or a page whose bytes are not ASCII-compatible text the scanner can read.
     static func inertPage(_ data: Data, kind: WebFileKind) -> Data? {
+        guard data.count <= webFileMaxBytes else { return nil }
         switch kind {
-        case .page: return withoutLinks(data)
+        case .page: return asciiCompatible(data).map(withoutLinks)
         case .svg:
             let wrapper = "<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">"
                 + "<style>html,body{margin:0}img{display:block;max-width:100%;height:auto;margin:16px auto}</style>"
@@ -2045,13 +2059,23 @@ enum Board {
                let text = String(data: html, encoding: String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(cf))) {
                 return withoutLinks(Data(text.utf8))
             }
-            return withoutLinks(html)
+            return asciiCompatible(html).map(withoutLinks)
         case .text, .unreadable: return nil
         }
     }
 
-    // kosmos#8953: a page's links, image maps, forms and <link> elements renamed (<a> becomes <x-a>), so the page has
-    // nothing that navigates, submits or preconnects, whatever reaches it: a finger, VoiceOver's activate or a keyboard.
+    // kosmos#8953: a page as bytes withoutLinks can read: UTF-16 (marked by its byte order mark, which WebKit obeys over the
+    // UTF-8 it is told) is converted to UTF-8; any other page with a zero byte near its start is not text the scanner can
+    // read, so nil. The bytes are otherwise left as they are.
+    static func asciiCompatible(_ data: Data) -> Data? {
+        if data.starts(with: [0xFE, 0xFF]) || data.starts(with: [0xFF, 0xFE]) {
+            return String(data: data, encoding: .utf16).map { Data($0.utf8) }
+        }
+        return data.prefix(4096).contains(0) ? nil : data
+    }
+
+    // kosmos#8953: a page's links, image maps, forms and <link> elements renamed (<a> becomes <x-a>), so none of those can
+    // navigate, submit or preconnect, whatever reaches them: a finger, VoiceOver's activate or a keyboard.
     // Their text stays. A tag is matched as "<" or "</", the name in any case, then white space, "/" or ">", so <abbr>,
     // <aside> and <label> are left alone. One forward pass over the bytes.
     static func withoutLinks(_ data: Data) -> Data {

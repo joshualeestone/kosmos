@@ -1696,6 +1696,18 @@ do {
           "CONTROL: tags that only start with those names are left alone")
     check(strip("<a") == "<x-a" && strip("<") == "<" && strip("") == "" && strip("a < b") == "a < b", "a page cut short ends cleanly")
     check(Board.inertPage(pageBytes, kind: .page) == Board.withoutLinks(pageBytes), "a page is drawn with its links taken out")
+    // A UTF-16 page (its byte order mark wins over the UTF-8 the web view is told) is converted, so its links are found too.
+    var utf16 = Data([0xFF, 0xFE]); utf16.append("<a href=x>go</a>".data(using: .utf16LittleEndian)!)
+    check(Board.inertPage(utf16, kind: .page) == Data("<x-a href=x>go</x-a>".utf8), "a UTF-16 page is converted, then its links taken out")
+    check(Board.inertPage(Data([0x3C, 0x00, 0x61, 0x00, 0x20, 0x00]), kind: .page) == nil, "a page with zero bytes and no byte order mark is not drawn")
+    check(Board.inertPage(Data(repeating: 0x41, count: Board.webFileMaxBytes + 1), kind: .page) == nil
+          && Board.inertPage(Data(repeating: 0x41, count: Board.webFileMaxBytes), kind: .page) != nil, "a file over the size cap is not drawn; one at it is")
+    // A page or markup file whose name does not say so is saved under its type's extension, so it opens in WebFileView.
+    check(Board.fileName("x.dat", type: "text/html") == "x.dat.html" && Board.fileName("chart", type: "image/svg+xml") == "chart.svg"
+          && Board.fileName("feed.bin", type: "application/xml") == "feed.bin.xml", "a page under a plain name takes its type's extension")
+    check(Board.fileName("page.html", type: "text/plain") == "page.html" && Board.fileName("plan.pdf", type: "application/pdf") == "plan.pdf"
+          && Board.fileName("notes", type: "") == "notes", "CONTROL: a page named as one, and any other file, keeps savedName's name")
+    check(Board.isWebDocument(name: Board.fileName("x.dat", type: "text/html"), type: ""), "and the saved name alone routes it to WebFileView")
     let svgBytes = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"><a href=\"http://x/\"><rect width=\"1\" height=\"1\"/></a></svg>".utf8)
     let drawnSvg = Board.inertPage(svgBytes, kind: .svg).map { String(decoding: $0, as: UTF8.self) } ?? ""
     check(drawnSvg.contains("<img alt=\"\" src=\"data:image/svg+xml;base64," + svgBytes.base64EncodedString() + "\">") && !drawnSvg.contains("<svg"),

@@ -29,7 +29,8 @@ struct WebFileView: View {
     @ViewBuilder private var content: some View {
         switch shown {
         case .reading:
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            SweepDots(size: 16, scales: false, framesPerSecond: 15, stillWhenReduced: true)   // kosmos#8058: the simple dots, as a file card waits
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .page(let data, let kind):
             VStack(spacing: 0) {
                 LockedWebView(page: data, failed: { shown = .unreadable })
