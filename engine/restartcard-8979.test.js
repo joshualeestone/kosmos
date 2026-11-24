@@ -112,19 +112,28 @@ test('#8979 a restart no good turn ended is carried through the next process (a 
   r.pub.started(12, 's');
   const first = r.last().restarted;
   assert.equal(first.at, r.last().startedAt, 'stamped when the new process started, not when the old one died');
-  r.pub.stopped();   // the resumed process dies too, and the supervisor names no newer death (a failed resume)
+  r.pub.stopped();   // the resumed process dies too: a resume that found no conversation
+  r.pub.restarting({ keepEarlier: true });
   r.pub.started(13, 's');
   assert.deepEqual(r.last().restarted, first, 'the first reason stays');
   r.pub.stopped();
   r.pub.restarting({ code: 5 });
   r.pub.started(14, 's');
   assert.equal(r.last().restarted.why, 'Claude stopped unexpectedly (exit code 5).', 'a newer death replaces it');
-  /* CONTROL: after a good turn nothing is carried. */
+  /* A deliberate stop (no restarting) carries nothing to a later start. */
+  r.pub.stopped();
+  r.pub.started(15, 's');
+  assert.equal(r.last().restarted, undefined, 'a stop is not a restart');
+  /* keepEarlier after a good turn has nothing to keep. */
+  r.pub.stopped();
+  r.pub.restarting({ code: 6 });
+  r.pub.started(16, 's');
   r.pub.wrote();
   for (const e of GOOD_TURN) r.pub.event(e);
   r.pub.stopped();
-  r.pub.started(15, 's');
-  assert.equal(r.last().restarted, undefined);
+  r.pub.restarting({ keepEarlier: true });
+  r.pub.started(17, 's');
+  assert.equal(r.last().restarted, undefined, 'cleared by a good turn, so nothing to keep');
 });
 
 test('#8979 a launch that did not spawn keeps the restart for the start that does', () => {
@@ -257,8 +266,9 @@ test('#8979 a resume that finds no conversation is not said as the reason', () =
   kids[1].emit('exit', 1, null);
   h.stop();
   const said = stream.calls.filter((x) => x[0] === 'restarting');
-  assert.equal(said.length, 1, 'only the first death is named: ' + JSON.stringify(said));
+  assert.equal(said.length, 2, JSON.stringify(said));
   assert.equal(said[0][1].code, 2);
+  assert.deepEqual(said[1][1], { keepEarlier: true }, 'the failed resume keeps the first reason');
 });
 
 test('#8967 exitWords keeps its spelling now that it shares the card\'s', () => {
