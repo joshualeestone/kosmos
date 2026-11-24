@@ -2076,8 +2076,9 @@ enum Board {
         return data.prefix(4096).contains(0) ? nil : data
     }
 
-    // kosmos#8953: a page's links, image maps, forms and <link> elements renamed (<a> becomes <x-a>), so none of those can
-    // navigate, submit or preconnect, whatever reaches them: a finger, VoiceOver's activate or a keyboard.
+    // kosmos#8953: a page's links, image maps, forms and <link> elements renamed (<a> becomes <x-a>), so the page has none
+    // of those elements for a finger, VoiceOver's activate or a keyboard to reach. An href on another element (MathML) is
+    // not renamed; the web view's cancelled navigations and blocked loads stand behind it.
     // Their text stays. A tag is matched as "<" or "</", the name in any case, then white space, "/" or ">", so <abbr>,
     // <aside> and <label> are left alone. One forward pass over the bytes.
     static func withoutLinks(_ data: Data) -> Data {
