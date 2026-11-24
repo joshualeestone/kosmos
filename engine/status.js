@@ -8573,6 +8573,21 @@ function linkLostFor(pane) {
    so a `working` older than this is a claim nobody is standing behind. */
 const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
 
+/* kosmos#9011: how long the card says what ended the agent's own wait (selfreport's waitCleared). Long enough to be seen
+   after an evening away, short enough not to explain yesterday's question forever. */
+const WAIT_CLEARED_SHOW_MS = 12 * 60 * 60 * 1000;
+/* kosmos#9011: { at, by, state, held } when the agent's own needs_you or blocked was ended within WAIT_CLEARED_SHOW_MS by
+   the agent itself, a person, leaving the project, a new run or the session ending (selfreport.latestOf), else null.
+   The page says it only while the card reads idle or working (a new wait, a stop or a limit say themselves). */
+function waitClearedOf(report, nowMs) {
+  const w = report && report.found === true ? report.waitCleared : null;
+  if (!w || typeof w.at !== 'string' || typeof w.by !== 'string') return null;
+  const at = Date.parse(w.at);
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  if (!Number.isFinite(at) || at > now + 60 * 1000 || now - at > WAIT_CLEARED_SHOW_MS) return null;
+  return { at: w.at, by: w.by, state: w.state === 'blocked' ? 'blocked' : 'needs_you', held: w.held === true };
+}
+
 /* #1930: the verdict value from engine/authprobe that means the account's sign-in was just
    confirmed LIVE. Only this positive evidence suppresses a scraped auth_failed. Imported from
    authprobe so there is ONE copy of the string, not two that can drift. (status -> authprobe ->
@@ -9444,8 +9459,9 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
      "nothing said yet") for a beat-known agent, NEVER_RUN_DEFAULT (STOPPED, a
      positive "created and not running") for a created agent with no pane/beat
      (#1078). */
+  const reportNow = selfreport.read(key);   // kosmos#9011: read once, for the state and for waitCleared
   const status = reconcileReport(
-    selfreport.read(key),
+    reportNow,
     defaultStatus || PANELESS_DEFAULT,
     nowMs, undefined, disruptionRec || null);
   /* #2146 for a PANELESS agent (the case this whole role exists for). No pane, so
@@ -9491,6 +9507,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     neverTurned: false,   // #7786: a paneless card has no runner whose hook vouches for its record (see neverTurnedOf)
     deliveryStall: null,   // #7212 slice 2: carried only while a pane card reads idle or working
     restarted: null,   // kosmos#8979: no pane, no supervised process to have restarted
+    waitCleared: waitClearedOf(reportNow, nowMs),   // kosmos#9011: what ended its own wait, recently
     task: null,
     state: status.state,
     stateConfidence: status.confidence,
@@ -10426,6 +10443,8 @@ function snapshot() {
       deliveryStall: deliveryStallOf(pane, status),
       /* kosmos#8979: its process ended and the supervisor started it again ({ at, why }), until a turn ends well; else null. */
       restarted: restartedOf(pane),
+      /* kosmos#9011: what ended the agent's own needs_you or blocked, recently ({ at, by, state, held }), else null. */
+      waitCleared: waitClearedOf(reportNow, now),
       /* #5959 slice 2: when it was last seen working, for the health line on its page (see lastWorkedOf). */
       lastWorked: lastWorkedOf(pane),
       /* kosmos#8286: one tool call running for minutes ({ tool, since }), from its transcript, else null (see oneStepOf). */
@@ -10895,7 +10914,7 @@ module.exports = { panesWithCommands /* kosmos#8719 */, boardTmux /* kosmos#8719
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, noteLimitRows, limitFirstSeenOf, limitCaptureSweep, resetLimitFirstSeenForTests, retireResetLimits, turnDoneAt, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, claudeSignedOutConfirmed, codexLiveAuthFor,
+  reconcileReport, waitClearedOf, WAIT_CLEARED_SHOW_MS, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, noteLimitRows, limitFirstSeenOf, limitCaptureSweep, resetLimitFirstSeenForTests, retireResetLimits, turnDoneAt, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, claudeSignedOutConfirmed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an

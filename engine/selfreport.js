@@ -565,7 +565,28 @@ function latestOf(rows, cut) {
   let runAt = null;
   let parsed = 0;
   let runFromFirst = false;   // the run began at the first line read: when the tail is cut, its start is unknown
+  /* kosmos#9011: the wait the agent raised itself (needs_you or blocked, by:'agent'), and once a later line has ended
+     it, what ended it, so the card can say so instead of the wait vanishing. The hook's automatic idle, working and
+     needs_you are refused over such a wait (record()), so they never appear after it; an automatic `blocked` (a
+     provider outage) is not an end, #6209 handles it. Kinds: 'agent' (its own report of another state), 'person' (a
+     person's clear, by:'operator'), 'left' (it left the project, clearLeftovers), 'restart' (a new run's `started`,
+     which retires the old wait by Josh's #5943 ruling), 'ended' (its session ended). A line with no author ends
+     nothing said here (legacy provenance is not known). */
+  let waitStanding = null;
+  let waitCleared = null;
   for (const row of rows) {
+    if (WAITING_ON_A_PERSON.includes(row.state) && row.by === 'agent') {
+      waitStanding = row; waitCleared = null;
+    } else if (waitStanding && typeof row.at === 'string') {
+      const kind = row.by === 'agent' ? 'agent'
+        : row.by === 'operator' ? (typeof row.left === 'string' && row.left ? 'left' : 'person')
+          : row.by === 'auto' && row.state === 'started' ? 'restart'
+            : row.by === 'auto' && row.state === 'stopped' ? 'ended' : null;
+      if (kind) {
+        waitCleared = { at: row.at, by: kind, state: waitStanding.state, held: waitStanding.state === 'needs_you' && waitStanding.held === true };
+        waitStanding = null;
+      }
+    }
     /* Later lines simply replace earlier ones; a `started` needs no reset
        logic for "latest", but it matters that it REPLACES rather than
        merges: nothing from the previous run may leak into this one. */
@@ -609,6 +630,8 @@ function latestOf(rows, cut) {
     owner: wellFormed(latest.owner),
     until: latest.until || null,
     held: latest.state === 'needs_you' && latest.held === true,   // #7915
+    // kosmos#9011: { at, by, state, held } when the agent's own last wait was ended by a later line (see the loop), else null.
+    waitCleared,
     at: latest.at || null,
     // #5943: null unless the latest report waits on a person (see the loop above).
     // Not known (null) rather than too recent: a run that begins at the first line of a CUT tail began earlier (Mona Lisa).
