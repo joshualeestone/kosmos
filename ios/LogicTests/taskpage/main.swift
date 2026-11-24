@@ -2480,12 +2480,13 @@ func b6ModelTests() async {
         mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = (500, Data()) } }
         await m.closeWithSubtasks(names: [:])
         let line = m.refusal
-        check(line != nil, "\(what): it says so")
+        check(line != nil && (what == "refused" || line == Board.subtasksCloseUnsureUnread), "\(what): it says so")
         mac.projects = tasks(closed, built)
         await m.read()
-        check(m.refusal == line && m.page?.subtasks.first?.status != m.page?.subtasks.last?.status, "\(what): the next read shows what was closed, and the line stays")
+        let after = what == "no answer" ? Board.subtasksCloseUnsure : line   // it can now say where it stopped
+        check(m.refusal == after && m.page?.subtasks.first?.status != m.page?.subtasks.last?.status, "\(what): the next read shows what was closed, and the line stays")
         await m.read()
-        check(m.refusal == line, "\(what): and stays while they read the same")
+        check(m.refusal == after, "\(what): and stays while they read the same")
         mac.projects = tasks(closed, closed)
         await m.read()
         check(m.refusal == nil, "\(what): and goes once they change")

@@ -163,6 +163,13 @@ do {
     func row(_ n: Int, _ parent: Int?) -> Board.TaskRow { Board.TaskRow(projectId: "archived", projectName: "A", number: n, sentence: "w", state: "open", parent: parent) }
     check(NewTask.found(away, in: Board.TasksRead(tasks: [row(9, 3), row(10, nil)], rosterUnknown: false), before: [1]) == nil, "the same words under another task, or none, are not this subtask")
     check(NewTask.found(away, in: Board.TasksRead(tasks: [row(9, 3), row(11, 7)], rosterUnknown: false), before: [1]) == 11, "under this one, it is")
+    var top = away; top.parent = nil
+    check(NewTask.found(top, in: Board.TasksRead(tasks: [row(9, 3), row(10, nil)], rosterUnknown: false), before: [1]) == 10, "sent under none, a subtask with the same words is not it")
+    keeps.set("archived", 8, epoch: 1, NewTask.Kept(draft: NewTask.Draft(project: "archived", parent: 8)))
+    check(keeps.count == 0, "nothing typed is nothing kept")
+    var typed = NewTask.Draft(project: "archived", parent: 8); typed.what = "w"
+    keeps.set("archived", 8, epoch: 1, NewTask.Kept(draft: typed))
+    check(keeps.count == 1 && keeps.get("archived", 8, epoch: 1).draft == typed, "words are, with what they are aimed at")
     check(NewTask.body(moved)["parent"] as? Int == 7, "and is sent")
 }
 check(NewTask.settled(keptLaunch, picked: nil, offered: offered) == keptLaunch, "All projects: a kept project still offered stays while words are typed")

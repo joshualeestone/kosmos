@@ -202,7 +202,7 @@ final class TaskPageActionsUITests: XCTestCase {
         let create = app.buttons["Create"]
         XCTAssertTrue(create.waitForExistence(timeout: 10) && !create.isEnabled, "Create is on with nothing typed")
         // Both fixed and shown: Project first, which scrolling to Part of can take off screen.
-        let sheet = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Spring catalogue"))
+        let sheet = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "newtask.under.project", "Spring catalogue"))
         XCTAssertTrue(sheet.firstMatch.waitForExistence(timeout: 10), "the task's project is not shown")
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Project")).firstMatch.exists, "Project can be picked")
         let partOf = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "#4 Pages 1 to 8")).firstMatch
