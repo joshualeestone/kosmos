@@ -503,6 +503,8 @@ struct SignInView: View {
     @ObservedObject var model: SignInModel
     /// Today's web sign-in page, for what this screen does not do yet (and for making an account).
     let useWeb: () -> Void
+    // kosmos#8957: what useWeb opens, said under its button, or nil when it opens nothing (a sheet that only closes).
+    var useWebNote: String? = nil
     /// kosmos#8791/#8795: a fresh sign-in (model.fixedEmail) closes with Not now; the session held now was never ended.
     var notNow: (() -> Void)? = nil
     @FocusState private var focused: Bool
@@ -561,7 +563,7 @@ struct SignInView: View {
             // Where Apple's sheet cannot take a company's sign-in (before iOS 17.4), the web page has it: say so here.
             if !model.companySheet {   // kosmos#8957: and says it opens a web page
                 link("Sign in with your company's account", action: useWeb).disabled(model.busy)
-                OpensOnBoardNote(words: Board.opensSignInPage)
+                if let useWebNote { OpensOnBoardNote(words: useWebNote) }
             }
             footnote("New to Kosmos+? Make your account on your computer.")
         case .code(let email):
@@ -630,7 +632,7 @@ struct SignInView: View {
             title(SignIn.webTitle(reason: reason))
             line(reason)
             primary("Continue", action: useWeb)
-            OpensOnBoardNote(words: Board.opensSignInPage)   // kosmos#8957
+            if let useWebNote { OpensOnBoardNote(words: useWebNote) }   // kosmos#8957
             if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
         case .setup(_, let sms):
             title("Set up a second step")

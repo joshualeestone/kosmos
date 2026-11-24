@@ -19,9 +19,14 @@ the words and the rule for when the note shows are covered in ios/LogicTests.
 - Back to Kosmos: LoadFailureView's onBack becomes optional; the native tabs (AgentsView .unreachable,
   .kosmosPlusDown) pass none. The web page's own failure keeps it (it means the board's Today there).
 
-## Not decided yet
-- Notification fallbacks N2/N4 have no control to label: a line on the board page itself? Probably out of scope
-  (note on card).
+- Notification fallbacks N2/N4 have no control to label (the tap on the notice is the whole act): left as they are
+  here; a native place for them belongs to the part-2 cards (card comment 7123676687).
+- Review 1: a sign-in fallback names where it goes. Signed out (the Agents tab's two Sign in buttons, the sign-in
+  screen's company link and Continue) it is "Opens the Kosmos+ sign-in page"; the fresh sign-in sheet (already signed
+  in) says the board; New Agent and New Project's sheets open nothing, so no note (SignInView useWebNote, from the
+  caller). The + alert says why: "Your computer has not let this iPhone in yet, so it is made there."
+- The "only when the agents list lacks the agent" rule is Board.opensBoardFor (tested); the room and project info apply
+  the same rule to their own lists.
 
 ## Weakest premise
 That announcing the board is enough. If Josh wants none of these to open the board at all, each needs a native

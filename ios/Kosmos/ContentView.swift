@@ -149,7 +149,7 @@ struct ContentView: View {
         Group {
             if isUnlocked && nativeSignIn {
                 // The sign-in page itself, freshly loaded, whatever the tabs showed before (review round 6).
-                SignInView(model: signIn, useWeb: { nativeSignIn = false; showBoardToday() })
+                SignInView(model: signIn, useWeb: { nativeSignIn = false; showBoardToday() }, useWebNote: Board.opensSignInPage)
                     // Mona Lisa's spec: the app's tint is the board's ink, here as on the tabs.
                     .tint(Palette.primary)
             } else if isUnlocked {
@@ -315,7 +315,7 @@ struct ContentView: View {
         // Review 4: the setter ends only a fresh sign-in still showing, never one finish() has already closed.
         .fullScreenCover(isPresented: Binding(get: { fresh.model != nil && fresh.place == .root }, set: { if !$0, fresh.model != nil { fresh.end() } })) {
             if let m = fresh.model {
-                SignInView(model: m, useWeb: { fresh.end(); showBoardToday() }, notNow: { fresh.end() }).tint(Palette.primary)
+                SignInView(model: m, useWeb: { fresh.end(); showBoardToday() }, useWebNote: Board.opensOnBoard, notNow: { fresh.end() }).tint(Palette.primary)
             }
         }
         // kosmos#7488: New Agent is shown from here, above the tabs, so a tab change (a notification's room, say) never
@@ -1621,6 +1621,8 @@ private struct CreateOnBoardAsk: ViewModifier {
                       isPresented: Binding(get: { asked == what }, set: { if !$0 { asked = nil } })) {
             Button(AppTabs.createOnBoardOpen) { asked = nil; open() }
             Button("Cancel", role: .cancel) { asked = nil }
+        } message: {
+            Text(AppTabs.createOnBoardWhy)
         }
     }
 }

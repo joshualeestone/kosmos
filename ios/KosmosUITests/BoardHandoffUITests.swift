@@ -25,14 +25,14 @@ final class BoardHandoffUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Back to Kosmos"].exists, "Back to Kosmos still opens the board from the phone's own tab")
     }
 
-    func testSignInFallbacksSayTheyOpenTheBoard() {
+    func testSignInFallbacksSayWhereTheyGo() {
         for wait in ["signedout", "refused"] {
             let app = launch(wait)
             let signIn = app.buttons["Sign in"]
             XCTAssertTrue(signIn.waitForExistence(timeout: 10), "\(wait): no Sign in button")
             keep(app, "signin-fallback-" + wait)
-            XCTAssertTrue(app.staticTexts["Opens on your computer's board"].exists,
-                          "\(wait): nothing says Sign in opens the computer's board")
+            XCTAssertTrue(app.staticTexts["Opens the Kosmos+ sign-in page"].exists,
+                          "\(wait): nothing says Sign in opens the Kosmos+ sign-in page")
             app.terminate()
         }
     }
@@ -50,6 +50,6 @@ final class BoardHandoffUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Add an agent on your computer's board?"].exists, "the question is not shown")
         keep(app, "plus-asks")
         app.buttons["Cancel"].firstMatch.tap()
-        XCTAssertTrue(plus.waitForExistence(timeout: 5) && !open.exists, "Cancel did not keep the person on the phone's screen")
+        XCTAssertTrue(open.waitForNonExistence(timeout: 5) && plus.exists, "Cancel did not keep the person on the phone's screen")
     }
 }

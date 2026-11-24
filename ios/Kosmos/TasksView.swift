@@ -36,7 +36,7 @@ struct TasksTab: View {
                               open: { t in openTask = TaskPageRef(project: t.projectId, number: t.number) },
                               answer: answer,
                               answerAgent: { who in answer(who: who) },
-                              answersOnBoard: { who in !client.agents.contains { $0.session == who } },
+                              answersOnBoard: { who in Board.opensBoardFor(who, agents: client.agents) },
                               refresh: { await client.refreshTasks() },
                               newTask: { picked in notice = nil; newTaskFor = NewTaskStart(picked: picked) },
                               notice: notice, switcher: AnyView(MacSwitcher(client: client)))

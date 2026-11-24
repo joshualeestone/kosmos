@@ -332,6 +332,7 @@ enum AppTabs {
         what == .agent ? "Add an agent on your computer's board?" : "Add a project on your computer's board?"
     }
     static let createOnBoardOpen = "Open your computer's board"
+    static let createOnBoardWhy = "Your computer has not let this iPhone in yet, so it is made there."
 
     // What to show when the bar changes under a selection it no longer has (Tasks on a Mac that has not earned it).
     // The tab that lights for a section the PAGE is on. A Tasks section the bar does not offer (a project's View all,
