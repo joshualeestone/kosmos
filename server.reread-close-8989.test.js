@@ -198,3 +198,14 @@ test('a failover move syncs the source without a second notice; a screen move ow
   assert.equal(g2.ok, true, g2.because);
   assert.deepEqual(w.synced.filter(([who]) => who === 'otto'), [['otto', false], ['otto', true]]);
 });
+
+test('a failover naming another source than the part\'s real previous holder still owes that holder its notice', async (t) => {
+  const w = world(t, 'mara');   // the stubbed assignPart answers previous: 'otto'
+  const chat = require('./engine/chat');
+  const realDeliver = chat.deliver;
+  chat.deliver = () => ({ state: chat.DELIVERY.PLACED, because: null });
+  let g;
+  try { g = await givePart('p8989', 1, 1, 'mara', { assigner: true, from: 'somebody-else' }); } finally { chat.deliver = realDeliver; }
+  assert.equal(g.ok, true, g.because);
+  assert.deepEqual(w.synced.filter(([who]) => who === 'otto'), [['otto', true]]);
+});
