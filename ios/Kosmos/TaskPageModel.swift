@@ -212,7 +212,8 @@ final class TaskPageModel: ObservableObject {
     func press(_ shown: Board.TaskAct, names: [String: String]) async {
         // Not while a hold is out either (review 1): a close landing between a hold's check and its post would answer the
         // hold with the Mac's refusal for a closed task.
-        guard !pressing, !holding, current, let page, page.act == shown else { return }
+        // Nor while a Repeats save is out (B3): its answer would be about a task this press is closing.
+        guard !pressing, !holding, !repeatSaving, current, let page, page.act == shown else { return }
         pressing = true
         refusal = nil
         let (project, number) = (self.project, self.number)

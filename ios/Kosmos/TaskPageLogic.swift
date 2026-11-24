@@ -76,7 +76,7 @@ extension Board {
         // The tasks this one replaced (theirs name it; the link is stored once).
         let replaces: [Int]
         // kosmos#8958 slice B3: the board's repeat fields (Board.fillRepeat) when the task repeats, for its line; and the
-        // stored rule as the Repeats controls show it (Board.repeatStored): never when it does not repeat, nil for a rule
+        // stored rule as the Repeats controls show it (Board.repeatStored): the Never choice when it does not repeat, nil for a rule
         // this phone cannot show (the controls then stay on the board).
         var repeatRow: TaskRow? = nil
         var repeatStored: RepeatChoice? = RepeatChoice(every: .never)
@@ -891,6 +891,15 @@ extension Board {
             d.others = Array(list.dropFirst()).filter { $0 != d.at }
         }
         return repeatWire(d) == repeatWire(stored) ? nil : d
+    }
+
+    // The stored rule moved (another device, an agent) under a draft: a draft that was the OLD rule is nothing unsaved,
+    // so the controls follow the new one (the board's tkPaintRepeat review 3); any other draft stands, as keptRepeatDraft
+    // keeps it.
+    static func followStored(_ draft: RepeatChoice?, old: RepeatChoice?, new: RepeatChoice?) -> RepeatChoice? {
+        guard let draft else { return nil }
+        if let old, repeatWire(draft) == repeatWire(old) { return nil }
+        return keptRepeatDraft(draft, stored: new)
     }
 
     // A time box's "HH:mm" as a picker's Date, and back. The time is the computer's clock as the board keeps it, so it

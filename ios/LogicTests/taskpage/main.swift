@@ -1069,6 +1069,14 @@ do {
     var weekly = stored; weekly.every = .week
     check(Board.keptRepeatDraft(weekly, stored: stored)?.every == .week, "a frequency change is a draft")
     check(Board.keptRepeatDraft(moved, stored: nil) == nil, "a rule the controls cannot show drops the draft")
+    let never = C(every: .never), hourly = C(every: .hour)
+    check(Board.followStored(never, old: never, new: stored) == nil,
+          "a draft put back on the old rule follows a rule changed elsewhere (never left showing Never over a daily rule)")
+    check(Board.followStored(hourly, old: never, new: stored) == hourly, "a real edit stands when the rule changes elsewhere")
+    check(Board.followStored(moved, old: stored, new: agentChanged).map(Board.repeatWire) == .day("10:00,20:00"),
+          "an edited daily time stands and takes the new rule's other times")
+    check(Board.followStored(nil, old: never, new: stored) == nil && Board.followStored(hourly, old: never, new: hourly) == nil,
+          "no draft stays none; a draft the new rule now equals goes")
     check(Board.repeatTimeString(Board.repeatTime("07:05")) == "07:05" && Board.repeatTimeString(Board.repeatTime("23:59")) == "23:59",
           "a time goes through the picker's Date and back unchanged")
 
@@ -1118,11 +1126,14 @@ func b3ModelTests() async {
     let nm = ["dana": "Dana"]
     await m.read()
     // The rule the Mac stores once the save lands, so the read after it shows it (as the real board does).
-    func withRule(_ rule: Any) -> Data {
+    func withRule(_ rule: Any, closed: Bool = false) -> Data {
         var doc = (try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any]) ?? [:]
         var projs = doc["projects"] as? [[String: Any]] ?? []
         var tks = projs.first?["tasks"] as? [[String: Any]] ?? []
-        if let i = tks.firstIndex(where: { ($0["number"] as? NSNumber)?.intValue == 3 }) { tks[i]["repeat"] = rule }
+        if let i = tks.firstIndex(where: { ($0["number"] as? NSNumber)?.intValue == 3 }) {
+            tks[i]["repeat"] = rule
+            if closed { tks[i]["progress"] = ["done": 1, "total": 1, "closed": true]; tks[i]["closedAt"] = "2026-11-24T15:00:00.000Z" }
+        }
         if !projs.isEmpty { projs[0]["tasks"] = tks }
         doc["projects"] = projs
         return (try? JSONSerialization.data(withJSONObject: doc)) ?? Data()
@@ -1150,6 +1161,13 @@ func b3ModelTests() async {
     mac.projects = (200, withRule(["every": "hour"]))
     await m.read()
     check(m.repeatSay == nil, "Saved. goes once the rule is changed elsewhere")
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    let toDaily = await m.saveRepeat(.day("08:00"), names: nm)
+    mac.projects = (200, withRule(["every": "day", "at": "08:00"], closed: true))
+    await m.read()
+    check(toDaily && m.page?.closed == true && m.repeatSay == nil, "Saved. goes when the task is finished, even with its rule unchanged")
+    mac.projects = (200, withRule(["every": "hour"]))   // open again for the refusals below
+    await m.read()
     mac.onSend = nil
     mac.actAnswers = [(400, #"{"error":"every so many minutes takes a number from 15 to 720"}"#)]
     let refused = await m.saveRepeat(.minutes("5"), names: nm)
