@@ -34,7 +34,7 @@ repeat line, natively. Stacked on B2 (taskhold-8958); rebased onto main once B1 
 ## Tests
 - ios/LogicTests/taskpage: B3 section (stored rules, wire, bodies, drafts, time round trip, request, the line on a
   page read) and b3ModelTests (unchanged sends nothing, a save and its reads, Saved. retired by a change elsewhere,
-  refusal, unreached, Saved. gone on a finished task, a box moved past the other daily time and saved, the guards between Save and Mark as done each way and Save on a finished task, each red when its guard is removed). 280/280.
+  refusal, unreached, Saved. gone on a finished task, a box moved past the other daily time and saved, the guards between Save and Mark as done each way and Save on a finished task, each red when its guard is removed, and the box kept on the saved time). 283/283.
 - server.ios-routes-6838: 5/5.
 - UI: TaskPageActionsUITests.testRepeatIsChangedAndSaved (light and dark) against the sample board, which now
   stores a repeat rule (task 4 starts twice a day): the line says the stored rule, Save is off until a change,
@@ -56,7 +56,7 @@ repeat line, natively. Stacked on B2 (taskhold-8958); rebased onto main once B1 
 - keptRepeatDraft compares the draft with the stored rule as it stands BEFORE re-deriving a daily rule's other times:
   re-deriving first rebuilt them from the sorted stored list and dropped a time the box had moved past, after a save.
 - After a save the daily box stays on the person's time, whichever place it sorts to (Board.repeatShown, the board's
-  tkRepeatSaved); Cancel shows only while the choice differs from the stored rule.
+  tkRepeatSaved), kept before the save's reads; a rule changed by anything but this phone's own save forgets it; Cancel shows only while the choice differs from the stored rule.
 - Mark as done sends nothing, and is drawn off, while a Repeats save is out, as it already waits for a hold.
 - The page's scroll view closes the keyboard on a drag (the minutes box is a number pad, with no return key).
 - A finished task drops an unsaved choice and any Repeats line.
