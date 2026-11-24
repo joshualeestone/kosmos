@@ -39,7 +39,11 @@ final class TaskPageModel: ObservableObject {
     @Published private(set) var partAtHold = false
     private var partSig: Board.PartSig?
     private var partSigAwaits = false
-    private var partUnsureOf: (Board.PartWrite, [Board.TaskPart])?
+    private var partWrote: Board.PartWrite?
+    private var partUnsureOf: (Board.PartWrite, [Board.TaskPart], (Board.TaskPage, String) -> String)?
+    // An Add nobody answered and no read has shown yet; and the words of one a later read did show, for the box to let go of.
+    private var addUnsettled: (words: String, before: [Board.TaskPart])?
+    @Published private(set) var partAdded: String?
     // kosmos#8958 slice B1: a message on its way, and the line under the box (who it did not reach, or the refusal).
     @Published private(set) var saying = false
     @Published private(set) var sayLine: String?
@@ -358,28 +362,38 @@ final class TaskPageModel: ObservableObject {
     }
 
     // kosmos#8958 slice B7: the board's tkPartPost: one part write, then the task and activity read again and who was told
-    // said. Nothing is sent for a part that already reads so, or is not there. Who is on a part is read fresh first
-    // (partChoosable). No answer is judged by the read after it. `atHold` says the line by Choose who. True when it was made.
+    // said. Nothing is sent for a part the page does not have, or that already reads so. Who is on a part is read fresh
+    // first (partChoosable), and so is an Add of words whose last Add could not be told. No answer is judged by the read
+    // after it. `atHold` says the line by Choose who. True when it was made.
     @discardableResult
-    func writePart(_ write: Board.PartWrite, atHold: Bool = false, name: (Board.TaskPage, String) -> String, names: [String: String]) async -> Bool {
+    func writePart(_ write: Board.PartWrite, atHold: Bool = false, name: @escaping (Board.TaskPage, String) -> String, names: [String: String]) async -> Bool {
         guard partWriting == nil, !pressing, !holding, !repeatSaving, reviewerSaving == nil, current, let page else { return false }
-        if case .add(let said) = write { if said.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false } } else {
-            guard !Board.partWritten(write, before: page.parts, now: page.parts) else { return false }
+        var words: String?
+        if case .add(let said) = write {
+            words = said.trimmingCharacters(in: .whitespacesAndNewlines)
+            if words == "" { return false }
+        } else {
+            guard page.parts.contains(where: { $0.id == Board.partId(write) }), !Board.partWritten(write, before: page.parts, now: page.parts) else { return false }
         }
         partWriting = write
         clearPart()
         partAtHold = atHold
-        let before = page.parts
+        var before = page.parts
         let (project, number) = (self.project, self.number)
         var answer: (Data, HTTPURLResponse)?
         var unsent: String?
-        if case .who = write {
+        var already = false
+        var again = false
+        if let open = addUnsettled, open.words == words { again = true; before = open.before }
+        if again || Board.partChecked(write) {
             let fresh = await freshRead()
             guard current else { return false }
-            if case .some(.page(let p)) = fresh { if !Board.partChoosable(write, on: p) { unsent = Board.partChanged } }
-            else { unsent = fresh == nil ? Board.holdCheckFailed : Board.holdTaskGone }
+            if case .some(.page(let p)) = fresh {
+                if again { already = Board.partWritten(write, before: before, now: p.parts) }
+                else if !Board.partChoosable(write, on: p) { unsent = Board.partChanged }
+            } else { unsent = fresh == nil ? Board.holdCheckFailed : Board.holdTaskGone }
         }
-        if unsent == nil {
+        if unsent == nil, !already {
             answer = await send { Board.partRequest(mac: $0, project: project, number: number, write) }
             guard current else { return false }
         }
@@ -387,32 +401,39 @@ final class TaskPageModel: ObservableObject {
         await read()
         guard current else { return false }
         let readOK = pageReadOK >= ownRead
-        await readActivity(names: names)
-        guard current else { return false }
-        partWriting = nil
         func told(_ session: String) -> String { self.page.map { name($0, session) } ?? session }
         var made = false
+        var say: String?
+        var refused = false
         let status = answer?.1.statusCode ?? 0
         if let unsent {
-            partSay = unsent
-            partRefused = true
-        } else if (200...299).contains(status) {
-            partSay = Board.heardLine(answer?.0, name: told)
+            say = unsent; refused = true
+        } else if already || (200...299).contains(status) {
+            say = Board.heardLine(answer?.0, name: told)
             made = true
         } else {
             switch Board.unfinished(status: status, body: answer?.0, failed: Board.partFailed) {
-            case .refused(let why): partSay = why; partRefused = true
+            case .refused(let why): say = why; refused = true
             case .unsure:
                 made = self.page.map { Board.partWritten(write, before: before, now: $0.parts) } ?? false
                 if made {
-                    if case .who(_, let who?, _) = write { partSay = Board.partUntold(told(who)) }
+                    if case .who(_, let who?, _) = write { say = Board.partUntold(told(who)) }
                 } else {
-                    partSay = Board.partUnsure; partRefused = true
-                    if !readOK { partUnsureOf = (write, before) }
+                    say = Board.partUnsure; refused = true
+                    partUnsureOf = (write, before, name)
+                    if let words { addUnsettled = (words, before) }
                 }
             }
         }
-        if partSay != nil { if readOK { partSig = self.page.map(Board.partSig) } else { partSigAwaits = true } }
+        // Kept against the parts as read here, before the activity's read, which can take as long again.
+        partSay = say
+        partRefused = refused
+        partWrote = write
+        if say != nil { if readOK { partSig = self.page.map { Board.partSig($0, write) } } else { partSigAwaits = true } }
+        if made, words != nil { addUnsettled = nil }
+        await readActivity(names: names)
+        guard current else { return false }
+        partWriting = nil
         return made
     }
     private func clearPart() {
@@ -422,25 +443,37 @@ final class TaskPageModel: ObservableObject {
         partSig = nil
         partSigAwaits = false
         partUnsureOf = nil
+        partWrote = nil
     }
-    // Said of the task as read; after a write whose own read failed, the next that works is what it is kept against (the
-    // write itself would be the change), unless it settles what could not be told.
+    // Each read of the task: what could not be told may be settled by it, and a line goes once what it was said of reads
+    // otherwise. After a write whose own read failed, the next that works is what the line is kept against (the write itself
+    // would be the change).
     private func keepPartLine(_ p: Board.TaskPage) {
-        if partSigAwaits {
-            partSigAwaits = false
-            partSig = Board.partSig(p)
-            if let (write, before) = partUnsureOf, Board.partWritten(write, before: before, now: p.parts) { clearPart() }
-            partUnsureOf = nil
+        if let open = addUnsettled, Board.partWritten(.add(open.words), before: open.before, now: p.parts) {
+            addUnsettled = nil
+            partAdded = open.words
+            if case .add = partUnsureOf?.0 { clearPart() }
         }
-        if let was = partSig, was != Board.partSig(p) { clearPart() }
+        if let (write, before, name) = partUnsureOf, Board.partWritten(write, before: before, now: p.parts) {
+            clearPart()
+            if case .who(_, let who?, _) = write {
+                partSay = Board.partUntold(name(p, who))
+                partWrote = write
+                partSig = Board.partSig(p, write)
+            }
+        }
+        if partSigAwaits { partSigAwaits = false; partSig = Board.partSig(p, partWrote) }
+        if let was = partSig, was != Board.partSig(p, partWrote) { clearPart() }
     }
+    // The view has emptied its box of the added words.
+    func tookAdded() { partAdded = nil }
 
     // Choosing with nobody on the project to choose: goes when somebody is.
     func sayNoMembers() {
         guard partWriting == nil, let page else { return }
         clearPart()
         partSay = Board.partNoMembers
-        partSig = Board.partSig(page)
+        partSig = Board.partSig(page, nil)
     }
     // As the board's Choose who with no members: its line goes, and says where people come from instead.
     func sayNoMembersOnHold() { holdSay = Board.holdChooseNobody; holdChoose = false; holdSaySig = nil }
