@@ -7,7 +7,7 @@
  * in 40 s for two agents). The fix writes each of the two only when its markup changed (setGridHtml, ALIST_HTML).
  *
  * Two arms, because a guard that skips writes can fail in either direction:
- *   1. STEADY: over at least three polls with nothing changing, no avatar node is added or removed in #grid or #alist
+ *   1. STEADY: over the polls of a 16 s window (at least two are required) with nothing changing, no avatar node is added or removed in #grid or #alist
  *      and no avatar is fetched. The arm also asserts that the polls RAN (status responses counted), or "nothing was
  *      rebuilt" would be true of a page that never polled.
  *   2. A REAL CHANGE STILL PAINTS: one agent's session ends, and within a few polls both the grid and the rail stop
@@ -105,7 +105,12 @@ const say = (n, cond, note) => {
     say('steady: no avatar node rebuilt in the rail', steady.alist === 0, steady.alist + ' added or removed');
     say('steady: no avatar fetched again', avatarFetches.length === 0, avatarFetches.length + ' fetches ' + avatarFetches.slice(0, 4).join(' '));
 
-    // Arm 2: a real change still paints both.
+    // Arm 2: a real change still paints both. First, beta is drawn as running in both, so the arm can fail.
+    const running = await p.evaluate(() => {
+      const on = (sel) => { const el = document.querySelector(sel + '[data-agent="beta"]'); return !!el && !el.classList.contains('notrunning'); };
+      return { grid: on('#grid .acard'), alist: on('#alist .lrow') };
+    });
+    say('before the change, beta is drawn as running in the grid and the rail', running.grid && running.alist, JSON.stringify(running));
     setFleet(['alpha']);
     let seen = null;
     for (let i = 0; i < 40 && !(seen && seen.grid && seen.alist); i++) {

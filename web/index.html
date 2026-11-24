@@ -27698,8 +27698,8 @@ function paintAgentList() {
 }
 /* kosmos#8990: the markup #alist last received from this function, so a poll that changes nothing writes nothing.
    Rewriting identical rows rebuilt every avatar <img>, and agent avatars are served no-store, so a project room with the
-   rail beside it fetched each member's picture again every poll (54 fetches in 130 s for two agents). Same rule as
-   MY_AGENTS_HTML just below. Compared against the string we last WROTE, never innerHTML, which the browser reserializes.
+   rail beside it fetched each member's picture again every poll (54 fetches in 130 s for two agents). The same
+   compare as MY_AGENTS_HTML just below, without its scroll and focus keeping (a focused star is kept by keepStarFocus). Compared against the string we last WROTE, never innerHTML, which the browser reserializes.
    null means "not ours": the empty-board branch builds the list in pieces and clears it, so the next paint always writes. */
 let ALIST_HTML = null;
 function paintAgentListNow() {
@@ -66294,6 +66294,9 @@ function tcGoToTeam(auto) {
   // Review 21: a wheel scroll counts too; all three are removed when the mark window ends.
   for (const ev of ['pointerdown', 'keydown', 'wheel']) document.addEventListener(ev, theirs, { once: true, capture: true, passive: true });
   const sel = names.map((n) => '.acard[data-agent="' + CSS.escape(n) + '"], .lrow[data-agent="' + CSS.escape(n) + '"]').join(', ');
+  /* kosmos#8990: the cards given tabindex=-1 below, so it comes off when the mark ends (a card still holding focus keeps
+     it); a poll that changes nothing no longer rebuilds them. */
+  const tabbed = new Set();
   const mark = () => {
     const live = Date.now() < until;
     for (const el of (sel ? document.querySelectorAll(sel) : [])) {
@@ -66304,19 +66307,22 @@ function tcGoToTeam(auto) {
         // Focus leaves the hidden step for the first new member, unless the person has already moved it elsewhere.
         const at = document.activeElement;
         // Review 29: the card's own "Open <name>" button when it has one (a named control), else the card itself.
-        if (!at || at === document.body || document.getElementById('panel-create').contains(at)) { const t = el.querySelector('.namego') || el; if (t === el) el.tabIndex = -1; t.focus({ preventScroll: true }); focused = true; }
+        if (!at || at === document.body || document.getElementById('panel-create').contains(at)) { const t = el.querySelector('.namego') || el; if (t === el) { el.tabIndex = -1; tabbed.add(el); } t.focus({ preventScroll: true }); focused = true; }
       }
     }
-    /* Review 5: the board rebuilds its cards on every poll, so the focused card is replaced and focus drops to the
+    /* Review 5: a poll that changes a card rebuilds it, so the focused card is replaced and focus drops to the
        page. While the mark is up, focus goes back to the same agent's new card, unless the person moved it. */
     if (live && focused && first && !first.isConnected) {
       const again = [...document.querySelectorAll(sel)].find((e) => e.dataset.agent === first.dataset.agent && e.offsetParent);
       const at = document.activeElement;
-      if (again && (!at || at === document.body)) { const t = again.querySelector('.namego') || again; if (t === again) again.tabIndex = -1; t.focus({ preventScroll: true }); first = again; }
+      if (again && (!at || at === document.body)) { const t = again.querySelector('.namego') || again; if (t === again) { again.tabIndex = -1; tabbed.add(again); } t.focus({ preventScroll: true }); first = again; }
       else if (again) focused = false;
     }
     if (live) setTimeout(mark, 150);
-    else for (const ev of ['pointerdown', 'keydown', 'wheel']) document.removeEventListener(ev, theirs, { capture: true });   // review 16: the board redraws its cards each poll; put the mark back quickly
+    else {
+      for (const ev of ['pointerdown', 'keydown', 'wheel']) document.removeEventListener(ev, theirs, { capture: true });
+      for (const el of tabbed) if (el.isConnected && el !== document.activeElement) el.removeAttribute('tabindex');
+    }   // review 16: a poll that changes a card redraws it; put the mark back quickly
   };
   mark();
   // The step's live region went with the step: say it where a screen reader hears it.

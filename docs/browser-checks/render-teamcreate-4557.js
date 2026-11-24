@@ -678,15 +678,18 @@ function chk(ok, label, extra) {
             `${E} #4936 with a member not greeted, the screen reader is told so, never "said hello to your team"`, wentSaid);
           chk(went.team && !went.panel && !went.opened && went.marked.join() === 'ana,leo-two,maya-okafor' && went.marked.includes(went.focus) && went.named,
             `${E} #4936 Go to your team leaves the create view for the agents view, the new members' cards marked and one focused, no team left to resume`, JSON.stringify(went));
-          /* Review 5: the board rebuilds its cards every poll; focus must come back to the new card, not stay on the page. */
+          /* Review 5: a rebuilt card loses focus; focus must come back to the new card, not stay on the page. */
           await page.evaluate(() => { const c = document.activeElement && document.activeElement.closest && document.activeElement.closest('[data-agent]'); if (c) c.__before = 1; });
-          // Review 13: wait for an actual rebuild (the board's poll, up to 12 s), not a fixed time; then give the mark loop
-          // its 500 ms to put focus back.
+          // Review 13: wait for an actual rebuild, not a fixed time; then give the mark loop its 500 ms to put focus back.
+          // kosmos#8990: a poll that changes no card no longer rebuilds the grid or the list (setGridHtml, ALIST_HTML), and
+          // these cards do not change, so the check makes the rebuild itself: it forgets both memos and repaints, which
+          // replaces every card exactly as a poll that changed them does.
+          await page.evaluate(() => { GRID_HTML = null; ALIST_HTML = null; repaintAgentOrder(); });   // eslint-disable-line no-undef
           await page.waitForFunction(() => ![...document.querySelectorAll('.acard, .lrow')].some((e) => e.__before), null, { timeout: 12000 }).catch(() => null);
           await page.waitForTimeout(700);
           const kept = await page.evaluate(() => { const a = document.activeElement; const c = a && a.closest && a.closest('[data-agent]');
             return { focus: (c && c.dataset.agent) || null, body: a === document.body, rebuilt: !!c && !c.__before }; });
-          chk(kept.rebuilt && !kept.body && ['ana', 'leo-two', 'maya-okafor'].includes(kept.focus), `${E} #4936 after a board poll rebuilt the cards, focus is on a new member's card`, JSON.stringify(kept));
+          chk(kept.rebuilt && !kept.body && ['ana', 'leo-two', 'maya-okafor'].includes(kept.focus), `${E} #4936 after the cards are rebuilt, focus is on a new member's card`, JSON.stringify(kept));
           /* Review 28: opening a team after that must not show the finished team's Go to your team while the new
              one loads. The load is never answered here, so this is the screen as it stands mid-load. */
           await page.route('**/api/teams/seeded/marketing', () => {});

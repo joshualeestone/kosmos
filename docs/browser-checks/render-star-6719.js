@@ -182,10 +182,14 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       // In the list layout, where the list is on screen (a hidden list's star cannot take focus at all).
       await page.evaluate(() => { BOARD_LAYOUT = 'list'; boardApplyVisibility(true); repaintAgentOrder(); });
       await page.focus('#alist [data-star="cam"]');
+      /* kosmos#8990: a poll that changes nothing no longer rewrites the list (ALIST_HTML), so the repaint here forgets that
+         memo first and asserts the star was REPLACED. Without both, the focused star is never touched and this arm passes
+         whether or not keepStarFocus works. */
       const kept = await page.evaluate(() => {
-        const before = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.star : null;
-        paintAgentList(); const a = document.activeElement;
-        return { before, star: a && a.dataset ? a.dataset.star : null, inList: !!(a && a.closest && a.closest('#alist')) };
+        const el = document.activeElement;
+        const before = el && el.dataset ? el.dataset.star : null;
+        ALIST_HTML = null; paintAgentList(); const a = document.activeElement;   // eslint-disable-line no-undef
+        return { before, star: a && a.dataset ? a.dataset.star : null, inList: !!(a && a.closest && a.closest('#alist')), replaced: !!el && !el.isConnected };
       });
       // Review 8: and it does not scroll the page back to that star. The person scrolled away after pressing it; the
       // poll's repaint must leave the page where they put it. CONTROL: the page did scroll, so the arm can fail.
@@ -195,14 +199,15 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
         document.querySelector('#alist [data-star="cam"]').focus({ preventScroll: true });
         window.scrollTo(0, 2000);
         const moved = window.scrollY;
-        paintAgentList();
+        const el = document.activeElement;
+        ALIST_HTML = null; paintAgentList();   // eslint-disable-line no-undef
         const a = document.activeElement;
-        return { moved, after: window.scrollY, star: a && a.dataset ? a.dataset.star : null };
+        return { moved, after: window.scrollY, star: a && a.dataset ? a.dataset.star : null, replaced: !!el && !el.isConnected };
       });
       await page.evaluate(() => { document.body.style.minHeight = ''; window.scrollTo(0, 0); });
-      chk(scroll.moved > 0 && scroll.after === scroll.moved && scroll.star === 'cam', `${t} that repaint does not scroll the page back to the star (CONTROL: the page had scrolled)`, JSON.stringify(scroll));
+      chk(scroll.replaced && scroll.moved > 0 && scroll.after === scroll.moved && scroll.star === 'cam', `${t} that repaint does not scroll the page back to the star (CONTROL: the page had scrolled)`, JSON.stringify(scroll));
       await page.evaluate(() => { BOARD_LAYOUT = 'grid'; boardApplyVisibility(true); repaintAgentOrder(); });
-      chk(kept.before === 'cam' && kept.star === 'cam' && kept.inList, `${t} a list repaint (the poll's) keeps a focused star focused (CONTROL: it had focus before)`, JSON.stringify(kept));
+      chk(kept.replaced && kept.before === 'cam' && kept.star === 'cam' && kept.inList, `${t} a list repaint (the poll's) keeps a focused star focused (CONTROL: it had focus before)`, JSON.stringify(kept));
 
       // A refused save puts the star back.
       await page.evaluate(() => { window.STAR_REFUSE = true; });
