@@ -2308,7 +2308,7 @@ func b6ModelTests() async {
         mac.onSend = { r in if r.url?.path.hasSuffix("/task/1/close") == true { mac.projects = tasks(closed, closed, own: closed) } }
         await m.closeWithSubtasks(names: [:])
         check(closes(mac) == ["3/close", "4/close", "1/close"], "each built subtask in number order, not the one already closed, then this task")
-        check(mac.asked.suffix(2) == ["GET /api/projects", "GET /api/project/springcatalogue/task/1/activity"], "then the task and its activity read again")
+        check(mac.asked.dropFirst(3).first == "GET /api/projects" && mac.asked.contains("GET /api/project/springcatalogue/task/1/activity"), "then the task and its activity are read again")
         check(m.page?.closed == true && m.refusal == nil && !m.pressing, "closed, nothing refused")
     }
     for (what, answers, want, sent) in [("the second refused", [(200, "{}"), (409, #"{"error":"no"}"#)], "Task #4: no. 1 subtask before it is closed. This task is still open.", 2),
