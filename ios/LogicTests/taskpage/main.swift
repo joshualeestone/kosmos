@@ -1267,8 +1267,9 @@ do {
     check(Board.undoResult(status: 200, body: Data(#"{"done":["a"],"skipped":[],"because":"x"}"#.utf8)) == .done("Undone: 1 file."), "something done is done, whatever else it says")
     check(Board.undoResult(status: 200, body: Data(#"{"done":[],"skipped":[{}]}"#.utf8)) == .done("Undone: 0 files. 1 file was left as it was."), "every file left is said, as the board's")
     for bad in ["", "null", "[]", "<html>"] { check(Board.parseUndoPlan(Data(bad.utf8)) == .unreadable, "not a plan is unreadable: \(bad)") }
+    check(Board.parseUndoPlan(Data(#"{"on":true,"ready":false,"because":"stamps-unknown","files":[]}"#.utf8)) == .unreadable, "records the Mac could not read just now: asked again, not nothing to offer")
     for (what, off) in [("off", #"{"on":false,"files":[{"path":"/a","ok":true,"action":"restore"}]}"#), ("no files", #"{"on":true,"files":[]}"#),
-                        ("not ready", #"{"on":true,"ready":false,"because":"stamps-unknown","files":[]}"#), ("a file with no path", #"{"on":true,"files":[{"ok":true}, 7]}"#)] {
+                        ("not ready", #"{"on":true,"ready":false,"because":"open","files":[]}"#), ("a file with no path", #"{"on":true,"files":[{"ok":true}, 7]}"#)] {
         check(Board.parseUndoPlan(Data(off.utf8)) == .off, "nothing to offer: \(what)")
     }
     let studio = URL(string: "https://studio.kosmosplus.com")!
@@ -1985,11 +1986,11 @@ func b5ModelTests() async {
         let receiving = f.receiptReading
         await f.read()
         await f.undoReading?.value
-        check(asks(fm) == 1 && shown(f) == ["a.js"], "a read while another close's receipt is out asks for no plan")
+        check(asks(fm) == 1 && shown(f) == nil, "closed again: the last close's offer goes at once, and no plan is read while its receipt is out")
         fm.release(at: 0)
         await receiving?.value
         await f.undoReading?.value
-        check(asks(fm) == 2, "it is asked for when that receipt lands")
+        check(asks(fm) == 2 && shown(f) == ["a.js"], "it is asked for when that receipt lands")
     }
     // Same plan read again: nothing is redrawn.
     do {
@@ -2060,6 +2061,38 @@ func b5ModelTests() async {
             check(line == said && asks(fm) == 1, "\(what), the receipt landing \(landsAfter ? "after" : "before") the answer: said, and still said after the next read")
         }
     }
+    // Refused, and closed again while it was out: the list still open is of the last close, so it sends nothing more; Cancel
+    // reads this one's.
+    do {
+        let fm = FakeMac(); let f = model(fm)
+        fm.projects = with(closedAt: at1); fm.undo = offer("a.js")
+        await settle(f)
+        fm.actAnswers = [(409, #"{"error":"no"}"#)]
+        fm.holdTheNext()
+        let going = Task { await press(f, ["/w/a.js"]) }
+        await waitUntil({ fm.holding }, "the undo")
+        fm.projects = with(closedAt: at2); fm.undo = offer("b.md")
+        await f.read()
+        await f.receiptReading?.value
+        fm.release()
+        await going.value
+        check(f.undoSay == "no" && shown(f) == ["a.js"] && posts(fm) == 1, "premise: refused, the last close's list still open")
+        await press(f, ["/w/a.js"])
+        check(posts(fm) == 1 && f.undoSay == Board.undoClosedAgain && f.undoRefused, "pressed again: nothing sent, and it says why")
+        f.openUndo()
+        await settle(f)
+        check(shown(f) == ["b.md"], "opened again before Cancel: the next read takes this close's plan, not the last one's")
+    }
+    // Closed again with the list open: this close's plan, read after its receipt, not pinned by the list.
+    do {
+        let fm = FakeMac(); let f = model(fm)
+        fm.projects = with(closedAt: at1); fm.undo = offer("a.js")
+        await settle(f)
+        f.openUndo()
+        fm.projects = with(closedAt: at2); fm.undo = offer("b.md")
+        await settle(f)
+        check(shown(f) == ["b.md"] && asks(fm) == 2, "closed again with the list open: its own plan is read")
+    }
     // What was done goes when the task is put back; a refusal goes when another close's plan lands.
     do {
         let fm = FakeMac(); let f = model(fm)
@@ -2069,7 +2102,7 @@ func b5ModelTests() async {
         await press(f, ["/w/a.js"])
         fm.projects = with(closedAt: at2)
         await settle(f)
-        check(f.undoSay == nil && !f.undoRefused && shown(f) == ["a.js"], "another close's plan takes the refusal away")
+        check(f.undoSay == nil && !f.undoRefused && shown(f) == ["a.js"], "another close takes the refusal away")
         fm.actAnswers = [(200, #"{"done":["/w/a.js"]}"#)]
         await press(f, ["/w/a.js"])
         check(f.undoDone != nil, "premise: undone")
@@ -2150,7 +2183,7 @@ func b5ModelTests() async {
         check(f.undoDone == nil && shown(f) == ["a.js", "b.md"], "another close: its own offer takes the line's place")
         // Refused, then with no answer, then with an answer that is not one.
         for (what, answer, why) in [("turned off", (409, #"{"error":"undo is turned off in Settings","done":[],"skipped":[]}"#), "undo is turned off in Settings"),
-                                    ("refused with no words", (500, "{}"), Board.undoFailed), ("no answer", nil, Board.undoUnsure),
+                                    ("refused with no words", (400, "{}"), Board.undoFailed), ("a 502 from the tunnel", (502, #"{"error":"bad gateway"}"#), Board.undoUnsure), ("no answer", nil, Board.undoUnsure),
                                     ("an answer that is not one", (200, "<html>"), Board.undoUnsure),
                                     ("nothing done, and why", (200, #"{"done":[],"skipped":[],"because":"stamps-unknown"}"#), Board.undoFailed)] as [(String, (Int, String)?, String)] {
             fm.actAnswers = [answer]
@@ -2182,7 +2215,6 @@ func b5ModelTests() async {
         f.leaveUndo()
         let reading = f.undoReading
         await waitUntil({ fm.holding }, "Cancel's read")
-        f.openUndo()
         fm.actAnswers = [(200, #"{"done":["/w/a.js"]}"#)]
         await press(f, ["/w/a.js"])
         fm.release()

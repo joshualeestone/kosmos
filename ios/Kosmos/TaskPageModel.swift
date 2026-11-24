@@ -73,6 +73,8 @@ final class TaskPageModel: ObservableObject {
     // The closed state the plan was asked for, the last one whose read failed, and reads numbered (a hide counts too, so
     // neither a read nor an undo still out draws after it).
     private var undoAsked: String?
+    // The close the plan (or the line about what was done) is for.
+    private var undoPlanKey: String?
     private var undoFailedRead: (key: String, at: Date)?
     private var undoReads = 0
     private(set) var undoReading: Task<Void, Never>?
@@ -301,6 +303,9 @@ final class TaskPageModel: ObservableObject {
             return
         }
         stopReceipt()   // one still out is for another close
+        // So is what an undo of the last one would do: the files, and why each is or is not chosen, may differ now. An undo
+        // still out keeps its list until it answers.
+        if undoPlanKey != key, !undoing { hideUndo() }
         // Only while the page is in front: a press's read landing after the person left asks for nothing; the read on their
         // return does.
         guard shouldReadTask else { return }
@@ -358,6 +363,7 @@ final class TaskPageModel: ObservableObject {
             }
             self.clearUndoSay()
             if self.undoDone != nil { self.undoDone = nil }
+            self.undoPlanKey = key
             if self.undoPlan != plan { self.undoPlan = plan }
         }
     }
@@ -382,11 +388,11 @@ final class TaskPageModel: ObservableObject {
     }
 
     // The list opens: no read of the plan lands under it and takes the person's choices away (the board shows the link again
-    // only once its read is in). Another close's receipt still reads its own.
+    // only once its read is in). Another close still reads its own.
     func openUndo() {
         clearUndoSay()
         stopUndoRead()
-        undoAsked = page?.receiptKey
+        undoAsked = undoPlanKey
     }
     // The list was left without an undo (the board's Cancel): the plan is read again.
     func leaveUndo() {
@@ -408,6 +414,9 @@ final class TaskPageModel: ObservableObject {
         guard !undoing, current, undoPlan == list else { return }
         clearUndoSay()
         guard !paths.isEmpty else { undoSay = Board.undoChoose; return }
+        // The list is of an earlier close (it stayed open under a refusal): what it says of each file may be wrong now.
+        guard page?.receiptKey == undoPlanKey else { undoSay = Board.undoClosedAgain; undoRefused = true; return }
+        stopUndoRead()   // one still out would draw over this one's answer
         undoing = true
         let mine = undoReads
         let (project, number) = (self.project, self.number)
@@ -423,6 +432,7 @@ final class TaskPageModel: ObservableObject {
             case .done(let line):
                 undoDone = line
                 undoPlan = nil
+                undoPlanKey = self.page?.receiptKey
             }
             // Closed again while it was out, maybe: this close is taken as asked, so the next read does not wipe the words.
             undoAsked = self.page?.receiptKey

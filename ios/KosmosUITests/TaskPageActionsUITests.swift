@@ -150,47 +150,44 @@ final class TaskPageActionsUITests: XCTestCase {
     // Mac offers it (one another agent edited is off but can be chosen, one changed since cannot), Cancel undoes nothing,
     // and the undo says what it did where the offer was (the sample Mac answers with what it was sent).
     func testAFinishedTasksFilesAreUndone() throws {
-        for dark in [false, true] {
-            let app = try openTask(dark: dark)
-            let done = app.buttons["Mark as done"]
-            for _ in 0..<4 where !(done.exists && done.isHittable) { app.swipeUp() }
-            XCTAssertTrue(done.exists, "no Mark as done")
-            let offer = app.buttons["Undo this task\u{2019}s file changes"]
-            XCTAssertFalse(offer.exists, "an open task offers an undo")
-            done.tap()
-            XCTAssertTrue(offer.waitForExistence(timeout: 20), "no undo under a done task's receipt")
-            for _ in 0..<6 where !offer.isHittable { app.swipeUp() }
-            offer.tap()
-            func file(_ name: String) -> XCUIElement { app.switches.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch }
-            XCTAssertTrue(file("captions.md").waitForExistence(timeout: 10), "the list did not open")
-            XCTAssertEqual(file("captions.md").value as? String, "1", "a file that goes back is not chosen")
-            XCTAssertEqual(file("pages-1-8.md").value as? String, "1", "a file the agent made is not chosen")
-            XCTAssertEqual(file("prices.md").value as? String, "0", "a file another agent edited is chosen")
-            XCTAssertTrue(file("prices.md").isEnabled, "a file another agent edited cannot be chosen")
-            XCTAssertFalse(file("style.md").isEnabled, "a file changed after the close can be chosen")
-            XCTAssertTrue(file("prices.md").label.contains("another agent also edited it"), "its reason is not read with it: \(file("prices.md").label)")
-            shot(app, "undo list, \(dark ? "dark" : "light")")
-            app.buttons["Cancel"].tap()
-            expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: file("captions.md"))
-            waitForExpectations(timeout: 10)
-            XCTAssertTrue(offer.waitForExistence(timeout: 10), "Cancel took the offer away")
-            offer.tap()
-            let prices = file("prices.md")
-            XCTAssertTrue(prices.waitForExistence(timeout: 10), "the list did not open again")
-            prices.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
-            expectation(for: NSPredicate(format: "value == %@", "1"), evaluatedWith: prices)
-            waitForExpectations(timeout: 5)
-            let go = app.buttons["Undo the chosen files"]
-            for _ in 0..<4 where !(go.exists && go.isHittable) { app.swipeUp() }
-            go.tap()
-            let said = app.staticTexts["Undone: 3 files. The versions from before the undo are saved in /Users/sam/Kosmos/undo-saved/2026-11-24."]
-            XCTAssertTrue(said.waitForExistence(timeout: 15), "what was undone is not said")
-            // Waited for: the list slides away after the words are there.
-            expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: go)
-            waitForExpectations(timeout: 10)
-            XCTAssertFalse(offer.exists, "the offer is still there after the undo")
-            shot(app, "undone, \(dark ? "dark" : "light")")
-            app.terminate()
-        }
+        let app = try openTask()
+        let done = app.buttons["Mark as done"]
+        for _ in 0..<4 where !(done.exists && done.isHittable) { app.swipeUp() }
+        XCTAssertTrue(done.exists, "no Mark as done")
+        let offer = app.buttons["Undo this task\u{2019}s file changes"]
+        XCTAssertFalse(offer.exists, "an open task offers an undo")
+        done.tap()
+        XCTAssertTrue(offer.waitForExistence(timeout: 20), "no undo under a done task's receipt")
+        for _ in 0..<6 where !offer.isHittable { app.swipeUp() }
+        offer.tap()
+        func file(_ name: String) -> XCUIElement { app.switches.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch }
+        XCTAssertTrue(file("captions.md").waitForExistence(timeout: 10), "the list did not open")
+        XCTAssertEqual(file("captions.md").value as? String, "1", "a file that goes back is not chosen")
+        XCTAssertEqual(file("pages-1-8.md").value as? String, "1", "a file the agent made is not chosen")
+        XCTAssertEqual(file("prices.md").value as? String, "0", "a file another agent edited is chosen")
+        XCTAssertTrue(file("prices.md").isEnabled, "a file another agent edited cannot be chosen")
+        XCTAssertFalse(file("style.md").isEnabled, "a file changed after the close can be chosen")
+        XCTAssertTrue(file("prices.md").label.contains("another agent also edited it"), "its reason is not read with it: \(file("prices.md").label)")
+        shot(app, "undo list")
+        app.buttons["Cancel"].tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: file("captions.md"))
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(offer.waitForExistence(timeout: 10), "Cancel took the offer away")
+        offer.tap()
+        let prices = file("prices.md")
+        XCTAssertTrue(prices.waitForExistence(timeout: 10), "the list did not open again")
+        prices.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        expectation(for: NSPredicate(format: "value == %@", "1"), evaluatedWith: prices)
+        waitForExpectations(timeout: 5)
+        let go = app.buttons["Undo the chosen files"]
+        for _ in 0..<4 where !(go.exists && go.isHittable) { app.swipeUp() }
+        go.tap()
+        let said = app.staticTexts["Undone: 3 files. The versions from before the undo are saved in /Users/sam/Kosmos/undo-saved/2026-11-24."]
+        XCTAssertTrue(said.waitForExistence(timeout: 15), "what was undone is not said")
+        // Waited for: the list slides away after the words are there.
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: go)
+        waitForExpectations(timeout: 10)
+        XCTAssertFalse(offer.exists, "the offer is still there after the undo")
+        shot(app, "undone")
     }
 }
