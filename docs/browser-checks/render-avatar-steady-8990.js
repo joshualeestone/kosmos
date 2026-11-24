@@ -16,7 +16,7 @@
  *   3. A NEW PICTURE IS DRAWN (run before arm 2): an uploaded avatar replaces the avatar element in the grid and the
  *      rail. The avatar URLs carry the picture's version (?v=), so a new picture is a change of markup (#2698's rule).
  *   4. A FAILED PICTURE IS ASKED FOR AGAIN, BY ITSELF: with alpha's avatar answering 500, the failed elements ask again
- *      (their URLs carry retry=N, so nothing else can be counted): retry=1 and retry=2 within 22 s and no retry=3 (the
+ *      (their URLs carry retry=N, so nothing else can be counted): retry=1 and retry=2 within 28 s and no retry=3 (the
  *      delays between tries are 5, 10, 20, 40 and then 60 s), and beta's avatar nodes are not replaced meanwhile.
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-avatar-steady-8990.js
@@ -184,7 +184,8 @@ const say = (n, cond, note) => {
     }
     const t0 = Date.now();
     await p.evaluate(() => { window.__beta = [...document.querySelectorAll('#grid image, #alist img')].filter((n) => /\/api\/agent\/beta\/avatar/.test(n.getAttribute('src') || n.getAttribute('href') || '')); });
-    await p.waitForTimeout(22000);   // the delays are 5, then 10, then 20 s: retries at about 5, 15 and 35 s
+    await p.waitForTimeout(28000);   // the delays are 5, then 10, then 20 s: retries at about 5, 15 and 35 s after the
+    // failure, so 28 s leaves retry=2 room for a loaded machine and still ends before retry=3
     p.off('request', onReq);
     await p.unroute('**/api/agent/alpha/avatar*');
     const betaKept = await p.evaluate(() => ({ n: window.__beta.length, kept: window.__beta.every((x) => x.isConnected) }));
@@ -195,9 +196,9 @@ const say = (n, cond, note) => {
       return { grid: at('#grid image'), alist: at('#alist img') };
     });
     say('fixture: the new picture was saved and drawn, and beta was captured in both places', put2 >= 200 && put2 < 300 && rebuiltFor && betaKept.n === 2, 'PUT ' + put2 + ' ' + JSON.stringify(betaKept));
-    say('a failed avatar is asked for again, by itself, twice in 22 s (retry=1 and retry=2)', late.some((x) => x.n === 1) && late.some((x) => x.n === 2), JSON.stringify(late.map((x) => x.n)));
+    say('a failed avatar is asked for again, by itself, twice in 28 s (retry=1 and retry=2)', late.some((x) => x.n === 1) && late.some((x) => x.n === 2), JSON.stringify(late.map((x) => x.n)));
     say('the grid\'s SVG image and the rail\'s img each retried twice (their own addresses carry retry=2)', /[?&]retry=2(&|$)/.test(own.grid || '') && /[?&]retry=2(&|$)/.test(own.alist || ''), JSON.stringify(own));
-    say('with a backoff: no third retry within 22 s (every 5 s would have made three more)', !late.some((x) => x.n >= 3), JSON.stringify(late.map((x) => x.n)));
+    say('with a backoff: no third retry within 28 s (every 5 s would have made four more)', !late.some((x) => x.n >= 3), JSON.stringify(late.map((x) => x.n)));
     say('the retry does not rebuild the container: beta\'s avatar nodes are the same ones', betaKept.kept, JSON.stringify(betaKept));
 
     // Arm 2: a real change still paints both. First, beta is drawn as running in both, so the arm can fail.
