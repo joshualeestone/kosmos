@@ -54,6 +54,15 @@ final class TaskPageModel: ObservableObject {
     // read that started after it was recorded has landed: a tick read started before it, landing with the old page, does
     // not count.
     private var pageReadOK = 0
+    // kosmos#8958 slice B4: a closed task's receipt as last read; nil while there is none to show.
+    @Published private(set) var receipt: Board.Receipt?
+    // The closed state (TaskPage.receiptKey) the receipt was asked for, and the last one whose read failed, with when.
+    private var receiptAsked: String?
+    private var receiptFailed: (key: String, at: Date)?
+    private var receiptReads = 0
+    // The read in the air, so a test can wait for it.
+    private(set) var receiptReading: Task<Void, Never>?
+    static let receiptRetry: TimeInterval = 30
     // The title and detail being saved, and the line for the last save (the board's tk-msg for the form).
     // Like `pressing`, saying, dueSaving and editSaving stay set when the epoch moves mid-request: the page is then about
     // nothing.
@@ -221,7 +230,7 @@ final class TaskPageModel: ObservableObject {
     // more, as the board's tkTabReturn does, but only the state this tick just read: a read that fails records nothing,
     // so a nudge that arrived while they were away is never marked before it is shown.
     func tick(first: Bool, returning: Bool, names: [String: String]) async {
-        if first || shouldReadTask { await read() }
+        if first || shouldReadTask { await read(); syncReceipt() }
         guard shouldReadActivity(first: first) else { return }
         if await readActivity(names: names) { await markSeen(again: first && returning) }
     }
@@ -240,9 +249,48 @@ final class TaskPageModel: ObservableObject {
         guard current else { return }
         if case .refused(let why) = Board.taskActResult(status: answer?.1.statusCode ?? 0, body: answer?.0) { refusal = why }
         await read()
+        syncReceipt()
         await readActivity(names: names)
         guard current else { return }
         pressing = false
+    }
+
+    // kosmos#8958 slice B4: the board's tkReceiptSync and paintTaskReceipt. Asked only when the closed state changed since it
+    // was last asked, and again 30 s after a read that failed. Not awaited: the Mac's first read of long
+    // transcripts can take seconds, and the page's own tick must not wait for it. Only the newest ask draws.
+    func syncReceipt() {
+        guard current, let page, !gone else { return }
+        guard let key = page.receiptKey else {
+            // Open: no receipt, and one still in the air draws nothing.
+            receiptReads += 1
+            receiptAsked = nil
+            receiptFailed = nil
+            if receipt != nil { receipt = nil }
+            return
+        }
+        guard key != receiptAsked else { return }
+        if let f = receiptFailed, f.key == key, now().timeIntervalSince(f.at) < Self.receiptRetry { return }
+        receiptAsked = key
+        receiptReads += 1
+        let mine = receiptReads
+        let (project, number) = (self.project, self.number)
+        let (replaced, unrun) = (page.replacedBy != nil, page.closedUnrun)
+        receiptReading = Task { [weak self, send] in
+            let answer = await send { Board.taskReceiptRequest(mac: $0, project: project, number: number) }
+            guard let self, self.current, mine == self.receiptReads else { return }
+            var read = Board.ReceiptRead.unreadable
+            if let (data, response) = answer, (200...299).contains(response.statusCode) {
+                read = Board.parseReceipt(data, replaced: replaced, unrun: unrun)
+            }
+            var shown: Board.Receipt?
+            switch read {
+            case .receipt(let r): shown = r; self.receiptFailed = nil
+            case .none: self.receiptFailed = nil
+            // Asked again after receiptRetry, not left hidden while the page stays open.
+            case .unreadable: self.receiptFailed = (key, self.now()); self.receiptAsked = nil
+            }
+            if self.receipt != shown { self.receipt = shown }
+        }
     }
 
     // kosmos#8958 slice B2: the board's tk-hold button, as the button showed it (`wasOnHold`). Putting it on hold reads the

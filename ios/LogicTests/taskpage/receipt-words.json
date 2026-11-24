@@ -1,0 +1,872 @@
+{
+ "about": "What web/index.html says for a task receipt. Written by ios.receipt-words-8958.test.js --write; never by hand.",
+ "abbr": [
+  [
+   0,
+   "0"
+  ],
+  [
+   1,
+   "1"
+  ],
+  [
+   999,
+   "999"
+  ],
+  [
+   1000,
+   "1K"
+  ],
+  [
+   1499,
+   "1K"
+  ],
+  [
+   1500,
+   "2K"
+  ],
+  [
+   2500,
+   "3K"
+  ],
+  [
+   12500,
+   "13K"
+  ],
+  [
+   999499,
+   "999K"
+  ],
+  [
+   999500,
+   "1.0M"
+  ],
+  [
+   999999,
+   "1.0M"
+  ],
+  [
+   1000000,
+   "1.0M"
+  ],
+  [
+   1250000,
+   "1.3M"
+  ],
+  [
+   1350000,
+   "1.4M"
+  ],
+  [
+   99949999,
+   "99.9M"
+  ],
+  [
+   999949999,
+   "999.9M"
+  ],
+  [
+   999950000,
+   "1.0B"
+  ],
+  [
+   1000000000,
+   "1.0B"
+  ],
+  [
+   1250000000,
+   "1.3B"
+  ],
+  [
+   9949999999,
+   "9.9B"
+  ],
+  [
+   9950000000,
+   "9.9B"
+  ],
+  [
+   9999999999,
+   "10B"
+  ],
+  [
+   10000000000,
+   "10B"
+  ],
+  [
+   10500000000,
+   "11B"
+  ],
+  [
+   12500000000,
+   "13B"
+  ],
+  [
+   150000000000,
+   "150B"
+  ]
+ ],
+ "usd": [
+  [
+   0,
+   "$0.00"
+  ],
+  [
+   0.004,
+   "$0.00"
+  ],
+  [
+   0.005,
+   "$0.01"
+  ],
+  [
+   0.125,
+   "$0.13"
+  ],
+  [
+   0.375,
+   "$0.38"
+  ],
+  [
+   1.005,
+   "$1.00"
+  ],
+  [
+   2.5,
+   "$2.50"
+  ],
+  [
+   9.994,
+   "$9.99"
+  ],
+  [
+   9.995,
+   "$9.99"
+  ],
+  [
+   9.999,
+   "$10.00"
+  ],
+  [
+   10,
+   "$10"
+  ],
+  [
+   10.5,
+   "$11"
+  ],
+  [
+   11.5,
+   "$12"
+  ],
+  [
+   12.49,
+   "$12"
+  ],
+  [
+   999.4,
+   "$999"
+  ],
+  [
+   999.5,
+   "$1000"
+  ],
+  [
+   1000,
+   "$1,000"
+  ],
+  [
+   1000.5,
+   "$1,001"
+  ],
+  [
+   176332.49,
+   "$176,332"
+  ],
+  [
+   999999.5,
+   "$1,000,000"
+  ],
+  [
+   1000000,
+   "$1M"
+  ],
+  [
+   2500000,
+   "$3M"
+  ],
+  [
+   3500000,
+   "$4M"
+  ],
+  [
+   1000000000,
+   "$1.00B"
+  ],
+  [
+   1125000000,
+   "$1.13B"
+  ],
+  [
+   2500000000,
+   "$2.50B"
+  ]
+ ],
+ "agents": [
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "provider": "claude",
+    "transcriptsWithWork": 1,
+    "models": {
+     "claude-fable-5": {
+      "input_tokens": 1000000,
+      "output_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "rows": 7
+     }
+    },
+    "files": [
+     "src/a.js",
+     "b.md"
+    ],
+    "filesMore": 3,
+    "commands": 1,
+    "folder": "/w/ann",
+    "cost": {
+     "usd": 10,
+     "unpriced": []
+    }
+   },
+   "lines": [
+    "Edited 5 files, ran 1 command, 1.0M tokens, $10 at API prices.",
+    "5 files",
+    "src/a.js",
+    "b.md",
+    "and 3 more",
+    "In /w/ann"
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "provider": "claude",
+    "transcriptsWithWork": 1,
+    "models": {
+     "claude-opus-5": {
+      "input_tokens": 1234567,
+      "output_tokens": 765432,
+      "cache_creation_input_tokens": 111111,
+      "cache_read_input_tokens": 9999999,
+      "rows": 7
+     },
+     "zz-new": {
+      "input_tokens": 5,
+      "output_tokens": 5,
+      "cache_creation_input_tokens": 5,
+      "cache_read_input_tokens": 5,
+      "rows": 7
+     }
+    },
+    "files": [
+     "a <b> & \"c\".md"
+    ],
+    "filesMore": 0,
+    "commands": 1234,
+    "folder": "/w/ann",
+    "cost": {
+     "usd": 31.00307825,
+     "unpriced": [
+      "zz-new"
+     ]
+    }
+   },
+   "lines": [
+    "Edited 1 file, ran 1,234 commands, 12.1M tokens, $31 at API prices (not counting zz-new, which has no published price).",
+    "1 file",
+    "a <b> & \"c\".md",
+    "In /w/ann"
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "provider": "claude",
+    "transcriptsWithWork": 1,
+    "models": {
+     "zz-new": {
+      "input_tokens": 10,
+      "output_tokens": 10,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "rows": 7
+     },
+     "aa-new": {
+      "input_tokens": 1,
+      "output_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "rows": 7
+     },
+     "claude-opus-5": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "rows": 7
+     }
+    },
+    "files": [],
+    "filesMore": 0,
+    "commands": 2,
+    "cost": {
+     "usd": 0,
+     "unpriced": [
+      "aa-new",
+      "zz-new"
+     ]
+    }
+   },
+   "lines": [
+    "Edited 0 files, ran 2 commands, 21 tokens, $0.00 at API prices (not counting aa-new, zz-new, which have no published price)."
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "provider": "claude",
+    "transcriptsWithWork": 1,
+    "models": {
+     "zz-new": {
+      "input_tokens": 10,
+      "output_tokens": 10,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "rows": 7
+     },
+     "aa-new": {
+      "input_tokens": 1,
+      "output_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "rows": 7
+     }
+    },
+    "files": [],
+    "filesMore": 0,
+    "commands": 2,
+    "folder": "/w/ann",
+    "cost": {
+     "usd": null,
+     "unpriced": [
+      "aa-new",
+      "zz-new"
+     ]
+    }
+   },
+   "lines": [
+    "Edited 0 files, ran 2 commands, 21 tokens, no published price for aa-new, zz-new.",
+    "In /w/ann"
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "provider": "claude",
+    "transcriptsWithWork": 1,
+    "models": {},
+    "files": [
+     "one.md"
+    ],
+    "filesMore": 0,
+    "commands": 0,
+    "cost": {
+     "usd": null,
+     "unpriced": []
+    }
+   },
+   "lines": [
+    "Edited 1 file, ran 0 commands, 0 tokens.",
+    "1 file",
+    "one.md"
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "provider": "claude",
+    "transcriptsWithWork": 1,
+    "models": {
+     "claude-opus-5": {
+      "input_tokens": 400000000,
+      "output_tokens": 100000000,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 9000000000,
+      "rows": 7
+     }
+    },
+    "files": [],
+    "filesMore": 1500,
+    "commands": 0,
+    "cost": {
+     "usd": 9000,
+     "unpriced": []
+    }
+   },
+   "lines": [
+    "Edited 1,500 files, ran 0 commands, 9.5B tokens, $9,000 at API prices.",
+    "1,500 files",
+    "and 1,500 more"
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "provider": "claude",
+    "transcriptsWithWork": 1,
+    "models": {},
+    "files": [],
+    "filesMore": 0,
+    "commands": 0,
+    "prs": [
+     {
+      "repo": "acme/app",
+      "number": 12,
+      "url": "https://github.com/acme/app/pull/12"
+     }
+    ],
+    "prsMore": 0,
+    "cost": {
+     "usd": null,
+     "unpriced": []
+    }
+   },
+   "lines": [
+    "Edited 0 files, ran 0 commands, 0 tokens.",
+    "Worked on pull request app#12."
+   ],
+   "links": [
+    "https://github.com/acme/app/pull/12"
+   ]
+  },
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "provider": "claude",
+    "transcriptsWithWork": 1,
+    "models": {},
+    "files": [],
+    "filesMore": 0,
+    "commands": 0,
+    "prs": [
+     {
+      "repo": "acme/app",
+      "number": 1,
+      "url": null
+     },
+     {
+      "repo": "acme/relay",
+      "number": 2,
+      "url": "https://github.com/acme/relay/pull/2"
+     }
+    ],
+    "prsMore": 3,
+    "cost": {
+     "usd": null,
+     "unpriced": []
+    }
+   },
+   "lines": [
+    "Edited 0 files, ran 0 commands, 0 tokens.",
+    "Worked on pull requests app#1, relay#2 and 3 more."
+   ],
+   "links": [
+    "https://github.com/acme/relay/pull/2"
+   ]
+  },
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "provider": "claude",
+    "transcriptsWithWork": 1,
+    "models": {},
+    "files": [],
+    "filesMore": 0,
+    "commands": 0,
+    "prs": [
+     {
+      "repo": "acme/app",
+      "number": 1,
+      "url": "https://github.com/acme/app/pull/1"
+     },
+     {
+      "repo": "acme/app",
+      "number": 2,
+      "url": "https://github.com/acme/app/pull/2"
+     }
+    ],
+    "prsMore": 1200,
+    "upTo": true,
+    "cost": {
+     "usd": null,
+     "unpriced": []
+    }
+   },
+   "lines": [
+    "Edited 0 files, ran 0 commands, 0 tokens.",
+    "Worked on pull requests app#1, app#2 and up to 1,200 more."
+   ],
+   "links": [
+    "https://github.com/acme/app/pull/1",
+    "https://github.com/acme/app/pull/2"
+   ]
+  },
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "provider": "claude",
+    "transcriptsWithWork": 1,
+    "models": {},
+    "files": [],
+    "filesMore": 0,
+    "commands": 0,
+    "prs": [
+     {
+      "repo": "acme/app",
+      "number": 5,
+      "url": "javascript:alert(1)"
+     },
+     {
+      "repo": "acme/app",
+      "number": 6,
+      "url": "https://github.com/acme/app/pull/6/files"
+     },
+     {
+      "repo": "acme/app",
+      "number": 7,
+      "url": "https://github.com/acme/app/pull/7\n"
+     }
+    ],
+    "cost": {
+     "usd": null,
+     "unpriced": []
+    }
+   },
+   "lines": [
+    "Edited 0 files, ran 0 commands, 0 tokens.",
+    "Worked on pull requests app#5, app#6, app#7."
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "provider": "claude",
+    "transcriptsWithWork": 1,
+    "models": {},
+    "files": [],
+    "filesMore": 0,
+    "commands": 0,
+    "prs": [
+     null,
+     {
+      "repo": "acme/app",
+      "number": 9,
+      "url": null
+     }
+    ],
+    "cost": {
+     "usd": null,
+     "unpriced": []
+    }
+   },
+   "lines": [
+    "Edited 0 files, ran 0 commands, 0 tokens.",
+    "Worked on pull request app#9."
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "provider": "claude",
+    "transcriptsWithWork": 1,
+    "models": {},
+    "files": [],
+    "filesMore": 0,
+    "commands": 0,
+    "prs": [],
+    "prsMore": 4,
+    "cost": {
+     "usd": null,
+     "unpriced": []
+    }
+   },
+   "lines": [
+    "Edited 0 files, ran 0 commands, 0 tokens."
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "provider": "claude",
+    "transcriptsWithWork": 0,
+    "models": {},
+    "files": [],
+    "filesMore": 0,
+    "commands": 0,
+    "cost": {
+     "usd": null,
+     "unpriced": []
+    }
+   },
+   "lines": [
+    "No Claude Code activity found while it held this task."
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "transcriptsWithWork": 0,
+    "models": {},
+    "files": [],
+    "filesMore": 0,
+    "commands": 0,
+    "cost": {
+     "usd": null,
+     "unpriced": []
+    }
+   },
+   "lines": [
+    "No Claude Code activity found while it held this task."
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "provider": "gemini",
+    "transcriptsWithWork": 0,
+    "models": {},
+    "files": [],
+    "filesMore": 0,
+    "commands": 0,
+    "cost": {
+     "usd": null,
+     "unpriced": []
+    }
+   },
+   "lines": [
+    "No Gemini CLI activity found while it held this task."
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "ann",
+    "available": true,
+    "provider": "newtool",
+    "transcriptsWithWork": 0,
+    "models": {},
+    "files": [],
+    "filesMore": 0,
+    "commands": 0,
+    "cost": {
+     "usd": null,
+     "unpriced": []
+    }
+   },
+   "lines": [
+    "No newtool activity found while it held this task."
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "bob",
+    "available": false,
+    "because": "provider",
+    "provider": "codex"
+   },
+   "lines": [
+    "A receipt is not available for Codex agents yet."
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "bob",
+    "available": false,
+    "because": "provider",
+    "provider": "newtool"
+   },
+   "lines": [
+    "A receipt is not available for newtool agents yet."
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "bob",
+    "available": false,
+    "because": "provider"
+   },
+   "lines": [
+    "A receipt is not available for this provider agents yet."
+   ],
+   "links": []
+  },
+  {
+   "given": {
+    "who": "dee",
+    "available": false,
+    "because": "no-folder"
+   },
+   "lines": [
+    "Not an agent with a folder on this computer, so there is nothing to read."
+   ],
+   "links": []
+  }
+ ],
+ "whole": [
+  {
+   "given": {
+    "retries": {
+     "reopened": 1,
+     "handoffs": 2
+    },
+    "agents": [
+     {
+      "who": "ann",
+      "available": true,
+      "provider": "claude",
+      "transcriptsWithWork": 0,
+      "models": {},
+      "files": [],
+      "filesMore": 0,
+      "commands": 0
+     }
+    ]
+   },
+   "replaced": false,
+   "unrun": false,
+   "lines": [
+    "This task was put back 1 time and handed on 2 times.",
+    "Receipt",
+    "What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command.",
+    "No Claude Code activity found while it held this task."
+   ]
+  },
+  {
+   "given": {
+    "retries": {
+     "reopened": 0,
+     "handoffs": 1
+    },
+    "agents": []
+   },
+   "replaced": false,
+   "unrun": false,
+   "lines": [
+    "This task was handed on 1 time.",
+    "Receipt",
+    "What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command.",
+    "Nobody held this task, so there is no work to show."
+   ]
+  },
+  {
+   "given": {
+    "retries": {
+     "reopened": 1200,
+     "handoffs": 0
+    },
+    "agents": []
+   },
+   "replaced": true,
+   "unrun": false,
+   "lines": [
+    "This task was put back 1,200 times.",
+    "Receipt",
+    "What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command.",
+    "Nobody held this task, so there is no work to show."
+   ]
+  },
+  {
+   "given": {
+    "retries": {},
+    "agents": []
+   },
+   "replaced": false,
+   "unrun": false,
+   "lines": [
+    "Done without being put back or handed on.",
+    "Receipt",
+    "What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command.",
+    "Nobody held this task, so there is no work to show."
+   ]
+  },
+  {
+   "given": {
+    "agents": []
+   },
+   "replaced": false,
+   "unrun": false,
+   "lines": [
+    "Done without being put back or handed on.",
+    "Receipt",
+    "What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command.",
+    "Nobody held this task, so there is no work to show."
+   ]
+  },
+  {
+   "given": {
+    "retries": {},
+    "agents": []
+   },
+   "replaced": true,
+   "unrun": false,
+   "lines": [
+    "Receipt",
+    "What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command.",
+    "Nobody held this task, so there is no work to show."
+   ]
+  },
+  {
+   "given": {
+    "retries": {},
+    "agents": []
+   },
+   "replaced": false,
+   "unrun": true,
+   "lines": [
+    "Receipt",
+    "What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command.",
+    "Nobody held this task, so there is no work to show."
+   ]
+  }
+ ]
+}

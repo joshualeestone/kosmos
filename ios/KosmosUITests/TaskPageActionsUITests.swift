@@ -129,4 +129,30 @@ final class TaskPageActionsUITests: XCTestCase {
             app.terminate()
         }
     }
+
+    // kosmos#8958 slice B4: a task marked done draws its receipt under the activity: what each agent did with its cost, the
+    // pull request as a link, the files opened by their count, and a line for an agent with nothing to read.
+    func testADoneTaskShowsItsReceipt() throws {
+        for dark in [false, true] {
+            let app = try openTask(dark: dark)
+            let done = app.buttons["Mark as done"]
+            for _ in 0..<4 where !(done.exists && done.isHittable) { app.swipeUp() }
+            XCTAssertTrue(done.exists, "no Mark as done")
+            XCTAssertFalse(app.staticTexts["Edited 2 files, ran 12 commands, 1.2M tokens, $2.50 at API prices."].exists, "an open task shows a receipt")
+            done.tap()
+            let line = app.staticTexts["Edited 2 files, ran 12 commands, 1.2M tokens, $2.50 at API prices."]
+            XCTAssertTrue(line.waitForExistence(timeout: 20), "no receipt on a task marked done")
+            let files = app.buttons["2 files, Dana"]
+            for _ in 0..<6 where !(files.exists && files.isHittable) { app.swipeUp() }
+            XCTAssertTrue(files.isHittable, "no files under the agent's work")
+            XCTAssertFalse(app.staticTexts["captions.md"].exists, "the files are open before they are asked for")
+            files.tap()
+            XCTAssertTrue(app.staticTexts["captions.md"].waitForExistence(timeout: 5), "the files did not open")
+            XCTAssertTrue(app.staticTexts["In /Users/sam/Kosmos/Dana"].exists, "no folder under the files")
+            XCTAssertTrue(app.links["catalogue#12"].exists || app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Worked on pull request catalogue#12.")).firstMatch.exists, "no pull request line")
+            XCTAssertTrue(app.staticTexts["A receipt is not available for Grok agents yet."].exists, "no line for an agent whose work is not read")
+            shot(app, "receipt, \(dark ? "dark" : "light")")
+            app.terminate()
+        }
+    }
 }

@@ -231,6 +231,7 @@ section("the page's model, against a fake Mac")
 final class FakeMac {
     var projects: (Int, Data)? = (200, projectsData)
     var activity: (Int, Data)? = (200, fixture("activity-3.json"))
+    var receipt: (Int, Data)? = (200, Data(#"{"retries":{},"agents":[]}"#.utf8))
     var actAnswers: [(Int, String)?] = []
     var seenAnswers: [(Int, String)?] = []
     var asked: [String] = []
@@ -274,6 +275,7 @@ final class FakeMac {
         let path = r.url!.path
         if path == "/api/projects" { return answer(projects) }
         if path.hasSuffix("/activity") { return answer(activity) }
+        if path.hasSuffix("/receipt") { return answer(receipt) }
         if path.hasSuffix("/seen") { return answer(seenAnswers.isEmpty ? (200, Data("{}".utf8)) : seenAnswers.removeFirst().map { ($0.0, Data($0.1.utf8)) }) }
         return answer(actAnswers.isEmpty ? (200, Data("{}".utf8)) : actAnswers.removeFirst().map { ($0.0, Data($0.1.utf8)) })
     }
@@ -1181,6 +1183,54 @@ do {
 }
 await b3bModelTests()
 
+section("#8958 slice B4: a closed task's receipt")
+// receipt-words.json is what web/index.html's own functions say (ios.receipt-words-8958.test.js writes it and fails when the
+// page no longer says it).
+do {
+    let words = (try? JSONSerialization.jsonObject(with: fixture("receipt-words.json")) as? [String: Any]) ?? [:]
+    let abbr = words["abbr"] as? [[Any]] ?? [], usd = words["usd"] as? [[Any]] ?? []
+    let agents = words["agents"] as? [[String: Any]] ?? [], whole = words["whole"] as? [[String: Any]] ?? []
+    check(abbr.count >= 20 && usd.count >= 20 && agents.count >= 20 && whole.count >= 7, "premise: the page's words are there")
+    for x in abbr { let v = (x[0] as? NSNumber)?.doubleValue ?? -1; check(Board.receiptAbbr(v) == x[1] as? String, "tokens \(v): \(Board.receiptAbbr(v)) as the page's \(x[1])") }
+    for x in usd { let v = (x[0] as? NSNumber)?.doubleValue ?? -1; check(Board.receiptUsd(v) == x[1] as? String, "dollars \(v): \(Board.receiptUsd(v)) as the page's \(x[1])") }
+    func lines(_ a: Board.ReceiptAgent) -> [String] {
+        [a.line] + (a.prs.isEmpty ? [] : [a.prsBefore + a.prs.map(\.label).joined(separator: ", ") + a.prsAfter])
+            + [a.filesTitle].compactMap { $0 } + a.files + (a.folder.map { ["In " + $0] } ?? [])
+    }
+    func read(_ given: Any, replaced: Bool = false, unrun: Bool = false) -> Board.Receipt? {
+        guard let d = try? JSONSerialization.data(withJSONObject: given), case .receipt(let r) = Board.parseReceipt(d, replaced: replaced, unrun: unrun) else { return nil }
+        return r
+    }
+    for (i, x) in agents.enumerated() {
+        let a = read(["agents": [x["given"] ?? [:]]])?.agents.first
+        check(a.map(lines) == x["lines"] as? [String], "agent case \(i): \(a.map(lines) ?? []) as the page's")
+        check(a?.prs.compactMap { $0.url?.absoluteString } == x["links"] as? [String], "agent case \(i): the page's links and no other")
+    }
+    for (i, x) in whole.enumerated() {
+        let r = read(x["given"] ?? [:], replaced: x["replaced"] as? Bool == true, unrun: x["unrun"] as? Bool == true)
+        let said = r.map { r in [r.again].compactMap { $0 } + ["Receipt", Board.receiptIntro] + (r.agents.isEmpty ? [Board.receiptNobody] : r.agents.flatMap(lines)) }
+        check(said == x["lines"] as? [String], "whole receipt \(i): \(said?.first ?? "nothing") as the page's")
+    }
+    check(read(["agents": [["who": "a", "available": true, "transcriptsWithWork": 1, "models": ["claude-opus-5": ["input_tokens": 1500]]]]])?.agents.first?.line
+          == "Edited 0 files, ran 0 commands, 2K tokens.", "a Mac that sends no cost: the cost is left out, never a zero")
+    check(Board.parseReceipt(Data(#"{"ready":false,"because":"open"}"#.utf8), replaced: false, unrun: false) == .none, "an open task's answer is no receipt")
+    for bad in ["null", "[]", "", "<html>"] { check(Board.parseReceipt(Data(bad.utf8), replaced: false, unrun: false) == .unreadable, "an answer that is not a receipt is unreadable: \(bad)") }
+    check(Board.taskReceiptRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "springcatalogue", number: 3)
+        .map { ($0.httpMethod ?? "GET") + " " + ($0.url?.path ?? "") } == "GET /api/project/springcatalogue/task/3/receipt", "GET .../task/<n>/receipt")
+    check(Board.taskReceiptRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "../x", number: 3) == nil, "no request for a name that is not a project's")
+    // The key the receipt belongs to (the board's tkReceiptSync): the close time, the task's own or its newest part's.
+    func keyed(_ fields: String) -> Board.TaskPage? { synthetic(#"{"number":1,"sentence":"S",\#(fields)}"#) }
+    check(keyed(#""detail":"d""#) != nil, "premise: the page parses")
+    check(keyed(#""progress":{"done":0,"total":1,"closed":false}"#)?.receiptKey == nil, "an open task has no receipt key")
+    check(keyed(#""closedAt":"2026-11-24T15:00:00.000Z""#)?.receiptKey == "2026-11-24T15:00:00.000Z", "a closed task's is its close time")
+    check(keyed(#""progress":{"done":2,"total":2,"closed":true},"parts":[{"id":1,"closedAt":"2026-11-24T15:00:00.000Z"},{"id":2,"closedAt":"2026-11-24T16:00:00.000Z"},{"id":3,"closedAt":"2026-11-24T14:00:00.000Z"}]"#)?.receiptKey
+          == "2026-11-24T16:00:00.000Z", "closed by its last part: the newest part's close")
+    check(keyed(#""progress":{"done":1,"total":1,"closed":true}"#)?.receiptKey == "", "closed with no time on record: still a closed state of its own")
+    check(keyed(#""closedAt":"2026-11-24T15:00:00.000Z","closedUnrun":true"#)?.closedUnrun == true
+          && keyed(#""closedAt":"2026-11-24T15:00:00.000Z""#)?.closedUnrun == false, "closed as never run is read")
+}
+await b4ModelTests()
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
@@ -1441,4 +1491,168 @@ func b3bModelTests() async {
     mac.asked = []
     let onClosed = await m.saveReviewer("me", names: nm)
     check(!onClosed && mac.asked.isEmpty, "a finished task sends nothing")
+}
+
+@MainActor
+func b4ModelTests() async {
+    func with(closedAt: String?, _ fields: [String: Any] = [:]) -> (Int, Data) {
+        var doc = (try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any]) ?? [:]
+        var projs = doc["projects"] as? [[String: Any]] ?? []
+        var tks = projs.first?["tasks"] as? [[String: Any]] ?? []
+        if let i = tks.firstIndex(where: { ($0["number"] as? NSNumber)?.intValue == 3 }) {
+            for (k, v) in fields { tks[i][k] = v }
+            tks[i]["progress"] = ["done": closedAt == nil ? 0 : 1, "total": 1, "closed": closedAt != nil]
+            tks[i]["closedAt"] = closedAt ?? NSNull()
+        }
+        if !projs.isEmpty { projs[0]["tasks"] = tks }
+        doc["projects"] = projs
+        return (200, (try? JSONSerialization.data(withJSONObject: doc)) ?? Data())
+    }
+    func answer(_ who: String) -> (Int, Data) { (200, Data(#"{"retries":{},"agents":[{"who":"\#(who)","available":false,"because":"no-folder"}]}"#.utf8)) }
+    let asksReceipt = { (mac: FakeMac) in mac.asked.filter { $0.hasSuffix("/receipt") }.count }
+    let at1 = "2026-11-24T15:00:00.000Z", at2 = "2026-11-24T16:00:00.000Z"
+    let mac = FakeMac()
+    var clock = Date(timeIntervalSince1970: 1_800_000_000)
+    let m = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch }, now: { clock })
+    m.onScreen = true
+    m.touched()
+    func tick() async { await m.tick(first: false, returning: false, names: [:]); await m.receiptReading?.value }
+
+    mac.projects = with(closedAt: nil)
+    mac.receipt = answer("ann")
+    await tick()
+    check(m.page != nil && m.receipt == nil && asksReceipt(mac) == 0, "an open task asks for no receipt")
+    mac.projects = with(closedAt: at1)
+    await tick()
+    check(m.receipt?.agents.map(\.who) == ["ann"] && asksReceipt(mac) == 1, "closed: its receipt is read and drawn")
+    check(mac.asked.contains("GET /api/project/springcatalogue/task/3/receipt"), "from the task's own receipt route")
+    var redraws = 0
+    let watch = m.objectWillChange.sink { redraws += 1 }
+    await tick()
+    check(asksReceipt(mac) == 1 && redraws == 0, "a quiet tick asks nothing again and redraws nothing")
+    watch.cancel()
+    mac.projects = with(closedAt: at2)
+    mac.receipt = answer("bob")
+    await tick()
+    check(asksReceipt(mac) == 2 && m.receipt?.agents.map(\.who) == ["bob"], "put back and closed again between two reads: asked again")
+    mac.projects = with(closedAt: nil)
+    await tick()
+    check(m.receipt == nil && asksReceipt(mac) == 2, "put back: the receipt goes")
+    mac.projects = with(closedAt: at2)
+    await tick()
+    check(asksReceipt(mac) == 3 && m.receipt != nil, "closed at the same time again: asked again, since putting it back forgot it")
+
+    // A failed read: hidden, then asked again only after 30 s; an unreadable answer is a failure too.
+    for (what, bad) in [("a 500", (500, Data("{}".utf8))), ("an answer that is not a receipt", (200, Data("null".utf8)))] as [(String, (Int, Data))] {
+        mac.projects = with(closedAt: nil); await tick()
+        mac.projects = with(closedAt: at1)
+        mac.receipt = bad
+        let before = asksReceipt(mac)
+        await tick()
+        check(m.receipt == nil && asksReceipt(mac) == before + 1, "\(what): nothing drawn")
+        mac.receipt = answer("ann")
+        clock.addTimeInterval(29); m.touched()
+        await tick()
+        check(asksReceipt(mac) == before + 1, "\(what): not asked again within 30 s")
+        clock.addTimeInterval(1); m.touched()
+        await tick()
+        check(asksReceipt(mac) == before + 2 && m.receipt?.agents.count == 1, "\(what): asked again after 30 s, and drawn")
+    }
+    // A failure for one close does not hold back another's.
+    mac.projects = with(closedAt: nil); await tick()
+    mac.projects = with(closedAt: at1); mac.receipt = (500, Data()); await tick()
+    let failedAsks = asksReceipt(mac)
+    mac.projects = with(closedAt: at2); mac.receipt = answer("ann"); await tick()
+    check(asksReceipt(mac) == failedAsks + 1 && m.receipt != nil, "another close is asked at once, inside the first one's 30 s")
+    // An answer of { ready: false } is settled, not a failure.
+    mac.projects = with(closedAt: at1); mac.receipt = (200, Data(#"{"ready":false}"#.utf8)); await tick()
+    let notReady = asksReceipt(mac)
+    clock.addTimeInterval(60); m.touched()
+    await tick()
+    check(m.receipt == nil && asksReceipt(mac) == notReady, "not ready: nothing drawn, and not asked again")
+
+    // Replaced, or closed as never run: no line about put-backs when there were none.
+    mac.projects = with(closedAt: at2, ["replacedBy": 4]); mac.receipt = answer("ann"); await tick()
+    check(m.receipt != nil && m.receipt?.again == nil, "a replaced task says nothing about put-backs")
+    mac.projects = with(closedAt: at1, ["closedUnrun": true]); await tick()
+    check(m.receipt != nil && m.receipt?.again == nil, "nor one closed as never run")
+    mac.projects = with(closedAt: at2); await tick()
+    check(m.receipt?.again == "Done without being put back or handed on.", "control: a task simply done does")
+
+    // Out of order: the first ask answered after the second draws nothing; nor one answered after a put-back.
+    let late = FakeMac()
+    let l = TaskPageModel(project: "springcatalogue", number: 3, send: { await late.asyncSend($0) }, sleep: { _ in }, epoch: { late.epoch })
+    l.onScreen = true
+    late.projects = with(closedAt: at1)
+    await l.read()
+    late.queueing = true
+    late.receipt = answer("old")
+    l.syncReceipt()
+    let first = l.receiptReading
+    await waitUntil({ late.queuedCount == 1 }, "the first receipt ask")
+    late.queueing = false
+    late.projects = with(closedAt: at2)
+    await l.read()
+    late.receipt = answer("new")
+    l.syncReceipt()
+    await l.receiptReading?.value
+    check(l.receipt?.agents.map(\.who) == ["new"], "the newer ask draws")
+    late.release(at: 0)
+    await first?.value
+    check(l.receipt?.agents.map(\.who) == ["new"], "an older ask answered after it draws nothing")
+    late.projects = with(closedAt: at1)
+    await l.read()
+    late.queueing = true
+    l.syncReceipt()
+    let beforePutBack = l.receiptReading
+    await waitUntil({ late.queuedCount == 1 }, "the receipt ask before the put-back")
+    late.queueing = false
+    late.projects = with(closedAt: nil)
+    await l.read()
+    l.syncReceipt()
+    late.release(at: 0)
+    await beforePutBack?.value
+    check(l.receipt == nil, "an ask answered after the task was put back draws nothing")
+    // Another account or Mac meanwhile: the page is about nothing, and its receipt is not drawn.
+    late.projects = with(closedAt: at2)
+    await l.read()
+    late.queueing = true
+    l.syncReceipt()
+    let beforeSwitch = l.receiptReading
+    await waitUntil({ late.queuedCount == 1 }, "the receipt ask before the switch")
+    late.queueing = false
+    late.epoch += 1
+    late.release(at: 0)
+    await beforeSwitch?.value
+    check(l.receipt == nil, "an answer landing after the Mac was switched draws nothing")
+    let askedBefore = asksReceipt(late)
+    l.syncReceipt()
+    check(asksReceipt(late) == askedBefore, "and nothing more is asked")
+
+    // A tick does not wait for the receipt: the page is read again while the receipt is still out.
+    let slow = FakeMac()
+    let s = TaskPageModel(project: "springcatalogue", number: 3, send: { await slow.asyncSend($0) }, sleep: { _ in }, epoch: { slow.epoch })
+    s.onScreen = true
+    slow.projects = with(closedAt: at1)
+    await s.read()
+    slow.queueing = true
+    s.syncReceipt()
+    await waitUntil({ slow.queuedCount == 1 }, "the slow receipt ask")
+    slow.queueing = false
+    await s.tick(first: false, returning: false, names: [:])
+    check(slow.asked.filter { $0 == "GET /api/projects" }.count == 2 && asksReceipt(slow) == 1, "a tick finishes while the receipt is out, and does not ask for it twice")
+    slow.release(at: 0)
+    await s.receiptReading?.value
+    check(s.receipt != nil, "and the receipt is drawn when it lands")
+
+    // Mark as done: its receipt is asked for at once, not at the next tick.
+    let done = FakeMac()
+    let d = TaskPageModel(project: "springcatalogue", number: 3, send: { await done.asyncSend($0) }, sleep: { _ in }, epoch: { done.epoch })
+    d.onScreen = true
+    done.projects = with(closedAt: nil)
+    await d.read()
+    done.projects = with(closedAt: at1)
+    await d.press(.close, names: [:])
+    await d.receiptReading?.value
+    check(d.page?.closed == true && d.receipt != nil, "Mark as done draws its receipt")
 }

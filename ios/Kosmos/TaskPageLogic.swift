@@ -84,6 +84,11 @@ extension Board {
         // session name; and the project's members in the project's order (a Set has none), for the choice's list.
         var repeatReviewer = "none"
         var memberOrder: [String] = []
+        // kosmos#8958 slice B4: the closed state the receipt belongs to, the board's tkReceiptSync key: nil while the task is
+        // open, else its close time (the task's own, or its newest part's), so closed, put back and closed again asks
+        // again. And whether it was closed as never run (kosmos#8301).
+        var receiptKey: String? = nil
+        var closedUnrun = false
     }
 
     enum TaskPageRead: Equatable {
@@ -167,6 +172,8 @@ extension Board {
         page.repeatStored = repeatStored(t["repeat"])
         page.repeatReviewer = t["repeatReviewerPerson"] as? Bool == true ? "me" : text(t["repeatReviewer"]) ?? "none"
         page.memberOrder = memberOrder
+        if closed { page.receiptKey = closedAt ?? rawParts.compactMap { text($0["closedAt"]) }.max() ?? "" }
+        page.closedUnrun = t["closedUnrun"] as? Bool == true
         return .page(page)
     }
 }
@@ -967,5 +974,165 @@ extension Board {
     // POST .../task/<n>/repeat {reviewer}: the same route as the rule, with only the reviewer (the board's change).
     static func taskReviewerRequest(mac: URL, project: String, number: Int, reviewer: String) -> URLRequest? {
         taskPost(taskRoute(mac: mac, project: project, number: number, "repeat"), ["reviewer": reviewer])
+    }
+}
+
+// MARK: A closed task's receipt (kosmos#8958 slice B4: the board's tk-receipt, #5153 and #6842)
+
+extension Board {
+    struct Receipt: Equatable {
+        // "This task was put back ... and handed on ...", or that it was done without; nil when the board says nothing.
+        let again: String?
+        let agents: [ReceiptAgent]
+    }
+    struct ReceiptPR: Equatable { let label: String; let url: URL? }
+    struct ReceiptAgent: Equatable, Identifiable {
+        let id: Int
+        let who: String
+        // What it did, or why there is nothing to show (muted).
+        let line: String
+        let muted: Bool
+        // "Worked on pull request app#12." in pieces, so each number can be its own link: the words before, the pull
+        // requests, the words after. Empty when there are none.
+        let prs: [ReceiptPR]
+        let prsBefore: String
+        let prsAfter: String
+        // "4 files", or nil when it edited none; the list under it; the agent's folder.
+        let filesTitle: String?
+        let files: [String]
+        let folder: String?
+    }
+    enum ReceiptRead: Equatable { case receipt(Receipt), none, unreadable }
+
+    static let receiptIntro = "What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command."
+    static let receiptNobody = "Nobody held this task, so there is no work to show."
+    static let receiptTools = ["codex": "Codex", "gemini": "Gemini CLI", "grok": "Grok", "antigravity": "Antigravity", "muse": "Muse"]
+
+    // GET .../task/<n>/receipt. Asked only for a closed task; an open one answers { ready: false }.
+    static func taskReceiptRequest(mac: URL, project: String, number: Int) -> URLRequest? {
+        guard let url = taskRoute(mac: mac, project: project, number: number, "receipt") else { return nil }
+        var receipt = URLRequest(url: url)
+        receipt.setValue("application/json", forHTTPHeaderField: "Accept")
+        receipt.cachePolicy = .reloadIgnoringLocalCacheData
+        return receipt
+    }
+
+    // tkReceiptHtml. `replaced` (the task was closed as replaced) and `unrun` (closed as never run): the board then says
+    // nothing about put-backs when there were none.
+    static func parseReceipt(_ data: Data, replaced: Bool, unrun: Bool) -> ReceiptRead {
+        guard let r = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return .unreadable }
+        if r["ready"] as? Bool == false { return .none }
+        let retries = r["retries"] as? [String: Any] ?? [:]
+        func times(_ k: Double) -> String { k == 1 ? "1 time" : receiptNum(k) + " times" }
+        let reopened = amount(retries["reopened"]), handoffs = amount(retries["handoffs"])
+        let again = [reopened > 0 ? "put back " + times(reopened) : nil, handoffs > 0 ? "handed on " + times(handoffs) : nil].compactMap { $0 }
+        let agents = (r["agents"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }
+        return .receipt(Receipt(
+            again: !again.isEmpty ? "This task was " + again.joined(separator: " and ") + "."
+                : replaced || unrun ? nil : "Done without being put back or handed on.",
+            agents: agents.enumerated().map { receiptAgent($0, $1) }))
+    }
+
+    // tkReceiptAgentHtml, for one entry of the receipt's agents.
+    private static func receiptAgent(_ i: Int, _ a: [String: Any]) -> ReceiptAgent {
+        let who = a["who"] as? String ?? ""
+        let provider = (a["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        func quiet(_ line: String) -> ReceiptAgent {
+            ReceiptAgent(id: i, who: who, line: line, muted: true, prs: [], prsBefore: "", prsAfter: "", filesTitle: nil, files: [], folder: nil)
+        }
+        guard a["available"] as? Bool == true else {
+            return quiet(a["because"] as? String == "provider"
+                ? "A receipt is not available for " + (provider.map { receiptTools[$0] ?? $0 } ?? "this provider") + " agents yet."
+                : "Not an agent with a folder on this computer, so there is nothing to read.")
+        }
+        guard amount(a["transcriptsWithWork"]) > 0 else {
+            let tool = provider.map { $0 == "claude" ? "Claude Code" : receiptTools[$0] ?? $0 } ?? "Claude Code"
+            return quiet("No " + tool + " activity found while it held this task.")
+        }
+        let files = (a["files"] as? [Any] ?? []).compactMap { $0 as? String }
+        let filesMore = amount(a["filesMore"])
+        let nFiles = Double(files.count) + filesMore
+        let commands = amount(a["commands"])
+        var bits = [
+            nFiles == 1 ? "Edited 1 file" : "Edited " + receiptNum(nFiles) + " files",
+            commands == 1 ? "ran 1 command" : "ran " + receiptNum(commands) + " commands",
+            receiptAbbr(receiptTokens(a["models"])) + " tokens",
+        ]
+        if let cost = receiptCost(a["cost"]) { bits.append(cost) }
+        let folder = (a["folder"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let prs = receiptPRs(a)
+        return ReceiptAgent(
+            id: i, who: who, line: bits.joined(separator: ", ") + ".", muted: false,
+            prs: prs.list, prsBefore: prs.before, prsAfter: prs.after,
+            filesTitle: nFiles == 0 ? nil : nFiles == 1 ? "1 file" : receiptNum(nFiles) + " files",
+            files: files + (filesMore > 0 ? ["and " + receiptNum(filesMore) + " more"] : []), folder: folder)
+    }
+
+    // tkReceiptPrsHtml: a link only to a github.com pull request, as the engine wrote it.
+    private static func receiptPRs(_ a: [String: Any]) -> (list: [ReceiptPR], before: String, after: String) {
+        let list = (a["prs"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }.compactMap { p -> ReceiptPR? in
+            guard let n = integer(p["number"]) else { return nil }
+            let repo = (p["repo"] as? String ?? "").components(separatedBy: "/").last ?? ""
+            let url = (p["url"] as? String).flatMap { u in
+                u.range(of: #"\Ahttps://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+\z"#, options: .regularExpression) == nil ? nil : URL(string: u)
+            }
+            return ReceiptPR(label: repo + "#" + String(n), url: url)
+        }
+        guard !list.isEmpty else { return ([], "", "") }
+        let more = amount(a["prsMore"])
+        return (list, Double(list.count) + more == 1 ? "Worked on pull request " : "Worked on pull requests ",
+                (more > 0 ? (a["upTo"] as? Bool == true ? " and up to " : " and ") + receiptNum(more) + " more" : "") + ".")
+    }
+
+    // The cost words of tkTokensAndCost, from the numbers the Mac worked out; nil from a Mac that sends none.
+    static func receiptCost(_ raw: Any?) -> String? {
+        guard let cost = raw as? [String: Any] else { return nil }
+        let unpriced = (cost["unpriced"] as? [Any] ?? []).compactMap { $0 as? String }
+        let named = unpriced.joined(separator: ", ")
+        if let usd = number(cost["usd"]) {
+            return receiptUsd(usd) + " at API prices"
+                + (unpriced.isEmpty ? "" : " (not counting " + named + (unpriced.count > 1 ? ", which have" : ", which has") + " no published price)")
+        }
+        return unpriced.isEmpty ? nil : "no published price for " + named
+    }
+
+    // usageRowTokenTotal over a model -> buckets map: the four token fields, never `rows`.
+    static func receiptTokens(_ models: Any?) -> Double {
+        (models as? [String: Any] ?? [:]).values.reduce(0.0) { sum, b in
+            let b = b as? [String: Any] ?? [:]
+            return sum + ["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"].reduce(0.0) { $0 + amount(b[$1]) }
+        }
+    }
+
+    // The page's Number(x) || 0 for a count the Mac sends.
+    fileprivate static func amount(_ v: Any?) -> Double { number(v).flatMap { $0.isFinite ? $0 : nil } ?? 0 }
+
+    // usageNum: grouped digits.
+    static func receiptNum(_ v: Double) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal; f.locale = Locale(identifier: "en_US"); f.maximumFractionDigits = 3
+        return f.string(from: NSNumber(value: v)) ?? String(v)
+    }
+    // JavaScript's toFixed for a number of at least 0: printf rounds an exact tie to even, toFixed rounds it up. A double is
+    // an exact tie at d digits only when v * 2^(d+1) is an odd whole number.
+    static func toFixed(_ v: Double, _ d: Int) -> String {
+        let t = v * pow(2, Double(d + 1))
+        let tie = t == t.rounded() && t.truncatingRemainder(dividingBy: 2) == 1
+        // No locale argument: with one, Foundation rounds the shortest decimal (9.995 becomes 10.00) and not the number itself.
+        return String(format: "%.\(d)f", tie ? v.nextUp : v)
+    }
+    // usageAbbr: the unit is chosen after rounding.
+    static func receiptAbbr(_ v: Double) -> String {
+        func rounded(_ x: Double, _ d: Int) -> Double { Double(toFixed(x, d)) ?? x }
+        if v >= 1e9 || rounded(v / 1e6, 1) >= 1000 { return toFixed(v / 1e9, v >= 1e10 || rounded(v / 1e9, 1) >= 10 ? 0 : 1) + "B" }
+        if v >= 1e6 || rounded(v / 1e3, 0) >= 1000 { return toFixed(v / 1e6, 1) + "M" }
+        if v >= 1e3 { return toFixed(v / 1e3, 0) + "K" }
+        return toFixed(v, 0)
+    }
+    // usageUsd.
+    static func receiptUsd(_ v: Double) -> String {
+        if v >= 1e9 { return "$" + toFixed(v / 1e9, 2) + "B" }
+        if v >= 1e6 { return "$" + toFixed(v / 1e6, 0) + "M" }
+        if v >= 1e3 { return "$" + receiptNum((v + 0.5).rounded(.down)) }
+        return "$" + toFixed(v, v < 10 ? 2 : 0)
     }
 }

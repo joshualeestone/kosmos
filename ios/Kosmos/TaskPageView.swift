@@ -34,6 +34,8 @@ struct TaskPageView: View {
     @State private var repeatDraftBase: Board.RepeatChoice?
     // The daily time the person had in the box when they last saved (Board.repeatShown).
     @State private var repeatBox: String?
+    // kosmos#8958 slice B4: the receipt's agents whose file list is open.
+    @State private var receiptFilesOpen: Set<Int> = []
 
     init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
         self.client = client
@@ -131,7 +133,7 @@ struct TaskPageView: View {
                     // has no return key.
                     .scrollDismissesKeyboard(.interactively)
             }
-                .dotsRefresh { await model.read(); await model.readActivity(names: names) }
+                .dotsRefresh { await model.read(); model.syncReceipt(); await model.readActivity(names: names) }
         } else if model.gone {
             message("This task is not on your computer any more", "It may have been deleted, or its project moved.")
         } else if model.readFailed {
@@ -160,6 +162,7 @@ struct TaskPageView: View {
             whoBlock(p)
             subtasksBlock(p)
             activityBlock
+            if let receipt = model.receipt { receiptBlock(receipt, p) }
             sayBlock(p)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -668,6 +671,71 @@ struct TaskPageView: View {
         }
     }
 
+    // kosmos#8958 slice B4: the board's tk-receipt, under a closed task's activity. The put-back line ends the history
+    // above it, then the receipt. Undo stays on the board (it changes files on the computer).
+    private func receiptBlock(_ r: Board.Receipt, _ p: Board.TaskPage) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let again = r.again {
+                Text(again).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            sectionTitle("Receipt")
+            Text(Board.receiptIntro).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+            if r.agents.isEmpty {
+                Text(Board.receiptNobody).font(.footnote).foregroundColor(Palette.secondary)
+            }
+            ForEach(r.agents) { receiptAgent($0, name: p.name($0.who, roster: roster)) }
+        }
+    }
+
+    private func receiptAgent(_ a: Board.ReceiptAgent, name: String) -> some View {
+        let open = receiptFilesOpen.contains(a.id)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(name).font(.body.weight(.semibold)).foregroundColor(Palette.primary)
+            Text(a.line).font(.footnote).foregroundColor(a.muted ? Palette.secondary : Palette.primary).fixedSize(horizontal: false, vertical: true)
+            if !a.prs.isEmpty {
+                Text(Self.receiptPRWords(a)).font(.footnote).foregroundColor(Palette.primary).tint(Palette.link)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let title = a.filesTitle {
+                Button {
+                    model.touched()
+                    if open { receiptFilesOpen.remove(a.id) } else { receiptFilesOpen.insert(a.id) }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(title).font(.footnote).foregroundColor(Palette.link)
+                        Image(systemName: open ? "chevron.down" : "chevron.right").font(.caption2).foregroundColor(Palette.link)
+                    }
+                    .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(title + ", " + name)
+                .accessibilityInputLabels([title, title + ", " + name])
+                .accessibilityValue(open ? "expanded" : "collapsed")
+                if open {
+                    ForEach(Array(a.files.enumerated()), id: \.offset) { _, f in
+                        Text(f).font(.footnote).foregroundColor(Palette.primary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            // As the board: the folder is the open list's foot, or the line itself when there is no list.
+            if let folder = a.folder, a.filesTitle == nil || open {
+                Text("In " + folder).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private static func receiptPRWords(_ a: Board.ReceiptAgent) -> AttributedString {
+        var words = AttributedString(a.prsBefore)
+        for (i, pr) in a.prs.enumerated() {
+            if i > 0 { words += AttributedString(", ") }
+            var label = AttributedString(pr.label)
+            label.link = pr.url
+            words += label
+        }
+        return words + AttributedString(a.prsAfter)
+    }
+
     #if DEBUG
     // The sample Mac (KOSMOS_SAMPLE_AGENTS=1, a Debug build only), matching Today's and Tasks' sample tasks, so a
     // screenshot never shows a real account. A press closes or reopens the sample task for real (in memory).
@@ -740,6 +808,11 @@ struct TaskPageView: View {
                 + #"{"number":4,"sentence":"# + Self.jsonString(titleNow[4] ?? "Pages 1 to 8") + #","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","# + (dueNow[4].map { $0.isEmpty ? "" : #""dueDate":"# + Self.jsonString($0) + "," } ?? #""dueDate":"2026-10-30","#) + (repeatNow[4].map { #""repeat":"# + $0.rule + #","repeatWords":"# + Self.jsonString($0.words) + "," } ?? "") + #""builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 1 to 8"}],"claim":{"claimed":true,"about":"dana"}},"#
                 + #"{"number":8,"sentence":"Pages 9 to 12","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2800) + #"",\#(closed(8, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 9 to 12"}]}"#
                 + #"]}]}"#
+        } else if path.hasSuffix("/receipt") {
+            // Task 4's, in the shape server.js sends (the price the Mac worked out included); any other closed task's holder left.
+            body = path.contains("/task/4/")
+                ? #"{"version":3,"closedAt":""# + iso(0) + #"","retries":{"reopened":1,"handoffs":0},"agents":[{"who":"dana","available":true,"provider":"claude","folder":"/Users/sam/Kosmos/Dana","models":{"claude-opus-5":{"input_tokens":200000,"output_tokens":40000,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000000,"rows":9}},"files":["captions.md","pages-1-8.md"],"filesMore":0,"commands":12,"prs":[{"repo":"acme/catalogue","number":12,"url":"https://github.com/acme/catalogue/pull/12"}],"prsMore":0,"transcriptsWithWork":1,"cost":{"usd":2.5,"unpriced":[]}},{"who":"eli","available":false,"because":"provider","provider":"grok"}]}"#
+                : #"{"version":3,"retries":{"reopened":0,"handoffs":0},"agents":[]}"#
         } else if path.hasSuffix("/activity") && !path.contains("/task/4/") {
             body = #"{"events":[{"at":""# + iso(4000) + #"","kind":"created"}]}"#
         } else if path.hasSuffix("/activity") {
