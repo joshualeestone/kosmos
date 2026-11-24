@@ -2741,6 +2741,8 @@ struct ChatView: View {
     private func useDraft(_ row: Board.ChatRow) {
         draftText = Board.usingDraft(draftText, words: row.text)
         composerFocused = true
+        // Review 3: said now, as the board does, rather than only when Send is pressed.
+        if !Board.fitsBoard(draftText) { composerNote = Board.draftTooLong }
     }
 
     // kosmos#8958: the board's dmDraftDismiss. The row goes once the Mac says it is gone; otherwise it stays and the
