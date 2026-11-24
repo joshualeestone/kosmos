@@ -346,6 +346,7 @@ const SITE_COUNTS = {
   'render-assistant-hosted-3660.js': [2, 0],
   'render-autohello-2686.js': [0, 1],
   'render-autohello-switch-2716.js': [0, 1],
+  'render-avatar-steady-8990.js': [1, 0],
   'render-board-signin-403-2023.js': [1, 0],
   'render-boot-no-flash.js': [1, 1],
   'render-brief-note-agents.js': [1, 0],
