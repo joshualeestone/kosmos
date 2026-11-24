@@ -525,11 +525,14 @@ struct TaskPageView: View {
                     }
                 }
                 if let need = wire.flatMap(Board.repeatNeeds) {
+                    // .id: a changed line is a new view, so it is announced even when no line was gone in between.
                     Text(need).font(.footnote).foregroundColor(Palette.secondary)
+                        .id("need:" + need)
                         .onAppear { UIAccessibility.post(notification: .announcement, argument: need) }
                 } else if let say = model.repeatSay {
                     Text(say).font(.footnote).foregroundColor(model.repeatRefused ? Palette.dangerWord : Palette.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .id("say:" + say)
                         .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
                 }
             } else {
@@ -679,7 +682,8 @@ struct TaskPageView: View {
         let closedNow: Set<Int> = sampleLock.withLock {
             if path.hasSuffix("/close") || path.hasSuffix("/reopen") {
                 if let n = Int(url.deletingLastPathComponent().lastPathComponent) {
-                    if path.hasSuffix("/close") { sampleClosed.insert(n) } else { sampleClosed.remove(n) }
+                    // Closing clears its repeat rule, as the engine does.
+                    if path.hasSuffix("/close") { sampleClosed.insert(n); sampleRepeat[n] = nil } else { sampleClosed.remove(n) }
                 }
             }
             return sampleClosed
