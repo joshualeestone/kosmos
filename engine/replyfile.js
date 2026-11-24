@@ -805,7 +805,7 @@ function attach(sessionName, given, { roster, platform = process.platform } = {}
     if (!kept.ok) return kept;
     const rec = kept.rec;
     /* kosmos#9016: an agent is told to make it again, rather than handing a person a file that is not whole. */
-    if (rec.incomplete === true) { attachments.discardStored(rec); return { ok: false, because: 'that file is not whole: it is a zip-based file (a spreadsheet, a document, a zip) whose end is missing; make it again and attach it' }; }
+    if (rec.incomplete === true) { attachments.discardStored(rec); return { ok: false, because: 'that file looks cut short: it is a zip-based file (a spreadsheet, a document, a zip) and its ending could not be found. If it opens for you, save it again as a new file and attach that; otherwise make it again' }; }
     ledgerAdd(sessionName, rec.id, Date.parse(rec.at), rec.size);
     return { ok: true, rec };
   } catch (err) {

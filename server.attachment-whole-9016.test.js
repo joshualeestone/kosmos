@@ -154,6 +154,11 @@ test('#9016 zip: what is and is not judged', () => {
   withComment.writeUInt16LE(comment.length, whole.length - 2);
   assert.equal(attachments.incompleteZip(at('comment.zip', withComment)), false, 'a whole zip with such a comment');
   assert.equal(attachments.incompleteZip(at('comment-cut.zip', withComment.subarray(0, withComment.length - 3))), true, 'its comment cut short');
+  assert.equal(attachments.incompleteZip(at('appended.zip', Buffer.concat([whole, crypto.randomBytes(300 * 1024)]))), false, 'data somebody appended after the end is not a cut');
+  /* Review 2: an inner EMPTY archive's record, in a file that is not one, is not the file's end. */
+  const withEmptyInner = zipOf('empty.zip', Buffer.from([0x50, 0x4b, 0x05, 0x06, ...new Array(18).fill(0)]));
+  assert.equal(attachments.incompleteZip(at('outer-empty.zip', withEmptyInner)), false);
+  assert.equal(attachments.incompleteZip(at('cut-empty-inner.zip', withEmptyInner.subarray(0, withEmptyInner.length - 22 - 46 - 9))), true, 'its directory and end are gone');
   const dirBad = Buffer.from(whole);
   dirBad.writeUInt32LE(whole.length, dirBad.length - 6 /* the directory offset of the end record */);
   assert.equal(attachments.incompleteZip(at('dirbad.zip', dirBad)), true, 'a directory past the end of the file');
@@ -225,7 +230,7 @@ test('#9016 an agent that attaches its own cut file is told, and nothing is kept
   if (ok.ok) {
     assert.equal(ok.rec.incomplete, undefined, 'CONTROL: a whole one is attached');
     assert.equal(bad.ok, false);
-    assert.match(bad.because, /not whole/);
+    assert.match(bad.because, /looks cut short.*save it again/);
     assert.equal(fs.existsSync(path.join(attachments.ROOT, 'agent', store.safeKey('cut9016'))) && fs.readdirSync(path.join(attachments.ROOT, 'agent', store.safeKey('cut9016'))).length, 1, 'only the whole file is kept');
   } else { assert.fail('this environment did not let an agent attach its own file: ' + ok.because); }
 });
