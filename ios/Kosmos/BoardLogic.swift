@@ -1994,10 +1994,16 @@ enum Board {
     // its viewer by the extension. Such a file is shown by WebFileView, never by Quick Look (kosmos#8953).
     // Judged on the name the file is saved under (savedName), since that is what Quick Look sees: "page.html." is saved
     // as "page.html" (#7016 review 3).
+    // kosmos#8966: a MIME type without its parameters ("text/html; charset=utf-8" is "text/html"), lowercased, so a page is
+    // judged the same whether or not its sender named a charset.
+    static func bareType(_ type: String) -> String {
+        (type.split(separator: ";", maxSplits: 1).first.map(String.init) ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+    }
+
     static func isWebDocument(name: String, type: String) -> Bool {
         let ext = (savedName(name, type: type) as NSString).pathExtension.lowercased()
         let named = ["html", "htm", "xhtml", "shtml", "svg", "svgz", "xml", "webarchive", "mht", "mhtml"].contains(ext)
-        let types = [UTType(mimeType: type.lowercased()), ext.isEmpty ? nil : UTType(filenameExtension: ext)].compactMap { $0 }
+        let types = [UTType(mimeType: bareType(type)), ext.isEmpty ? nil : UTType(filenameExtension: ext)].compactMap { $0 }
         let markup = types.contains { $0.conforms(to: .html) || $0.conforms(to: .xml) || $0.conforms(to: .svg) || $0.conforms(to: .webArchive) }
         return named || markup
     }
@@ -2017,7 +2023,7 @@ enum Board {
         default:
             // Named otherwise but known as markup (isWebDocument's second test): by its extension's type, then its MIME type
             // (an .xht page is drawn as .xhtml is).
-            let types = [ext.isEmpty ? nil : UTType(filenameExtension: ext), UTType(mimeType: type.lowercased())].compactMap { $0 }
+            let types = [ext.isEmpty ? nil : UTType(filenameExtension: ext), UTType(mimeType: bareType(type))].compactMap { $0 }
             if types.contains(where: { $0.conforms(to: .svg) }) { return .svg }
             if types.contains(where: { $0.conforms(to: .webArchive) }) { return .archive }
             // public.xhtml (.xht) conforms to XML, not HTML, so it is named.
@@ -2032,7 +2038,7 @@ enum Board {
     static func fileName(_ name: String, type: String) -> String {
         let saved = savedName(name, type: type)
         guard isWebDocument(name: name, type: type), !isWebDocument(name: saved, type: "") else { return saved }
-        let ext = UTType(mimeType: type.lowercased())?.preferredFilenameExtension.flatMap { isWebDocument(name: "x." + $0, type: "") ? $0 : nil } ?? "html"
+        let ext = UTType(mimeType: bareType(type))?.preferredFilenameExtension.flatMap { isWebDocument(name: "x." + $0, type: "") ? $0 : nil } ?? "html"
         return saved + "." + ext
     }
 
