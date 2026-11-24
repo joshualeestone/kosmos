@@ -262,6 +262,9 @@ test('the managed block teaches the join: tasks listed in the matching spelling,
   /* #3951: the only way a task reaches "Built but waiting" is an agent running this, so the block teaches it. */
   assert.match(body, /task built <project-id> <task-number> "what is left"/, 'the built command is not taught (#3951)');
   assert.match(body, /Closing the task clears the mark/);
+  // kosmos#8948 part 1: a listed task can outlive its close if a rewrite fails, so the live list is named as the answer.
+  assert.match(body, /If these lines ever disagree with `[^`]* task list <project-id> --mine`, the live list is right\./,
+    'the block does not say the live task list wins over these lines');
   assert.match(body, /The note is typed to the task's other assignees and to the holders of the nearest held task above it, unless a closed task comes first; the command prints who was told\./, '#6330: agents are told who their note reaches');
   /* #4771: a pause the person asks for in the room reaches the Prompter only through this verb, so it is taught. */
   assert.match(body, /project pause <project-id>/, 'the pause command is not taught (#4771)');
