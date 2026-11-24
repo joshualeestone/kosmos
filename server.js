@@ -21743,9 +21743,20 @@ const server = http.createServer(async (req, res) => {
       ? chat.permissionCard(view.text) : null;
     // kosmos#7017 part 2: with its fingerprint, which a phone's lock-screen press is checked against before it sends.
     const permCard = permRead ? { ...permRead, request: chat.permissionRequestId(permRead) } : null;
+    /* kosmos#8952 slice (c): a permission prompt whose box top scrolled away gets no card above (nobody may approve what
+       cannot be shown whole), but its own No may still be pressed: `denyOnly` on the live question row, with the visible
+       part's identity (questionAbove), which the press names and the key path checks again (answerQuestionMenuHeld). Under
+       the same conditions as a card's buttons apart from the whole box: a Claude card, never the setup guide's thread, the
+       live pane question, and a label a press could carry. */
+    const denyRead = (!pressable && !guideThread && card && String(card.runner || 'claude') === 'claude' && question
+      && question === paneQuestion && typeof question.text === 'string' && view && typeof view.text === 'string')
+      ? chat.permissionDenyOnly(view.text) : null;
+    const denyAsked = denyRead && !chat.messageProblem(denyRead.label) ? chat.questionAbove(question.text) : null;
+    const denyOnly = denyAsked ? { n: denyRead.n, label: chat.cleanMessage(denyRead.label), asked: denyAsked } : null;
+    const rowExtra = permCard ? { permission: permCard } : (denyOnly ? { denyOnly } : null);
     sendJsonTagged(req, res, 200, {
-      messages: permCard
-        ? servedRows.map((m) => (m && m.kind === 'question' && !m.reported ? { ...m, permission: permCard } : m))
+      messages: rowExtra
+        ? servedRows.map((m) => (m && m.kind === 'question' && !m.reported ? { ...m, ...rowExtra } : m))
         : servedRows,
       olderCount,
       historyBecause,
@@ -22308,6 +22319,7 @@ const server = http.createServer(async (req, res) => {
               };
               if (waitPressed) pressedWaits.set(askingCard.sessionName, waitPressed.at);
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}),
+                ...(cq.permission && body.denyOnly === true ? { denyOnly: true } : {}),   // kosmos#8952 slice (c): its No only
                 ...(cq.permission && requestGiven ? { request: body.request } : {}) }   // kosmos#7020: re-checked on the last look
               ).catch((err) => { pressFailed(); throw err; });
               if (!r.ok) pressFailed();

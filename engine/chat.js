@@ -2056,7 +2056,14 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   /* Review 3: the WHOLE identity, uncut (a tall command's distinguishing head can sit past any prefix), and only for a box
      whose top is on screen (permissionAnswerable). */
   const idOf = (text) => { const q = questionIn(text, 'claude'); const a = q ? questionAbove(q.text) : null; return a ? cleanMessage(a) : null; };
-  const idBefore = menu.permission && permissionAnswerable(before) ? idOf(before) : null;
+  /* kosmos#8952 slice (c): a press that says it is the deny-only card (permissionDenyOnly) may answer a box whose top
+     scrolled away, but only with that prompt's own No: refusing a request nobody could read whole is safe, approving
+     one is not. Its identity is the visible part, compared on this last look like any other. Anything else is refused. */
+  const denyOnly = e.denyOnly === true;
+  if (denyOnly && (!menu.permission || !opt || !/^No\b/.test(opt.label) || opt.lasting || e.request)) {
+    return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
+  }
+  const idBefore = menu.permission && (permissionAnswerable(before) || denyOnly) ? idOf(before) : null;
   if (menu.permission && (!e.identity || !idBefore)) {
     return { ok: false, because: 'we could not tell which request its screen is asking about, so nothing was sent; look at this page again in a moment' };
   }
@@ -3482,6 +3489,17 @@ function permissionBox(text) {
 function permissionAnswerable(text) {
   const box = permissionBox(text);
   return Boolean(box && box.top >= 0);
+}
+/* kosmos#8952 slice (c): a permission prompt whose box top scrolled away (a long command) cannot be approved from a
+   phone or the board (#6054 review 3), but it can be REFUSED: its own No option. Returns { n, label } for that option, or
+   null when the box is whole (the full card applies), when no prompt is read, or when the prompt has not exactly one
+   No. */
+function permissionDenyOnly(text) {
+  const pp = status.claudePermissionPrompt(text);
+  if (!pp || permissionAnswerable(text)) return null;
+  const no = pp.options.filter((o) => /^No\b/.test(o.label));
+  if (no.length !== 1 || no[0].lasting) return null;
+  return { n: no[0].n, label: no[0].label };
 }
 /* kosmos#6727 (Josh, 10-20): the permission prompt as a short card instead of its screen. Read from the box, only where
    permissionAnswerable (the whole box on screen, the same gate as the buttons), else null and the old text stays.
@@ -5590,7 +5608,7 @@ module.exports = {
   notPressedLine, composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS, UNSENT_TAIL_MS,   // #6249, kosmos#6436
   setUnsentRetryScheduler, restartUnsentForTests, setRosterSource,   // kosmos#6436
   recoverStuckInput, setDraftSaver, withDraftRows, STUCK_INPUT_MS, stuckShrunk,   // kosmos#6717
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, paneBusyVerdict, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, permissionRequestId, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, paneBusyVerdict, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionDenyOnly, permissionCard, permissionRequestId, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,
