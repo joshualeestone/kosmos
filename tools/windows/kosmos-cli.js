@@ -542,7 +542,7 @@ function keepPipedCopy(ctx, text, maybe) {   // maybe (#4934): a first try may h
 function sayMsgId(ctx, d) {
   if (d && d.duplicate !== true && typeof d.id === 'string' && /^m[1-9][0-9]{0,15}$/.test(d.id)) ctx.out('Its id is ' + d.id + ': kosmos msg --status ' + d.id + ' says later whether they answered or read it.');
 }
-const MSG_STATUS_USAGE = '   or: kosmos msg --status <id>  (whether a message you sent was answered, or read with no answer, or not read yet)';
+const MSG_STATUS_USAGE = '   or: kosmos msg --status <id>  (whether they replied to a message you sent, read it without replying, or have not read it yet)';
 /* kosmos#8961, as install/kosmos _msg_status: `kosmos msg --status <id>` reads what happened to a direct message (answered
    by command, read with no answer, still in its turn, or not read yet). A read: nothing is sent, so no retry is needed. */
 async function verbMsgStatus(ctx, args) {
