@@ -41,3 +41,16 @@ measure both.
   minutes per run, and queued-to-UI-start, not only queued-to-first-job.
 - My slip, recorded: I edited ui-sample.sh while a local run was executing it; bash resumed at a shifted offset and died
   ("line 223: fi", rc=2) while its wrapper reported exit 0. Killed by recorded pid and re-run on the final script.
+
+## Round 2 (sonnet) fixes
+- MEASURED the tar round trip end to end: a full lazy-arm run (60 tests) from tar-extracted products ran all 60, 58
+  passed; the 2 reds were EndPullUITests, the known failure also red on main (Ice Cream Kitty m6342, evidence on #8072),
+  being re-checked built vs shared on this Mac. The tar copy passes codesign --verify --deep --strict; the .xctestrun
+  uses __TESTROOT__ (16 times) and holds no absolute path.
+- Products were fat (x86_64 + arm64; `xcodebuild test` on one simulator builds one): build-for-testing now passes
+  ARCHS=$(uname -m). Measured: arm64 only, 46 MB (was 93).
+- uibuild verifies the tar round trip itself (extract, codesign each app) and tars with COPYFILE_DISABLE=1; upload at
+  compression-level 0; a missing shared build is a ::warning; the header says a skipped UI job means not tested.
+- ui-flaky-count.sh's "no verdict" line names a uibuild red as a cause.
+- --build-only replaces only a folder holding its own marker (.ui-sample-products), cleans its temp build on any exit;
+  the shared run keeps its derived data in the run's temp folder.

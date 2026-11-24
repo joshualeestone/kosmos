@@ -139,26 +139,30 @@ if [ "${UI_SAMPLE_PRINT_CLASSES:-}" = 1 ]; then printf '%s\n' $classes; exit 0; 
 # test job makes. The products folder is replaced whole, so a half-written earlier one is never used.
 if [ -n "$build_only" ]; then
   [ -z "$products$shard" ] && [ "$uikit" = 0 ] || { echo "ui-sample: --build-only takes no other option" >&2; exit 2; }
-  # It replaces the folder whole, so only an empty one or a products folder this script made (it holds xcode-version).
-  if [ -e "$build_only" ] && [ -n "$(ls -A "$build_only" 2>/dev/null)" ] && [ ! -f "$build_only/xcode-version" ]; then
+  # It replaces the folder whole, so only an empty one or a products folder this script made (it holds the marker
+  # .ui-sample-products, written only here).
+  if [ -e "$build_only" ] && [ -n "$(ls -A "$build_only" 2>/dev/null)" ] && [ ! -f "$build_only/.ui-sample-products" ]; then
     echo "ui-sample: $build_only is not empty and is not a products folder, so nothing was built into it" >&2; exit 2
   fi
   bwork="$(mktemp -d)"
+  trap 'rm -rf "${bwork:?}"' EXIT
+  trap 'exit 143' TERM; trap 'exit 130' INT HUP
   blog="$bwork/build.log"
+  # ARCHS: this Mac's own architecture only, as `xcodebuild test` on one simulator built; a generic destination alone
+  # builds every simulator architecture (measured: x86_64 and arm64), twice the work for a slice no simulator here runs.
   if ( cd "$here/.." && xcodebuild build-for-testing -project Kosmos.xcodeproj -scheme Kosmos -configuration Debug \
-         -destination 'generic/platform=iOS Simulator' -derivedDataPath "$bwork/dd" > "$blog" 2>&1 ); then
+         -destination 'generic/platform=iOS Simulator' ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=NO -derivedDataPath "$bwork/dd" > "$blog" 2>&1 ); then
     rm -rf "${build_only:?}"; mkdir -p "$build_only"
     cp -R "$bwork/dd/Build/Products/." "$build_only/"
     xcodebuild -version > "$build_only/xcode-version"
+    : > "$build_only/.ui-sample-products"
     run_file="$(find "$build_only" -maxdepth 1 -name '*.xctestrun' | head -1)"
-    if [ -z "$run_file" ]; then echo "FAIL  ui-sample build: no .xctestrun in the products" >&2; rm -rf "${bwork:?}"; exit 1; fi
+    if [ -z "$run_file" ]; then echo "FAIL  ui-sample build: no .xctestrun in the products" >&2; exit 1; fi
     echo "PASS  ui-sample build: $(basename "$run_file"), $(head -1 "$build_only/xcode-version")"
-    rm -rf "${bwork:?}"
     exit 0
   fi
   echo "FAIL  ui-sample build: xcodebuild build-for-testing failed; its last lines:" >&2
   tail -40 "$blog" >&2
-  rm -rf "${bwork:?}"
   exit 1
 fi
 # kosmos#8993: products from this same Xcode are tested without building; anything else is built here.
@@ -216,7 +220,7 @@ if [ "$uikit" = 1 ]; then allow="-test-timeouts-enabled YES -default-test-execut
 if [ -n "$run_file" ]; then
   echo "ui-sample: testing the shared build ($(basename "$run_file"))"
   ( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 TEST_RUNNER_KOSMOS_UI_SAMPLE=1 TEST_RUNNER_KOSMOS_UIKITLIST="$uikit" xcodebuild test-without-building -xctestrun "$run_file" -destination "id=$udid" \
-      -retry-tests-on-failure -test-iterations 2 $only $skip $allow -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
+      -retry-tests-on-failure -test-iterations 2 $only $skip $allow -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
 else
   ( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 TEST_RUNNER_KOSMOS_UI_SAMPLE=1 TEST_RUNNER_KOSMOS_UIKITLIST="$uikit" xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
       -retry-tests-on-failure -test-iterations 2 $only $skip $allow -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )

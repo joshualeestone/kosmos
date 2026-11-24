@@ -19,7 +19,7 @@ for id in $(gh run list --repo "$R" --workflow ios.yml --branch main --limit "$N
   printf '%s\n' "$out" | sed -n -E 's/^[^ ]+ STILLRED ([A-Za-z0-9_.]+)$/STILLRED \1/p' >> "$T"
   printf '%s\n' "$out" | sed -n -E 's/^.*UI-NOTE (kosmos#[0-9]+).*/NOTE \1/p' >> "$T"
 done
-echo "main: asked $N, read $asked: $ran with a verdict, $red red; $none with no verdict (cancelled or timed out); the rest had no log yet"
+echo "main: asked $N, read $asked: $ran with a verdict, $red red; $none with no verdict (cancelled, timed out, or skipped because uibuild was red, kosmos#8993); the rest had no log yet"
 [ "$nojob" -gt 0 ] && echo "$nojob of $asked runs had no job named \"$J\""
 [ "$apierr" -gt 0 ] && echo "$apierr of $asked runs: their job list could not be read"
 sort "$T" | uniq -c | sort -rn

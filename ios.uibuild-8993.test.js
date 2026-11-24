@@ -101,5 +101,12 @@ test('ui-sample.sh refuses bad --build-only and --products uses before any Xcode
       assert.match(r.stderr, said);
     }
     assert.ok(fs.existsSync(path.join(full, 'something-else')), 'the folder it refused is untouched');
+    // Only its own marker makes a folder replaceable: a stray file named xcode-version is not enough.
+    const stray = fs.mkdtempSync(path.join(os.tmpdir(), 'uibuild-8993-'));
+    fs.writeFileSync(path.join(stray, 'xcode-version'), 'Xcode 1.0');
+    const r = run('--build-only', stray);
+    assert.equal(r.status, 2, r.stderr);
+    assert.ok(fs.existsSync(path.join(stray, 'xcode-version')), 'untouched');
+    fs.rmSync(stray, { recursive: true, force: true });
   } finally { fs.rmSync(full, { recursive: true, force: true }); }
 });
