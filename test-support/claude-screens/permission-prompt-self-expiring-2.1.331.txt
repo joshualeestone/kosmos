@@ -1,0 +1,39 @@
+❯ Run exactly this one Bash command, unchanged, as one call: cd /tmp/work && for f in ${(f)"$(ls)"};  
+  do rm -rf "$f"; done                                                                                                  
+
+⏺ Deleting all entries in the work directory
+  ⎿  $ cd /tmp/work && for f in ${(f)"$(ls)"}; do rm -rf "$f"; done
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ Delete all entries in the work directory
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ cd /tmp/work && for f in ${(f)"$(ls)"}; do rm -rf "$f"; done
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ │ Dangerous rm operation not ruled out — the shell may read this command differently than it was parsed
+ ⚠ Claude Code will automatically block this request in 1:59, to avoid holding up an unattended session
+
+
+ Do you want to proceed?                                                                                                
+ ❯ 1. Yes                                                                                                               
+   2. No                           
+
+ Esc to cancel · Tab to amend                                                    

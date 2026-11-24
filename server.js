@@ -20204,6 +20204,21 @@ const server = http.createServer(async (req, res) => {
         if (!sender.ok) { noteTurnEndRefusal(body, sender.because); sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
+        /* kosmos#9001 (Josh, 11-24: "I keep getting these"): a hook's permission wait for Claude Code's own self-declining
+           safety check (status.claudeSelfExpiringPrompt: it says it will block the request by itself in about two minutes)
+           waits for nobody, and the decline is always right. Recorded as the plain line it is, working, so it never becomes
+           a needs_you: no phone push and no "Needs permission". The screen is read now: the hook fires with the prompt
+           already drawn (measured on 2.1.331). Any doubt (no screen, another runner, a read that fails) keeps the report. */
+        if (body.auto === true && body.state === 'needs_you' && /^asking permission to use /.test(String(body.text || ''))
+            && String(sender.card.runner || 'claude') === 'claude') {
+          try {
+            const seen = chat.viewport(who, roster);
+            if (seen && typeof seen.text === 'string' && require('./engine/status').claudeSelfExpiringPrompt(seen.text)) {
+              body.state = 'working';
+              body.text = require('./engine/status').SELF_EXPIRING_DECLINE;
+            }
+          } catch { /* the report stands as sent */ }
+        }
         /* #6071: an automatic idle, stopped or started, or the prompt that starts a new turn, ends a turn for
            engine/toolloop.js's count of one repeating tool failure. Here, BEFORE selfreport.record: that record
            refuses an automatic idle over a standing deliberate wait, and the turn ended all the same. */

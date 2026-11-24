@@ -2776,6 +2776,23 @@ const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEED
 const ASKING_GENERIC = 'it is asking you something';
 /* #6054: a Claude agent stopped on its permission prompt (claudePermissionPromptKind `wording`). */
 const APPROVAL_WAITING = 'it is waiting for your approval';
+/* kosmos#9001 (Josh, 11-24 12:44: "I keep getting these"): Claude Code's own safety check on a shell command it cannot
+   read the way the shell will ("Dangerous rm operation not ruled out ..."). It asks Yes/No but declines by itself in about
+   two minutes ("Claude Code will automatically block this request in 1:59, to avoid holding up an unattended session"),
+   and the decline is always the right answer, so it waits for nobody: no push, no "Needs permission", this line instead.
+   Measured on Claude Code 2.1.331 (test-support/claude-screens/permission-prompt-self-expiring-2.1.331.txt); a prompt from
+   a permission rule, in the same mode, has no such line (permission-prompt-ask-rule-bypass-2.1.331.txt). */
+const SELF_EXPIRING_DECLINE = 'Claude Code declined a shell command it could not read safely; the agent will retry it in a safe form';
+const CLAUDE_SELF_EXPIRING = /\bwill automatically block this request in\b/i;
+/** A Claude Code permission prompt on screen that declines by itself (see SELF_EXPIRING_DECLINE): the prompt AND its
+ *  timed line, read in the prompt's own rows (from its box down), never an earlier turn's text quoting the words. */
+function claudeSelfExpiringPrompt(text) {
+  const pp = claudePermissionPrompt(text);
+  if (!pp) return false;
+  const lines = String(text == null ? '' : text).split('\n');
+  for (let i = pp.at; i >= Math.max(0, pp.at - 6); i -= 1) if (CLAUDE_SELF_EXPIRING.test(lines[i])) return true;
+  return false;
+}
 /* #6091: is this card waiting on its permission prompt? Read from the SCREEN, before the report is reconciled in: the
    PermissionRequest hook (kosmos-report-hook.js) reports the same moment as needs_you by 'auto' with its own words
    ("asking permission to use Bash: ..."), and reconcileReport then carries the report's words as `because`, so the
@@ -5706,6 +5723,8 @@ function classify(pane, paneText) {
     if (flagged) return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, ...flagged };
     /* #6054: Claude Code's permission prompt says what it is waiting for, so the card and page do not read it as an open
        question: the person answers it with its buttons on the agent page. */
+    // kosmos#9001: Claude Code's self-declining safety check waits for nobody: the agent is working, and the card says why.
+    if (claudeSelfExpiringPrompt(paneText)) return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: SELF_EXPIRING_DECLINE };
     if (claudePermissionPromptKind(paneText) === 'wording') return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: APPROVAL_WAITING };
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
   }
@@ -10833,7 +10852,7 @@ module.exports = { panesWithCommands /* kosmos#8719 */, boardTmux /* kosmos#8719
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  ASKING_GENERIC, APPROVAL_WAITING, awaitingApprovalOf, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudePermissionPrompt, claudeAnswerableMenu, claudeSafeguardsMenuUp,
+  ASKING_GENERIC, APPROVAL_WAITING, SELF_EXPIRING_DECLINE /* kosmos#9001 */, claudeSelfExpiringPrompt /* kosmos#9001 */, awaitingApprovalOf, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudePermissionPrompt, claudeAnswerableMenu, claudeSafeguardsMenuUp,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,
