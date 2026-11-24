@@ -5,8 +5,8 @@ import SwiftUI
 // paintTaskPage) for reading, and its human verbs: Mark as done / Reopen, and (kosmos#8958 slice B1) a message on the
 // task, its due date, and editing its title or detail, (slice B2) Put on hold / Take off hold, and (slice B3) how often
 // it repeats, and (B3b) who is told when a run is missed; (B4) a closed task's receipt; (B5) undoing its file changes; and
-// (B6) its subtasks; and (B7) who is on each part, Done and Put back, and adding one. What this page does not do yet (the
-// hold form) is on the board's page, one tap away by the info button.
+// (B6) its subtasks; and (B7) who is on each part, Done and Put back, and adding one; and (B8) what a hold waits for and
+// why. What this page does not do yet (when it is done, and what it waits to wake on) is on the board's page, one tap away by the info button.
 struct TaskPageRef: Hashable {
     let project: String
     let number: Int
@@ -18,6 +18,7 @@ struct TaskPageView: View {
     let openPage: (URL) -> Void
     @StateObject private var model: TaskPageModel
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var visible = false
     @State private var loop: Task<Void, Never>?
     @State private var openSub: Int?
@@ -118,6 +119,8 @@ struct TaskPageView: View {
             }
             // The Tasks list read that shows a subtask held after "could not tell", as the Tasks tab's does.
             .onChange(of: client.tasksList) { read in if let read { subFound(in: read) } }
+            // Gone from the Mac, maybe for one read: a draft is not carried over to whatever hold it comes back with.
+            .onChange(of: model.gone) { _ in holdDraft = nil; holdBase = nil }
             // The person in front of it (the board's tkPresent): on screen, the app in front, and a touch (or a key press
             // that reaches the window) in the last two minutes (PresenceProbe); opening the page or coming back counts.
             .background(PresenceProbe { model.touched() })
@@ -219,7 +222,7 @@ struct TaskPageView: View {
         .onChange(of: p.closed) { closed in if closed { repeatDraft = nil; repeatDraftBase = nil; repeatBox = nil } }
         // The stored hold moved (another device, an agent, a Save): what was not changed here follows it. Taken off, or the task
         // finished: the next hold's form starts from what is stored.
-        .onChange(of: p.hold?.stored) { stored in
+        .onChange(of: p.hold.map { model.holdShown ?? $0.stored }) { stored in
             holdDraft = Board.holdFollow(holdDraft, base: holdBase, stored: stored)
             holdBase = holdDraft == nil ? nil : stored
         }
@@ -360,7 +363,7 @@ struct TaskPageView: View {
     // kosmos#8958 slice B8: the board's form on a held, open task (tk-hold-for, tk-hold-task, tk-hold-at, tk-hold-why-in): what
     // the hold waits for and why. It shows what is stored unless there is an unsaved change; Save sends only what was changed.
     private func holdBlock(_ p: Board.TaskPage, _ h: Board.TaskHold) -> some View {
-        let stored = h.stored
+        let stored = model.holdShown ?? h.stored
         let shown = holdDraft ?? stored
         let edit = { (change: (inout Board.HoldChoice) -> Void) in
             var c = holdDraft ?? stored
@@ -375,7 +378,7 @@ struct TaskPageView: View {
         let base = holdBase ?? stored
         let now = Date()
         let ready = Board.holdReady(shown, stored: base, now: now)
-        let late = shown.kind == .at && !Board.holdSameWait(shown, base) && !Board.holdAheadOK(shown, now: now)
+        let late = Board.holdLate(shown, stored: base, now: now)
         let off = !ready || model.holding || model.pressing || model.partWriting != nil
         return VStack(alignment: .leading, spacing: 6) {
             sectionTitle(Board.holdSection)
@@ -398,34 +401,43 @@ struct TaskPageView: View {
             case .nothing: EmptyView()
             case .task:
                 let options = Board.holdOptions(h, chosen: shown.task)
-                Picker(Board.holdTaskSpoken, selection: Binding(get: { shown.task }, set: { v in edit { $0.task = v } })) {
-                    ForEach(options, id: \.self) { Text(verbatim: $0.words).tag($0.value) }
+                holdRow(Board.holdUntilLabel) {
+                    Picker(Board.holdTaskSpoken, selection: Binding(get: { shown.task }, set: { v in edit { $0.task = v } })) {
+                        ForEach(options, id: \.self) { Text(verbatim: $0.words).tag($0.value) }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .accessibilityLabel(Board.holdTaskSpoken)
+                    .accessibilityInputLabels([Board.holdUntilLabel] + [options.first { $0.value == shown.task }?.words].compactMap { $0 })
+                    .tint(Palette.link)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("taskpage.hold.task")
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .accessibilityLabel(Board.holdTaskSpoken)
-                .tint(Palette.link)
-                .frame(minHeight: 44)
-                .accessibilityIdentifier("taskpage.hold.task")
             case .at:
                 // A time that has passed is shown as it is kept: a range that left it out would draw another one over it.
                 let range = Board.holdRange(now: now)
                 let at = shown.at ?? Board.holdFirstTime(now: now)
-                DatePicker(Board.holdAtSpoken, selection: Binding(get: { at }, set: { v in edit { $0.at = v } }),
-                           in: min(range.lowerBound, at)...max(range.upperBound, at), displayedComponents: [.date, .hourAndMinute])
-                    .labelsHidden()
-                    .frame(minHeight: 44)
-                    .accessibilityIdentifier("taskpage.hold.at")
-                if late {
+                holdRow(Board.holdUntilLabel) {
+                    DatePicker(Board.holdAtSpoken, selection: Binding(get: { at }, set: { v in edit { $0.at = v } }),
+                               in: min(range.lowerBound, at)...max(range.upperBound, at), displayedComponents: [.date, .hourAndMinute])
+                        .labelsHidden()
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("taskpage.hold.at")
+                }
+                // Not twice: a Save pressed as it passed says it too.
+                if late && model.holdSay != Board.holdAhead {
                     Text(Board.holdAhead).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
                         .onAppear { UIAccessibility.post(notification: .announcement, argument: Board.holdAhead) }
                 }
             }
             holdRow(Board.holdWhyLabel) {
-                TextField(Board.holdWhyPrompt, text: Binding(get: { shown.why }, set: { v in
+                // Capped after it is written, as the page's other boxes: capped in the setter, nothing changes at the limit, so
+                // nothing is drawn again and the box keeps words that are not sent.
+                TextField(Board.holdWhyPrompt, text: Binding(get: { shown.why }, set: { v in if v != shown.why { edit { $0.why = v } } }))
+                .onChange(of: shown.why) { v in
                     let kept = Board.capped(v, Board.holdWhyMax)
-                    if kept != shown.why { edit { $0.why = kept } }
-                }))
+                    if kept != v, holdDraft != nil { holdDraft?.why = kept }
+                }
                 .submitLabel(.done)
                 .frame(minHeight: 44)
                 .padding(.horizontal, 8)
@@ -443,9 +455,8 @@ struct TaskPageView: View {
                     model.touched()
                     let choice = shown
                     Task {
-                        // The draft goes once the page reads what was saved (onChange of the stored hold); if that read failed,
-                        // the form keeps what was saved.
-                        await model.saveHold(choice, base: base, names: names)
+                        // Saved: the form shows what is stored, or what was saved while that has not been read (holdShown).
+                        if await model.saveHold(choice, base: base, names: names) { holdDraft = nil; holdBase = nil }
                     }
                 } label: {
                     HStack(spacing: 8) {
@@ -461,7 +472,7 @@ struct TaskPageView: View {
                 .accessibilityInputLabels(["Save", Board.holdSaveSpoken])
                 .accessibilityValue(model.holdFormSaving ? "In progress" : "")
                 .accessibilityIdentifier("taskpage.hold.save")
-                if holdDraft != nil && !Board.holdSame(shown, stored) {
+                if !Board.holdSame(shown, stored) {
                     dueAction("Cancel", label: "Cancel the change to this hold", busy: model.holding) { model.clearHoldFormSay(); holdDraft = nil; holdBase = nil }
                 }
             }
@@ -469,8 +480,10 @@ struct TaskPageView: View {
         }
         .disabled(model.holdFormSaving)
     }
+    // One under the other at the accessibility sizes, where a line has no room for both.
     private func holdRow<C: View>(_ label: String, @ViewBuilder _ control: () -> C) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        let row = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
+        return row {
             // Hidden from VoiceOver: the control's own label says it, so it is not read twice.
             Text(label).font(.footnote).foregroundColor(Palette.secondary).accessibilityHidden(true)
             control()
@@ -1312,8 +1325,8 @@ struct TaskPageView: View {
         let closedNow: [Int: String] = sampleLock.withLock {
             if !path.contains("/part/"), path.hasSuffix("/close") || path.hasSuffix("/reopen") {
                 if let n = Int(url.deletingLastPathComponent().lastPathComponent) {
-                    // Closing clears its repeat rule, as the engine does.
-                    if path.hasSuffix("/close") { sampleClosed[n] = ISO8601DateFormatter().string(from: Date()); sampleRepeat[n] = nil } else { sampleClosed[n] = nil }
+                    // Closing clears its repeat rule and its hold, as the engine does.
+                    if path.hasSuffix("/close") { sampleClosed[n] = ISO8601DateFormatter().string(from: Date()); sampleRepeat[n] = nil; if n == 4 { sampleHold = nil } } else { sampleClosed[n] = nil }
                 }
             }
             return sampleClosed

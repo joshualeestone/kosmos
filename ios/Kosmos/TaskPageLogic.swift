@@ -885,6 +885,7 @@ extension Board {
     static let holdSection = "On hold"
     static let holdForLabel = "Wait for"
     static let holdForSpoken = "Wait for: what this hold waits for"
+    static let holdUntilLabel = "Until"
     static let holdTaskSpoken = "Until: the task this hold waits for"
     static let holdAtSpoken = "Until: the date and time this hold waits for"
     static let holdWhyLabel = "Why"
@@ -926,6 +927,10 @@ extension Board {
         case .at: return holdAheadOK(c, now: now)
         }
     }
+    // A time was chosen, and it is not from a minute ahead to a year: the only thing wrong with the choice.
+    static func holdLate(_ c: HoldChoice, stored: HoldChoice, now: Date) -> Bool {
+        c.kind == .at && c.at != nil && !holdSameWait(c, stored) && !holdAheadOK(c, now: now)
+    }
     // The choice as the stored hold moves under it: the wait and the reason each follow what is stored unless the person
     // changed that one (the board's repaint). nil once nothing is unsaved.
     static func holdFollow(_ draft: HoldChoice?, base: HoldChoice?, stored: HoldChoice?) -> HoldChoice? {
@@ -947,7 +952,7 @@ extension Board {
     struct HoldOption: Equatable, Hashable { let value: Int?; let words: String }
     static func holdOptions(_ h: TaskHold, chosen: Int?) -> [HoldOption] {
         let waits = h.stored.kind == .task ? h.stored.task : nil
-        let list = h.tasks.filter { (!$0.closed || $0.number == waits || $0.number == chosen) && (!$0.waitsHere || $0.number == waits) }
+        let list = h.tasks.filter { (!$0.closed || $0.number == waits || $0.number == chosen) && (!$0.waitsHere || $0.number == waits || $0.number == chosen) }
         var all = [HoldOption(value: nil, words: holdChooseTask)]
         all += list.map { x in
             let long = x.words.utf16.count > 60
