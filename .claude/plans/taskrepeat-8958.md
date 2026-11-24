@@ -1,0 +1,38 @@
+# taskrepeat-8958: how often a task repeats, on the iPhone's task page (kosmos#8958 slice B3)
+
+## Goal
+Slice B3 of kosmos#8958 (plan on the card, comment 7127094136): the board's Repeats controls (tk-repeat-*) and the
+repeat line, natively. Stacked on B2 (taskhold-8958); rebased onto main once B1 and B2 merge.
+
+## Call
+- In: the line (the board's own sentence, red while a run is missed), the frequency (Never, Every so many minutes,
+  Every hour, Every day, Every week), its time, day or minutes, and Save.
+- Out, to a slice B3b: "If missed, tell" (tk-review-who, the reviewer). It is its own control, saved on change, and
+  needs the project's member list as a picker. Rejected folding it in: it doubles the review surface of this PR.
+- Weakest premise: the times are the computer's clock and are shown in a fixed calendar, never moved by the phone's
+  time zone. That matches the board's words in the line, but a person whose phone and computer are in different time
+  zones sees the computer's time with no label saying so (the board has the same gap).
+
+## Change
+- TasksLogic: the repeat fields of one task are read by one helper, Board.fillRepeat, shared by the Tasks tab's rows
+  and the task page (GET /api/projects carries the same fields, engine/taskrepeat.fieldsOf).
+- TaskPageLogic:
+  - TaskPage.repeatRow (the fields, when it repeats) and repeatStored (the rule as the controls show it; nil for a
+    rule the controls cannot show, which then says to change it on the board).
+  - RepeatChoice (each box keeps its value whichever frequency shows, as the board's inputs), repeatWire (the board's
+    tkRepeatChoice: 030 is 30, 60 minutes is hourly, a daily rule's other times kept and sorted, nothing for an empty
+    box), repeatBody, repeatNeeds (Say how many minutes, Choose a time), repeatStored (tkRepeatStoredChoice and
+    tkRepeatShowChoice), keptRepeatDraft (a draft equal to the stored rule is dropped; a daily edit under a rule
+    changed elsewhere keeps its box and takes the new rule's other times, tkRepeatFollowUnderEdit).
+  - taskRepeatRequest: POST .../repeat through taskPost.
+- TaskPageModel.saveRepeat: nothing for an empty box, a save in flight, Mark as done in flight, a closed task, or the
+  rule already stored. Refusal: the Mac's sentence, marked as a refusal. Then page and activity are read, and
+  "Saved." is said until the stored rule reads as something else.
+- TaskPageView: the Repeats section on an open task, Save and Cancel, 44 pt targets, the answer announced.
+- server.ios-routes-6838.test.js: the repeat route under taskPost's entry.
+
+## Tests
+- ios/LogicTests/taskpage: B3 section (stored rules, wire, bodies, drafts, time round trip, request, the line on a
+  page read) and b3ModelTests (unchanged sends nothing, a save and its reads, Saved. retired by a change elsewhere,
+  refusal, unreached). 269/269.
+- server.ios-routes-6838: 5/5.

@@ -3,9 +3,9 @@ import SwiftUI
 // kosmos#7074 (a gap in #6838's plan): a task's page, native, opened from Today's Check it and from a Tasks row. It draws
 // what TaskPageLogic.swift says and does what TaskPageModel.swift does: the board's task page (web/index.html,
 // paintTaskPage) for reading, and its human verbs: Mark as done / Reopen, and (kosmos#8958 slice B1) a message on the
-// task, its due date, and editing its title or detail, and (slice B2) Put on hold / Take off hold. What this page does
-// not do yet (the hold form, repeat, parts, Add subtask, Close them and this task, the receipt, undo) is on the board's
-// page, one tap away by the info button.
+// task, its due date, and editing its title or detail, (slice B2) Put on hold / Take off hold, and (slice B3) how often
+// it repeats. What this page does not do yet (the hold form, who is told of a missed run, parts, Add subtask, Close them
+// and this task, the receipt, undo) is on the board's page, one tap away by the info button.
 struct TaskPageRef: Hashable {
     let project: String
     let number: Int
@@ -28,6 +28,8 @@ struct TaskPageView: View {
     // The Due section's picker: the date being chosen, saved only by Set (the board's date field saves once, on change,
     // when a date is committed, never on each day tapped).
     @State private var dueDraft: String?
+    // kosmos#8958 slice B3: the Repeats choice being made, nil while the controls show the stored rule.
+    @State private var repeatDraft: Board.RepeatChoice?
 
     init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
         self.client = client
@@ -147,6 +149,7 @@ struct TaskPageView: View {
             header(p)
             doneBlock(p)
             dueBlock(p)
+            if !p.closed { repeatBlock(p) }
             whoBlock(p)
             subtasksBlock(p)
             activityBlock
@@ -403,6 +406,113 @@ struct TaskPageView: View {
         }
         // The stored day moved (another device): a draft it now equals is dropped.
         .onChange(of: p.dueDate) { stored in dueDraft = Board.keptDraft(dueDraft, stored: stored) }
+    }
+
+    // kosmos#8958 slice B3: the board's Repeats controls (tk-repeat-*) on an open task: how often, and when (a time, a
+    // day and a time, or a number of minutes); Save sends the choice when it differs from the stored rule. The line
+    // under them is the board's own sentence (Tasks.repeatSentence), red while a run is missed. Who is told when a run
+    // is missed (tk-review-who) is still on the board's page.
+    private func repeatBlock(_ p: Board.TaskPage) -> some View {
+        let stored = p.repeatStored
+        let shown = repeatDraft ?? stored
+        let wire = shown.map(Board.repeatWire)
+        let unchanged = wire == stored.map(Board.repeatWire)
+        let edit = { (change: (inout Board.RepeatChoice) -> Void) in
+            guard var c = repeatDraft ?? stored else { return }
+            model.touched()
+            model.clearRepeatSay()
+            change(&c)
+            repeatDraft = Board.keptRepeatDraft(c, stored: stored)
+        }
+        return VStack(alignment: .leading, spacing: 6) {
+            sectionTitle("Repeats")
+            if let shown {
+                Picker("How often this task repeats", selection: Binding(get: { shown.every }, set: { v in edit { $0.every = v } })) {
+                    ForEach(Board.RepeatEvery.allCases, id: \.self) { Text($0.words).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .tint(Palette.link)
+                .frame(minHeight: 44)
+                .disabled(model.repeatSaving)
+                .accessibilityIdentifier("taskpage.repeat.every")
+                switch shown.every {
+                case .minutes:
+                    HStack(spacing: 8) {
+                        TextField("30", text: Binding(get: { shown.minutes }, set: { v in edit { $0.minutes = v } }))
+                            .keyboardType(.numberPad)
+                            .frame(width: 80, height: 44)
+                            .padding(.horizontal, 8)
+                            .background(RoundedRectangle(cornerRadius: 8).stroke(Palette.secondary.opacity(0.4), lineWidth: 1))
+                            .accessibilityLabel("When: every how many minutes")
+                            .accessibilityIdentifier("taskpage.repeat.minutes")
+                        Text("minutes").font(.footnote).foregroundColor(Palette.secondary)
+                    }
+                    .disabled(model.repeatSaving)
+                case .day, .week:
+                    HStack(spacing: 12) {
+                        if shown.every == .week {
+                            Picker("When: day of the week", selection: Binding(get: { shown.on }, set: { v in edit { $0.on = v } })) {
+                                ForEach(Board.repeatDays, id: \.key) { Text($0.words).tag($0.key) }
+                            }
+                            .pickerStyle(.menu)
+                            .tint(Palette.link)
+                            .accessibilityIdentifier("taskpage.repeat.day")
+                        }
+                        DatePicker("When: time of day", selection: Binding(get: { Board.repeatTime(shown.at) }, set: { d in
+                            edit { $0.at = Board.repeatTimeString(d) }
+                        }), displayedComponents: .hourAndMinute)
+                            .labelsHidden()
+                            .environment(\.timeZone, Board.repeatClock.timeZone)
+                            .accessibilityIdentifier("taskpage.repeat.time")
+                    }
+                    .frame(minHeight: 44)
+                    .disabled(model.repeatSaving)
+                default:
+                    EmptyView()
+                }
+                HStack(spacing: 12) {
+                    let ready = wire.flatMap { Board.repeatBody($0) } != nil && !unchanged
+                    Button {
+                        model.touched()
+                        guard let wire else { return }
+                        Task { if await model.saveRepeat(wire, names: names) { repeatDraft = nil } }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if model.repeatSaving { SweepDots(scales: false) }
+                            Text("Save").font(.footnote.weight(.semibold)).foregroundColor(Palette.link)
+                        }
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!ready || model.repeatSaving || model.pressing)
+                    .opacity(!ready || model.repeatSaving || model.pressing ? 0.5 : 1)
+                    .accessibilityLabel("Save how this task repeats")
+                    .accessibilityIdentifier("taskpage.repeat.save")
+                    if repeatDraft != nil && !model.repeatSaving {
+                        dueAction("Cancel", label: "Cancel the change to how this task repeats") { model.clearRepeatSay(); repeatDraft = nil }
+                    }
+                }
+                if let need = wire.flatMap(Board.repeatNeeds) {
+                    Text(need).font(.footnote).foregroundColor(Palette.secondary)
+                } else if let say = model.repeatSay {
+                    Text(say).font(.footnote).foregroundColor(model.repeatRefused ? Palette.dangerWord : Palette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
+                }
+            } else {
+                Text(Board.repeatOnBoard).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            if let row = p.repeatRow {
+                Text(Tasks.repeatSentence(row, now: Date()) { p.name($0, roster: roster) })
+                    .font(.footnote)
+                    .foregroundColor(Tasks.repeatMissed(row).isEmpty ? Palette.secondary : Palette.dangerWord)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("taskpage.repeat.line")
+            }
+        }
+        // The stored rule moved (another device, an agent): a draft it now equals is dropped, and a daily edit's other
+        // times follow it.
+        .onChange(of: p.repeatStored) { s in repeatDraft = Board.keptRepeatDraft(repeatDraft, stored: s) }
     }
 
     private func dueAction(_ words: String, label: String, strong: Bool = false, _ run: @escaping () -> Void) -> some View {

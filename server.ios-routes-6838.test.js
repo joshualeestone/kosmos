@@ -104,13 +104,14 @@ const SITES = [
     routes: ['POST /api/project/x/task/1/close', 'POST /api/project/x/task/1/reopen'],
     pins: ['URL(string: "/api/project/\\(project)/task/\\(number)/\\(tail)"'],
     callers: { pattern: /\btaskRoute\(mac:[^,]+,\s*project:[^,]+,\s*number:[^,]+,\s*([^)]+)\)/g, every: /\btaskRoute\(/g,
-      skip: /\bfunc\s+taskRoute\(/, expect: ['"close"', '"reopen"', '"seen"', '"activity"', '"message"', '"due"', '"text"', '"hold"'], scope: 'app' } },
-  // kosmos#8958 slice B1: a message on the task, its due date and its words, through one POST helper (taskPost); each
+      skip: /\bfunc\s+taskRoute\(/, expect: ['"close"', '"reopen"', '"seen"', '"activity"', '"message"', '"due"', '"text"', '"hold"', '"repeat"'], scope: 'app' } },
+  // kosmos#8958 slice B1 (and B3: how often it repeats): a message on the task, its due date and its words, through one POST helper (taskPost); each
   // caller names its route by the literal taskRoute is given.
   { file: 'ios/Kosmos/TaskPageLogic.swift', text: 'var r = URLRequest(url: url)', method: 'POST',
-    routes: ['POST /api/project/x/task/1/message', 'POST /api/project/x/task/1/due', 'POST /api/project/x/task/1/text'],
+    routes: ['POST /api/project/x/task/1/message', 'POST /api/project/x/task/1/due', 'POST /api/project/x/task/1/text',
+      'POST /api/project/x/task/1/repeat'],
     pins: ['taskRoute(mac: mac, project: project, number: number, "message")', 'taskRoute(mac: mac, project: project, number: number, "due")',
-      'taskRoute(mac: mac, project: project, number: number, "text")'] },
+      'taskRoute(mac: mac, project: project, number: number, "text")', 'taskRoute(mac: mac, project: project, number: number, "repeat")'] },
   // kosmos#8958 slice B2: Put on hold / Take off hold.
   { file: 'ios/Kosmos/TaskPageLogic.swift', text: 'var hold = URLRequest(url: url)', method: 'POST',
     routes: ['POST /api/project/x/task/1/hold'], pins: ['taskRoute(mac: mac, project: project, number: number, "hold")'] },
