@@ -730,16 +730,23 @@ function superviseStreaming(spec, opts) {
        turn or a good result starts over, so an earlier turn's limit never names a later crash. */
     let turnLimited = false;
     let turnAuthRefused = false;
+    let turnReachedModel = false;   // as the publisher's rule: only a turn that reached the model clears the flags
+    let saidNoConversation = false;   // a resumed child said it had nothing to resume, whenever the line arrived
     if (c.stdout && typeof c.stdout.on === 'function') {
       const feed = lineReader((line) => {
         const e = parseEvent(line);
         const err = stdoutError(e, line);
         const isEvent = Boolean(e) && typeof e === 'object' && !Array.isArray(e);
         if (isEvent) {
-          if (e.type === 'system' && e.subtype === 'init') { turnLimited = false; turnAuthRefused = false; }
-          else if (e.type === 'result' && e.is_error !== true && !e.api_error) { turnLimited = false; turnAuthRefused = false; }
+          const apiErr = e.is_api_error_message === true || (e.message && typeof e.message === 'object' && e.message.is_api_error_message === true);
+          if (e.type === 'system' && e.subtype === 'init') { turnLimited = false; turnAuthRefused = false; turnReachedModel = false; }
+          else if (e.type === 'result' && !err && turnReachedModel) { turnLimited = false; turnAuthRefused = false; }
           else if (e.type === 'assistant' && e.error === 'authentication_failed') turnAuthRefused = true;
+          else if (e.type === 'assistant' && !apiErr) turnReachedModel = true;
           else if (e.type === 'rate_limit_event') { const lim = limitAfterEvent(e); if (lim) turnLimited = true; else if (lim === null) turnLimited = false; }
+          /* #8967: a child's last lines arrive after 'exit', so this is read here, not behind the current-child check
+             below (which feeds the loop's own fresh-start decision, unchanged here). */
+          if (resumed && saysNothingToResume(e)) saidNoConversation = true;
         }
         if (err && (isEvent || !saidIsResult)) { stdoutSaid = err; saidIsResult = isEvent; saidEvent = isEvent ? e : null; }
         /* A success, or the start of a new turn, ends the last error's story (an
@@ -839,7 +846,7 @@ function superviseStreaming(spec, opts) {
          is kept (keepEarlier). */
       if (running && wasCurrent && typeof stream.restarting === 'function') {
         try {
-          stream.restarting(nothingToResume ? { keepEarlier: true }
+          stream.restarting(nothingToResume || saidNoConversation ? { keepEarlier: true }
             : { code: code === undefined ? null : code, signal: signal || null, errEvent: saidEvent, limited: turnLimited, authRefused: turnAuthRefused });
         } catch { /* the death line above still says it */ }
       }

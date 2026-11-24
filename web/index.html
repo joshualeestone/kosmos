@@ -23585,21 +23585,6 @@ function stateReason(a, opts) {
     if (a.deliveryStall.lost === true) return who + ' stopped right after ' + what + ' reached it, ' + when + ' ago, and never ran ' + them + '. ' + next + '.';
     return who + ' took in ' + what + ' ' + when + ' ago but never started on ' + them + '. ' + next + '.';
   }
-  /* kosmos#8979: its process stopped and Kosmos started it again; said until a turn on the new process ends well. After
-     the sentences above, which say something the person must act on; ahead of #7368's step and the plain states. Idle or
-     working only: a stopped, signed-out or limited card says itself. */
-  if (a && (a.state === 'idle' || a.state === 'working') && a.restarted && typeof a.restarted.at === 'string' && typeof a.restarted.why === 'string' && a.restarted.why) {
-    const at = new Date(a.restarted.at);
-    if (Number.isFinite(at.getTime())) {
-      const clock = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-      const now = new Date();
-      /* Six days or more ago, a weekday alone could read as this week's, so the date comes with it. */
-      const far = now.getTime() - at.getTime() >= 6 * 86400e3;
-      const when = at.toDateString() === now.toDateString() ? clock
-        : at.toLocaleDateString([], far ? { weekday: 'short', month: 'short', day: 'numeric' } : { weekday: 'short' }) + ' ' + clock;
-      return 'Restarted at ' + when + ': ' + a.restarted.why;
-    }
-  }
   /* kosmos#7368 (Mona Lisa's design): a Windows agent on one step for over an hour with messages waiting behind it. The
      messages did arrive, so this is not "no message has reached it": it names the step and how many wait. */
   if (a && a.deliveryStall && a.deliveryStall.lastWhy === 'turn' && typeof a.deliveryStall.since === 'string') {
@@ -23634,6 +23619,22 @@ function stateReason(a, opts) {
     const who = (typeof a.name === 'string' && a.name) ? a.name : 'This agent';
     const tool = typeof a.oneStep.tool === 'string' && a.oneStep.tool ? ': ' + a.oneStep.tool : '';
     return who + ' has been on one step for ' + when + tool + '. If that is a long job, it is fine; if not, open it to see what it shows.';
+  }
+  /* kosmos#8979: its process stopped and Kosmos started it again; said until a turn on the new process ends well. After
+     every sentence above that says what to do (a stuck step, a message that never arrived or never started, a long tool
+     call): a restarted agent that is then stuck needs those more. Idle or working only: a stopped, signed-out or limited
+     card says itself. */
+  if (a && (a.state === 'idle' || a.state === 'working') && a.restarted && typeof a.restarted.at === 'string' && typeof a.restarted.why === 'string' && a.restarted.why) {
+    const at = new Date(a.restarted.at);
+    if (Number.isFinite(at.getTime())) {
+      const clock = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const now = new Date();
+      /* Six days or more ago, a weekday alone could read as this week's, so the date comes with it. */
+      const far = now.getTime() - at.getTime() >= 6 * 86400e3;
+      const when = at.toDateString() === now.toDateString() ? clock
+        : at.toLocaleDateString([], far ? { weekday: 'short', month: 'short', day: 'numeric' } : { weekday: 'short' }) + ' ' + clock;
+      return 'Restarted at ' + when + ': ' + a.restarted.why;
+    }
   }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists
