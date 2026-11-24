@@ -2095,6 +2095,7 @@ let addAgents = Board.parseAgents(Data(#"{"agents":[{"sessionName":"rex","name":
 check(addAgents.count == 4, "premise: four agents read")
 check(Board.projectAddable(addAgents, members: [Board.ProjectMember(session: "roo", name: "Roo", hasAvatar: false, provider: nil)]).map(\.session) == ["rex", "mia"],
       "addable: not on the project, not the guide, in the list's order")
+check(Board.projectAddable(Board.parseAgents(Data(#"{"agents":[{"sessionName":"Rex.Two","name":"Rex","state":"idle"},{"sessionName":"mia","name":"Mia","state":"idle"}]}"#.utf8)) ?? [], members: []).map(\.session) == ["mia"], "review 5: an agent the phone cannot send for is not offered")
 check(Board.projectAddable(addAgents, members: addAgents.map { Board.ProjectMember(session: $0.session, name: $0.name, hasAvatar: false, provider: nil) }).isEmpty, "every one on it: nothing to add")
 check(Board.projectRemoveAsk("Rex").hasPrefix("Remove Rex from this project?") && Board.projectArchiveAsk("Launch").hasPrefix("Archive Launch?"), "each asks first, naming what it acts on")
 let pausedRows = Board.parseProjects(Data(#"{"projects":[{"id":"a","name":"A","paused":true,"pausedByPerson":true},{"id":"b","name":"B","paused":true}]}"#.utf8))?.projects ?? []

@@ -45,3 +45,7 @@ Finished when: from project info, adding a member, removing one and archiving th
 - The UI test waits for the sheet and both dialogs to be gone (waitForNonExistence), the Archive dialog included.
 - A comment on the slow-archive-after-a-push case, which fails safe.
 - Noted: the confirm buttons' wiring into changeMember and archive is a device check (the sample board admits no computer).
+
+## Challenge loop iteration 5 (opus)
+- Fixed (WARNING, reasoned from XCTest, not run): the UI test's scroll loops asked isHittable of rows that may not exist yet (off-screen List cells), which XCTest fails on rather than answering false. They now ask exists && isHittable, as NewChatListSwitchUITests does.
+- Fixed (NIT): the add sheet offers only agents the phone can send for (isAgentSession), so it never offers one it then refuses; a logic test covers it.
