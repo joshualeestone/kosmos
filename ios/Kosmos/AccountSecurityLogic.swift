@@ -53,6 +53,9 @@ enum AccountSecurity {
     static func addOnlyAt(_ rp: String) -> String { "Passkeys can be added only at \(rp)." }
     /// Review 1 (B1c): before iOS 17.4 the exclude list cannot be passed, and an account that already has a passkey could
     /// see it replaced in iCloud Keychain. Not the page's words: the page has no such case.
+    /// Review 4: finish refused for a sign-in that grew too old while Apple's sheet was open. The passkey was made on the
+    /// iPhone already, and Kosmos+ does not know it, so it must be deleted from Passwords too.
+    static let stepUpAfterMade = "That passkey was made on this iPhone, but your sign-in is no longer recent enough for Kosmos+ to add it. Delete it in the Passwords app, then sign out, sign in again, and add one straight away."
     static let addNeedsNewer = "This iPhone needs iOS 17.4 or later to add a passkey while your account already has one, so that one is not replaced. You can add one on your Kosmos+ account page."
     /// A challenge kept after a closed sheet is used again for this long (the page's PK_READY_MS, under its 5 minutes).
     static let heldChallengeSeconds: Double = 240

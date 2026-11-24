@@ -104,6 +104,7 @@ final class AccountScreenUITests: XCTestCase {
         reveal(app, add)
         XCTAssertTrue(add.exists, "no Add a passkey")
         let removeRow = app.buttons["account-passkey-remove-sample-1"]
+        reveal(app, removeRow)   // review 4: scrolling to Add can leave the first row unbuilt
         XCTAssertTrue(removeRow.exists && app.buttons["account-passkey-remove-sample-2"].exists, "a passkey is listed without Remove")
         XCTAssertTrue(removeRow.label.hasPrefix("Remove iPhone, added "), "Remove does not say which passkey, dated: \(removeRow.label)")
         XCTAssertTrue(app.staticTexts["Not used yet."].exists || app.staticTexts.containing(NSPredicate(format: "label ENDSWITH 'Not used yet.'")).count == 1,

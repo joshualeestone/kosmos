@@ -38,6 +38,7 @@ check(S.refusal(json: ["error": "for this, sign in again the way you usually do 
       "the usual step-up sentence becomes the page's words")
 check(S.refusal(json: ["error": "the review account cannot do this", "code": "step_up_required"], fallback: "x") == "The review account cannot do this.",
       "the review account's own sentence is kept: signing in again would not help")
+check(S.stepUpAfterMade.contains("Delete it in the Passwords app"), "a step-up refused at finish says to delete the passkey made")
 check(S.sheetSeconds(ageSeconds: 0) == 285 && S.sheetSeconds(ageSeconds: 200) == 85 && S.sheetSeconds(ageSeconds: 299) == 10,
       "Apple's sheet closes 15 s before the challenge lapses (at least 10 s)")
 

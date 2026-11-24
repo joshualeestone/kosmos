@@ -781,6 +781,7 @@ struct AccountView: View {
         passkeyNote = nil; passkeyDone = nil
         if sample { passkeyDone = AccountSecurity.added; return }
         // Review 3: known before begin from the list shown, so no fresh sign-in is asked for an Add this iPhone cannot do.
+        // Review 4: when the list is not shown, the check after begin (on its exclude list) still stops it; nothing is made.
         if #available(iOS 17.4, *) {} else if case .loaded(let rows) = passkeys, !rows.isEmpty { passkeyNote = AccountSecurity.addNeedsNewer; return }
         passkeyBusy = true; passkeyFor = session
         defer { if passkeyFor == session { passkeyBusy = false; passkeyFor = nil } }
@@ -788,8 +789,9 @@ struct AccountView: View {
            let go only once finish has been sent. Every other end (Apple's sheet closed or refused, the host refused, an
            older iOS) leaves it for the next press, so presses do not stack up waiting challenges (Kosmos+ keeps five). */
         let reg: AccountSecurity.Registration
+        let begunAt: Date   // review 4: the challenge's own age, carried here rather than read back from heldAdd
         if let held = heldAdd, held.session == session, Date().timeIntervalSince(held.at) < AccountSecurity.heldChallengeSeconds {
-            reg = held.reg
+            reg = held.reg; begunAt = held.at
         } else {
             heldAdd = nil
             let (status, data) = await send(AccountSecurity.beginRequest(coordinator: coordinator, session: session))
@@ -800,13 +802,12 @@ struct AccountView: View {
             // A begin asking for what an iPhone passkey is not (another algorithm, an attestation) is refused here rather
             // than making a passkey finish would turn away.
             guard let got = AccountSecurity.registration(status: status, json: begun) else { passkeyNote = AccountSecurity.addFailed; return }
-            reg = got
-            heldAdd = (got, Date(), session)
+            reg = got; begunAt = Date()
+            heldAdd = (got, begunAt, session)
         }
         if let refusal = AccountSecurity.rpRefusal(reg, coordinator: coordinator) { passkeyNote = refusal; return }
         if #available(iOS 17.4, *) {} else if !reg.exclude.isEmpty { passkeyNote = AccountSecurity.addNeedsNewer; return }
-        let age = heldAdd.map { Date().timeIntervalSince($0.at) } ?? 0
-        switch await maker.make(reg, closeAfter: AccountSecurity.sheetSeconds(ageSeconds: age)) {
+        switch await maker.make(reg, closeAfter: AccountSecurity.sheetSeconds(ageSeconds: Date().timeIntervalSince(begunAt))) {
         case .cancelled:
             // The challenge stays held for the next press of this sign-in (it is live for five minutes).
             if currentSession() == session { passkeyNote = AccountSecurity.addCancelled }
@@ -824,7 +825,10 @@ struct AccountView: View {
             guard currentSession() == session else { return }
             guard let fs else { passkeyNote = Account.reach; await readPasskeys(); return }
             guard (200..<300).contains(fs) else {
-                passkeyNote = AccountSecurity.refusal(json: fd.flatMap { try? JSONSerialization.jsonObject(with: $0) }, fallback: AccountSecurity.addFailed)
+                let answer = fd.flatMap { try? JSONSerialization.jsonObject(with: $0) }
+                // Review 4: the passkey exists on the iPhone already; a step-up refusal here must say to delete it.
+                let usual = AccountSecurity.refusal(json: answer, fallback: AccountSecurity.addFailed)
+                passkeyNote = usual == AccountSecurity.stepUp ? AccountSecurity.stepUpAfterMade : usual
                 return
             }
             passkeyDone = AccountSecurity.added
