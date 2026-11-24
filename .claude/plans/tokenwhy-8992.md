@@ -82,3 +82,11 @@ run again and check lookup), the safe side. The real-tool test pins the wording 
 - Deliberate, recorded: a copy that answers (a non-timeout failure at the first place it is found) is that place's
   answer; only a copy that cannot start, or lacks `value`, falls through to the next place.
 - The locked-folder test skips (t.skip) when run as a user who reads anything. Mutations checked.
+
+## Round 7 (opus): simplified to five answers
+Eight reasons collapsed to five, each with a next step that can end it (the reviewer's call; it also fixed two wrong
+steps): retry (failed or busy read, or no answer; file only if lookup says missing), missing (file it), misfiled
+(value refuses the filing, now including a file this user cannot read: fix its mode or owner, or the filing), unreadable
+(a missing target cannot be told from a hidden one: `secrets-map.sh audit` lists the unreadable files, fix their modes),
+tool (not-found / old / cannot-start, said in one message). The unused token() export is gone. No test reads the real
+secrets folder (SECRETS_DIR defaults to a temp path in the test file). Mutations checked on each branch.
