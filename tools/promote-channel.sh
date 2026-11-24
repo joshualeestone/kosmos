@@ -17,7 +17,7 @@
 # fresh enforcing board exists. On the dev box it returns cannot-tell (2) by construction
 # (the board runs from source and never enforces), so promote HOLDS there - correctly: you
 # cannot promote from a machine that cannot test the update. Run this on/against the fresh
-# staging machine, or use --force after a HAND verification (which never overrides a
+# staging machine, or use --force --hand-check "<what you checked>" after a HAND verification (which never overrides a
 # provably-broken board - exit 1 is always a refusal).
 #
 # ONE SNAPSHOT (both families). The staging pointer is copied ONCE, at the start, and every
@@ -80,6 +80,7 @@
 #             bypasses the gate entirely.
 #     --hand-check "<text>"  required with --force (kosmos#8960), 20 or more characters: the check of THIS build you
 #             did by hand, which the forced promote rests on. It is printed beside every gate --force passes.
+#             It is not proof a check happened: it makes the operator write one down, and puts it in the log.
 #   tools/promote-channel.sh <site-checkout> [port] --version <V> [--sha <sha256 prefix>] [--commit <site sha>]
 #                            [--allow-older] [--force --hand-check "<text>"] [--skip-linux-check]
 #             promote V from its own staging commit, whatever staging names now (see above)
@@ -155,7 +156,7 @@ esac
 # that verification. On 0.8.19 (11-23) a wrapper script forced on its own whenever a gate held, and the log claimed a hand
 # check nobody had done. Checked here, before anything is read or written, so no wrapper can skip it.
 if [ "$FORCE" = 1 ]; then
-  _hc="$(printf '%s' "$HAND_CHECK" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//')"
+  _hc="$(printf '%s' "$HAND_CHECK" | tr -s '[:space:]' ' ' | tr -d '[:cntrl:]' | sed 's/^ //; s/ $//')"
   [ "${#_hc}" -ge 20 ] || { echo "promote-channel: --force needs --hand-check \"<what you checked on this build, and how>\" (20 or more characters): --force promotes past a gate that could not tell, on a hand check, so name the check you did. Nothing was written." >&2; exit 1; }
   HAND_CHECK="$_hc"
 else
@@ -653,6 +654,7 @@ if [ "$FAMILY" = mac ]; then
       if [ "$FORCE" = 1 ]; then
         [ "$GATE_RC" = 2 ] && echo "promote-channel: NOTE: that board was not shown to run $V (the experience gate above could not tell), so this agent-spawn result is not a check of $V." >&2
         echo "promote-channel: agent-spawn gate PARTIAL (exit 3, Claude online / OpenAI-Codex arm failed) and --force was given - promoting the Claude fix + OpenAI gating; the OpenAI/Codex spawn issue is a separate card. NOTE: the OpenAI arm was NOT verified online." >&2
+        echo "promote-channel: the hand check named for this --force: $HAND_CHECK" >&2
       else
         echo "promote-channel: agent-spawn gate PARTIAL (exit 3) - the CLAUDE arm is ONLINE (the #2129 fix works) but the OpenAI/Codex arm did NOT come online. This may be a separate codex-spawn issue #2129 does not fix. NOT auto-holding: surface WHICH arm failed to the operator - the Claude fix + OpenAI gating are shippable. Re-run with $FORCE_WORDS to promote them now and chase the codex issue separately, or hold for an operator ruling." >&2
         exit 3
