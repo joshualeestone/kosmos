@@ -1882,18 +1882,19 @@ function deliveryStallOf(pane, status) {
     if (st.state !== STATE.IDLE && st.state !== STATE.WORKING) return null;
     // The card's own four fields, built as the card builds them.
     const limitShown = ds.limitShownOn({ limitUntil: claudeLimitUntilIso(pane, st), limitFrom: st.limitFrom, quotaUntil: st.quotaUntil, poolUntil: st.poolUntil });
-    /* kosmos#8951: messages a Windows Claude agent took in and never started on. First: nothing else can see them (each
-       one landed, and the agent reads idle once its deadline passed). */
-    if (pane && require('./win32roster').isWin32Pane(pane) && (!pane.runner || pane.runner === 'claude')) {
-      const missed = ds.unstartedOf(pane.name, require('./win32streamstate').unstartedFor(pane.name));
-      if (missed) return missed;
-    }
     /* kosmos#7368: a Windows Claude agent on one step with no activity for over an hour and messages queued behind it.
        It comes first: those messages each landed, so the streak below can never see them, and it names the step
-       (PigeonPete, m716: when both apply, show this one). */
+       (PigeonPete, m716: when both apply, show this one). kosmos#8951 review 17: ahead of an unstarted report too, since
+       while a step is stuck a resend only waits behind it, and the way out is the step. */
     if (st.state === STATE.WORKING && pane && require('./win32roster').isWin32Pane(pane) && (!pane.runner || pane.runner === 'claude')) {
       const turn = ds.turnStuckOf(pane.name, require('./win32streamstate').turnFor(pane.name));
       if (turn) return turn;
+    }
+    /* kosmos#8951: messages a Windows Claude agent took in and never started on. Nothing else can see them (each one
+       landed, and the agent reads idle once its deadline passed). */
+    if (pane && require('./win32roster').isWin32Pane(pane) && (!pane.runner || pane.runner === 'claude')) {
+      const missed = ds.unstartedOf(pane.name, require('./win32streamstate').unstartedFor(pane.name));
+      if (missed) return missed;
     }
     return ds.stallOf(pane && pane.name, { limitShown });
   } catch { return null; }
