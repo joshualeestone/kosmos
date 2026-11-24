@@ -32,6 +32,7 @@ struct ContentView: View {
     // kosmos#7489: the native New project form (+ on Projects), in place of the board's slow web page.
     @State private var newProjectOpen = false
     @State private var newAgentOpen = false   // kosmos#7488
+    @State private var createOnBoardAsked: AppTabs.Create? = nil   // kosmos#8957: + before the computer lets the phone in
     @State private var newTeamBusy = false    // kosmos#7488: a team still being made, after its sheet closed
     // kosmos#7488: new agents' projects to tell once the board's list shows them (the desktop's tell after create), kept
     // here so closing New Agent early drops none.
@@ -568,8 +569,9 @@ struct ContentView: View {
             }, openBoard: { showBoardToday() }, createOnBoard: { openCreate(.agent) }, create: {
                 // kosmos#7488: the native New Agent flow posts to the computer this phone is connected to; before that
                 // computer has let the phone in there is none, so the board page is used, as New project does.
-                if board.macURL != nil { newAgentOpen = true } else { openCreate(.agent) }
+                if board.macURL != nil { newAgentOpen = true } else { createOnBoardAsked = .agent }
             })
+            .modifier(CreateOnBoardAsk(asked: $createOnBoardAsked, what: .agent, open: { openCreate(.agent) }))
             #if DEBUG
             // Design shots only: KOSMOS_SAMPLE_NEWAGENT (any screen name) opens New Agent, since a simulator run cannot tap +.
             .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWAGENT"].map({ !$0.isEmpty }) == true { newAgentOpen = true } }
@@ -582,8 +584,9 @@ struct ContentView: View {
             }, create: {
                 // Review 2: the form posts to the computer this phone is connected to; before that computer has let the
                 // phone in there is none, so the board page (which waits for it) is used, as before.
-                if board.macURL != nil { newProjectOpen = true } else { openCreate(.project) }
+                if board.macURL != nil { newProjectOpen = true } else { createOnBoardAsked = .project }
             }, openBoard: { showBoardToday() })
+            .modifier(CreateOnBoardAsk(asked: $createOnBoardAsked, what: .project, open: { openCreate(.project) }))
             #if DEBUG
             // Design shots only: KOSMOS_SAMPLE_NEWPROJECT=1 opens the New project form, since a simulator run cannot tap +.
             .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWPROJECT"] == "1" { newProjectOpen = true } }
@@ -1603,5 +1606,21 @@ enum YouFace {
 private struct TabBarMinimizesOnScroll: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) { content.tabBarMinimizeBehavior(.onScrollDown) } else { content }
+    }
+}
+
+// kosmos#8957: the question + asks before it opens the board's own form (AppTabs.createOnBoardQuestion); Cancel keeps the
+// person on the phone's screen.
+private struct CreateOnBoardAsk: ViewModifier {
+    @Binding var asked: AppTabs.Create?
+    let what: AppTabs.Create
+    let open: () -> Void
+    func body(content: Content) -> some View {
+        content.confirmationDialog(AppTabs.createOnBoardQuestion(what),
+                                   isPresented: Binding(get: { asked == what }, set: { if !$0 { asked = nil } }),
+                                   titleVisibility: .visible) {
+            Button(AppTabs.createOnBoardOpen) { asked = nil; open() }
+            Button("Cancel", role: .cancel) { asked = nil }
+        }
     }
 }

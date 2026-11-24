@@ -36,6 +36,7 @@ struct TasksTab: View {
                               open: { t in openTask = TaskPageRef(project: t.projectId, number: t.number) },
                               answer: answer,
                               answerAgent: { who in answer(who: who) },
+                              answersOnBoard: { who in !client.agents.contains { $0.session == who } },
                               refresh: { await client.refreshTasks() },
                               newTask: { picked in notice = nil; newTaskFor = NewTaskStart(picked: picked) },
                               notice: notice, switcher: AnyView(MacSwitcher(client: client)))
@@ -145,6 +146,8 @@ struct TasksView: View {
     let open: (Board.TaskRow) -> Void
     let answer: (Board.TaskRow) -> Void
     let answerAgent: (String) -> Void      // kosmos#7797 item 1: a question no task carries opens its agent's chat
+    // kosmos#8957: whether Answer for this agent opens the computer's board (the agents list lacks it), so it says so.
+    var answersOnBoard: (String) -> Bool = { _ in false }
     let refresh: () async -> Void
     // kosmos#7078: the New task sheet, opened with the project picked here (nil on All projects), and the line the
     // sheet leaves after a create ("Added task 12 to Launch."). Both optional, so the samples and checks need neither.
@@ -350,14 +353,14 @@ struct TasksView: View {
             .accessibilityElement(children: .combine)
             .accessibilityAction(named: Text("Answer")) { answerAgent(a.who) }
             Button { answerAgent(a.who) } label: {
-                Text("Answer").font(.footnote.weight(.semibold)).foregroundColor(Palette.card)
+                answerWord(onBoard: answersOnBoard(a.who)).font(.footnote.weight(.semibold)).foregroundColor(Palette.card)
                     .padding(.horizontal, 14).padding(.vertical, 6)
                     .background(Capsule().fill(Palette.primary))
                     .frame(minHeight: 44).contentShape(Rectangle())   // review 3 of #7797: a 44pt tap area, the capsule as it was
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Answer " + agentName(a.who))   // final review: as the web's aria-label, one per agent
-            .accessibilityHint("Opens the chat")
+            .accessibilityHint(answersOnBoard(a.who) ? Board.opensOnBoard : "Opens the chat")
         }
         .padding(.vertical, 4)
         .listRowBackground(Palette.card)
@@ -383,13 +386,14 @@ struct TasksView: View {
                 .modifier(AnswerAction(on: decision) { answer(t) })
             if decision {
                 Button { answer(t) } label: {
-                    Text("Answer").font(.footnote.weight(.semibold)).foregroundColor(Palette.card)
+                    answerWord(onBoard: t.waitingOn.first.map { answersOnBoard($0.who) } ?? false)
+                        .font(.footnote.weight(.semibold)).foregroundColor(Palette.card)
                         .padding(.horizontal, 14).padding(.vertical, 6)
                         .background(Capsule().fill(Palette.primary))
                         .frame(minHeight: 44).contentShape(Rectangle())   // review 3 of #7797: a 44pt tap area, the capsule as it was
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("Opens the chat")
+                .accessibilityHint(t.waitingOn.first.map { answersOnBoard($0.who) } ?? false ? Board.opensOnBoard : "Opens the chat")
             }
         }
         .padding(.vertical, 4)
@@ -466,6 +470,11 @@ struct TasksView: View {
 }
 
 // A decision row's Answer, also as a custom accessibility action (the spec), only on a row that has one.
+// kosmos#8957: "Answer", with the board icon when it opens the computer's board.
+private func answerWord(onBoard: Bool) -> Text {
+    onBoard ? Text("Answer") + Text(" ") + Text(Image(systemName: Board.boardIcon)) : Text("Answer")
+}
+
 private struct AnswerAction: ViewModifier {
     let on: Bool
     let run: () -> Void

@@ -707,10 +707,14 @@ struct RoomView: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 // An agent the status does not list (rare): the project's page on the computer's board, never a dead button.
+                // kosmos#8957: that fallback says so, with the board icon and hint.
+                let onBoard = store.agent(row.session) == nil
                 Button { if let a = store.agent(row.session) { chatAgent = a } else { openBoardPage() } } label: {
-                    Text(row.act).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    (onBoard ? Text(row.act) + Text(" ") + Text(Image(systemName: Board.boardIcon)) : Text(row.act))
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
                 .accessibilityLabel("\(row.act) \(row.name)")
+                .accessibilityHint(onBoard ? Board.opensOnBoard : "")
                 // "Try again" after a dismiss that did not go, as the board relabels its button (review 4).
                 Button { dismiss(row) } label: {
                     Text(store.needsFailed[project.id]?.session == row.session ? "Try again" : "Dismiss")
