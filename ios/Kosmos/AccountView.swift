@@ -189,7 +189,8 @@ struct AccountView: View {
     }
 
     private func askRetire(_ name: String) async {
-        guard let session = SessionKeychain.live.load(), !retireBusy else { return }
+        // A sample run (screenshots) has no session and never asks Kosmos+.
+        guard let session = sample ? "sample" : SessionKeychain.live.load(), !retireBusy else { return }
         listNote = nil
         retireBusy = true
         let (status, data) = sample ? (409, Data(#"{"confirm":"K7QX","message":"type K7QX to retire studio; it will stop answering and its name is free again after a day"}"#.utf8))

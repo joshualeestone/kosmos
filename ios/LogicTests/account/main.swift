@@ -72,7 +72,7 @@ check(Account.signOutEverywhereRequest(coordinator: coordinator, session: "s1").
 
 section("retire: the code comes from Kosmos+, never from the app")
 let ask = json(#"{"confirm":"K7QX","name":"studio","message":"type K7QX to retire studio; it will stop answering and its name is free again after a day"}"#)
-check(Account.retireAnswer(status: 409, data: ask, name: "studio", typed: nil) == .confirm(code: "K7QX", words: "Type K7QX to retire studio; it will stop answering and its name is free again after a day"), "409 with a code: Kosmos+'s own sentence, capitalised")
+check(Account.retireAnswer(status: 409, data: ask, name: "studio", typed: nil) == .confirm(code: "K7QX", words: "Type K7QX to retire studio; it will stop answering and its name is free again after a day."), "409 with a code: Kosmos+'s own sentence, capitalised")
 check(Account.retireAnswer(status: 409, data: json(#"{"confirm":"K7QX"}"#), name: "studio", typed: nil) == .confirm(code: "K7QX", words: "Type K7QX to retire studio."), "no sentence: the page's own fallback")
 check(Account.retireAnswer(status: 409, data: ask, name: "studio", typed: "ABCD") == .refused("That is not the code shown for studio. Nothing was retired."), "a wrong code is said, not shown again as if nothing happened")
 check(Account.retireAnswer(status: 200, data: json(#"{"ok":true,"name":"studio"}"#), name: "studio", typed: "K7QX") == .retired, "200 ok: retired")
