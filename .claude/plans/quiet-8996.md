@@ -18,6 +18,12 @@ log is "cannot say", never quiet.
 - Counting member summaries or agent turns as activity: an agent working alone without posting or moving a task is not
   project activity the person sees.
 
+Review 1: the quiet verdict says to tell the person IN THE ROOM, and only if nobody has: every member then sees it was
+said, and the post restarts the clock, so six members do not each tell them and a restarted agent does not repeat it.
+A project whose every unfinished task is on hold or built is "parked": its quiet is expected, like a pause. The date is
+this computer's local day, and "within the last day" replaces "today". "A task was added or moved". A real-store test
+(nothing stubbed) and the CLAUDE.md test-map row.
+
 Weakest premise: that 14 days is the right default. It is twice the reread give-up (7 days) and matches the records'
 staleness scale; nothing measured says it is right for every project.
 
