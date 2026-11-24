@@ -109,8 +109,7 @@ check(replaced?.closeNote(roster: roster) == nil && replaced?.holdLine == nil, "
 check(page(7)?.stateLine(roster: roster) == "Open. Replaces task 6", "the task that replaced it names it")
 check(page(2)?.closed == true && page(2)?.closeNote(roster: roster) == nil && page(2)?.partLines(roster: roster).first?.who == "Dana",
       "a finished task with an agent on it: no close note (closing it again stops nobody)")
-check(page(4)?.dueLine(calendar: cal) == "Due Oct 30", "a due date, as words")
-check(page(1)?.dueLine(calendar: cal) == nil, "no due date: no line")
+check(page(4)?.dueDate == "2026-10-30" && page(1)?.dueDate == nil, "the due date as the Mac keeps it, or none")
 
 check(Board.parseTaskPage(projectsData, project: "springcatalogue", number: 99) == .gone, "a task the list does not have is gone")
 check(Board.parseTaskPage(projectsData, project: "nosuch", number: 1) == .gone, "so is a project it does not have")

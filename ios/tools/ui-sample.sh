@@ -4,8 +4,9 @@
 # room opening on its newest post (RoomOpensAtNewestUITests, #7654), the x on an add (StopAddingUITests, #7682) and the
 # keyboard in that long room (RoomKeyboardUITests, #7690), and the launch screen's hand-over to the Connecting wait
 # (LaunchHandoverUITests, #7945), a sent message settling without a step (SendMovesOnceUITests, #7348), text-message
-# second-step setup on the phone, not the web page (TextSetupUITests, #8959), and a web page opening on the phone while
-# reaching nothing (WebFileUITests, #8953).
+# second-step setup on the phone, not the web page (TextSetupUITests, #8959), a web page opening on the phone while
+# reaching nothing (WebFileUITests, #8953), and a task page's message, due date and edit, natively
+# (TaskPageActionsUITests, #8958).
 # Run by the ios workflow's "ui tests (sample board)" job, with --uikit by its two "uikit list (sample board) 1/2" and "2/2" jobs (--shard, kosmos#8453), and by
 # hand. Prints PASS, or FAIL with the failing check's own words.
 #

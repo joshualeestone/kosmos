@@ -227,22 +227,6 @@ extension Board.TaskPage {
         return "Added by " + fixed.lowercased() + parts.words.dropFirst(fixed.count)
     }
 
-    // The due date as words: "Due Oct 30".
-    func dueLine(calendar: Calendar = .current) -> String? {
-        guard let due = dueDate else { return nil }
-        let p = DateFormatter()
-        p.locale = Locale(identifier: "en_US_POSIX")
-        p.calendar = Calendar(identifier: .gregorian)
-        p.timeZone = calendar.timeZone
-        p.dateFormat = "yyyy-MM-dd"
-        guard let d = p.date(from: due) else { return "Due " + due }
-        let f = DateFormatter()
-        f.calendar = calendar
-        f.timeZone = calendar.timeZone
-        f.setLocalizedDateFormatFromTemplate("MMMd")
-        return "Due " + f.string(from: d)
-    }
-
     // The board's hold hint, said here only when there is something to say (a paused project, or a hold): the control
     // that the other hints describe is on the board's page.
     var holdLine: String? {

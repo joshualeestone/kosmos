@@ -16,7 +16,7 @@ Hold, repeat, the receipt and undo are B2 to B5. The info button stays (parts an
   "out of usage" line said without the board's reset time, as the phone's other held lines (AgentInfoLogic).
 - TaskPageModel: say (true when recorded, so the box empties; the line under it), setDue, saveText (true when the form
   can close), each reading the task and activity again after, as press does.
-- TaskPageView: Edit title or detail under the title (a sheet with Save and Cancel), a Due section (a date picker and
+- TaskPageView: Edit title or detail under the title and detail (a sheet with Save and Cancel), a Due section (a date picker and
   Clear, or Set a due date: a picker opened on a week from today, saved only by Set, so no date is recorded that
   nobody picked); the header's due line is gone (the Due section shows it), and the message box with Send and the board's note
   under the activity. 44 pt targets; refusals announced.
@@ -28,10 +28,12 @@ Hold, repeat, the receipt and undo are B2 to B5. The info button stays (parts an
   without the time, as its other held lines.
 
 ## Tests
-- run-taskpage.sh: 56 new checks (189 in all) (requests, bodies, the null clear, bad dates refused, taskEdit cases, the write
+- run-taskpage.sh: 55 new checks (188 in all) (requests, bodies, the null clear, bad dates refused, taskEdit cases, the write
   results, every said-line branch, and the model's three actions through the fake Mac). All 13 LogicTests runners pass.
 - Mutant: dropping "Your message stays on the task." reds 3 checks. (Sending a nil due as Any is equivalent: Foundation
   writes it as null, and the test reads the wire.)
+- Review 7: the UI test scrolls the Tasks list to the row and finds the activity row as any element; dueLine (its only
+  caller was the header line now gone) is removed, its checks replaced by one on the parsed dueDate.
 - Review 5: one date picker for every state (only the buttons change), so choosing a day does not rebuild it; the
   sample Mac records an edited title and the UI test checks the page shows it; a bad date is refused on the phone; an
   empty title refused while a line shows is announced.
