@@ -84,7 +84,10 @@ const say = (n, cond, note) => {
   for (let i = 0; i < 50; i++) { try { if ((await fetch(BASE + '/api/status')).ok) break; } catch { /* not up yet */ } await new Promise((r) => setTimeout(r, 200)); }
 
   const b = await chromium.launch();
-  const p = await b.newPage({ viewport: { width: 1400, height: 900 } });
+  /* serviceWorkers: 'block', as sibling checks do: the page registers web/sw.js, which answers /api/ pictures itself, and
+     page.route() does not see a request a service worker handles, so arm 4's forced 500 would never apply. */
+  const ctx = await b.newContext({ viewport: { width: 1400, height: 900 }, serviceWorkers: 'block' });
+  const p = await ctx.newPage();
   p.on('pageerror', (e) => say('no page error', false, e.message));
   try {
     await p.goto(BASE + '/', { waitUntil: 'networkidle' });

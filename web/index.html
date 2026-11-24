@@ -42686,7 +42686,8 @@ function setGridHtml(html) {
    stay broken until the card changed. Only the failed element is retried, never the container, so one broken picture
    cannot bring back the every-poll rebuild for everybody else. An error that arrives while a retry of that URL is
    already waiting (the #8790 listener above re-sets a failed picture once) is not counted twice, and a picture that loads
-   meanwhile cancels its retry. Captured, because load and error do not bubble. */
+   meanwhile cancels its retry. A picture that stays broken costs one request a minute per element showing it (the grid,
+   the list and My Agents can each hold one). Captured, because load and error do not bubble. */
 const AVATAR_RETRY_FIRST_MS = 5000;
 const AVATAR_RETRY_MAX_MS = 60000;
 const AVATAR_RETRY_PARAM = /([?&])retry=\d+/;
@@ -96632,7 +96633,7 @@ function asbPaint() {
     /* Written only when its inputs change (#3421): a string compare never matches (&hellip; reads back as the
        character), and rebuilding the .act dots restarts their loop every paint. Keyed as paintBusy keys. */
     const key = !(working || signIn) ? '' : [busyRowOf ? busyRowOf.sessionName : 'hosted', busyRowOf ? busyRowOf.state : 'hosted', who, busyRowOf && busyRowOf.hasAvatar ? '1' : '0',
-      signIn ? (row.stateEvidence || '') : ''].join('\u0001');
+      String((busyRowOf && busyRowOf.avatarVer) || 0), signIn ? (row.stateEvidence || '') : ''].join('\u0001');
     const rekeyed = busy.dataset.busyKey !== key;
     if (rekeyed) {
       busy.innerHTML = !key ? '' : busyRowOf ? busyRow(busyRowOf, who, { quote: true })   // #6716: the side chat has no fold, so it keeps the quote

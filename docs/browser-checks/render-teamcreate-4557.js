@@ -685,6 +685,7 @@ function chk(ok, label, extra) {
           // these cards do not change, so the check makes the rebuild itself: it forgets both memos and repaints, which
           // replaces every card exactly as a poll that changed them does.
           await page.evaluate(() => { GRID_HTML = null; ALIST_HTML = null; repaintAgentOrder(); });   // eslint-disable-line no-undef
+          // The repaint above is synchronous, so this wait is now only a guard; kept.rebuilt below asserts the rebuild.
           await page.waitForFunction(() => ![...document.querySelectorAll('.acard, .lrow')].some((e) => e.__before), null, { timeout: 12000 }).catch(() => null);
           await page.waitForTimeout(700);
           const kept = await page.evaluate(() => { const a = document.activeElement; const c = a && a.closest && a.closest('[data-agent]');
