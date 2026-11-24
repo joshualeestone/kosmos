@@ -549,6 +549,8 @@ function superviseStreaming(spec, opts) {
      sessions dir for the agent's account, the same account its CLAUDE_CONFIG_DIR
      names -- lazily required so it never loads on the happy path. */
   const registrationGraceMs = o.registrationGraceMs === undefined ? REGISTRATION_GRACE_MS : o.registrationGraceMs;
+  /* kosmos#8967: how long a death waits for stdout to end; a test passes a short one. */
+  const stdoutDrainMs = o.stdoutDrainMs === undefined ? STDOUT_DRAIN_MS : o.stdoutDrainMs;
   /* THE POSITIVE SIGNAL (#2281 review r1): is the agent's folder recorded trusted
      in the config it runs under? trust.folderTrusted answers true/false/null with
      the SAME key derivation and config resolution trust.trustFolder wrote under,
@@ -587,7 +589,9 @@ function superviseStreaming(spec, opts) {
   let running = true;
   let child = null;
   /* kosmos#8967: children that have exited but are still held while their stdout
-     drains. A send to one is a definite no, never an unsure: it cannot arrive. */
+     drains. Their late lines are not published (see attach), and a send to one is a
+     definite no. For a real node child `stdin.destroyed` is already true by 'exit'
+     (measured), so on send() this is the guard for a child that does not do that. */
   const exited = new WeakSet();
   let lastStart = 0;
   const handle = { sessionId: s.resumeSessionId || null };
@@ -713,11 +717,15 @@ function superviseStreaming(spec, opts) {
         const e = parseEvent(line);
         const err = stdoutError(e, line);
         if (err) stdoutSaid = err;
-        else if (e && typeof e === 'object' && e.type === 'result') stdoutSaid = '';
+        /* A success, or the start of a new turn, ends the last error's story: "its
+           last error" means this turn's, never one from hours before. */
+        else if (e && typeof e === 'object' && (e.type === 'result' || (e.type === 'system' && e.subtype === 'init'))) stdoutSaid = '';
         /* The record above is this child's own, so it is kept even once the child is
            replaced (its death still needs it); what follows publishes, and only the
-           CURRENT child may. */
-        if (child !== c) return;
+           CURRENT, LIVE child may. A line read while an exited child drains only
+           feeds the death's reason: before #8967 `exit` dropped such lines at once,
+           and the loop's own behaviour (state, rekey, fresh start) stays as it was. */
+        if (child !== c || exited.has(c)) return;
         if (resumed && saysNothingToResume(e)) nothingToResume = true;
         followSessionId(e);   // before the state sink, so a rekey lands before the turn's events
         stream.event(e);
@@ -754,7 +762,7 @@ function superviseStreaming(spec, opts) {
       out.once('close', once);
       /* The real clock on purpose, as for the registration timer: the injected
          `timer` is a no-op in the tests, and a death must never wait on it forever. */
-      const t = setTimeout(once, STDOUT_DRAIN_MS);
+      const t = setTimeout(once, stdoutDrainMs);
       if (t && typeof t.unref === 'function') t.unref();
     };
     const finish = (code, signal) => {
