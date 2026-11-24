@@ -28,6 +28,8 @@
   words and no standing note in the sample (a good plan); shots account-sign-out and account-plan, light and dark.
   The sample answers as an active plan, so the UI test proves the section renders; the parsing is LogicTests'.
 - The sign-in-changed retry (read(again:)) asks the plan again too (review 1).
+- Account.planAnswer decides replace / clear / keep for each status (review 3), tested for 200, 200 non-JSON, 401, 403,
+  429, 503 and no answer.
 - Typecheck of ios/Kosmos against the simulator SDK (0 errors; control with an injected error: 4 errors).
 
 ## Weakest premise
@@ -36,5 +38,7 @@ server's standing sentences include "you can buy seats for your members", "you c
 (signin.rs standing_note, company seats). They are statements with no button or link, they are the server's one copy,
 and the in-app page shows them today, so the phone adds no new exposure. If Josh or App Review wants none of that in
 the app, the change belongs in signin.rs (one sentence set for the apps), not in a filter here.
+- A refused device (device_status denied) still gets the plan line: /me keeps the plan fields for it (relay#217) and the
+  page shows its line unconditionally, so the phone matches the page (review 3, accepted).
 - Not covered by the UI test: the standing note's look (no sample state carries one). Its parsing and colour choice are
   LogicTests'; a sample variant can come with B3 if a design review asks.
