@@ -772,7 +772,9 @@ function publisher(name, opts) {
       /* Review 14: a reported message that starts (late) leaves the report's count, so the card, a stop and a restart
          never say it was not started. */
       if (m.reported === true && current.unstarted && Number.isInteger(current.unstarted.count)) {
-        current.unstarted = { ...current.unstarted, count: Math.max(0, current.unstarted.count - 1) };
+        const left = current.msgs.filter((x) => x.reported === true && x.startedAt === null && x !== m);
+        const since = current.needsWrite === true || !left.length ? current.unstarted.since : left.map((x) => x.since).sort()[0];   // review 15
+        current.unstarted = { ...current.unstarted, since, count: Math.max(0, current.unstarted.count - 1) };
       }
     }
   }
@@ -925,7 +927,10 @@ function publisher(name, opts) {
            and its time is kept for a write whose callback comes just after (review 13). */
         if (opens && !current.mainTurnOpen) {
           current.mainTurnOpen = true;
-          const first = current.msgs.find((x) => x.startedAt === null && x.ready === true);   // a reported one is ready: its deadline was armed only once it could start
+          /* Review 15: a message not yet reported comes first (a resend's own turn is the resend's: the 11-23 agent ran the
+             next message normally); a reported one is credited only when no other is ready (a late start). */
+          const first = current.msgs.find((x) => x.startedAt === null && x.ready === true && x.reported !== true)
+            || current.msgs.find((x) => x.startedAt === null && x.ready === true);
           if (first) { startMsgs([first]); current.emptyOpenAt = null; } else current.emptyOpenAt = nowMs();
         }
         reportRan();
@@ -1051,13 +1056,13 @@ function publisher(name, opts) {
          anything written since. */
       /* Review 5: a report whose messages are known to have run (still on its hold) is not carried: they ran. */
       const carried = was && was.unstarted && was.reportRan !== true ? was.unstarted : null;
-      if (was && (carried || was.msgs.some((m) => m.reported !== true))) {
+      if (was && (carried || was.msgs.some((m) => m.reported !== true || m.startedAt !== null))) {
         /* Reviews 7 to 10: each message on its own clock. One that started (opened or joined a turn) within LOST_WINDOW_MS
            of this stop died with the process, and is what stopped it (the 11-23 order, turn first or not, is not known);
            one that started earlier ran as far as it got and is not counted; one not started never ran. */
         const now = nowMs();
         /* Review 13: reported ones are in the carried report already, so they are not counted here. */
-        const died = was.msgs.filter((m) => m.reported !== true && m.startedAt !== null && now - m.startedAt <= LOST_WINDOW_MS);
+        const died = was.msgs.filter((m) => m.startedAt !== null && now - m.startedAt <= LOST_WINDOW_MS);   // review 15: reported or not (a started one left the count)
         const notRun = was.msgs.filter((m) => m.reported !== true && m.startedAt === null);
         const mine = died.concat(notRun);
         const t = died.length ? died : null;
