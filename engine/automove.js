@@ -283,10 +283,14 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     /* Review round 7: only the move's own record says partial. One that cannot be read, or says anything else, is
        unknown: the move may well have gone through, so the page must not say it stayed on its old account. */
     let outcome = 'unknown';
+    let handoffSaid = '';
     try {
       const after = deps.readMove ? deps.readMove(started.body.id) : null;
       const a = after && Array.isArray(after.agents) ? after.agents[0] : null;
       outcome = a && (a.outcome === 'changed' || a.outcome === 'stopped' || a.outcome === 'partial') ? a.outcome : 'unknown';   // a stop puts it back
+      /* kosmos#9010: what happened to its handoff. Said before the pickup has answered, so a saved one says only that it
+         was written; the move's own record says whether the new session was pointed at it. */
+      handoffSaid = !a || !a.handoff ? '' : a.handoff.saved ? ' It wrote a handoff first.' : require('./accountmove').handoffWords(a.handoff, true);
     } catch { outcome = 'unknown'; }
     const ended = { ...base, at: Date.now(), outcome };
     keep(ended);
@@ -303,7 +307,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       const owed = m.offLimit ? ' It had stopped at its usage limit, and the restart ended anything it had running, so it may need to pick its work back up.' + (m.promisedText || '') : '';
       /* kosmos#8862 review 1: the reason is the account's or this agent's model's ("its Fable limit is at 100%..."), so the
          sentence does not say the whole account was running out. */
-      try { deps.tell(m.agent, `Kosmos moved this agent from ${m.fromLabel || 'its account'} to ${m.toLabel || 'another account'}, because on ${m.fromLabel || 'its account'} ${m.why}.${owed}`); }
+      try { deps.tell(m.agent, `Kosmos moved this agent from ${m.fromLabel || 'its account'} to ${m.toLabel || 'another account'}, because on ${m.fromLabel || 'its account'} ${m.why}.${owed}${handoffSaid}`); }
       catch { /* telling is best-effort; the record has it */ }
     }
     /* kosmos#7621 item 4: a move that did not finish cleanly is told too, so the thread says where the agent may be. */
