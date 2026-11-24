@@ -6,7 +6,8 @@
  * reader's hidden text, never a line on the tile, #6716): a question, a question held until the person is back, a
  * permission prompt, or anything else it waits on the person for. Fixed words; the agent's own `because` never shows.
  *
- * Drives the real card() builder with the golden card shape, in Chromium and WebKit, at desktop and phone width.
+ * Drives the real card() builder with the golden card shape, in Chromium and WebKit, at desktop and phone width. The
+ * card only: the list row's pill reads the same pillSay, and the empty task lines are pinned by engine/waitwhy-8991.test.js.
  * NEGATIVE ARMS: an idle, a working and a usage-limited card say none of these sentences (each carrying the fields
  * that pick a sentence, so only the needs_you guard keeps them out).
  *
@@ -29,8 +30,9 @@ const BASE = require('./fixtures/agent-card.json');
 const WANT = {
   question: 'It has asked you a question and is waiting for your answer. Open it to answer.',
   held: 'It has a question for you and is holding it until you are back. Open it to answer.',
-  permission: 'It is waiting for your permission to go on. Open it to answer.',
-  other: 'It is waiting for you. Open it to see what it needs.',
+  /* Read off the screen (the cards below are scraped), so hedged as #874's sign-in and limit sentences are. */
+  permission: 'Looks like it is waiting for your permission to go on. Open it to answer.',
+  other: 'Looks like it is waiting for you. Open it to see what it needs.',
 };
 
 (async () => {
