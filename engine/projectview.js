@@ -535,13 +535,22 @@ function activityOf(p, o) {
   for (const t of Array.isArray(p.tasks) ? p.tasks : []) add(Date.parse(taskAt(p.id, t)), 'task');
   add(Date.parse(p.createdAt), 'made');
   const paused = p.paused === true || p.archived === true;
-  if (room === undefined) return { at: null, kind: null, ageDays: null, quietDays: QUIET_DAYS, quiet: false, unknown: true, paused };
-  if (!seen.length) return { at: null, kind: null, ageDays: null, quietDays: QUIET_DAYS, quiet: false, unknown: false, paused };
+  /* Review 1: a project whose every unfinished task is on hold, or built and waiting on a release or a check, is parked
+     on purpose, and its quiet is expected too (#6341 removed that kind of flag). At least one such task, none in work. */
+  let parked = false;
+  try {
+    const { listGroup } = require('./tasks');
+    const left = (Array.isArray(p.tasks) ? p.tasks : []).map((t) => (t ? listGroup(t) : 'done')).filter((g) => g !== 'done');
+    parked = left.length > 0 && left.every((g) => g === 'held' || g === 'built');
+  } catch { parked = false; }
+  const base = { quietDays: QUIET_DAYS, paused, parked };
+  if (room === undefined) return { at: null, kind: null, ageDays: null, quiet: false, unknown: true, ...base };
+  if (!seen.length) return { at: null, kind: null, ageDays: null, quiet: false, unknown: false, ...base };
   // The newest wins; on a tie, a post or a task says more than the making.
   seen.sort((a, b) => b.ms - a.ms || (a.kind === 'made') - (b.kind === 'made'));
   const last = seen[0];
   const ageDays = Math.floor((now - last.ms) / 86400000);
-  return { at: new Date(last.ms).toISOString(), kind: last.kind, ageDays, quietDays: QUIET_DAYS, quiet: !paused && ageDays >= QUIET_DAYS, unknown: false, paused };
+  return { at: new Date(last.ms).toISOString(), kind: last.kind, ageDays, quiet: !paused && !parked && ageDays >= QUIET_DAYS, unknown: false, ...base };
 }
 
 /* #6994: how many records the project keeps and how many are stale, for `project show` (the rows themselves are read
@@ -713,11 +722,18 @@ function activityLine(a) {
   const days = (d) => (d === 1 ? '1 day' : d + ' days');
   if (a.unknown === true) return 'Last activity: Kosmos could not read the project\'s room just now, so it cannot say how long the project has been quiet.';
   if (!a.at) return 'Last activity: none Kosmos can date.';
-  const what = a.kind === 'post' ? 'a post in its room' : a.kind === 'task' ? 'a task moved' : 'the project was made';
-  const when = n(a.ageDays) === 0 ? 'today' : days(n(a.ageDays)) + ' ago';
-  const head = 'Last activity: ' + what + ', ' + when + ' (' + one(String(a.at).slice(0, 10)) + ').';
+  const what = a.kind === 'post' ? 'a post in its room' : a.kind === 'task' ? 'a task was added or moved' : 'the project was made';
+  const when = n(a.ageDays) === 0 ? 'within the last day' : days(n(a.ageDays)) + ' ago';
+  /* Review 1: the date in this computer's own time zone (the CLI prints it), so it matches the person's calendar. */
+  const ms = Date.parse(a.at);
+  const pad = (x) => String(x).padStart(2, '0');
+  const local = Number.isFinite(ms) ? (() => { const d = new Date(ms); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); })() : '';
+  const head = 'Last activity: ' + what + ', ' + when + (local ? ' (' + local + ')' : '') + '.';
   if (a.paused === true) return head + ' The project is paused or archived, so quiet is expected.';
-  if (a.quiet === true) return head + ' That is past the ' + days(n(a.quietDays)) + ' Kosmos counts as normal quiet: worth telling your person, once.';
+  if (a.parked === true) return head + ' Every unfinished task is on hold or built and waiting, so quiet is expected.';
+  /* Review 1: said in the room, so every member sees it was said (and the post restarts this clock): six members do not
+     each tell the person, and a restarted agent does not tell them again. */
+  if (a.quiet === true) return head + ' That is past the ' + days(n(a.quietDays)) + ' Kosmos counts as normal quiet. If nobody has said so in its room, tell your person there.';
   if (a.kind === 'made') return head + ' Nothing has been posted or moved since it was made; quiet is normal until ' + days(n(a.quietDays)) + '.';
   return head + ' Quiet is normal until ' + days(n(a.quietDays)) + '.';
 }
