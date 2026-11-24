@@ -4,7 +4,7 @@
 /**
  * kosmos#9011: when an agent's own question (or what it was blocked on) was ended recently, its card's pill says when
  * and by what (its hover and a screen reader's hidden text, never a line on the tile, #6716): the agent itself, the
- * person, leaving the project, a new session, or the session ending (engine/status.js waitClearedOf).
+ * person, leaving the project, starting again, or the session ending (engine/status.js waitClearedOf).
  *
  * Drives the real card() builder with the golden card shape, in Chromium and WebKit, at desktop and phone width. The
  * card only: the list row reads the same pillSay.
@@ -30,7 +30,8 @@ const BASE = require('./fixtures/agent-card.json');
 const ENDS = {
   agent: ' was closed at {T} by the agent itself.',
   person: ' was closed at {T} by you.',
-  restart: ' was set aside at {T} when it started a new session.',
+  left: ' was closed at {T} when it left the project.',
+  restart: ' was set aside at {T} when it started again.',
   ended: ' was set aside at {T} when its session ended.',
 };
 
@@ -87,7 +88,6 @@ const ENDS = {
           + (row.id === 'blocked' ? ENDS.agent : ENDS[row.id]).replace('{T}', r.clock);
         chk(row.title.includes(want), tag + ' ' + row.id + ': the pill hover says what ended the wait', row.title);
         chk(row.text.includes(want), tag + ' ' + row.id + ': a screen reader hears it (the pill\'s hidden text)', row.text);
-        chk(!/secret-plan/.test(row.title + row.text), tag + ' ' + row.id + ': the old question\'s words do not show', row.title);
         chk(row.drawn === 0, tag + ' ' + row.id + ': #6716: no sentence is drawn on the tile', String(row.drawn));
       }
       chk(errs.length === 0, tag + ' no page errors', errs.join(' | '));

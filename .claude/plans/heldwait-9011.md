@@ -14,7 +14,7 @@ reader text). Part 2 (a "waiting on review" project state) is a separate branch 
 | the hook's automatic `working` (every PreToolUse, UserPromptSubmit) | refused (#900/#1949) | needs_you stands |
 | the hook's automatic `idle` (Stop) | refused (#900) | stands |
 | the hook's automatic `needs_you` (a permission prompt) | refused (#2456) | stands |
-| the hook's automatic `started` (a new session, `source: startup`) | lands | the wait is gone |
+| the hook's automatic `started` (Claude: a new session, `source: startup` only; the Grok and Gemini bridges: every session start, resume and `/clear` included) | lands | the wait is gone |
 | the hook's automatic `stopped` (SessionEnd: a restart, `/clear`, a quit) | lands | the wait is gone |
 | the agent's own report of any state | lands | gone (the agent cleared it) |
 | a person's clear (`by: operator`), or leaving the project | lands | gone |
@@ -34,7 +34,7 @@ were each ended by the agent's own report, so which path the reporter hit is not
   stateReason says it on an idle or working card, low: after #8979's restart line and after every sentence that asks the
   person to act (crash loop, no message reached it, unsent text, one long step, #5154's give-up; review round 2):
   - "Its question for you was closed at 2:02 PM by the agent itself." / "... by you." / "... when it left the project."
-  - "Its question for you was set aside at 2:02 PM when it started a new session." / "... when its session ended."
+  - "Its question for you was set aside at 2:02 PM when it started again." / "... when its session ended."
   - "What it was waiting on ..." for a blocked.
   Fixed words, never the old question's.
 
@@ -56,6 +56,11 @@ were each ended by the agent's own report, so which path the reporter hit is not
   evening away.
 - A person's Clear on a provider block that was covering the agent's own question reads "closed ... by you": true
   (the question is gone), though the person acted on the block they could see.
+
+- The Grok and Gemini bridges (bin/grok-report-bridge.js, bin/gemini-report-bridge.js) send `started` on every
+  SessionStart and never read `source`, so on those runners a resume or `/clear` retires the agent's own wait too. Not
+  changed here: what those runners send in `source` is not measured. The card's words say "started again", which is
+  true either way. Named on the card as a follow-up.
 
 ## Weakest premise
 That 12 hours is the right span to show it: long enough to be seen after an evening away, short enough not to explain
