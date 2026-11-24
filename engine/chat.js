@@ -2325,6 +2325,8 @@ const CLAUDE_WAITING_SENTENCE = 'it is waiting for an answer on its screen, and 
   + 'highlighted option, so we did not type anything; answer it in its window first';
 /* #5754: Claude's permission prompt. Measured on 2.1.296: the paste is ignored and the Enter approves the highlighted
    option (usually Yes), so a typed line would approve a command or an edit nobody chose. */
+const CLAUDE_SELF_EXPIRING_SENTENCE = 'Claude Code is declining a command on its screen by itself, and a message typed now would answer it, so '
+  + 'nothing was sent; send this again in a couple of minutes';   // kosmos#9001
 const CLAUDE_PERMISSION_SENTENCE = 'it is asking for permission on its screen, and a message typed now would answer that '
   + '(usually Yes), so we did not type anything; answer it in its window first';
 /* #6054: the ending for a screen the agent page answers with buttons (status.claudeAnswerableMenu reads it), in place of
@@ -2379,6 +2381,8 @@ function claudeMenuRefusal(card, sessionName, roster) {
     return (single && labelsPressable(qm) && pageDrawsButtons(card, sessionName) ? onItsPage(CLAUDE_MENU_SENTENCE) : CLAUDE_MENU_SENTENCE)
       + (card.state === status.STATE.NEEDS_YOU && single ? CLAUDE_MENU_DM_CLAUSE : '');
   }
+  // kosmos#9001: Claude Code's self-declining safety check: typing would answer it, and nobody needs to.
+  if (status.claudeSelfExpiringPrompt(view.text)) return CLAUDE_SELF_EXPIRING_SENTENCE;
   const kind = status.claudePermissionPromptKind(view.text);   // #5754
   if (kind === 'wording') return permissionAnswerable(view.text) && labelsPressable(status.claudePermissionPrompt(view.text)) && pageDrawsButtons(card, sessionName) ? onItsPage(CLAUDE_PERMISSION_SENTENCE) : CLAUDE_PERMISSION_SENTENCE;   // #6054
   return kind === 'shape' ? CLAUDE_WAITING_SENTENCE : null;   // other wording, or one of Claude Code's own pickers

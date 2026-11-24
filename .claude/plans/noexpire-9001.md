@@ -27,3 +27,18 @@ prompt that waits for a person still pushes, as today. Part 2 (a hook rejecting 
 ## Weakest premise
 The timed line's wording is Claude Code's ("will automatically block this request in"). If it changes, these prompts
 push again (the old behaviour), never the reverse; the fixture pins the wording seen on 2.1.331.
+
+## Round 1 (opus) fixes
+- BLOCKER fixed: the check matched the phrase anywhere in the six rows above the question, including the command inside
+  the box, so a real prompt for a command quoting it (an agent grepping this code) was silenced. Now it needs, in the
+  prompt's own rows: a "Bash command" box, and BELOW the box's closing dashed rule both the safety reason ("not ruled
+  out" / "rule out" / "the shell may read") and Claude Code's own timed line (anchored: its warning mark, its words,
+  an M:SS countdown). Tests: a command quoting the phrase, even the whole timed line, still waits and pushes; another
+  box kind, no reason, no timer, or the words without the mark are not it. Mutations checked (unanchored, any box).
+- The card line no longer claims the agent will retry: "Claude Code is declining a shell command it could not read
+  safely, by itself; nothing for you to do".
+- Typing into the agent while it is up is held with matching words ("declining a command on its screen by itself ...
+  send this again in a couple of minutes"), not "answer it in its window".
+- Deferred, with reason: install/kosmos-report-hook.sh's header says PermissionRequest fires before the box renders;
+  measured the other way on 2.1.331, but older versions may still do that, and editing an installed hook's bytes can
+  trip deploy guards. If the hook arrives first, the report stays needs_you and pushes (the old behaviour, safe side).

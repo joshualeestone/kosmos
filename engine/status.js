@@ -2782,15 +2782,35 @@ const APPROVAL_WAITING = 'it is waiting for your approval';
    and the decline is always the right answer, so it waits for nobody: no push, no "Needs permission", this line instead.
    Measured on Claude Code 2.1.331 (test-support/claude-screens/permission-prompt-self-expiring-2.1.331.txt); a prompt from
    a permission rule, in the same mode, has no such line (permission-prompt-ask-rule-bypass-2.1.331.txt). */
-const SELF_EXPIRING_DECLINE = 'Claude Code declined a shell command it could not read safely; the agent will retry it in a safe form';
-const CLAUDE_SELF_EXPIRING = /\bwill automatically block this request in\b/i;
-/** A Claude Code permission prompt on screen that declines by itself (see SELF_EXPIRING_DECLINE): the prompt AND its
- *  timed line, read in the prompt's own rows (from its box down), never an earlier turn's text quoting the words. */
+const SELF_EXPIRING_DECLINE = 'Claude Code is declining a shell command it could not read safely, by itself; nothing for you to do';
+/* The timed line as Claude Code draws it, whole: its warning mark, its own words and a M:SS countdown. Anchored, so a
+   command or a file that merely quotes these words (an agent grepping this very code) is never taken for it. */
+const CLAUDE_SELF_EXPIRING = /^\s*⚠\s*Claude Code will automatically block this request in \d{1,2}:\d{2}\b/;
+// The safety reason Claude Code gives above it (2.1.331: "Dangerous rm operation not ruled out — the shell may read this
+// command differently than it was parsed"; the report on #9001: "can't rule out a dangerous removal").
+const CLAUDE_SAFETY_REASON = /\b(not ruled out|rule out|the shell (may|will) read)\b/i;
+const PERMISSION_DASHED_RULE = /^\s*╌{8,}\s*$/;
+/** A Claude Code permission prompt on screen that declines by itself (see SELF_EXPIRING_DECLINE). All of it, in the
+ *  prompt's own rows: a "Bash command" box, then BELOW the box's closing dashed rule (never inside the box, where the
+ *  command is) the safety reason and the timed line. Anything less (another kind of prompt with a timer, a command
+ *  quoting the words) is not it, and is treated as a prompt that waits for a person, as before. */
 function claudeSelfExpiringPrompt(text) {
   const pp = claudePermissionPrompt(text);
   if (!pp) return false;
   const lines = String(text == null ? '' : text).split('\n');
-  for (let i = pp.at; i >= Math.max(0, pp.at - 6); i -= 1) if (CLAUDE_SELF_EXPIRING.test(lines[i])) return true;
+  let close = -1;
+  for (let i = pp.at - 1; i >= 0; i -= 1) if (PERMISSION_DASHED_RULE.test(lines[i])) { close = i; break; }
+  if (close < 0) return false;
+  let timed = false; let reason = false;
+  for (let i = close + 1; i < pp.at; i += 1) {
+    if (CLAUDE_SELF_EXPIRING.test(lines[i])) timed = true;
+    if (CLAUDE_SAFETY_REASON.test(lines[i])) reason = true;
+  }
+  if (!timed || !reason) return false;
+  for (let i = close - 1; i >= 0; i -= 1) {
+    if (/^\s*─{8,}\s*$/.test(lines[i])) return /^\s*Bash command\b/.test(lines[i + 1] || '');
+    if (/^\s*[⏺⎿✻]/.test(lines[i])) return false;
+  }
   return false;
 }
 /* #6091: is this card waiting on its permission prompt? Read from the SCREEN, before the report is reconciled in: the

@@ -127,6 +127,40 @@ test('only the hook\'s own permission wait from a Claude agent is read this way'
   }, { runner: 'codex' });
 });
 
+test('a real prompt whose command quotes the timed line is NOT taken for the safety check: it still waits and pushes', async () => {
+  // Round 1's blocker: an agent grepping this very code. The phrase, even the whole timed line, inside the box.
+  for (const cmd of ['grep -rn "will automatically block this request in" engine/', 'echo "⚠ Claude Code will automatically block this request in 1:59 not ruled out"']) {
+    const screen = ASK_RULE.replace('touch /tmp/work/control-file\n', cmd + '\n');
+    assert.notEqual(screen, ASK_RULE, 'premise: the command was replaced');
+    assert.equal(status.claudeSelfExpiringPrompt(screen), false, cmd);
+    await withAgent(screen, async (pushes) => {
+      await report({ state: 'needs_you', text: 'asking permission to use Bash: ' + cmd, auto: true });
+      assert.equal(selfreport.read(WHO).state, 'needs_you', cmd);
+      assert.equal(pushes.length, 1, cmd);
+    }, { state: 'needs_you' });
+  }
+});
+
+test('only a "Bash command" box with the safety reason AND the timed line is the safety check', () => {
+  assert.equal(status.claudeSelfExpiringPrompt(SELF_EXPIRING.replace(' Bash command\n', ' Edit file\n')), false, 'another kind of prompt with a timer waits for a person');
+  assert.equal(status.claudeSelfExpiringPrompt(SELF_EXPIRING.replace(/Dangerous rm operation not ruled out[^\n]*/, 'Some other reason')), false, 'a timer with no safety reason');
+  assert.equal(status.claudeSelfExpiringPrompt(SELF_EXPIRING.replace(/will automatically block this request in 1:59/, 'will block')), false, 'a reason with no timer');
+  assert.equal(status.claudeSelfExpiringPrompt(SELF_EXPIRING.replace(/⚠ Claude Code will automatically block this request in 1:59/, 'a note says it will automatically block this request in 1:59')), false,
+    'the words below the box, but not as Claude Code\'s own timed line (its mark and its countdown, anchored)');
+});
+
+test('a message typed while the safety check is up is held with words that match the card (nothing to answer)', async () => {
+  await withAgent(SELF_EXPIRING, async () => {
+    const roster = fleet.install([fleet.agent(WHO, { state: 'working', runner: 'claude', command: 'claude', screen: SELF_EXPIRING })]);
+    try {
+      assert.equal(chat.menuHeld(WHO, roster.agents), true, 'held: typing would answer the prompt');
+      const v = chat.deliverAutomatic(WHO, 'hello', roster.agents);   // the hold's own words, before anything is typed
+      assert.match(String(v.because), /declining a command on its screen by itself/);
+      assert.doesNotMatch(String(v.because), /answer it in its window/);
+    } finally { roster.restore(); }
+  });
+});
+
 test('a screen that cannot be read keeps the report as sent (any doubt pushes, as before)', async () => {
   await withAgent(SELF_EXPIRING, async (pushes) => {
     chat.setRunner((args) => (args[0] === 'capture-pane' ? { ran: true, spawnFailed: false, status: 1, out: '', err: 'no pane' } : { ran: true, spawnFailed: false, status: 0, out: '', err: '' }));
