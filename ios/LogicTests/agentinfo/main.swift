@@ -309,6 +309,7 @@ check(Board.restartResult(status: 200, body: j(#"{"outcome":"partial","because":
 check(Board.restartResult(status: 400, body: j(#"{"outcome":"refused","steps":[],"because":"cleo was removed, so it is not restarted; put it back from the board first"}"#)).sentence == "Cleo was removed, so it is not restarted; put it back from the board first.", "a refusal: the engine's reason")
 check(Board.restartResult(status: 500, body: j(#"{"error":"we could not restart this agent"}"#)) == (false, "We could not restart this agent."), "a thrown restart: its error")
 check(Board.restartResult(status: 0, body: nil) == (false, "We could not reach Kosmos to restart them."), "no answer: the board's words")
+check(Board.restartResult(status: 403, body: j(#"{"error":"sign in"}"#)) == (false, Board.phoneShutOut), "a 403 without an outcome: the phone was not let in, never the gate's words")
 check(boardPage.contains("'We could not reach Kosmos to restart them.'") && boardPage.contains("return Boolean(ok && out && out.outcome === 'restarted');"), "the board still says so, and still takes only restarted")
 // The wait (restartReadyWait): ready only after seeing it not ready.
 func ag(_ state: String, seen: Bool = true) -> Board.Agent { var a = Board.Agent(session: "cleo", name: "Cleo", role: nil, state: state, task: nil, needsYou: false); a.boardSeesIt = seen; return a }
@@ -340,6 +341,8 @@ check(signinAt != nil && limitAt != nil && signinAt! < limitAt!, "the board stil
 check(boardPage.contains("' Its usage has reset, but its limit screen is still up, so Kosmos sent nothing; answer it in its window first.'"), "the board still says the reset line")
 check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"held":true}}"#)).hasSuffix("This computer\u{2019}s shared Google quota is out, so Kosmos sent nothing."), "held, no reason: the quota line, untimed")
 check(Board.wakeLine(status: 0, body: nil) == Board.restartManual, "no answer: the person says hello")
+check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"held":true,"heldBy":"cap"}}"#)) == Board.restartManual + " The Gemini subscription agents on this computer are at the limit you set for working at once, so Kosmos sent nothing.", "held by the cap")
+check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"held":true,"heldBy":"input"}}"#)) == Board.restartManual + " Its input box holds text that has not been sent, so Kosmos sent nothing; send or clear that in its window first.", "held by unsent text")
 for w in ["'Restarted, and said hello to wake them. Say hello when you want to talk to them.'", "'Restarted. You will need to say ‘hello’ to wake them.'", "showNote('Restarted. Waking them…');", "' It is waiting for an answer on its screen, so Kosmos sent nothing; answer it in its window first.'", "' Its input box holds text that has not been sent, so Kosmos sent nothing; send or clear that in its window first.'", "' It is signed out, so Kosmos sent nothing. Sign it in again first.'", "' It is out of usage, so Kosmos sent nothing.'", "\"This computer's shared Google quota is out, so Kosmos sent nothing.\"", "' The Gemini subscription agents on this computer are at the limit you set for working at once, so Kosmos sent nothing.'", "body: JSON.stringify({ text: 'hello', automatic: true })"] {
     check(boardPage.contains(w), "the board still says: \(w.prefix(60))")
 }
@@ -380,7 +383,7 @@ check(!infoView.contains("restart it, or remove it."), "the board row no longer 
 check(infoView.components(separatedBy: "guard current() else { superseded(); return }").count - 1 == 4 && !infoView.contains("guard current() else { return }"), "every way out of a superseded restart lets go of this page's hold")
 check(infoView.components(separatedBy: ".disabled(switching || actionsHeld)").count - 1 == 3 && infoView.contains(".disabled(switching || openaiModelsLoading || actionsHeld)")
       && infoView.components(separatedBy: ".disabled(saving || details == nil || actionsHeld)").count - 1 == 2 && infoView.contains(".disabled(saving || actionsHeld ||")
-      && infoView.components(separatedBy: ".disabled(freshBusy || switching || actionsHeld)").count - 1 == 4, "a restart or removal under way holds every other control on the page")
+      && infoView.components(separatedBy: ".disabled(freshBusy || switching || saving || actionsHeld)").count - 1 == 4, "a restart or removal under way holds every other control on the page")
 check(Board.boardOnlyFooter.contains("taking off a card Kosmos cannot tie to its agent"), "the board row names the untied clear-off it keeps")
 check(infoView.contains("Text(Board.boardOnlyFooter)") && infoView.contains("removeSection") && infoView.contains("Board.restartLabel(live.name)"), "the page draws Restart, Remove and the new footer")
 

@@ -806,7 +806,6 @@ extension Board {
         case refused(String)
     }
     static func removeResult(status: Int, body: Data?) -> RemoveDone {
-        // No answer is not "nothing happened": the request may have gone out and the removal begun (rm-go's catch).
         guard status != 0 else { return .refused(removeUnanswered) }
         let o = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         let outcome = o?["outcome"] as? String

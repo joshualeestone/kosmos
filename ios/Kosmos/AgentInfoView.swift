@@ -269,15 +269,15 @@ struct AgentInfoView: View {
         } header: { label("Memory") }
         Section {
             Button { asking = .compact } label: { Text("Compact: summarise and keep going") }
-                .disabled(freshBusy || switching || actionsHeld)
+                .disabled(freshBusy || switching || saving || actionsHeld)
             Button(role: .destructive) { asking = .clear } label: { Text("Clear: start over, loses what it is holding") }
-                .disabled(freshBusy || switching || actionsHeld)
+                .disabled(freshBusy || switching || saving || actionsHeld)
             if let freshLine {
                 Text(freshLine.text).font(.footnote).foregroundColor(freshLine.ok ? Palette.secondary : Palette.dangerWord)
             }
             // kosmos#8955: the board's third (d-restart-start), after Compact and Clear as the pack draws it.
             Button { restartAsking = true } label: { Text(Board.restartLabel(live.name)) }
-                .disabled(freshBusy || switching || actionsHeld)
+                .disabled(freshBusy || switching || saving || actionsHeld)
                 .accessibilityLabel("Fresh start: " + Board.restartLabel(live.name))
                 // kosmos#8955: the board's restart dialog (openRestartModal), on its own button.
                 .confirmationDialog(Board.restartTitle(live.name), isPresented: $restartAsking, titleVisibility: .visible) {
@@ -545,7 +545,7 @@ struct AgentInfoView: View {
                 case .can(let ask)?:
                     if !ask.hint.isEmpty { Text(ask.hint).font(.footnote).foregroundColor(Palette.secondary) }
                     Button(role: .destructive) { removeAsk = ask } label: { Text("Remove this agent\u{2026}") }
-                        .disabled(freshBusy || switching || actionsHeld)
+                        .disabled(freshBusy || switching || saving || actionsHeld)
                         // kosmos#8955: the board's removal dialog (openRemoveModal), on its own button.
                         .confirmationDialog(removeAsk?.question ?? "", isPresented: Binding(get: { removeAsk != nil }, set: { if !$0 { removeAsk = nil } }),
                                             titleVisibility: .visible, presenting: removeAsk) { ask in
@@ -570,6 +570,7 @@ struct AgentInfoView: View {
         let plan = Board.removalPlan(status: res?.1.statusCode ?? 0, body: res?.0, session: session)
         // A read that did not answer keeps a plan already shown (the next refresh asks again).
         if plan == .unreached, case .can? = removal { return }
+        if case .can = plan {} else { removeAsk = nil }
         removal = plan
     }
 
@@ -625,7 +626,7 @@ struct AgentInfoView: View {
         var ready = false
         let until = Date().addingTimeInterval(Board.restartReadyWindow)
         while Date() < until {
-            try? await Task.sleep(nanoseconds: UInt64(Board.restartReadyPoll * 1_000_000_000))
+            do { try await Task.sleep(nanoseconds: UInt64(Board.restartReadyPoll * 1_000_000_000)) } catch { break }
             guard current() else { superseded(); return }
             let r = await client.throughMac { Board.statusRequest(mac: $0) }
             guard current() else { superseded(); return }

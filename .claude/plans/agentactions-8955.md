@@ -31,7 +31,7 @@ the board row says only what is still there, and that it is a web page.
   Rejected: popping the page and the chat in code, which goes through #8055's link-close detection and could record
   a person's close as "closed away".
 - While a restart or removal runs, or once the agent is removed, every other control on the page is held (Save, the
-  provider switch, the fresh start), and a switch or fresh start under way holds Restart and Remove.
+  provider switch, the fresh start), and a switch, save or fresh start under way holds Restart and Remove.
 - Each new dialog sits on the button that opens it, not on the page beside its other dialogs.
 - Left as is, deliberately: the engine's Loses and Keeps are shown as sent (the board passes them through cloudWords,
   which the phone's other screens do not use either), and the source-count checks in the agentinfo suite are
@@ -39,7 +39,7 @@ the board row says only what is still there, and that it is a web page.
 - Commitments live on Board.Agent (BoardLogic.swift), since every LogicTests runner compiles that file.
 
 ## Tests
-- ios/LogicTests/run-agentinfo.sh: 284 (93 new), with guards that the board's page still holds each mirrored
+- ios/LogicTests/run-agentinfo.sh: 287 (96 new), with guards that the board's page still holds each mirrored
   sentence and rule. Mutants: any 200 counted as restarted; ready without seeing the gap; the limit check before sign-in: each red.
 - Every LogicTests runner green on the final tree.
 - App build for the iOS Simulator.
