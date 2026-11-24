@@ -2637,9 +2637,12 @@ func b7ModelTests() async {
         check(!again && mac.asked.isEmpty && m.partSay == "Told Eli.", "choosing who is already on it sends nothing and changes nothing")
         for w in [Board.PartWrite.reopen(part: "1"), .add("  ")] { _ = await put(m, w) }
         check(mac.asked.isEmpty, "nor Put back on an open part, nor an empty part")
+        mac.asked = []
+        _ = await put(m, .close(part: "9"))
+        check(mac.asked.isEmpty, "nor anything for a part the page does not have")
         mac.actAnswers = [(400, #"{"error":"no part by that number"}"#)]
         mac.onSend = nil
-        let refused = await put(m, .close(part: "9"))
+        let refused = await put(m, .close(part: "2"))
         check(!refused && m.partSay == "no part by that number" && m.partRefused, "a refusal is the Mac's words, as a refusal")
         mac.actAnswers = [(200, "{}")]
         let done = await put(m, .close(part: "1"))
@@ -2665,7 +2668,7 @@ func b7ModelTests() async {
             check(m2.partSay == Board.partUnsure, "\(what): and it stays while they read the same")
             mac2.projects = now
             await m2.read()
-            check(m2.partSay == nil && !m2.partRefused, "\(what): once they read so it goes")
+            check(m2.partSay == (what == "who" ? Board.partUntold("Eli") : nil) && !m2.partRefused && m2.partAdded == (what == "Add" ? "Three" : nil), "\(what): once they read so it goes (who: nobody can say it was told; Add: the box lets go of the words)")
         }
     }
     do {
@@ -2678,9 +2681,12 @@ func b7ModelTests() async {
         mac.projects = tasks()
         await m.read()
         check(m.partSay == Board.partUnsure, "the next read shows it was not made: the line stays")
+        mac.projects = tasks(extra: #",{"id":3,"sentence":"Three"}"#)
+        await m.read()
+        check(m.partSay == Board.partUnsure, "another part changing is not about it")
         mac.projects = tasks(#""who":"dana""#)
         await m.read()
-        check(m.partSay == nil, "and goes once the parts change")
+        check(m.partSay == nil, "and goes once that part changes")
         mac.projects = tasks()
         await m.read()
         mac.actAnswers = [nil]
@@ -2690,7 +2696,58 @@ func b7ModelTests() async {
         mac.projects = tasks(#""who":"eli""#)
         check(m.partSay == Board.partUnsure, "premise: could not tell again")
         await m.read()
-        check(m.partSay == nil && !m.partRefused, "the next read shows it was made: the line goes")
+        check(m.partSay == Board.partUntold("Eli") && !m.partRefused, "the next read shows it was made: it says so, and that it may not have been told")
+        mac.projects = tasks(#""who":"dana""#)
+        await m.read()
+        check(m.partSay == nil, "and that goes once the part changes")
+    }
+    // An Add nobody answered, pressed again.
+    for there in [true, false] {
+        let mac = FakeMac(); mac.projects = tasks(); let m = await model(mac)
+        mac.actAnswers = [nil]
+        _ = await put(m, .add("Three"))
+        check(m.partSay == Board.partUnsure && posts(mac) == ["parts"], "premise: could not tell")
+        if there { mac.projects = tasks(extra: #",{"id":3,"sentence":"Three"}"#) }
+        mac.asked = []
+        let ok = await put(m, .add(" Three "))
+        check(ok && posts(mac) == (there ? [] : ["parts"]) && m.partSay == nil, there ? "it had been made: nothing is sent again, and it is done" : "it had not: it is sent")
+        check(m.partAdded == (there ? "Three" : nil), "the box lets go of them once")
+        m.tookAdded()
+        check(m.partAdded == nil, "taken")
+        mac.asked = []
+        _ = await put(m, .add("Three"))
+        check(posts(mac) == ["parts"] && mac.asked.first != "GET /api/projects", "settled: the same words again are another part")
+    }
+    do {
+        let mac = FakeMac(); mac.projects = tasks(); let m = await model(mac)
+        mac.actAnswers = [nil]
+        _ = await put(m, .add("Three"))
+        await m.press(.close, names: [:])
+        check(m.partSay == nil, "premise: another press took the line down")
+        mac.projects = tasks(extra: #",{"id":3,"sentence":"Three"}"#)
+        await m.read()
+        check(m.partAdded == "Three", "still settled by a later read")
+        mac.actAnswers = [nil]
+        _ = await put(m, .add("Four"))
+        mac.projects = (500, Data())
+        mac.asked = []
+        let ok = await put(m, .add("Four"))
+        check(!ok && posts(mac).isEmpty && m.partSay == Board.holdCheckFailed, "pressed again and the check failed: nothing is sent, and it says so")
+    }
+    // The line is about the part as read after the write, not as read while the activity was out.
+    do {
+        let mac = FakeMac(); mac.projects = tasks(); let m = await model(mac)
+        mac.actAnswers = [(200, #"{"heard":{"who":"eli","state":"placed"}}"#)]
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = tasks(#""who":"eli""#) }; if r.url?.path.hasSuffix("/activity") == true { mac.onSend = nil; mac.holdTheNext() } }
+        let going = Task { await put(m, eli) }
+        await waitUntil({ mac.holding }, "the activity")
+        check(m.partSay == "Told Eli.", "premise: said")
+        mac.projects = tasks(#""who":"dana""#)
+        await m.read()
+        check(m.partSay == nil, "moved while the activity was out: the line goes")
+        mac.release()
+        _ = await going.value
+        check(m.partSay == nil && m.partWriting == nil, "and is not said again")
     }
     // A refusal whose own read failed is kept against the next one that works.
     do {

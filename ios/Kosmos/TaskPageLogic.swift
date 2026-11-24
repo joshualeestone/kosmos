@@ -1349,15 +1349,29 @@ extension Board {
     }
 
     // A menu is open while the page reads on: who is on the part is set only on an open task's open part that is still with
-    // whoever the menu showed, so an agent is never told about finished work, nor a part taken off somebody unseen.
+    // whoever the menu showed. Judged on a read made for the press; the Mac does not check it, so a change in the moment
+    // between that read and the write is not seen.
     static func partChoosable(_ write: PartWrite, on p: TaskPage) -> Bool {
         guard case .who(let id, _, let was) = write else { return true }
         return !p.closed && p.parts.contains { $0.id == id && !$0.closed && $0.who == was }
     }
 
+    // Only who is on a part is checked before it is sent.
+    static func partChecked(_ write: PartWrite) -> Bool { if case .who = write { return true } else { return false } }
+
     // What a line about the parts was said of: it goes when a later read differs.
+    // About one part, that part; about an added one, all of them; with no write, the members (nobody to choose).
     struct PartSig: Equatable { let closed: Bool; let parts: [TaskPart]; let members: [String] }
-    static func partSig(_ p: TaskPage) -> PartSig { PartSig(closed: p.closed, parts: p.parts, members: p.memberOrder) }
+    static func partSig(_ p: TaskPage, _ write: PartWrite?) -> PartSig {
+        guard let write else { return PartSig(closed: p.closed, parts: [], members: p.memberOrder) }
+        return PartSig(closed: p.closed, parts: partId(write).map { id in p.parts.filter { $0.id == id } } ?? p.parts, members: [])
+    }
+    static func partId(_ write: PartWrite) -> String? {
+        switch write {
+        case .who(let id, _, _), .close(let id), .reopen(let id): return id
+        case .add: return nil
+        }
+    }
 
     // The board's heardSentence over spokenHeard: who was told, or why not; nil when nobody was to be.
     static func heardLine(_ body: Data?, name: (String) -> String) -> String? {

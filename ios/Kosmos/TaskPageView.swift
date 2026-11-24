@@ -98,6 +98,12 @@ struct TaskPageView: View {
             }) { undoSheet }
             // Undone, put back, or read again as something else: the list that was open is about nothing any more.
             .onChange(of: model.undoPlan) { _ in undoOpen = false }
+            // An Add that could not be told was made after all: its words are not the next part's.
+            .onChange(of: model.partAdded) { added in
+                guard let added else { return }
+                if newPart.trimmingCharacters(in: .whitespacesAndNewlines) == added { newPart = "" }
+                model.tookAdded()
+            }
             // Another account or Mac: the list is about nothing, and an undo still out would hold it open.
             .onChange(of: client.chatEpoch) { _ in undoOpen = false; newPart = ""; adding = nil; subDraft = NewTask.Draft(); subHeld = nil; subAdded = nil }
             .onChange(of: subDraft) { _ in keepSub() }
@@ -287,7 +293,7 @@ struct TaskPageView: View {
                         .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
                 }
                 if model.holdSay != nil, model.holdChoose { chooseWho(p) }
-                if model.partAtHold { partLine }
+                if model.partAtHold { partLine }   // on a finished task, with the parts below
             }
             if p.allSubtasksDone {
                 Text(Board.subtasksDoneLine(unrun: p.subtasksUnrun)).font(.footnote).foregroundColor(Palette.secondary)
@@ -348,7 +354,7 @@ struct TaskPageView: View {
                 Text(why).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
             }
             addPart
-            if !model.partAtHold { partLine }
+            if !model.partAtHold || p.closed { partLine }
         }
     }
 
@@ -397,7 +403,8 @@ struct TaskPageView: View {
                 } else {
                     whoMenu(p, part: part.id, session: part.session) { partName(part.who, busy: choosing(part.id)) }
                         .accessibilityLabel("Change who is on this part")
-                        .accessibilityValue(part.who + (choosing(part.id) ? ", in progress" : ""))
+                        // Which part, when its words are not the task's: two with nobody on them would sound alike.
+                        .accessibilityValue(([part.who] + [part.line].compactMap { $0 } + (choosing(part.id) ? ["in progress"] : [])).joined(separator: ", "))
                         .accessibilityInputLabels([part.who, "Change who is on this part"])
                         .accessibilityIdentifier("taskpage.part.who")
                 }
