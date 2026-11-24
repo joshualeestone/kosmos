@@ -543,7 +543,7 @@ function keepPipedCopy(ctx, text, maybe) {   // maybe (#4934): a first try may h
 const MSG_STATUS_USAGE = '   or: kosmos msg --status <id>  (whether a message you sent was answered, or read with no answer, or not read yet)';
 async function verbMsgStatus(ctx, args) {
   const id = args.length === 1 ? String(args[0]) : '';
-  if (!/^m[1-9][0-9]*$/.test(id)) { ctx.err('Usage: kosmos msg --status <message id>, like: kosmos msg --status m12'); return 2; }
+  if (!/^m[1-9][0-9]{0,15}$/.test(id)) { ctx.err('Usage: kosmos msg --status <message id>, like: kosmos msg --status m12'); return 2; }
   const r = await ctx.call('POST', '/api/msg/status', { id, from_pane: '' });
   if (!r.reached) return ctx.unreachable('check that message');
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); return 1; }
