@@ -2097,7 +2097,8 @@ struct ChatView: View {
 
     @ViewBuilder private func choicesView(_ row: Board.ChatRow, _ choices: Board.Choices) -> some View {
         if choices.denyOnly, let deny = choices.options.first {
-            // kosmos#8952 slice (c): too long to show whole, so only its No here.
+            // kosmos#8952 slice (c): too long to show whole, so only its No here. allow -1 is no option number, so
+            // "Allowed." never shows.
             DenyOnlyCard(deny: deny, state: choicesState(choices, among: [deny], .main(allow: -1, deny: deny.n)),
                          widthShare: widthShare, press: { press($0, choices, decided: true) })
         } else if let p = row.permission, let card = Board.cardButtons(choices, p) {

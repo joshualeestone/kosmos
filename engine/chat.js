@@ -2056,9 +2056,9 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   /* Review 3: the WHOLE identity, uncut (a tall command's distinguishing head can sit past any prefix), and only for a box
      whose top is on screen (permissionAnswerable). */
   const idOf = (text) => { const q = questionIn(text, 'claude'); const a = q ? questionAbove(q.text) : null; return a ? cleanMessage(a) : null; };
-  /* kosmos#8952 slice (c): a press that says it is the deny-only card (permissionDenyOnly) may answer a box whose top
-     scrolled away, but only with that prompt's own No: refusing a request nobody could read whole is safe, approving
-     one is not. Its identity is the visible part, compared on this last look like any other. Anything else is refused. */
+  /* kosmos#8952 slice (c): a press that says it is the deny-only card (permissionDenyOnly) may answer a permission prompt
+     whether or not its whole box is on screen, but only with that prompt's own No: refusing a request nobody could read
+     whole is safe, approving one is not. Its identity is the visible part, compared on this last look like any other. */
   const denyOnly = e.denyOnly === true;
   if (denyOnly && (!menu.permission || !opt || !/^No\b/.test(opt.label) || opt.lasting || e.request)) {
     return { ok: false, because: 'only No can be sent for a request too long to show in full, so nothing was sent' };
@@ -3490,10 +3490,10 @@ function permissionAnswerable(text) {
   const box = permissionBox(text);
   return Boolean(box && box.top >= 0);
 }
-/* kosmos#8952 slice (c): a permission prompt whose box top scrolled away (a long command) cannot be approved from a
-   phone or the board (#6054 review 3), but it can be REFUSED: its own No option. Returns { n, label } for that option, or
-   null when the box is whole (the full card applies), when no prompt is read, or when the prompt has not exactly one
-   No. */
+/* kosmos#8952 slice (c): a permission prompt that is not permissionAnswerable (no box top on screen: usually scrolled
+   away by a long command, or a layout without its top rule) cannot be approved from a phone or the board (#6054
+   review 3), but it can be REFUSED: its own No option. Returns { n, label } for that option, or null when the box is
+   whole (the full card applies), when no prompt is read, or when the prompt has not exactly one No. */
 function permissionDenyOnly(text) {
   const pp = status.claudePermissionPrompt(text);
   if (!pp || permissionAnswerable(text)) return null;

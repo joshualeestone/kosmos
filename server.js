@@ -22285,6 +22285,12 @@ const server = http.createServer(async (req, res) => {
             const e = new Error('its screen is asking a question now, so this was not sent again. Answer it first.');
             e.status = 409; throw e;
           }
+          /* kosmos#8952 slice (c): a deny-only press is for a permission prompt only; at any other menu it is refused, never
+             sent as that menu's answer. */
+          if (cq && body.denyOnly === true && !cq.permission) {
+            const e = new Error('only No can be sent for a request too long to show in full, and its screen is asking something else now, so nothing was sent.');
+            e.status = 409; throw e;
+          }
           if (cq) {
             const said = String(body.text).trim();
             /* #6054 review 1: a permission prompt is answered only by a press of its button, which carries the prompt's identity

@@ -143,3 +143,20 @@ test('#8952 (c) engine: a denyOnly No for another identity, or naming a request,
     assert.deepEqual(calls.keys(), ['4']);
   });
 });
+
+/* A deny-only press that meets an ordinary question menu (the screen moved on) is refused, never sent as that menu's
+   answer, even where the menu has an option called No. CONTROL: the same press without denyOnly answers it. */
+const MENU_NO = fs.readFileSync(path.join(SCREENS, 'question-menu-2.1.29x.txt'), 'utf8').replace('2. Banana\n     Banana', '2. No\n     No');
+test('#8952 (c): a denyOnly press at an ordinary question menu sends nothing; CONTROL: a plain press answers it', async () => {
+  const asked = chat.questionAbove(chat.questionIn(MENU_NO, 'claude').text);
+  assert.equal(asked, 'Which fruit do you want?', 'premise: the menu reads');
+  await withPrompt(MENU_NO, async (calls) => {
+    const p = await post({ text: '2', chose: 'No', asked, denyOnly: true });
+    assert.equal(p.status, 409, JSON.stringify(p.json));
+    assert.match(String(p.json && (p.json.error || JSON.stringify(p.json))), /asking something else now/);
+    assert.deepEqual(calls.keys(), []);
+    const plain = await post({ text: '2', chose: 'No', asked });
+    assert.equal(plain.status, 200, JSON.stringify(plain.json));
+    assert.deepEqual(calls.keys(), ['2']);
+  });
+});
