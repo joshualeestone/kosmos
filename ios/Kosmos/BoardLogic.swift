@@ -2004,17 +2004,33 @@ enum Board {
         (domain == NSURLErrorDomain && code == NSURLErrorCancelled) || (domain == "WebKitErrorDomain" && code == 102)
     }
 
-    // kosmos#8966: whether WebFileView's locked web view shows the can't-show card for a navigation error. Never once the
-    // page has drawn: every navigation after the first is one the view refuses itself (a refresh, a frame).
-    static func webErrorShowsCard(drawn: Bool, domain: String, code: Int) -> Bool {
-        !drawn && !isDeliberateCancel(domain: domain, code: code)
-    }
+    // kosmos#8966: what WebFileView's locked web view lets through and when it shows the can't-show card, kept here so the
+    // logic tests can step it. The view only reports events to it.
+    struct WebPageState: Equatable {
+        enum ProcessEnd: Equatable { case drawAgain, showCard }
+        // iOS ends a background app's page process to free memory, which can happen each time the app is away, so a page
+        // that drew is drawn again each time; at most this many times, so a page whose process ends every time it draws
+        // cannot loop.
+        static let maxRedraws = 3
+        private(set) var started = false
+        private(set) var drawn = false
+        private(set) var redraws = 0
 
-    // kosmos#8966: what the locked web view does when its page process ends. iOS ends a background app's page process to
-    // free memory, so a page that had drawn is drawn again, once; a page that never drew, or ended again, shows the card.
-    enum WebProcessEnd: Equatable { case drawAgain, showCard }
-    static func webProcessEnded(drawn: Bool, drawnAgain: Bool) -> WebProcessEnd {
-        drawn && !drawnAgain ? .drawAgain : .showCard
+        // The first main-frame navigation (the page's own bytes) is allowed; every other one is refused (a refresh, a frame).
+        mutating func allows(mainFrame: Bool) -> Bool {
+            if !started, mainFrame { started = true; return true }
+            return false
+        }
+        mutating func finished() { drawn = true }
+        // A navigation error shows the card only before the page has drawn (every later navigation is one refused above),
+        // and never for a navigation that was refused (isDeliberateCancel).
+        func errorShowsCard(domain: String, code: Int) -> Bool { !drawn && !Board.isDeliberateCancel(domain: domain, code: code) }
+        // The page process ended: drawn again if the page had drawn since the last time, else the card.
+        mutating func processEnded() -> ProcessEnd {
+            guard drawn, redraws < Self.maxRedraws else { return .showCard }
+            redraws += 1; started = false; drawn = false
+            return .drawAgain
+        }
     }
 
     // A file Quick Look would draw as a web page or a markup document, which can load from elsewhere. Judged by its name

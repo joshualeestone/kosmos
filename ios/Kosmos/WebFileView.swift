@@ -124,10 +124,8 @@ struct LockedWebView: UIViewRepresentable {
     func updateUIView(_ view: WKWebView, context: Context) {}
 
     final class Coordinator: NSObject, WKNavigationDelegate {
-        private var started = false
+        private var state = Board.WebPageState()
         private var failed: () -> Void = {}
-        private var drawn = false
-        private var drawnAgain = false
         private var page = Data()
         static let blockAll = #"[{"trigger":{"url-filter":".*"},"action":{"type":"block"}}]"#
         static let ruleID = "kosmos-webfile-block-all"
@@ -153,36 +151,29 @@ struct LockedWebView: UIViewRepresentable {
             for v in view.scrollView.subviews { v.isUserInteractionEnabled = false }
         }
 
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { drawn = true; Self.untappable(webView) }
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { state.finished(); Self.untappable(webView) }
 
-        // kosmos#8966: the page itself failing to draw shows the can't-show card, not a blank page. A navigation this
-        // delegate cancelled also ends here, and is not one (Board.isDeliberateCancel); nor is any error once the page has
-        // drawn, since the only navigations after it are ones this delegate refuses (a refresh, a frame).
+        // kosmos#8966: the page itself failing to draw shows the can't-show card, not a blank page (Board.WebPageState says
+        // when: never for a navigation this delegate refused, nor once the page has drawn).
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failIfReal(error) }
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failIfReal(error) }
-        // The page's process ended (iOS freeing memory while the app was away, or a page too big for it): drawn once more
-        // if it had drawn, else the card (Board.webProcessEnded). The content rule stays on the view's configuration.
+        // The page's process ended (iOS freeing memory while the app was away, or a page too big for it): drawn again if
+        // it had drawn, else the card (Board.WebPageState). The content rule is on the view's configuration, which the
+        // new page process is started with.
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-            switch Board.webProcessEnded(drawn: drawn, drawnAgain: drawnAgain) {
+            switch state.processEnded() {
             case .showCard: failed()
-            case .drawAgain:
-                drawnAgain = true; started = false; drawn = false
-                webView.load(page, mimeType: "text/html", characterEncodingName: "utf-8", baseURL: URL(string: "about:blank")!)
+            case .drawAgain: webView.load(page, mimeType: "text/html", characterEncodingName: "utf-8", baseURL: URL(string: "about:blank")!)
             }
         }
         private func failIfReal(_ error: Error) {
             let e = error as NSError
-            if Board.webErrorShowsCard(drawn: drawn, domain: e.domain, code: e.code) { failed() }
+            if state.errorShowsCard(domain: e.domain, code: e.code) { failed() }
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                      decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
-            if !started, action.targetFrame?.isMainFrame == true {
-                started = true
-                decisionHandler(.allow)
-                return
-            }
-            decisionHandler(.cancel)
+            decisionHandler(state.allows(mainFrame: action.targetFrame?.isMainFrame == true) ? .allow : .cancel)
         }
     }
 }

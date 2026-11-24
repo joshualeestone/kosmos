@@ -5,12 +5,14 @@
   "text/html; charset=utf-8" is a page by type as "text/html" is, and such a file opens in WebFileView (saved as
   x.dat.html). Logic tests: the old check that pinned the parameter case as "not a page" is rewritten to the new rule; a
   control that a page type after the ';' ("text/plain; x=text/html") is a parameter, not the type.
-- Item 4: didFail and didFailProvisionalNavigation route to the can't-show card (Board.webErrorShowsCard): not for a
-  navigation the delegate cancelled (Board.isDeliberateCancel: NSURLErrorCancelled, WebKit 102 "frame load interrupted";
-  domain-exact), and not once the page has drawn (every later navigation is one the delegate refuses). The page process
-  ending (Board.webProcessEnded) draws the page again once if it had drawn, since iOS ends a background app's page process
-  to free memory; before the first draw, or a second time, it shows the card. Both decisions are logic-tested; the wiring
-  in LockedWebView is not driven by any test (a UI test cannot make WebKit fail or end its process on demand).
+- Item 4: didFail and didFailProvisionalNavigation route to the can't-show card: not for a navigation the delegate
+  refused (Board.isDeliberateCancel: NSURLErrorCancelled, WebKit 102 "frame load interrupted"; domain-exact), and not once
+  the page has drawn (every later navigation is one the delegate refuses). The page process ending draws the page again if
+  it had drawn since the last time (iOS ends a background app's page process to free memory, and can do it each time the
+  app is away), at most WebPageState.maxRedraws (3) times so it cannot loop; before a draw, the card. All of it is
+  Board.WebPageState, a value the coordinator only reports WebKit's events to, stepped by the logic tests. WebKit's own
+  side (that the content rule applies to a restarted page process, that the error codes are these) is not driven by any
+  test: a UI test cannot make WebKit fail or end its process on demand.
 - The same bare-type reading for savedName, fileWord, isPreviewableImage and fileAnswerAccepted (review round 1): a file
   typed "application/pdf; charset=binary" is saved as report.pdf. A malformed ";text/html" reads as text/html, the safe
   side for both the viewer and the fetch gate (review round 2).

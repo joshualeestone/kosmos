@@ -1719,14 +1719,26 @@ do {
           && !Board.isDeliberateCancel(domain: "WebKitErrorDomain", code: 101) && !Board.isDeliberateCancel(domain: "WebKitErrorDomain", code: NSURLErrorCancelled)
           && !Board.isDeliberateCancel(domain: NSURLErrorDomain, code: 102),
           "CONTROL: any other error, or a matching code in the other domain, is a failed page")
-    check(Board.webErrorShowsCard(drawn: false, domain: NSURLErrorDomain, code: NSURLErrorCannotDecodeContentData)
-          && !Board.webErrorShowsCard(drawn: false, domain: NSURLErrorDomain, code: NSURLErrorCancelled)
-          && !Board.webErrorShowsCard(drawn: true, domain: NSURLErrorDomain, code: NSURLErrorCannotDecodeContentData),
-          "kosmos#8966: a real error before the page drew shows the card; a cancel, or anything after it drew, does not")
-    check(Board.webProcessEnded(drawn: true, drawnAgain: false) == .drawAgain
-          && Board.webProcessEnded(drawn: true, drawnAgain: true) == .showCard
-          && Board.webProcessEnded(drawn: false, drawnAgain: false) == .showCard,
-          "kosmos#8966: a page process that ends after the page drew draws it again, once; before, or a second time, the card")
+    do {
+        // kosmos#8966: the locked web view's state, stepped as WebKit reports to it.
+        var w = Board.WebPageState()
+        let decode = NSURLErrorCannotDecodeContentData
+        check(!w.allows(mainFrame: false) && w.allows(mainFrame: true) && !w.allows(mainFrame: true),
+              "a frame before the page is refused; the page's own load is allowed once; a refresh after it is refused")
+        check(w.errorShowsCard(domain: NSURLErrorDomain, code: decode) && !w.errorShowsCard(domain: NSURLErrorDomain, code: NSURLErrorCancelled),
+              "before the page draws, a real error shows the card and a refused navigation does not")
+        check(w.processEnded() == .showCard, "a page process that ends before the page ever drew shows the card")
+        var d = Board.WebPageState(); _ = d.allows(mainFrame: true); d.finished()
+        check(!d.errorShowsCard(domain: NSURLErrorDomain, code: decode), "once the page has drawn, no error shows the card")
+        check(d.processEnded() == .drawAgain && d.allows(mainFrame: true) && !d.allows(mainFrame: true),
+              "a page process that ends after the page drew draws it again: the reload is let through, once")
+        check(d.errorShowsCard(domain: NSURLErrorDomain, code: decode), "a real error while drawing again shows the card")
+        check(d.processEnded() == .showCard, "a process that ends again before the redraw finished shows the card")
+        var l = Board.WebPageState(); var ends: [Board.WebPageState.ProcessEnd] = []
+        for _ in 0...Board.WebPageState.maxRedraws { _ = l.allows(mainFrame: true); l.finished(); ends.append(l.processEnded()) }
+        check(ends == Array(repeating: .drawAgain, count: Board.WebPageState.maxRedraws) + [.showCard],
+              "a page drawn again each time its process ends, up to maxRedraws, then the card: no loop")
+    }
     check(Board.inertPage(pageBytes, kind: .page) == Board.withoutLinks(pageBytes), "a page is drawn with its links taken out")
     // A UTF-16 page (its byte order mark wins over the UTF-8 the web view is told) is converted, so its links are found too.
     var utf16 = Data([0xFF, 0xFE]); utf16.append("<a href=x>go</a>".data(using: .utf16LittleEndian)!)
