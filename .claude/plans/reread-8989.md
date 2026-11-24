@@ -39,6 +39,11 @@ its start. That matches the report exactly: the file changed, the changes file s
   actor, so a pane claim (advisory, forgeable) spelled as the holder suppresses that holder's notice: a missed notice,
   the lenient direction, on a claim that is already trusted elsewhere. A previous holder who has since left the project
   is synced too; the engine then finds no block to change and owes nothing.
+- Review 5: no notice about a project the person paused, or switched the agent's swarm off in (noticeQuiet, every call
+  site; the bulk close owes one only if some task closed for that agent is on a project not quiet). The block is still
+  rewritten. Before this branch no task change sent anything, so a pause kept every line about the project away
+  (#3564); without this, the fix would have broken that. The Assigner's failover source owes no re-read: failovertell
+  already owes it one line about the same move, so a re-read would be a second line just as its limit lifts.
 
 Rejected: a separate pane line ("task N was closed by X"). The re-read debt already persists, retries, waits for an idle
 pane and gives up after a week; a second mechanism would duplicate that and could type into a busy pane.
@@ -47,7 +52,9 @@ closed it.
 
 Weakest premise: that `actor` from the token is always the holder when an agent closes its own task. An agent with no
 token (an older CLI, an agent the supervisor could not mint one for, agent-supervisor.sh 551/705, or one not started by
-the supervisor) is treated as "someone else" and gets one needless notice: the safe direction.
+the supervisor) is treated as "someone else" and gets one notice in the pane that made the close: the case "Rejected"
+names, accepted here for tokenless agents only. The close route cannot do better: the CLI's close sends no pane claim
+to name it by (the part route's callers do). Fewer missed notices was judged worth one extra line for those agents.
 
 ## Asks 2 and 3 on the card
 - The block already says (kosmos#8948) that `kosmos task list <project-id> --mine` is right when the lines disagree.

@@ -664,18 +664,27 @@ const BULK_CLOSE_MAX = 200;
 /* kosmos#8989 review 3: by the token store's key too (sameAgentName), as the take route matches, so an agent named by
    its key whose stored spelling differs is still itself, and is not typed a notice about its own change. */
 function changedByOther(holder, by) { return !(typeof by === 'string' && sameAgentName(holder, by, true)); }
+/* kosmos#8989 review 5: no notice about a project the person paused, or switched this agent's swarm off in (#3564: no
+   line about a project reaches a swarm switched off there; a pause means nobody is nudged about its tasks). The block is
+   still rewritten; the agent reads it at its next start. A project that cannot be read is not quiet. */
+function noticeQuiet(projectId, one) {
+  try {
+    const p = (projects.readAll() || []).find((x) => x && x.id === projectId);
+    return !!p && (projects.isPaused(p) === true || projects.isSwarmOff(p, one) === true);
+  } catch { return false; }
+}
 // `roster`: optional, so taskAct (close/reopen, below) keeps fetching its
 // own exactly as before -- only #761's routes, which already have one in
 // scope for `heardBy`, pass it through instead of paying for a second
 // snapshot() in the same request.
-/* kosmos#8989: `changedBy` is set only by a caller that knows who made the change (task close and reopen): the agent its
+/* kosmos#8989: `changedBy` is set only by a caller that knows who made the change (task and part close and reopen): the agent its
    token named, or null for the person or a caller with no token. Every assignee who is not that agent is owed a re-read
    of its projects section (projects.syncAgent byOther). Unset, nobody is owed one for the task change (as before). */
-function tellEveryoneOn(t, roster, { changedBy } = {}) {
+function tellEveryoneOn(t, roster, { changedBy, projectId } = {}) {
   const named = tasks.whoOf(t);
   if (!named.length) return undefined;
   if (!roster) roster = safeRoster();
-  const byOtherFor = (one) => changedBy !== undefined && changedByOther(one, changedBy);
+  const byOtherFor = (one) => changedBy !== undefined && changedByOther(one, changedBy) && !noticeQuiet(projectId, one);
   let last;
   for (const one of named) {
     try { last = projects.syncAgent(one, roster, { byOther: byOtherFor(one) }); }
@@ -780,11 +789,11 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     }
     /* kosmos#8989: the agent it was taken from (assignPart's `previous`, read inside the write), unless it still holds
        another part of the task (then tellEveryoneOn syncs it). Before this, only the new holders were synced, so it kept
-       listing the part. Owed a re-read unless it moved the part itself; the Assigner's failover source is owed one too,
-       since it learns of the move only when it is back from its limit. */
+       listing the part. Owed a re-read unless it moved the part itself. Not the Assigner's failover source (review 5):
+       engine/failovertell.js already owes it one line about this very move, so a re-read would be a second. */
     const before = out.changed && typeof out.previous === 'string' ? out.previous : null;
     if (before && before !== who && !tasks.whoOf(out.task).includes(before)) {
-      try { projects.syncAgent(before, r, { byOther: changedByOther(before, screen ? null : by) }); } catch { /* the give stands; the next sync catches up */ }
+      try { projects.syncAgent(before, r, { byOther: !failoverFrom && changedByOther(before, screen ? null : by) && !noticeQuiet(projectId, before) }); } catch { /* the give stands; the next sync catches up */ }
     }
     return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
   };
@@ -24260,6 +24269,7 @@ const server = http.createServer(async (req, res) => {
       }
       const results = [];
       const toTell = new Set();
+      const toTellLoud = new Set();   // kosmos#8989: the assignees owed a re-read (some task closed for them is on a project not quiet)
       /* ONE store read for every lookup. projects.get() would run the whole claim join (every
          project's tasks, a commitments read per assignee) once per item, and tasks.say() would run
          it again: ~400 joins for a 200-task close. Closes made earlier in THIS request are not in
@@ -24294,7 +24304,7 @@ const server = http.createServer(async (req, res) => {
              not undo the close; the result says so. */
           const t = tasks.close(projectId, number);
           closedHere.add(here);
-          for (const one of tasks.whoOf(t)) toTell.add(one);
+          for (const one of tasks.whoOf(t)) { toTell.add(one); if (!noticeQuiet(projectId, one)) toTellLoud.add(one); }
           const noteRecorded = note ? !!taskchat.record(projectId, found.number, { kind: 'said', text: note }) : null;
           results.push({ projectId, number, ok: true, ...(note ? { noteRecorded } : {}) });
         } catch (err) {
@@ -24307,8 +24317,9 @@ const server = http.createServer(async (req, res) => {
       if (toTell.size) {
         const roster = safeRoster();
         for (const one of toTell) {
-          // kosmos#8989: this route is the screen's, so each assignee is owed a re-read of what the person closed.
-          try { projects.syncAgent(one, roster, { byOther: true }); } catch { /* the close stands; the next sync catches up */ }
+          // kosmos#8989: this route is the screen's, so each assignee is owed a re-read of what the person closed, unless
+          // every task closed for it here is on a project paused or switched off for it (noticeQuiet).
+          try { projects.syncAgent(one, roster, { byOther: toTellLoud.has(one) }); } catch { /* the close stands; the next sync catches up */ }
         }
       }
       /* `closed` counts closes THIS request made; one already closed is ok but not credited here. */
@@ -27259,7 +27270,7 @@ const server = http.createServer(async (req, res) => {
         // `told` stays the parent's verdict (its one-verdict shape); the subtasks' agents are told without a verdict.
         const withSubs = Array.isArray(t.closedWith) && t.closedWith.length > 0;
         const roster = withSubs ? safeRoster() : undefined;
-        let told = tellEveryoneOn(t, roster, { changedBy: actor });
+        let told = tellEveryoneOn(t, roster, { changedBy: actor, projectId: id });
         if (withSubs) {
           // Non-gating, as the telling is: everything has closed by now, so a failed read must not answer "could not close".
           try {
@@ -27267,7 +27278,7 @@ const server = http.createServer(async (req, res) => {
             const named = new Set();
             for (const sub of t.closedWith) { const k = rec ? tasks.byNumber(rec, sub) : null; if (k) for (const one of tasks.whoOf(k)) named.add(one); }
             for (const one of tasks.whoOf(t)) named.delete(one);   // told above
-            for (const one of named) { try { projects.syncAgent(one, roster, { byOther: changedByOther(one, actor) }); } catch { /* non-gating */ } }
+            for (const one of named) { try { projects.syncAgent(one, roster, { byOther: changedByOther(one, actor) && !noticeQuiet(id, one) }); } catch { /* non-gating */ } }
           } catch { /* non-gating */ }
         }
         sendJson(res, 200, { task: taskForCaller(req, {}, t), told });
@@ -27460,7 +27471,7 @@ const server = http.createServer(async (req, res) => {
           const roster = safeRoster();
           for (const one of tasks.whoOf(out.task)) {
             // kosmos#8989: a title changed by someone else (the person, or another agent) owes its holder a re-read.
-            try { projects.syncAgent(one, roster, { byOther: changedByOther(one, who.card ? who.card.sessionName : null) }); } catch { /* the edit stands; the next sync catches up */ }
+            try { projects.syncAgent(one, roster, { byOther: changedByOther(one, who.card ? who.card.sessionName : null) && !noticeQuiet(id, one) }); } catch { /* the edit stands; the next sync catches up */ }
           }
         }
         sendJson(res, 200, { task: taskForCaller(req, body, out.task), changed: out.changed });
@@ -28600,11 +28611,12 @@ const server = http.createServer(async (req, res) => {
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
         const roster = safeRoster();
         /* kosmos#8989: who closed or reopened the part, only to tell its other holders (owed a re-read). Read after the
-           change, and never refusing it: this route has never checked a caller here. A caller that cannot be named (the
-           screen, no token, a refused token) is someone else to every holder. */
+           change, and never refusing it: this route has never checked a caller here. It is named by its token or by its
+           pane claim (from_pane, advisory); a caller that cannot be named (the screen, neither, a refused token) is
+           someone else to every holder. */
         let changedBy = null;
         if (!screen) { try { const c = processCaller(req, body, roster, false, 'the part was changed'); changedBy = !c.refusal && c.card ? c.card.sessionName : null; } catch { changedBy = null; } }
-        sendJson(res, 200, { task: taskForCaller(req, body, out.task), told: tellEveryoneOn(out.task, roster, { changedBy }), heard: undefined });
+        sendJson(res, 200, { task: taskForCaller(req, body, out.task), told: tellEveryoneOn(out.task, roster, { changedBy, projectId: id }), heard: undefined });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
