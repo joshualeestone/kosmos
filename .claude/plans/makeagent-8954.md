@@ -41,3 +41,6 @@ unreadable first-run flag as done (engine/firstrun.js), and the phone agrees wit
   and the new wiring. All 13 iOS logic suites pass, 64/64 node iOS-source tests, the app builds.
 
 ## Round 2 (sonnet, whole branch): nothing above nit; nits taken: one shared usable(); a state-none fixture (removing that clause turns it red); a pin that the busy flag resets before the gate (moving it after turns it red); this plan's early sections rewritten to the current rule. Room suite 922/922. Converged.
+
+## After round 2, with Mona Lisa (m6303/m6305): the note her #8957 adds under the button
+The decision is one shared firstAgentDecision() in ContentView, used by the tap and by checkFirstAgent(), which runs when the empty state appears and keeps its answer (firstAgentNative) only for the computer and account it was read for. AgentsView gets firstAgentGoesNative (nil until known), so a note saying the tap opens the board shows only when it is not true. Her note is wired to it after #8975 lands (rebase). Pin extended for the on-appear check and the shared decision.

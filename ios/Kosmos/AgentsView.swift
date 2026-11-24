@@ -18,6 +18,11 @@ struct AgentsView: View {
        (ContentView.makeFirstAgent decides). */
     var createOnBoard: () -> Void = {}
     var creatingFirst = false   // kosmos#8954 review 1: the button is reading the computer, so it says so and takes no second tap
+    /* kosmos#8954 (with Mona Lisa's #8957): whether "Make an agent" would open the native New Agent, from the same rule the
+       tap uses, read when the empty state appears; nil until known. A note that says the tap opens the board shows only
+       when this is not true. */
+    var firstAgentGoesNative: Bool? = nil
+    var checkFirstAgent: () -> Void = {}
     // kosmos#7266: the + at the top right, the board's own new-agent form (ContentView.openCreate).
     var create: () -> Void = {}
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -396,6 +401,7 @@ struct AgentsView: View {
         VStack(spacing: 6) {
             Text("No agents yet").font(.headline).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("agents-empty")   // kosmos#7559: the board answered, with no agents
+                .onAppear { checkFirstAgent() }   // kosmos#8954: learn which way the button goes, for the note beside it
             /* kosmos#8783: a cloud-only customer has no computer of their own to "make one on", and the first step
                (connecting a model) is the board's own setup, so this offers the way in instead of sending them to
                Settings to find it (a customer's first setup, 11-19). One tap, never an automatic jump. */
