@@ -3,16 +3,14 @@ import XCTest
 // kosmos#8958 slice B1: a task's page says something on the task, sets its due date, and edits its title or detail
 // natively (the board's tk-say, Due and tk-editform), never through the board. Sample agents only (a Debug build): the
 // sample Mac's task 4, "Pages 1 to 8", from the Tasks tab. Opt-in with TEST_RUNNER_KOSMOS_UI_PLUS=1, as the other
-// sample-board UI tests are (ios/tools/ui-sample.sh runs them). On an iOS 27.0 simulator
-// XCUIDevice.shared.appearance changes nothing (TextSetupUITests), so there the "dark" pass and its shots are light: dark
-// design shots come from `xcrun simctl ui <device> appearance dark` before the run.
+// sample-board UI tests are (ios/tools/ui-sample.sh runs them). Each runs once, in the
+// simulator's own appearance: dark design shots come from `xcrun simctl ui <device> appearance dark` before the run
+// (XCUIDevice.shared.appearance changes nothing on an iOS 27.0 simulator, TextSetupUITests).
 final class TaskPageActionsUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
-    override func tearDown() { XCUIDevice.shared.appearance = .light; super.tearDown() }
 
-    private func openTask(dark: Bool = false) throws -> XCUIApplication {
+    private func openTask() throws -> XCUIApplication {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
-        XCUIDevice.shared.appearance = dark ? .dark : .light
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1"]
         app.launch()
@@ -41,18 +39,15 @@ final class TaskPageActionsUITests: XCTestCase {
 
     // The page's own controls: Edit title or detail, the due date with Clear, and the message box with Send.
     func testThePageHasItsActions() throws {
-        for dark in [false, true] {
-            let app = try openTask(dark: dark)
-            XCTAssertTrue(app.buttons["Edit title or detail"].waitForExistence(timeout: 10), "no Edit title or detail")
-            XCTAssertTrue(app.buttons["Clear the due date"].exists, "no due date to clear on a task that has one")
-            XCTAssertTrue(app.buttons["Put on hold"].exists, "no Put on hold on an open task (kosmos#8958 slice B2)")
-            let say = box(app)
-            for _ in 0..<6 where !say.isHittable { app.swipeUp() }
-            XCTAssertTrue(say.isHittable, "no message box within reach on the task")
-            XCTAssertTrue(app.buttons["Send this message on the task"].exists, "no Send")
-            shot(app, "task page actions, \(dark ? "dark" : "light")")
-            app.terminate()
-        }
+        let app = try openTask()
+        XCTAssertTrue(app.buttons["Edit title or detail"].waitForExistence(timeout: 10), "no Edit title or detail")
+        XCTAssertTrue(app.buttons["Clear the due date"].exists, "no due date to clear on a task that has one")
+        XCTAssertTrue(app.buttons["Put on hold"].exists, "no Put on hold on an open task (kosmos#8958 slice B2)")
+        let say = box(app)
+        for _ in 0..<6 where !say.isHittable { app.swipeUp() }
+        XCTAssertTrue(say.isHittable, "no message box within reach on the task")
+        XCTAssertTrue(app.buttons["Send this message on the task"].exists, "no Send")
+        shot(app, "task page actions")
     }
 
     // A message: typed, sent, the box empty again, and the message in the task's activity (the sample Mac records it).
@@ -99,62 +94,56 @@ final class TaskPageActionsUITests: XCTestCase {
     // line then says the saved rule and Save turns off (the sample Mac stores it), so a Save that sent nothing, or a page
     // that kept the old rule, cannot pass.
     func testRepeatIsChangedAndSaved() throws {
-        for dark in [false, true] {
-            let app = try openTask(dark: dark)
-            let line = app.descendants(matching: .any)["taskpage.repeat.line"]
-            for _ in 0..<4 where !(line.exists && line.isHittable) { app.swipeUp() }
-            XCTAssertTrue(line.waitForExistence(timeout: 10), "no repeat line on a task that repeats")
-            XCTAssertTrue(line.label.contains("Repeats every day at 9am and 5pm"), "the line is not the stored rule: \(line.label)")
-            let save = app.buttons["taskpage.repeat.save"]
-            XCTAssertTrue(save.exists && !save.isEnabled, "Save is on with nothing changed")
-            // kosmos#8958 slice B3b: who is told of a missed run, its choice said as its value (Nobody on the sample).
-            let reviewer = app.descendants(matching: .any)["taskpage.repeat.reviewer"]
-            XCTAssertTrue(reviewer.exists, "no If missed, tell on a task that repeats")
-            XCTAssertEqual(reviewer.value as? String, "Nobody", "the reviewer menu does not say its choice")
-            shot(app, "repeats, \(dark ? "dark" : "light")")
-            let every = app.buttons["taskpage.repeat.every"]
-            XCTAssertTrue(every.exists, "no How often control")
-            every.tap()
-            let hourly = app.buttons["Every hour"]
-            XCTAssertTrue(hourly.waitForExistence(timeout: 5), "the How often menu did not open")
-            hourly.tap()
-            expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: save)
-            waitForExpectations(timeout: 5)
-            save.tap()
-            expectation(for: NSPredicate(format: "label CONTAINS %@", "Repeats every hour"), evaluatedWith: line)
-            waitForExpectations(timeout: 15)
-            // Saved. is said only once the save and its reads are done, so Save being off after it is the rule being
-            // unchanged, not the save still in flight.
-            XCTAssertTrue(app.staticTexts["Saved."].waitForExistence(timeout: 15), "no Saved. under Repeats")
-            XCTAssertFalse(save.isEnabled, "Save is still on after the rule was saved")
-            shot(app, "repeat saved, \(dark ? "dark" : "light")")
-            app.terminate()
-        }
+        let app = try openTask()
+        let line = app.descendants(matching: .any)["taskpage.repeat.line"]
+        for _ in 0..<4 where !(line.exists && line.isHittable) { app.swipeUp() }
+        XCTAssertTrue(line.waitForExistence(timeout: 10), "no repeat line on a task that repeats")
+        XCTAssertTrue(line.label.contains("Repeats every day at 9am and 5pm"), "the line is not the stored rule: \(line.label)")
+        let save = app.buttons["taskpage.repeat.save"]
+        XCTAssertTrue(save.exists && !save.isEnabled, "Save is on with nothing changed")
+        // kosmos#8958 slice B3b: who is told of a missed run, its choice said as its value (Nobody on the sample).
+        let reviewer = app.descendants(matching: .any)["taskpage.repeat.reviewer"]
+        XCTAssertTrue(reviewer.exists, "no If missed, tell on a task that repeats")
+        XCTAssertEqual(reviewer.value as? String, "Nobody", "the reviewer menu does not say its choice")
+        shot(app, "repeats")
+        let every = app.buttons["taskpage.repeat.every"]
+        XCTAssertTrue(every.exists, "no How often control")
+        every.tap()
+        let hourly = app.buttons["Every hour"]
+        XCTAssertTrue(hourly.waitForExistence(timeout: 5), "the How often menu did not open")
+        hourly.tap()
+        expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: save)
+        waitForExpectations(timeout: 5)
+        save.tap()
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "Repeats every hour"), evaluatedWith: line)
+        waitForExpectations(timeout: 15)
+        // Saved. is said only once the save and its reads are done, so Save being off after it is the rule being
+        // unchanged, not the save still in flight.
+        XCTAssertTrue(app.staticTexts["Saved."].waitForExistence(timeout: 15), "no Saved. under Repeats")
+        XCTAssertFalse(save.isEnabled, "Save is still on after the rule was saved")
+        shot(app, "repeat saved")
     }
 
     // kosmos#8958 slice B4: a task marked done draws its receipt under the activity: what each agent did with its cost, the
     // pull request as a link, the files opened by their count, and a line for an agent with nothing to read.
     func testADoneTaskShowsItsReceipt() throws {
-        for dark in [false, true] {
-            let app = try openTask(dark: dark)
-            let done = app.buttons["Mark as done"]
-            for _ in 0..<4 where !(done.exists && done.isHittable) { app.swipeUp() }
-            XCTAssertTrue(done.exists, "no Mark as done")
-            XCTAssertFalse(app.staticTexts["Edited 2 files, ran 12 commands, 1.2M tokens, $2.50 at API prices."].exists, "an open task shows a receipt")
-            done.tap()
-            let line = app.staticTexts["Edited 2 files, ran 12 commands, 1.2M tokens, $2.50 at API prices."]
-            XCTAssertTrue(line.waitForExistence(timeout: 20), "no receipt on a task marked done")
-            let files = app.buttons["2 files, Dana"]
-            for _ in 0..<6 where !(files.exists && files.isHittable) { app.swipeUp() }
-            XCTAssertTrue(files.isHittable, "no files under the agent's work")
-            XCTAssertFalse(app.staticTexts["captions.md"].exists, "the files are open before they are asked for")
-            files.tap()
-            XCTAssertTrue(app.staticTexts["captions.md"].waitForExistence(timeout: 5), "the files did not open")
-            XCTAssertTrue(app.staticTexts["In /Users/sam/Kosmos/Dana"].exists, "no folder under the files")
-            XCTAssertTrue(app.links["catalogue#12"].exists, "the pull request is not a link")
-            XCTAssertTrue(app.staticTexts["A receipt is not available for Grok agents yet."].exists, "no line for an agent whose work is not read")
-            shot(app, "receipt, \(dark ? "dark" : "light")")
-            app.terminate()
-        }
+        let app = try openTask()
+        let done = app.buttons["Mark as done"]
+        for _ in 0..<4 where !(done.exists && done.isHittable) { app.swipeUp() }
+        XCTAssertTrue(done.exists, "no Mark as done")
+        XCTAssertFalse(app.staticTexts["Edited 2 files, ran 12 commands, 1.2M tokens, $2.50 at API prices."].exists, "an open task shows a receipt")
+        done.tap()
+        let line = app.staticTexts["Edited 2 files, ran 12 commands, 1.2M tokens, $2.50 at API prices."]
+        XCTAssertTrue(line.waitForExistence(timeout: 20), "no receipt on a task marked done")
+        let files = app.buttons["2 files, Dana"]
+        for _ in 0..<6 where !(files.exists && files.isHittable) { app.swipeUp() }
+        XCTAssertTrue(files.isHittable, "no files under the agent's work")
+        XCTAssertFalse(app.staticTexts["captions.md"].exists, "the files are open before they are asked for")
+        files.tap()
+        XCTAssertTrue(app.staticTexts["captions.md"].waitForExistence(timeout: 5), "the files did not open")
+        XCTAssertTrue(app.staticTexts["In /Users/sam/Kosmos/Dana"].exists, "no folder under the files")
+        XCTAssertTrue(app.links["catalogue#12"].exists, "the pull request is not a link")
+        XCTAssertTrue(app.staticTexts["A receipt is not available for Grok agents yet."].exists, "no line for an agent whose work is not read")
+        shot(app, "receipt")
     }
 }

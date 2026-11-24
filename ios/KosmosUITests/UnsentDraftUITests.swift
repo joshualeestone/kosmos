@@ -3,19 +3,17 @@ import XCTest
 // kosmos#8958 slice A: an unsent draft (text Kosmos took out of the agent's input box) is drawn in the chat itself, with
 // the board's "Put in the message box" and "Dismiss", and no longer opens the computer's board. Sample agents only (a
 // Debug build): Dana's chat with KOSMOS_SAMPLE_DRAFT=1. Opt-in with TEST_RUNNER_KOSMOS_UI_PLUS=1, as the other
-// sample-board UI tests are (ios/tools/ui-sample.sh runs them). On an iOS 27.0 simulator
-// XCUIDevice.shared.appearance changes nothing (TextSetupUITests), so there the "dark" pass and its shots are light: dark
-// design shots come from `xcrun simctl ui <device> appearance dark` before the run.
+// sample-board UI tests are (ios/tools/ui-sample.sh runs them). Each runs once, in the
+// simulator's own appearance: dark design shots come from `xcrun simctl ui <device> appearance dark` before the run
+// (XCUIDevice.shared.appearance changes nothing on an iOS 27.0 simulator, TextSetupUITests).
 final class UnsentDraftUITests: XCTestCase {
     private let words = "Also check the shipping weights before you publish"
     private let band = "This text sat unsent in its input box and kept messages from reaching it, so Kosmos took it out and saved it here. It was not sent."
 
     override func setUp() { super.setUp(); continueAfterFailure = false }
-    override func tearDown() { XCUIDevice.shared.appearance = .light; super.tearDown() }
 
-    private func launch(dark: Bool = false) throws -> XCUIApplication {
+    private func launch() throws -> XCUIApplication {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
-        XCUIDevice.shared.appearance = dark ? .dark : .light
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_DRAFT": "1"]
         UIKitListArm.set(app)   // kosmos#8221: runs on either list (TEST_RUNNER_KOSMOS_UIKITLIST)
@@ -36,18 +34,15 @@ final class UnsentDraftUITests: XCTestCase {
 
     // The row as the board draws it: the band, the words, both actions, and no link to the board.
     func testTheDraftIsDrawnInTheChat() throws {
-        for dark in [false, true] {
-            let app = try launch(dark: dark)
-            XCTAssertTrue(bandText(app).waitForExistence(timeout: 30), "the draft's band is not in the chat")
-            XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", words)).firstMatch.exists,
-                          "the draft's words are not shown")
-            XCTAssertTrue(app.buttons["Put in the message box"].exists, "no Put in the message box")
-            XCTAssertTrue(app.buttons["Dismiss"].exists, "no Dismiss")
-            XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "on your computer's board")).firstMatch.exists,
-                           "the draft still offers the computer's board")
-            shot(app, "unsent draft, \(dark ? "dark" : "light")")
-            app.terminate()
-        }
+        let app = try launch()
+        XCTAssertTrue(bandText(app).waitForExistence(timeout: 30), "the draft's band is not in the chat")
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", words)).firstMatch.exists,
+                      "the draft's words are not shown")
+        XCTAssertTrue(app.buttons["Put in the message box"].exists, "no Put in the message box")
+        XCTAssertTrue(app.buttons["Dismiss"].exists, "no Dismiss")
+        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "on your computer's board")).firstMatch.exists,
+                       "the draft still offers the computer's board")
+        shot(app, "unsent draft")
     }
 
     // Put in the message box: the words wait in the box, and the draft stays.
