@@ -246,6 +246,39 @@ record_run() {
   return 0
 }
 
+# kosmos#8988: how this agent's last process ended, one line "<epoch> status <N>" or "<epoch> signal <name>", beside
+# the run file above (same folder, same key), so the card can say "Restarted at <time>: <why>" after the restart
+# (engine/macrestart.js). Written by the session's pane-died hook (arm_death_record) or, when that hook never ran, by
+# the supervisor itself when it finds the pane dead (record_dead_pane). Prints the path, or nothing.
+died_file() {
+  local _key _dir
+  _key="$(printf '%s' "$SESSION" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9_-')"
+  [ -n "$_key" ] || return 0
+  if [ -n "${AGENT_WORKFORCE_DATA:-}" ]; then _dir="$AGENT_WORKFORCE_DATA/Kosmos/runs"
+  else _dir="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)/runs"; fi
+  mkdir -p "$_dir" 2>/dev/null || return 0
+  printf '%s\n' "$_dir/$_key.died"
+}
+# kosmos#8988: every pane of this session has exited (kept by remain-on-exit). An empty or unreadable answer is not
+# "dead": only a session tmux says is all dead pane is.
+session_all_dead() {
+  local _d
+  _d="$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_dead}' 2>/dev/null)" || return 1
+  [ -n "$_d" ] || return 1
+  case "$_d" in *0*) return 1 ;; esac
+  return 0
+}
+# kosmos#8988: the dead pane's own exit, written as the hook writes it, for a Claude agent only (its card's words).
+record_dead_pane() {
+  [ "$RUNNER" = claude ] || return 0
+  local _f _line
+  _f="$(died_file)"; [ -n "$_f" ] || return 0
+  _line="$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_dead_time} #{?pane_dead_signal,signal,status} #{?pane_dead_signal,#{pane_dead_signal},#{pane_dead_status}}' 2>/dev/null)"
+  _line="${_line%%$'\n'*}"
+  case "$_line" in [0-9]*' status '[0-9]*|[0-9]*' signal '[a-zA-Z]*) { printf '%s\n' "$_line" > "$_f"; } 2>/dev/null ;; esac
+  return 0
+}
+
 # launchd appends to that log forever, and a persistently failing start writes a
 # line every 30 seconds for as long as the machine is on. Keep it bounded.
 # ⚠️ The size is defaulted to 0 rather than used raw: an unreadable file makes
@@ -298,6 +331,14 @@ while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
     # ⚠️ -s, so this asks about the whole SESSION. Without it tmux resolves the
     # target as a WINDOW, so a split window or a second window with a shell in
     # it read as "crashed" and the live agent was killed at the next login.
+    # kosmos#8988: a pane kept after its process exited (remain-on-exit, which this script sets for the death
+    # record) still names its last command, so the allowlist below would read a dead Claude as alive and watch it
+    # forever. A session whose every pane is dead crashed: its exit is recorded and it is replaced.
+    if session_all_dead; then
+      record_dead_pane
+      "$TMUX_BIN" kill-session -t "$TARGET" 2>/dev/null
+      break
+    fi
     panes=$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_current_command}' 2>/dev/null)
     if [ -z "$panes" ]; then
       say "could not read what is running in $SESSION -- leaving it alone"
@@ -799,6 +840,24 @@ if [ -z "$adopt" ]; then
     RUN_STARTED=1
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       ${SECRET_ENTRY[@]+"${SECRET_ENTRY[@]}"} "$@" || { _nrc=$?; RUN_STARTED=0; return "$_nrc"; }
+    arm_death_record
+  }
+
+  # kosmos#8988: when this Claude agent's process exits, tmux keeps the pane just long enough for its pane-died hook
+  # to write how it ended (died_file) and then ends the session, so the restart that follows is the one launchd makes
+  # today. A deliberate stop (kill-session) fires no pane-died, so it is never recorded as a death. If the hook cannot
+  # be set, remain-on-exit is switched back off, so a pane is never kept with nothing to end it. Best-effort.
+  arm_death_record() {
+    [ "$RUNNER" = claude ] || return 0
+    local _f _inner _q
+    _f="$(died_file)"; [ -n "$_f" ] || return 0
+    case "$_f$SESSION" in *"'"*) return 0 ;; esac   # a quote cannot ride the hook's quoting: no record, as before
+    "$TMUX_BIN" set-option -w -t "$TARGET:" remain-on-exit on 2>/dev/null || return 0
+    _inner="printf '%s %s %s\\n' '#{pane_dead_time}' '#{?pane_dead_signal,signal,status}' '#{?pane_dead_signal,#{pane_dead_signal},#{pane_dead_status}}' > '$_f' 2>/dev/null; true"
+    _q="'$(printf '%s' "$_inner" | sed "s/'/'\\\\''/g")'"
+    "$TMUX_BIN" set-hook -t "$TARGET:" pane-died "run-shell $_q ; kill-session -t '=$SESSION'" 2>/dev/null \
+      || "$TMUX_BIN" set-option -w -t "$TARGET:" remain-on-exit off 2>/dev/null
+    return 0
   }
 
   # #3769 (Josh, 2026-09-25 11:54: the helper agent must never give out passwords
@@ -1764,6 +1823,12 @@ unset _LAUNCH_TOKEN _LAUNCH_TOKEN_ONLY
 # long as the machine is on, while the agent looks perfectly healthy because the
 # first attempt worked.
 while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
+  # kosmos#8988: the pane-died hook ends a dead session at once; if it did not run, this does, so a kept pane can
+  # never hold the agent stopped.
+  if session_all_dead; then
+    record_dead_pane
+    "$TMUX_BIN" kill-session -t "$TARGET" 2>/dev/null   # then the usual wait, so a refused kill cannot spin
+  fi
   sleep 10
 done
 # #4530: the run is over, so its sender token stops being a credential now rather than
