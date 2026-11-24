@@ -1458,7 +1458,7 @@ extension Board {
     static let projectAddMemberTitle = "Add a member"
     static let projectRemoveMemberTitle = "Remove from this project"
     static func projectRemoveAsk(_ name: String) -> String {
-        "Remove \(name) from this project? It stops being told about the project's room and tasks. You can add it back."
+        "Remove \(name) from this project? They stop being told about its room and tasks, and stay on your computer. You can add them back."   // the result lines say "them", the board "still on your computer"
     }
     /* Outside members (people and agents on other computers, #5287 federation) stay on the board for now. */
     static let projectOutsideMembers = "Members from other computers"
