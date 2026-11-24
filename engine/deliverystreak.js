@@ -562,7 +562,9 @@ function acksDue(ends, now = Date.now()) {
     for (const [id, p] of [...pushOpen]) {
       if (!(p.at <= now && now - p.at < PUSH_OPEN_MS)) { pushOpen.delete(id); continue; }
       if (now - p.at < ACK_AFTER_MS) continue;
-      if (p.open.size === 0 && !p.all.some((s) => streaks.has(s))) { out.push({ id, late: now - p.first >= EMAIL_DECIDED_MS }); pushOpen.delete(id); }
+      /* kosmos#8951 review 5: nor while one of its agents shows an unstarted report again (a second loss after a cleared
+         one must not lose its only warning, as a streak must not). */
+      if (p.open.size === 0 && !p.all.some((s) => streaks.has(s) || unstartedShown.has(s))) { out.push({ id, late: now - p.first >= EMAIL_DECIDED_MS }); pushOpen.delete(id); }
     }
   } catch { /* acked next minute, or emailed as before */ }
   return out;
