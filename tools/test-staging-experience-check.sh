@@ -43,7 +43,7 @@ const s = http.createServer((q, r) => {
   const cookie = /kosmos_board=1/.test(q.headers.cookie || '');
   const j = (c, o) => { r.writeHead(c, { 'content-type': 'application/json' }); r.end(JSON.stringify(o)); };
   if (q.method === 'POST' && u.pathname === '/api/board-nonce') { if (process.argv[5]) require('node:fs').appendFileSync(process.argv[5], 'nonce\n'); return ok ? j(200, { nonce: 'abcdef12' }) : j(403, {}); }
-  if (q.method === 'GET' && u.pathname === '/api/version') return ok ? (ver ? j(200, { running: ver }) : j(404, {})) : j(403, {});
+  if (q.method === 'GET' && u.pathname === '/api/version') return ok ? (ver === '503' ? j(503, {}) : ver ? j(200, { running: ver }) : j(404, {})) : j(403, {});
   // Round 1 of #5084: POST /api/update/check can START an install on a real board; the gate must never send it.
   if (u.pathname === '/api/update/check') { require('node:fs').appendFileSync(process.argv[4], q.method + ' /api/update/check\n'); return j(200, { running: ver }); }
   if (u.pathname === '/' && u.searchParams.get('boot') === 'abcdef12') { r.writeHead(302, { location: '/', 'set-cookie': 'kosmos_board=1; Path=/; HttpOnly' }); return r.end(); }
@@ -85,9 +85,7 @@ fake_print() {   # $1 board version ("" = 404 on the route); prints rc, then std
   node "$FAKE/board.js" feedfacefeedface "$1" "$FAKE/forbidden" "$FAKE/nonces" > "$FAKE/port" 2>/dev/null & local pid=$!
   local i=0; while [ ! -s "$FAKE/port" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
   local port; port="$(head -1 "$FAKE/port")"
-  if [ -z "$port" ]; then kill "$pid" 2>/dev/null; printf '99
-the fake board did not start
-'; return; fi
+  if [ -z "$port" ]; then kill "$pid" 2>/dev/null; printf '99\nthe fake board did not start\n'; return; fi
   local out rc
   out="$(KOSMOS_STORE_ROOT="$FAKE" bash "$CHECK" --print-version "$port" 2>"$FAKE/err")"; rc=$?
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; rm -f "$FAKE/port"
@@ -98,6 +96,9 @@ r="$(fake_print 0.8.20)"
 r="$(fake_print "")"
 [ "$(printf '%s' "$r" | head -1)" = 2 ] && [ -z "$(printf '%s' "$r" | sed -n 2p)" ] && [ "$(printf '%s' "$r" | sed -n 3p)" = "--" ] && case "$r" in *"HTTP 404, a board older than this route"*) true;; *) false;; esac \
   && pass "#8960: --print-version on a board that cannot say is cannot-tell (exit 2), nothing on stdout" || bad "#8960 --print-version unreadable: $r"
+r="$(fake_print 503)"
+[ "$(printf '%s' "$r" | head -1)" = 1 ] && [ -z "$(printf '%s' "$r" | sed -n 2p)" ] \
+  && pass "#8960: --print-version on a board answering 503 (still starting) exits 1, like no answer" || bad "#8960 --print-version 503: $r"
 [ ! -s "$FAKE/nonces" ] && pass "#8960: --print-version mints no nonce" || bad "#8960: --print-version minted $(wc -l < "$FAKE/nonces") nonce(s)"
 # Control for the line above: the same fake, the same nonce log, the full gate. It must record a mint, or the log
 # could never have caught one.
@@ -116,7 +117,8 @@ else
   "$NODEBIN" "$FAKE/board.js" feedfacefeedface 0.8.20 "$FAKE/forbidden" > "$FAKE/port" 2>/dev/null & npid=$!
   i=0; while [ ! -s "$FAKE/port" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
   nport="$(head -1 "$FAKE/port")"
-  out="$(PATH=/usr/bin:/bin KOSMOS_STORE_ROOT="$FAKE" /bin/bash "$CHECK" --print-version "$nport" 2>&1)"; rc=$?
+  # NODE and KOSMOS_HOME are emptied too: the suite can export NODE, and the reader takes it first.
+  out="$(NODE= KOSMOS_HOME= PATH=/usr/bin:/bin KOSMOS_STORE_ROOT="$FAKE" /bin/bash "$CHECK" --print-version "$nport" 2>&1)"; rc=$?
   kill "$npid" 2>/dev/null; wait "$npid" 2>/dev/null; rm -f "$FAKE/port"
   [ -n "$nport" ] && [ "$rc" = 2 ] && case "$out" in *"no node on this machine"*) true;; *) false;; esac \
     && pass "#8960: --print-version with no node to read the answer is cannot-tell (exit 2), not 'nothing answered'" || bad "#8960 no node: rc=$rc port=$nport out=$out"

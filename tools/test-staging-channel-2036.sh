@@ -158,6 +158,7 @@ bw "0:$V-rc1" 2 "$Sw"
   && pass "#8960: a version that cannot be compared with V ($V-rc1) is not waited for, and is not called later" || bad "#8960 uncomparable (rc=$rc looks=$looks out=$out)"
 Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
 bw "2:" 2 "$Sw"
+! has "$out" "the board wait already ran out" && pass "#8960 control: a HOLD with no wait run out has no skip hint" || bad "#8960: skip hint printed though the wait did not run out (out=$out)"
 [ "$rc" = 2 ] && [ "$looks" = 1 ] && has "$out" "no board wait: cannot read which version" \
   && pass "#8960: a board whose version cannot be read is not waited for (the gate says why)" || bad "#8960 unreadable (rc=$rc looks=$looks out=$out)"
 # The wait runs out: the gates run anyway and are NOT loosened. Still on the old release -> cannot-tell HOLDS (2);
@@ -167,6 +168,8 @@ BW_WAIT=2 bw "0:9.9.8" 2 "$Sw"
 # The wait counts real time (SECONDS), so the number of looks in 2 s is 2 or 3, not exact.
 [ "$rc" = 2 ] && [ "$looks" -ge 2 ] && [ "$looks" -le 4 ] && has "$out" "stopped waiting after " && has "$out" "s: it runs 9.9.8, older than $V" && [ ! -f "$Sw/dist/latest.json" ] \
   && pass "#8960: the wait is bounded: after it runs out the gate runs and its cannot-tell still HOLDS" || bad "#8960 timeout hold (rc=$rc looks=$looks out=$out)"
+has "$out" "the board wait already ran out on this run; on a rerun (with --force, say) KOSMOS_PROMOTE_BOARD_WAIT=0 skips it" \
+  && pass "#8960: a HOLD after the wait ran out names how to skip it on the rerun" || bad "#8960: HOLD after a run-out wait has no skip hint (out=$out)"
 BW_WAIT=2 bw "1:" 1 "$Sw" --force --hand-check "$HC8960"
 [ "$rc" = 1 ] && has "$out" "s: nothing answers" && has "$out" "does not override" && [ ! -f "$Sw/dist/latest.json" ] \
   && pass "#8960: a board that never answers still REFUSES after the wait (exit 1 not loosened, even with --force)" || bad "#8960 timeout refuse (rc=$rc looks=$looks out=$out)"
@@ -178,7 +181,7 @@ t0=$SECONDS; KOSMOS_PROMOTE_BOARD_SILENT_WAIT=2 BW_WAIT=60 bw "1:" 1 "$Sw"; took
   && pass "#8960: nothing answering at all stops the wait after the silent limit (${took}s, not 60) and the gate still refuses" || bad "#8960 silent (rc=$rc took=$took out=$out)"
 # An answer resets the silent clock: a board that answers between silences waits on to V.
 Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
-KOSMOS_PROMOTE_BOARD_SILENT_WAIT=3 bw "$(printf '1:\n1:\n0:9.9.8\n1:\n1:\n0:%s' "$V")" 0 "$Sw"
+KOSMOS_PROMOTE_BOARD_SILENT_WAIT=3 BW_WAIT=60 bw "$(printf '1:\n1:\n0:9.9.8\n1:\n1:\n0:%s' "$V")" 0 "$Sw"
 [ "$rc" = 0 ] && [ "$looks" = 6 ] && ! has "$out" "nothing has answered" && [ -f "$Sw/dist/latest.json" ] \
   && pass "#8960: an answer between silences resets the silent clock, and the wait goes on to V" || bad "#8960 silent reset (rc=$rc looks=$looks out=$out)"
 Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
@@ -192,6 +195,10 @@ out="$(BV_SCRIPT="$T/bv-script" BV_LOG="$T/bv-log" KOSMOS_PROMOTE_BOARD_VERSION_
   KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sw" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "KOSMOS_PROMOTE_BOARD_WAIT_STEP must be a number of seconds above 0" && [ ! -f "$Sw/dist/latest.json" ] \
   && pass "#8960: a step of 0 refuses (it would spin), prod untouched" || bad "#8960 step 0 (rc=$rc out=$out)"
+out="$(BV_SCRIPT="$T/bv-script" BV_LOG="$T/bv-log" KOSMOS_PROMOTE_BOARD_VERSION_CMD="bash $BV_STUB" KOSMOS_PROMOTE_BOARD_WAIT=0 KOSMOS_PROMOTE_BOARD_WAIT_STEP=0 \
+  KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sw" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "board wait off" && pass "#8960: with the wait off, a bad step is not read and the promote goes on" || bad "#8960 wait off + step 0 (rc=$rc out=$out)"
+Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
 BW_WAIT=soon bw "0:$V" 0 "$Sw"
 [ "$rc" = 1 ] && [ "$looks" = 0 ] && has "$out" "KOSMOS_PROMOTE_BOARD_WAIT must be a number" && [ ! -f "$Sw/dist/latest.json" ] \
   && pass "#8960: an unusable KOSMOS_PROMOTE_BOARD_WAIT refuses, prod untouched" || bad "#8960 bad wait (rc=$rc looks=$looks out=$out)"
