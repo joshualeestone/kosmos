@@ -8,7 +8,7 @@
  *   - the working card runs `working-pulse`, slowly (3s or more per cycle), forever;
  *   - its ground is sampled across one full cycle and must swing toward green and back, and stay
  *     light at its greenest (a pulse that never moves, or one that goes dark, both fail);
- *   - watched across three five-second polls, a rebuilt card continues the pulse instead of
+ *   - watched for 16 s while the card is rebuilt every 5 s, a rebuilt card continues the pulse instead of
  *     snapping back to the plain surface;
  *   - the idle card does not pulse;
  *   - a list row (also in the one-screen folded layout) and a project member box carry the same animation;
@@ -156,19 +156,26 @@ async function placeSiblings(page) {
         const greenest = samples[leans.indexOf(Math.max(...leans))];
         chk(Math.min(...greenest) >= 200, `${engineName}: at its greenest the light ground stays light, never dark`, String(greenest));
 
-        /* The board rebuilds its cards on every five-second poll, and a rebuilt card must pick the
-           pulse up where the old one left it rather than snap back to the plain surface. Watched
-           across three polls, re-finding the card each time: at least two rebuilds must happen (or
-           this arm proves nothing), and no step between neighbouring readings may jump. A smooth
-           step here is under one unit; the snap this guards against was about five. */
+        /* A rebuilt card must pick the pulse up where the old one left it rather than snap back to
+           the plain surface. Watched for 16 s, re-finding the card each time: at least two rebuilds
+           must happen (or this arm proves nothing), and no step between neighbouring readings may
+           jump. A smooth step here is under one unit; the snap this guards against was about five.
+           kosmos#8990: a poll that changes nothing no longer rebuilds the grid (setGridHtml skips
+           markup it already wrote), and this fixture's cards do not change, so the watch makes the
+           rebuild itself every 5 s: it forgets the grid's memo and repaints, which replaces the card
+           exactly as a poll that changed it (a new memory reading, a new task) does. */
         const watch = await page.evaluate(async (src) => {
           const out = { steps: [], replaced: 0 };
           const composite = new Function('return ' + src)();
           const px = (el) => { const d = composite(el); return d[1] - (d[0] + d[2]) / 2; };
           let prev = null; let prevEl = null;
           const end = performance.now() + 16000;
+          let nextRebuild = performance.now() + 5000;
           while (performance.now() < end) {
             await new Promise((r) => requestAnimationFrame(r));
+            // Its own step, read on the NEXT frame, as a poll's rebuild is: the page pins the pulse from a MutationObserver
+            // (a microtask), so reading in the same step as the write would read the card before the page could pin it.
+            if (performance.now() >= nextRebuild) { GRID_HTML = null; repaintAgentOrder(); nextRebuild += 5000; continue; }   // eslint-disable-line no-undef
             const el = document.querySelector('.acard.working');
             if (!el) continue;
             if (prevEl && el !== prevEl) out.replaced += 1;
