@@ -1758,6 +1758,8 @@ enum Board {
     static let draftUse = "Put in the message box"
     static let draftDismiss = "Dismiss"
     static let draftDismissFailed = "Kosmos could not dismiss that draft. Try again."
+    // Said when the words make the box longer than one message (a draft can be longer than maxMessage), as the board says.
+    static let draftTooLong = "This is longer than one message can be. Send it in parts."
 
     // The Mac's draft ids (server.js refuses any other shape).
     static func draftId(_ raw: Any?) -> String? {
