@@ -24,7 +24,9 @@
  * typing into the pane can take a moment after it. A turn the recipient started for another reason inside that
  * moment counts as one that started after the message arrived. No later delivery time is recorded to narrow it. A
  * held message is the other way round: its held-delivered row is written just AFTER typing, so a turn started in that
- * moment reads as already running, which leans toward "may have read it".
+ * moment reads as already running, which leans toward "may have read it". A reply is dated the same way: one that was
+ * queued behind the sender's running turn (state placed, queued) counts from when its send began, not from when the
+ * sender's window took it in.
  *
  * Pure apart from the two readers, which the caller passes in (the route passes the real ones, the tests stubs).
  */

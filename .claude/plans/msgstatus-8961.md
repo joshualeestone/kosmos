@@ -95,6 +95,10 @@ the answer unknown unless a whole turn was still seen.
   ASCII with no quote (tested); the caller refusals are the board's existing sentences, which bash reads the same way
   on every other verb.
 
+## Review changes (iteration 8)
+- The queued-reply dating is stated as a residual beside the send-time one.
+- The loop stopped at the round-8 cap (Splinter's standing rule: past round 8 only an open BLOCKER continues); none open.
+
 ## Tests
 - engine/msgstatus-8961.test.js (34, pure; failing control: dropping the between-turns rule fails one)
 - server.msg-status-8961.test.js (7: real server, the bash CLI and the Windows CLI main(), an enforcing board;
