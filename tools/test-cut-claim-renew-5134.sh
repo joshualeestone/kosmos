@@ -143,6 +143,7 @@ cut_run '
   printf "%s %s %s %s %s\n" "foreign-cookie" "$$" "$(( $(date +%s) + 1800 ))" "$(hostname -s)" "queued run (not a cut): someone" > "'"$CLAIM"'"
   sleep 3
   awk "{print \$1}" "'"$CLAIM"'" > "'"$T"'/arm7"
+  w=0; while kill -0 "$_CUT_RENEWER" 2>/dev/null && [ "$w" -lt 75 ]; do sleep 0.2; w=$((w+1)); done   # #8965: up to 15 s
   kill -0 "$_CUT_RENEWER" 2>/dev/null && echo alive >> "'"$T"'/arm7" || echo gone >> "'"$T"'/arm7"
   cut_record_done 0
   kosmos_release_machine
@@ -151,7 +152,7 @@ c7="$(sed -n 1p "$T/arm7" 2>/dev/null)"; s7="$(sed -n 2p "$T/arm7" 2>/dev/null)"
 if [ "$c7" = foreign-cookie ]; then pass "a foreign claim is left alone (still foreign-cookie after 3 renew intervals)"
 else fail "the renewer wrote over someone else's claim (cookie now ${c7:-none})"; fi
 if [ "$s7" = gone ]; then pass "and the renewer stops once it sees the claim is not ours"
-else fail "the renewer kept running beside a foreign claim (${s7:-?})"; fi
+else fail "the renewer kept running beside a foreign claim for 15 s (${s7:-?})"; fi
 if [ -f "$CLAIM" ] && [ "$(awk '{print $1}' "$CLAIM")" = foreign-cookie ]; then pass "and the cut's release does not remove the foreign claim"
 else fail "the foreign claim did not survive the cut's release"; fi
 
