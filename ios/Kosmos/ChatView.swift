@@ -3439,16 +3439,23 @@ struct UnsentDraftRow: View {
                 .padding(.leading, 10)
                 .overlay(Rectangle().fill(Palette.secondary.opacity(0.4)).frame(width: 3), alignment: .leading)
                 .accessibilityLabel(Text("The text that was in its input box: ") + Text(words))
-            HStack(spacing: 10) {
-                // Review 1: the frame on the label, so the whole 44 pt is the tap target (as the title's button).
-                Button(action: use) { action(Board.draftUse) }.buttonStyle(.plain)
-                Button(action: dismiss) { action(Board.draftDismiss) }.buttonStyle(.plain).disabled(busy).opacity(busy ? 0.5 : 1)
+            // Review 2: side by side where they fit, one above the other at large text sizes.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { buttons }
+                VStack(alignment: .leading, spacing: 8) { buttons }
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.pillStroke, lineWidth: 0.5))
+        .accessibilityElement(children: .contain)
+    }
+
+    // Review 1: the frame on the label, so the whole 44 pt is the tap target (as the title's button).
+    @ViewBuilder private var buttons: some View {
+        Button(action: use) { action(Board.draftUse) }.buttonStyle(.plain)
+        Button(action: dismiss) { action(Board.draftDismiss) }.buttonStyle(.plain).disabled(busy).opacity(busy ? 0.5 : 1)
     }
 
     private func action(_ words: String) -> some View {
