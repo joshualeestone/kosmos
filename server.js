@@ -665,13 +665,17 @@ const BULK_CLOSE_MAX = 200;
 // own exactly as before -- only #761's routes, which already have one in
 // scope for `heardBy`, pass it through instead of paying for a second
 // snapshot() in the same request.
-function tellEveryoneOn(t, roster) {
+/* kosmos#8989: `changedBy` is set only by a caller that knows who made the change (task close and reopen): the agent its
+   token named, or null for the person or a caller with no token. Every assignee who is not that agent is owed a re-read
+   of its projects section (projects.syncAgent byOther). Unset, nobody is owed one for the task change (as before). */
+function tellEveryoneOn(t, roster, { changedBy } = {}) {
   const named = tasks.whoOf(t);
   if (!named.length) return undefined;
   if (!roster) roster = safeRoster();
+  const byOtherFor = (one) => changedBy !== undefined && one !== changedBy;
   let last;
   for (const one of named) {
-    try { last = projects.syncAgent(one, roster); }
+    try { last = projects.syncAgent(one, roster, { byOther: byOtherFor(one) }); }
     catch (err2) { last = { state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
   }
   /* The LAST verdict, which is the shape the single-assignee route has
@@ -24292,7 +24296,8 @@ const server = http.createServer(async (req, res) => {
       if (toTell.size) {
         const roster = safeRoster();
         for (const one of toTell) {
-          try { projects.syncAgent(one, roster); } catch { /* the close stands; the next sync catches up */ }
+          // kosmos#8989: this route is the screen's, so each assignee is owed a re-read of what the person closed.
+          try { projects.syncAgent(one, roster, { byOther: true }); } catch { /* the close stands; the next sync catches up */ }
         }
       }
       /* `closed` counts closes THIS request made; one already closed is ok but not credited here. */
@@ -27243,7 +27248,7 @@ const server = http.createServer(async (req, res) => {
         // `told` stays the parent's verdict (its one-verdict shape); the subtasks' agents are told without a verdict.
         const withSubs = Array.isArray(t.closedWith) && t.closedWith.length > 0;
         const roster = withSubs ? safeRoster() : undefined;
-        let told = tellEveryoneOn(t, roster);
+        let told = tellEveryoneOn(t, roster, { changedBy: actor });
         if (withSubs) {
           // Non-gating, as the telling is: everything has closed by now, so a failed read must not answer "could not close".
           try {
@@ -27251,7 +27256,7 @@ const server = http.createServer(async (req, res) => {
             const named = new Set();
             for (const sub of t.closedWith) { const k = rec ? tasks.byNumber(rec, sub) : null; if (k) for (const one of tasks.whoOf(k)) named.add(one); }
             for (const one of tasks.whoOf(t)) named.delete(one);   // told above
-            for (const one of named) { try { projects.syncAgent(one, roster); } catch { /* non-gating */ } }
+            for (const one of named) { try { projects.syncAgent(one, roster, { byOther: one !== actor }); } catch { /* non-gating */ } }
           } catch { /* non-gating */ }
         }
         sendJson(res, 200, { task: taskForCaller(req, {}, t), told });

@@ -1,0 +1,35 @@
+# kosmos#8989: a task closed by someone else owes its holder a re-read
+
+## Finding (measured on origin/main b0178ccf3a)
+`projects.syncAgent` owes a running agent a re-read of "Your projects" only when the block's standing rules changed
+(`rulesChangedIn`). Its own comment states the premise: "A task arriving or closing is not a change here (the agent's
+own task close changes those lines)". That premise is false when a manager agent, or the person, closes the task: the
+holder's file is rewritten correctly, and nothing tells the running agent, which keeps working from the copy it read at
+its start. That matches the report exactly: the file changed, the changes file stayed four days old.
+
+## Call
+- `syncAgent(name, roster, { byOther })`: when `byOther` and the write changed the block, owe the `projects` re-read.
+- `/api/project/:id/task/:n/(close|reopen)`: `tellEveryoneOn(t, roster, { changedBy: actor })`; every assignee who is
+  not the agent the token named is `byOther` (no token: the person or their terminal, so everyone). The built subtasks
+  closed with it are told the same way.
+- `/api/tasks/close` (screen only): every assignee is `byOther`.
+
+Rejected: a separate pane line ("task N was closed by X"). The re-read debt already persists, retries, waits for an idle
+pane and gives up after a week; a second mechanism would duplicate that and could type into a busy pane.
+Rejected: owing a re-read for every task change. An agent's own close would then type a notice into the pane that just
+closed it.
+
+Weakest premise: that `actor` from the token is always the holder when an agent closes its own task. An agent on an
+older CLI that sends no token is treated as "someone else" and gets one needless notice: the safe direction.
+
+## Asks 2 and 3 on the card
+- The block already says (kosmos#8948) that `kosmos task list <project-id> --mine` is right when the lines disagree.
+  That is the cheap check of ask 3. Not changing the block's words here: any new standing rule owes every agent on the
+  fleet a re-read at once.
+- Delivery stays best-effort by design (it types only into a pane idle at two passes running, and gives up after 7 days).
+
+## Tests
+- engine/projects.test.js "#8989": own close owes nothing (control), another's close owes `projects`, an unchanged
+  write owes nothing. A mutant without the byOther arm fails it.
+- server.reread-close-8989.test.js: manager close -> byOther true; own close -> false (control); no token -> true;
+  reopen by another -> true, own reopen -> false. A mutant dropping changedBy fails 3 of 4.
