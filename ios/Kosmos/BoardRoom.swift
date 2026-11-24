@@ -1469,7 +1469,8 @@ extension Board {
        Guide agents are left out, as the board's add list (not Guide, not on the project) leaves them out. */
     static func projectAddable(_ agents: [Agent], members: [ProjectMember]) -> [Agent] {
         let on = Set(members.map(\.session))
-        return agents.filter { !on.contains($0.session) && !$0.session.isEmpty && !$0.isGuide }
+        // Review 5: and only agents the phone can send for (isAgentSession), so the sheet never offers one it then refuses.
+        return agents.filter { !on.contains($0.session) && isAgentSession($0.session) && !$0.isGuide }
     }
 
     /* POST adds, DELETE removes (the board's addMemberToProject and dropMember). Review 3: adding is the room's own

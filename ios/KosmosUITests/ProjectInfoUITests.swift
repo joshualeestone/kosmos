@@ -63,7 +63,7 @@ final class ProjectInfoUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Open on your computer\u{2019}s board"].exists, "About still has the general board row")
         app.buttons["Settings"].tap()
         let add = app.buttons["project-add-member"]
-        for _ in 0..<4 where !add.isHittable { app.swipeUp() }
+        for _ in 0..<4 where !(add.exists && add.isHittable) { app.swipeUp() }
         XCTAssertTrue(add.waitForExistence(timeout: 5), "no Add a member")
         shot(app, "project-members-settings")
         add.tap()
@@ -79,7 +79,7 @@ final class ProjectInfoUITests: XCTestCase {
         dismissDialog(app)
         XCTAssertTrue(app.buttons["Remove from this project"].waitForNonExistence(timeout: 5), "the Remove question stayed after Cancel")
         let archive = app.buttons["project-archive"]
-        for _ in 0..<4 where !archive.isHittable { app.swipeUp() }
+        for _ in 0..<4 where !(archive.exists && archive.isHittable) { app.swipeUp() }
         XCTAssertTrue(archive.waitForExistence(timeout: 5), "no Archive project")
         archive.tap()
         // Review 1: the question's own words (the row's button is also called Archive project, so a button count proves nothing).
