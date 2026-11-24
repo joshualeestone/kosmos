@@ -556,7 +556,7 @@ enum SignIn {
 
     static let setupWords = "Your account needs a second sign-in step. Set up an authenticator app now: it shows a new six-digit code every 30 seconds."
     /// kosmos#8959: the text-message setup, said on the phone itself (it used to continue on the web sign-in page).
-    /// The sample number stays whole on one line (non-breaking spaces), and no hyphenated word can break at its hyphen.
+    /// The sample number has non-breaking spaces.
     static let phoneWords = "Type your mobile number with its country code, like +1\u{00A0}214\u{00A0}555\u{00A0}1234. We text a code to it."
 
     /// kosmos#8959: where an answer to "Text me a code" leads. A text sent: the code screen. A refusal that says start
