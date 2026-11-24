@@ -325,6 +325,7 @@ end_dead_session() {
 # The agent has stopped: record how (looking again once for a pane tmux has not finished reporting), then end what is
 # left of its session.
 end_dead_agent() {
+  say "$SESSION: its agent has exited; ending what is left of its session so it can be started again"
   record_dead_pane || { sleep 1; record_dead_pane || true; }
   end_dead_session
 }
@@ -942,7 +943,7 @@ if [ -z "$adopt" ]; then
     "$TMUX_BIN" set-option -p -t "$_p" remain-on-exit on 2>/dev/null || return 0
     # A pane whose death tmux has not finished filling in writes nothing and is left for the supervisor (record_dead_pane
     # looks again a second later).
-    _inner="[ -n '#{pane_dead_time}' ] || exit 0; printf '%s %s %s\\n' '#{pane_dead_time}' '#{?pane_dead_signal,signal,status}' '#{?pane_dead_signal,#{pane_dead_signal},#{pane_dead_status}}' > '$_f' 2>/dev/null; '$TMUX_BIN' kill-pane -t '$_p' >/dev/null 2>&1; true"
+    _inner="[ -n '#{pane_dead_time}' ] || exit 0; { printf '%s %s %s\\n' '#{pane_dead_time}' '#{?pane_dead_signal,signal,status}' '#{?pane_dead_signal,#{pane_dead_signal},#{pane_dead_status}}' > '$_f'; } 2>/dev/null; '$TMUX_BIN' kill-pane -t '$_p' >/dev/null 2>&1; true"
     _q="'$(printf '%s' "$_inner" | sed "s/'/'\\\\''/g")'"
     "$TMUX_BIN" set-hook -p -t "$_p" pane-died "run-shell $_q" 2>/dev/null \
       || { "$TMUX_BIN" set-option -pu -t "$_p" remain-on-exit 2>/dev/null   # back to what it was (a person's own setting)
