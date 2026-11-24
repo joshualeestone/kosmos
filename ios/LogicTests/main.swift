@@ -1696,6 +1696,11 @@ do {
           == "<abbr>A</abbr><aside>B</aside><label>C</label><linkage>D</linkage><formula>E</formula> 1 <x-a> 2",
           "CONTROL: tags that only start with those names are left alone")
     check(strip("<a") == "<x-a" && strip("<") == "<" && strip("") == "" && strip("a < b") == "a < b", "a page cut short ends cleanly")
+    check(strip("<iframe srcdoc=x></iframe><FRAME src=y><object data=z></object><embed src=w><math href=v><mi>m</mi></math>")
+          == "<x-iframe srcdoc=x></x-iframe><x-FRAME src=y><x-object data=z></x-object><x-embed src=w><x-math href=v><mi>m</mi></x-math>",
+          "frames, objects, embeds and MathML are renamed too: a frame's own document could hold a link, and MathML's href is one")
+    check(strip("<frameset><mathematics><objective>") == "<frameset><mathematics><objective>", "CONTROL: longer names that start the same are left alone")
+    check(Board.fileName("x.dat", type: "text/html; charset=utf-8") == "x.dat", "a type with a parameter is not judged a page here, as before this card")
     check(Board.inertPage(pageBytes, kind: .page) == Board.withoutLinks(pageBytes), "a page is drawn with its links taken out")
     // A UTF-16 page (its byte order mark wins over the UTF-8 the web view is told) is converted, so its links are found too.
     var utf16 = Data([0xFF, 0xFE]); utf16.append("<a href=x>go</a>".data(using: .utf16LittleEndian)!)

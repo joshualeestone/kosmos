@@ -1361,7 +1361,8 @@ final class BoardClient: ObservableObject {
         return CGImageDestinationFinalize(dest) ? out as Data : nil
     }
 
-    // The file, fetched from the Mac and saved where Quick Look can open it; nil when it could not be fetched.
+    // The file, fetched from the Mac and saved where the phone opens it (Quick Look, or WebFileView for a web page:
+    // Board.fileName); nil when it could not be fetched.
     func fetchFile(_ a: Board.Attachment) async -> URL? {
         let webDocument = Board.isWebDocument(name: a.name, type: a.type)
         let epoch = chatEpoch
@@ -1649,6 +1650,10 @@ final class BoardClient: ObservableObject {
             <video poster="\(probe)/poster.png" src="\(probe)/video.mp4"></video><audio src="\(probe)/audio.mp3"></audio>
             <object data="\(probe)/object.pdf"></object><embed src="\(probe)/embed.pdf"><form action="\(probe)/form"><input type="image" src="\(probe)/input.png" alt="go"></form>
             <div style="width:10px;height:10px;background-image:url('\(probe)/bg.png')"></div><a href="\(probe)/pinged" ping="\(probe)/ping">pinged</a>
+            <iframe srcdoc="&lt;a href=&quot;\(probe)/srcdoc-link&quot;&gt;framed link&lt;/a&gt;"></iframe>
+            <iframe src="data:text/html,%3Ca%20href%3D%22\(probe)/data-link%22%3Edata%20link%3C/a%3E"></iframe>
+            <object data="data:text/html,%3Ca%20href%3D%22\(probe)/object-link%22%3Eobject%20link%3C/a%3E"></object>
+            <math href="\(probe)/math-link"><mi>mathlink</mi></math>
             <p><a id="away" href="\(probe)/link">A link away</a></p>
             <style>@layer early { a { pointer-events: auto !important; } } a.loud { pointer-events: auto !important; }</style>
             <p><a class="loud" href="\(probe)/loud-link">A loud link</a></p>
