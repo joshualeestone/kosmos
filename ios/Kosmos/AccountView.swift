@@ -297,7 +297,7 @@ struct AccountView: View {
         guard let session = currentSession() else { signOutNote = "You are already signed out."; return }
         // Confirmed for another sign-in (it changed while the question was up): nothing is ended.
         guard asked == session else { return }
-        signOutNote = nil
+        signOutNote = nil; offerLocalOnly = nil
         busy = .everywhere; busyFor = session
         let (status, data) = await send(Account.signOutEverywhereRequest(coordinator: coordinator, session: session))
         if busyFor == session { busy = nil; busyFor = nil }

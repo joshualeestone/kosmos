@@ -34,6 +34,8 @@ The delete-account row stays on the web page (slice C).
   so the web view's reloaded page shows (ContentView forget).
 - RefuseRedirects is a third file-private copy, following SettingsView and SignInClient; merging them touches
   the sign-in client and is left out of this slice.
+- A sign-out or Sign out everywhere already sent completes even if the person leaves the screen before the
+  answer: it was asked for, and its answer still checks the sign-in is the same one.
 - Sign out everywhere answered 401 (this sign-in already over) signs out here as the page does, though it does
   not prove the other sign-ins ended (a sign-out everywhere done elsewhere is the usual cause).
 - The web page's per-row "Open" link (kosmos#6850) is not ported: the app opens computers from its own
