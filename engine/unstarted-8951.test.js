@@ -343,7 +343,7 @@ test('#8951 review 3: a process that ends long after the last write (a Restart) 
   assert.deepEqual(r.last().unstarted, { since: new Date(T0).toISOString(), count: 2 }, 'not lost');
   assert.deepEqual(r.told, [{ since: new Date(T0).toISOString(), count: 2, lost: false }]);
   r.clock.t += HOLD;
-  r.pub.event(init);                                                  // review 4: the new process's own start, no write
+  r.pub.event(init); r.pub.event(result);                             // review 4: a turn on the new process, no write
   assert.ok(r.last().unstarted, 'carried, it still needs a later write: no turn on the new process can be those messages');
   r.pub.wrote(); r.pub.event(init);
   assert.equal(r.last().unstarted, undefined, 'CONTROL: a later write\'s turn ends it');
@@ -473,4 +473,31 @@ test('#8951 review 5: a second report soon after a cleared one keeps the first p
   ds.unstartedGone([{ ...board.card('homer'), state: 'idle', deliveryStall: null }], now + 5 * MIN);   // cleared
   ds.unstartedGone([withStall], now + 10 * MIN);                                                       // lost again
   assert.deepEqual(ds.acksDue([], now + 26 * MIN), [], 'showing again: not acked, so the person is still followed up');
+});
+
+test('#8951 review 6: a write queued behind a turn nobody wrote ends a carried report only once its own turn starts', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.stopped(); r.pub.started(7001, 'sid-1');   // carried
+  r.clock.t += HOLD;
+  r.pub.event(init);                                              // a wake-up turn
+  r.pub.wrote();                                                  // the person resends; it waits behind it
+  r.pub.event({ type: 'assistant', message: { content: [] } });  // still the wake-up turn
+  assert.ok(r.last().unstarted, 'the resent message has not run: still reported');
+  r.pub.event(result);                                            // the boundary: it is taken
+  r.pub.event(init);                                              // and its own turn opens
+  assert.equal(r.last().unstarted, undefined, 'now it ran');
+  // Taken mid-turn instead: the wake-up turn's tool call returns, and the waiting message joins that turn.
+  const q = recording();
+  q.pub.started(6368, 'sid-1');
+  q.pub.wrote(); q.pub.stopped(); q.pub.started(7001, 'sid-1');
+  q.clock.t += HOLD;
+  q.pub.event(init);
+  q.pub.event({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'w1', name: 'Bash', input: { command: 'x' } }] } });
+  q.pub.wrote();
+  q.pub.event({ type: 'assistant', message: { content: [] } });
+  assert.ok(q.last().unstarted, 'still behind the open call');
+  q.pub.event({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'w1', content: 'ok' }] } });
+  q.pub.event({ type: 'assistant', message: { content: [] } });
+  assert.equal(q.last().unstarted, undefined, 'taken when the call returned: it ran');
 });

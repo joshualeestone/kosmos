@@ -763,6 +763,7 @@ function publisher(name, opts) {
     current.needsWrite = false;
     current.reportRan = false;
     current.clearArmedFor = null;
+    current.queuedAfterReport = false;
   }
 
   /* `retrying` is true from a failed write until the next write that SUCCEEDS, so
@@ -848,7 +849,7 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, inFlight: null, needsWrite: false, reportRan: false, clearArmedFor: null };
+      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, inFlight: null, needsWrite: false, reportRan: false, clearArmedFor: null, queuedAfterReport: false };
       /* kosmos#8951: messages the previous process took in and never ran are this agent's still: said on the new
          process's record, so its card says so, until a turn starts. */
       const lost = lostOnStop;
@@ -899,7 +900,11 @@ function publisher(name, opts) {
       if (e && !e.parent_tool_use_id && e.type === 'user') {
         let closed = false;
         for (const c of content) if (c && c.type === 'tool_result' && current.open.delete(c.tool_use_id)) closed = true;
-        if (closed && current.open.size === 0) current.queued = 0;
+        if (closed && current.open.size === 0) {
+          current.queued = 0;
+          /* kosmos#8951 review 6: the waiting messages are taken into this turn now, so one written after a report runs. */
+          if (current.unstarted && current.queuedAfterReport === true) { current.wroteAfterReport = true; current.queuedAfterReport = false; }
+        }
       }
       if (e && e.type === 'result') {
         const behind = current.queued || 0;
@@ -908,6 +913,8 @@ function publisher(name, opts) {
            they are still in flight, and must now start a turn of their own by the deadline. */
         if (behind > 0 && current.opened === true) {
           current.inFlight = { since: (current.inFlight && current.inFlight.since) || new Date(nowMs()).toISOString(), count: behind };
+          if (current.unstarted && current.queuedAfterReport === true) current.wroteAfterReport = true;   // review 6: its turn is next
+          current.queuedAfterReport = false;
           armStart();
         } else if (current.opened === true) current.inFlight = null;   // a result with no turn (B1) runs nothing
       }
@@ -969,10 +976,14 @@ function publisher(name, opts) {
       /* kosmos#8951: written and not yet run, until a turn starts on it. */
       current.inFlight = current.inFlight ? { since: current.inFlight.since, count: current.inFlight.count + 1 } : { since: new Date(nowMs()).toISOString(), count: 1 };
       current.lastWriteAt = nowMs();   // review 3: whether a death soon after is this message's doing
-      if (current.unstarted) current.wroteAfterReport = true;   // review 1: only a turn this opens can end the report
       /* kosmos#7368: written into a busy agent, it waits for the agent's next boundary; into an idle one, it starts the turn. */
-      if (current.state === BUSY) current.queued = (current.queued || 0) + 1;
-      else {
+      if (current.state === BUSY) {
+        current.queued = (current.queued || 0) + 1;
+        /* Review 6: it opens no turn now (the one running is not it), so it counts as the later write only at the boundary
+           where it starts its own. */
+        if (current.unstarted) current.queuedAfterReport = true;
+      } else {
+        if (current.unstarted) current.wroteAfterReport = true;   // review 1: only a turn this opens can end the report
         setState(BUSY);
         /* kosmos#8951: into an idle agent it must start a turn; if no sign of one arrives by the deadline, it is reported
            rather than left reading busy. */
