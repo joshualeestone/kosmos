@@ -52,12 +52,15 @@ final class WebFileUITests: XCTestCase {
         let probe = try Probe()
         guard let port = probe.start() else { return XCTFail("the probe listener did not start") }
         let address = "http://127.0.0.1:\(port)"
-        // CONTROL: the listener counts a real request, so a count of zero later means nothing came, not a deaf listener.
-        let done = expectation(description: "control request")
-        URLSession.shared.dataTask(with: URL(string: address + "/control")!) { _, _, _ in done.fulfill() }.resume()
+        // CONTROL: the listener counts a real connection, so a count of zero later means nothing came, not a deaf listener.
+        // A plain TCP connection (not a URL request), so it is opened once and never retried.
+        let done = expectation(description: "control connection")
+        let control = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+        control.stateUpdateHandler = { if case .ready = $0 { done.fulfill() } }
+        control.start(queue: .global())
         wait(for: [done], timeout: 10)
-        // The listener closes each connection unanswered, so URLSession retries: the baseline is the count once it has
-        // stopped changing for two seconds.
+        control.cancel()
+        // The baseline is the count once it has stopped changing for two seconds.
         var baseline = probe.count
         for _ in 0..<10 { sleep(2); if probe.count == baseline { break }; baseline = probe.count }
         XCTAssertGreaterThanOrEqual(baseline, 1, "the control request did not reach the listener")
