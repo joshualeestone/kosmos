@@ -178,6 +178,15 @@ jobs:
           ios/LogicTests/run-accountsecond.sh | tee "$RUNNER_TEMP/accountsecond.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/accountsecond.log"
 
+      # kosmos#8959 slice B1c: the account screen's passkeys (list, remove, add, and authData out of the attestation
+      # object iOS hands back) and sign-ins from new places. Words compared with the web page only where kosmos-relay is
+      # checked out beside it (not on CI).
+      - name: Account passkeys and new places logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-accountsecurity.sh | tee "$RUNNER_TEMP/accountsecurity.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/accountsecurity.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build
