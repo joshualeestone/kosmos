@@ -236,8 +236,8 @@ enum Account {
         return r
     }
 
-    // The page's test, word for word (the "good" arm adds nothing against today's server, where kosmos_plus is already
-    // standing == "good"; it is kept so this stays the page's test, not a second reading of it): `body.kosmos_plus === true && (!body.standing || body.standing === "good")`. Only a
+    // The page's test, word for word. Against today's server kosmos_plus is true only when standing is "good", so the
+    // "good" arm adds nothing; it is kept so this stays the page's test, not a second reading of it: `body.kosmos_plus === true && (!body.standing || body.standing === "good")`. Only a
     // real JSON true counts (a 1 or a "true" does not, as BoardLogic.fedGateMode reads it); a standing that is absent,
     // null, false, 0 or empty is JavaScript-falsy and passes, as does "good"; anything else hides the line.
     static func planLine(_ data: Data?) -> String? {

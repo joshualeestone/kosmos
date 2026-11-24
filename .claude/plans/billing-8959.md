@@ -21,16 +21,21 @@
 - Next slice B3: the address choice native, then the row goes.
 
 ## Tests
-- ios/LogicTests/account: 28 new checks (page's cases, the standing note, the request). Mutants: drop the strict-true
+- ios/LogicTests/account: 39 new checks, 94 in all (page's cases, the standing note, each status, the request). Mutants: drop the strict-true
   check (fails 1), drop the "good" arm (fails 1), calm always false (fails 1).
 - AccountScreenUITests.testAccountRowOpensTheNativeScreen: the footer's words; no selling words on the built rows at
-  the top, middle and end (a lazy List builds only nearby rows, so it is checked at three places); the plan line's
+  the top and the end, and (testPasskeysAndNewPlaces) at the passkeys and new places, since a lazy List builds only
+  nearby rows; the plan line's
   words and no standing note in the sample (a good plan); shots account-sign-out and account-plan, light and dark.
   The sample answers as an active plan, so the UI test proves the section renders; the parsing is LogicTests'.
 - The sign-in-changed retry (read(again:)) asks the plan again too (review 1).
 - Account.planAnswer decides replace / clear / keep for each status (review 3), tested for 200, 200 non-JSON, 401, 403,
   429, 503 and no answer.
 - Typecheck of ios/Kosmos against the simulator SDK (0 errors; control with an injected error: 4 errors).
+
+## Look
+- The plan line is plain text in the primary colour; the web page draws it as a green pill (signin.html .plan-line).
+  Deliberate for now: the native screen has no pill style, and the B3 design review can decide it.
 
 ## Weakest premise
 That the plan line and the standing note are status, not selling, under #718. Review 2 named the sharper half: the
