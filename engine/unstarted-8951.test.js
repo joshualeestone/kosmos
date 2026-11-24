@@ -136,7 +136,9 @@ test('#8951 (PigeonPete): a report the deadline made ends on the first turn the 
   r.fire();
   assert.ok(r.last().unstarted, 'premise: reported');
   r.pub.event(init);                        // the message starts late, nothing new written
-  assert.ok(r.last().unstarted, 'held: the minute sweep has not shown it yet');
+  // Review 15: it left the count at once (count 0 shows nothing on the card); the record is held only so a stop in the
+  // hold still knows it was reported.
+  assert.equal(r.last().unstarted && r.last().unstarted.count, 0, 'it started: no longer counted as not started');
   r.clock.t += HOLD;
   r.fire();
   assert.equal(r.last().unstarted, undefined, 'the turn opened: no longer "never started"');
@@ -734,4 +736,43 @@ test('#8951 review 14: a reported message that starts late leaves the report\'s 
   r.clock.t += 30 * 1000;
   r.pub.stopped(); r.pub.started(7001, 'sid-1');
   assert.equal(r.last().unstarted.count, 1, 'a restart carries B only: A ran');
+});
+
+test('#8951 review 15: a reported message that starts late and dies within seconds is counted', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.fire();                            // A reported
+  r.pub.event(init);                                  // A starts late
+  r.clock.t += 600; r.pub.stopped(); r.pub.started(7001, 'sid-1');
+  assert.deepEqual(r.last().unstarted && { count: r.last().unstarted.count, lost: r.last().unstarted.lost }, { count: 1, lost: true }, 'not silence');
+  const q = recording();
+  q.pub.started(6368, 'sid-1');
+  q.pub.wrote(); q.pub.wrote(); q.fire();             // A and B reported
+  q.pub.event(init);                                  // A starts late
+  q.clock.t += 600; q.pub.stopped(); q.pub.started(7001, 'sid-1');
+  assert.deepEqual({ count: q.last().unstarted.count, lost: q.last().unstarted.lost }, { count: 2, lost: true }, 'A died, B never ran');
+});
+
+test('#8951 review 15: the resend the card asks for runs in its own turn and is not reported in its turn', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.fire();                            // A reported (taken in, never run)
+  r.pub.wrote();                                      // B, the resend
+  r.pub.event(init); r.pub.event({ type: 'assistant', message: { content: [] } }); r.pub.event(result);   // B's turn
+  const before = r.told.length;
+  r.timers.splice(0, r.timers.length - 1); r.fire();
+  assert.equal(r.told.length, before, 'B ran: no new report');
+  assert.equal(r.last().unstarted && r.last().unstarted.count, 1, 'A is still the one not started');
+});
+
+test('#8951 review 15: a report that shrinks is not said again on the board log; one that grows is', (t) => {
+  const since = new Date(Date.now() - 10 * MIN).toISOString();
+  const board = fleet.install([fleet.agent('homer', { state: 'idle' })]);
+  t.after(() => board.restore());
+  const said = new Map();
+  const card = (count, lost) => ({ ...board.card('homer'), deliveryStall: ds.unstartedOf('homer', { since, count, lost }) });
+  assert.equal(ds.turnsToSay([card(2)], said).length, 1);
+  assert.equal(ds.turnsToSay([card(1)], said).length, 0, 'shrank: not a new event');
+  assert.equal(ds.turnsToSay([card(2)], said).length, 1, 'grew again: said');
+  assert.equal(ds.turnsToSay([card(2, true)], said).length, 1, 'turned into a stop: said');
 });

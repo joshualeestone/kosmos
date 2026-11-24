@@ -327,8 +327,19 @@ function turnsToSay(cards, said) {
       present.add(c.sessionName);
       const st = c.deliveryStall;
       if (!st || st.lastWhy !== 'turn') continue;
-      /* kosmos#8951 review 3: an unstarted report that grows (a second or third loss) is said again. */
-      const key = st.since + '\u0000' + (st.step || '') + (st.unstarted === true ? '\u0000' + st.count + '\u0000' + (st.lost === true) : '');
+      if (st.unstarted === true) {
+        /* kosmos#8951 review 3, 15: an unstarted report is said again only when it grows (a second or third loss) or turns
+           into the process stopping on it; a report that shrinks (a message started late) is not a new event. */
+        const prev = said.get(c.sessionName);
+        const was = typeof prev === 'string' && prev.startsWith('u\u0000') ? prev.split('\u0000') : null;
+        const count = Number.isInteger(st.count) ? st.count : 1;
+        const lost = st.lost === true;
+        said.set(c.sessionName, 'u\u0000' + count + '\u0000' + lost);
+        if (was && count <= Number(was[1]) && (!lost || was[2] === 'true')) continue;
+        out.push(turnLine(c.sessionName, st));
+        continue;
+      }
+      const key = st.since + '\u0000' + (st.step || '');
       if (said.get(c.sessionName) === key) continue;
       said.set(c.sessionName, key);
       out.push(turnLine(c.sessionName, st));
