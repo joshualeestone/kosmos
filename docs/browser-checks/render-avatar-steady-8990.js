@@ -102,7 +102,7 @@ const say = (n, cond, note) => {
     p.on('response', (r) => {
       const u = r.url();
       if (/\/api\/agent\/[^/]+\/avatar(\?|$)/.test(u)) avatarFetches.push(u.replace(BASE, ''));
-      if (/\/api\/status(\?|$)/.test(u)) statusPolls.push(Date.now());
+      if (/\/api\/status(\?|$)/.test(u) && r.ok()) statusPolls.push(Date.now());   // a refused poll paints nothing
     });
     const start = await p.evaluate(() => {
       const isAv = (n) => n && n.nodeType === 1 && (n.nodeName === 'IMG' || n.nodeName.toLowerCase() === 'image')
@@ -137,6 +137,7 @@ const say = (n, cond, note) => {
     await p.evaluate(() => {
       const isAv = (n) => /\/api\/agent\/alpha\/avatar(\?|$)/.test(n.getAttribute('src') || n.getAttribute('href') || '');
       window.__oldAlpha = [...document.querySelectorAll('#grid image, #grid img, #alist img')].filter(isAv);
+      window.__oldV = window.__oldAlpha.map((n) => (/[?&]v=(\d+)/.exec(n.getAttribute('src') || n.getAttribute('href') || '') || [])[1]);
     });
     const put = await p.evaluate(async (bytes) => {
       const r = await fetch('/api/agent/alpha/avatar', { method: 'PUT', headers: { 'content-type': 'image/png' }, body: new Uint8Array(bytes) });
@@ -147,13 +148,16 @@ const say = (n, cond, note) => {
       await p.waitForTimeout(500);
       pic = await p.evaluate(() => {
         const isAv = (n) => /\/api\/agent\/alpha\/avatar(\?|$)/.test(n.getAttribute('src') || n.getAttribute('href') || '');
-        const fresh = (sel) => { const now = [...document.querySelectorAll(sel)].filter(isAv); return now.length > 0 && now.every((n) => !window.__oldAlpha.includes(n)); };
-        return { grid: fresh('#grid image, #grid img'), alist: fresh('#alist img'), old: window.__oldAlpha.length };
+        // Replaced AND carrying a new version: an unrelated change elsewhere in the container also replaces alpha's node,
+        // and only a different v= says the new picture itself changed the markup.
+        const v = (n) => (/[?&]v=(\d+)/.exec(n.getAttribute('src') || n.getAttribute('href') || '') || [])[1];
+        const fresh = (sel) => { const now = [...document.querySelectorAll(sel)].filter(isAv); return now.length > 0 && now.every((n) => !window.__oldAlpha.includes(n) && v(n) && !window.__oldV.includes(v(n))); };
+        return { grid: fresh('#grid image, #grid img'), alist: fresh('#alist img'), old: window.__oldAlpha.length, oldV: window.__oldV };
       });
     }
     say('fixture: the new picture was saved (and alpha was drawn in both places before)', put >= 200 && put < 300 && pic && pic.old === 2, 'PUT ' + put + ' ' + JSON.stringify(pic));
-    say('a new picture is drawn in the grid (its avatar element is replaced)', !!(pic && pic.grid), JSON.stringify(pic));
-    say('a new picture is drawn in the rail (its avatar element is replaced)', !!(pic && pic.alist), JSON.stringify(pic));
+    say('a new picture is drawn in the grid (its avatar element is replaced, with a new v=)', !!(pic && pic.grid), JSON.stringify(pic));
+    say('a new picture is drawn in the rail (its avatar element is replaced, with a new v=)', !!(pic && pic.alist), JSON.stringify(pic));
 
     // Arm 4: a picture that FAILS to load is asked for again by the failed element itself. Every alpha avatar GET now
     // answers 500, and a new picture changes alpha's markup, so the grid and the rail are rebuilt once (beta's picture
@@ -182,8 +186,14 @@ const say = (n, cond, note) => {
     await p.unroute('**/api/agent/alpha/avatar*');
     const betaKept = await p.evaluate(() => ({ n: window.__beta.length, kept: window.__beta.every((x) => x.isConnected) }));
     const late = retried.filter((x) => x.t >= t0);
+    // Each element's own address, so the grid's SVG <image> (whose href the retry special-cases) is pinned, not only the rail's <img>.
+    const own = await p.evaluate(() => {
+      const at = (sel) => { const n = [...document.querySelectorAll(sel)].find((x) => /\/api\/agent\/alpha\/avatar/.test(x.getAttribute('src') || x.getAttribute('href') || '')); return n ? (n.getAttribute('src') || n.getAttribute('href')) : null; };
+      return { grid: at('#grid image'), alist: at('#alist img') };
+    });
     say('fixture: the new picture was saved and drawn, and beta was captured in both places', put2 >= 200 && put2 < 300 && rebuiltFor && betaKept.n === 2, 'PUT ' + put2 + ' ' + JSON.stringify(betaKept));
     say('a failed avatar is asked for again, by itself, twice in 22 s (retry=1 and retry=2)', late.some((x) => x.n === 1) && late.some((x) => x.n === 2), JSON.stringify(late.map((x) => x.n)));
+    say('the grid\'s SVG image and the rail\'s img each retried twice (their own addresses carry retry=2)', /[?&]retry=2(&|$)/.test(own.grid || '') && /[?&]retry=2(&|$)/.test(own.alist || ''), JSON.stringify(own));
     say('with a backoff: no third retry within 22 s (every 5 s would have made three more)', !late.some((x) => x.n >= 3), JSON.stringify(late.map((x) => x.n)));
     say('the retry does not rebuild the container: beta\'s avatar nodes are the same ones', betaKept.kept, JSON.stringify(betaKept));
 
@@ -209,6 +219,7 @@ const say = (n, cond, note) => {
   } finally {
     await b.close();
     srv.kill();
+    for (const k of Object.keys(roots)) { try { fs.rmSync(roots[k], { recursive: true, force: true }); } catch { /* left for the OS */ } }
   }
   console.log(failures ? 'FAILED: ' + failures + ' of ' + ran : 'all good: ' + ran + ' passed');
   process.exit(failures ? 1 : 0);
