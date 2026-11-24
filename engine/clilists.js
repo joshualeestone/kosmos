@@ -85,7 +85,11 @@ function rosterRow(a, lastReport) {
   const since = (f) => (f && typeof f.since === 'string' ? f.since : null);
   if (a.state === 'idle' && since(a.unsentInput)) row.unsentSince = a.unsentInput.since;
   const stall = a.deliveryStall;
-  if (since(stall) && stall.lastWhy === 'turn' && stall.unstarted === true) row.notStartedSince = stall.since;   // kosmos#8951
+  if (since(stall) && stall.lastWhy === 'turn' && stall.unstarted === true) {   // kosmos#8951
+    row.notStartedSince = stall.since;
+    row.notStartedCount = Number.isInteger(stall.count) && stall.count > 0 ? stall.count : 1;
+    if (stall.lost === true) row.notStartedLost = true;
+  }
   else if (since(stall) && stall.lastWhy === 'turn') row.oneStepSince = stall.since;
   else if (since(stall) && typeof stall.words === 'string') row.noMessageSince = stall.since;
   if (a.crashLoop && a.crashLoop.looping === true) row.restartsLately = Number(a.crashLoop.count) || 3;
@@ -109,7 +113,14 @@ function stateLines(a) {
   };
   const lines = [];
   if (a.unsentSince) lines.push('  text unsent in its input box since ' + when(a.unsentSince));
-  if (a.notStartedSince) lines.push('  took in messages from ' + when(a.notStartedSince) + ' and never started on them: send them again');   // kosmos#8951
+  if (a.notStartedSince) {   // kosmos#8951 review 3: counted, and the stopped case worded apart, as the page
+    const n = Number.isInteger(a.notStartedCount) && a.notStartedCount > 0 ? a.notStartedCount : 1;
+    const what = n === 1 ? 'a message' : n + ' messages';
+    const them = n === 1 ? 'it' : 'them';
+    lines.push(a.notStartedLost === true
+      ? '  stopped right after ' + what + ' reached it at ' + when(a.notStartedSince) + ', before running ' + them + ': send ' + them + ' again'
+      : '  took in ' + what + ' from ' + when(a.notStartedSince) + ' and never started on ' + them + ': send ' + them + ' again');
+  }
   if (a.oneStepSince) lines.push('  no activity on its current step since ' + when(a.oneStepSince) + ', with messages waiting behind it');
   if (a.noMessageSince) lines.push('  no message seen to reach it since ' + when(a.noMessageSince));
   if (a.longStepSince) lines.push('  on one step since ' + when(a.longStepSince) + (typeof a.longStepTool === 'string' && PLAIN_TOOL.test(a.longStepTool) ? ': ' + a.longStepTool : ''));

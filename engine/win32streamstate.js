@@ -100,6 +100,10 @@ const START_DEADLINE_MS = 5 * 60 * 1000;
 /* kosmos#8951 review 1: a report of messages not started is kept at least this long once a later turn opens, so the
    board's minute sweep shows it on the card and tells the person at least once. */
 const REPORT_HOLD_MS = 2 * 60 * 1000;
+/* kosmos#8951 review 3: a process that ends this soon after a write is taken to have stopped ON that message (11-23: 0.6 s
+   each time), and said so. Ended later (a Restart, a stop) with messages still waiting, they are carried as never started,
+   not as what stopped it. */
+const LOST_WINDOW_MS = 10 * 1000;
 
 function stateDir() { return path.join(store.ROOT, 'win32-state'); }
 /* Same key the rest of the store uses, so this agent's state, pipe, token and
@@ -950,6 +954,7 @@ function publisher(name, opts) {
       if (!current) return;
       /* kosmos#8951: written and not yet run, until a turn starts on it. */
       current.inFlight = current.inFlight ? { since: current.inFlight.since, count: current.inFlight.count + 1 } : { since: new Date(nowMs()).toISOString(), count: 1 };
+      current.lastWriteAt = nowMs();   // review 3: whether a death soon after is this message's doing
       if (current.unstarted) current.wroteAfterReport = true;   // review 1: only a turn this opens can end the report
       /* kosmos#7368: written into a busy agent, it waits for the agent's next boundary; into an idle one, it starts the turn. */
       if (current.state === BUSY) current.queued = (current.queued || 0) + 1;
@@ -973,7 +978,7 @@ function publisher(name, opts) {
         const since = [a && a.since, b && b.since].filter((x) => typeof x === 'string').sort()[0];
         /* `lost`: the process ended with them (review 1 W4: said differently, since the message may be what ended it);
            `fresh`: some of them are newly lost now (the task log says those; a report carried as it was is not said again). */
-        lostOnStop = { since, count: ((a && a.count) || 0) + ((b && b.count) || 0), lost: !!b || !!(a && a.lost), fresh: !!b,
+        lostOnStop = { since, count: ((a && a.count) || 0) + ((b && b.count) || 0), lost: (!!b && Number.isFinite(was.lastWriteAt) && nowMs() - was.lastWriteAt <= LOST_WINDOW_MS) || !!(a && a.lost), fresh: !!b,
           reportAt: a && Number.isFinite(was.reportAt) ? was.reportAt : nowMs() };
       }
       generation += 1;
@@ -1000,4 +1005,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { startedAt, STEP_CLOCK_MS, START_DEADLINE_MS, unstartedFor, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
+module.exports = { startedAt, STEP_CLOCK_MS, START_DEADLINE_MS, LOST_WINDOW_MS, REPORT_HOLD_MS, unstartedFor, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };

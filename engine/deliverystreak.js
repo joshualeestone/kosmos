@@ -327,7 +327,8 @@ function turnsToSay(cards, said) {
       present.add(c.sessionName);
       const st = c.deliveryStall;
       if (!st || st.lastWhy !== 'turn') continue;
-      const key = st.since + '\u0000' + (st.step || '');
+      /* kosmos#8951 review 3: an unstarted report that grows (a second or third loss) is said again. */
+      const key = st.since + '\u0000' + (st.step || '') + (st.unstarted === true ? '\u0000' + st.count + '\u0000' + (st.lost === true) : '');
       if (said.get(c.sessionName) === key) continue;
       said.set(c.sessionName, key);
       out.push(turnLine(c.sessionName, st));
@@ -354,7 +355,7 @@ function sweep(names) {
   for (const k of [...ended.keys()]) if (!present.has(k)) ended.delete(k);
 }
 
-function resetForTests() { streaks.clear(); pushOpen.clear(); ended.clear(); pushedAt.clear(); takenBack.clear(); lastStallPushAt = null; }   // kosmos#7212: the pushes' in-memory copy too
+function resetForTests() { streaks.clear(); unstartedShown.clear(); pushOpen.clear(); ended.clear(); pushedAt.clear(); takenBack.clear(); lastStallPushAt = null; }   // kosmos#7212: the pushes' in-memory copy too
 
 /* kosmos#7212 (#7615 item 1): the needs-you notification for a card's stall (its deliveryStall: a streak, or a stuck
    Windows turn), so the person is told away from the board, as a crash loop or a stuck terminal tells them. `card` is
@@ -522,6 +523,28 @@ const EMAIL_DECIDED_MS = 30 * 60 * 1000;
    { id, late }. An agent that never
    reports an end (a stuck turn, one that left the board) keeps its push open, so its email goes as before. Each id is
    returned once. Never throws. */
+/* kosmos#8951 review 3: an unstarted turn stall has no streak, so no end ever reaches acksDue and its push would be
+   emailed as unanswered after the report had cleared. Each minute the sweep hands in the board's cards: a session whose
+   card carried one last time and carries none now is taken off the open pushes made before now, so acksDue can ack
+   them. Returns those sessions. Never throws. */
+const unstartedShown = new Set();
+function unstartedGone(cards, now = Date.now()) {
+  const gone = [];
+  try {
+    const showing = new Set();
+    for (const c of cards || []) {
+      if (c && typeof c.sessionName === 'string' && c.deliveryStall && c.deliveryStall.unstarted === true) showing.add(c.sessionName);
+    }
+    for (const s of [...unstartedShown]) {
+      if (showing.has(s)) continue;
+      unstartedShown.delete(s);
+      gone.push(s);
+      for (const p of pushOpen.values()) if (p.at <= now) p.open.delete(s);
+    }
+    for (const s of showing) unstartedShown.add(s);
+  } catch { /* next minute */ }
+  return gone;
+}
 function acksDue(ends, now = Date.now()) {
   const out = [];
   try {
@@ -539,4 +562,4 @@ function acksDue(ends, now = Date.now()) {
   return out;
 }
 
-module.exports = { sweptForTests, takeBack, failCount, endsToSay, acksDue, endedLine, spanWords, stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, unstartedOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+module.exports = { sweptForTests, takeBack, failCount, endsToSay, acksDue, unstartedGone, endedLine, spanWords, stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, unstartedOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
