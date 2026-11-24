@@ -290,8 +290,8 @@ struct TaskPageView: View {
                 Text(Board.subtasksBuiltLine(unrun: p.subtasksUnrun)).font(.footnote).foregroundColor(Palette.secondary)
                 // kosmos#8958 slice B6: the board's tk-subs-closeall.
                 Button { model.touched(); Task {
-                    // Said aloud: the button goes, and the one left reads Reopen.
-                    if await model.closeWithSubtasks(names: names) { UIAccessibility.post(notification: .announcement, argument: Board.subtasksClosed) }
+                    // Said aloud: the button goes, and the one left reads Reopen. Not over another page.
+                    if await model.closeWithSubtasks(names: names), visible { UIAccessibility.post(notification: .announcement, argument: Board.subtasksClosed) }
                 } } label: {
                     HStack(spacing: 8) {
                         if model.closingSubtasks { SweepDots(scales: false) }
@@ -389,6 +389,9 @@ struct TaskPageView: View {
                     .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            // A subtask made while they are being closed would be left open under this task.
+            .disabled(model.closingSubtasks)
+            .opacity(model.closingSubtasks ? 0.6 : 1)
             .accessibilityLabel("Add subtask")
             if let line = subAdded { Text(line).font(.footnote).foregroundColor(Palette.secondary) }
         }

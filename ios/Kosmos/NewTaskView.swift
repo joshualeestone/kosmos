@@ -88,7 +88,7 @@ struct NewTaskView: View {
             if let under {
                 // Fixed whatever the sheet offers elsewhere: a task page opens in an archived project too. A project that is
                 // gone is refused by the Mac; another is never picked for it here.
-                Section { LabeledContent("Project") { Text(offered.first { $0.project.id == under.project }.map { NewTask.projectWords($0, in: list) } ?? under.projectName) } }
+                Section { LabeledContent("Project") { Text(offered.first { $0.project.id == under.project }.map { NewTask.projectWords($0, in: list) } ?? under.projectName) }.accessibilityIdentifier("newtask.under.project") }
             } else if offered.isEmpty {
                 // Every project archived is not "no project": say which.
                 Section { Text(list.projects.isEmpty ? "Make a project on your computer first, then add tasks to it here."
