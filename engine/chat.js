@@ -4486,6 +4486,7 @@ function keptAttachment(a) {
     id: a.id, name: String(a.name || ''), type: String(a.type || ''),
     size: Number(a.size) || 0, kind: String(a.kind || 'other'),
     url: String(a.url || ''), preview: a.preview == null ? null : String(a.preview),
+    ...(a.incomplete === true ? { incomplete: true } : {}),   // kosmos#9016: said beside the file in this conversation too
   };
 }
 function appendLocked(projectId, agent, entry, bornAt) {
