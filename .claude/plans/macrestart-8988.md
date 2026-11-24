@@ -9,8 +9,13 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
 ## Measured first (tmux 3.6a, on a private server)
 - `pane-exited` fires after the pane is gone: no status, no capture.
 - With `remain-on-exit on`, a `pane-died` hook reads `#{pane_dead_status}` / `#{pane_dead_signal}` ("term", "kill") /
-  `#{pane_dead_time}`, then `kill-session` ends it: `has-session` answers 1, which the wait loop already acts on.
+  `#{pane_dead_time}`. The hook here closes the agent's pane from its own shell; when that was the session's last pane
+  the session ends, `has-session` answers 1, and the wait loop acts on it as it does today.
 - `kill-session` fires no `pane-died`, so a stop is never recorded.
+- A failing command in a hook is a tmux error with no client. It opens over the pane of whoever attaches next, in
+  view-mode, where Enter goes to tmux: that pane hears nothing. Measured on tmux 3.6a (MODE's control does it). The
+  shipped 3.5a is reported to do the same; not measured here.
+- `run-shell` gives its shell `$TMUX`, so a kill inside it reaches its own server.
 - A dead pane still reports its last command in `#{pane_current_command}`, so the startup allowlist would read a dead
   Claude as alive and adopt it forever. Hence the startup check.
 - `set-option` and `set-hook` accept the session id (`$N`) as an exact target. Without a UTF-8 locale tmux prints a tab
@@ -21,11 +26,11 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
   - `died_file`: `<store root>/runs/<key>.died` (the run file's folder and key rule).
   - `arm_death_record` (after new-session, Claude only): on the AGENT'S OWN PANE (its id, kept on the session as
     `@kosmos_agent_pane`), `remain-on-exit on` and a pane `pane-died` hook that writes "<epoch> status <N>" or
-    "<epoch> signal <name>" and kills the session. Never the window or session: a pane a person splits off and closes
-    must neither end the agent nor be recorded (review 1 reproduced that). The hook's one command that ends anything is
-    `kill-pane` of that pane, so it cannot fail: a failed hook command (a second kill of a session kill-pane already
-    ended) is an error tmux shows over the pane of whoever attaches next, in view-mode, which makes that agent deaf to
-    Enter (review 9 reproduced it; the MODE arm). The supervisor ends what a person's other panes leave. If the hook cannot be set, remain-on-exit goes
+    "<epoch> signal <name>" and closes that pane. Never the window or session: a pane a person splits off and closes
+    must neither end the agent nor be recorded (review 1 reproduced that). The hook is one run-shell whose every
+    command is silenced, so no tmux command in it can fail (review 9 reproduced the harm of one that does; review 11,
+    of one that fails because the pane was closed meanwhile; MODE and RACE arms). The kill runs inside that shell, on
+    this server's own socket. The supervisor ends what a person's other panes leave. If the hook cannot be set, remain-on-exit goes
     back off. A path or name with a single quote, a # (run-shell reads # as a format), a ; or a \ gets no hook (a % is literal there, measured).
     The HASH arm pins it.
   - `agent_dead` (that pane's `#{pane_dead}` is 1, or the pane is nowhere on this server: its own hook closed it; a pane
@@ -79,10 +84,9 @@ until the next turn's Stop. It fails toward showing a restart a little too long,
 
 ## Tests
 - supervisor.macrestart-8988.test.js: the shipped supervisor, a real tmux on a private socket in the test's folder.
-  Arms: CRASH (exit 7 recorded, read after the relaunch) and STOP (nothing recorded), SIGNAL, SPLIT (a split pane
-  ending neither ends the agent nor is recorded), WAIT (hook removed: the supervisor records and ends it), STARTUP (a
-  planted dead session is replaced), RETURN (a dead agent pane beside a live split pane is recorded and replaced by the
-  next launch). Each supervisor piece was removed in turn and its arm failed, and the supervisor's stderr must carry no
+  Arms: CRASH (exit 7 recorded, read after the relaunch) and STOP (nothing recorded), SIGNAL, SPLIT, LIVE, WAIT,
+  STARTUP, RETURN, GROUP, HASH, NOLANG, MODE (with its control), RACE and SPACE; the header of the file says what each
+  proves. Each supervisor piece was removed in turn and its arm failed, and the supervisor's stderr must carry no
   shell error (it caught `session_id_exact` defined after its caller).
 - engine/macrestart-8988.test.js: parsing, the window, a later start, exit 0, the clearer over real self-report files read
   by the real `selfreport.history`, and the card's

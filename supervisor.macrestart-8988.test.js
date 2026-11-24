@@ -5,15 +5,17 @@
  * Runs the SHIPPED bin/agent-supervisor.sh against a REAL tmux, on a private socket inside this test's own folder (never
  * the person's server: a two-line wrapper adds `-S <socket> -f /dev/null`), with a fake runner that exits when told.
  *
- *   CRASH     the runner exits 7: the pane-died hook writes "<epoch> status 7" and ends the session, the supervisor
- *             exits as it does today, and after the relaunch engine/macrestart.js reads "exit code 7".
+ *   CRASH     the runner exits 7: the pane-died hook writes "<epoch> status 7" and closes the pane, which ends the
+ *             session (it has no other pane), the supervisor exits as it does today, and after the relaunch engine/macrestart.js reads "exit code 7".
  *   STOP      a deliberate kill-session records nothing (the death file is unchanged).
  *   SIGNAL    the runner is ended by SIGTERM: "signal term", read as "(signal SIGTERM)".
  *   SPLIT     a pane a person split off ending neither ends the agent nor is recorded.
  *   LIVE      the agent dies with its hook intact while a split pane is live and active: its own exit is recorded, and
  *             the supervisor ends what the split leaves.
  *   MODE      after a crash, a client attaching to another session finds its pane in no mode (a failed hook command
- *             would open over it, and a pane in view-mode hears no Enter).
+ *             would open over it, and a pane in view-mode hears no Enter). Its control hook does exactly that.
+ *   RACE      the same, with the pane closed by someone else while its hook is still running.
+ *   SPACE     a data folder with a space in it, as the default one has.
  *   HASH      a data folder with a # in it gets no hook (run-shell reads # as a format): nothing is kept or recorded.
  *   NOLANG    a launch without a UTF-8 locale cannot read the session's id: it says so, records nothing, keeps nothing.
  *   GROUP     a session a person grouped with the agent's is not left holding its dead pane.
@@ -45,7 +47,7 @@ const REAL_TMUX = (() => {
 const SKIP = SKIP_POSIX_SHELL || (REAL_TMUX ? false : 'no tmux on this machine');
 const NAME = 'macrestart8988';
 
-function fixture(tag = '', { lang = 'en_US.UTF-8' } = {}) {
+function fixture(tag = '', { lang = 'en_US.UTF-8', slowKill = false } = {}) {
   /* A short root: a tmux socket path must fit in sun_path (104 bytes on macOS). */
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mr8988-' + tag)));
   for (const dir of ['bin', 'data', 'work', 'shim', 'home', 'ctl']) fs.mkdirSync(path.join(root, dir), { recursive: true });
@@ -135,7 +137,7 @@ test('#8988 CRASH and STOP: an exit is recorded by the hook and read on the card
     assert.equal(f.card(), null, 'CONTROL: no restart line before any death');
     f.tell('exit 7');
     await f.ends(one);
-    assert.equal(f.alive(), false, 'the hook ended the session, so the supervisor exited as it does today');
+    assert.equal(f.alive(), false, 'the hook closed the pane, so the session ended and the supervisor exited as it does today');
     assert.match(String(f.died()), /^\d{9,11} status 7\n$/);
     const two = f.start();   // launchd's restart
     await f.until(f.alive, 'the relaunched session');
@@ -301,22 +303,79 @@ test('#8988 LIVE: the agent dies with its hook intact and a live, active split p
   } finally { f.cleanup(); }
 });
 
-test('#8988 MODE: a crash leaves no tmux error to open over another agent\'s pane', { skip: SKIP || (process.platform !== 'darwin' && 'script(1) takes different arguments here') }, async () => {
+/* A client attached to a session through a pty (script(1), macOS's argument order), and the mode its pane is in. */
+async function modeOfAttached(f, session) {
+  /* A real pipe for stdin, held open: node's own stdio is a socket, which script(1) refuses, and a closed one ends the
+     client at once. Its own process group, so the whole pipeline ends with it. */
+  const clientEnv = { ...process.env, TERM: 'xterm-256color' };
+  for (const k of ['TMUX', 'TMUX_PANE']) delete clientEnv[k];   // a runner inside tmux would be refused ("nested with care")
+  const client = spawn('/bin/bash', ['-c', '/bin/sleep 60 | /usr/bin/script -q /dev/null "$1" attach-session -t "$2" >/dev/null 2>&1', 'x', f.tmux, session],
+    { stdio: 'ignore', detached: true, env: clientEnv });
+  try {
+    await f.until(() => (f.tx('list-clients', '-t', session, '-F', '#{client_name}').stdout || '').trim() !== '', 'a client to attach to ' + session);
+    await new Promise((r) => setTimeout(r, 800));   // the queued error, if any, is shown on attach
+    return (f.tx('list-panes', '-t', session, '-F', '#{pane_in_mode} #{pane_mode}').stdout || '').trim();
+  } finally { try { process.kill(-client.pid, 'SIGKILL'); } catch { /* already gone */ } }
+}
+const SKIP_MODE = SKIP || (process.platform !== 'darwin' && 'script(1) takes different arguments here');
+const fresh = (f, name) => assert.equal(f.tx('new-session', '-d', '-s', name, '/bin/sleep 120').status, 0);
+
+test('#8988 MODE: a crash leaves no tmux error to open over another agent\'s pane', { skip: SKIP_MODE }, async () => {
   const f = fixture();
-  let client = null;
   try {
     const one = f.start();
     await f.until(f.alive, 'the session');
     await f.until(f.hooked, 'its pane-died hook');
-    assert.equal(f.tx('new-session', '-d', '-s', 'keep', '/bin/sleep 120').status, 0);
+    /* CONTROL first: a hook with a command that fails does open over the next pane someone attaches to. */
+    fresh(f, 'control');
+    const ctl = f.tx('new-session', '-d', '-s', 'ctl', '/bin/sleep 0.3; exit 1');
+    assert.equal(ctl.status, 0, ctl.stderr);
+    const cp = (f.tx('list-panes', '-t', 'ctl', '-F', '#{pane_id}').stdout || '').trim();
+    f.tx('set-option', '-p', '-t', cp, 'remain-on-exit', 'on');
+    f.tx('set-hook', '-p', '-t', cp, 'pane-died', 'run-shell true ; kill-session -t nosuchsession');
+    await f.until(() => (f.tx('list-panes', '-a', '-F', '#{pane_id} #{pane_dead}').stdout || '').includes(cp + ' 1') || !(f.tx('list-panes', '-a', '-F', '#{pane_id}').stdout || '').includes(cp), 'the control pane to die');
+    assert.match(await modeOfAttached(f, 'control'), /^1/, 'CONTROL: the arm can see a failing hook command');
+    fresh(f, 'keep');
     f.tell('exit 8');
     await f.ends(one);
-    client = spawn('/usr/bin/script', ['-q', '/dev/null', f.tmux, 'attach-session', '-t', 'keep'], { stdio: 'ignore', env: { ...process.env, TERM: 'xterm-256color' } });
-    await new Promise((r) => setTimeout(r, 2000));
-    const modes = (f.tx('list-panes', '-t', 'keep', '-F', '#{pane_in_mode} #{pane_mode}').stdout || '').trim();
-    assert.equal(modes, '0', 'a pane a person attaches to is in no mode: ' + modes);
+    assert.equal(await modeOfAttached(f, 'keep'), '0', 'a pane a person attaches to is in no mode');
+  } finally { f.cleanup(); }
+});
+
+test('#8988 RACE: the agent\'s pane is closed while its hook is still running', { skip: SKIP_MODE }, async () => {
+  const f = fixture();
+  let reader = null;
+  try {
+    const one = f.start();
+    await f.until(f.alive, 'the session');
+    await f.until(f.hooked, 'its pane-died hook');
+    fresh(f, 'keep');
+    /* The hook writes its record to a pipe nobody reads yet, so its run-shell waits mid-run with the pane dead. The
+       supervisor is held still (it would end the pane at once, which is the other arms' case). */
+    assert.equal(spawnSync('/usr/bin/mkfifo', [path.join(f.root, 'data', 'Kosmos', 'runs', NAME + '.died')]).status, 0);
+    one.kill('SIGSTOP');
+    f.tell('exit 8');
+    await f.until(() => f.paneDead() === '1', 'the agent pane to die, kept');
+    await new Promise((r) => setTimeout(r, 300));   // its hook is waiting on the pipe
+    assert.equal(f.tx('kill-pane', '-t', f.agentPane()).status, 0, 'closed by someone else, mid-hook');
+    reader = spawn('/bin/cat', [path.join(f.root, 'data', 'Kosmos', 'runs', NAME + '.died')], { stdio: 'ignore' });   // the hook goes on
+    await new Promise((r) => setTimeout(r, 800));
+    assert.equal(await modeOfAttached(f, 'keep'), '0', 'the hook left no error behind');
+    one.kill('SIGCONT');
   } finally {
-    if (client) client.kill('SIGKILL');
+    if (reader) reader.kill('SIGKILL');
     f.cleanup();
   }
+});
+
+test('#8988 SPACE: a data folder with a space, as the default one has', { skip: SKIP }, async () => {
+  const f = fixture(' sp ace ');
+  try {
+    const one = f.start();
+    await f.until(f.alive, 'the session');
+    await f.until(f.hooked, 'its pane-died hook');
+    f.tell('exit 7');
+    await f.ends(one);
+    assert.match(String(f.died()), /^\d{9,11} status 7\n$/);
+  } finally { f.cleanup(); }
 });
