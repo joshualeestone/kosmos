@@ -89,13 +89,17 @@ function runSecrets(bin, args) {
 /**
  * The @vercel/blob read/write token, via the secrets map: { token } when it was read, else { why } saying what kind of
  * not-read it was (kosmos#8992), never a throw:
- *   'missing'  the map has no such target (`secrets-map.sh lookup` exits 1 saying "no credential mapped"): file it.
- *   'unread'   the target IS in the map (lookup exits 0) but reading it failed or timed out: run again, never re-file.
- *   'unsure'   reading failed and the map did not answer the lookup either (it timed out too, or said something else):
- *              run again; file only if a lookup says it is missing.
- *   'no-tool'  no secrets-map.sh on this computer at either place.
+ *   'missing'   the map has no such target, or no credential folder at all (lookup exits 1 saying "no credential
+ *               mapped" or "no credential dir at"): file it.
+ *   'misfiled'  the target IS in the map but the map will not read it as filed (lookup shows a "consume: BLOCKED" line,
+ *               or more than one credential for it): running again cannot help; fix the filing.
+ *   'unread'    the target is in the map, looks right, and reading it failed or timed out: run again, never re-file.
+ *   'unsure'    reading failed and the map did not answer the lookup either: run again; file only if a lookup says
+ *               it is missing.
+ *   'no-tool'   no secrets-map.sh at either place.
  * Before #8992 every one of these read as "not filed yet", which told an agent to run /add-secret over a working token.
- * `value` is read over a pipe (not a tty), which the accessor requires.
+ * The lookup's report is metadata only (where the file is, its format, whether it can be used), never a value, and
+ * none of it reaches a message. `value` is read over a pipe (not a tty), which the accessor requires.
  */
 function tokenReading() {
   // os.homedir() (NOT process.env.HOME): cross-platform, so this carries no
@@ -106,20 +110,31 @@ function tokenReading() {
   try { home = os.homedir() || ''; } catch { home = ''; }
   const bins = ['secrets-map.sh'];
   if (home) bins.push(path.join(home, '.local', 'bin', 'secrets-map.sh'));
+  let fallback = null;   // what a place that could not be used said, if the next place cannot do better
   for (const bin of bins) {
     let got;
     try { got = runSecrets(bin, ['value', FEEDBACK_TOKEN_TARGET]); } catch { got = { error: new Error('could not run') }; }
     if (got && got.error && got.error.code === 'ENOENT') continue;   // not at this place; try the next
     const t = String((got && got.stdout) || '').trim();
     if (got && !got.error && got.status === 0 && t) return { token: t };
-    // The tool is here and did not give the token: ask the map whether the target is in it at all.
+    /* Review 1: a copy that could not be started (not executable, not runnable here) or that does not know the verb
+       (a usage exit 2) is not this place's answer: the next place may work, as it did before #8992. A timeout is: it
+       answers now, so the wait stays bounded at one read and one lookup. */
+    const timedOut = Boolean(got && got.error && got.error.code === 'ETIMEDOUT');
+    if ((got && got.error && !timedOut) || (got && !got.error && got.status === 2)) { fallback = 'unsure'; continue; }
+    // The tool is here and did not give the token: ask the map whether the target is in it, and in what state.
     let seen;
     try { seen = runSecrets(bin, ['lookup', FEEDBACK_TOKEN_TARGET]); } catch { seen = { error: new Error('could not run') }; }
-    if (seen && !seen.error && seen.status === 0) return { why: 'unread' };
-    if (seen && !seen.error && seen.status === 1 && /no credential mapped/i.test(String(seen.stderr || ''))) return { why: 'missing' };
+    if (seen && !seen.error && seen.status === 0) {
+      const report = String(seen.stdout || '');
+      const creds = (report.match(/^cred:/gm) || []).length;
+      return { why: /^consume:\s*BLOCKED/m.test(report) || creds > 1 ? 'misfiled' : 'unread' };
+    }
+    const said = String((seen && seen.stderr) || '');
+    if (seen && !seen.error && seen.status === 1 && /no credential (mapped|dir at)/i.test(said)) return { why: 'missing' };
     return { why: 'unsure' };
   }
-  return { why: 'no-tool' };
+  return { why: fallback || 'no-tool' };
 }
 // The token or null, for callers that only need the token.
 function token() { return tokenReading().token || null; }
@@ -127,7 +142,8 @@ function token() { return tokenReading().token || null; }
 // What a pull says when it has no token, by why (tokenReading). Only 'missing' says to file it.
 function noTokenBecause(why) {
   const t = 'secrets-map target "' + FEEDBACK_TOKEN_TARGET + '"';
-  if (why === 'unread') return 'the collected-feedback token is filed (' + t + ') but reading it failed or timed out just now. Run the pull again; do not file it again.';
+  if (why === 'unread') return 'the collected-feedback token is filed (' + t + ') but reading it failed or timed out just now. Run the pull again; do not file it again. If it fails again, `secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '` says why.';
+  if (why === 'misfiled') return 'the collected-feedback token is filed (' + t + ') but the secrets map will not read it as filed: `secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '` shows why (a BLOCKED line, or more than one credential for it). Fix the filing with /add-secret; running the pull again will not help.';
   if (why === 'unsure') return 'the collected-feedback token could not be read just now, and the secrets map did not answer whether it is filed (' + t + '). Run the pull again; file it with /add-secret only if `secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '` says it is missing.';
   if (why === 'no-tool') return 'the secrets map tool (secrets-map.sh) is not on this computer, so the collected-feedback token (' + t + ') cannot be read here.';
   return 'the collected-feedback token is not filed yet (' + t + '). File it with /add-secret and re-run; nothing else changes.';

@@ -23,3 +23,13 @@ file it; a test covers each case.
 ## Weakest premise
 The "no credential mapped" wording is the tool's, not ours; a wording change makes "missing" read "unsure" (which says
 run again and check lookup), the safe side. The real-tool test pins the wording where the tool is installed.
+
+## Round 1 (opus) fixes
+- 'misfiled': the target is in the map but lookup shows "consume: BLOCKED" or more than one credential; the message
+  says fix the filing, not run again (a persistent fault must not read as transient).
+- "no credential dir at" (no secrets folder) is missing too, as the tool says.
+- A first copy that cannot be started or does not know the verb (usage exit 2) lets the second place answer, as before
+  #8992; a timeout answers at once, so the wait stays one read plus one lookup (16 s worst case, the old worst case).
+- 'unread' adds: if it fails again, `secrets-map.sh lookup` says why.
+- Tests: a part printed before a timeout is never used; the real tool driven through tokenReading with SECRETS_DIR at an
+  empty and an absent folder (never the real one). Mutations checked: misfiled, nodir, fallback, partial token.
