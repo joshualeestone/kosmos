@@ -140,6 +140,13 @@ test('a reply that cites another message, or came before a held message was type
   assert.equal(run([held, early, typed], [end(-60)]).status, STATUS.NOT_YET);
 });
 
+test('a name typed with a quote or backslash never puts one in any sentence, because included', () => {
+  const odd = (h) => sentence(run([sent({ to: 'ma"ra\\' })], h));
+  for (const h of [null, [beat(-60)], [end(-60), { state: 'needs_you', at: ms(-5), by: 'agent' }], [end(-60), start(2), end(9)], (() => { const c = [start(3)]; c.truncated = true; return c; })()]) {
+    assert.doesNotMatch(odd(h), /["\\]/, odd(h));
+  }
+});
+
 test('every sentence is plain ASCII', () => {
   for (const h of [[end(-60), { state: 'stopped', at: ms(4), by: 'auto' }], [end(-60), start(2), end(9)]]) {
     assert.match(sentence(run([sent()], h)), /^[\x20-\x7e]*$/);

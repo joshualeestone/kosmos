@@ -60,8 +60,16 @@ the answer unknown unless a whole turn was still seen.
 - Deferred: bash prints a not-found sentence on stdout, Windows on stderr. That is each CLI's existing convention for
   refusals (say vs ctx.err), not something this verb should change alone.
 
+## Review changes (iteration 4)
+- The because sentences use the name stripped of quotes and backslashes, as the main sentence does (tested with a
+  quoted name across every because path).
+- Deferred: the route's 4 MB history read per call. The summary-overdue route reads the same tail, and capping it
+  here would turn a busy agent's older messages back into unknown, which is what the larger tail fixed.
+- Deferred: an uncited reply keeps status answered. `cites: false` is its own field, and the sentence says it may be
+  about something else; no script reads the status today.
+
 ## Tests
-- engine/msgstatus-8961.test.js (30, pure; failing control: dropping the between-turns rule fails one)
+- engine/msgstatus-8961.test.js (31, pure; failing control: dropping the between-turns rule fails one)
 - server.msg-status-8961.test.js (7: real server, the bash CLI and the Windows CLI main(), an enforcing board;
   control: removing the bash dispatch fails one)
 - pinned lists updated: server.agent-token-sender-570.test.js, tools/windows-tests.js HOST_BRANCH_EXCLUDED

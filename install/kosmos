@@ -2913,7 +2913,7 @@ _msg_status() {
 # no answer, or not read yet). Silent when the answer carries no id (an older board).
 _say_msg_id() {
   local _mid
-  _mid=$(printf '%s' "${1:-}" | sed -n 's/.*"id":"\(m[0123456789]*\)".*/\1/p')
+  _mid=$(printf '%s' "${1:-}" | sed -n 's/.*"id":"\(m[123456789][0123456789]*\)".*/\1/p')
   [ -n "$_mid" ] && say "Its id is $_mid: kosmos msg --status $_mid says later whether they answered or read it."
   return 0
 }
