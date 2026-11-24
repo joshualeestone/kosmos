@@ -20,7 +20,7 @@ struct AgentsView: View {
     var creatingFirst = false   // kosmos#8954 review 1: the button is reading the computer, so it says so and takes no second tap
     /* kosmos#8954 (with Mona Lisa's #8957): whether "Make an agent" would open the native New Agent, from the same rule the
        tap uses, read when the empty state appears; nil until known. A note that says the tap opens the board shows only
-       when this is not true. */
+       when this is false (review 3: never while it is nil, which is "still reading"). */
     var firstAgentGoesNative: Bool? = nil
     var checkFirstAgent: () -> Void = {}
     // kosmos#7266: the + at the top right, the board's own new-agent form (ContentView.openCreate).

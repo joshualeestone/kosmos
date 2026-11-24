@@ -10,6 +10,7 @@ struct ContentView: View {
     // Starts unlocked when the gate is off, so default behavior is unchanged.
     @State private var isUnlocked = !KosmosConfig.requireBiometricUnlock
     @State private var firstAgentNative: Bool?   // kosmos#8954: which way Make an agent goes, for its note (nil: not read)
+    @State private var firstAgentGen = 0   // kosmos#8954 review 3: only the newest check may store its answer
     @State private var firstAgentBusy = false   // kosmos#8954: the empty state's read is under way (repeat taps ignored)
     // Set only when the app has actually gone to the background, so returning to
     // the foreground re-prompts after a real background cycle - not after a
@@ -287,7 +288,14 @@ struct ContentView: View {
         // kosmos#7488: another computer: the sheet's roles, managers and projects were the last one's.
         // kosmos#8791 slice 4: New Project now closes on another account or computer too (as New Agent, #7488), except
         // through its own fresh sign-in's change.
-        .onChange(of: board.chatEpoch) { _ in if !fresh.passes.spendEpoch() { newAgentOpen = false; newProjectOpen = false } }
+        .onChange(of: board.chatEpoch) { _ in
+            // kosmos#8954 review 3: another computer or account: the old answer about Make an agent is not this one's.
+            firstAgentNative = nil; firstAgentGen += 1
+            if !fresh.passes.spendEpoch() { newAgentOpen = false; newProjectOpen = false }
+        }
+        // kosmos#8954 review 3: closing the board page (where first-run may just have been finished) asks again, since the
+        // empty state under the page does not appear anew.
+        .onChange(of: todayBoard) { open in if !open && firstAgentNative != nil { checkFirstAgent() } }
         .onChange(of: newProjectOpen) { open in
             if open { fresh.passes.clear() } else if fresh.place == .newProject, fresh.model != nil { fresh.end() }
         }
@@ -595,17 +603,18 @@ struct ContentView: View {
             let native = await firstAgentDecision()
             firstAgentBusy = false
             guard NewAgentPicker.tapAnswerStands(epochAtTap: epoch, epochNow: board.chatEpoch, unlocked: isUnlocked) else { return }
-            firstAgentNative = native
+            firstAgentGen += 1; firstAgentNative = native   // the newest answer; an older check still reading cannot replace it
             if native { newAgentOpen = true } else { openCreate(.agent) }
         }
     }
     /* kosmos#8954: when the empty state appears, which way the button goes, for its note; kept only for the computer and
        account it was read for. */
     private func checkFirstAgent() {
-        let epoch = board.chatEpoch
+        firstAgentGen += 1
+        let gen = firstAgentGen, epoch = board.chatEpoch
         Task { @MainActor in
             let native = await firstAgentDecision()
-            if board.chatEpoch == epoch { firstAgentNative = native }
+            if gen == firstAgentGen && board.chatEpoch == epoch { firstAgentNative = native }
         }
     }
 

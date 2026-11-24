@@ -44,3 +44,14 @@ unreadable first-run flag as done (engine/firstrun.js), and the phone agrees wit
 
 ## After round 2, with Mona Lisa (m6303/m6305): the note her #8957 adds under the button
 The decision is one shared firstAgentDecision() in ContentView, used by the tap and by checkFirstAgent(), which runs when the empty state appears and keeps its answer (firstAgentNative) only for the computer and account it was read for. AgentsView gets firstAgentGoesNative (nil until known), so a note saying the tap opens the board shows only when it is not true. Her note is wired to it after #8975 lands (rebase). Pin extended for the on-appear check and the shared decision.
+
+## Round 3 (opus, whole branch, on the on-appear check): two should-fix, taken
+- A stale "board" answer under the board overlay: closing the board page (first-run may just have been finished
+  there) did not re-check, since the empty state under it does not appear anew. Now .onChange(of: todayBoard) checks
+  again when the page closes, once an answer has been seen.
+- The answer was never cleared: a computer or account switch now sets it to nil (and the contract says the note shows
+  only when it is false, never while nil, which is "still reading").
+- Nit taken: a generation counter, so an older check finishing last cannot replace a newer answer.
+- Told Mona Lisa: the contract, and the "on your computer" pin (her note's words sit in ShellViews.swift, so wrapping
+  the call keeps it green; she OKs narrowing it if not).
+- Pins for the clear and the re-check; removing the clear turns the pin red. All 13 iOS suites, 64/64 node, build OK.
