@@ -57,3 +57,12 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 - Fixed (NIT): a fresh loss added to an old report inherited its expired hold; it now gets a fresh one.
 - Fixed (NIT): tests for each, plus a check that the sweep calls unstartedGone before acksDue, a few lines apart.
 - Mutations red: needsWrite, the fresh hold, the clear trigger.
+
+## Challenge loop iteration 5 (opus)
+- Root cause of three findings: report fields cleared in some places and not others. Now one endReport() resets every field (unstarted, reportAt, wroteAfterReport, needsWrite, reportRan, clearArmedFor).
+- Fixed (WARNING): needsWrite was never cleared, so after a carried report ended, a later deadline report on the same process never ended on a late start.
+- Fixed (WARNING): a report whose message ran inside the hold was carried by a stop during the hold, telling the person to resend something that ran. `reportRan` marks it the moment the messages are known to have run; stopped() does not carry it, and the deadline does not merge into it.
+- Fixed (WARNING): a second report soon after a cleared one lost its only warning (the first push acked, a second blocked for a day). acksDue now waits while any of a push's agents shows an unstarted report, as it does for a streak.
+- Fixed (NIT): messages the deadline merges into an old report get a fresh hold.
+- Accepted (NIT): the sweep-order test checks the source text only (noted in iteration 3).
+- Mutations red: endReport's needsWrite, not carrying a run report, the merge's fresh hold, the ack waiting on a showing report.
