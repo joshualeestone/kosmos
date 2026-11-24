@@ -17,7 +17,7 @@ struct SettingsView: View {
     // The session signed in now, and a count bumped on every sign-in change (AccountView reads both).
     let currentSession: () -> String?
     // kosmos#8959 slice B1b: setting up a second step renewed the session (old, fresh); the app keeps the fresh one.
-    let renewed: (String, String) -> Void
+    let renewed: (String, String) -> Bool
     let accountGeneration: Int
     // kosmos#7266 slice B: the person on the shown computer, for the page's top (BoardClient.youName / youPicture).
     var youName: String? = nil

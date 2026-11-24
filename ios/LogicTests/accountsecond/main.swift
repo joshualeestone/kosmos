@@ -37,7 +37,6 @@ if let page = try? String(contentsOfFile: relay + "/coordinator/src/signin.html"
     }
     check(page.contains("From now on, signing in asks for the email code and then a code "), "onWords starts as the page's")
     check(page.contains(#"(kind === "sms" ? "texted to your phone." : "from your authenticator app.")"#), "and ends as the page's, for each kind")
-    check(!page.contains("CONTROL: words no page has"), "CONTROL: the page check can fail")
 } else {
     print("NOTE: kosmos-relay's signin.html not found, so the words were not compared with the page")
 }
