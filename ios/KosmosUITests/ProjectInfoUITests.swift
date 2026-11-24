@@ -54,6 +54,8 @@ final class ProjectInfoUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Add a file to this conversation"].waitForExistence(timeout: 20), "the sample room did not open")
         app.buttons["room-info"].tap()
         XCTAssertTrue(app.staticTexts["What it is for"].waitForExistence(timeout: 10), "About did not open")
+        // Review 1: the general board rows are gone from About and from Settings (only the labelled hand-off is left).
+        XCTAssertFalse(app.buttons["Open on your computer\u{2019}s board"].exists, "About still has the general board row")
         app.buttons["Settings"].tap()
         let add = app.buttons["project-add-member"]
         for _ in 0..<4 where !add.isHittable { app.swipeUp() }
@@ -77,12 +79,13 @@ final class ProjectInfoUITests: XCTestCase {
         for _ in 0..<4 where !archive.isHittable { app.swipeUp() }
         XCTAssertTrue(archive.waitForExistence(timeout: 5), "no Archive project")
         archive.tap()
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label == 'Archive project'")).count >= 1
-                      && app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Archive Spring'")).firstMatch.waitForExistence(timeout: 5), "Archive did not ask first")
+        // Review 1: the question's own words (the row's button is also called Archive project, so a button count proves nothing).
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Archive Spring'")).firstMatch.waitForExistence(timeout: 5), "Archive did not ask first")
         XCTAssertEqual(app.webViews.count, 0, "the board page opened")
         shot(app, "project-archive-ask")
         dismissDialog(app)
         XCTAssertTrue(app.buttons["project-outside-members"].waitForExistence(timeout: 5), "the labelled hand-off for members from other computers is missing")
+        XCTAssertFalse(app.buttons["Open on your computer\u{2019}s board"].exists, "Settings still has the general board row")
         shot(app, "project-settings-lower")
     }
 

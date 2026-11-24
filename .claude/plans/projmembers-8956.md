@@ -16,3 +16,11 @@ Finished when: from project info, adding a member, removing one and archiving th
 - Decided: About keeps its member list read-only (a tap opens the member's chat, as before); changing members is in Settings with the project's other settings, as on the board.
 - Weakest premise: after archiving, the page stays open with "Archived."; the project leaves the list on the re-read. Closing the page on archive is the alternative; kept open so the result line is seen.
 - Evidence so far: room 931/931; simulator SDK build succeeded; server.ios-routes-6838 5/5; the 13 node tests that read ios/ 93/93. UI test (ProjectInfoUITests, all four, mine plus the three earlier) queued for the shared box.
+
+## Challenge loop iteration 1 (opus)
+- Fixed (WARNING): the board's `told` has three states; could_not (Kosmos could not update the agent's instructions) was said as "it reads the change next time". Now its own case with why, worded as the board's dropMember words it; the board's removal lines are used verbatim and pinned to web/index.html.
+- Fixed (WARNING): "no answer" was said as "nothing changed", though a sent request's reply can be lost after the computer acted. Only "not connected" (checked before sending) is "nothing changed"; a sent request with no answer is "cannot tell"; every answer is followed by a re-read.
+- Fixed (WARNING): the archive read its answer as a project save (a bare 5xx said "could not save"); it now has its own result by the member rules. After an archive the room closes back to Projects (onArchived, the board returns to its list). On an archived project the row is Restore ({archived:false}, no question), as the board's button is there.
+- Fixed (NIT): the add sheet's empty line says which empty it is; one pick only; a second change while one runs is ignored; the projectAddable comment no longer names a filter that is not there; the session is ASCII percent-encoded (iOS 16's URL refuses non-ASCII), with the force unwrap explained.
+- Fixed (NIT): the UI test asserts the archive question's own words (a button count could not fail) and that the general board rows are gone from About and Settings.
+- Evidence: room 942/942; simulator SDK build succeeded; the 13 node tests that read ios/ pass. UI run still queued.

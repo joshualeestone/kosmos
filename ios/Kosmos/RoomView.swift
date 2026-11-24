@@ -119,6 +119,7 @@ struct RoomView: View {
     // come back or the search goes.
     @State private var spokeEmpty = false
     @State private var infoOpen = false   // kosmos#7838: the project's own page
+    @Environment(\.dismiss) private var dismissRoom   // kosmos#8956: an archived project closes back to Projects
     private var searching: Bool { Board.chatSearching(query) }
     // The row open or words in it: no older pages (the chat's rule, #7089, from the board's earlierNearTop).
     private var searchMode: Bool { searchOpen || searching }
@@ -258,7 +259,8 @@ struct RoomView: View {
                                         if let url = store.clientForChat.chatURL(for: a) { openPage(url) }
                                     }))
                                 }, openPage: openPage, reload: { _ = await store.loadList() },
-                                live: { [store, id = project.id] in store.list?.projects.first { $0.id == id } })
+                                live: { [store, id = project.id] in store.list?.projects.first { $0.id == id } },
+                                onArchived: { dismissRoom() })
             } label: { EmptyView() }.hidden()
         )
         .onAppear {

@@ -1466,7 +1466,7 @@ extension Board {
     static let projectStillOnBoard = "Its webhooks, its folder and the rest of its settings are on your computer's board too."
 
     /* The agents that can be added: the person's own agents not on the project yet, in the agents list's order.
-       Guide agents and agents shown as gone are left out, as the board's add list leaves them out. */
+       Guide agents are left out, as the board's add list (not Guide, not on the project) leaves them out. */
     static func projectAddable(_ agents: [Agent], members: [ProjectMember]) -> [Agent] {
         let on = Set(members.map(\.session))
         return agents.filter { !on.contains($0.session) && !$0.session.isEmpty && !$0.isGuide }
@@ -1475,10 +1475,11 @@ extension Board {
     /* POST adds, DELETE removes (the board's addMemberToProject and dropMember). */
     static func projectMemberRequest(mac: URL, project: String, session: String, add: Bool) -> URLRequest? {
         guard isProjectId(project), !session.isEmpty,
-              let s = session.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-_."))) else { return nil }   // percent-encoded, so the URL below always parses
+              let s = session.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")) else { return nil }   // review 1: ASCII only, so the URL parses on iOS 16 too
         return add ? projectMemberAddRequest(mac: mac, project: project, agent: s) : projectMemberDropRequest(mac: mac, project: project, agent: s)
     }
     // Each built in place with its own method, as server.ios-routes-6838.test.js reads every request the app sends.
+    // The force unwrap is safe: `agent` is ASCII percent-encoded and `project` an id (isProjectId), so the URL always parses.
     private static func projectMemberAddRequest(mac: URL, project: String, agent: String) -> URLRequest {
         var r = URLRequest(url: URL(string: "/api/project/\(project)/agent/\(agent)", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "POST"
@@ -1492,40 +1493,69 @@ extension Board {
         return r
     }
 
-    /* What a member change came to. `told` is the board's own verdict that the agent was told now; a 200 without it is
-       still done (the agent reads it the next time it looks). Renet's rule (#8955): a 5xx with no JSON body may come
-       from the relay after the computer acted, so it is "cannot tell", never a refusal; a 4xx or 5xx that says why is
-       the board's own reason. No answer at all is no answer. */
-    enum ProjectMemberResult: Equatable { case done(told: Bool), refused(String), cannotTell, noAnswer }
+    /* What a member change came to. Review 1: the board's `told` has three states (engine/projects.js TOLD): told, could_not
+       (Kosmos could not update the agent's instructions, with why) and not_tried; each is said as the board says it. A 200
+       this build cannot read is "cannot tell". Renet's rule (#8955): a 5xx with no JSON body may come from the relay after
+       the computer acted, so it is "cannot tell", never a refusal; a 4xx or 5xx that says why is the board's own reason.
+       Review 1: no answer to a request that was SENT is "cannot tell" too (the reply can be lost after the computer acted);
+       only no computer at all (`notSent`, decided before sending) means nothing changed. */
+    enum ProjectTold: Equatable { case told, couldNot(String?), notTried }
+    enum ProjectMemberResult: Equatable { case done(ProjectTold), refused(String), cannotTell, notSent }
     static func projectMemberResult(status: Int, body: Data?) -> ProjectMemberResult {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         if status == 200 {
             guard let obj else { return .cannotTell }
-            let told = (obj["told"] as? [String: Any])?["state"] as? String == "told"
-            return .done(told: told)
+            let t = obj["told"] as? [String: Any]
+            switch t?["state"] as? String {
+            case "told": return .done(.told)
+            case "could_not": return .done(.couldNot((t?["because"] as? String).flatMap { $0.isEmpty ? nil : $0 }))
+            default: return .done(.notTried)
+            }
         }
-        if status == 0 { return .noAnswer }
+        if status == 0 { return .cannotTell }
         if let e = obj?["error"] as? String, !e.isEmpty { return .refused(sentence(e)) }
         return status >= 500 ? .cannotTell : .refused("We could not change that project.")
     }
+    /* The board's own words for a removal (dropMember); an add the board says nothing on, so its line says what is true. */
     static func projectMemberLine(_ r: ProjectMemberResult, add: Bool, name: String) -> String {
         switch r {
-        case .done(let told):
-            let what = add ? "Added \(name)." : "Removed \(name)."
-            return told ? what : what + " It reads the change the next time it looks."
+        case .done(let t):
+            switch (add, t) {
+            case (true, .told): return "Added \(name)."
+            case (true, .notTried): return "Added \(name). It reads the change the next time it looks."
+            case (true, .couldNot(let why)):
+                return "Added \(name), but we could not update them, so they may not know about this project yet." + (why.map { " " + sentence($0) } ?? "")
+            case (false, .couldNot(let why)):
+                return "\(name) is off this project. We could not update them, so this project may still be named in what they were told." + (why.map { " " + sentence($0) } ?? "")
+            case (false, _): return "\(name) is off this project and still on your computer."
+            }
         case .refused(let why): return why
         case .cannotTell: return "We could not tell whether that changed. Look again in a moment."
-        case .noAnswer: return "We could not reach your computer, so nothing changed."
+        case .notSent: return projectNotConnected
         }
     }
-    /* The archive's answer reads as a project save; it is worded for the archive. */
-    static func projectArchiveLine(_ s: ProjectSave) -> String {
-        switch s {
-        case .saved: return projectArchivedLine
+    static let projectNotConnected = "Your computer is not connected, so nothing changed."
+
+    /* Review 1: the archive (and, on an archived project, the restore: the board's button is the Restore control there)
+       reads its answer by the same rules as a member change, worded for itself. */
+    enum ProjectArchiveResult: Equatable { case done, refused(String), cannotTell, notSent }
+    static func projectArchiveResult(status: Int, body: Data?) -> ProjectArchiveResult {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if status == 200 { return obj == nil ? .cannotTell : .done }
+        if status == 0 { return .cannotTell }
+        if let e = obj?["error"] as? String, !e.isEmpty { return .refused(sentence(e)) }
+        return status >= 500 ? .cannotTell : .refused("We could not change that project.")
+    }
+    static func projectArchiveLine(_ r: ProjectArchiveResult, restore: Bool) -> String {
+        switch r {
+        case .done: return restore ? "Restored." : projectArchivedLine
         case .refused(let why): return why
-        case .noAnswer: return "We could not reach your computer, so it was not archived."
+        case .cannotTell: return "We could not tell whether that changed. Look again in a moment."
+        case .notSent: return projectNotConnected
         }
     }
+    static func projectRestoreBody() -> [String: Any] { ["archived": false] }
+    static let projectRestoreTitle = "Restore project"
 }
 
 // #8625: posted by Settings when an Unblock was taken, so the rooms stop keeping that person's hidden messages out.
