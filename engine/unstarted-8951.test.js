@@ -594,3 +594,18 @@ test('#8951 review 9: a turn counted because it opened within seconds of the sto
   r.clock.t += 550; r.pub.stopped(); r.pub.started(7001, 'sid-1');
   assert.deepEqual(r.last().unstarted, { since: new Date(T0 + 60 * 1000).toISOString(), count: 1, lost: true });
 });
+
+test('#8951 review 10: each message keeps its own clock: one that joined a minute ago ran, one that joined just now died', () => {
+  const tool = (id) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'Bash', input: { command: 'x' } }] } });
+  const back = (id) => ({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] } });
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.event(init); r.pub.event(tool('w1'));   // A opens the turn
+  r.pub.wrote(); r.pub.event(back('w1'));                      // B joins
+  r.pub.event(tool('w2'));
+  r.clock.t += 60 * 1000;
+  r.pub.wrote(); r.pub.event(back('w2'));                      // C joins a minute later
+  r.clock.t += 1000;
+  r.pub.stopped(); r.pub.started(7001, 'sid-1');
+  assert.deepEqual(r.last().unstarted, { since: new Date(T0 + 60 * 1000).toISOString(), count: 1, lost: true }, 'only C');
+});
