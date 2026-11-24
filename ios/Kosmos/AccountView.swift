@@ -10,6 +10,11 @@ struct AccountView: View {
     let openPage: (URL) -> Void
     // This iPhone signs out (the app's own path, PushNotificationManager), with the session that was ended.
     let signedOut: (String) -> Void
+    // The session signed in now: the keychain's, or the one the app holds in memory when the keychain could not save it
+    // (PushNotificationManager.currentSession, kosmos#7042 review round 8).
+    let currentSession: () -> String?
+    // Bumped on every sign-in change (PushNotificationManager.accountChanges): the list is read again for the new one.
+    var accountGeneration = 0
     var sample = false
 
     private enum Load: Equatable {
@@ -28,8 +33,9 @@ struct AccountView: View {
     @State private var askEverywhere = false
     @State private var busy: Busy?
     @State private var signOutNote: String?
-    // Sign out on Kosmos+ did not answer: the person chooses, try again or sign out on this iPhone only.
-    @State private var offerLocalOnly = false
+    // Sign out on Kosmos+ did not answer: the person chooses, try again or sign out on this iPhone only. Holds the
+    // session that sign-out was for.
+    @State private var offerLocalOnly: String?
 
     private enum Busy { case signOut, everywhere }
 
@@ -47,6 +53,12 @@ struct AccountView: View {
         .toolbar(.visible, for: .navigationBar)
         .refreshable { await read() }
         .task { await read() }
+        .onChange(of: accountGeneration) { _ in
+            // A sheet, a choice or a note belonged to the sign-in that just changed.
+            retireBusy = false; closeRetire(); offerLocalOnly = nil; signOutNote = nil; listNote = nil
+            load = .reading
+            Task { await read() }
+        }
         .sheet(isPresented: Binding(get: { retiring != nil }, set: { if !$0 { closeRetire() } })) { retireSheet }
         .confirmationDialog("Sign out everywhere?", isPresented: $askEverywhere, titleVisibility: .visible) {
             Button("Sign out everywhere", role: .destructive) { Task { await signOutEverywhere() } }
@@ -130,12 +142,15 @@ struct AccountView: View {
 
     private var signOutSection: some View {
         Section {
-            Button(busy == .signOut ? "Signing out" : (offerLocalOnly ? "Try signing out again" : "Sign out")) { Task { await signOut() } }
+            Button(busy == .signOut ? "Signing out" : (offerLocalOnly != nil ? "Try signing out again" : "Sign out")) { Task { await signOut() } }
                 .disabled(busy != nil)
                 .accessibilityIdentifier("account-sign-out")
-            if offerLocalOnly, let session = SessionKeychain.live.load() {
-                Button("Sign out on this iPhone only", role: .destructive) { signedOut(session) }
-                    .disabled(busy != nil)
+            if let session = offerLocalOnly {
+                Button("Sign out on this iPhone only", role: .destructive) {
+                    // Only while it is still the sign-in this iPhone holds.
+                    if currentSession() == session { signedOut(session) } else { offerLocalOnly = nil }
+                }
+                .disabled(busy != nil)
             }
             Button(busy == .everywhere ? "Signing out everywhere" : "Sign out everywhere", role: .destructive) { askEverywhere = true }
                 .disabled(busy != nil)
@@ -175,10 +190,11 @@ struct AccountView: View {
 
     private func read() async {
         if sample { load = .loaded(Self.sampleRows); return }
-        guard let session = SessionKeychain.live.load() else { load = .failed("You are signed out."); return }
+        guard let session = currentSession() else { load = .failed("You are signed out."); return }
         let (status, data) = await send(Board.macsRequest(coordinator: coordinator, session: session))
-        // The answer belongs to the sign-in that asked: one that changed meanwhile shows nothing of it.
-        guard SessionKeychain.live.load() == session else { return }
+        // The answer belongs to the sign-in that asked. One that changed meanwhile is not shown; the change itself
+        // (accountGeneration) clears the list and reads it again.
+        guard currentSession() == session else { return }
         guard let status else { if case .loaded = load { listNote = Account.reach } else { load = .failed(Account.reach) }; return }
         if (200...299).contains(status), let rows = Account.parseComputers(data) {
             load = .loaded(rows); listNote = nil
@@ -190,12 +206,13 @@ struct AccountView: View {
 
     private func askRetire(_ name: String) async {
         // A sample run (screenshots) has no session and never asks Kosmos+.
-        guard let session = sample ? "sample" : SessionKeychain.live.load(), !retireBusy else { return }
+        guard let session = sample ? "sample" : currentSession(), !retireBusy else { return }
         listNote = nil
         retireBusy = true
-        let (status, data) = sample ? (409, Data(#"{"confirm":"K7QX","message":"type K7QX to retire studio; it will stop answering and its name is free again after a day"}"#.utf8))
+        let (status, data) = sample ? (409, Data(#"{"confirm":"K7QX","message":"type K7QX to retire \#(name); it will stop answering and its name is free again after a day"}"#.utf8))
             : await send(Account.retireRequest(coordinator: coordinator, session: session, name: name))
         retireBusy = false
+        guard sample || currentSession() == session else { return }
         switch Account.retireAnswer(status: status, data: data, name: name, typed: nil) {
         case .confirm(let code, let words): typed = ""; retireNote = nil; retiring = (name, code, words)
         case .retired: await read()
@@ -205,17 +222,18 @@ struct AccountView: View {
 
     private func confirmRetire() async {
         if sample { closeRetire(); return }
-        guard let r = retiring, let session = SessionKeychain.live.load(), !retireBusy else { return }
+        guard let r = retiring, let session = currentSession(), !retireBusy else { return }
         let code = Account.typedCode(typed)
         guard !code.isEmpty else { retireNote = "Type the four characters shown above."; return }
         retireNote = nil
         retireBusy = true
         let (status, data) = await send(Account.retireRequest(coordinator: coordinator, session: session, name: r.name, confirm: code))
         retireBusy = false
+        guard currentSession() == session else { return }
         switch Account.retireAnswer(status: status, data: data, name: r.name, typed: code) {
         case .retired: closeRetire(); await read()
-        case .refused(let why): retireNote = why
-        case .confirm: retireNote = "That is not the code shown for \(r.name). Nothing was retired."
+        // With a typed code retireAnswer never asks again (.confirm); a wrong code comes back as .refused.
+        case .refused(let why), .confirm(_, let why): retireNote = why
         }
     }
 
@@ -225,23 +243,28 @@ struct AccountView: View {
     }
 
     private func signOut() async {
-        guard busy == nil, let session = SessionKeychain.live.load() else { return }
+        guard busy == nil, !sample else { return }
+        guard let session = currentSession() else { signOutNote = "You are already signed out."; return }
         signOutNote = nil
         busy = .signOut
         let (status, _) = await send(Account.forgetRequest(coordinator: coordinator, session: session))
         busy = nil
+        // An answer for a sign-in that changed meanwhile signs out nothing: it would end the newer one here.
+        guard currentSession() == session else { return }
         switch Account.forgetAnswer(status: status) {
         case .signOutHere: signedOut(session)
-        case .stay(let why): signOutNote = why; offerLocalOnly = true
+        case .stay(let why): signOutNote = why; offerLocalOnly = session
         }
     }
 
     private func signOutEverywhere() async {
-        guard busy == nil, let session = SessionKeychain.live.load() else { return }
+        guard busy == nil, !sample else { return }
+        guard let session = currentSession() else { signOutNote = "You are already signed out."; return }
         signOutNote = nil
         busy = .everywhere
         let (status, data) = await send(Account.signOutEverywhereRequest(coordinator: coordinator, session: session))
         busy = nil
+        guard currentSession() == session else { return }
         switch Account.everywhereAnswer(status: status, data: data) {
         case .signOutHere: signedOut(session)
         case .stay(let why): signOutNote = why

@@ -200,6 +200,10 @@ final class PushNotificationManager: NSObject, ObservableObject {
     // kosmos#7042: the person backed out of a session the native sign-in had issued.
     func signedOutNatively() { take(.signedOut, from: "backing out of the sign-in on this iPhone") }
 
+    // kosmos#8959 slice B1a: the session signed in now, the one take() reads: the registrar's memory first, which keeps a
+    // session the keychain could not save (kosmos#7042 review round 8).
+    var currentSession: String? { registrar.session ?? SessionKeychain.live.load() }
+
     // kosmos#8959 slice B1a: Sign out (or Sign out everywhere) on the native account screen.
     func signedOutInSettings() { take(.signedOut, from: "Sign out in Settings on this iPhone") }
 

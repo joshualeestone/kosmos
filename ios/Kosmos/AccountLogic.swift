@@ -36,15 +36,18 @@ enum Account {
             let seen = (row["last_seen"] as? NSNumber)?.doubleValue
             return Computer(name: name,
                             lastSeen: seen.flatMap { $0 > 0 ? $0 : nil },
-                            retired: row["retired_at"] is NSNumber,
+                            retired: truthy(row["retired_at"]),
                             held: row["held"] as? Bool ?? false,
                             refused: row["refused"] as? Bool ?? false,
-                            updating: row["updating_until"] is NSNumber,
+                            updating: truthy(row["updating_until"]),
                             remoteOff: row["remote_off"] as? Bool ?? false,
                             notConnected: row["not_connected"] as? Bool ?? false,
                             position: position)
         }
     }
+
+    // A time the page tests for truth: a number other than 0 (null, missing or 0 is unset).
+    static func truthy(_ v: Any?) -> Bool { ((v as? NSNumber)?.doubleValue ?? 0) != 0 }
 
     // The page's MAC_STALE_SECS: silent this long, a computer "may be off, or gone".
     static let staleSeconds: Double = 14 * 86400

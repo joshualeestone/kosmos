@@ -32,6 +32,8 @@ check(rows?[1].retired == true && rows?[2].retired == false, "retired_at is read
 check(rows?[2].lastSeen == nil, "last_seen 0 is never heard from, not 1970")
 check(rows?[3].held == true && rows?[4].updating == true, "held and updating_until are read")
 check(Set(rows?.map(\.id) ?? []).count == 5 && rows?[1].name == rows?[2].name, "two rows with one name (retired, then set up again) are two rows")
+let zeros = Account.parseComputers(json(#"{"macs":[{"name":"z","last_seen":1799999990,"retired_at":0,"updating_until":0}]}"#))
+check(zeros?.first?.retired == false && zeros?.first?.updating == false, "a time of 0 is unset, as the page tests it")
 check(Account.parseComputers(json(#"{"error":"x"}"#)) == nil && Account.parseComputers(nil) == nil, "an answer with no list is not an empty list")
 check(Account.parseComputers(json(#"{"macs":[]}"#)) == [], "an empty list is no computers")
 
