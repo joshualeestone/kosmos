@@ -223,13 +223,14 @@ struct ChoiceNote: View {
 
 // The agent bubble's look (BubbleText's), for a bubble that holds more than text. No tail: a question stands alone.
 struct AgentBubbleBackground: ViewModifier {
+    @Environment(\.paneWidth) var paneWidth   // kosmos#9002
     let widthShare: CGFloat
     func body(content: Content) -> some View {
         content
             .padding(.vertical, 10).padding(.horizontal, 14)   // kosmos#7347
             .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Palette.agentBubble))
             .overlay(PressedBubbleMark())   // kosmos#7419 build 11: the bubble itself, before its width frame
-            .frame(maxWidth: UIScreen.main.bounds.width * max(widthShare, 0.85), alignment: .leading)
+            .frame(maxWidth: paneWidth * max(widthShare, 0.85), alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
     }
 }

@@ -60,6 +60,7 @@ struct FilesBubble: View {
 
 // The agent's bubble look (AgentBubbleBackground), or the person's: their colour, on the right (kosmos#7071).
 struct FilesBubbleBackground: ViewModifier {
+    @Environment(\.paneWidth) var paneWidth   // kosmos#9002
     let widthShare: CGFloat
     let mine: Bool
     @ViewBuilder func body(content: Content) -> some View {
@@ -68,7 +69,7 @@ struct FilesBubbleBackground: ViewModifier {
                 .padding(.vertical, 10).padding(.horizontal, 14)   // kosmos#7347
                 .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Palette.personBubble))
                 .overlay(PressedBubbleMark())   // kosmos#7419 build 11: the bubble itself, before its width frame
-                .frame(maxWidth: UIScreen.main.bounds.width * max(widthShare, 0.85), alignment: .trailing)
+                .frame(maxWidth: paneWidth * max(widthShare, 0.85), alignment: .trailing)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
             content.modifier(AgentBubbleBackground(widthShare: widthShare))
