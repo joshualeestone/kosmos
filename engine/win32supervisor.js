@@ -588,11 +588,6 @@ function superviseStreaming(spec, opts) {
 
   let running = true;
   let child = null;
-  /* kosmos#8967: children that have exited but are still held while their stdout
-     drains. Their late lines are not published (see attach), and a send to one is a
-     definite no. For a real node child `stdin.destroyed` is already true by 'exit'
-     (measured), so on send() this is the guard for a child that does not do that. */
-  const exited = new WeakSet();
   let lastStart = 0;
   const handle = { sessionId: s.resumeSessionId || null };
 
@@ -717,15 +712,16 @@ function superviseStreaming(spec, opts) {
         const e = parseEvent(line);
         const err = stdoutError(e, line);
         if (err) stdoutSaid = err;
-        /* A success, or the start of a new turn, ends the last error's story: "its
-           last error" means this turn's, never one from hours before. */
+        /* A success, or the start of a new turn, ends the last error's story (an
+           error result, or a non-event line, alike): "its last error" means this
+           turn's, never one from hours before. */
         else if (e && typeof e === 'object' && (e.type === 'result' || (e.type === 'system' && e.subtype === 'init'))) stdoutSaid = '';
         /* The record above is this child's own, so it is kept even once the child is
-           replaced (its death still needs it); what follows publishes, and only the
-           CURRENT, LIVE child may. A line read while an exited child drains only
-           feeds the death's reason: before #8967 `exit` dropped such lines at once,
-           and the loop's own behaviour (state, rekey, fresh start) stays as it was. */
-        if (child !== c || exited.has(c)) return;
+           replaced or has exited (its death's line still needs it); what follows
+           publishes, and only the CURRENT child may. An exited child is no longer
+           current (`gone` clears `child` at 'exit'), so a line read while it drains
+           only feeds its reason, as before #8967 when such lines were dropped. */
+        if (child !== c) return;
         if (resumed && saysNothingToResume(e)) nothingToResume = true;
         followSessionId(e);   // before the state sink, so a rekey lands before the turn's events
         stream.event(e);
@@ -743,29 +739,9 @@ function superviseStreaming(spec, opts) {
     /* ⚠️ ONE HANDLER, AND IT MUST NOT FIRE TWICE. 'exit' and 'close' both arrive;
        acting on both would double-count a death and burn the throttle budget. */
     let handled = false;
-    /* kosmos#8967: 'exit' can come BEFORE the child's last stdout line has been read
-       (measured on Windows: a child that prints its error `result` and exits at once
-       had the line arrive after 'exit' 40 times in 40; stderr arrived before it 40 in
-       40). So when stdout is a stream still open, the death waits for it to end, at
-       most STDOUT_DRAIN_MS: a grandchild holding the pipe open cannot hold up the
-       death or the restart past that. The single-handler guard is set at once, so a
-       second 'exit' or an 'error' during the wait still counts nothing twice. */
     const gone = (code, signal) => {
       if (handled) return;
       handled = true;
-      exited.add(c);   // held only to drain from here on: send() says it is not running
-      const out = c.stdout;
-      if (!out || out.readableEnded !== false || typeof out.once !== 'function') { finish(code, signal); return; }
-      let done = false;
-      const once = () => { if (done) return; done = true; finish(code, signal); };
-      out.once('end', once);
-      out.once('close', once);
-      /* The real clock on purpose, as for the registration timer: the injected
-         `timer` is a no-op in the tests, and a death must never wait on it forever. */
-      const t = setTimeout(once, stdoutDrainMs);
-      if (t && typeof t.unref === 'function') t.unref();
-    };
-    const finish = (code, signal) => {
       /* This run is over whether or not it was already replaced, so its token is
          retired unconditionally -- retire, never revoke, so the agent's other runs
          keep theirs. A clean stop ends the child through this same path. */
@@ -779,6 +755,31 @@ function superviseStreaming(spec, opts) {
       }
       const wasCurrent = child === c;
       if (wasCurrent) { child = null; stream.stopped(); }
+      /* kosmos#8967: 'exit' can come BEFORE the child's last stdout line has been read
+         (measured on Windows: a child that prints its error `result` and exits at once
+         had the line arrive after 'exit' 40 times in 40; stderr arrived before it 40
+         in 40). So the `died` line, and the restart that follows it, wait for stdout
+         to end, at most `stdoutDrainMs`: a grandchild holding the pipe open cannot
+         hold them up past that. Everything ABOUT the process is settled above, at
+         'exit', exactly as before: `child` is already null, so every `child === x`
+         check (send, rekey retry, registration check, the stdout publisher) treats it
+         as gone during the wait. Only the reason gathering and the line are late. */
+      const out = c.stdout;
+      if (!out || typeof out.once !== 'function' || out.readableEnded !== false || out.destroyed === true || out.closed === true) {
+        finish(code, signal, wasCurrent);
+        return;
+      }
+      let done = false;
+      const once = () => { if (done) return; done = true; finish(code, signal, wasCurrent); };
+      out.once('end', once);
+      out.once('close', once);
+      /* The real clock on purpose, as for the registration timer: the injected
+         `timer` is a no-op in the tests, and a death must never wait on it forever.
+         Not unref'd: it is bounded, and an unref'd one could let the process leave
+         before the line this exists to write. */
+      setTimeout(once, stdoutDrainMs);
+    };
+    const finish = (code, signal, wasCurrent) => {
       const said = stderrTail.replace(/\s+/g, ' ').trim();
       /* kosmos#8967: Claude in stream-json mode reports a fatal error as a `result`
          event on STDOUT, not on stderr, so a death after one used to read as silent. */
@@ -967,7 +968,7 @@ function superviseStreaming(spec, opts) {
    */
   handle.send = function send(text, done) {
     const answer = (r) => { if (typeof done === 'function') { try { done(r); } catch { /* the caller's problem, not ours */ } } return r; };
-    if (!child || !child.stdin || child.stdin.destroyed || exited.has(child)) {
+    if (!child || !child.stdin || child.stdin.destroyed) {
       return answer({ ok: false, because: 'it is not running just now, so we did not type anything' });
     }
     /* 🔑 `done` IS CALLED WHEN THE BYTES HAVE FLUSHED, NOT WHEN THEY WERE HANDED
