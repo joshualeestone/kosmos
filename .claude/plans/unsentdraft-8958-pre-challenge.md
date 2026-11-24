@@ -2,22 +2,22 @@
 pre_challenge: true
 method: challenge-loop
 branch: unsentdraft-8958
-diff_hash: 78feaa569b5572fea9e7ddd45f687af5e42a01a6985ad8f3759dbff2d35e7c33
+diff_hash: 1328ec963700a33b9296938f463def55462a9b57ffde4b76710b5b672e30ab7a
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-24T10:37:14Z
-iterations: 8
+timestamp: 2026-11-24T13:16:18Z
+iterations: 9
 converged: false
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8
+**Iterations:** 9 (8 in the loop, then 1 on a CI red)
 **Converged:** No (stopped at the 8-round cap, Splinter's standing usage rule of 10-22 and 10-26: stop at 8 unless a BLOCKER is open; none was open after iteration 8)
 **Total findings:** 15 actionable (0 BLOCKERs, 12 WARNINGs, 3 CONVENTIONs) plus NITs
-**Fixed:** 12 | **Deferred:** 3 | **Asked (awaiting user):** 0
+**Fixed:** 13 | **Deferred:** 3 | **Asked (awaiting user):** 0
 
-Validation: one full run through the heavy queue at the end (validation_rc=0, audit_rc=0, QUEUED-HEAVY END rc=0 at 04:34 CST). Between rounds: all 13 ios/LogicTests runners and a swiftc typecheck of every ios/Kosmos source at iOS 16, since a queued full run cannot share the tree with edits.
+Validation: one full run through the heavy queue after the loop (validation_rc=0, audit_rc=0 at 04:34 CST), and again after iteration 9 and a rebase onto origin/main aa24bd6f4 (validation_rc=0, audit_rc=0, rc=0 at 07:16 CST). Between rounds: all 13 ios/LogicTests runners and a swiftc typecheck of every ios/Kosmos source at iOS 16, since a queued full run cannot share the tree with edits.
 
 ### Per-Iteration Breakdown
 
@@ -95,6 +95,13 @@ Validation: one full run through the heavy queue at the end (validation_rc=0, au
 | 11 | 6 | CONVENTION | ios/Kosmos/BoardLogic.swift:1748 | SELF | comment overstated parity | FIXED | f6a7631063 |
 | 12 | 7 | WARNING | ios/KosmosUITests/UnsentDraftUITests.swift:67 | SELF | clock wait could pass with no read | FIXED | 9204bc737a |
 | 13 | 8 | WARNING | ios/KosmosUITests/UnsentDraftUITests.swift:56 | SELF | row can leave the tree with the keyboard up | FIXED | aed947a785 |
+
+#### Iteration 9 (after CI run 45376693324 went red)
+**Reviewer model:** sonnet
+**New findings:** 1 BLOCKER found by CI, 0 by the reviewer, 1 NIT
+- [BLOCKER] ios/KosmosUITests/UnsentDraftUITests.swift:25 - app.staticTexts[band] with the 140-character band: XCUITest refuses a subscript identifier over 128 characters, so testDismissTakesTheDraftAway and testTheDraftIsDrawnInTheChat failed on both chat lists --> FIXED (b4627497f5): a label predicate. UnsentDraftUITests 3 of 3 passed alone on a local simulator (lazy list); the reviewer read every caller and the band's view and found nothing more
+- [NIT] the comment cites a CI run id --> kept, it is the evidence
+- Rebased onto origin/main aa24bd6f4: ios/tools/ui-sample.sh conflicted with #8953's WebFileUITests on the classes line; both classes kept. ios.ui-sample-shard-8453 and ios.ui-sample-tally-7609 tests 6 of 6
 
 ### NITs (non-blocking, across all iterations)
 - trailing-newline id (measured already refused; redundant guard removed) (1)
