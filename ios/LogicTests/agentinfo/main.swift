@@ -384,7 +384,9 @@ check(infoView.components(separatedBy: "guard current() else { superseded(); ret
 check(infoView.components(separatedBy: ".disabled(switching || actionsHeld)").count - 1 == 3 && infoView.contains(".disabled(switching || openaiModelsLoading || actionsHeld)")
       && infoView.components(separatedBy: ".disabled(saving || details == nil || actionsHeld)").count - 1 == 2 && infoView.contains(".disabled(saving || actionsHeld ||")
       && infoView.components(separatedBy: ".disabled(freshBusy || switching || saving || actionsHeld)").count - 1 == 4, "a restart or removal under way holds every other control on the page")
-check(Board.boardOnlyFooter.contains("taking off a card Kosmos cannot tie to its agent"), "the board row names the untied clear-off it keeps")
+check(Board.boardOnlyFooter.contains("taking off a card Kosmos cannot tie to its agent") && Board.boardOnlyFooter.contains("setting up an agent that has no way to start on its own"), "the board row names the untied clear-off and the set-up offer it keeps")
+check(Board.removalPlan(status: 403, body: j("<html>sign in</html>"), session: "cleo") == .cannot(because: Board.phoneShutOut, untied: false) && Board.removalPlan(status: 401, body: nil, session: "cleo") == .cannot(because: Board.phoneShutOut, untied: false), "a shut-out with no JSON body still says the phone was not let in")
+check(infoView.contains("guard mine == removalLoad, !removed, !removeBusy else { return }"), "a plan read that lands during a removal is dropped")
 check(infoView.contains("Text(Board.boardOnlyFooter)") && infoView.contains("removeSection") && infoView.contains("Board.restartLabel(live.name)"), "the page draws Restart, Remove and the new footer")
 
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")

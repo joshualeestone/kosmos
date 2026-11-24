@@ -566,7 +566,7 @@ struct AgentInfoView: View {
         removalLoad += 1
         let mine = removalLoad
         let res = await client.throughMac { Board.removalPlanRequest(mac: $0, session: session) }
-        guard mine == removalLoad, !removed else { return }
+        guard mine == removalLoad, !removed, !removeBusy else { return }
         let plan = Board.removalPlan(status: res?.1.statusCode ?? 0, body: res?.0, session: session)
         // A read that did not answer keeps a plan already shown (the next refresh asks again).
         if plan == .unreached, case .can? = removal { return }

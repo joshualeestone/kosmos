@@ -22,10 +22,10 @@ the board row says only what is still there, and that it is a web page.
   - Remove: GET /api/agent/<n>/removal for the engine's hint, question, reassurance, Loses, Keeps; DELETE without
     ?force. A 5xx, unparsed or shut-out read is "could not reach", never a fact about the agent (loadRemoval);
     partial is not success (rm-go).
-- Not offered on the phone: "Write a handoff, then restart" (the board-row footer names it), "Remove from my board
-  anyway" for an untied agent (the Remove section says to use the board), and the board's "Set up and restart" offer
-  for a hand-linked window with no launch job (canWriteJob): the phone sends a plain restart and shows the engine's
-  own refusal.
+- Not offered on the phone, all three named in the board-row footer: "Write a handoff, then restart", "Remove from my
+  board anyway" for an untied agent (the Remove section also says to use the board), and the board's "Set up and
+  restart" offer for a hand-linked window with no launch job (canWriteJob): the phone sends a plain restart and shows
+  the engine's own refusal. A plan read that lands while a removal is under way is dropped.
 - After a removal the page stays, with "Removed. <name> has left your board." It does not promise putting it back,
   because a jobless agent cannot be (engine/remove.js plan), and the phone does not know which kind it removed.
   Rejected: popping the page and the chat in code, which goes through #8055's link-close detection and could record
@@ -39,7 +39,7 @@ the board row says only what is still there, and that it is a web page.
 - Commitments live on Board.Agent (BoardLogic.swift), since every LogicTests runner compiles that file.
 
 ## Tests
-- ios/LogicTests/run-agentinfo.sh: 287 (96 new), with guards that the board's page still holds each mirrored
+- ios/LogicTests/run-agentinfo.sh: 289 (98 new), with guards that the board's page still holds each mirrored
   sentence and rule. Mutants: any 200 counted as restarted; ready without seeing the gap; the limit check before sign-in: each red.
 - Every LogicTests runner green on the final tree.
 - App build for the iOS Simulator.
