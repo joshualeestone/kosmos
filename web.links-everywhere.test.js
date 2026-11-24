@@ -160,7 +160,7 @@ test('every message row draws the attachment card, and the + and drop targets ar
      surface's own sender posts the message with the id. */
   assert.match(SCRIPT, /'\/api\/project\/' \+ encodeURIComponent\(PJ_CURRENT\) \+ '\/attachment'/, 'the room + does not upload to the project attachment route');
   assert.match(SCRIPT, /'\/api\/agent\/' \+ encodeURIComponent\(CURRENT \? CURRENT\.sessionName : ''\) \+ '\/attachment'/, 'the agent + does not upload to the agent attachment route');
-  assert.match(SCRIPT, /method: 'PUT',\s*\n\s*headers: \{ 'content-type': file\.type \|\| 'application\/octet-stream', 'x-attachment-name': encodeURIComponent\(file\.name\) \}/, 'the upload is not a raw PUT with the name in its header');
+  assert.match(SCRIPT, /method: 'PUT',\s*\n\s*(?:\/\*[^*]*\*\/\s*)?headers: \{ 'content-type': file\.type \|\| 'application\/octet-stream', 'x-attachment-name': encodeURIComponent\(file\.name\), 'x-attachment-size': String\(file\.size\) \}/, 'the upload is not a raw PUT with the name and the file\'s own size (kosmos#9016) in its headers');
   /* Attach, then send (Josh, 2026-08-23 1:59 PM): a picked file waits on a
      chip beside the composer, and the surface's own sender carries every
      pending id with the words as `attachments`, clearing them on success. */

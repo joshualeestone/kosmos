@@ -85590,9 +85590,8 @@ async function attachUpload(file, where) {
   try {
     const res = await fetch(where.url(), {
       method: 'PUT',
-      headers: { 'content-type': file.type || 'application/octet-stream', 'x-attachment-name': encodeURIComponent(file.name),
-        /* kosmos#9016: what the file is, as this browser read it, so the board can tell a body that arrived short or long of it. */
-        'x-attachment-size': String(file.size) },
+      /* kosmos#9016: the size is the file's own, as this browser read it, so the board can tell a body that arrived short or long of it. */
+      headers: { 'content-type': file.type || 'application/octet-stream', 'x-attachment-name': encodeURIComponent(file.name), 'x-attachment-size': String(file.size) },
       body: file,
     });
     const body = await res.json().catch(() => null);
