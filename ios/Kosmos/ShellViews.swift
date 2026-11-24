@@ -182,7 +182,8 @@ struct OpensOnBoardNote: View {
     var body: some View {
         (Text(Image(systemName: Board.boardIcon)) + Text(" ") + Text(words))
             .font(.caption).foregroundColor(Palette.secondary)
-            .accessibilityHidden(true)   // the button carries it as its hint (opensOnBoardHint)
+            .accessibilityLabel(words)   // read after the button, so the button itself carries no second hint
+            .padding(.bottom, 8)   // off the tab bar where a screen puts its button at the foot
     }
 }
 

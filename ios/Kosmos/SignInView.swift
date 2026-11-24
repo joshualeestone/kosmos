@@ -560,7 +560,7 @@ struct SignInView: View {
             if model.reviewDoor { link("Sign in with a password", action: model.usePassword).disabled(model.busy) }
             // Where Apple's sheet cannot take a company's sign-in (before iOS 17.4), the web page has it: say so here.
             if !model.companySheet {   // kosmos#8957: and says it opens a web page
-                link("Sign in with your company's account", action: useWeb).disabled(model.busy).opensOnBoardHint(Board.opensSignInPage)
+                link("Sign in with your company's account", action: useWeb).disabled(model.busy)
                 OpensOnBoardNote(words: Board.opensSignInPage)
             }
             footnote("New to Kosmos+? Make your account on your computer.")
@@ -629,7 +629,7 @@ struct SignInView: View {
         case .web(let reason):
             title(SignIn.webTitle(reason: reason))
             line(reason)
-            primary("Continue", action: useWeb).opensOnBoardHint(Board.opensSignInPage)
+            primary("Continue", action: useWeb)
             OpensOnBoardNote(words: Board.opensSignInPage)   // kosmos#8957
             if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
         case .setup(_, let sms):
