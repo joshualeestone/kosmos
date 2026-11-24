@@ -58,3 +58,16 @@ last 25 lines; the prompt sits at the bottom). Checked in review.
 - Linked windows count as watched; failure and grown memory pruned to existing windows; the brake restores at once.
 - Known, not handled: a board that stops (shutdown, or its world never returns) leaves its grown windows tall until it
   runs again. tmux older than 3.0 (user option in a format) is not supported by this sweep: the mark would read empty.
+
+## Round 4 (sonnet) fixes
+- Windows planned by #{window_id} (a grouped window is listed once per session), acted on by id.
+- A grown window is kept for the box it was grown for, known by its request id the first time it reads whole; a
+  different box puts it back; a report change under the same box changes nothing (replaces round 3's report-time key).
+- Someone watching is looked at every tick without a screen read, never spending the unsure budget (a brief look no
+  longer leaves the prompt ungrowable); an unreadable screen and a failed grow spend it.
+- World id sanitised in the mark.
+- Watching = max(session_attached, session_group_attached, window_active_clients). Round 3's window_linked was WRONG:
+  every grouped window reads linked=1, so the real grouped run never grew. Measured window_active_clients on tmux 3.6a
+  (0 unviewed grouped or linked; 1 viewed through either), then the real run passed.
+- Stateful multi-tick tests (fake tmux that keeps height, mark, clients): grow once and keep, report ends under the same
+  box, attach then detach, grouped duplicate row. Mutations checked: dedupe, watched budget, fingerprint.
