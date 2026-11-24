@@ -22,7 +22,11 @@ final class UnsentDraftUITests: XCTestCase {
         return app
     }
 
-    private func bandText(_ app: XCUIApplication) -> XCUIElement { app.staticTexts[band] }
+    // A predicate, not app.staticTexts[band]: XCUITest refuses a subscript identifier over 128 characters, and the band is
+    // longer (CI run 45376693324: "Invalid query - string identifier ... exceeds maximum length of 128 characters").
+    private func bandText(_ app: XCUIApplication) -> XCUIElement {
+        app.staticTexts.matching(NSPredicate(format: "label == %@", band)).firstMatch
+    }
 
     private func shot(_ app: XCUIApplication, _ name: String) {
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = name; a.lifetime = .keepAlways; add(a)
