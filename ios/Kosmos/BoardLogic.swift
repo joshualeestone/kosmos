@@ -2387,14 +2387,15 @@ enum Board {
     // that arrives shorter or longer (X-Attachment-Size, Angel's contract on #9016). Decimal digits only.
     static func withSize(_ request: URLRequest, _ size: Int) -> URLRequest {
         var r = request
-        if size >= 0 { r.setValue(String(size), forHTTPHeaderField: "X-Attachment-Size") }
+        r.setValue(String(size), forHTTPHeaderField: "X-Attachment-Size")
         return r
     }
 
     // A file from Files: its size and kind checked first, so nothing too large and no folder is ever copied, then
     // copied, so the person's own file is never the one removed. Reads it under its security scope (a picked file
     // outside the app's own folders needs it). Off the main thread: a copy can be 100 MB.
-    static func prepareUpload(from url: URL, root: URL) -> Prepared {
+    // `sizeOf` reads a file's size; the tests hand in their own to make a source change under the copy (kosmos#9016).
+    static func prepareUpload(from url: URL, root: URL, sizeOf: (URL) -> Int? = freshSize) -> Prepared {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let name = url.lastPathComponent
@@ -2412,19 +2413,32 @@ enum Board {
         var tooLarge: String?
         var sourceBefore: Int?
         var sourceAfter: Int?
+        var aFolder = false
         NSFileCoordinator().coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinated) { readable in
+            // kosmos#9016 review 1: a link is followed, so what is measured and copied is the file the upload would
+            // send (a copied link measured as itself, a few bytes, while the upload sent the whole file behind it).
+            let real = readable.resolvingSymlinksInPath()
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: real.path, isDirectory: &isDir), isDir.boolValue {
+                aFolder = true   // a link to a folder: refused as a folder is, never copied whole
+                return
+            }
             // Measured again here, where the file is really on the phone (the size Files gave first may have been a
             // cloud placeholder's, or none), so nothing too large is ever copied.
-            sourceBefore = freshSize(readable)
+            sourceBefore = sizeOf(real)
             if let refusal = uploadRefusal(size: sourceBefore, waiting: 0) {
                 tooLarge = refusal
                 return
             }
-            copied = (try? FileManager.default.copyItem(at: readable, to: file)) != nil
-            sourceAfter = freshSize(readable)   // kosmos#9016: a file still being written changes under the copy
+            copied = (try? FileManager.default.copyItem(at: real, to: file)) != nil
+            sourceAfter = sizeOf(real)   // kosmos#9016: a file still being written changes under the copy
+        }
+        if aFolder {
+            try? FileManager.default.removeItem(at: folder)
+            return .refused("\(name) is a folder, so it cannot go in a message. Add the files inside it, or a zip of it.")
         }
         if let tooLarge { try? FileManager.default.removeItem(at: folder); return .refused(tooLarge) }
-        guard copied, coordinated == nil, let size = freshSize(file) else {
+        guard copied, coordinated == nil, let size = sizeOf(file) else {
             try? FileManager.default.removeItem(at: folder)
             return .refused("We could not read \(name).")
         }

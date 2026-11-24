@@ -1834,6 +1834,52 @@ do {
     check(!Board.copyIsWhole(sourceBefore: 65_536, sourceAfter: 65_536, copy: 65_537), "a copy longer than its source is refused")
     check(Board.copyIsWhole(sourceBefore: nil, sourceAfter: nil, copy: 10), "sizes the phone could not read are not held against the file")
     check(Board.notWhole == "That file did not arrive whole; please send it again.", "the board's words for it (#9016)")
+    // kosmos#9016 review 1: the check, through prepareUpload itself (a size reader handed in makes the source change).
+    do {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("attach9016-\(UUID().uuidString)")
+        let root = base.appendingPathComponent("uploads")
+        try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+        let src = base.appendingPathComponent("sheet.xlsx")
+        try? Data(count: 65_537).write(to: src)
+        func left() -> [String] { (try? fm.contentsOfDirectory(atPath: root.path)) ?? [] }
+        func clear() { for n in left() { try? fm.removeItem(at: root.appendingPathComponent(n)) } }
+        let isCopy: (URL) -> Bool = { $0.path.contains("/uploads/") }
+
+        if case .ready(_, _, _, let size) = Board.prepareUpload(from: src, root: root) {
+            check(size == 65_537, "a whole file goes, with its size")
+        } else { check(false, "a whole file goes, with its size") }
+        clear()
+
+        var reads = 0
+        let growing = Board.prepareUpload(from: src, root: root) { u in
+            if isCopy(u) { return Board.freshSize(u) }
+            reads += 1
+            return reads == 1 ? 65_537 : 70_000
+        }
+        check(growing == .refused(Board.notWhole) && left().isEmpty, "a source that grows under the copy is refused, and its copy is gone")
+        check(reads == 2, "the source is read before and after the copy")
+
+        let cut = Board.prepareUpload(from: src, root: root) { u in isCopy(u) ? 65_536 : 65_537 }
+        check(cut == .refused(Board.notWhole) && left().isEmpty, "a copy cut at 64 KiB is refused, and its copy is gone")
+
+        let link = base.appendingPathComponent("link.xlsx")
+        try? fm.createSymbolicLink(at: link, withDestinationURL: src)
+        if case .ready(let file, _, _, let size) = Board.prepareUpload(from: link, root: root) {
+            let kind = (try? fm.attributesOfItem(atPath: file.path))?[.type] as? FileAttributeType
+            check(size == 65_537 && kind == .typeRegular && Board.freshSize(file) == 65_537,
+                  "a link is followed: the file behind it is measured and copied, so the size said is the bytes sent")
+        } else { check(false, "a link is followed: the file behind it is measured and copied") }
+        clear()
+
+        let dir = base.appendingPathComponent("plain-folder")
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dirLink = base.appendingPathComponent("folder-link")
+        try? fm.createSymbolicLink(at: dirLink, withDestinationURL: dir)
+        check(Board.prepareUpload(from: dirLink, root: root) == .refused("folder-link is a folder, so it cannot go in a message. Add the files inside it, or a zip of it.")
+              && left().isEmpty, "a link to a folder is refused as a folder is, never copied whole")
+    }
     let sized = Board.withSize(URLRequest(url: URL(string: "https://mac.example/api/agent/dana/attachment")!), 65_537)
     check(sized.value(forHTTPHeaderField: "X-Attachment-Size") == "65537", "the request says how many bytes it carries, in digits")
 

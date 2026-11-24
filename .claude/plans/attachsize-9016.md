@@ -24,6 +24,22 @@ lands: attachment cards say "incomplete upload, please send again" where the row
   header, and the size that reaches the fake Mac on a real attach. Two mutations (no header; check always passes) each
   turn run.sh red.
 
+## Round 1 (opus, blind) fixes
+- WARNING fixed: a picked symlink was measured and copied as the link (49 bytes, measured by the reviewer) while the
+  upload followed it and sent the whole file, so the Mac would refuse a file that goes today (and a linked file
+  skipped the 100 MB limit, before this branch too). The coordinator's URL is now resolved first; the real file is
+  measured and copied, and a link to a folder is refused as a folder is (never copied whole).
+- WARNING fixed: the check inside prepareUpload could not fail a test (only copyIsWhole was tested). prepareUpload takes
+  the size reader as a parameter (freshSize by default); tests drive it: a source growing under the copy and a copy cut
+  at 64 KiB are refused with their copy removed, the source is read twice, a link is followed to a regular-file copy
+  of the right size, a link to a folder is refused. Mutations (no guard; the before size in both slots; no link
+  follow) each turn run.sh red.
+- NIT fixed: a dead `size >= 0` check in withSize.
+- NIT left, with reason: the room route's header is not asserted on its own. Both routes reach the Mac only through
+  BoardClient.attach's one call, which the agent-route test guards; the room harness tests request builders only.
+- NIT, for the Mac half: its sentence starts lowercase ("that file did not arrive whole...") and the phone shows the
+  Mac's error as it is; asked on #9016 that it be capitalised to match the phone's own refusal.
+
 ## Rejected
 - Sending the size Files gave before the copy: it can be a cloud placeholder's, which is why the coordinator re-reads.
 - Comparing only before-copy: a file still being written can grow during the copy; both reads are needed.
