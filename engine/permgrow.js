@@ -41,7 +41,7 @@ const FIT_MARGIN = 4;
 const DEFAULT_SIZE = { w: 80, h: 24 };   // tmux's default-size, what an agent starts at: the restore for a mark with no size
 const RETRY_AFTER_MS = 60 * 1000;
 const FIELDS = ['#{session_name}', '#{window_index}', '#{window_panes}', '#{session_attached}', '#{session_group_attached}',
-  '#{window_width}', '#{window_height}', `#{${GROWN_OPT}}`];
+  '#{window_linked}', '#{window_width}', '#{window_height}', `#{${GROWN_OPT}}`];
 const LIST_ARGS = ['list-windows', '-a', '-F', FIELDS.join('\t')];
 
 function sizeOf(v) {
@@ -65,13 +65,15 @@ function parseWindows(out) {
     if (!line) continue;
     const c = line.split('\t');
     if (c.length !== FIELDS.length) continue;
-    const [session, win, panes, attached, groupAttached, w, h, mark] = c;
+    const [session, win, panes, attached, groupAttached, linked, w, h, mark] = c;
     if (!session || !/^\d+$/.test(win)) continue;
     rows.push({
       session,
       window: win,
       panes: Number(panes),
-      attached: Math.max(Number(attached) || 0, Number(groupAttached) || 0),
+      /* Review 3: a window linked into another session (link-window) can be watched from there, which neither count
+         sees, so a linked window counts as watched. */
+      attached: Math.max(Number(attached) || 0, Number(groupAttached) || 0, linked === '1' ? 1 : 0),
       size: sizeOf(`${w}x${h}`),
       mark: mark ? markOf(mark) : null,
       markRaw: mark || '',
@@ -104,7 +106,7 @@ function hiddenRows(text) {
    own hook reports a permission wait now. `skip`: Set of names judged earlier under the same report. `screenOf(card)`:
    the screen the thread route would read, or null when it could not be read. `busy(card)`: a key answer or a delivery is
    under way on its pane. `world`: this board's world id. */
-function plan({ cards, windows, waiting, skip, screenOf, busy, world }) {
+function plan({ cards, windows, waiting, skip, screenOf, busy, world, grownFor = new Map(), reportOf = () => undefined }) {
   const acts = [];
   const judged = [];
   const unsure = [];
@@ -125,6 +127,13 @@ function plan({ cards, windows, waiting, skip, screenOf, busy, world }) {
     if (!w.mark.size || w.attached > 0 || !card) { acts.push(restore); continue; }
     const text = read(card);
     if (text == null) continue;   // could not read it: keep the size, ask again next tick
+    /* Review 3: grown for one report, and the agent now waits under another (a NEW prompt, such as a short one right
+       after the long one): put it back, so a short box is not drawn at the top of a tall window with blank rows under
+       it (which the status reader cannot read). The grow loop grows it again next tick if the new box needs it. An
+       unknown grow (a board restart) counts as another. */
+    const grownKey = `${w.session}\u0000${w.window}`;
+    const nowAt = reportOf(card.sessionName);
+    if (nowAt !== undefined && grownFor.get(grownKey) !== nowAt) { acts.push(restore); continue; }
     if (!status.claudePermissionPrompt(text)) {
       acts.push(restore);
       /* Review 2: while the same report stands, never grow this window again: a screen that stops reading as a prompt
@@ -139,13 +148,20 @@ function plan({ cards, windows, waiting, skip, screenOf, busy, world }) {
     if (hidden && rows <= MAX_ROWS) acts.push({ act: 'grow', session: w.session, window: w.window, size, rows, again: true });
   }
   for (const card of list) {
-    if (!card || card.isNamedOurs !== true || card.reachedByChannel === true) continue;
-    if (String(card.runner || 'claude') !== 'claude') continue;
+    if (!card) continue;
     const name = card.sessionName;
     if (!waiting || !waiting.has(name) || (skip && skip.has(name))) continue;
+    /* Review 3: a waiting agent this sweep can never grow is settled under its report, so it does not make every tick
+       read the roster. A person watching, or no window found yet, may change: read again a few times (unsure). */
+    if (card.isNamedOurs !== true || card.reachedByChannel === true || String(card.runner || 'claude') !== 'claude') { judged.push(name); continue; }
     const at = windowOf(card);
     const w = at && (windows || []).find((x) => x.session === at.session && x.window === at.window);
-    if (!w || w.markRaw || w.attached > 0 || w.panes !== 1 || !w.size || isBusy(card)) continue;
+    if (!w) { unsure.push(name); continue; }
+    if (w.markRaw && !(w.mark && w.mark.world === world)) { judged.push(name); continue; }   // another board's window
+    if (w.markRaw) continue;   // ours, grown: the first loop looks after it
+    if (w.panes !== 1 || !w.size) { judged.push(name); continue; }
+    if (w.attached > 0) { unsure.push(name); continue; }
+    if (isBusy(card)) continue;
     const text = read(card);
     if (text == null) continue;
     /* Only a FINAL verdict is judged (not read again under this report): a whole box, or one taller than MAX_ROWS.
@@ -222,10 +238,15 @@ function keyOf(name) {
   try { return require('./store').safeKey(name); } catch { return null; }
 }
 
+function cardNameAt(cards, a) {
+  const c = cards.find((x) => { const at = windowOf(x); return at && at.session === a.session && at.window === a.window; });
+  return c ? c.sessionName : null;
+}
+
 /* The sweep's memory between ticks: the reports already judged, and windows whose last action failed (left alone for
    RETRY_AFTER_MS, and logged once). */
 const UNSURE_READS = 3;
-function newMemory() { return { judged: new Map(), unsure: new Map(), failedUntil: new Map(), reports: new Map() }; }
+function newMemory() { return { judged: new Map(), unsure: new Map(), failedUntil: new Map(), reports: new Map(), grownFor: new Map() }; }
 
 /* One tick. `roster()` returns the board's roster (called at most once, and only on a tick that could act); `tmux`,
    `screenOf`, `busy` default to chat's; `waits()` to permissionWaits; `world` to this board's. `restoreOnly` (the
@@ -245,14 +266,23 @@ function sweepOnce({ roster, tmux = chat.tmuxCall, screenOf, busy = chat.paneKey
   if (!Array.isArray(cards)) return [];
   const waiting = new Map();
   const skip = new Set();
+  const onRoster = new Set();
   for (const c of cards) {
     const k = c && keyOf(c.sessionName);
-    if (k == null || !byKey.has(k)) continue;
+    if (k == null) continue;
+    onRoster.add(k);
+    if (!byKey.has(k)) continue;
     waiting.set(c.sessionName, k);
     if (memory.judged.has(k)) skip.add(c.sessionName);
   }
+  // Review 3: a report with no agent on the roster (a removed agent's last line) is settled, never read again.
+  for (const [k, at] of byKey) if (!onRoster.has(k)) memory.judged.set(k, at);
+  const keyed = new Set(windows.map((w) => `${w.session}\u0000${w.window}`));
+  for (const k of memory.failedUntil.keys()) if (!keyed.has(k)) memory.failedUntil.delete(k);
+  for (const k of memory.grownFor.keys()) if (!keyed.has(k)) memory.grownFor.delete(k);
+  const reportOf = (name) => { const k = keyOf(name); return k != null && byKey.has(k) ? byKey.get(k) : null; };
   const read = screenOf || ((card) => chat.viewport(card.sessionName, cards).text);
-  const { acts, judged, unsure } = plan({ cards, windows, waiting, skip, screenOf: read, busy, world });
+  const { acts, judged, unsure } = plan({ cards, windows, waiting, skip, screenOf: read, busy, world, grownFor: memory.grownFor, reportOf });
   for (const name of judged) { const k = waiting.get(name); if (k != null) { memory.judged.set(k, byKey.get(k)); memory.unsure.delete(k); } }
   /* An unsure screen is read again, UNSURE_READS times per report: a stale report whose agent shows no prompt costs a
      few reads, not one every tick for as long as the report stands. */
@@ -269,6 +299,8 @@ function sweepOnce({ roster, tmux = chat.tmuxCall, screenOf, busy = chat.paneKey
     const until = memory.failedUntil.get(key);
     if (until && now < until) continue;
     const took = run(a, tmux, world);
+    if (took && a.act === 'grow' && !a.again) memory.grownFor.set(key, reportOf(cardNameAt(cards, a)));
+    if (took && a.act === 'restore') memory.grownFor.delete(key);
     if (took) memory.failedUntil.delete(key);
     else memory.failedUntil.set(key, now + RETRY_AFTER_MS);
     if (typeof log === 'function' && (took || !until)) {

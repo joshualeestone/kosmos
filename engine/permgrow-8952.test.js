@@ -1,8 +1,9 @@
 'use strict';
 
 /* kosmos#8952 slice (d): engine/permgrow.js grows a window whose permission box is cut, and puts it back. The screens are
-   real captures (Claude Code 2.1.331, tmux 3.6a, 2026-11-24) of the same 60-line mkdir prompt: at 80x24 (cut, "↑ 50 more
-   lines") and at 76 rows (24 + 50 + 2: whole), kept untrimmed. No real tmux is touched: every call goes to a fake. */
+   real captures (Claude Code 2.1.331, tmux 3.6a, 2026-11-24) of ONE 60-line mkdir prompt, each read the way chat.viewport
+   reads (capture-pane -J -S -60, untrimmed): at 80x24 (cut, "↑ 50 more lines"), grown to 78 rows (24 + 50 + 4: whole),
+   and shrunk back to 80x24 while it was still up. No real tmux is touched: every call goes to a fake. */
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -14,7 +15,8 @@ const chat = require('./chat');
 
 const SCREENS = path.join(__dirname, '..', 'test-support', 'claude-screens');
 const CUT = fs.readFileSync(path.join(SCREENS, 'permission-prompt-bash-60-cut-80x24-2.1.331.txt'), 'utf8');
-const WHOLE = fs.readFileSync(path.join(SCREENS, 'permission-prompt-bash-60-grown-76rows-2.1.331.txt'), 'utf8');
+const WHOLE = fs.readFileSync(path.join(SCREENS, 'permission-prompt-bash-60-grown-78rows-2.1.331.txt'), 'utf8');
+const SHRUNK = fs.readFileSync(path.join(SCREENS, 'permission-prompt-bash-60-shrunk-under-prompt-80x24-2.1.331.txt'), 'utf8');
 const IDLE = '❯ \n';
 const WORLD = 'w1';
 
@@ -27,7 +29,9 @@ const card = (over = {}) => ({ ...ADA, ...over });
 const win = (over = {}) => ({ session: S, window: '0', panes: 1, attached: 0, size: { w: 80, h: 24 }, mark: null, markRaw: '', ...over });
 const grownWin = (over = {}) => win({ size: { w: 80, h: 78 }, mark: { world: WORLD, size: { w: 80, h: 24 } }, markRaw: `80x24@${WORLD}`, ...over });
 const WAITING = new Map([['ada', 'ada']]);
-const planOf = (o) => pg.plan({ cards: [card()], windows: [win()], waiting: WAITING, skip: new Set(), screenOf: () => CUT, busy: () => false, world: WORLD, ...o });
+const GROWN_FOR = new Map([[`${S}\u00000`, 't1']]);
+const planOf = (o) => pg.plan({ cards: [card()], windows: [win()], waiting: WAITING, skip: new Set(), screenOf: () => CUT, busy: () => false, world: WORLD,
+  grownFor: GROWN_FOR, reportOf: (n) => (n === 'ada' ? 't1' : null), ...o });
 
 test('premises, on the real captures', () => {
   const P = { command: '2.1.331', title: '✳ mkdir', session: 'x', name: 'x' };
@@ -35,6 +39,11 @@ test('premises, on the real captures', () => {
   assert.equal(chat.permissionAnswerable(WHOLE), true);
   assert.equal(chat.permissionCard(WHOLE).detail.split('\n').length, 61, 'all 60 directories and the mkdir line');
   assert.equal(pg.hiddenRows(CUT), 50);
+  /* Review 3: putting a window back while its box is still up must not leave the drawn top in scrollback to be stitched
+     to the redrawn tail into a box that looks whole. Measured: Claude Code redraws and the box reads cut again. */
+  assert.equal(chat.permissionAnswerable(SHRUNK), false, 'shrunk under the prompt: cut again, no card stitched from scrollback');
+  assert.equal(chat.permissionCard(SHRUNK), null);
+  assert.equal(pg.hiddenRows(SHRUNK), 50);
   assert.equal(pg.hiddenRows(WHOLE), null);
   // The reason the window is fitted, not made 200 rows: classify reads the last 25 rows, and blank rows under the box
   // (a screen shorter than the pane) turn needs_you into unknown. The fitted screen has none.
@@ -55,6 +64,7 @@ test('no grow: whole box, no prompt, unreadable, watched, several panes, busy, n
   none({ screenOf: () => { throw new Error('x'); } });
   none({ windows: [win({ attached: 1 })] });
   none({ windows: [win({ panes: 2 })] });
+  none({ windows: [] });
   none({ busy: () => true });
   none({ busy: () => { throw new Error('x'); } });
   none({ waiting: new Map() });
@@ -74,6 +84,17 @@ test('judged only on a final verdict (whole, or taller than MAX_ROWS); no prompt
   assert.deepEqual(v(IDLE), [0, [], ['ada']], 'the hook can report before the box is drawn: look again');
 });
 
+test('a waiting agent this sweep can never grow is settled (no roster every tick); watched or windowless is unsure', () => {
+  const v = (o) => { const r = planOf(o); return [r.judged, r.unsure]; };
+  assert.deepEqual(v({ cards: [card({ runner: 'codex' })] }), [['ada'], []]);
+  assert.deepEqual(v({ cards: [card({ isNamedOurs: false })] }), [['ada'], []]);
+  assert.deepEqual(v({ windows: [win({ panes: 2 })] }), [['ada'], []]);
+  assert.deepEqual(v({ windows: [grownWin({ mark: { world: 'w2', size: { w: 80, h: 24 } }, markRaw: '80x24@w2' })] }), [['ada'], []]);
+  assert.deepEqual(v({ windows: [win({ attached: 1 })] }), [[], ['ada']]);
+  assert.deepEqual(v({ windows: [] }), [[], ['ada']]);
+  assert.deepEqual(v({ busy: () => true }), [[], []], 'busy is a moment: looked at next tick');
+});
+
 test('a grown window: kept while the prompt is up, restored when gone, watched, agentless or unreadable mark', () => {
   const restore = (size = { w: 80, h: 24 }) => [{ act: 'restore', session: S, window: '0', size }];
   const p = (o) => planOf({ windows: [grownWin()], ...o }).acts;
@@ -87,6 +108,9 @@ test('a grown window: kept while the prompt is up, restored when gone, watched, 
   assert.deepEqual(p({ windows: [grownWin({ mark: { world: WORLD, size: null }, markRaw: `junk@${WORLD}` })] }), restore(pg.DEFAULT_SIZE),
     'a mark whose size does not read goes back to the size agents start at, never left tall');
   assert.deepEqual(p({ busy: () => true, screenOf: () => IDLE }), [], 'a press is reading the screen: leave it this tick');
+  assert.deepEqual(p({ reportOf: () => 't2', screenOf: () => WHOLE }), restore(), 'a NEW prompt (new report): put back, grown again only if it needs it');
+  assert.deepEqual(p({ grownFor: new Map(), screenOf: () => WHOLE }), restore(), 'grown before a board restart: put back');
+  assert.deepEqual(planOf({ windows: [grownWin()], reportOf: () => 't2', screenOf: () => WHOLE }).judged, [], 'a new prompt is not settled by the restore');
 });
 
 test('a grown window whose box is still (or again) cut grows again by its hint, keeping the recorded size', () => {
@@ -105,11 +129,12 @@ test('another board on the same tmux server: its marks are never touched, and it
   assert.deepEqual(planOf({ windows: [theirs], screenOf: () => IDLE }).acts, []);
 });
 
-test('parseWindows and markOf: a grouped session\'s clients count as watching', () => {
-  const out = `ada\t0\t1\t0\t0\t80\t78\t80x24@${WORLD}\nbob\t1\t1\t0\t2\t120\t40\t\nbroken line\n`;
+test('parseWindows and markOf: a grouped session\'s clients, or a linked window, count as watching', () => {
+  const out = `ada\t0\t1\t0\t0\t0\t80\t78\t80x24@${WORLD}\nbob\t1\t1\t0\t2\t0\t120\t40\t\ncy\t0\t1\t0\t\t1\t80\t24\t\nbroken line\n`;
   assert.deepEqual(pg.parseWindows(out), [
     { session: 'ada', window: '0', panes: 1, attached: 0, size: { w: 80, h: 78 }, mark: { world: WORLD, size: { w: 80, h: 24 } }, markRaw: `80x24@${WORLD}` },
     { session: 'bob', window: '1', panes: 1, attached: 2, size: { w: 120, h: 40 }, mark: null, markRaw: '' },
+    { session: 'cy', window: '0', panes: 1, attached: 1, size: { w: 80, h: 24 }, mark: null, markRaw: '' },
   ]);
   assert.equal(pg.markOf('80x24'), null, 'no world: not a mark this code writes');
   assert.deepEqual(pg.windowOf(card({ target: 'a:b:3.0' })), { session: 'a:b', window: '3' });
@@ -150,8 +175,8 @@ const listing = (out, fail = () => false) => {
   };
   return { fn, calls };
 };
-const ROW = `${S}\t0\t1\t0\t\t80\t24\t\n`;
-const GROWN_ROW = `${S}\t0\t1\t0\t\t80\t78\t80x24@${WORLD}\n`;
+const ROW = `${S}\t0\t1\t0\t\t0\t80\t24\t\n`;
+const GROWN_ROW = `${S}\t0\t1\t0\t\t0\t80\t78\t80x24@${WORLD}\n`;
 const sweep = (o) => pg.sweepOnce({ world: WORLD, busy: () => false, waits: () => new Map([['ada', 't1']]), screenOf: () => CUT, ...o });
 
 test('sweepOnce: lists, plans and acts; a failed list does nothing; no roster does nothing', () => {
@@ -169,7 +194,7 @@ test('sweepOnce: lists, plans and acts; a failed list does nothing; no roster do
 test('sweepOnce reads the roster only when it could act, and a judged report is not read again', () => {
   const noRoster = () => { throw new Error('the roster must not be built'); };
   assert.deepEqual(sweep({ roster: noRoster, tmux: listing(ROW).fn, waits: () => new Map() }), [], 'nobody waiting, nothing grown');
-  assert.deepEqual(sweep({ roster: noRoster, tmux: listing(`${S}\t0\t1\t0\t\t80\t78\t80x24@w2\n`).fn, waits: () => new Map() }), [], 'only another board\'s mark');
+  assert.deepEqual(sweep({ roster: noRoster, tmux: listing(`${S}\t0\t1\t0\t\t0\t80\t78\t80x24@w2\n`).fn, waits: () => new Map() }), [], 'only another board\'s mark');
   const memory = pg.newMemory();
   let built = 0;
   const roster = () => { built += 1; return [card()]; };
@@ -203,8 +228,8 @@ test('the brake grows nothing and still puts grown windows back', () => {
   const t = listing(ROW);
   assert.deepEqual(sweep({ roster: () => [card()], tmux: t.fn, restoreOnly: true }), []);
   assert.deepEqual(t.calls, ['list-windows']);
-  const kept = sweep({ roster: () => [card()], tmux: listing(GROWN_ROW).fn, restoreOnly: true, screenOf: () => WHOLE });
-  assert.deepEqual(kept, [], 'prompt still up: even braked, a grown window is put back only when it ends');
+  const back = sweep({ roster: () => [card()], tmux: listing(GROWN_ROW).fn, restoreOnly: true, screenOf: () => WHOLE });
+  assert.deepEqual(back.map((a) => a.act), ['restore'], 'braked: put back at once, prompt or not (measured safe: SHRUNK)');
   assert.deepEqual(sweep({ roster: () => [card()], tmux: listing(GROWN_ROW).fn, restoreOnly: true, screenOf: () => IDLE }).map((a) => a.act), ['restore']);
 });
 
@@ -232,4 +257,18 @@ test('the default screen reader is the thread route\'s (chat.viewport), through 
     assert.deepEqual(done.map((a) => [a.act, a.rows]), [['grow', 24 + 50 + pg.FIT_MARGIN]]);
     assert.deepEqual(calls, ['list-windows', 'capture-pane', 'set-option', 'resize-window']);
   } finally { chat.setRunner(null); }
+});
+
+test('a watched agent, or a report with no agent on the roster, stops costing a roster read every tick', () => {
+  const memory = pg.newMemory();
+  let built = 0;
+  const roster = () => { built += 1; return [card()]; };
+  const watched = listing(`${S}\t0\t1\t1\t\t0\t80\t24\t\n`).fn;
+  for (let i = 0; i < pg.UNSURE_READS + 3; i += 1) sweep({ roster, memory, tmux: watched });
+  assert.equal(built, pg.UNSURE_READS, 'read a few times while a person watches, then left until a new report');
+  const m2 = pg.newMemory();
+  let built2 = 0;
+  const gone = () => { built2 += 1; return [card()]; };
+  for (let i = 0; i < 4; i += 1) sweep({ roster: gone, memory: m2, tmux: listing(ROW).fn, waits: () => new Map([['removedagent', 't9']]) });
+  assert.equal(built2, 1, 'a removed agent\'s last report is settled on the first read');
 });

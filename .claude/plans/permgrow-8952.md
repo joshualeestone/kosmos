@@ -46,3 +46,15 @@ last 25 lines; the prompt sits at the bottom). Checked in review.
 - Deferred, with reason: restoring a window-size the window had set on purpose before the grow. Agents set none
   (supervisor new-session passes no size, nothing sets window-size); recording it would add a third tmux read per grow
   for a state that does not exist.
+
+## Round 3 (opus) fixes
+- MEASURED the reviewer's stitched-card concern: shrinking 78 -> 24 and 78 -> 40 under a standing prompt leaves the box
+  cut (not answerable, no card; no old title or rule in scrollback). Kept as fixture + test (SHRUNK). The three fixtures
+  are now one command, read the way viewport reads (-J -S -60).
+- A grown window remembers the report it was grown for; a new report (a new prompt) puts it back, so a short box is not
+  drawn at the top of a tall window; the grow loop regrows if needed. Unknown (board restart) counts as new.
+- Waiting agents the sweep can never grow (not Claude, not ours, several panes, another board's window, removed) are
+  settled per report; watched or windowless are unsure (3 reads). So a standing report stops costing a roster read per tick.
+- Linked windows count as watched; failure and grown memory pruned to existing windows; the brake restores at once.
+- Known, not handled: a board that stops (shutdown, or its world never returns) leaves its grown windows tall until it
+  runs again. tmux older than 3.0 (user option in a format) is not supported by this sweep: the mark would read empty.
