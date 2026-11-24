@@ -103,12 +103,12 @@ test('#8951: messages written behind the first, before the deadline, are counted
   assert.equal(r.last().queued, undefined, 'the queue is now in the report, not still waiting');
 });
 
-test('#8951 review 1: a report ends only on a turn a LATER write opened, and is held long enough to be shown', () => {
+test('#8951 review 1: a report the process stopped on ends only on a turn a LATER write opened, and is held long enough to be shown', () => {
   const r = recording();
   r.pub.started(6368, 'sid-1');
-  r.pub.wrote();
+  r.pub.wrote(); r.pub.stopped(); r.pub.started(7001, 'sid-1');
   r.fire();
-  assert.ok(r.last().unstarted, 'premise: reported');
+  assert.equal(r.last().unstarted && r.last().unstarted.lost, true, 'premise: reported as lost');
   r.clock.t += HOLD;                        // past the hold, so only the later-write rule can keep it
   r.pub.event(init); r.pub.event(result);   // a wake-up: a turn nobody wrote
   r.fire();
@@ -123,10 +123,43 @@ test('#8951 review 1: a report ends only on a turn a LATER write opened, and is 
   // Past the hold already, a later write's turn ends it at once.
   const q = recording();
   q.pub.started(6368, 'sid-1');
-  q.pub.wrote(); q.fire();
+  q.pub.wrote(); q.pub.stopped(); q.pub.started(7001, 'sid-1');
   q.clock.t += HOLD;
   q.pub.wrote(); q.pub.event(init);
   assert.equal(q.last().unstarted, undefined);
+});
+
+test('#8951 (PigeonPete): a report the deadline made ends on the first turn the same process opens, a late start', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote();
+  r.fire();
+  assert.ok(r.last().unstarted, 'premise: reported');
+  r.pub.event(init);                        // the message starts late, nothing new written
+  assert.ok(r.last().unstarted, 'held: the minute sweep has not shown it yet');
+  r.clock.t += HOLD;
+  r.fire();
+  assert.equal(r.last().unstarted, undefined, 'the turn opened: no longer "never started"');
+  const q = recording();
+  q.pub.started(6368, 'sid-1');
+  q.pub.wrote(); q.fire();
+  q.clock.t += HOLD;
+  q.pub.event(init); q.pub.event(result);
+  assert.equal(q.last().unstarted, undefined, 'past the hold, it ends at once');
+});
+
+test('#8951 review 2: a write merged into a report by the deadline does not count as a later write', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.stopped(); r.pub.started(7001, 'sid-1');   // lost with the process
+  r.pub.wrote();                                                   // the person sends another
+  r.fire();                                                        // and it opens no turn either
+  assert.deepEqual(r.last().unstarted, { since: new Date(T0).toISOString(), count: 2, lost: true });
+  assert.deepEqual(r.told[r.told.length - 1], { since: new Date(T0).toISOString(), count: 2, lost: true }, 'the log keeps that the process stopped on some');
+  r.clock.t += HOLD;
+  r.pub.event(init); r.pub.event(result);                          // a turn nobody wrote
+  r.fire();
+  assert.ok(r.last().unstarted, 'neither message ran: still reported');
 });
 
 test('#8951: the process ending while a written message has not run carries it to the next process (the 11-23 crash)', () => {
