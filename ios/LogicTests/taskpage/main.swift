@@ -932,6 +932,26 @@ func b2ReviewTests() async {
         await m.read()
         check(m.holdSay == nil && m.gone, "the task gone: the line goes with it")
     }
+    // Each press starts clean (review 3): a refusal's colour does not carry to the next line, and a next line's
+    // signature does not carry to a refusal (which a later tick would then wipe).
+    do {
+        let mac = FakeMac(); mac.projects = (200, heldTask3); let m = await fresh(mac)
+        mac.actAnswers = [(409, #"{"error":"not now"}"#)]
+        await m.toggleHold(wasOnHold: true, names: nm)
+        check(m.holdRefused && m.holdSay == "not now", "premise: a refusal")
+        mac.projects = (200, projectsData)
+        mac.actAnswers = [(200, unheldAnswer)]
+        await m.toggleHold(wasOnHold: true, names: nm)
+        check(m.holdSay == "It stays with Dana." && !m.holdRefused, "the next press's line is not drawn as a refusal")
+        // Now a next line's signature is recorded; a refusal follows, then the task changes elsewhere.
+        mac.actAnswers = [(409, #"{"error":"a finished task cannot be put on hold"}"#)]
+        await m.toggleHold(wasOnHold: false, names: nm)
+        check(m.holdSay == "a finished task cannot be put on hold", "premise: the refusal replaced the next line")
+        mac.projects = (200, heldTask3)
+        await m.read()
+        check(m.holdSay == "a finished task cannot be put on hold", "a tick after a refusal keeps the refusal (the old line's signature went with it)")
+    }
+    check(Board.holdNextLine(Data(#"{"next":" To choose who, assign it now."}"#.utf8)) == nil, "a next that is only the assign ask: nothing said")
     // A hold pressed while Mark as done is out sends nothing (review 2: the other direction).
     do {
         let mac = FakeMac(); let m = await fresh(mac)

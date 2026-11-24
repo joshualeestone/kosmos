@@ -747,7 +747,9 @@ extension Board {
     }
 
     // The board's tkHoldNextSig: what the next sentence was read from (open, held or closed, who is on each open part,
-    // and the project's pause and every member, named or not: review 2). `project` is the shown page, for a task read
+    // and the project's pause and members, named or not: review 2). Narrower than the board's in one way (review 3):
+    // members are the parsed session names, sorted, so a member with no session name, or the roster's order, does not
+    // count here; the line can then stay where the board would take it down, never the reverse. `project` is the shown page, for a task read
     // out of the hold route's answer, which carries no project.
     static func holdNextSig(_ t: TaskPage, project: TaskPage? = nil) -> String {
         let p = project ?? t

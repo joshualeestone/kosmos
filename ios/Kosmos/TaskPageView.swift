@@ -3,8 +3,9 @@ import SwiftUI
 // kosmos#7074 (a gap in #6838's plan): a task's page, native, opened from Today's Check it and from a Tasks row. It draws
 // what TaskPageLogic.swift says and does what TaskPageModel.swift does: the board's task page (web/index.html,
 // paintTaskPage) for reading, and its human verbs: Mark as done / Reopen, and (kosmos#8958 slice B1) a message on the
-// task, its due date, and editing its title or detail. What this page does not do yet (hold, repeat, parts, Add
-// subtask, Close them and this task, the receipt, undo) is on the board's page, one tap away by the info button.
+// task, its due date, and editing its title or detail, and (slice B2) Put on hold / Take off hold. What this page does
+// not do yet (the hold form, repeat, parts, Add subtask, Close them and this task, the receipt, undo) is on the board's
+// page, one tap away by the info button.
 struct TaskPageRef: Hashable {
     let project: String
     let number: Int
