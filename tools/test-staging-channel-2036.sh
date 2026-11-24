@@ -233,7 +233,7 @@ St2="$(make_site)"; bash "$PUBLISH" "$St2" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=2 bash "$PROMOTE" "$St2" 2>&1)"; rc=$?
 [ "$rc" = 2 ] && [ ! -f "$St2/dist/latest.json" ] && pass "promote: tunnel gate 2 (cannot-tell) -> HOLD, no promote" || bad "promote tunnel-gate-2 (rc=$rc, out=$out)"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=2 bash "$PROMOTE" "$St2" --force --hand-check "$HC8960" 2>&1)"; rc=$?
-[ "$rc" = 0 ] && [ -f "$St2/dist/latest.json" ] && pass "promote: tunnel gate 2 + --force -> promote on hand check" || bad "promote tunnel-gate-2-force (rc=$rc, out=$out)"
+[ "$rc" = 0 ] && [ -f "$St2/dist/latest.json" ] && has "$out" "the hand check named for this --force: $HC8960" && pass "promote: tunnel gate 2 + --force -> promote on hand check" || bad "promote tunnel-gate-2-force (rc=$rc, out=$out)"
 # The CONTROL: the build prod serves now. St0 had no prod pointer, so no control and a NOTE.
 St0out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=0 bash "$PROMOTE" "$(St=$(make_site); bash "$PUBLISH" "$St" >/dev/null 2>&1; echo "$St")" 2>&1)"
 has "$St0out" "no served artifact on disk" && ! has "$St0out" "--control-tarball" && pass "promote: no served artifact -> the tunnel gate gets no control, and says so" || bad "promote tunnel no-control (out=$St0out)"
@@ -261,7 +261,7 @@ Sa2="$(make_site)"; bash "$PUBLISH" "$Sa2" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=2 bash "$PROMOTE" "$Sa2" 2>&1)"; rc=$?
 [ "$rc" = 2 ] && [ ! -f "$Sa2/dist/latest.json" ] && pass "promote: agent gate 2 (cannot-tell) -> HOLD, no promote" || bad "promote agent-gate-2 (rc=$rc, out=$out)"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=2 bash "$PROMOTE" "$Sa2" --force --hand-check "$HC8960" 2>&1)"; rc=$?
-[ "$rc" = 0 ] && [ -f "$Sa2/dist/latest.json" ] && pass "promote: agent gate 2 + --force -> promote on hand check" || bad "promote agent-gate-2-force (rc=$rc, out=$out)"
+[ "$rc" = 0 ] && [ -f "$Sa2/dist/latest.json" ] && has "$out" "the hand check named for this --force: $HC8960" && pass "promote: agent gate 2 + --force -> promote on hand check" || bad "promote agent-gate-2-force (rc=$rc, out=$out)"
 
 # BOTH gates pass -> promote (the ordinary path, asserted explicitly with the agent gate present).
 Sa0="$(make_site)"; bash "$PUBLISH" "$Sa0" >/dev/null 2>&1
@@ -314,7 +314,7 @@ Sa3="$(make_site)"; bash "$PUBLISH" "$Sa3" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=3 bash "$PROMOTE" "$Sa3" 2>&1)"; rc=$?
 [ "$rc" = 3 ] && has "$out" "PARTIAL" && [ ! -f "$Sa3/dist/latest.json" ] && pass "promote: agent gate 3 (Claude ok, OpenAI failed) -> HOLD/surface, no promote" || bad "promote agent-gate-3 (rc=$rc, out=$out)"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=3 bash "$PROMOTE" "$Sa3" --force --hand-check "$HC8960" 2>&1)"; rc=$?
-[ "$rc" = 0 ] && [ -f "$Sa3/dist/latest.json" ] && pass "promote: agent gate 3 + --force -> promote (Claude fix ships, codex chased separately)" || bad "promote agent-gate-3-force (rc=$rc, out=$out)"
+[ "$rc" = 0 ] && [ -f "$Sa3/dist/latest.json" ] && has "$out" "the hand check named for this --force: $HC8960" && pass "promote: agent gate 3 + --force -> promote (Claude fix ships, codex chased separately)" || bad "promote agent-gate-3-force (rc=$rc, out=$out)"
 
 # the [port] is forwarded to the SECOND (agent) gate too, not only the experience gate.
 Sap="$(make_site)"; bash "$PUBLISH" "$Sap" >/dev/null 2>&1

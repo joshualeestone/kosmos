@@ -5,12 +5,13 @@ Card: kosmos#8960. On the 0.8.19 prod promote (2026-11-23 22:06 CST) a wrapper's
 ## Change
 - `--force` now needs `--hand-check "<what you checked, and how>"` (also `--hand-check=<text>`). The text is whitespace-squeezed and must be 20 or more characters. Checked right after the family check, before the site is read or anything is written: a refusal is exit 1, "Nothing was written".
 - `--hand-check` without `--force` is refused (it names what a forced promote rests on, so it means nothing alone).
-- The named check is printed beside each of the three gates `--force` can pass (experience, agent-spawn, tunnel handshake), so the log says what the promote rested on.
+- The named check is printed beside each of the four places `--force` passes a gate (experience cannot-tell, agent-spawn cannot-tell, agent-spawn PARTIAL, tunnel cannot-tell), so the log says what the promote rested on. The text is whitespace-squeezed and has control characters removed before it is printed.
 - `--family win` keeps its own refusal of `--force` unchanged (the new rule sits after the family block).
 - The HOLD messages that offer `--force` (FORCE_WORDS and the experience gate's two) now say `--hand-check` too.
 
 ## Tests
-- tools/test-staging-channel-2036.sh: four new cases. No `--hand-check`: refused, nothing written. A check under 20 characters after squeezing: refused. `--hand-check` alone: refused. CONTROL: gate 2 plus `--force --hand-check=<text>` promotes and prints the named check.
+- tools/test-staging-channel-2036.sh: four new cases, each on its own site. No `--hand-check`: refused, nothing written. A check under 20 characters after squeezing: refused. `--hand-check` alone: refused. CONTROL: gate 2 plus `--force --hand-check=<text>` promotes and prints the named check.
+- The existing forced-gate cases (tunnel 2, agent 2, agent 3) also assert the named check is printed. Mutants measured red: the length rule disabled reds the no-check and short-check cases; the alone rule disabled reds the alone case; the PARTIAL print removed reds agent-gate-3-force.
 - The existing `--force` calls in test-staging-channel-2036.sh (12), test-promote-named-7005.sh (9) and test-promote-linux-7281.sh (2) pass `--hand-check "$HC8960"`. Two wording assertions in 7005 follow the new HOLD text.
 - test-promote-channel-win.sh is unchanged and passes, which shows the Windows refusal still comes first.
 
