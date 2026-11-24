@@ -1760,6 +1760,8 @@ enum Board {
     static let draftDismissFailed = "Kosmos could not dismiss that draft. Try again."
     // Said when the words make the box longer than one message (a draft can be longer than maxMessage), as the board says.
     static let draftTooLong = "This is longer than one message can be. Send it in parts."
+    // Only the length, as the board's input.value.length > input.maxLength: an empty box is not "too long".
+    static func overOneMessage(_ text: String) -> Bool { sameWords(text).utf16.count > maxMessage }
 
     // The Mac's draft ids (server.js refuses any other shape).
     static func draftId(_ raw: Any?) -> String? {

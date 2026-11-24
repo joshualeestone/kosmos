@@ -1191,9 +1191,10 @@ do {
     check(Board.usingDraft("", words: "git push") == "git push" && Board.usingDraft("  \n", words: "git push") == "git push",
           "into an empty box, the words alone")
     check(Board.usingDraft("first, \n", words: "git push") == "first,\ngit push", "after typed words, on a new line, as the board's dmDraftUse")
-    check(!Board.fitsBoard(Board.usingDraft("", words: String(repeating: "a", count: Board.maxMessage + 1)))
-          && Board.fitsBoard(Board.usingDraft("", words: "git push")),
-          "a draft longer than one message does not fit the box (the chat then says draftTooLong)")
+    check(Board.overOneMessage(Board.usingDraft("", words: String(repeating: "a", count: Board.maxMessage + 1)))
+          && !Board.overOneMessage(Board.usingDraft("", words: String(repeating: "a", count: Board.maxMessage))),
+          "a draft longer than one message is over (the chat then says draftTooLong); one exactly at the limit is not")
+    check(!Board.overOneMessage("") && !Board.overOneMessage("  \n"), "an empty draft is not called too long, as the board's length test")
     if let t = Board.parseThread(Data(#"{"messages":[{"at":"A","text":"hi","from":"dana","kind":"agent"},{"at":"T","text":"x","from":null,"kind":"kosmos","draft":true,"draftId":"0123456789ab"}]}"#.utf8)) {
         let after = Board.withoutDraft(t, id: "0123456789ab")
         check(after.rows.count == 1 && after.rows.first?.text == "hi", "a dismissed draft goes at once, the agent's message stays")
