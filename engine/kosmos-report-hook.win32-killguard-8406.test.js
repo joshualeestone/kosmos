@@ -303,7 +303,8 @@ test('#8406: long lines stay fast (the hook has a short timeout and a Write can 
   for (const s of ['ps a '.repeat(80000), 'gps '.repeat(100000), 'kill x '.repeat(60000), 'taskkill /IM x '.repeat(30000), '"'.repeat(400000),
     'taskkill /IM ' + '*'.repeat(200000) + 'a', '('.repeat(100000), "it's ".repeat(50000), 'a|'.repeat(500000), 'ps | '.repeat(200000), 'taskkill /FI "PID eq a' + ' '.repeat(200000) + 'b"', 'a <<EOF b '.repeat(40000) + '\n', 'gps a|'.repeat(150000), 'x(' .repeat(50000) + ')'.repeat(50000)]) {
     // kosmos#8968: CPU time, not wall time. A loaded Mac (15-minute load 22) stretched one string to 2737 ms of wall
-    // clock while the guard did no more work; a runaway pattern (backtracking, quadratic) spends the CPU itself.
+    // clock; a runaway pattern (backtracking, quadratic) spends the CPU itself. CPU here includes GC threads, so it can
+    // read above wall time on an idle machine.
     const t0 = process.cpuUsage();
     guard.reason(s);
     const { user, system } = process.cpuUsage(t0);
