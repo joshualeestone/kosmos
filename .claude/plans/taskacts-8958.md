@@ -41,7 +41,8 @@ Hold, repeat, the receipt and undo are B2 to B5. The info button stays (parts an
   box stays multi-line (a phone's Return is a line break in the chat's box too), a deliberate difference from the
   board's one-line field, which sends on Enter.
 - Review 2: the date picker only chooses; Set saves and Cancel puts it back, in both states (the board's field saves
-  once on change, never per day tapped); Set, Cancel and Clear are 44 pt both ways and stack at large text; a stored
+  once on change, never per day tapped); Set, Cancel and Clear are 44 pt both ways (review 5 then put them in one row under the picker, a few short
+  words, so there is no stacking); a stored
   date the phone cannot read shows as kept, with Clear; the edit form stays locked through its re-read; the title is
   one line (a line break is a space); the sample Mac records a message in task 4's activity, and the UI test waits for
   the page to draw and for the message there.

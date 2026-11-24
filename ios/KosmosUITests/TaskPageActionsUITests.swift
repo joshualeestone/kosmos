@@ -43,7 +43,7 @@ final class TaskPageActionsUITests: XCTestCase {
             let say = box(app)
             for _ in 0..<6 where !say.isHittable { app.swipeUp() }
             XCTAssertTrue(say.isHittable, "no message box within reach on the task")
-            XCTAssertTrue(app.buttons["Send"].exists, "no Send")
+            XCTAssertTrue(app.buttons["Send this message on the task"].exists, "no Send")
             shot(app, "task page actions, \(dark ? "dark" : "light")")
             app.terminate()
         }
@@ -57,7 +57,7 @@ final class TaskPageActionsUITests: XCTestCase {
         XCTAssertTrue(say.waitForExistence(timeout: 10), "no message box")
         say.tap()
         say.typeText("Check the captions")
-        app.buttons["Send"].tap()
+        app.buttons["Send this message on the task"].tap()
         let empty = NSPredicate(format: "NOT (value CONTAINS %@)", "Check the captions")
         expectation(for: empty, evaluatedWith: say)
         waitForExpectations(timeout: 10)
