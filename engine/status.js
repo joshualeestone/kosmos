@@ -1899,13 +1899,15 @@ function deliveryStallOf(pane, status) {
     return ds.stallOf(pane && pane.name, { limitShown });
   } catch { return null; }
 }
-/* kosmos#8979: { at, why } while a Windows Claude agent's process was restarted by its supervisor and no turn on the new
-   process has ended well (engine/win32streamstate.restartedFor), else null. Windows Claude panes only: no other runner's
-   supervisor records it. Never throws. */
+/* kosmos#8979: { at, why } while a Claude agent's process was restarted by its supervisor and no turn on the new process
+   has ended well, else null. Windows: engine/win32streamstate.restartedFor. Mac (kosmos#8988): engine/macrestart.js, for
+   one of our named panes. Claude panes only: no other runner's supervisor records it. Never throws. */
 function restartedOf(pane) {
   try {
-    if (!pane || !pane.name || !require('./win32roster').isWin32Pane(pane) || (pane.runner && pane.runner !== 'claude')) return null;
-    return require('./win32streamstate').restartedFor(pane.name);
+    if (!pane || !pane.name || (pane.runner && pane.runner !== 'claude')) return null;
+    if (require('./win32roster').isWin32Pane(pane)) return require('./win32streamstate').restartedFor(pane.name);
+    if (!isNamedOurs(pane) || cardRunnerOf(pane) !== 'claude') return null;
+    return require('./macrestart').restartedFor(pane.name);
   } catch { return null; }
 }
 /* kosmos#8286: one tool call running for minutes ({ tool, since }), from the agent's own transcript (engine/onestep.js).
