@@ -1548,12 +1548,22 @@ func b8ModelTests() async {
         mac.projects = bare
         await m.read()
         check(m.holdSay == nil && !m.holdSayAtForm, "held again, it goes: it is not about the new hold")
+        mac.projects = off
+        _ = await save(m)
+        check(m.holdSay == Board.holdTakenOff, "premise: said again")
+        mac.projects = heldTasks("", others: open5, own: #","closedAt":"2026-11-24T15:00:00.000Z""#, on: false)
+        mac.projects = (200, Data(String(decoding: mac.projects!.1, as: UTF8.self).replacingOccurrences(of: #""total":1,"closed":false}}"#, with: #""total":1,"closed":true}}"#, options: [], range: nil).utf8))
+        await m.read()
+        check(m.page?.closed == true && m.holdSay == nil, "finished, it goes, and a reopening does not bring it back")
     }
     do {
         let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
         mac.projects = (200, Data(#"{"projects":[{"id":"springcatalogue","name":"Spring","tasks":[]}]}"#.utf8))
         let ok = await save(m)
         check(!ok && posted(mac) == 0 && m.holdSay == Board.holdTaskGone && m.gone, "gone: nothing sent, and said")
+        mac.projects = bare
+        await m.read()
+        check(m.holdSay == nil && !m.gone, "back, it goes: the task is there")
     }
     do {
         // A time, all the way: sent, read back and said.

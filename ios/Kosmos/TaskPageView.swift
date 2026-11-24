@@ -283,7 +283,8 @@ struct TaskPageView: View {
             if let hold = p.holdLine {
                 Text(hold).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            ForEach(Array(p.holdLines(now: Date()).enumerated()), id: \.offset) { _, line in
+            // Not while the form shows a hold that has not been read back (holdShown): these are of the one before it.
+            ForEach(Array((model.holdShown == nil ? p.holdLines(now: Date()) : []).enumerated()), id: \.offset) { _, line in
                 Text(line).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
             }
             // kosmos#8958 slice B2: the board's tk-hold, on an open task. What a hold waits for and why: holdBlock.
@@ -422,6 +423,7 @@ struct TaskPageView: View {
                                in: min(range.lowerBound, at)...max(range.upperBound, at), displayedComponents: [.date, .hourAndMinute])
                         .labelsHidden()
                         .frame(minHeight: 44)
+                        .accessibilityInputLabels([Board.holdUntilLabel, Board.holdAtSpoken])
                         .accessibilityIdentifier("taskpage.hold.at")
                 }
                 // Not twice: a Save pressed as it passed says it too.
@@ -433,7 +435,7 @@ struct TaskPageView: View {
             holdRow(Board.holdWhyLabel) {
                 // Capped after it is written, as the page's other boxes: capped in the setter, nothing changes at the limit, so
                 // nothing is drawn again and the box keeps words that are not sent.
-                TextField(Board.holdWhyPrompt, text: Binding(get: { shown.why }, set: { v in if v != shown.why { edit { $0.why = v } } }))
+                TextField(Board.holdWhyPrompt, text: Binding(get: { shown.why }, set: { v in if v != (holdDraft ?? stored).why { edit { $0.why = v } } }))
                 .onChange(of: shown.why) { v in
                     let kept = Board.capped(v, Board.holdWhyMax)
                     if kept != v, holdDraft != nil { holdDraft?.why = kept }
@@ -446,17 +448,19 @@ struct TaskPageView: View {
                 .accessibilityInputLabels([Board.holdWhyLabel, Board.holdWhySpoken])
                 .accessibilityIdentifier("taskpage.hold.why")
             }
-            if !p.onHoldByPerson {
+            if !p.onHoldByPerson && model.holdShown == nil {
                 Text(Board.holdTakeover(forPerson: p.onHoldForPerson, paused: p.projectPaused)).font(.footnote).foregroundColor(Palette.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 12) {
                 Button {
                     model.touched()
-                    let choice = shown
+                    // A correction the keyboard still holds is written as the box is left, before what is sent is read.
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                     Task {
+                        let choice = holdDraft ?? stored
                         // Saved: the form shows what is stored, or what was saved while that has not been read (holdShown).
-                        if await model.saveHold(choice, base: base, names: names) { holdDraft = nil; holdBase = nil }
+                        if await model.saveHold(choice, base: base, names: names), holdDraft == choice { holdDraft = nil; holdBase = nil }
                     }
                 } label: {
                     HStack(spacing: 8) {
