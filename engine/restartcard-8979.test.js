@@ -48,7 +48,7 @@ test('#8979 restartWhy: the sign-in, the limit, Claude\'s own error, the signal,
   /* #8967's fact: Claude reports a sign-in failure as subtype "success" with is_error. */
   const signedOut = { type: 'result', subtype: 'success', is_error: true, result: 'Not logged in · Please run /login' };
   assert.equal(ss.restartWhy({ code: 1, errEvent: signedOut }), 'Claude is not signed in.');
-  assert.equal(ss.restartWhy({ code: 1, auth: true }), 'Claude is not signed in.');
+  assert.equal(ss.restartWhy({ code: 1, authRefused: true }), 'Claude is not signed in.');
   assert.equal(ss.restartWhy({ code: 1, limited: true, errEvent: { type: 'result', subtype: 'success', is_error: true, result: 'x' } }), 'Claude reached its usage limit.');
   assert.equal(ss.restartWhy({ code: 1, errEvent: { type: 'result', subtype: 'success', is_error: true, result: 'Credit balance is too low' } }),
     'Claude stopped on an error: Credit balance is too low.', 'is_error read, the success subtype ignored');
@@ -104,18 +104,27 @@ test('#8979 a local result that never reached the model does not clear it; a sec
   assert.equal(r.last().restarted.why, 'Claude was ended (signal SIGKILL).', 'the newest restart is the one said');
 });
 
-test('#8979 the sign-in and limit the ended process had shown are its reason', () => {
+test('#8979 a restart no good turn ended is carried through the next process (a resume that failed), until a newer death', () => {
   const r = recording();
   r.pub.started(11, 's');
-  r.pub.wrote();
-  r.pub.event({ type: 'system', subtype: 'init' });
-  r.pub.event({ type: 'assistant', error: 'authentication_failed', is_api_error_message: true, message: { content: [] } });
-  r.pub.event({ type: 'result', subtype: 'success', is_error: true, api_error_status: 401, result: 'Invalid API key' });
-  assert.ok(r.last().auth, 'precondition: the stream recorded the sign-in');
   r.pub.stopped();
-  r.pub.restarting({ code: 1 });
+  r.pub.restarting({ code: 2 });
   r.pub.started(12, 's');
-  assert.equal(r.last().restarted.why, 'Claude is not signed in.');
+  const first = r.last().restarted;
+  assert.equal(first.at, r.last().startedAt, 'stamped when the new process started, not when the old one died');
+  r.pub.stopped();   // the resumed process dies too, and the supervisor names no newer death (a failed resume)
+  r.pub.started(13, 's');
+  assert.deepEqual(r.last().restarted, first, 'the first reason stays');
+  r.pub.stopped();
+  r.pub.restarting({ code: 5 });
+  r.pub.started(14, 's');
+  assert.equal(r.last().restarted.why, 'Claude stopped unexpectedly (exit code 5).', 'a newer death replaces it');
+  /* CONTROL: after a good turn nothing is carried. */
+  r.pub.wrote();
+  for (const e of GOOD_TURN) r.pub.event(e);
+  r.pub.stopped();
+  r.pub.started(15, 's');
+  assert.equal(r.last().restarted, undefined);
 });
 
 test('#8979 a launch that did not spawn keeps the restart for the start that does', () => {
@@ -190,6 +199,68 @@ test('#8979 a successful reply is never handed over as the reason, and a stop is
   assert.equal(stopped.calls.filter((x) => x[0] === 'restarting').length, 0, 'a deliberate stop is not a restart');
 });
 
+const line = (e) => Buffer.from(JSON.stringify(e) + '\n');
+const LIMITED = { type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: 1900000000, rateLimitType: 'five_hour' } };
+
+test('#8979 a limit shown in the dying turn names the death, even when its lines arrive after exit', () => {
+  const kids = [];
+  const stream = sink();
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => [], throttleMs: 0, now: () => 0, setTimer: () => {}, stream,
+    launch: () => { const c = streamingChild(1); c.stdout.readableEnded = false; c.stdout.end = () => { c.stdout.readableEnded = true; c.stdout.emit('end'); }; kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  const c = kids[0];
+  c.stdout.emit('data', line({ type: 'system', subtype: 'init' }));
+  c.emit('exit', 1, null);   // #8967: the last lines come after exit
+  c.stdout.emit('data', line(LIMITED));
+  c.stdout.emit('data', line({ type: 'result', subtype: 'success', is_error: true, result: 'You have hit your limit' }));
+  c.stdout.end();
+  h.stop();
+  const said = stream.calls.filter((x) => x[0] === 'restarting');
+  assert.equal(said.length, 1, JSON.stringify(stream.calls));
+  assert.equal(ss.restartWhy(said[0][1]), 'Claude reached its usage limit.');
+});
+
+test('#8979 an earlier turn\'s limit or sign-in never names a later crash', () => {
+  const { calls } = run((c) => {
+    c.stdout.emit('data', line({ type: 'system', subtype: 'init' }));
+    c.stdout.emit('data', line(LIMITED));
+    c.stdout.emit('data', line({ type: 'assistant', error: 'authentication_failed', message: { content: [] } }));
+    c.stdout.emit('data', line({ type: 'result', subtype: 'success', is_error: true, result: 'refused' }));
+    c.stdout.emit('data', line({ type: 'system', subtype: 'init' }));   // a new turn
+    c.emit('exit', 3221225477, null);
+  });
+  const said = calls.filter((x) => x[0] === 'restarting');
+  assert.equal(said.length, 1);
+  assert.equal(ss.restartWhy(said[0][1]), 'Claude stopped unexpectedly (exit code 3221225477 = 0xC0000005).');
+  /* CONTROL: the same refusal in the dying turn does name it. */
+  const same = run((c) => {
+    c.stdout.emit('data', line({ type: 'system', subtype: 'init' }));
+    c.stdout.emit('data', line({ type: 'assistant', error: 'authentication_failed', message: { content: [] } }));
+    c.emit('exit', 1, null);
+  }).calls.filter((x) => x[0] === 'restarting');
+  assert.equal(ss.restartWhy(same[0][1]), 'Claude is not signed in.');
+});
+
+test('#8979 a resume that finds no conversation is not said as the reason', () => {
+  const kids = [];
+  const stream = sink();
+  let pending = null;
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => [], throttleMs: 0, now: () => 0, setTimer: (fn) => { pending = fn; }, stream,
+    launch: (spec) => { const c = streamingChild(kids.length + 1); kids.push(c); return { ok: true, sessionId: 's', resumed: Boolean(spec.resumeSessionId), child: c }; },
+  });
+  kids[0].emit('exit', 2, null);
+  const f = pending; pending = null; f();
+  assert.equal(kids.length, 2, 'precondition: restarted as a resume');
+  kids[1].stdout.emit('data', line({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['No conversation found with session ID: s'] }));
+  kids[1].emit('exit', 1, null);
+  h.stop();
+  const said = stream.calls.filter((x) => x[0] === 'restarting');
+  assert.equal(said.length, 1, 'only the first death is named: ' + JSON.stringify(said));
+  assert.equal(said[0][1].code, 2);
+});
+
 test('#8967 exitWords keeps its spelling now that it shares the card\'s', () => {
   assert.equal(sup.exitWords(3221225477, null), ' (exit code 3221225477 = 0xC0000005)');
   assert.equal(sup.exitWords(-1, null), ' (exit code -1 = 0xFFFFFFFF)');
@@ -232,6 +303,9 @@ test('#8979 the page says "Restarted at <time>: <why>" on an idle or working car
   const old = new Date(Date.now() - 3 * 86400e3);
   assert.match(stateReason({ name: 'Homer', state: 'idle', restarted: { at: old.toISOString(), why: 'x.' } }),
     new RegExp('^Restarted at ' + old.toLocaleDateString([], { weekday: 'short' }) + ' '), 'another day names the day');
+  const far = new Date(Date.now() - 9 * 86400e3);
+  assert.match(stateReason({ name: 'Homer', state: 'idle', restarted: { at: far.toISOString(), why: 'x.' } }),
+    new RegExp('^Restarted at ' + far.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' '), 'a week or more ago names the date');
   assert.doesNotMatch(String(stateReason({ name: 'Homer', state: 'idle', restarted: { at: 'nope', why: 'x' } })), /^Restarted/);
   assert.doesNotMatch(String(stateReason({ name: 'Homer', state: 'idle', restarted: null })), /^Restarted/, 'CONTROL');
 });

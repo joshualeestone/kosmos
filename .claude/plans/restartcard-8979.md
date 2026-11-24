@@ -9,20 +9,27 @@ stop or a stop with no restart shows nothing; the reason comes from the exit cod
 
 ## Change
 - engine/win32streamstate.js
-  - `restartWhy({ code, signal, errEvent })`: plain words. Sign-in error result (signInAfterEvent) -> "Claude is not
-    signed in."; usage limit (limitAfterEvent) -> "Claude reached its usage limit."; any other error result ->
-    "Claude stopped on an error: <its text, clipped>."; else a nonzero code -> "Claude stopped unexpectedly (exit code
-    N[ = 0xXXXXXXXX])."; a signal -> "Claude was ended (signal S)."; else "Claude stopped without saying why."
-  - publisher `restarting({ at, why })`: kept as the NEXT process's record (like #8951's lostOnStop), so `started()`
-    puts it on `current.restarted`, written to the state file as `restarted: { at, why }`. A second death before a
-    good turn replaces it (the newest restart is the one to show). Cleared by a result with no is_error and no
-    api_error after the turn reached the model (the same "good turn" rule that clears auth and limit).
+  - `restartWhy({ code, signal, errEvent, authRefused, limited })`: plain words, in this order: a refused sign-in in the
+    dying turn (or an error result signInAfterEvent reads as one) -> "Claude is not signed in."; a refused
+    rate_limit_event in the dying turn -> "Claude reached its usage limit."; any other error result (is_error, or an
+    `error...` subtype; never by a `success` subtype) -> "Claude stopped on an error: <its text, clipped>."; a signal ->
+    "Claude was ended (signal S)."; a nonzero code -> "Claude stopped unexpectedly (exit code N[ = 0xXXXXXXXX])."; else
+    "Claude stopped without saying why."
+  - `exitCodeText(code)`: the one spelling of an exit code, shared with the supervisor's task-log `exitWords`.
+  - publisher `restarting(d)`: keeps { why } for the next process; `started()` puts `restarted: { at, why }` on that
+    process's state file, `at` being when it started. A turn that reached the model and ended without an error clears
+    it. `stopped()` carries an uncleared record to the next process (so a resume that fails keeps the first reason);
+    a newer `restarting()` replaces it.
   - `restartedFor(name)`: { at, why } from a live process's file, else null (as unstartedFor).
-- engine/win32supervisor.js: `attach` also keeps the parsed error event beside `stdoutSaid`; `finish` calls
-  `stream.restarting(...)` only when the dead child was current AND the loop is still running (a restart follows).
-- engine/status.js: pane card field `restarted` (Windows Claude pane only, else null); paneless card `restarted: null`.
-- web/index.html stateReason: "Restarted at HH:MM: <why>" for an idle or working card, after the crash-loop, stuck
-  error, unsent, and delivery-stall sentences (they matter more), before the plain state sentences.
+- engine/win32supervisor.js: the stdout reader keeps the dying turn's limit and sign-in refusals itself (`turnLimited`,
+  `turnAuthRefused`, reset by a new turn or a good result), because a death's last lines arrive after 'exit', when the
+  publisher no longer hears them (#8967). `finish` calls `stream.restarting(...)` only when the dead child was current,
+  the loop is still running, and the death was not a resume finding no conversation (Kosmos's own restart failing).
+- engine/status.js: pane card field `restarted` (restartedOf: Windows Claude pane only, else null); paneless `restarted: null`.
+- web/index.html stateReason: "Restarted at <time>: <why>" (a weekday when not today, a date when 6 days or more ago) for
+  an idle or working card, after the crash-loop, stuck error, unsent and unstarted sentences, before #7368's step.
+- docs/browser-checks/render-restarted-8979.js: the pill's hover and hidden text in Chromium and WebKit, desktop and
+  phone, with a negative arm.
 - docs/browser-checks/fixtures/agent-card.json: `"restarted": null`.
 
 ## Rejected
@@ -36,6 +43,7 @@ That a successful result is the right clearer: a restarted agent that is never s
 good. That is the card's ask ("until the next turn succeeds"), and stale only while nothing happens.
 
 ## Tests
-New engine/win32streamstate.restart-8979.test.js and supervisor cases: words for each reason; record carried to
+engine/restartcard-8979.test.js: words for each reason; record carried to
 the next process; cleared by a good turn, not by an error turn; replaced by a second death; no record on a clean
-stop; restartedFor on a dead pid is null; stateReason renders the sentence.
+stop; restartedFor on a dead pid is null; stateReason renders the sentence; a limit whose lines arrive after exit names the
+death; an earlier turn's limit or sign-in does not; a failed resume keeps the first reason.

@@ -715,7 +715,7 @@ function superviseStreaming(spec, opts) {
        streaming session. Reading stdout also retires the old question of what
        happens when nobody drains a full pipe. Only the CURRENT child publishes;
        a late line from a child already replaced says nothing about the new one. */
-    const { lineReader, parseEvent } = require('./win32streamstate');
+    const { lineReader, parseEvent, limitAfterEvent } = require('./win32streamstate');
     /* kosmos#8967: the last error this child reported on stdout, kept short, so its
        death can say why. Only an error `result` or a line that is not a stream event
        (stream-json output is all JSON objects, so anything else is the CLI talking):
@@ -725,11 +725,22 @@ function superviseStreaming(spec, opts) {
     let stdoutSaid = '';
     let saidIsResult = false;   // an error result outranks any non-event line after it in the same turn
     let saidEvent = null;   // kosmos#8979: that error result itself, for the card's plain reason (null for a non-event line)
+    /* kosmos#8979: what this turn's stream showed about the account (a refused rate_limit_event, a refused sign-in),
+       read here because a death's last lines arrive after 'exit', when the state publisher no longer hears them. A new
+       turn or a good result starts over, so an earlier turn's limit never names a later crash. */
+    let turnLimited = false;
+    let turnAuthRefused = false;
     if (c.stdout && typeof c.stdout.on === 'function') {
       const feed = lineReader((line) => {
         const e = parseEvent(line);
         const err = stdoutError(e, line);
         const isEvent = Boolean(e) && typeof e === 'object' && !Array.isArray(e);
+        if (isEvent) {
+          if (e.type === 'system' && e.subtype === 'init') { turnLimited = false; turnAuthRefused = false; }
+          else if (e.type === 'result' && e.is_error !== true && !e.api_error) { turnLimited = false; turnAuthRefused = false; }
+          else if (e.type === 'assistant' && e.error === 'authentication_failed') turnAuthRefused = true;
+          else if (e.type === 'rate_limit_event') { const lim = limitAfterEvent(e); if (lim) turnLimited = true; else if (lim === null) turnLimited = false; }
+        }
         if (err && (isEvent || !saidIsResult)) { stdoutSaid = err; saidIsResult = isEvent; saidEvent = isEvent ? e : null; }
         /* A success, or the start of a new turn, ends the last error's story (an
            error result, or a non-event line, alike): "its last error" means this
@@ -823,9 +834,14 @@ function superviseStreaming(spec, opts) {
          child exits, so a stop during a failed resume leaves its row alone. */
       if (nothingToResume && wasCurrent) startFreshAfter(handle.sessionId);
       /* kosmos#8979: a restart follows (this was the running child, and the loop was not stopped), so the next process's
-         card says when and why. A stop clears `running` before the child exits, so a stop is never said as a restart. */
-      if (running && wasCurrent && typeof stream.restarting === 'function') {
-        try { stream.restarting({ code: code === undefined ? null : code, signal: signal || null, errEvent: saidEvent }); } catch { /* the death line above still says it */ }
+         card says when and why. A stop clears `child` before the child exits, so a stop is never said as a restart. A
+         resume that found no conversation is Kosmos's own restart failing, not why the agent stopped: the earlier reason
+         stays (the publisher carries it). */
+      if (running && wasCurrent && !nothingToResume && typeof stream.restarting === 'function') {
+        try {
+          stream.restarting({ code: code === undefined ? null : code, signal: signal || null, errEvent: saidEvent,
+            limited: turnLimited, authRefused: turnAuthRefused });
+        } catch { /* the death line above still says it */ }
       }
       if (running) schedule();
     };
