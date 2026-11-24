@@ -647,3 +647,15 @@ test('#8951 review 11: a message written after a carried report that joins a tur
   r.pub.stopped(); r.pub.started(7002, 'sid-1');
   assert.equal(r.last().unstarted, undefined, 'a stop after a long model call does not bring it back');
 });
+
+test('#8951 review 12: a subagent\'s event is not a turn opening: it neither starts a waiting message nor disarms its deadline', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.event(init);
+  r.pub.wrote();                                       // B waits behind A
+  r.pub.event(result);                                 // A done; B's own turn is next, deadline armed
+  r.timers.splice(0, r.timers.length - 1);
+  r.pub.event({ type: 'assistant', parent_tool_use_id: 'task_1', message: { content: [] } });   // a background subagent
+  r.fire();                                            // B's turn never opens
+  assert.equal(r.last().unstarted && r.last().unstarted.count, 1, 'B is reported');
+});
