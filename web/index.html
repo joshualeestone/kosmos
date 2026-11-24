@@ -27696,6 +27696,12 @@ function paintRailPjNotice() {
 function paintAgentList() {
   if (typeof keepStarFocus === 'function') keepStarFocus(paintAgentListNow); else paintAgentListNow();
 }
+/* kosmos#8990: the markup #alist last received from this function, so a poll that changes nothing writes nothing.
+   Rewriting identical rows rebuilt every avatar <img>, and agent avatars are served no-store, so a project room with the
+   rail beside it fetched each member's picture again every poll (54 fetches in 130 s for two agents). Same rule as
+   MY_AGENTS_HTML just below. Compared against the string we last WROTE, never innerHTML, which the browser reserializes.
+   null means "not ours": the empty-board branch builds the list in pieces and clears it, so the next paint always writes. */
+let ALIST_HTML = null;
 function paintAgentListNow() {
   const alist = document.getElementById('alist');
   if (!alist) return;
@@ -27731,6 +27737,7 @@ function paintAgentListNow() {
     const fedOutE = (layoutConsolidated() && PJ_CURRENT && typeof fedOutsideHtml === 'function') ? fedOutsideHtml() : '';
     // kosmos#4658: the sealed-room key section too, for the same reason (the Members card is hidden here).
     const fedOwnE = (layoutConsolidated() && PJ_CURRENT && typeof fedOwnHtml === 'function') ? fedOwnHtml() : '';
+    ALIST_HTML = null;
     alist.innerHTML = boardEmpty();
     if (fedOutE) alist.insertAdjacentHTML('beforeend', '<div id="alist-fed-outside" class="fedout">' + fedOutE + '</div>');
     if (fedOwnE) alist.insertAdjacentHTML('beforeend', '<div id="alist-fed-own" class="fedout">' + fedOwnE + '</div>');
@@ -27765,15 +27772,17 @@ function paintAgentListNow() {
        render-project-members-3387 counts. */
     const fedOut = typeof fedOutsideHtml === 'function' ? fedOutsideHtml() : '';
     const fedOwn = typeof fedOwnHtml === 'function' ? fedOwnHtml() : '';   // kosmos#4658, as fedOut
-    alist.innerHTML = membersHtml
+    const html = membersHtml
       + (fedOut ? '<div id="alist-fed-outside" class="fedout">' + fedOut + '</div>' : '')
       + (fedOwn ? '<div id="alist-fed-own" class="fedout">' + fedOwn + '</div>' : '')
       + otherAgentsHeaderHtml()
       + rest.map(lrow).join('');
+    if (html !== ALIST_HTML) { ALIST_HTML = html; alist.innerHTML = html; }
     setAgentsGrouped(true);
     fedRefocusRail();
   } else {
-    alist.innerHTML = shown.map(lrow).join('');
+    const html = shown.map(lrow).join('');
+    if (html !== ALIST_HTML) { ALIST_HTML = html; alist.innerHTML = html; }
     setAgentsGrouped(false);
   }
 }
@@ -28269,7 +28278,7 @@ async function tick() {
        first-run, and so does removing the last agent. (Mona Lisa, #? on the
        agents-page package, 2026-08-22.) */
     const orderedAgents = sortAgents(shown, AGENT_SORT, PROJECTS, typeof AGENT_STARS === 'undefined' ? null : AGENT_STARS);
-    const paintGrid = () => { document.getElementById('grid').innerHTML = orderedAgents.length ? orderedAgents.map(card).join('') : boardEmpty(); };
+    const paintGrid = () => setGridHtml(orderedAgents.length ? orderedAgents.map(card).join('') : boardEmpty());
     if (typeof keepStarFocus === 'function') keepStarFocus(paintGrid); else paintGrid();   // #6719: a poll keeps a focused star
     // The list is the SAME agents through the same derivations, painted on
     // the same tick -- hidden or not. Painting only the visible layout would
@@ -42656,6 +42665,17 @@ function keepStarFocus(paint, follow) {
     if (back) back.focus({ preventScroll: !follow });
   }
 }
+/* kosmos#8990: the grid's one writer. A poll that changes no card writes nothing, so the cards' SVG avatar <image>s are
+   not rebuilt and fetched again every poll (agent avatars are served no-store; the grid is painted even while hidden,
+   behind a project room). Compared against the string last WRITTEN, never innerHTML, which the browser reserializes.
+   Both paint sites go through here, so neither can rewrite the grid behind the other's memo. */
+let GRID_HTML = null;
+function setGridHtml(html) {
+  const grid = document.getElementById('grid');
+  if (!grid || html === GRID_HTML) return;
+  GRID_HTML = html;
+  grid.innerHTML = html;
+}
 /* The grid and the list in the chosen order, now. Shared by the sort control, a star and the stars' reload, so they
    cannot disagree about what "the board's order" is. A focused star keeps its focus (keepStarFocus). */
 function repaintAgentOrder(follow) {
@@ -42664,7 +42684,7 @@ function repaintAgentOrder(follow) {
   const shown = lim ? listed.slice(0, Number(lim)) : listed;
   const ordered = sortAgents(shown, AGENT_SORT, PROJECTS, AGENT_STARS);
   keepStarFocus(() => {
-    document.getElementById('grid').innerHTML = ordered.length ? ordered.map(card).join('') : boardEmpty();
+    setGridHtml(ordered.length ? ordered.map(card).join('') : boardEmpty());
     paintAgentListNow();
     paintMyAgents();   // kosmos#8303
   }, follow);
