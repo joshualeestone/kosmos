@@ -1138,12 +1138,54 @@ test('#8967 a stdout that never ends holds the death for the drain time, then lo
   const t0 = Date.now();
   kids[0].emit('exit', 7, null);
   assert.equal(events.filter((e) => e.action === 'died').length, 0, 'held while stdout is open');
-  await new Promise((r) => setTimeout(r, 1500));
+  await new Promise((r) => setTimeout(r, 400));
   const died = events.filter((e) => e.action === 'died');
   assert.equal(died.length, 1, 'the death is still logged when a grandchild keeps the pipe open');
   assert.equal(died[0].code, 7);
   assert.ok(died[0].at - t0 >= 50, 'logged after the drain wait, not at once');
   assert.ok(died[0].at - t0 < 1000, 'and bounded by the drain time, not by stdout');
+  h.stop();
+});
+
+test('#8967 everything about the process is settled at exit; only the died line waits for stdout', () => {
+  const kids = [];
+  const events = [];
+  const sink = streamSink();
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    stream: sink,
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = pipedChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  const c = kids[0];
+  /* A write handed to the pipe before exit, whose flush lands during the drain. */
+  let flush = null;
+  c.stdin.write = (s, cb) => { c.written.push(s); flush = cb; };
+  h.send('just before the end', () => {});
+  c.emit('exit', 1, null);
+  assert.equal(h.current(), null, 'the dead child is not current during the drain');
+  assert.ok(sink.calls.some((x) => x[0] === 'stopped'), 'its state is stopped at exit, not after the drain');
+  flush(null);
+  assert.equal(sink.calls.some((x) => x[0] === 'wrote'), false, 'a flush landing on a dead child is not news about a live one');
+  assert.equal(events.filter((e) => e.action === 'died').length, 0, 'the line itself waits for stdout');
+  c.stdout.end();
+  assert.equal(events.filter((e) => e.action === 'died').length, 1);
+  h.stop();
+});
+
+test('#8967 a stdout already destroyed is not waited on', () => {
+  const kids = [];
+  const events = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = pipedChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  kids[0].stdout.destroyed = true;   // closed without ending: 'close' has already gone by
+  kids[0].emit('exit', 2, null);
+  assert.equal(events.filter((e) => e.action === 'died').length, 1, 'logged at once, no pointless wait');
   h.stop();
 });
 

@@ -32,16 +32,19 @@ the log: a death is now written up to 500 ms later (the drain below), so the res
   for tests): measured on the box, a child's last stdout line arrived AFTER `exit` in 40 of 40 runs (stderr before
   it, 40 of 40), so without the wait the error that explains the death would almost never be on its line. The
   single-handler guard is set at once. Only a stream that says it is still open (`readableEnded === false`) is waited
-  on. The drain uses the real clock on purpose (the injected timer is a no-op in tests, and a death must never wait on
-  it forever), and it is spent inside `HOST_GONE_GRACE_MS` (noted there).
-- While it drains, the dead child is marked exited: a line read then only feeds the death's reason and publishes
-  nothing (no state event, no rekey, no fresh-start detection), exactly as before #8967 when `exit` dropped such lines
-  at once; a `send()` to it is a definite "not running", never an unsure.
+  on (and not one already destroyed or closed). The drain uses the real clock on purpose (the injected timer is a no-op
+  in tests, and a death must never wait on it forever), is not unref'd (it is bounded, and an unref'd one could let the
+  process leave before the line is written), and is spent inside `HOST_GONE_GRACE_MS` (noted there).
+- Everything about the process is still settled at `exit`, exactly as before: the token is retired, `child` is
+  cleared and the state is published stopped at once. So every `child === x` check (send, its flush callback, the
+  rekey retry, the registration check, the stdout publisher) treats the dead child as gone during the wait, and a line
+  read while it drains only feeds the death's reason and publishes nothing, as before #8967 when such lines were
+  dropped. Only the reason gathering, the `died` line and the restart decision wait.
 
 ## Tests (engine/win32supervisor.test.js)
-Eight `#8967` tests: code and signal on the event; error vs successful result vs non-event line on the reason, and an
+Ten `#8967` tests: code and signal on the event; error vs successful result vs non-event line on the reason, and an
 old error cleared by a success and by a new turn; the death waiting for stdout in the real-world order (exit first);
-the drain bound when stdout never ends; a late line publishing nothing; a send during the drain; stdoutError and
+the drain bound when stdout never ends, and no wait for a stdout already destroyed; process state settled at exit (stopped at once, a late flush not counted); a late line publishing nothing; a send during the drain; stdoutError and
 taskLogLine directly. Each was run against the code before its fix and failed there (control runs on the box).
 
 ## Follow-ups, not here
