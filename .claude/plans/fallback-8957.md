@@ -28,6 +28,13 @@ the words and the rule for when the note shows are covered in ios/LogicTests.
 - The "only when the agents list lacks the agent" rule is Board.opensBoardFor (tested); the room and project info apply
   the same rule to their own lists.
 
+## Scope, stated (review 2)
+The card's rows are the fallbacks. The always-web hand-offs (inventory rows 8, 16, 17, 20, 22: an agent's AI Settings,
+a project's members and archiving, a task's board page, the computer's Settings) and web-page files (5, 10, 14, 19)
+keep their current words and icons here; their part-2 cards (#8953, #8955, #8956, #8958, #8959) replace them with
+native screens. Exception: project info's "Open on your computer's board" row takes the board icon, since a member row
+on the same screen now carries it.
+
 ## Weakest premise
 That announcing the board is enough. If Josh wants none of these to open the board at all, each needs a native
 screen (part-2 cards).

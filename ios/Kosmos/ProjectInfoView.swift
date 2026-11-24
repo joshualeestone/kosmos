@@ -113,7 +113,7 @@ struct ProjectInfoView: View {
                     HStack {
                         Text(Board.projectMoreOnBoard).foregroundColor(Palette.primary)
                         Spacer()
-                        Image(systemName: "arrow.up.right").foregroundColor(Palette.secondary).accessibilityHidden(true)
+                        Image(systemName: Board.boardIcon).foregroundColor(Palette.secondary).accessibilityHidden(true)   // kosmos#8957: the one board icon
                     }
                     .frame(minHeight: 44).contentShape(Rectangle())
                 }
@@ -194,7 +194,7 @@ struct ProjectInfoView: View {
                     HStack {
                         Text(Board.projectMoreOnBoard).foregroundColor(Palette.primary)
                         Spacer()
-                        Image(systemName: "arrow.up.right").foregroundColor(Palette.secondary).accessibilityHidden(true)
+                        Image(systemName: Board.boardIcon).foregroundColor(Palette.secondary).accessibilityHidden(true)   // kosmos#8957: the one board icon
                     }
                     .frame(minHeight: 44).contentShape(Rectangle())
                 }

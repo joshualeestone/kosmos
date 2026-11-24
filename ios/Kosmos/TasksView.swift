@@ -393,6 +393,7 @@ struct TasksView: View {
                         .frame(minHeight: 44).contentShape(Rectangle())   // review 3 of #7797: a 44pt tap area, the capsule as it was
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Answer")   // kosmos#8957: never the board icon's symbol name
                 .accessibilityHint(t.waitingOn.first.map { answersOnBoard($0.who) } ?? false ? Board.opensOnBoard : "Opens the chat")
             }
         }
