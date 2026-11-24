@@ -29,4 +29,4 @@ Per platform: Windows 4, Mac 4, Linux 3.
 - An offline build of the committed pool is byte-identical to `web/whats-new.json` (the cut's #7617 check).
 
 ## Weakest premise
-That "spreadsheets" reads right to a person: it means Excel files (.xlsx, .xlsm); a CSV was already plain text. Platform is settled: Ice Cream Kitty checked the same attachtext.js blob in the prod Mac and Linux 0.8.18 releases, and Windows ships the same file (m6238).
+That "spreadsheets" reads right to a person: it means Excel files (.xlsx, .xlsm); a CSV was already plain text. Platform is measured on all three: Ice Cream Kitty found engine/attachtext.js as blob f4358c2138 (#8940's) in the prod Mac and Linux 0.8.18 tarballs (m6238, m6240), and I found the same blob at app/engine/attachtext.js in the staging Windows 0.8.18 zip (8da9b1fe9a45, the one I signed).
