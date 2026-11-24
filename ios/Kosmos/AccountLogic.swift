@@ -129,8 +129,8 @@ enum Account {
         post("/v1/account/sign-out-everywhere", coordinator: coordinator, session: session)
     }
 
-    // Header the route requires (websession.rs web_request). The app's own web view sends it from the account page
-    // today; a request from URLSession carries no Origin or Sec-Fetch-Site, which that check lets through.
+    // Header the route requires (websession.rs web_request), as the web account page sends it. A request from URLSession
+    // carries no Origin or Sec-Fetch-Site, which that check lets through.
     static let webHeader = "x-kosmos-web"
 
     // kosmos-relay#795: Sign out ends this device's sessions on Kosmos+ too, so a copy of the token stops working.
