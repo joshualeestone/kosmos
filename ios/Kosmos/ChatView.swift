@@ -1872,9 +1872,9 @@ struct ChatView: View {
                             .task(id: previewTaskKey(row)) { if let p = row.preview { await client.loadPreviewImage(p) } }
                     }
                     // kosmos#8952: a question or permission opens nothing (the board has no buttons for it either).
-                    let now = Board.askingNow(row, in: thread?.rows ?? [], needsYou: shown.needsYou)
-                    WayThroughRow(text: wayText(way, now: now),
-                                  action: Board.askedLine(way, now: now) == nil ? openOnBoard : nil)
+                    let now = Board.askingNow(row, in: thread?.rows ?? [], waiting: Board.waitsOnAnswer(shown))
+                    let asked = Board.askedLine(way, now: now)
+                    WayThroughRow(text: wayText(way, asked: asked), action: asked == nil ? openOnBoard : nil)
                 }
                 .padding(.top, 10)
             } else if row.who == .kosmos {
@@ -2263,11 +2263,12 @@ struct ChatView: View {
         }
     }
 
-    private func wayText(_ way: Board.ChatRow.WayThrough, now: Bool) -> Text {
+    private func wayText(_ way: Board.ChatRow.WayThrough, asked: String?) -> Text {
         let name = Text(shown.name).fontWeight(.semibold).foregroundColor(Palette.askedWord)
-        if let asked = Board.askedLine(way, now: now) { return name + Text(asked) }   // kosmos#8952: no link, no chevron
+        if let asked { return name + Text(asked) }   // kosmos#8952: no link, no chevron
         switch way {
-        case .question, .permission: return name   // answered above
+        case .question: return name + Text(Board.askedLine(.question, now: false) ?? "")
+        case .permission: return name + Text(Board.askedLine(.permission, now: false) ?? "")
         case .attachment: return Text("A file. Open on your computer's board \u{203A}")
         case .draft: return Text("Words sat unsent in ") + name + Text("'s input box. See them on your computer's board \u{203A}")
         }

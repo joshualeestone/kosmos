@@ -6326,11 +6326,21 @@ do {
         Board.ChatRow(id: id, atRaw: nil, at: nil, text: id, who: .agent, wayThrough: way)
     }
     let rows = [row("q1", .question), row("a", nil), row("p1", .permission), row("f", .attachment), row("p2", .permission), row("b", nil)]
-    check(Board.askingNow(rows[4], in: rows, needsYou: true), "the newest permission row is the one being asked while the agent needs you")
-    check(!Board.askingNow(rows[2], in: rows, needsYou: true) && !Board.askingNow(rows[0], in: rows, needsYou: true),
+    check(Board.askingNow(rows[4], in: rows, waiting: true), "the newest permission row is the one being asked while the agent needs you")
+    check(!Board.askingNow(rows[2], in: rows, waiting: true) && !Board.askingNow(rows[0], in: rows, waiting: true),
           "an older question or permission is past, even while the agent needs you")
-    check(!Board.askingNow(rows[4], in: rows, needsYou: false), "CONTROL: nothing is being asked when the agent does not need you")
-    check(!Board.askingNow(rows[3], in: rows, needsYou: true), "a file row is never a question")
+    check(!Board.askingNow(rows[4], in: rows, waiting: false), "CONTROL: nothing is being asked when the agent is not waiting on an answer")
+    check(!Board.askingNow(rows[3], in: rows, waiting: true), "a file row is never a question")
+    let answered = rows + [Board.ChatRow(id: "y", atRaw: nil, at: nil, text: "yes", who: .person, wayThrough: nil)]
+    check(!Board.askingNow(answered[4], in: answered, waiting: true), "a question the person wrote after is past")
+    let agent = { (s: String, stuck: Bool) in
+        Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, needsYou: true, crashLooping: stuck)
+    }
+    check(Board.waitsOnAnswer(agent("needs_you", false)) && Board.waitsOnAnswer(agent("question", false))
+          && Board.waitsOnAnswer(agent("approval", false)), "needs_you, question and approval wait on an answer")
+    check(!Board.waitsOnAnswer(agent("working", true)) && !Board.waitsOnAnswer(agent("needs_trust", false))
+          && !Board.waitsOnAnswer(agent("connection_lost", false)),
+          "CONTROL: needing the person for a crash loop, a trust prompt or a lost connection is not an open question")
     check(Board.askedLine(.permission, now: true) == " needs your permission. Answer it on your computer."
           && Board.askedLine(.permission, now: false) == " asked for your permission."
           && Board.askedLine(.question, now: true) == " asked you something. Answer it on your computer."

@@ -2434,12 +2434,16 @@ enum Board {
     }
 
     // kosmos#8952: a question or permission row with no buttons opens nothing: the board draws none for it either (the same
-    // choices), only the window's text. It says plainly where to answer while the agent is waiting on it (the newest such
-    // row, while the agent needs the person), and only what was asked once it is past.
-    static func askingNow(_ row: ChatRow, in rows: [ChatRow], needsYou: Bool) -> Bool {
-        guard needsYou, row.wayThrough == .question || row.wayThrough == .permission else { return false }
-        return rows.last { $0.wayThrough == .question || $0.wayThrough == .permission }?.id == row.id
+    // choices), only the window's text. It says where to answer only while it is the newest such row, nothing the person
+    // wrote comes after it, and the agent is waiting on an answer (waitsOnAnswer).
+    static func askingNow(_ row: ChatRow, in rows: [ChatRow], waiting: Bool) -> Bool {
+        guard waiting, row.wayThrough == .question || row.wayThrough == .permission,
+              let at = rows.lastIndex(where: { $0.wayThrough == .question || $0.wayThrough == .permission }),
+              rows[at].id == row.id else { return false }
+        return !rows[(at + 1)...].contains { $0.who == .person }
     }
+    // Waiting on an answer, not needing the person for another reason (a crash loop, a stuck error, a trust prompt).
+    static func waitsOnAnswer(_ a: Agent) -> Bool { ["needs_you", "question", "approval"].contains(a.state) }
     // The words after the agent's name on that row, or nil for a row that keeps its link (a file, unsent words).
     static func askedLine(_ way: ChatRow.WayThrough, now: Bool) -> String? {
         switch way {

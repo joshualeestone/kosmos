@@ -41,3 +41,22 @@ test('#8952: the scroll line changes nothing about whether the box is answerable
   assert.equal(chat.permissionAnswerable(withLineUnderNo('  ↑ 37 more lines')), chat.permissionAnswerable(BASH));
   assert.equal(chat.permissionAnswerable(BASH), true, 'premise: the whole box is on screen');
 });
+
+// The only place the line appears for real: a box taller than the window, its top (the full-width rule) scrolled away.
+function cutOff(screen) {
+  const lines = screen.split('\n');
+  const rule = lines.findIndex((l) => /^─{20,}\s*$/.test(l));
+  assert.ok(rule >= 0, 'premise: the capture has its full-width rule');
+  return lines.slice(rule + 1).join('\n');
+}
+
+test('#8952: a cut-off box with the scroll line now reads as a permission prompt, and still gets no buttons and no card', () => {
+  const real = status.claudePermissionPrompt(BASH);
+  const screen = cutOff(withLineUnderNo('  ↑ 37 more lines'));
+  const got = status.claudePermissionPrompt(screen);
+  assert.ok(got, 'unreadable once its top scrolled away');
+  assert.deepEqual(got.options, real.options);
+  assert.equal(chat.permissionAnswerable(screen), false, 'a box whose top scrolled away must not be answerable (#6054)');
+  assert.equal(chat.permissionCard(screen), null, 'no card for a box whose top scrolled away');
+  assert.equal(chat.permissionAnswerable(cutOff(BASH)), false, 'CONTROL: the same cut box without the line is not answerable either');
+});
