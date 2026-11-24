@@ -41,9 +41,10 @@ final class TaskPageModel: ObservableObject {
     private var partSigAwaits = false
     private var partWrote: Board.PartWrite?
     private var partUnsureOf: (Board.PartWrite, [Board.TaskPart], (Board.TaskPage, String) -> String)?
-    // An Add nobody answered and no read has shown yet; and the words of one a later read did show, for the box to let go of.
-    private var addUnsettled: (words: String, before: [Board.TaskPart])?
-    @Published private(set) var partAdded: String?
+    // Adds nobody answered and no read has shown yet, one for each words; and the words of those a later read did show, for
+    // the box to let go of.
+    private var addUnsettled: [(words: String, before: [Board.TaskPart])] = []
+    @Published private(set) var partAdded: [String] = []
     // kosmos#8958 slice B1: a message on its way, and the line under the box (who it did not reach, or the refusal).
     @Published private(set) var saying = false
     @Published private(set) var sayLine: String?
@@ -384,7 +385,7 @@ final class TaskPageModel: ObservableObject {
         var unsent: String?
         var already = false
         var again = false
-        if let open = addUnsettled, open.words == words { again = true; before = open.before }
+        if let open = addUnsettled.first(where: { $0.words == words }) { again = true; before = open.before }
         if again || Board.partChecked(write) {
             let fresh = await freshRead()
             guard current else { return false }
@@ -421,7 +422,7 @@ final class TaskPageModel: ObservableObject {
                 } else {
                     say = Board.partUnsure; refused = true
                     partUnsureOf = (write, before, name)
-                    if let words { addUnsettled = (words, before) }
+                    if let words { addUnsettled = addUnsettled.filter { $0.words != words } + [(words, before)] }
                 }
             }
         }
@@ -430,7 +431,7 @@ final class TaskPageModel: ObservableObject {
         partRefused = refused
         partWrote = write
         if say != nil { if readOK { partSig = self.page.map { Board.partSig($0, write) } } else { partSigAwaits = true } }
-        if made, words != nil { addUnsettled = nil }
+        if made { addUnsettled.removeAll { $0.words == words } }
         await readActivity(names: names)
         guard current else { return false }
         partWriting = nil
@@ -449,10 +450,9 @@ final class TaskPageModel: ObservableObject {
     // otherwise. After a write whose own read failed, the next that works is what the line is kept against (the write itself
     // would be the change).
     private func keepPartLine(_ p: Board.TaskPage) {
-        if let open = addUnsettled, Board.partWritten(.add(open.words), before: open.before, now: p.parts) {
-            addUnsettled = nil
-            partAdded = open.words
-            if case .add = partUnsureOf?.0 { clearPart() }
+        for open in addUnsettled where Board.partWritten(.add(open.words), before: open.before, now: p.parts) {
+            addUnsettled.removeAll { $0.words == open.words }
+            partAdded.append(open.words)
         }
         if let (write, before, name) = partUnsureOf, Board.partWritten(write, before: before, now: p.parts) {
             clearPart()
@@ -466,7 +466,7 @@ final class TaskPageModel: ObservableObject {
         if let was = partSig, was != Board.partSig(p, partWrote) { clearPart() }
     }
     // The view has emptied its box of the added words.
-    func tookAdded() { partAdded = nil }
+    func tookAdded() { if !partAdded.isEmpty { partAdded = [] } }
 
     // Choosing with nobody on the project to choose: goes when somebody is.
     func sayNoMembers() {

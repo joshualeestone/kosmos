@@ -100,8 +100,7 @@ struct TaskPageView: View {
             .onChange(of: model.undoPlan) { _ in undoOpen = false }
             // An Add that could not be told was made after all: its words are not the next part's.
             .onChange(of: model.partAdded) { added in
-                guard let added else { return }
-                if newPart.trimmingCharacters(in: .whitespacesAndNewlines) == added { newPart = "" }
+                if added.contains(newPart.trimmingCharacters(in: .whitespacesAndNewlines)) { newPart = "" }
                 model.tookAdded()
             }
             // Another account or Mac: the list is about nothing, and an undo still out would hold it open.
@@ -293,7 +292,7 @@ struct TaskPageView: View {
                         .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
                 }
                 if model.holdSay != nil, model.holdChoose { chooseWho(p) }
-                if model.partAtHold { partLine }   // on a finished task, with the parts below
+                if model.partAtHold { partLine }   // whoBlock draws it once the task is finished and this block is not
             }
             if p.allSubtasksDone {
                 Text(Board.subtasksDoneLine(unrun: p.subtasksUnrun)).font(.footnote).foregroundColor(Palette.secondary)
@@ -372,7 +371,9 @@ struct TaskPageView: View {
     private var busy: Bool { model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil || model.partWriting != nil }
 
     private func write(_ w: Board.PartWrite, atHold: Bool = false) async -> Bool {
-        await model.writePart(w, atHold: atHold, name: { $0.name($1, roster: roster) }, names: names)
+        // The roster alone: the model keeps this while a write is unsettled, and must not keep the view (and so itself).
+        let roster = self.roster
+        return await model.writePart(w, atHold: atHold, name: { $0.name($1, roster: roster) }, names: names)
     }
     private func choosing(_ part: String) -> Bool {
         if case .who(let id, _, _) = model.partWriting { return id == part }

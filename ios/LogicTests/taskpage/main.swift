@@ -2668,7 +2668,7 @@ func b7ModelTests() async {
             check(m2.partSay == Board.partUnsure, "\(what): and it stays while they read the same")
             mac2.projects = now
             await m2.read()
-            check(m2.partSay == (what == "who" ? Board.partUntold("Eli") : nil) && !m2.partRefused && m2.partAdded == (what == "Add" ? "Three" : nil), "\(what): once they read so it goes (who: nobody can say it was told; Add: the box lets go of the words)")
+            check(m2.partSay == (what == "who" ? Board.partUntold("Eli") : nil) && !m2.partRefused && m2.partAdded == (what == "Add" ? ["Three"] : []), "\(what): once they read so it goes (who: nobody can say it was told; Add: the box lets go of the words)")
         }
     }
     do {
@@ -2711,9 +2711,9 @@ func b7ModelTests() async {
         mac.asked = []
         let ok = await put(m, .add(" Three "))
         check(ok && posts(mac) == (there ? [] : ["parts"]) && m.partSay == nil, there ? "it had been made: nothing is sent again, and it is done" : "it had not: it is sent")
-        check(m.partAdded == (there ? "Three" : nil), "the box lets go of them once")
+        check(m.partAdded == (there ? ["Three"] : []), "the box lets go of them once")
         m.tookAdded()
-        check(m.partAdded == nil, "taken")
+        check(m.partAdded.isEmpty, "taken")
         mac.asked = []
         _ = await put(m, .add("Three"))
         check(posts(mac) == ["parts"] && mac.asked.first != "GET /api/projects", "settled: the same words again are another part")
@@ -2726,7 +2726,15 @@ func b7ModelTests() async {
         check(m.partSay == nil, "premise: another press took the line down")
         mac.projects = tasks(extra: #",{"id":3,"sentence":"Three"}"#)
         await m.read()
-        check(m.partAdded == "Three", "still settled by a later read")
+        check(m.partAdded == ["Three"], "still settled by a later read")
+        m.tookAdded()
+        mac.actAnswers = [nil, (200, "{}")]
+        _ = await put(m, .add("Five"))
+        _ = await put(m, .add("Six"))
+        check(m.partSay == nil, "premise: another words' Add went through")
+        mac.projects = tasks(extra: #",{"id":3,"sentence":"Three"},{"id":4,"sentence":"Six"},{"id":5,"sentence":"Five"}"#)
+        await m.read()
+        check(m.partAdded == ["Five"], "and the one that could not be told is still settled by a later read")
         mac.actAnswers = [nil]
         _ = await put(m, .add("Four"))
         mac.projects = (500, Data())
