@@ -28,7 +28,8 @@ final class TaskPageModel: ObservableObject {
     @Published private(set) var dueSaving = false
     @Published private(set) var dueRefusal: String?
     // The title and detail being saved, and the line for the last save (the board's tk-msg for the form).
-    // Like `pressing`, these three stay set when the epoch moves mid-request: the page is then about nothing.
+    // Like `pressing`, saying, dueSaving and editSaving stay set when the epoch moves mid-request: the page is then about
+    // nothing.
     @Published private(set) var editSaving = false
     @Published private(set) var editRefusal: String?
 

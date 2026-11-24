@@ -109,7 +109,7 @@ check(replaced?.closeNote(roster: roster) == nil && replaced?.holdLine == nil, "
 check(page(7)?.stateLine(roster: roster) == "Open. Replaces task 6", "the task that replaced it names it")
 check(page(2)?.closed == true && page(2)?.closeNote(roster: roster) == nil && page(2)?.partLines(roster: roster).first?.who == "Dana",
       "a finished task with an agent on it: no close note (closing it again stops nobody)")
-check(page(4)?.dueLine(calendar: cal) == "Due Oct 30", "a due date, read only")
+check(page(4)?.dueLine(calendar: cal) == "Due Oct 30", "a due date, as words")
 check(page(1)?.dueLine(calendar: cal) == nil, "no due date: no line")
 
 check(Board.parseTaskPage(projectsData, project: "springcatalogue", number: 99) == .gone, "a task the list does not have is gone")
@@ -660,8 +660,17 @@ let clear = Board.taskDueRequest(mac: macURL, project: "springcatalogue", number
 check(bodyOf(clear)?["dueDate"] is NSNull, "clearing the due date sends null")
 check(Board.taskDueRequest(mac: macURL, project: "springcatalogue", number: 4, due: "2026-02-30") == nil
       && Board.taskDueRequest(mac: macURL, project: "springcatalogue", number: 4, due: "30/11/2026") == nil, "no request for a date that is not a real calendar date")
-var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(identifier: "America/Chicago")!
-check(Board.dueDay("2026-11-30", calendar: utc).map { Board.dueString($0, calendar: utc) } == "2026-11-30", "a due date reads and writes back as the same day")
+var central = Calendar(identifier: .gregorian); central.timeZone = TimeZone(identifier: "America/Chicago")!
+check(Board.dueDay("2026-11-30", calendar: central).map { Board.dueString($0, calendar: central) } == "2026-11-30", "a due date reads and writes back as the same day")
+check(Board.keptDraft("2026-10-30", stored: "2026-10-30") == nil && Board.keptDraft("2026-11-02", stored: "2026-10-30") == "2026-11-02"
+      && Board.keptDraft("2026-02-30", stored: nil) == nil && Board.keptDraft(nil, stored: "2026-10-30") == nil,
+      "a draft is kept only while it is a real day that differs from the stored one")
+check(Board.dueControls(stored: "2026-10-30", draft: "2026-10-30") == .stored("2026-10-30"), "a draft back on the stored day: just the stored date (Clear)")
+check(Board.dueControls(stored: "2026-10-30", draft: "2026-11-02") == .choosing("2026-11-02"), "a different day being chosen: Set and Cancel")
+check(Board.dueControls(stored: nil, draft: "2026-12-01") == .choosing("2026-12-01"), "no stored date, a day being chosen: Set and Cancel")
+check(Board.dueControls(stored: nil, draft: nil) == .none, "no date at all: Set a due date")
+check(Board.dueControls(stored: "soon", draft: nil) == .unreadable("soon"), "a stored date that is not a day: said as kept")
+check(Board.keptDraft("2026-11-02", stored: "2026-11-02") == nil, "the stored day moving to the draft's day drops the draft")
 check(Board.taskEdit(title: "Pages 1 to 8", detail: "", openedTitle: "Pages 1 to 8", openedDetail: nil) == .nothing, "nothing changed: nothing is sent")
 check(Board.taskEdit(title: "  ", detail: "x", openedTitle: "Pages 1 to 8", openedDetail: nil) == .needsTitle, "an empty title is refused before sending")
 check(Board.taskEdit(title: " Pages 1 to 9 ", detail: "keep", openedTitle: "Pages 1 to 8", openedDetail: "keep") == .send(["sentence": "Pages 1 to 9"]),
@@ -712,6 +721,8 @@ check(Board.capped(String(repeating: "\u{1F600}", count: 3), 4).utf16.count == 4
 check(Board.boardLineEnds("a\rb\r\nc") == "a\nb\nc", "a lone CR and a CRLF are both line ends, as the board's form")
 check(Board.taskEdit(title: "Pages 1\nto 9", detail: "", openedTitle: "Pages 1 to 8", openedDetail: nil) == .send(["sentence": "Pages 1 to 9"]),
       "a line break in a title is a space (one line, as the board's text input)")
+check(Board.taskEdit(title: "Pages 1 to 8", detail: "", openedTitle: "Pages 1\nto 8", openedDetail: nil) == .nothing,
+      "a stored title with a line break is not sent back by a Save that changed nothing")
 
 await b1ModelTests()
 
