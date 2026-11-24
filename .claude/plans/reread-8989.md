@@ -44,6 +44,10 @@ its start. That matches the report exactly: the file changed, the changes file s
   rewritten. Before this branch no task change sent anything, so a pause kept every line about the project away
   (#3564); without this, the fix would have broken that. The Assigner's failover source owes no re-read: failovertell
   already owes it one line about the same move, so a re-read would be a second line just as its limit lifts.
+- Review 6: the bulk close decides quiet or loud per assignee from ONE store read just before its syncs (it read the
+  store once per task per assignee, and judged a pause as of a close made earlier in the loop). The failover arm is
+  silent only for the failover's own source (before === failoverFrom), not for whoever `previous` names. The paused
+  case is end to end now (real pause, real section rewritten, no debt).
 
 Rejected: a separate pane line ("task N was closed by X"). The re-read debt already persists, retries, waits for an idle
 pane and gives up after a week; a second mechanism would duplicate that and could type into a busy pane.

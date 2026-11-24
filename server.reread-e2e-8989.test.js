@@ -97,3 +97,25 @@ test('a manager closing the holder\'s task owes it a re-read; its own close does
   assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /file the lease/, 'fixture: the close must change otto\'s section');
   assert.deepEqual(owed(), ['projects'], 'a task a manager closed was not owed to its holder');
 });
+
+test('a manager closing the holder\'s task on a paused project rewrites its section and owes no notice', async (t) => {
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('otto', { state: 'idle' })]);
+  t.after(() => board.restore());
+  instructions('mara'); instructions('otto');
+  const folder = path.join(SANDBOX, 'work', 'paused');
+  fs.mkdirSync(folder, { recursive: true });
+  const p = projectsEngine.create({ name: 'Paused', folder, agents: ['mara', 'otto'] });
+  const k = tasksEngine.create(p.id, { sentence: 'wait for the landlord', made: { via: 'screen', by: null } });
+  assert.equal(tasksEngine.assignPart(p.id, k.number, 1, 'otto', { via: 'screen' }).ok, true);
+  const all = projectsEngine.readAll();
+  all.find((x) => x.id === p.id).paused = true;
+  projectsEngine.writeAll(all);
+  projectsEngine.syncAgent('otto', board.roster);
+  const file = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'otto', 'CLAUDE.md');
+  assert.match(fs.readFileSync(file, 'utf8'), /wait for the landlord/, 'fixture: otto\'s section lists its task');
+  try { fs.rmSync(ir.file()); } catch { /* none owed */ }
+  const r = await call('POST', `/api/project/${p.id}/task/${k.number}/close`, { headers: asAgent(sendertoken.mint('mara').token) });
+  assert.equal(r.code, 200, r.text.slice(0, 200));
+  assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /wait for the landlord/, 'the section was not rewritten');
+  assert.equal((ir.readOwed().otto || {}).sections, undefined, 'a notice was owed about a paused project');
+});

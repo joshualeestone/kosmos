@@ -667,9 +667,9 @@ function changedByOther(holder, by) { return !(typeof by === 'string' && sameAge
 /* kosmos#8989 review 5: no notice about a project the person paused, or switched this agent's swarm off in (#3564: no
    line about a project reaches a swarm switched off there; a pause means nobody is nudged about its tasks). The block is
    still rewritten; the agent reads it at its next start. A project that cannot be read is not quiet. */
-function noticeQuiet(projectId, one) {
+function noticeQuiet(projectId, one, all = null) {
   try {
-    const p = (projects.readAll() || []).find((x) => x && x.id === projectId);
+    const p = (all || projects.readAll() || []).find((x) => x && x.id === projectId);
     return !!p && (projects.isPaused(p) === true || projects.isSwarmOff(p, one) === true);
   } catch { return false; }
 }
@@ -793,7 +793,7 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
        engine/failovertell.js already owes it one line about this very move, so a re-read would be a second. */
     const before = out.changed && typeof out.previous === 'string' ? out.previous : null;
     if (before && before !== who && !tasks.whoOf(out.task).includes(before)) {
-      try { projects.syncAgent(before, r, { byOther: !failoverFrom && changedByOther(before, screen ? null : by) && !noticeQuiet(projectId, before) }); } catch { /* the give stands; the next sync catches up */ }
+      try { projects.syncAgent(before, r, { byOther: before !== failoverFrom && changedByOther(before, screen ? null : by) && !noticeQuiet(projectId, before) }); } catch { /* the give stands; the next sync catches up */ }
     }
     return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
   };
@@ -24288,7 +24288,7 @@ const server = http.createServer(async (req, res) => {
       }
       const results = [];
       const toTell = new Set();
-      const toTellLoud = new Set();   // kosmos#8989: the assignees owed a re-read (some task closed for them is on a project not quiet)
+      const closedFor = new Map();   // kosmos#8989: assignee -> the projects a task was closed for it in (see the tell below)
       /* ONE store read for every lookup. projects.get() would run the whole claim join (every
          project's tasks, a commitments read per assignee) once per item, and tasks.say() would run
          it again: ~400 joins for a 200-task close. Closes made earlier in THIS request are not in
@@ -24323,7 +24323,7 @@ const server = http.createServer(async (req, res) => {
              not undo the close; the result says so. */
           const t = tasks.close(projectId, number);
           closedHere.add(here);
-          for (const one of tasks.whoOf(t)) { toTell.add(one); if (!noticeQuiet(projectId, one)) toTellLoud.add(one); }
+          for (const one of tasks.whoOf(t)) { toTell.add(one); if (!closedFor.has(one)) closedFor.set(one, new Set()); closedFor.get(one).add(projectId); }
           const noteRecorded = note ? !!taskchat.record(projectId, found.number, { kind: 'said', text: note }) : null;
           results.push({ projectId, number, ok: true, ...(note ? { noteRecorded } : {}) });
         } catch (err) {
@@ -24335,10 +24335,14 @@ const server = http.createServer(async (req, res) => {
          close. Their managed block then stops listing every task closed here. */
       if (toTell.size) {
         const roster = safeRoster();
+        /* kosmos#8989: this route is the screen's, so each assignee is owed a re-read of what the person closed, unless
+           every task closed for it here is on a project paused or switched off for it (noticeQuiet). Decided now, from
+           ONE read, just before the syncs (review 6): not per task, and not as of a close made earlier in this loop. */
+        let now = null;
+        try { now = projects.readAll(); } catch { now = null; }
+        const loud = (one) => [...(closedFor.get(one) || [])].some((pid) => !noticeQuiet(pid, one, now));
         for (const one of toTell) {
-          // kosmos#8989: this route is the screen's, so each assignee is owed a re-read of what the person closed, unless
-          // every task closed for it here is on a project paused or switched off for it (noticeQuiet).
-          try { projects.syncAgent(one, roster, { byOther: toTellLoud.has(one) }); } catch { /* the close stands; the next sync catches up */ }
+          try { projects.syncAgent(one, roster, { byOther: loud(one) }); } catch { /* the close stands; the next sync catches up */ }
         }
       }
       /* `closed` counts closes THIS request made; one already closed is ok but not credited here. */
