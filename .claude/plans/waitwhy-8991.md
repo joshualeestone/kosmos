@@ -19,10 +19,11 @@ this branch):
   stateCopyOf's order so the pill word and the sentence agree:
   - held question: "It has a question for you and is holding it until you are back. Open it to answer."
   - question: "It has asked you a question and is waiting for your answer. Open it to answer."
-  - permission prompt: "It is waiting for your permission to go on. Open it to answer."
+  - permission prompt: "Looks like it is waiting for your permission to go on. Open it to answer."
   - anything else: "It is waiting for you. Open it to see what it needs."
-  The permission and catch-all sentences start "Looks like it is" when the state was read off the screen
-  (stateConfidence scraped), as the sign-in and limit sentences do (#874); a question the agent reported is not hedged.
+  "Looks like it is" hedges a screen read, as the sign-in and limit sentences do (#874): the permission sentence always
+  (awaitingApproval is read off the screen whatever the state's confidence, review round 4), the catch-all when the
+  state is scraped. A question the agent reported is not hedged.
   Never the agent's own `because` (#986, #3043, #3271). Earlier arms still lead: #8719 untied window, #5154 crash loop,
   #4006 failed restart.
 - engine/waitwhy-8991.test.js: each sentence; pill word and sentence agree (stateCopyOf lifted); the agent's words
