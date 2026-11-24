@@ -85,3 +85,6 @@ measure both.
 - Card stays open after merge: this change cuts macOS job-minutes; whether queued-to-started and created-to-UI-verdict
   improve is measured on the first runs after merge (the card's actual ask), and reported there.
 Loop: 5 rounds, opus/sonnet alternating; round 4 had no blocker or warning, round 5 (whole branch) no blocker.
+
+- EndPull measured both ways on this Mac: shared build and xcodebuild test each 2 failed / 4 passed, the same two checks. Not the shared build.
+- Full validation on Mortals at 4a641958b4: clean (entry 2026-11-24T17:32:40Z).
