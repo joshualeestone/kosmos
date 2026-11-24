@@ -25,6 +25,10 @@ struct TaskPageView: View {
     @State private var editing: (title: String, detail: String?)?
     @State private var editTitle = ""
     @State private var editDetail = ""
+    // The Due section: a date picked and on its way (shown until the Mac's answer is read), and a picker opened on a task
+    // with no date, not saved until Set (the board's empty field saves nothing until a date is chosen).
+    @State private var duePending: Date?
+    @State private var dueDraft: Date?
 
     init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
         self.client = client
@@ -166,7 +170,7 @@ struct TaskPageView: View {
             Button {
                 model.clearEditRefusal()
                 editTitle = p.sentence
-                editDetail = (p.detail ?? "").replacingOccurrences(of: "\r\n", with: "\n")
+                editDetail = Board.boardLineEnds(p.detail ?? "")
                 editing = (p.sentence, p.detail)
             } label: {
                 Text(Board.taskEditOpen).font(.footnote).foregroundColor(Palette.link)
@@ -180,7 +184,6 @@ struct TaskPageView: View {
             }
             Group {
                 Text(p.addedLine(now: Date()))
-                if let due = p.dueLine() { Text(due) }
                 if let parent = p.parentNumber, let sentence = p.parentSentence {
                     Button { openSub = parent } label: {
                         Text("Part of #\(parent) " + sentence).foregroundColor(Palette.link)
@@ -290,12 +293,12 @@ struct TaskPageView: View {
                 Section(Board.taskEditTitle) {
                     TextField(Board.taskEditTitle, text: $editTitle, axis: .vertical)
                         .lineLimit(1...4)
-                        .onChange(of: editTitle) { t in if t.count > Board.taskEditTitleMax { editTitle = String(t.prefix(Board.taskEditTitleMax)) } }
+                        .onChange(of: editTitle) { t in let c = Board.capped(t, Board.taskEditTitleMax); if c != t { editTitle = c } }
                 }
                 Section(Board.taskEditDetail) {
                     TextField(Board.taskEditDetail, text: $editDetail, axis: .vertical)
                         .lineLimit(3...12)
-                        .onChange(of: editDetail) { t in if t.count > Board.taskEditDetailMax { editDetail = String(t.prefix(Board.taskEditDetailMax)) } }
+                        .onChange(of: editDetail) { t in let c = Board.capped(t, Board.taskEditDetailMax); if c != t { editDetail = c } }
                 }
                 if let why = model.editRefusal {
                     Text(why).font(.footnote).foregroundColor(Palette.dangerWord)
@@ -305,7 +308,8 @@ struct TaskPageView: View {
             .navigationTitle("Task \(ref.number)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { model.clearEditRefusal(); editing = nil } }
+                // Off while a save is out, so a late answer can never close a form opened after it (the board's data-gen).
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { model.clearEditRefusal(); editing = nil }.disabled(model.editSaving) }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         guard let opened = editing else { return }
@@ -322,35 +326,52 @@ struct TaskPageView: View {
         .interactiveDismissDisabled(model.editSaving)
     }
 
-    // kosmos#8958 slice B1: the board's Due row, saved as soon as it is picked or cleared (saveTaskDue).
+    // kosmos#8958 slice B1: the board's Due row, saved as soon as it is picked or cleared (saveTaskDue). A task with no
+    // date shows Set a due date, which opens the picker unsaved; Set saves it.
     private func dueBlock(_ p: Board.TaskPage) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionTitle("Due")
             if let due = p.dueDate, let day = Board.dueDay(due) {
                 HStack(spacing: 12) {
-                    DatePicker("Due date", selection: Binding(get: { day }, set: { d in
+                    DatePicker("Due date", selection: Binding(get: { duePending ?? day }, set: { d in
                         model.touched()
                         let s = Board.dueString(d)
-                        if s != due { Task { await model.setDue(s, names: names) } }
+                        guard s != due else { return }
+                        duePending = d
+                        Task { await model.setDue(s, names: names); duePending = nil }
                     }), displayedComponents: .date)
                     .labelsHidden()
+                    .accessibilityLabel(p.dueLine() ?? "Due date")
                     .disabled(model.dueSaving)
                     Button("Clear") { model.touched(); Task { await model.setDue(nil, names: names) } }
                         .font(.footnote).foregroundColor(Palette.link).frame(minHeight: 44).disabled(model.dueSaving)
                         .accessibilityLabel("Clear the due date")
                 }
+            } else if let draft = dueDraft {
+                HStack(spacing: 12) {
+                    DatePicker("Due date", selection: Binding(get: { draft }, set: { dueDraft = $0 }), displayedComponents: .date)
+                        .labelsHidden()
+                        .accessibilityLabel("Due date")
+                    Button("Set") {
+                        model.touched()
+                        let s = Board.dueString(draft)
+                        Task { await model.setDue(s, names: names); if model.dueRefusal == nil { dueDraft = nil } }
+                    }
+                    .font(.footnote.weight(.semibold)).foregroundColor(Palette.link).frame(minHeight: 44).disabled(model.dueSaving)
+                    .accessibilityLabel("Set the due date")
+                    Button("Cancel") { dueDraft = nil }
+                        .font(.footnote).foregroundColor(Palette.link).frame(minHeight: 44).disabled(model.dueSaving)
+                }
             } else {
                 Button {
                     model.touched()
-                    // A week from today, the date the picker then shows for changing.
-                    let week = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
-                    Task { await model.setDue(Board.dueString(week), names: names) }
+                    // The picker opens on a week from today, nothing saved until Set.
+                    dueDraft = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
                 } label: {
                     Text("Set a due date").font(.footnote).foregroundColor(Palette.link)
                         .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(model.dueSaving)
             }
             if let why = model.dueRefusal {
                 Text(why).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
@@ -370,7 +391,7 @@ struct TaskPageView: View {
                     .padding(.horizontal, 10).padding(.vertical, 8)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
                     .accessibilityLabel(Board.taskSayLabel)
-                    .onChange(of: sayText) { t in if t.count > Board.taskSayMax { sayText = String(t.prefix(Board.taskSayMax)) } }
+                    .onChange(of: sayText) { t in let c = Board.capped(t, Board.taskSayMax); if c != t { sayText = c } }
                 Button {
                     model.touched()
                     let words = sayText

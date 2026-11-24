@@ -47,7 +47,7 @@ final class TaskPageActionsUITests: XCTestCase {
         }
     }
 
-    // A message: typed, sent, and the box is empty again (the sample Mac records it).
+    // A message: typed, sent, and the box is empty again on the sample Mac's 2xx.
     func testAMessageIsSent() throws {
         let app = try openTask()
         let say = box(app)
