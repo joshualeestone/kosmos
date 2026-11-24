@@ -21,7 +21,8 @@ the board row says only what is still there, and that it is a web page.
     (wakeHeldLine, in its order: sign-in before limit; where the board names a reset time the phone leaves it out).
   - Remove: GET /api/agent/<n>/removal for the engine's hint, question, reassurance, Loses, Keeps; DELETE without
     ?force. A 5xx, unparsed or shut-out read is "could not reach", never a fact about the agent (loadRemoval);
-    partial is not success (rm-go).
+    partial is not success (rm-go). A DELETE or restart answered by a 5xx with no engine answer in it (a gateway
+    between phone and computer) reads as "cannot tell" / "could not reach", not as a refusal.
 - Not offered on the phone, all three named in the board-row footer: "Write a handoff, then restart", "Remove from my
   board anyway" for an untied agent (the Remove section also says to use the board), and the board's "Set up and
   restart" offer for a hand-linked window with no launch job (canWriteJob): the phone sends a plain restart and shows
@@ -39,7 +40,7 @@ the board row says only what is still there, and that it is a web page.
 - Commitments live on Board.Agent (BoardLogic.swift), since every LogicTests runner compiles that file.
 
 ## Tests
-- ios/LogicTests/run-agentinfo.sh: 289 (98 new), with guards that the board's page still holds each mirrored
+- ios/LogicTests/run-agentinfo.sh: 295 (104 new), with guards that the board's page still holds each mirrored
   sentence and rule. Mutants: any 200 counted as restarted; ready without seeing the gap; the limit check before sign-in: each red.
 - Every LogicTests runner green on the final tree.
 - App build for the iOS Simulator.

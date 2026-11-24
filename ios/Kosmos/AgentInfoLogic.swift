@@ -631,10 +631,7 @@ extension Board {
 // POST /api/agent/<n>/restart (rst-go), and it took only when the answer says outcome "restarted" (restartTook), never
 // on the status alone; after it took, the phone waits until the agent is seen down and then up again
 // (restartReadyWait) and says hello to wake it (sendWakeHello), claiming the hello only when it was placed. A removal is
-// planned with GET /api/agent/<n>/removal (loadRemoval) and done with DELETE (rm-go), and its words are the engine's
-// (question, reassurance, loses, keeps, hint, because), never written here. The board keeps two things the phone does
-// not offer: "Write a handoff, then restart", and "Remove from my board anyway" for an agent Kosmos cannot tie to its
-// session (untied); the phone says where they are.
+// planned with GET /api/agent/<n>/removal (loadRemoval) and done with DELETE (rm-go).
 extension Board {
     // restartCost, word for word: "nothing to lose" only when the agent said so recently (state clear, an empty list).
     static func restartCost(_ shown: String, _ rec: Commitments?) -> (small: String, list: [String]) {
@@ -673,8 +670,9 @@ extension Board {
     }
     // restartTook and restartFailureLine. ok is true only for a restart that took.
     static func restartResult(status: Int, body: Data?) -> (ok: Bool, sentence: String?) {
-        guard status != 0 else { return (false, "We could not reach Kosmos to restart them.") }
         let out = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        // No answer, or a 5xx from something in between with no answer of the engine's: not a fact about the restart.
+        guard status != 0, status < 500 || out != nil else { return (false, "We could not reach Kosmos to restart them.") }
         if (200..<300).contains(status), (out?["outcome"] as? String) == "restarted" { return (true, nil) }
         if status == 401 || status == 403, out?["outcome"] == nil { return (false, phoneShutOut) }
         let said = (out?["because"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -756,6 +754,12 @@ extension Board {
         // No answer about this agent (no reply, a 5xx, a body that does not parse): never read as a fact about it.
         case unreached
     }
+    // What a new plan read does to the one shown: nil keeps it (a read that did not answer leaves a removable plan
+    // standing until the next refresh asks again), otherwise the new plan.
+    static func removalNext(shown: RemovalPlan?, read: RemovalPlan) -> RemovalPlan? {
+        if read == .unreached, case .can? = shown { return nil }
+        return read
+    }
     static let removalUnreached = "We could not reach your computer just now, so we cannot tell you whether this agent can be removed. It will come back on its own."
     static let removalUntiedOnBoard = "To clear its card off your board without stopping that session, use your computer\u{2019}s board."
 
@@ -812,6 +816,7 @@ extension Board {
         let outcome = o?["outcome"] as? String
         // rm-go: `error` as well as `because`, since a thrown removal says it may be half done.
         let said = (o?["because"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (o?["error"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        if status >= 500, o == nil { return .refused(removeUnanswered) }
         if !(200..<300).contains(status) || o == nil || outcome == "refused" {
             if status == 401 || status == 403, outcome == nil { return .refused(phoneShutOut) }
             return .refused(sentence(said ?? "we could not remove it, and we cannot tell you why"))
