@@ -170,6 +170,14 @@ jobs:
           ios/LogicTests/run-pullrefresh.sh | tee "$RUNNER_TEMP/pullrefresh.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/pullrefresh.log"
 
+      # kosmos#8959 slice B1b: the account screen's second step (its state, the offer, the fresh session a confirm hands
+      # back). Its words are compared with the web page only where kosmos-relay is checked out beside it (not on CI).
+      - name: Account second step logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-accountsecond.sh | tee "$RUNNER_TEMP/accountsecond.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/accountsecond.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build
