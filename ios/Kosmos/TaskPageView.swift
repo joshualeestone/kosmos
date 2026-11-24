@@ -569,7 +569,7 @@ struct TaskPageView: View {
                 Text("If missed, tell").font(.footnote).foregroundColor(Palette.secondary).accessibilityHidden(true)
                 Picker("Who is told if a run is missed", selection: Binding(get: { shown }, set: { want in
                     model.touched()
-                    Task { await model.saveReviewer(want, names: names) }
+                    Task { _ = await model.saveReviewer(want, names: names) }
                 })) {
                     ForEach(options, id: \.self) { Text($0.words).tag($0.value) }
                 }
@@ -577,7 +577,7 @@ struct TaskPageView: View {
                 .labelsHidden()
                 .accessibilityLabel("Who is told if a run is missed")
                 .tint(Palette.link)
-                .frame(minHeight: 44)
+                .frame(minWidth: 44, minHeight: 44)
                 .disabled(model.reviewerSaving != nil || model.repeatSaving || model.pressing)
                 .accessibilityIdentifier("taskpage.repeat.reviewer")
                 if model.reviewerSaving != nil { SweepDots(scales: false) }
