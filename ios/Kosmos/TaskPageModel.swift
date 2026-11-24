@@ -62,6 +62,19 @@ final class TaskPageModel: ObservableObject {
     // What the task read as when holdSay was the unhold's next sentence (Board.holdNextSig): the line goes once the task
     // reads otherwise, as the board's repaint takes it down (review 1).
     private var holdSaySig: String?
+    // kosmos#8958 slice B8: the hold form's Save is the write in the air (`holding` is set too), and holdSay is about it. The
+    // line goes once the stored hold reads as something other than what it was said of.
+    @Published private(set) var holdFormSaving = false
+    @Published private(set) var holdSayAtForm = false
+    private var holdSayOf: Board.HoldChoice?
+    private func clearHoldSay() {
+        if holdSay != nil { holdSay = nil }
+        if holdChoose { holdChoose = false }
+        if holdRefused { holdRefused = false }
+        if holdSayAtForm { holdSayAtForm = false }
+        holdSaySig = nil
+        holdSayOf = nil
+    }
     // kosmos#8958 slice B3: the Repeats Save in the air, and the line under it (the board's tk-repeat-msg): "Saved." or
     // the Mac's refusal (repeatRefused). "Saved." goes once the stored rule reads as something else (the board's review
     // 2: a rule changed elsewhere retires it).
@@ -208,6 +221,7 @@ final class TaskPageModel: ObservableObject {
             if let was = refusalSubtasks, was != p.subtasks { clearRefusal() }
             keepPartLine(p)
             if let sig = holdSaySig, Board.holdNextSig(p) != sig { holdSay = nil; holdChoose = false; holdSaySig = nil }
+            if let of = holdSayOf, p.hold.map({ Board.holdSame($0.stored, of) }) != true { clearHoldSay() }
             if let w = repeatSavedAs, p.closed || p.repeatStored.map(Board.repeatWire) != w { repeatSay = nil; repeatSavedAs = nil }
             // Nothing about Repeats outlives the task being finished (the board's tkPaintRepeat, review 2).
             if p.closed && repeatRefused { repeatSay = nil; repeatRefused = false }
@@ -220,6 +234,7 @@ final class TaskPageModel: ObservableObject {
             syncReceipt()
         case .gone:
             if holdSaySig != nil { holdSay = nil; holdChoose = false; holdSaySig = nil }
+            if holdSayOf != nil { clearHoldSay() }
             hideUndo()
             set(\.gone, true)
             set(\.readFailed, false)
@@ -475,7 +490,7 @@ final class TaskPageModel: ObservableObject {
         partSig = Board.partSig(page, nil)
     }
     // As the board's Choose who with no members: its line goes, and says where people come from instead.
-    func sayNoMembersOnHold() { holdSay = Board.holdChooseNobody; holdChoose = false; holdSaySig = nil }
+    func sayNoMembersOnHold() { clearHoldSay(); holdSay = Board.holdChooseNobody }
 
     // The receipt's read in the air is given up: another is wanted, the task is open, or the page left the screen or the app
     // the front. A read cut short is no failure, and is asked for again on the next read of the task (the Mac goes on working
@@ -665,10 +680,7 @@ final class TaskPageModel: ObservableObject {
         guard !holding, !pressing, partWriting == nil, current, let page, !page.closed, page.onHold == wasOnHold else { return }
         holding = true
         clearPart()
-        holdSay = nil
-        holdChoose = false
-        holdSaySig = nil
-        holdRefused = false
+        clearHoldSay()
         if !wasOnHold {
             // Putting on hold sets exactly what it sends, so it would replace an agent's hold (its until and why) not
             // yet shown: the task is read fresh first, and nothing is sent if it is already on hold, gone or unread.
@@ -716,6 +728,60 @@ final class TaskPageModel: ObservableObject {
         }
         holding = false
     }
+
+    // kosmos#8958 slice B8: the board's tk-hold-save. `base` is the stored hold the choice was made against. Never beside the
+    // hold button's press, nor a press or part write. A hold from a screen sets exactly what it sends and would put back one an
+    // agent has just taken off, so the task is read first, and nothing is sent unless it is still on hold.
+    @discardableResult
+    func saveHold(_ choice: Board.HoldChoice, base: Board.HoldChoice, names: [String: String]) async -> Bool {
+        guard !holding, !pressing, partWriting == nil, current, let page, page.hold != nil, Board.holdReady(choice, stored: base, now: now()) else { return false }
+        holding = true
+        holdFormSaving = true
+        clearPart()
+        clearHoldSay()
+        holdSayAtForm = true
+        func done(_ words: String?, refused: Bool = false, of: Board.HoldChoice? = nil) {
+            holdSay = words
+            holdRefused = refused
+            holdSayOf = of
+            holding = false
+            holdFormSaving = false
+        }
+        let fresh = await freshRead()
+        guard current else { return false }
+        guard case .some(.page(let p)) = fresh, let kept = p.hold else {
+            if fresh == nil { done(Board.holdCheckFailed); return false }
+            let words = fresh == .some(.gone) ? Board.holdTaskGone : Board.holdTakenOff
+            await read()
+            await readActivity(names: names)
+            guard current else { return false }
+            done(words)
+            return false
+        }
+        let (project, number) = (self.project, self.number)
+        let body = Board.taskHoldSaveBody(choice, base: base, now: kept)
+        let answer = await send { Board.taskHoldRequest(mac: $0, project: project, number: number, body: body) }
+        guard current else { return false }
+        if case .refused(let why) = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0,
+                                                          failed: Board.holdSaveFailed, unreached: Board.holdUnreached) {
+            // Said of the hold as it was just read: an answer that was lost, and a hold saved after all, takes it down.
+            done(why, refused: true, of: kept.stored)
+            return false
+        }
+        let saved = Board.holdAfter(choice, base: base, now: kept.stored)
+        // As saveReviewer's: the number read() gives the read below.
+        let ownRead = pageReads + 1
+        await read()
+        guard current else { return false }
+        await readActivity(names: names)
+        guard current else { return false }
+        // Said only while the form shows what was saved (changed elsewhere in between, it shows that).
+        let shows = pageReadOK < ownRead || self.page?.hold.map { Board.holdSame($0.stored, saved) } == true
+        done(shows ? Board.holdSaved : nil, of: shows ? saved : nil)
+        return true
+    }
+    // A new choice retires the form's last answer.
+    func clearHoldFormSay() { if holdSayAtForm, !holding { clearHoldSay() } }
 
     // kosmos#8958 slice B1: a message on the task (the board's tkSayPost). true when the Mac recorded it, so the box can
     // be emptied; the line under it then says who it did not reach. Nothing is sent for an empty box or while one is
