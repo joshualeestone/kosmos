@@ -256,7 +256,10 @@ jobs:
   # held runs for up to 114 minutes on 2026-11-24. They now test these products (ui-sample.sh --products), and a job whose
   # runner has another Xcode builds for itself, said in its log. If this job fails, the UI jobs do not run, and this red
   # is the run's red, with xcodebuild's last lines in its log: the UI jobs then show as skipped, which means NOT TESTED, not
-  # green. A tar that arrives but will not unpack turns its UI job red rather than quietly building (it is a fault to see).
+  # green. A download that is missing, cut short or will not unpack falls back to building, with a warning on the run.
+  # The cost, said plainly: the UI jobs ask for a runner only once this job is done, so on a congested macOS queue a run
+  # waits for a runner twice. Fewer macOS minutes per run (two builds not made) should shorten the queue for everyone;
+  # whether a run's own start-to-verdict time gets shorter is measured after merge (kosmos#8993), not assumed.
   uibuild:
     name: ui build (sample board)
     runs-on: macos-latest
@@ -278,6 +281,8 @@ jobs:
           for app in "$RUNNER_TEMP"/ui-products-check/Debug-iphonesimulator/*.app; do
             codesign --verify --deep --strict "$app" || { echo "FAIL  the tarred $(basename "$app") does not verify"; exit 1; }
           done
+          # The UI jobs check the download against this before unpacking it.
+          ( cd "$RUNNER_TEMP" && shasum -a 256 ui-products.tar > ui-products.tar.sha256 )
 
       # Only this run's UI jobs read it. One name per run (artifacts belong to their run), overwritten by "Re-run all jobs",
       # so "Re-run failed jobs" on a UI job finds the products its run built. Kept 3 days for such a re-run; past that the
@@ -285,7 +290,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ui-products
-          path: ${{ runner.temp }}/ui-products.tar
+          path: |
+            ${{ runner.temp }}/ui-products.tar
+            ${{ runner.temp }}/ui-products.tar.sha256
           retention-days: 3
           overwrite: true
           compression-level: 0   # already one tar; zipping it again only costs the runner time
@@ -311,13 +318,18 @@ jobs:
         with:
           name: ui-products
           path: ${{ runner.temp }}/ui-products-tar
+      # Only a download that matches uibuild's checksum and unpacks whole is used; anything else (expired, cut short by the
+      # network) leaves the folder empty, and ui-sample.sh builds the app itself, with this warning on the run.
       - name: Unpack the shared build
         run: |
           mkdir -p "$RUNNER_TEMP/ui-products"
-          if [ -f "$RUNNER_TEMP/ui-products-tar/ui-products.tar" ]; then
-            tar -C "$RUNNER_TEMP/ui-products" -xf "$RUNNER_TEMP/ui-products-tar/ui-products.tar"
+          d="$RUNNER_TEMP/ui-products-tar"
+          if [ -f "$d/ui-products.tar" ] && [ -f "$d/ui-products.tar.sha256" ] && ( cd "$d" && shasum -a 256 -c ui-products.tar.sha256 ) &&
+             tar -C "$RUNNER_TEMP/ui-products" -xf "$d/ui-products.tar"; then
+            echo "using the shared build"
           else
-            echo "::warning::no shared build for this run (uibuild's artifact could not be had), so this job builds the app itself"
+            rm -rf "${RUNNER_TEMP:?}/ui-products"; mkdir -p "$RUNNER_TEMP/ui-products"
+            echo "::warning::no usable shared build for this run (missing, or not matching uibuild's checksum), so this job builds the app itself"
           fi
 
       - name: UI tests (sample board)
@@ -370,13 +382,18 @@ jobs:
         with:
           name: ui-products
           path: ${{ runner.temp }}/ui-products-tar
+      # Only a download that matches uibuild's checksum and unpacks whole is used; anything else (expired, cut short by the
+      # network) leaves the folder empty, and ui-sample.sh builds the app itself, with this warning on the run.
       - name: Unpack the shared build
         run: |
           mkdir -p "$RUNNER_TEMP/ui-products"
-          if [ -f "$RUNNER_TEMP/ui-products-tar/ui-products.tar" ]; then
-            tar -C "$RUNNER_TEMP/ui-products" -xf "$RUNNER_TEMP/ui-products-tar/ui-products.tar"
+          d="$RUNNER_TEMP/ui-products-tar"
+          if [ -f "$d/ui-products.tar" ] && [ -f "$d/ui-products.tar.sha256" ] && ( cd "$d" && shasum -a 256 -c ui-products.tar.sha256 ) &&
+             tar -C "$RUNNER_TEMP/ui-products" -xf "$d/ui-products.tar"; then
+            echo "using the shared build"
           else
-            echo "::warning::no shared build for this run (uibuild's artifact could not be had), so this job builds the app itself"
+            rm -rf "${RUNNER_TEMP:?}/ui-products"; mkdir -p "$RUNNER_TEMP/ui-products"
+            echo "::warning::no usable shared build for this run (missing, or not matching uibuild's checksum), so this job builds the app itself"
           fi
 
       - name: UI tests on the UIKit list (sample board)

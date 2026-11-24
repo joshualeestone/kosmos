@@ -32,7 +32,9 @@ test('uibuild builds once, checks it built, and uploads the products as one tar 
   assert.match(b, /tar -C "\$RUNNER_TEMP\/ui-products" -cf "\$RUNNER_TEMP\/ui-products\.tar" \./);
   assert.match(b, /actions\/upload-artifact@v4/);
   assert.match(b, /name: ui-products\n/, 'one name per run, so "Re-run failed jobs" finds it');
-  assert.match(b, /path: \$\{\{ runner\.temp \}\}\/ui-products\.tar/);
+  assert.match(b, /shasum -a 256 ui-products\.tar > ui-products\.tar\.sha256/);
+  assert.match(b, /path: \|\n\s+\$\{\{ runner\.temp \}\}\/ui-products\.tar\n\s+\$\{\{ runner\.temp \}\}\/ui-products\.tar\.sha256\n/);
+  assert.match(b, /codesign --verify --deep --strict "\$app"/, 'the tar round trip is checked once, here');
   assert.match(b, /overwrite: true/, '"Re-run all jobs" replaces it');
   assert.match(b, /if-no-files-found: error/, 'an empty upload is red, never a silent nothing');
 });
@@ -43,7 +45,10 @@ test('every UI job needs uibuild, downloads that artifact (tolerating its absenc
     assert.match(j, /\n {4}needs: uibuild\n/, `${name} waits for the build`);
     assert.match(j, /actions\/download-artifact@v4\n {8}continue-on-error: true\n {8}with:\n {10}name: ui-products\n/,
       `${name} downloads the artifact uibuild uploads, and a missing one falls back to building, not to a red`);
-    assert.match(j, /tar -C "\$RUNNER_TEMP\/ui-products" -xf "\$RUNNER_TEMP\/ui-products-tar\/ui-products\.tar"/, `${name} unpacks it`);
+    assert.match(j, /shasum -a 256 -c ui-products\.tar\.sha256 \) &&\n\s+tar -C "\$RUNNER_TEMP\/ui-products" -xf "\$d\/ui-products\.tar"; then/,
+      `${name} unpacks it only when it matches uibuild's checksum`);
+    assert.match(j, /else\n\s+rm -rf "\$\{RUNNER_TEMP:\?\}\/ui-products"; mkdir -p "\$RUNNER_TEMP\/ui-products"\n\s+echo "::warning::/,
+      `${name} falls back to building, with a warning, on anything else`);
     assert.match(j, /ui-sample\.sh[^\n]* --products "\$RUNNER_TEMP\/ui-products"/, `${name} tests the shared products`);
   }
   assert.match(job('uikit'), /--uikit --shard "\$\{\{ matrix\.shard \}\}" --products/, 'both UIKit halves keep their shard');
@@ -64,16 +69,18 @@ function testRuns() {
   return { shared: grab(/xcodebuild test-without-building -xctestrun/), built: grab(/xcodebuild test -project Kosmos\.xcodeproj/) };
 }
 const VARS = /TEST_RUNNER_KOSMOS_UI_PLUS=1 TEST_RUNNER_KOSMOS_UI_SAMPLE=1 TEST_RUNNER_KOSMOS_UIKITLIST="\$uikit"/;
-const TAIL = /-destination "id=\$udid" \\? ?-retry-tests-on-failure -test-iterations 2 \$only \$skip \$allow (?:-derivedDataPath "\$work\/dd" )?-resultBundlePath "\$work\/result\.xcresult"/;
 
 test('the shared-products run passes exactly the test arguments a built run does (CI now always takes it)', () => {
   const { shared, built } = testRuns();
-  for (const [name, line] of [['shared', shared], ['built', built]]) {
-    assert.match(line, VARS, `${name}: the three test-runner variables`);
-    assert.match(line, TAIL, `${name}: the retry, the classes, the skips, the time limits and the result bundle`);
-  }
-  // CONTROL: the same check refuses a line missing one argument.
-  assert.doesNotMatch(shared.replace(' $skip', ''), TAIL);
+  // Everything after the app source: the destination through the result bundle, compared whole.
+  const after = (line, src) => { const at = line.indexOf(src); assert.ok(at >= 0, `premise: ${src}`); return line.slice(at + src.length).trim(); };
+  const sharedTail = after(shared, '-xctestrun "$run_file"');
+  const builtTail = after(built, '-project Kosmos.xcodeproj -scheme Kosmos');
+  assert.equal(sharedTail, builtTail, 'the same destination, retry, classes, skips, time limits, derived data and result bundle');
+  assert.match(sharedTail, /^-destination "id=\$udid" \\? ?-retry-tests-on-failure -test-iterations 2 \$only \$skip \$allow -derivedDataPath "\$work\/dd" -resultBundlePath "\$work\/result\.xcresult"/);
+  for (const [name, line] of [['shared', shared], ['built', built]]) assert.match(line, VARS, `${name}: the three test-runner variables`);
+  // CONTROL: one argument more on one side is seen.
+  assert.notEqual(sharedTail.replace('$allow', '$allow -parallel-testing-enabled YES'), builtTail);
   assert.doesNotMatch(shared.replace('TEST_RUNNER_KOSMOS_UIKITLIST="$uikit"', ''), VARS);
 });
 
@@ -87,6 +94,7 @@ test('a failure note reads the app from wherever it was tested, never only from 
 test('ui-sample.sh refuses bad --build-only and --products uses before any Xcode work', () => {
   const run = (...args) => spawnSync('bash', [SAMPLE, ...args], { encoding: 'utf8', timeout: 20000 });
   const full = fs.mkdtempSync(path.join(os.tmpdir(), 'uibuild-8993-'));
+  const stray = fs.mkdtempSync(path.join(os.tmpdir(), 'uibuild-8993-'));
   fs.writeFileSync(path.join(full, 'something-else'), 'x');
   try {
     for (const [args, said] of [
@@ -95,6 +103,7 @@ test('ui-sample.sh refuses bad --build-only and --products uses before any Xcode
       [['--uikit', '--build-only', '/nonexistent/x'], /--build-only takes no other option/],
       [['--build-only', '/nonexistent/x', '--products', '/nonexistent/y'], /--build-only takes no other option/],
       [['--build-only', full], /is not empty and is not a products folder, so nothing was built into it/],
+      [['--keep', '--build-only', '/nonexistent/x'], /--build-only takes no other option/],
     ]) {
       const r = run(...args);
       assert.equal(r.status, 2, `${args.join(' ')}: exit ${r.status} ${r.stderr}`);
@@ -102,11 +111,9 @@ test('ui-sample.sh refuses bad --build-only and --products uses before any Xcode
     }
     assert.ok(fs.existsSync(path.join(full, 'something-else')), 'the folder it refused is untouched');
     // Only its own marker makes a folder replaceable: a stray file named xcode-version is not enough.
-    const stray = fs.mkdtempSync(path.join(os.tmpdir(), 'uibuild-8993-'));
     fs.writeFileSync(path.join(stray, 'xcode-version'), 'Xcode 1.0');
     const r = run('--build-only', stray);
     assert.equal(r.status, 2, r.stderr);
     assert.ok(fs.existsSync(path.join(stray, 'xcode-version')), 'untouched');
-    fs.rmSync(stray, { recursive: true, force: true });
-  } finally { fs.rmSync(full, { recursive: true, force: true }); }
+  } finally { for (const d of [full, stray]) fs.rmSync(d, { recursive: true, force: true }); }
 });

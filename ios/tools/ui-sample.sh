@@ -138,7 +138,7 @@ if [ "${UI_SAMPLE_PRINT_CLASSES:-}" = 1 ]; then printf '%s\n' $classes; exit 0; 
 # kosmos#8993: build for testing and stop. A generic simulator destination, so the products run on whichever simulator the
 # test job makes. The products folder is replaced whole, so a half-written earlier one is never used.
 if [ -n "$build_only" ]; then
-  [ -z "$products$shard" ] && [ "$uikit" = 0 ] || { echo "ui-sample: --build-only takes no other option" >&2; exit 2; }
+  [ -z "$products$shard" ] && [ "$uikit" = 0 ] && [ "$keep" = 0 ] || { echo "ui-sample: --build-only takes no other option" >&2; exit 2; }
   # It replaces the folder whole, so only an empty one or a products folder this script made (it holds the marker
   # .ui-sample-products, written only here).
   if [ -e "$build_only" ] && [ -n "$(ls -A "$build_only" 2>/dev/null)" ] && [ ! -f "$build_only/.ui-sample-products" ]; then
@@ -152,10 +152,12 @@ if [ -n "$build_only" ]; then
   # builds every simulator architecture (measured: x86_64 and arm64), twice the work for a slice no simulator here runs.
   if ( cd "$here/.." && xcodebuild build-for-testing -project Kosmos.xcodeproj -scheme Kosmos -configuration Debug \
          -destination 'generic/platform=iOS Simulator' ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=NO -derivedDataPath "$bwork/dd" > "$blog" 2>&1 ); then
-    rm -rf "${build_only:?}"; mkdir -p "$build_only"
-    cp -R "$bwork/dd/Build/Products/." "$build_only/"
-    xcodebuild -version > "$build_only/xcode-version"
-    : > "$build_only/.ui-sample-products"
+    rm -rf "${build_only:?}"; mkdir -p "$build_only" || { echo "FAIL  ui-sample build: could not make $build_only" >&2; exit 1; }
+    : > "$build_only/.ui-sample-products"   # first, so a copy cut short can be built into again
+    cp -R "$bwork/dd/Build/Products/." "$build_only/" || { echo "FAIL  ui-sample build: the products could not be copied" >&2; exit 1; }
+    # The stamp --products compares: this Xcode, this Mac's architecture, and the commit built (named if it differs).
+    { xcodebuild -version && uname -m; } > "$build_only/xcode-version" || { echo "FAIL  ui-sample build: no Xcode version" >&2; exit 1; }
+    git -C "$here/.." rev-parse HEAD > "$build_only/built-from" 2>/dev/null || :
     run_file="$(find "$build_only" -maxdepth 1 -name '*.xctestrun' | head -1)"
     if [ -z "$run_file" ]; then echo "FAIL  ui-sample build: no .xctestrun in the products" >&2; exit 1; fi
     echo "PASS  ui-sample build: $(basename "$run_file"), $(head -1 "$build_only/xcode-version")"
@@ -165,16 +167,21 @@ if [ -n "$build_only" ]; then
   tail -40 "$blog" >&2
   exit 1
 fi
-# kosmos#8993: products from this same Xcode are tested without building; anything else is built here.
+# kosmos#8993: products from this same Xcode (and architecture) are tested without building; anything else is built here.
 run_file=""
+if [ -n "$products" ] && [ -d "$products" ]; then products="$(cd "$products" && pwd)"; fi   # xcodebuild runs from ios/
 if [ -n "$products" ]; then
   cand="$(find "$products" -maxdepth 1 -name '*.xctestrun' 2>/dev/null | head -1)"
   if [ -z "$cand" ]; then
     echo "ui-sample: no built products in $products, so the app is built here"
-  elif [ "$(cat "$products/xcode-version" 2>/dev/null)" != "$(xcodebuild -version 2>/dev/null)" ]; then
-    echo "ui-sample: the products were built by another Xcode ($(head -1 "$products/xcode-version" 2>/dev/null || echo unknown)), so the app is built here"
+  elif [ "$(cat "$products/xcode-version" 2>/dev/null)" != "$({ xcodebuild -version && uname -m; } 2>/dev/null)" ]; then
+    echo "ui-sample: the products were built by another Xcode or for another architecture ($(head -1 "$products/xcode-version" 2>/dev/null || echo unknown)), so the app is built here"
   else
     run_file="$cand"
+    built="$(cat "$products/built-from" 2>/dev/null)"; head_now="$(git -C "$here/.." rev-parse HEAD 2>/dev/null)"
+    if [ -n "$built" ] && [ -n "$head_now" ] && [ "$built" != "$head_now" ]; then
+      echo "ui-sample: note: the products were built from ${built:0:10}, this checkout is ${head_now:0:10}"
+    fi
   fi
 fi
 if [ "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" = 1 ]; then

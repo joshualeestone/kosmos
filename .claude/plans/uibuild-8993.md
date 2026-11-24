@@ -13,7 +13,7 @@ made. Measured after the merge as ios.yml queued-to-started and job-minutes per 
 ## Built
 - ios/tools/ui-sample.sh: --build-only <dir> (build-for-testing, Debug, generic simulator; products + .xctestrun +
   xcode-version) and --products <dir> (test-without-building -xctestrun; another Xcode or no products: build here, said).
-- ios.yml: job `uibuild` builds and uploads (1 day); ui and uikit need it, download it, pass --products.
+- ios.yml: job `uibuild` builds and uploads (3 days, see round 1); ui and uikit need it, download it, pass --products.
 - ios.uibuild-8993.test.js pins the wiring and the argument refusals (mutation checked).
 
 ## Measured here (Xcode 27.0, iOS 27.0 simulator)
@@ -53,4 +53,17 @@ measure both.
   compression-level 0; a missing shared build is a ::warning; the header says a skipped UI job means not tested.
 - ui-flaky-count.sh's "no verdict" line names a uibuild red as a cause.
 - --build-only replaces only a folder holding its own marker (.ui-sample-products), cleans its temp build on any exit;
-  the shared run keeps its derived data in the run's temp folder.
+  the shared run keeps its derived data in the run's own mktemp folder ($work, under TMPDIR), removed with the run.
+
+## Round 3 (opus) fixes
+- The throughput cost said in ios.yml itself: the UI jobs ask for a runner only after uibuild, so on a congested queue
+  a run waits twice. Fewer minutes should shorten the queue for everyone; a run's own start-to-verdict is measured after
+  merge, not assumed. (Round 3 measured job 138412380241: about 14 of 43 min were build and runner start.)
+- The download is checked against a sha256 uibuild uploads with it; a mismatch, a cut-short tar or one that will not
+  unpack falls back to building with a warning (no longer red).
+- ui-sample.sh: --products made absolute (xcodebuild runs from ios/); a failed copy or version stamp is red; the marker is
+  written first (an interrupted build can be rebuilt into); the stamp holds Xcode, build, architecture, and the commit
+  (a mismatch in Xcode or architecture builds here; another commit is named); --keep with --build-only refused.
+- ui-flaky-count.sh counts a UI job skipped by a red uibuild apart (it has no log, so it read as "no log yet").
+- The test compares the two xcodebuild lines' arguments whole (a control adds one argument), checks the checksum gate.
+- EndPull on this Mac, measured: the shared-build half failed the same 2 checks as the full run; the built half pending.
