@@ -1538,16 +1538,17 @@ const closeAll = (page) => page.evaluate(() => {
     const { ctx, page } = await newPage(1280, SHOW);
     await page.evaluate((a) => { window.__members = a; }, answer(ALL));
     await openProjectIn(page, 'consolidated');
-    // B15b: the rail is rebuilt on every status poll; a focused rail action is found again by its key.
+    // B15b: a status poll that changes the rail rebuilds it; a focused rail action is found again by its key.
+    // kosmos#8990: a poll that changes nothing no longer rewrites the rail (ALIST_HTML), so the rebuild forgets that memo.
     await page.focus('#alist-fed-outside .fedout-row[data-fed-key="i:inv-lee"] .fedout-act');
-    await page.evaluate(() => { document.activeElement.__mark = 1; paintAgentList(); });
+    await page.evaluate(() => { document.activeElement.__mark = 1; ALIST_HTML = null; paintAgentList(); });   // eslint-disable-line no-undef
     const b15 = await page.evaluate(() => { const a = document.activeElement; return { key: a && a.dataset ? a.dataset.fedKey : null, rebuilt: !(a && a.__mark),
       inRail: !!(a && a.closest && a.closest('#alist-fed-outside')) }; });
     check('B15b a rail rebuild keeps focus on the same row\'s action (control: the button was replaced)', b15.key === 'i:inv-lee' && b15.rebuilt && b15.inRail, JSON.stringify(b15));
     // B15j: "Make a new code" in the rail, the rail rebuilt while the sheet is open, then Cancel: focus goes back to
     // that row's (new) button, not to the "+". Control: the opener was detached by the rebuild.
     await page.click('#alist-fed-outside .fedout-row[data-fed-key="i:inv-old"] .fedout-act');
-    await page.evaluate(() => paintAgentList());
+    await page.evaluate(() => { ALIST_HTML = null; paintAgentList(); });   // eslint-disable-line no-undef
     const detached = await page.evaluate(() => !!FEDINV_OPENER && !FEDINV_OPENER.isConnected);
     await page.click('#fedinv-cancel');
     const j15 = await page.evaluate(() => { const a = document.activeElement; return { key: a && a.dataset ? a.dataset.fedKey || a.id : null, inRail: !!(a && a.closest && a.closest('#alist-fed-outside')) }; });

@@ -145,12 +145,13 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
               line: !document.getElementById('pj-fed-own-phone').hidden }));
             chk(c.code === FIRST_CODE, `${E} the consolidated rail shows the code where the Members card is hidden`, JSON.stringify(c));
             chk(!c.line, `${E} the line above the room is not shown in the consolidated view`, JSON.stringify(c));
-            // A focused rail button survives the rail's rebuild (what every status poll does). The rebuild is forced and
-            // proven: the focused button is marked first, so focus on an unmarked button means it is the new copy.
+            // A focused rail button survives the rail's rebuild (what a status poll that changes the rail does). The rebuild
+            // is forced and proven: the focused button is marked first, so focus on an unmarked button means it is the new
+            // copy. kosmos#8990: a poll that changes nothing no longer rewrites the rail, so the rebuild forgets ALIST_HTML.
             await page.focus('#alist-fed-own [data-own-act="match"]');
             const railFocus = await page.evaluate(() => {
               document.activeElement.dataset.beforeRebuild = '1';
-              paintAgentList();
+              ALIST_HTML = null; paintAgentList();   // eslint-disable-line no-undef
               const a = document.activeElement;
               return { inRail: !!a && !!a.closest && !!a.closest('#alist-fed-own'), act: a && a.dataset ? a.dataset.ownAct || '' : '',
                 rebuilt: !!a && !!a.dataset && !a.dataset.beforeRebuild };
