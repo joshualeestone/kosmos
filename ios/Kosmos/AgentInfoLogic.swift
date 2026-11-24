@@ -820,5 +820,5 @@ extension Board {
 extension Board {
     // kosmos#8955: the agent page's board row, now that Restart and Remove are on the phone: what is left there, and that
     // it opens a web page (Josh 11-23, #8952: a tap that drops into the board should say so).
-    static let boardOnlyFooter = "Opens your computer\u{2019}s board, a web page. It has the rest: the AI providers this page does not offer, and restarting with a handoff written first."
+    static let boardOnlyFooter = "Opens your computer\u{2019}s board, a web page. It has the rest: the AI providers this page does not offer, restarting with a handoff written first, and taking off a card Kosmos cannot tie to its agent."
 }
