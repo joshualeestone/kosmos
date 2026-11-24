@@ -116,21 +116,6 @@ struct AgentInfoView: View {
         } message: { which in
             Text(Board.freshConfirm(which, name: live.name).small)
         }
-        // kosmos#8955: the board's restart dialog (openRestartModal): its cost line in the agent's own record's words.
-        .confirmationDialog(Board.restartTitle(live.name), isPresented: $restartAsking, titleVisibility: .visible) {
-            Button(Board.restartGo(live.name)) { Task { await restart() } }
-            Button(Board.restartKeep, role: .cancel) {}
-        } message: {
-            Text(Board.restartMessage(live.name, live.commitments))
-        }
-        // kosmos#8955: the board's removal dialog (openRemoveModal): the engine's question, reassurance, Loses and Keeps.
-        .confirmationDialog(removeAsk?.question ?? "", isPresented: Binding(get: { removeAsk != nil }, set: { if !$0 { removeAsk = nil } }),
-                            titleVisibility: .visible, presenting: removeAsk) { ask in
-            Button(Board.removeGo(ask), role: .destructive) { Task { await remove(ask) } }
-            Button(Board.removeKeep(ask), role: .cancel) {}
-        } message: { ask in
-            Text(Board.removeMessage(ask))
-        }
     }
 
     // The face, name and role, then the switch between the parts.
@@ -294,6 +279,13 @@ struct AgentInfoView: View {
             Button { restartAsking = true } label: { Text(Board.restartLabel(live.name)) }
                 .disabled(freshBusy || switching || actionsHeld)
                 .accessibilityLabel("Fresh start: " + Board.restartLabel(live.name))
+                // kosmos#8955: the board's restart dialog (openRestartModal), on its own button.
+                .confirmationDialog(Board.restartTitle(live.name), isPresented: $restartAsking, titleVisibility: .visible) {
+                    Button(Board.restartGo(live.name)) { Task { await restart() } }
+                    Button(Board.restartKeep, role: .cancel) {}
+                } message: {
+                    Text(Board.restartMessage(live.name, live.commitments))
+                }
             if let restartLine {
                 Text(restartLine.text).font(.footnote).foregroundColor(restartLine.ok ? Palette.secondary : Palette.dangerWord)
             }
@@ -554,6 +546,14 @@ struct AgentInfoView: View {
                     if !ask.hint.isEmpty { Text(ask.hint).font(.footnote).foregroundColor(Palette.secondary) }
                     Button(role: .destructive) { removeAsk = ask } label: { Text("Remove this agent\u{2026}") }
                         .disabled(freshBusy || switching || actionsHeld)
+                        // kosmos#8955: the board's removal dialog (openRemoveModal), on its own button.
+                        .confirmationDialog(removeAsk?.question ?? "", isPresented: Binding(get: { removeAsk != nil }, set: { if !$0 { removeAsk = nil } }),
+                                            titleVisibility: .visible, presenting: removeAsk) { ask in
+                            Button(Board.removeGo(ask), role: .destructive) { Task { await remove(ask) } }
+                            Button(Board.removeKeep(ask), role: .cancel) {}
+                        } message: { ask in
+                            Text(Board.removeMessage(ask))
+                        }
                 }
                 if let removeLine {
                     Text(removeLine.text).font(.footnote).foregroundColor(removeLine.ok ? Palette.secondary : Palette.dangerWord)
