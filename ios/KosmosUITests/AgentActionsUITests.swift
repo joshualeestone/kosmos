@@ -56,8 +56,8 @@ final class AgentActionsUITests: XCTestCase {
 
         // Remove, at the foot of the page, below the fresh start.
         let remove = app.buttons["Remove this agent\u{2026}"]
-        for _ in 0..<4 where !remove.isHittable { app.swipeUp() }
-        XCTAssertTrue(remove.isHittable, "AI Settings has no Remove this agent")
+        for _ in 0..<4 where !(remove.exists && remove.isHittable) { app.swipeUp() }
+        XCTAssertTrue(remove.exists && remove.isHittable, "AI Settings has no Remove this agent")
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'restart it, or remove it.'")).firstMatch.exists,
                        "the board row still promises restart and remove there")
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Opens your computer\u{2019}s board, a web page.'")).firstMatch.exists,
