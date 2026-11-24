@@ -17,18 +17,21 @@
 - Native standing note (review 1): the server's own `standing_note` sentence, as the in-app page's `#standing-note`
   shows it (calm colour when `standing_note_calm`, error otherwise). signin.rs standing_note says the phone is where
   that sentence has to be, so a lapsed account is told why rather than seeing the plan line vanish.
-- The "More on Kosmos+" footer names only what the in-app page still offers: the Kosmos+ address, and choosing one.
+- The "More on Kosmos+" footer names nothing: "Anything not on this screen is on your Kosmos+ account page." Review 6
+  measured that the in-app page shows the address line only with no computer and the address offer only with no name, so
+  a footer naming them was false for a named account with a computer, the commonest state.
 - Next slice B3: the address choice native, then the row goes.
 
 ## Tests
-- ios/LogicTests/account: 39 new checks, 94 in all (page's cases, the standing note, each status, the request). Mutants: drop the strict-true
+- ios/LogicTests/account: 43 new checks, 98 in all (page's cases, the standing note, each status, the request). Mutants: drop the strict-true
   check (fails 1), drop the "good" arm (fails 1), calm always false (fails 1).
 - AccountScreenUITests.testAccountRowOpensTheNativeScreen: the footer's words; no selling words on the built rows at
   the top and the end, and (testPasskeysAndNewPlaces) at the passkeys and new places, since a lazy List builds only
   nearby rows; the plan line's
   words and no standing note in the sample (a good plan); shots account-sign-out and account-plan, light and dark.
   The sample answers as an active plan, so the UI test proves the section renders; the parsing is LogicTests'.
-- The sign-in-changed retry (read(again:)) asks the plan again too (review 1).
+- The sign-in-changed retry (read(again:)) asks the plan again too (review 1). This and readPlan's ticket and session
+  checks are AccountView, which the logic suite does not compile: pinned by review, not by a test.
 - Account.planAnswer decides replace / clear / keep for each status (review 3), tested for 200, 200 non-JSON, 401, 403,
   429, 503 and no answer.
 - Typecheck of ios/Kosmos against the simulator SDK (0 errors; control with an injected error: 4 errors).
