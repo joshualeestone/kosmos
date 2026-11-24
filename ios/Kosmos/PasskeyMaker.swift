@@ -11,8 +11,8 @@ final class PasskeyMaker {
         case made(credentialID: Data, attestationObject: Data, clientDataJSON: Data)
         /// The person closed the sheet: nothing to say on the screen.
         case cancelled
-        /// iOS refused because this iPhone already holds a passkey in the exclude list (iOS 17.4 and later; earlier
-        /// systems make it anyway and finish refuses it, which the screen tells the same way).
+        /// iOS refused because this iPhone already holds a passkey in the exclude list. iOS 18 names that refusal; on 17.4
+        /// to 17.x it arrives as `failed`. Before 17.4 the list cannot be passed, so the screen does not ask then (review 1).
         case alreadyHere
         case failed
     }

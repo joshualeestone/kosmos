@@ -112,7 +112,11 @@ final class AccountScreenUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Press it again to remove iPhone."].waitForExistence(timeout: 5), "Remove does not ask first, in the page's words")
         shot(app, "account-passkey-remove")
         closeDialog(app)
-        XCTAssertTrue(app.buttons["Remove iPhone"].waitForExistence(timeout: 5), "Cancel removed the passkey")
+        // Review 1: the dialog's own button is also "Remove iPhone", so what proves it closed is its question gone, and
+        // what proves nothing was removed is no "Passkey removed." (a sample run removes nothing either way).
+        XCTAssertTrue(app.staticTexts["Press it again to remove iPhone."].waitForNonExistence(timeout: 5), "the remove dialog did not close")
+        XCTAssertFalse(app.staticTexts["Passkey removed."].exists, "closing the dialog removed the passkey")
+        reveal(app, add)
 
         add.tap()
         XCTAssertTrue(app.staticTexts["Passkey added."].waitForExistence(timeout: 5), "Add does not say the passkey was added")
@@ -127,7 +131,9 @@ final class AccountScreenUITests: XCTestCase {
                       "Not me does not ask first, in the page's words")
         shot(app, "account-not-me")
         closeDialog(app)
-        XCTAssertTrue(app.navigationBars["Kosmos+ account"].exists, "Cancel left the account screen")
+        XCTAssertTrue(app.staticTexts["Press it again to sign your account out everywhere, this sign-in included."].waitForNonExistence(timeout: 5),
+                      "the Not me dialog did not close")
+        XCTAssertTrue(app.navigationBars["Kosmos+ account"].exists, "closing the dialog left the account screen")
     }
 
     /// Closes a confirmation dialog without choosing. On a phone with a newer iOS the dialog is a popover with no Cancel
