@@ -14,14 +14,20 @@
 - Native plan line: `Account.planLine` mirrors the page's test word for word (strict JSON true; JavaScript-falsy
   standing). A section of its own at the top of the account screen, only when shown. Read with the other reads;
   a failed read keeps a line already shown, a 401 clears it, a sign-in change clears it.
+- Native standing note (review 1): the server's own `standing_note` sentence, as the in-app page's `#standing-note`
+  shows it (calm colour when `standing_note_calm`, error otherwise). signin.rs standing_note says the phone is where
+  that sentence has to be, so a lapsed account is told why rather than seeing the plan line vanish.
 - The "More on Kosmos+" footer names only what the in-app page still offers: the Kosmos+ address, and choosing one.
 - Next slice B3: the address choice native, then the row goes.
 
 ## Tests
-- ios/LogicTests/account: 20 new checks (page's cases, the request). Mutants: drop the strict-true check (fails 1),
-  drop the "good" arm (fails 1).
-- AccountScreenUITests.testAccountRowOpensTheNativeScreen: the footer's words, no billing/subscription/payment/cloud
-  machine words on built rows, the plan line's words; shots account-sign-out and account-plan, light and dark.
+- ios/LogicTests/account: 28 new checks (page's cases, the standing note, the request). Mutants: drop the strict-true
+  check (fails 1), drop the "good" arm (fails 1), calm always false (fails 1).
+- AccountScreenUITests.testAccountRowOpensTheNativeScreen: the footer's words; no selling words on the built rows at
+  the top, middle and end (a lazy List builds only nearby rows, so it is checked at three places); the plan line's
+  words and no standing note in the sample (a good plan); shots account-sign-out and account-plan, light and dark.
+  The sample answers as an active plan, so the UI test proves the section renders; the parsing is LogicTests'.
+- The sign-in-changed retry (read(again:)) asks the plan again too (review 1).
 - Typecheck of ios/Kosmos against the simulator SDK (0 errors; control with an injected error: 4 errors).
 
 ## Weakest premise

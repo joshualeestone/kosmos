@@ -99,6 +99,7 @@ struct AccountView: View {
     @State private var notMeBusyFor: String?   // review 1: the busy flag belongs to the sign-in that asked
     @State private var notMeNote: String?
     @State private var plan: String?          // slice B2: Account.planActive, or nil (no line)
+    @State private var standing: Account.StandingNote?   // slice B2: the server's sentence when the plan is not good
     @State private var planTicket = 0
 
     var body: some View {
@@ -128,7 +129,7 @@ struct AccountView: View {
             maker.cancel(); passkeyBusy = false; passkeyFor = nil; passkeyAdding = false; removing = nil; passkeyNote = nil; passkeyDone = nil
             passkeys = .reading; newPlaces = []; notMeFor = nil; notMeBusy = false; notMeBusyFor = nil; notMeNote = nil
             removingFor = nil; notMeAskedFor = nil; heldAdd = nil; renewedFrom = [:]; passkeyListNote = nil
-            plan = nil
+            plan = nil; standing = nil
             load = .reading
             Task { await read() }
         }
@@ -160,12 +161,18 @@ struct AccountView: View {
 
     // MARK: The plan (slice B2)
 
-    // Only the line the in-app page shows (signin.html #plan-line): no section at all when Kosmos+ does not say the plan is
-    // active, and never a way to buy, change or cancel it here.
+    // Only what the in-app page shows (signin.html #plan-line and #standing-note): the plan line when Kosmos+ says it is
+    // active, the server's own sentence when it is not, no section when there is neither, and never a way to buy, change
+    // or cancel the plan here.
     @ViewBuilder private var planSection: some View {
-        if let plan {
+        if plan != nil || standing != nil {
             Section {
-                Text(plan).foregroundColor(Palette.primary).accessibilityIdentifier("account-plan")
+                if let plan { Text(plan).foregroundColor(Palette.primary).accessibilityIdentifier("account-plan") }
+                if let standing {
+                    Text(standing.words).font(.subheadline)
+                        .foregroundColor(standing.calm ? Palette.secondary : Palette.dangerWord)
+                        .accessibilityIdentifier("account-standing")
+                }
             }
         }
     }
@@ -524,7 +531,9 @@ struct AccountView: View {
             async let s: Void = readSecond(), k: Void = readPasskeys(), n: Void = readNewPlaces(), m: Void = readPlan()
             await readComputers(again: again); await s; await k; await n; await m; return
         }
-        await readComputers(again: again)
+        // Review 1: the plan read also gave up when the sign-in changed under it, so it is asked again with the computers.
+        async let m: Void = readPlan()
+        await readComputers(again: again); await m
     }
 
     @MainActor private func readComputers(again: Bool) async {
@@ -625,15 +634,16 @@ struct AccountView: View {
 
     // MARK: The plan, asking Kosmos+
 
-    // A failed read keeps a line already shown; a first read that fails shows none (the page shows none either).
+    // A failed read keeps what is shown; a first read that fails shows nothing (the page shows nothing either).
     @MainActor private func readPlan() async {
-        if sample { plan = Account.planActive; return }
+        if sample { plan = Account.planActive; standing = nil; return }
         planTicket += 1
         let ticket = planTicket
-        guard let session = currentSession() else { plan = nil; return }
+        guard let session = currentSession() else { plan = nil; standing = nil; return }
         let (status, data) = await send(Account.meRequest(coordinator: coordinator, session: session))
         guard !Task.isCancelled, ticket == planTicket, currentSession() == session, let status else { return }
-        if (200...299).contains(status) { plan = Account.planLine(data) } else if status == 401 { plan = nil }
+        if (200...299).contains(status) { plan = Account.planLine(data); standing = Account.standingNote(data) }
+        else if status == 401 { plan = nil; standing = nil }
     }
 
     // MARK: Two-step sign-in, asking Kosmos+

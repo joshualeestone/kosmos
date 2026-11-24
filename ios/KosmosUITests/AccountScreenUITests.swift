@@ -35,6 +35,7 @@ final class AccountScreenUITests: XCTestCase {
         app.buttons["Cancel"].tap()
 
         // A List builds its rows only near the screen (slice B1c added sections above these), so scroll until each shows.
+        noSelling(app, "computers and second step")
         reveal(app, app.buttons["account-sign-out-everywhere"])
         XCTAssertTrue(app.buttons["account-sign-out"].exists && app.buttons["account-sign-out-everywhere"].exists, "no sign-out buttons")
         reveal(app, app.buttons["account-more"])
@@ -42,15 +43,25 @@ final class AccountScreenUITests: XCTestCase {
         // kosmos#8959 slice B2: the footer says only what the in-app page still offers, and nothing on the phone sells.
         XCTAssertTrue(app.staticTexts["Your Kosmos+ address, and choosing one if you have none yet, are on your Kosmos+ account page."].exists,
                       "the More on Kosmos+ footer does not say what that page offers in the app")
-        let selling = NSPredicate(format: "label CONTAINS[c] 'billing' OR label CONTAINS[c] 'subscription' OR label CONTAINS[c] 'payment' OR label CONTAINS[c] 'cloud machine'")
-        XCTAssertEqual(app.descendants(matching: .any).matching(selling).count, 0, "money words on the phone's account screen (kosmos#718)")
+        noSelling(app, "sign out and More on Kosmos+")
         shot(app, "account-sign-out")
-        // The plan line sits at the top: scroll back up to it.
+        // The plan line sits at the top: scroll back up to it (slowly, so a swipe at the top is not a pull to refresh).
         let plan = app.staticTexts["account-plan"]
-        for _ in 0..<8 where !plan.exists || !plan.isHittable { app.swipeDown() }
-        XCTAssertTrue(plan.exists, "no plan line for an account Kosmos+ says is active")
+        for _ in 0..<8 where !plan.exists || !plan.isHittable { app.swipeDown(velocity: .slow) }
+        // The sample answers as an active plan; reading /v1/account/me is LogicTests/account's (planLine, standingNote).
+        XCTAssertTrue(plan.exists, "the plan section does not show its line")
         XCTAssertEqual(plan.label, "Kosmos+ \u{00B7} Active", "the plan line's words are not the page's")
+        XCTAssertFalse(app.staticTexts["account-standing"].exists, "a standing note for a plan in good standing")
+        noSelling(app, "the plan")
         shot(app, "account-plan")
+    }
+
+    // kosmos#8959 slice B2: nothing on the phone's account screen sells (kosmos#718's CAN_BUY_HERE). A List builds only the
+    // rows near the screen, so this covers what is built where it is called; the test calls it at the top, the middle and
+    // the end. The server's own standing sentence may name a subscription; the sample's plan is good, so it shows none.
+    private func noSelling(_ app: XCUIApplication, _ where_: String) {
+        let selling = NSPredicate(format: "label CONTAINS[c] 'billing' OR label CONTAINS[c] 'subscription' OR label CONTAINS[c] 'payment' OR label CONTAINS[c] 'checkout' OR label CONTAINS[c] 'cloud machine' OR label CONTAINS[c] 'upgrade'")
+        XCTAssertEqual(app.descendants(matching: .any).matching(selling).count, 0, "money words on the built rows near \(where_) (kosmos#718)")
     }
 
     // kosmos#8959 slice B1b: with no second step set up (the sample's state), the screen offers one. Setting up an
