@@ -697,7 +697,9 @@ struct AccountView: View {
         case .on(let kind, let fresh):
             // First, before anything else asks Kosmos+: the old session is refused from now on.
             let kept = fresh.map { renewed(session, $0) } ?? true
-            if kept, let fresh { renewedFrom[session] = fresh }   // review 5 (B1c): the same account, followed by stillHeld
+            // Review 5/6 (B1c): the same account, followed by stillHeld. Recorded whenever the fresh session is the one this
+            // iPhone holds now, even when the keychain refused to keep it (the registrar holds it in memory).
+            if let fresh, kept || currentSession() == fresh { renewedFrom[session] = fresh }
             closeSetup(force: true)
             second = .known(.init(enrolled: kind, smsAvailable: { if case .known(let s) = second { return s.smsAvailable }; return false }()))
             // Not kept (the keychain refused it, or the sign-in changed meanwhile): this iPhone's session is now refused.
@@ -752,14 +754,7 @@ struct AccountView: View {
     /// Review 5: the session held now when it is `asked`, or `asked` renewed (B1b's confirm) along its chain; nil when the
     /// sign-in really changed (signed out, or another account). Later requests use the session this returns.
     private func stillHeld(_ asked: String) -> String? {
-        guard let now = currentSession() else { return nil }
-        var s = asked
-        for _ in 0..<8 {
-            if s == now { return now }
-            guard let next = renewedFrom[s] else { return nil }
-            s = next
-        }
-        return nil
+        AccountSecurity.follow(asked, now: currentSession(), chain: renewedFrom)
     }
 
     @MainActor private func readPasskeys() async {

@@ -282,6 +282,23 @@ enum AccountSecurity {
         return .refused(SignIn.refusal((json as? [String: Any])?["error"]) ?? notMeFailed)
     }
 
+    // MARK: - The same account across a renewal (review 5/6)
+
+    /// The session held now when it is `asked`, or `asked` renewed along `chain` (old -> fresh, recorded when B1b's confirm
+    /// renews this account's session); nil when the sign-in really changed. Follows at most `maxHops` renewals, so a chain
+    /// that loops ends.
+    static let maxHops = 8
+    static func follow(_ asked: String, now: String?, chain: [String: String]) -> String? {
+        guard let now else { return nil }
+        var s = asked
+        for _ in 0...maxHops {
+            if s == now { return now }
+            guard let next = chain[s] else { return nil }
+            s = next
+        }
+        return nil
+    }
+
     // MARK: - Requests (built as AccountLogic builds its own: server.ios-routes-6838 reads this form)
 
     static func listRequest(coordinator: URL, session: String) -> URLRequest { request(listPath, coordinator: coordinator, session: session) }

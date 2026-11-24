@@ -81,6 +81,20 @@ do {
     check(S.heldChallengeSeconds < 300, "a kept challenge is used again only inside its five minutes")
 }
 
+// MARK: the same account across a renewal (review 6: the chain walk, testable)
+check(S.follow("a", now: "a", chain: [:]) == "a", "the same session")
+check(S.follow("a", now: "c", chain: ["a": "b", "b": "c"]) == "c", "renewed twice: still this account, with the session held now")
+check(S.follow("a", now: "x", chain: ["a": "b"]) == nil, "another sign-in: nil")
+check(S.follow("a", now: nil, chain: ["a": "b"]) == nil, "signed out: nil")
+check(S.follow("a", now: "z", chain: ["a": "b", "b": "a"]) == nil, "a loop ends, and is not this sign-in")
+do {
+    var chain: [String: String] = [:]
+    for i in 0..<S.maxHops { chain["s\(i)"] = "s\(i + 1)" }
+    check(S.follow("s0", now: "s\(S.maxHops)", chain: chain) == "s\(S.maxHops)", "exactly maxHops renewals are followed")
+    chain["s\(S.maxHops)"] = "s\(S.maxHops + 1)"
+    check(S.follow("s0", now: "s\(S.maxHops + 1)", chain: chain) == nil, "one more is not")
+}
+
 // MARK: register/begin
 func b64(_ d: [UInt8]) -> String { SignIn.base64url(Data(d)) }
 var begin: [String: Any] = ["challenge": b64([1, 2, 3, 4]), "rp_id": "kosmos.example", "rp_name": "Kosmos+", "user_id": b64([9, 9]),
