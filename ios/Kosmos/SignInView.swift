@@ -237,7 +237,10 @@ final class SignInModel: ObservableObject {
                 let next = SignIn.afterTextEnrol(enrolled, token: token)
                 if let to = next.step { code = ""; step = to }
                 error = next.error
-            } catch { if mine == attempt { fail(error) } }
+            } catch {
+                guard mine == attempt else { return }
+                if case SignInClient.SignInError.unreachable = error { self.error = SignIn.textMayBeComing } else { fail(error) }
+            }
         }
     }
 
@@ -656,6 +659,7 @@ struct SignInView: View {
             TextField("Mobile number", text: $model.phone)
                 .textContentType(.telephoneNumber).keyboardType(.phonePad)
                 .focused($focused).field()   // the phone pad has no return key: "Text me a code" sends
+                .disabled(model.busy)   // the number shown is the number being texted
                 .onChange(of: model.phone) { _ in model.error = nil }
                 .accessibilityIdentifier("signin-phone")
             errorLine
