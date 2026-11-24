@@ -778,10 +778,14 @@ struct AccountView: View {
         if sample { passkeyDone = AccountSecurity.added; return }
         passkeyBusy = true; passkeyFor = session
         defer { if passkeyFor == session { passkeyBusy = false; passkeyFor = nil } }
+        /* Review 2: a challenge is held from the moment begin answers, with the time begin answered (its true age), and is
+           let go only once finish has been sent. Every other end (Apple's sheet closed or refused, the host refused, an
+           older iOS) leaves it for the next press, so presses do not stack up waiting challenges (Kosmos+ keeps five). */
         let reg: AccountSecurity.Registration
         if let held = heldAdd, held.session == session, Date().timeIntervalSince(held.at) < AccountSecurity.heldChallengeSeconds {
             reg = held.reg
         } else {
+            heldAdd = nil
             let (status, data) = await send(AccountSecurity.beginRequest(coordinator: coordinator, session: session))
             guard currentSession() == session else { return }
             guard let status else { passkeyNote = Account.reach; return }
@@ -791,21 +795,21 @@ struct AccountView: View {
             // than making a passkey finish would turn away.
             guard let got = AccountSecurity.registration(status: status, json: begun) else { passkeyNote = AccountSecurity.addFailed; return }
             reg = got
+            heldAdd = (got, Date(), session)
         }
-        heldAdd = nil
         if let refusal = AccountSecurity.rpRefusal(reg, coordinator: coordinator) { passkeyNote = refusal; return }
         if #available(iOS 17.4, *) {} else if !reg.exclude.isEmpty { passkeyNote = AccountSecurity.addNeedsNewer; return }
-        let asked = Date()
         switch await maker.make(reg) {
         case .cancelled:
-            // Kept for the next press of this sign-in (the challenge is live for five minutes).
-            if currentSession() == session { passkeyNote = AccountSecurity.addCancelled; heldAdd = (reg, asked, session) }
+            // The challenge stays held for the next press of this sign-in (it is live for five minutes).
+            if currentSession() == session { passkeyNote = AccountSecurity.addCancelled }
             return
         case .alreadyHere: if currentSession() == session { passkeyNote = AccountSecurity.addHave }; return
         case .failed: if currentSession() == session { passkeyNote = AccountSecurity.addFailed }; return
         case .made(let id, let att, let client):
             // Signed out, or another sign-in, while Apple's sheet was open: nothing is sent for it.
             guard currentSession() == session else { return }
+            heldAdd = nil   // finish uses the challenge up, whatever it answers
             guard let body = AccountSecurity.finishBody(credentialID: id, attestationObject: att, clientDataJSON: client,
                                                         name: AccountSecurity.passkeyName)
             else { passkeyNote = AccountSecurity.addFailed; return }
