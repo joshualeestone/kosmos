@@ -33,6 +33,32 @@ check(S.refusal(json: ["error": "sign in again first", "code": "step_up_required
 check(S.refusal(json: ["error": "no such passkey"], fallback: "x") == "No such passkey.", "Kosmos+'s own sentence")
 check(S.refusal(json: nil, fallback: S.removeFailed) == S.removeFailed, "the fallback")
 
+// MARK: requests (the account screen's calls)
+
+do {
+    let c = URL(string: "https://login.example")!
+    func body(_ r: URLRequest) -> [String: Any] { (r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]) ?? [:] }
+    func bearer(_ r: URLRequest) -> Bool { r.value(forHTTPHeaderField: "Authorization") == "Bearer tok" }
+    let pk = S.Passkey(credentialID: "CRED", name: "iPhone", createdAt: nil, lastUsedAt: nil)
+    let np = S.NewPlace(id: "NP", name: "x", at: nil, notMeAt: nil)
+    let list = S.listRequest(coordinator: c, session: "tok")
+    check(list.url?.absoluteString == "https://login.example/v1/passkeys" && list.httpMethod == "GET" && bearer(list) && list.httpBody == nil, "list: GET /v1/passkeys with the session")
+    let rm = S.removeRequest(coordinator: c, session: "tok", pk)
+    check(rm.url?.path == "/v1/passkeys/remove" && rm.httpMethod == "POST" && bearer(rm) && body(rm)["credential_id"] as? String == "CRED", "remove: POST with the id")
+    let begin = S.beginRequest(coordinator: c, session: "tok")
+    check(begin.url?.path == "/v1/passkeys/register/begin" && begin.httpMethod == "POST" && bearer(begin) && begin.httpBody != nil && body(begin).isEmpty, "begin: POST with an empty body, as the page sends")
+    let fin = S.finishRequest(coordinator: c, session: "tok", body: ["name": "iPhone"])
+    check(fin.url?.path == "/v1/passkeys/register/finish" && fin.httpMethod == "POST" && bearer(fin) && body(fin)["name"] as? String == "iPhone", "finish: POST with its body")
+    let places = S.newPlacesRequest(coordinator: c, session: "tok")
+    check(places.url?.path == "/v1/account/new-places" && places.httpMethod == "GET" && bearer(places), "new places: GET")
+    let nm = S.notMeRequest(coordinator: c, session: "tok", np)
+    check(nm.url?.path == "/v1/account/new-places/not-me" && nm.httpMethod == "POST" && bearer(nm) && body(nm)["id"] as? String == "NP", "not me: POST with the row's id")
+    check([list, rm, begin, fin, places, nm].allSatisfy { !$0.httpShouldHandleCookies && $0.cachePolicy == .reloadIgnoringLocalCacheData }, "no cookies, no cache")
+    // A coordinator under a path keeps it (appendingPathComponent, not relativeTo:).
+    check(S.listRequest(coordinator: URL(string: "https://h.example/k/")!, session: "tok").url?.absoluteString == "https://h.example/k/v1/passkeys", "a coordinator's own path is kept")
+    check(S.passkeyName == "iPhone", "a passkey made here is named for the device kind")
+}
+
 // MARK: register/begin
 func b64(_ d: [UInt8]) -> String { SignIn.base64url(Data(d)) }
 var begin: [String: Any] = ["challenge": b64([1, 2, 3, 4]), "rp_id": "kosmos.example", "rp_name": "Kosmos+", "user_id": b64([9, 9]),
