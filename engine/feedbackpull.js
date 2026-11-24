@@ -21,7 +21,9 @@
  * build is therefore NOT blocked on the token being provisioned: until it is
  * filed (target FEEDBACK_TOKEN_TARGET, via /add-secret), pull returns a clear
  * "token not filed" answer and writes nothing -- it starts working the moment
- * the token exists, with no code change.
+ * the token exists, with no code change. kosmos#8992: "not filed" is said only
+ * when the map has no such target; a read that failed or timed out says to run
+ * the pull again (tokenReading).
  *
  * 🛑 READ-ONLY AGAINST THE STORE. pull only lists + GETs blobs; it never puts or
  * deletes. A malformed blob is skipped with a note, never written as a corrupt
@@ -40,7 +42,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 const store = require('./store');
 
 const DEFAULT_BLOB_API = 'https://blob.vercel-storage.com';
@@ -75,33 +77,122 @@ function defaultDir() { return path.join(store.ROOT, 'collected-feedback'); }
 let transport = null; // tests inject { list: async(token)=>[{url,pathname}], get: async(url, token)=>text }
 function setTransport(t) { transport = t; }
 
+/* How the secrets map is asked (tests inject one): (bin, args) -> { status, stdout, stderr, error } in the shape of
+   child_process.spawnSync, with error.code 'ENOENT' when the tool is not there. */
+let secretsRunner = null;
+function setSecretsRunner(fn) { secretsRunner = typeof fn === 'function' ? fn : null; }
+function runSecrets(bin, args) {
+  if (secretsRunner) return secretsRunner(bin, args);
+  return spawnSync(bin, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 8000 });
+}
+
 /**
- * The @vercel/blob read/write token, via the secrets map. Returns null (never
- * throws, never a partial) when the map, the tool, or the target is absent --
- * the caller turns that into a clear "not filed yet" answer. `value` is read
- * over a pipe (not a tty), which the accessor requires.
+ * The @vercel/blob read/write token, via the secrets map: { token } when it was read, else { why, detail? } naming the
+ * one next step that can help (kosmos#8992; before it every one of these read as "not filed yet", which told an agent
+ * to run /add-secret over a working token). Never a throw.
+ *   'missing'    the map has no such target, or no credential folder (lookup exits 1 saying "no credential mapped"
+ *                or "no credential dir at"), and this process can read the whole folder: file it.
+ *   'retry'      the read failed or timed out though the filing looks right (lookup shows one credential consumed by
+ *                `value`), or the map did not answer at all: run the pull again; never file it.
+ *   'misfiled'   the target is in the map but `value` cannot give it as filed (lookup shows BLOCKED, an env or path
+ *                shape, an undeterminable shape, more than one credential, or a file this user cannot read): fix the
+ *                filing or the file's mode; running again cannot help.
+ *   'unreadable' the map says "no credential mapped" but this process cannot read the secrets folder or a file in it,
+ *                so a missing target cannot be told from a hidden one: find those files (secrets-map.sh audit lists
+ *                them) and fix their modes, or run where the folder can be read.
+ *   'tool'       secrets-map.sh could not answer here: detail 'not-found', 'old' (no `value` verb) or 'cannot-start'.
+ * The lookup's report is metadata only (where the file is, its format, whether it can be used), never a value, and
+ * none of it reaches a message. `value` is read over a pipe (not a tty), which the accessor requires.
  */
-function token() {
+function tokenReading() {
   // os.homedir() (NOT process.env.HOME): cross-platform, so this carries no
   // Windows-hostile env-home coupling. The pull command runs on the agent fleet
   // where the secrets map lives; a home that cannot be resolved just drops the
-  // second candidate.
+  // other candidates.
   let home = '';
   try { home = os.homedir() || ''; } catch { home = ''; }
+  // On PATH, the usual link, and the fleet's own copy (what /agent-refresh installs), in that order.
   const bins = ['secrets-map.sh'];
-  if (home) bins.push(path.join(home, '.local', 'bin', 'secrets-map.sh'));
+  if (home) bins.push(path.join(home, '.local', 'bin', 'secrets-map.sh'), path.join(home, '.claude', 'scripts', 'secrets-map.sh'));
+  let tool = 'not-found';   // why no place answered, if none does
   for (const bin of bins) {
-    try {
-      const out = execFileSync(bin, ['value', FEEDBACK_TOKEN_TARGET], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-        timeout: 8000,
-      });
-      const t = String(out || '').trim();
-      if (t) return t;
-    } catch { /* tool or target absent here; try the next candidate */ }
+    let got;
+    try { got = runSecrets(bin, ['value', FEEDBACK_TOKEN_TARGET]); } catch { got = { error: new Error('could not run') }; }
+    if (got && got.error && got.error.code === 'ENOENT') continue;   // not at this place; try the next
+    const t = String((got && got.stdout) || '').trim();
+    if (got && !got.error && got.status === 0 && t) return { token: t };
+    /* A copy that could not be started (not executable, or refused, as in a sandbox) or that does not know the verb
+       (it says "unknown subcommand 'value'") is not this place's answer: the next place may work, as it did before
+       #8992. Any other exit 2 is the verb refusing a filed credential's shape (an env file, say), which the lookup
+       below names. A timeout does answer here, so a hung tool costs one read and one lookup at this place (a broken
+       first copy that is also slow adds the next place's wait). A non-zero exit never yields a token, even with
+       something on stdout: an old copy's own pipe can exit 141 after printing it. */
+    const timedOut = Boolean(got && got.error && got.error.code === 'ETIMEDOUT');
+    if (got && got.error && !timedOut) { if (tool === 'not-found') tool = 'cannot-start'; continue; }
+    if (got && !got.error && got.status === 2 && /unknown subcommand 'value'/.test(String(got.stderr || ''))) { tool = 'old'; continue; }
+    // The tool is here and did not give the token: ask the map whether the target is in it, and in what state.
+    let seen;
+    try { seen = runSecrets(bin, ['lookup', FEEDBACK_TOKEN_TARGET]); } catch { seen = { error: new Error('could not run') }; }
+    if (seen && !seen.error && seen.status === 0) {
+      /* Only one credential whose report says to consume it with `value` is one a read can give, so its failure is
+         passing. Anything else (BLOCKED, a file this user cannot read, an env or path shape, an undeterminable shape,
+         two credentials) is a filing `value` refuses every time. */
+      const report = String(seen.stdout || '');
+      const creds = (report.match(/^cred:/gm) || []).length;
+      const esc = FEEDBACK_TOKEN_TARGET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const byValue = new RegExp('^consume:\\s*secrets-map\\.sh value ' + esc + '\\s*$', 'm');
+      return { why: creds === 1 && byValue.test(report) ? 'retry' : 'misfiled' };
+    }
+    const said = String((seen && seen.stderr) || '');
+    if (seen && !seen.error && seen.status === 1 && /no credential (mapped|dir at)/i.test(said)) {
+      // A folder or file this process cannot read gives the same answer as a missing target: say which it is.
+      return { why: secretsReadable() ? 'missing' : 'unreadable' };
+    }
+    return { why: 'retry' };   // the map did not answer the lookup either
   }
-  return null;
+  return { why: 'tool', detail: tool };
+}
+
+/* Can this process read the secrets folder and every file that can hold a credential's metadata? By mode only (a
+   listing and an access check, never a file's content; macOS privacy refusals can still deny a read this passes).
+   Skipped, as secrets-map.sh's is_cred_file skips them (a hand copy of its rule: keep the two in step): its README,
+   *.example, dotfiles and backups (*.bak, *.old, *.orig, *~); also folders and a link whose target is gone (nothing to
+   read). NOT skipped, unlike is_cred_file: *.meta sidecars, since an unreadable sidecar hides its target just as an
+   unreadable credential does. Only a refusal (EACCES, EPERM) counts. A folder that does not exist is readable in this
+   sense: nothing is filed there. */
+const NOT_A_CRED = /^(README\.md|\..*|.*\.example|.*\.bak|.*\.old|.*\.orig|.*~)$/;
+function secretsReadable() {
+  let home = '';
+  try { home = os.homedir() || ''; } catch { home = ''; }
+  const dir = process.env.SECRETS_DIR || (home ? path.join(home, '.config', 'secrets') : '');
+  if (!dir) return true;
+  const refused = (e) => Boolean(e && (e.code === 'EACCES' || e.code === 'EPERM'));
+  let names;
+  try { names = fs.readdirSync(dir); } catch (e) { return !refused(e); }
+  for (const n of names) {
+    if (NOT_A_CRED.test(n)) continue;
+    const f = path.join(dir, n);
+    let st;
+    try { st = fs.statSync(f); } catch (e) { if (refused(e)) return false; continue; }   // a dangling link: skipped
+    if (!st.isFile()) continue;
+    try { fs.accessSync(f, fs.constants.R_OK); } catch (e) { if (refused(e)) return false; }
+  }
+  return true;
+}
+
+// What a pull says when it has no token, by tokenReading's answer. Only 'missing' says to file it.
+function noTokenBecause(read) {
+  const t = 'secrets-map target "' + FEEDBACK_TOKEN_TARGET + '"';
+  const look = '`secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '`';
+  const why = read && read.why;
+  if (why === 'retry') return 'the collected-feedback token could not be read just now (' + t + '). Run the pull again; do not file it. If it keeps failing, ' + look + ' shows whether it is filed: file it only if that says it is missing, and if it shows it filed, the secrets map is slow or busy here, or old (run /agent-refresh), or the filed token file is empty.';
+  if (why === 'misfiled') return 'the collected-feedback token is filed (' + t + ') but the secrets map cannot give it as filed: ' + look + ' shows why (a file this user cannot read, a shape other than a bare token, or more than one credential for it). Fix the file\'s mode or owner, or the filing with /add-secret; running the pull again will not help.';
+  if (why === 'unreadable') return 'this process cannot read the secrets folder, or a file in it, so whether the collected-feedback token is filed (' + t + ') cannot be told. `secrets-map.sh audit` lists the files it cannot read: fix their mode or owner, or run the pull where the folder can be read. Do not file it until then.';
+  if (why === 'tool') {
+    const what = read.detail === 'old' ? 'is an old copy without `value`' : read.detail === 'cannot-start' ? 'could not be started here (not executable, or refused, as from inside a sandbox)' : 'was not found (on PATH, in ~/.local/bin or in ~/.claude/scripts)';
+    return 'secrets-map.sh ' + what + ', so the collected-feedback token (' + t + ') cannot be read. ' + (read.detail === 'cannot-start' ? 'Run the pull where it can run, or' : 'Install or update it with /agent-refresh, or') + ' check it by hand; do not file the token.';
+  }
+  return 'the collected-feedback token is not filed yet (' + t + '). File it with /add-secret and re-run; nothing else changes. If you believe it is filed, run `secrets-map.sh audit` first: a credential whose header cannot be read looks unfiled.';
 }
 
 async function defaultList(tok) {
@@ -227,13 +318,11 @@ async function pull(dir, opts) {
   // An explicit `token` key (even '') skips resolution -- lets a test force the
   // not-filed path deterministically without depending on the machine's secrets
   // map. Absent key -> resolve via the map.
-  const tok = Object.prototype.hasOwnProperty.call(o, 'token') ? o.token : token();
+  const read = Object.prototype.hasOwnProperty.call(o, 'token') ? { token: o.token, why: 'missing' } : tokenReading();
+  const tok = read.token;
   if (!tok) {
-    return {
-      ok: false, written: 0, skipped: 0, dir: target,
-      because: 'the collected-feedback token is not filed yet (secrets-map target "'
-        + FEEDBACK_TOKEN_TARGET + '"). File it with /add-secret and re-run; nothing else changes.',
-    };
+    // kosmos#8992: only a target the map does not have is "not filed"; every other answer names its own next step.
+    return { ok: false, written: 0, skipped: 0, dir: target, why: read.why, because: noTokenBecause(read) };
   }
   let blobs;
   // The token IS present here (the not-filed case returned above), so a list
@@ -438,7 +527,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  pull, runCli, setTransport, token, toMarkdown, fileName,
+  pull, runCli, setTransport, setSecretsRunner, tokenReading, noTokenBecause, toMarkdown, fileName,
   FEEDBACK_TOKEN_TARGET, PREFIX, defaultDir, nextLine, blobApi, DEFAULT_BLOB_API,
   defaultList, defaultGet, tokenMayGoTo, summaryLines,
 };

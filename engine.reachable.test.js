@@ -20,6 +20,7 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  setSecretsRunner: 'test seam (kosmos#8992): engine/feedbackpull.js asks the secrets map through this (spawnSync-shaped), so engine/feedbackpull-tokenwhy-8992.test.js can give each answer (read, timed out, not in the map, no tool) without the real map. Production runs secrets-map.sh.',
   keepLastGood: 'test seam (kosmos#8863): engine/storecheck.js runs one whole last-good pass at once, so engine/storecheck-8863.test.js can assert what it copied and pruned. Production runs the same pass in steps through startKeepingLastGood (keepLastGoodInSteps).',
   setLaunchLiveForTests: 'test seam (kosmos#8860): forces only the live input of engine/create.js launchScope, so engine/launchscope-8860.test.js can drive its real folder, account and bare-job wiring on the live path no test process can reach.',
   launchScopeFor: 'test seam (kosmos#8860): engine/create.js decides a board\'s launchd label scope in this pure function so engine/launchscope-8860.test.js can drive each arm; an ordinary test process is not really live (its live-execution gate is closed).',
