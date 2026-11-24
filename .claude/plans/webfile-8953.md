@@ -15,8 +15,13 @@ any text/html answer because the computer's sign-in gate can answer with its own
   - A page (.html .htm .xhtml .shtml) and a web archive's own page: drawn by LockedWebView. JavaScript off, a data store
     that is not kept, a content rule that blocks every load, only the first navigation allowed.
   - An SVG: drawn only as a picture (base64 in an <img>), which can neither load nor link.
-  - XML: shown as text (the first megabyte). MHTML and a compressed SVG: no reader; the sheet says so and offers Share.
-- No touch reaches the page's content: every view inside the web view's scroll view takes no touches; the scroll view
+  - XML: shown as text (the first 256 KB, read off the main thread once).
+  - Nothing to draw (a damaged web archive) or a content rule that will not compile: "This page can't be shown on
+    iPhone", with Share. MHTML and a compressed SVG: no reader; the sheet says so and offers Share.
+- A page has no links, image maps, forms or <link> elements: they are renamed (<a> to <x-a>, Board.withoutLinks)
+  before drawing, so nothing navigates, submits or preconnects whatever reaches it: a finger, VoiceOver's activate or a
+  keyboard (review round 1). Their text stays.
+- No touch reaches the page's content either (kept as a second layer): every view inside the web view's scroll view takes no touches; the scroll view
   still scrolls and zooms. Measured necessary: tapping a link had WebKit open a TCP connection to the link's host before
   the navigation was refused (no request sent, one connection), and a CSS rule making links inert (even first, in its own
   cascade layer) was overridden by the page's own !important rule.
@@ -28,6 +33,14 @@ any text/html answer because the computer's sign-in gate can answer with its own
 - Safari: leaves the app, and the file would need an address the phone can open.
 - Making links inert with CSS: a page can override it (measured in WebFileUITests).
 - limitsNavigationsToAppBoundDomains: measured, did not stop the link-tap connection.
+
+## Measured in review round 1
+The reviewer's worry was <link rel=preconnect> and relatives getting past the content rule. The probe page now names
+preconnect, dns-prefetch, prefetch, preload, modulepreload, icon, video, audio, object, embed, a form's image input, a
+CSS background and a link ping. iOS 27 simulator: 0 connections on load. Control arm, the same build with the content
+rule not applied: 40 connections on load. So the listener sees them and the rule stops them. (DNS prefetch cannot show
+on a 127.0.0.1 probe.) The relay's tunnel drops only hop-by-hop headers (crates/tunnel/src/proxy.rs is_hop_by_hop), so
+Content-Disposition reaches the phone on the remote path too (read, not measured).
 
 ## Weakest premise
 That nothing else in WebKit opens a connection for a page drawn from bytes with touches off: preconnect for prefetch

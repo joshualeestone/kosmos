@@ -9,6 +9,9 @@ import WebKit
 struct WebFileView: View {
     let file: URL
     let close: () -> Void
+    // What the sheet shows, made once when it opens (.task), never while drawing.
+    private enum Shown { case reading, page(Data, Board.WebFileKind), text(String), unreadable }
+    @State private var shown = Shown.reading
 
     var body: some View {
         NavigationStack {
@@ -20,21 +23,24 @@ struct WebFileView: View {
                     ToolbarItem(placement: .primaryAction) { ShareLink(item: file) }
                 }
         }
+        .task(id: file) { shown = await Self.read(file) }
     }
 
     @ViewBuilder private var content: some View {
-        let kind = Board.webFileKind(name: file.lastPathComponent)
-        switch kind {
-        case .page, .svg, .archive:
+        switch shown {
+        case .reading:
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .page(let data, let kind):
             VStack(spacing: 0) {
-                LockedWebView(file: file, kind: kind)
-                Text("Pictures and styles this page loads from elsewhere are not shown.")
+                LockedWebView(page: data, failed: { shown = .unreadable })
+                Text(kind == .svg ? "Pictures this drawing loads from elsewhere are not shown."
+                                  : "Pictures and styles this page loads from elsewhere are not shown, and its links do not open.")
                     .font(.footnote).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity).padding(10)
             }
-        case .text:
+        case .text(let text):
             ScrollView {
-                Text(Self.text(of: file))
+                Text(text)
                     .font(.system(.footnote, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -43,7 +49,7 @@ struct WebFileView: View {
         case .unreadable:
             VStack(spacing: 12) {
                 Image(systemName: "doc.richtext").font(.largeTitle).foregroundStyle(.secondary)
-                Text("This kind of page can't be shown on iPhone").font(.headline).multilineTextAlignment(.center)
+                Text("This page can't be shown on iPhone").font(.headline).multilineTextAlignment(.center)
                 Text("Share it, or save it to Files, to open it on another device.")
                     .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
@@ -52,21 +58,32 @@ struct WebFileView: View {
         }
     }
 
-    // The first megabyte, read as UTF-8 (a stray byte is drawn as a replacement character, never a failure).
-    private static func text(of file: URL) -> String {
-        guard let h = try? FileHandle(forReadingFrom: file) else { return "" }
-        defer { try? h.close() }
-        let data = (try? h.read(upToCount: 1 << 20)) ?? Data()
-        return String(decoding: data, as: UTF8.self)
+    // Read off the main thread. Text is the first 256 KB (one Text that size still lays out quickly); a page that cannot
+    // be made inert (a damaged web archive) is unreadable.
+    private static func read(_ file: URL) async -> Shown {
+        await Task.detached(priority: .userInitiated) { () -> Shown in
+            let kind = Board.webFileKind(name: file.lastPathComponent)
+            switch kind {
+            case .unreadable: return .unreadable
+            case .text:
+                guard let h = try? FileHandle(forReadingFrom: file) else { return .unreadable }
+                defer { try? h.close() }
+                let data = (try? h.read(upToCount: 256 * 1024)) ?? Data()
+                return .text(String(decoding: data, as: UTF8.self))
+            case .page, .svg, .archive:
+                guard let data = try? Data(contentsOf: file), let page = Board.inertPage(data, kind: kind) else { return .unreadable }
+                return .page(page, kind)
+            }
+        }.value
     }
 }
 
-// A web view that draws one file's bytes and loads nothing else: no JavaScript, a data store that is not kept, a content
-// rule that blocks every load, and every navigation after the first cancelled (a link, a refresh, a frame). If the rule
-// cannot be compiled the page is not drawn at all.
+// A web view that draws a page's bytes (Board.inertPage) and loads nothing else: no JavaScript, a data store that is not
+// kept, a content rule that blocks every load, and every navigation after the first cancelled (a refresh, a frame). If the
+// rule cannot be compiled the page is not drawn, and `failed` says so.
 struct LockedWebView: UIViewRepresentable {
-    let file: URL
-    let kind: Board.WebFileKind
+    let page: Data
+    let failed: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -80,7 +97,7 @@ struct LockedWebView: UIViewRepresentable {
         view.navigationDelegate = context.coordinator
         view.accessibilityIdentifier = "webfile.page"
         Coordinator.untappable(view)
-        context.coordinator.load(into: view, file: file, kind: kind)
+        context.coordinator.load(into: view, page: page, failed: failed)
         return view
     }
 
@@ -90,11 +107,11 @@ struct LockedWebView: UIViewRepresentable {
         private var started = false
         static let blockAll = #"[{"trigger":{"url-filter":".*"},"action":{"type":"block"}}]"#
 
-        func load(into view: WKWebView, file: URL, kind: Board.WebFileKind) {
+        func load(into view: WKWebView, page: Data, failed: @escaping () -> Void) {
             WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "kosmos-webfile-block-all",
                                                                      encodedContentRuleList: Self.blockAll) { [weak view] list, _ in
-                guard let view, let list, let data = try? Data(contentsOf: file),
-                      let page = Board.inertPage(data, kind: kind) else { return }
+                guard let view else { return }
+                guard let list else { failed(); return }
                 view.configuration.userContentController.add(list)
                 view.load(page, mimeType: "text/html", characterEncodingName: "utf-8", baseURL: URL(string: "about:blank")!)
             }
@@ -129,6 +146,9 @@ private struct WebFileSheetItem: Identifiable { let url: URL; var id: URL { url 
 
 extension View {
     func filePreview(_ url: Binding<URL?>) -> some View {
+        // By the saved name alone: that is what Quick Look picks its viewer by, so a file Quick Look would draw as a page
+        // always comes here. (A page under a plain name, say "x.txt" typed text/html, was fetched under fetchFile's
+        // stricter rule and is then shown by Quick Look as the text it is named.)
         let web = { (u: URL?) in u.map { Board.isWebDocument(name: $0.lastPathComponent, type: "") } ?? false }
         return self
             .quickLookPreview(Binding(get: { web(url.wrappedValue) ? nil : url.wrappedValue }, set: { url.wrappedValue = $0 }))

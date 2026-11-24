@@ -1617,8 +1617,8 @@ final class BoardClient: ObservableObject {
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FILE"] == "fail" { return nil }
         let folder = env.files.appendingPathComponent(a.id, isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        // kosmos#8953: a web page is written as itself, naming the probe address (KOSMOS_SAMPLE_WEBFILE_PROBE) in every way a
-        // page can load something, so WebFileUITests can show that none of them reaches it.
+        // kosmos#8953: a web page is written as itself, naming the probe address (KOSMOS_SAMPLE_WEBFILE_PROBE) in a sample of
+        // the ways a page can load something, so WebFileUITests can show that none of them reaches it.
         if Board.isWebDocument(name: a.name, type: a.type) {
             let file = folder.appendingPathComponent(Board.savedName(a.name, type: a.type))
             let probe = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_WEBFILE_PROBE"] ?? "http://127.0.0.1:9"
@@ -1636,10 +1636,15 @@ final class BoardClient: ObservableObject {
             <!doctype html><html><head><meta charset="utf-8">
             <meta http-equiv="refresh" content="1;url=\(probe)/refresh">
             <link rel="stylesheet" href="\(probe)/style.css">
+            <link rel="preconnect" href="\(probe)/"><link rel="dns-prefetch" href="\(probe)/"><link rel="prefetch" href="\(probe)/prefetch">
+            <link rel="preload" as="image" href="\(probe)/preload.png"><link rel="modulepreload" href="\(probe)/module.js"><link rel="icon" href="\(probe)/icon.png">
             <style>@import url("\(probe)/import.css"); @font-face { font-family: P; src: url("\(probe)/font.woff"); } body { font: 17px -apple-system; margin: 20px; }</style>
             <script src="\(probe)/script.js"></script></head><body>
             <h1>Launch page</h1><p>Sample page for the Debug build, standing in for \(a.name).</p>
             <img src="\(probe)/img.png" srcset="\(probe)/img2x.png 2x" alt=""><iframe src="\(probe)/frame.html"></iframe>
+            <video poster="\(probe)/poster.png" src="\(probe)/video.mp4"></video><audio src="\(probe)/audio.mp3"></audio>
+            <object data="\(probe)/object.pdf"></object><embed src="\(probe)/embed.pdf"><form action="\(probe)/form"><input type="image" src="\(probe)/input.png" alt="go"></form>
+            <div style="width:10px;height:10px;background-image:url('\(probe)/bg.png')"></div><a href="\(probe)/pinged" ping="\(probe)/ping">pinged</a>
             <p><a id="away" href="\(probe)/link">A link away</a></p>
             <style>@layer early { a { pointer-events: auto !important; } } a.loud { pointer-events: auto !important; }</style>
             <p><a class="loud" href="\(probe)/loud-link">A loud link</a></p>

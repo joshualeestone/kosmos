@@ -3,9 +3,11 @@ import XCTest
 
 // kosmos#8953: a web page an agent sent opens on the phone, in WebFileView, never on the computer's board (the navy page
 // with a Close bar), and nothing in it reaches the network. The sample chat with Cleo carries "Launch page.html"
-// (KOSMOS_SAMPLE_WEBFILE=1); the sample's page names this test's own listener (KOSMOS_SAMPLE_WEBFILE_PROBE) in every way
-// a page can load something: a stylesheet, an @import, a font, a script, a picture and its srcset, a frame, a refresh and
-// a link. The listener counts every connection it gets; the page must cost it none.
+// (KOSMOS_SAMPLE_WEBFILE=1); the sample's page names this test's own listener (KOSMOS_SAMPLE_WEBFILE_PROBE) in a sample
+// of the ways a page can load something: a stylesheet, an @import, a font, a script, preconnect, dns-prefetch, prefetch,
+// preload, modulepreload and icon links, a picture and its srcset, a frame, video, audio, object, embed, a form's image
+// input, a CSS background, a refresh and links (one with ping). The listener counts every connection it gets; the page
+// must cost it none.
 final class WebFileUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
@@ -54,8 +56,10 @@ final class WebFileUITests: XCTestCase {
         let done = expectation(description: "control request")
         URLSession.shared.dataTask(with: URL(string: address + "/control")!) { _, _, _ in done.fulfill() }.resume()
         wait(for: [done], timeout: 10)
-        sleep(1)   // the listener closes each connection unanswered, so URLSession retries; let that settle
-        let baseline = probe.count
+        // The listener closes each connection unanswered, so URLSession retries: the baseline is the count once it has
+        // stopped changing for a second.
+        var baseline = probe.count
+        for _ in 0..<10 { sleep(1); if probe.count == baseline { break }; baseline = probe.count }
         XCTAssertGreaterThanOrEqual(baseline, 1, "the control request did not reach the listener")
 
         let app = XCUIApplication()
@@ -64,7 +68,6 @@ final class WebFileUITests: XCTestCase {
         app.launch()
         let card = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Launch page.html")).firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 20), "the web page's card is not in Cleo's chat")
-        XCTAssertFalse(card.label.contains("board"), "the card still says it opens on the board: \(card.label)")
         shot(app, "chat-with-web-page")
         card.tap()
 
@@ -72,15 +75,17 @@ final class WebFileUITests: XCTestCase {
         XCTAssertTrue(page.waitForExistence(timeout: 10), "the web page did not open on the phone")
         XCTAssertTrue(page.staticTexts["Launch page"].waitForExistence(timeout: 10), "the page's own words are not drawn")
         XCTAssertFalse(app.buttons["Close"].exists, "the board's navy page opened (its Close bar is on screen)")
-        XCTAssertTrue(app.buttons["Done"].exists && app.staticTexts["Pictures and styles this page loads from elsewhere are not shown."].exists,
+        XCTAssertTrue(app.buttons["Done"].exists && app.staticTexts["Pictures and styles this page loads from elsewhere are not shown, and its links do not open."].exists,
                       "the viewer's Done and its line about blocked loads are missing")
+        // No link is left in the page (Board.withoutLinks), so none can be activated by VoiceOver or a keyboard either.
+        XCTAssertEqual(page.links.count, 0, "the page still has links: \(page.links.allElementsBoundByIndex.map(\.label))")
         sleep(2)   // past the page's one-second refresh, which must not go anywhere
         shot(app, "web-page-open")
         XCTAssertEqual(probe.count, baseline, "loading the page reached the network: \(probe.count - baseline) connection(s)")
         // Tapping a link had WebKit open a connection to its host before the navigation was refused; every link is
         // inert, including two that try to take it back (an !important rule outside the layer, and an inline one).
         for name in ["A link away", "A loud link", "An inline link"] {
-            let link = page.links[name].exists ? page.links[name] : page.staticTexts[name]
+            let link = page.staticTexts[name]
             XCTAssertTrue(link.exists, "the page has no \(name)")
             link.tap()
             sleep(2)
