@@ -29,4 +29,4 @@ Per platform: Windows 4, Mac 4, Linux 3.
 - An offline build of the committed pool is byte-identical to `web/whats-new.json` (the cut's #7617 check).
 
 ## Weakest premise
-That the spreadsheet line holds on Windows: I read attachtext.js for platform gates, not a Windows run.
+That "spreadsheets" reads right to a person: it means Excel files (.xlsx, .xlsm); a CSV was already plain text. Platform is settled: Ice Cream Kitty checked the same attachtext.js blob in the prod Mac and Linux 0.8.18 releases, and Windows ships the same file (m6238).
