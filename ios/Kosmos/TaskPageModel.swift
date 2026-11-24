@@ -63,6 +63,19 @@ final class TaskPageModel: ObservableObject {
     // The read in the air, nil when there is none.
     private(set) var receiptReading: Task<Void, Never>?
     static let receiptRetry: TimeInterval = 30
+    // kosmos#8958 slice B5: what an undo of this closed task's file changes would do (nil: nothing is offered), one on its
+    // way, what the last one did, and the line in the list (a refusal, or that nothing was chosen).
+    @Published private(set) var undoPlan: Board.UndoPlan?
+    @Published private(set) var undoing = false
+    @Published private(set) var undoDone: String?
+    @Published private(set) var undoSay: String?
+    @Published private(set) var undoRefused = false
+    // The closed state the plan was asked for, the last one whose read failed, and reads numbered (a hide counts too, so
+    // neither a read nor an undo still out draws after it).
+    private var undoAsked: String?
+    private var undoFailedRead: (key: String, at: Date)?
+    private var undoReads = 0
+    private(set) var undoReading: Task<Void, Never>?
     // The title and detail being saved, and the line for the last save (the board's tk-msg for the form).
     // Like `pressing`, saying, dueSaving and editSaving stay set when the epoch moves mid-request: the page is then about
     // nothing.
@@ -172,6 +185,7 @@ final class TaskPageModel: ObservableObject {
             syncReceipt()
         case .gone:
             if holdSaySig != nil { holdSay = nil; holdSaySig = nil }
+            hideUndo()
             set(\.gone, true)
             set(\.readFailed, false)
         case .unreadable:
@@ -259,6 +273,7 @@ final class TaskPageModel: ObservableObject {
     // the front. A read cut short is no failure, and is asked for again on the next read of the task (the Mac goes on working
     // it out meanwhile, and shares it).
     func stopReceipt() {
+        stopUndoRead()
         guard let reading = receiptReading else { return }
         reading.cancel()
         receiptReading = nil
@@ -276,11 +291,15 @@ final class TaskPageModel: ObservableObject {
         guard let key = page.receiptKey else {
             // Open: no receipt, and one still in the air draws nothing.
             stopReceipt()
+            hideUndo()
             receiptAsked = nil
             if receipt != nil { receipt = nil }
             return
         }
-        guard key != receiptAsked else { return }
+        guard key != receiptAsked else {
+            if receiptReading == nil { syncUndo(key) }
+            return
+        }
         stopReceipt()   // one still out is for another close
         // Only while the page is in front: a press's read landing after the person left asks for nothing; the read on their
         // return does.
@@ -308,7 +327,103 @@ final class TaskPageModel: ObservableObject {
             case .unreadable: self.receiptFailed = (key, self.now()); self.receiptAsked = nil
             }
             if self.receipt != shown { self.receipt = shown }
+            if shown == nil { self.hideUndo() } else { self.undoAsked = nil; self.syncUndo(key) }
         }
+    }
+
+    // kosmos#8958 slice B5: the board's paintTaskUndo, once a receipt is drawn: what an undo would do, offered only when the
+    // Mac has files to offer. A read that failed offers nothing, and is asked again after receiptRetry, as the receipt is.
+    // Not while an undo is out: its answer is about the list it was chosen from.
+    private func syncUndo(_ key: String) {
+        guard current, !gone, shouldReadTask, receipt != nil, !undoing, key != undoAsked else { return }
+        if let f = undoFailedRead, f.key == key, now().timeIntervalSince(f.at) < Self.receiptRetry { return }
+        stopUndoRead()
+        undoAsked = key
+        undoReads += 1
+        let mine = undoReads
+        let (project, number) = (self.project, self.number)
+        undoReading = Task { [weak self, send] in
+            let answer = await send { Board.taskUndoRequest(mac: $0, project: project, number: number) }
+            guard let self, mine == self.undoReads else { return }
+            self.undoReading = nil
+            guard self.current else { return }
+            var read = Board.UndoRead.unreadable
+            if let (data, response) = answer, (200...299).contains(response.statusCode) { read = Board.parseUndoPlan(data) }
+            var plan: Board.UndoPlan?
+            self.undoFailedRead = nil
+            switch read {
+            case .plan(let p): plan = p
+            case .off: break
+            case .unreadable: self.undoFailedRead = (key, self.now()); self.undoAsked = nil
+            }
+            self.clearUndoSay()
+            if self.undoDone != nil { self.undoDone = nil }
+            if self.undoPlan != plan { self.undoPlan = plan }
+        }
+    }
+
+    // The plan's read in the air is given up, and asked for again on the next read of the task.
+    private func stopUndoRead() {
+        guard let reading = undoReading else { return }
+        reading.cancel()
+        undoReading = nil
+        undoReads += 1
+        undoAsked = nil
+    }
+
+    // The board's tkUndoHide: the receipt went (the task was put back, or is gone), and the undo with it.
+    private func hideUndo() {
+        stopUndoRead()
+        undoReads += 1
+        undoAsked = nil
+        clearUndoSay()
+        if undoDone != nil { undoDone = nil }
+        if undoPlan != nil { undoPlan = nil }
+    }
+
+    // The list was left without an undo (the board's Cancel): the plan is read again.
+    func leaveUndo() {
+        clearUndoSay()
+        guard undoPlan != nil, !undoing, let key = page?.receiptKey else { return }
+        undoAsked = nil
+        syncUndo(key)
+    }
+    func clearUndoSay() {
+        if undoSay != nil { undoSay = nil }
+        if undoRefused { undoRefused = false }
+    }
+
+    // "Undo the chosen files". Nothing is sent for no files, while one is on its way, or with nothing offered. The line
+    // that says what was done takes the offer's place; a refusal keeps the list with the Mac's words. Then the activity is
+    // read, after a refusal too: an undo whose answer was lost shows there.
+    func undo(_ paths: [String], names: [String: String]) async {
+        guard !undoing, current, let page, page.closed, undoPlan != nil else { return }
+        clearUndoSay()
+        guard !paths.isEmpty else { undoSay = Board.undoChoose; return }
+        stopUndoRead()   // one from a list just left would take this one's place
+        undoing = true
+        let mine = undoReads
+        // Not read again by a tick before this answers, nor after it: the line that says what was done stays.
+        undoAsked = page.receiptKey
+        let (project, number) = (self.project, self.number)
+        let answer = await send { Board.taskUndoApply(mac: $0, project: project, number: number, paths: paths) }
+        guard current else { return }
+        undoing = false
+        // Put back meanwhile: there is no receipt for this to stand under.
+        if mine == undoReads {
+            let result = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0, failed: Board.undoFailed, unreached: Board.undoFailed)
+            if case .refused(let why) = result {
+                undoSay = why
+                undoRefused = true
+            } else if let line = Board.undoDoneLine(answer?.0) {
+                undoDone = line
+                undoPlan = nil
+            } else {
+                undoSay = Board.undoFailed
+                undoRefused = true
+            }
+        }
+        await readActivity(names: names)
     }
 
     // kosmos#8958 slice B2: the board's tk-hold button, as the button showed it (`wasOnHold`). Putting it on hold reads the
