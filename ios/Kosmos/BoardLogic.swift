@@ -2076,6 +2076,16 @@ enum Board {
         return data.prefix(4096).contains(0) ? nil : data
     }
 
+    // kosmos#8953: the text WebFileView shows for an XML file: its first `limit` bytes, and whether there were more. UTF-16
+    // (with its byte order mark) is cut to whole characters and converted, as a page is; a file that is not text (a binary
+    // property list, which counts as XML) is nil, so it is offered to Share.
+    static func shownText(_ data: Data, limit: Int) -> (text: String, cut: Bool)? {
+        var head = data.prefix(limit)
+        if head.starts(with: [0xFE, 0xFF]) || head.starts(with: [0xFF, 0xFE]) { head = head.prefix(head.count & ~1) }
+        guard let readable = asciiCompatible(head) else { return nil }
+        return (String(decoding: readable, as: UTF8.self), data.count > limit)
+    }
+
     // kosmos#8953: a page's links, image maps, forms, <link> elements, MathML (whose href WebKit makes a link), frames,
     // objects and embeds renamed (<a> becomes <x-a>), so the page has none of those for a finger, VoiceOver's activate or a
     // keyboard to reach, and no frame whose own document (srcdoc, a data: address) could hold a link this pass never sees.
