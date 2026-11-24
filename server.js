@@ -9379,7 +9379,14 @@ const server = http.createServer(async (req, res) => {
         // yields a clean 200 truncated to the declared length, with the surplus
         // bytes landing on the wire afterwards and desyncing a keep-alive
         // connection. Chunked costs a few bytes and cannot do that.
-        res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
+        /* kosmos#9004: a request that names the picture's CURRENT version (?v=, the file's mtime, as status cards carry
+           it in avatarVer) may be kept by the browser: that URL changes whenever the picture does, so a rebuilt card
+           draws it from cache instead of fetching it again. Any other request (no v, an old v) stays no-store, and so
+           does every refusal, which never reaches this line. */
+        let askedV = null;
+        try { askedV = new URL(req.url, ROUTING_BASE).searchParams.get('v'); } catch { askedV = null; }
+        const keep = askedV !== null && askedV === String(Math.round(stat.mtimeMs));
+        res.writeHead(200, { 'content-type': type, 'cache-control': keep ? 'private, max-age=31536000, immutable' : 'no-store' });
         // Belt and braces: the check above closes the window we know about, and
         // a throw here would still be fatal, so it is caught rather than
         // trusted not to happen.

@@ -2,9 +2,9 @@
  *
  * The report: agent avatars "seem to reload continuously" in a project room.
  *
- * ⚠️ SCOPE: this proves the IDLE case (two idle agents, nothing on the board changing). The grid and the list are each
- * one write, so when any card or row changes (a working agent's memory reading or task line) the whole container is
- * still rewritten and every avatar in it fetched again. That case is kosmos#9004. Measured on main 87918b0c75 with a
+ * The grid and the list are each one write, so when any card or row changes (a working agent's memory reading or task
+ * line) the whole container is still rewritten and every avatar in it rebuilt. Arm 5 (kosmos#9004) covers that case:
+ * the rebuilt pictures come from the browser's cache, not the network. Measured on main 87918b0c75 with a
  * project room open: every status poll rewrote the board's card grid (#grid, painted even while hidden behind the
  * room) and the agents rail (#alist) with innerHTML, so each member's avatar node was destroyed and rebuilt every
  * poll, and agent avatars are served no-store, so each rebuild fetched the picture again (32 rebuilds and 16 fetches
@@ -19,6 +19,8 @@
  *      showing it as running. A memo that never wrote again would pass arm 1 and fail here.
  *   3. A NEW PICTURE IS DRAWN (run before arm 2): an uploaded avatar replaces the avatar element in the grid and the
  *      rail. The avatar URLs carry the picture's version (?v=), so a new picture is a change of markup (#2698's rule).
+ *   5. A CHANGED CARD DRAWS FROM CACHE (kosmos#9004): three forced rewrites rebuild every avatar, and none is fetched over
+ *      the network, because the route lets a current-version address be kept.
  *   4. A FAILED PICTURE IS ASKED FOR AGAIN, BY ITSELF: with alpha's avatar answering 500, the failed elements ask again
  *      (their URLs carry retry=N, so nothing else can be counted): retry=1 and retry=2 within 28 s and no retry=3 (the
  *      delays between tries are 5, 10, 20, 40 and then 60 s), and beta's avatar nodes are not replaced meanwhile.
@@ -138,6 +140,26 @@ const say = (n, cond, note) => {
     say('steady: no avatar node rebuilt in the grid', steady.grid === 0, steady.grid + ' added or removed');
     say('steady: no avatar node rebuilt in the rail', steady.alist === 0, steady.alist + ' added or removed');
     say('steady: no avatar fetched again', avatarFetches.length === 0, avatarFetches.length + ' fetches ' + avatarFetches.slice(0, 4).join(' '));
+
+    // Arm 5 (kosmos#9004): a card that CHANGED rewrites its whole container, which rebuilds every avatar in it. The
+    // rebuilt pictures must come from the browser's cache: the route lets a current-version address be kept. The
+    // rewrite is made here (both memos forgotten, a repaint), exactly the write a poll that changed a card makes.
+    const network = [];
+    const onDone = async (r) => {
+      if (!/\/api\/agent\/[^/]+\/avatar(\?|$)/.test(r.url())) return;
+      const resp = await r.response().catch(() => null);
+      if (resp && !resp.fromCache()) network.push(r.url().replace(BASE, ''));
+    };
+    p.on('requestfinished', onDone);
+    const before5 = await p.evaluate(() => window.__av8990.grid + window.__av8990.alist);
+    for (let i = 0; i < 3; i++) {
+      await p.evaluate(() => { GRID_HTML = null; ALIST_HTML = null; repaintAgentOrder(); });   // eslint-disable-line no-undef
+      await p.waitForTimeout(1200);
+    }
+    p.off('requestfinished', onDone);
+    const rebuilt5 = (await p.evaluate(() => window.__av8990.grid + window.__av8990.alist)) - before5;
+    say('arm 5 fixture: three rewrites rebuilt the avatars in both places', rebuilt5 >= 12, rebuilt5 + ' avatar nodes added or removed');
+    say('a rewritten card draws its picture from the cache (no avatar fetched over the network)', network.length === 0, network.length + ' network fetches ' + network.slice(0, 4).join(' '));
 
     // Arm 3 (run before arm 2, which ends beta's session): a NEW picture for alpha reaches the grid and the rail. The
     // avatar URL must change with the picture's version, or the memo sees identical markup and keeps the old picture.

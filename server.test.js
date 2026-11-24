@@ -2359,8 +2359,10 @@ test('the gate checks do not capture every pane on every request', async () => {
   // ⚠️ A real regression, measured rather than suspected. `borrowedName` called
   // `snapshot()`, which is a synchronous fan-out: one `list-panes` plus one
   // `capture-pane` PER AGENT plus transcript reads. On the avatar route that
-  // sits on a polling path — the board rebuilds its grid every five seconds and
-  // avatar responses are `no-store`, so every card refetches each tick — which
+  // sits on a polling path — the board rebuilt its grid every five seconds and
+  // avatar responses were `no-store`, so every card refetched each tick (since
+  // kosmos#8990/#9004 a rebuilt card mostly draws from cache, but an unversioned
+  // ask is still no-store, so the route must stay cheap) — which
   // put ~0.65s of blocked event loop and ~170 extra `capture-pane` invocations
   // against live agents into every tick on a thirteen-agent fleet.
   //
