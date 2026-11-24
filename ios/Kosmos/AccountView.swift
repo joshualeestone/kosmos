@@ -505,6 +505,8 @@ struct AccountView: View {
         switch SignIn.enrolled(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) {
         case .totp(let link, let secret): setup = .app(otpauth: link, secret: secret)
         case .sms: secondNote = "That did not work. Try again."
+        // As sendText: a refusal that says to start over (a step set up elsewhere, the sign-in ended) re-reads the section.
+        case .refused(let why) where SignIn.startsOver(why): await settleUncertainSetup(why, closing: true)
         case .refused(let why): secondNote = why
         }
     }
@@ -582,7 +584,10 @@ struct AccountView: View {
     /// sits over a section that says otherwise. `why` stays on screen unless the re-read's own sentence replaces it.
     @MainActor private func settleUncertainSetup(_ why: String, closing: Bool) async {
         if closing { closeSetup(force: true); secondNote = why }
+        // Busy while the read is out, so a second Confirm cannot start a request this read then closes the sheet over.
+        setupBusy = true
         await readSecond()
+        setupBusy = false
         switch second {
         case .unreadable:
             closeSetup(force: true); secondNote = nil

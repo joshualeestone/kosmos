@@ -16,10 +16,10 @@ Stacked on slice B1a (branch accountnative-8959, PR #8980) until it merges; then
       origin/main's signin.html; mutants each caught.
 - [x] AccountView "Two-step sign-in" section and a setup sheet (number, texted code, authenticator key) with slice A's
       words. Confirm's fresh session goes through `PushNotificationManager.sessionRenewed` (the registrar alone: not an
-      account change), which first moves BoardClient's kept state (the kept Mac session, the shown list and the open
+      account change), which then moves BoardClient's kept state (the kept Mac session, the shown list and the open
       chat are keyed to the session) with `BoardClient.sessionRenewed` / `Board.rekeyed`, then `web.forget(old)`.
-      Tested in ios/LogicTests/main.swift ("a renewed session of the same account"). Residual: if the keychain refused the fresh session, the reloaded web page
-      starts signed out, as after any refused keychain save.
+      Tested in ios/LogicTests/main.swift ("a renewed session of the same account"). Residual: if the keychain refused the fresh session, nothing is moved and both the
+      reloaded web page and the Agents tab end signed out, as after any refused keychain save.
 - [x] KosmosUITests `AccountScreenUITests.testSecondStepOfferedThenOn` (ui-sample count 2). The test itself takes one
       set of shots under the simulator's appearance; light and dark were both run by hand (the simulator's appearance
       set to each), not by the test.

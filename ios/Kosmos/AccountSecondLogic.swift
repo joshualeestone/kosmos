@@ -145,11 +145,21 @@ enum AccountSecond {
         let body = json as? [String: Any] ?? [:]
         guard (200..<300).contains(status) else {
             let sentence = SignIn.refusal(body["error"])
-            // Kosmos+ answers a wrong code with 401 too (second.rs confirm), so the status alone never means signed out.
-            // Only a sentence slice A's sign-in reads as "start over" ends anything: with a 401 it is read as the
-            // sign-in ending, otherwise as the setup ending (both close the sheet and show the sentence).
-            if let sentence, SignIn.startsOver(sentence) { return status == 401 ? .signedOut(sentence) : .startOver(sentence) }
-            return .refused(sentence ?? codeRefused)
+            // second.rs confirm: a wrong code is a 401 whose sentence names the code, and it is the only refusal a new
+            // code can fix. Every other 401 comes from the session check (signed out everywhere, this device removed,
+            // the account gone, a token that is missing or no longer good). A 403 is a refused device or the review
+            // account. A 400 ends the setup when its sentence says to start again.
+            switch status {
+            case 401:
+                guard let sentence else { return .refused(codeRefused) }
+                if sentence.range(of: "code", options: .caseInsensitive) != nil, !SignIn.startsOver(sentence) { return .refused(sentence) }
+                return .signedOut(sentence)
+            case 403:
+                return .startOver(sentence ?? "Kosmos+ refused this.")
+            default:
+                if let sentence, SignIn.startsOver(sentence) { return .startOver(sentence) }
+                return .refused(sentence ?? codeRefused)
+            }
         }
         let kind = (body["kind"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "totp"
         // The same session shape a sign-in answers with, read by sign-in's own reader.

@@ -211,15 +211,17 @@ final class PushNotificationManager: NSObject, ObservableObject {
     /// account (kosmos-relay second.rs confirm, kosmos#3860), and Kosmos+ refuses the old one from then on. It is kept
     /// through the registrar alone (the keychain, and push registered under it), never through take(): this is not an
     /// account change, so nothing is counted and no reason is written for the Agents list. Only while `old` is still the
-    /// session held: a sign-in that changed meanwhile is left alone. `moving` runs first, before the fresh session is
-    /// stored: BoardClient keys its kept state (the Mac session, the list, the chats) to the session, and without the
-    /// move it would read the fresh one as another account and forget them (ContentView passes BoardClient.sessionRenewed).
-    /// Says whether it kept it.
+    /// session held: a sign-in that changed meanwhile is left alone. `moving` runs once the keychain holds the fresh
+    /// session, in the same main-thread turn: BoardClient keys its kept state (the Mac session, the list, the chats) to
+    /// the session it reads from the keychain, and without the move would read the fresh one as another account and
+    /// forget them (ContentView passes BoardClient.sessionRenewed). When the keychain refused the fresh session it is not
+    /// moved: BoardClient keeps reading the old one, which Kosmos+ now refuses, so the Agents tab ends signed out, as
+    /// after any sign-in the keychain refused. Says whether it kept the fresh session.
     @discardableResult
     func sessionRenewed(from old: String, to fresh: String, moving: (String, String) -> Void = { _, _ in }) -> Bool {
         guard !fresh.isEmpty, fresh != old, currentSession == old else { return false }
-        moving(old, fresh)
         registrar.didReceive(.signedIn(fresh))
+        if SessionKeychain.live.load() == fresh { moving(old, fresh) }
         return true
     }
 
