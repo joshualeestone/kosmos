@@ -21,10 +21,11 @@ function pageFns() {
   const lift = (n) => (n === 'usageNum' ? num.replace('toLocaleString()', "toLocaleString('en-US')") : page.lift(SCRIPT, n));
   // eslint-disable-next-line no-new-func
   return new Function(page.liftConst(SCRIPT, 'USAGE_MODEL_PRICES') + '\n' + page.liftConst(SCRIPT, 'TKR_PROVIDER') + '\n'
+    + page.liftConst(SCRIPT, 'TKU_WHY') + '\n'
     + ['esc', 'usageNum', 'usageAbbr', 'usageUsd', 'usageRowTokenTotal', 'usageModelPrice', 'usageApiCost', 'tkReceiptPrsHtml',
-      'tkTokensAndCost', 'tkReceiptAgentHtml', 'tkReceiptHtml'].map(lift).join('\n')
+      'tkTokensAndCost', 'tkReceiptAgentHtml', 'tkReceiptHtml', 'tkUndoListHtml', 'tkUndoDoneLine'].map(lift).join('\n')
     + '\nfunction tkMemberName(p, sn) { return sn; }\n'
-    + 'return { usageAbbr, usageUsd, tkReceiptAgentHtml, tkReceiptHtml };')();
+    + 'return { usageAbbr, usageUsd, tkReceiptAgentHtml, tkReceiptHtml, tkUndoListHtml, tkUndoDoneLine, TKU_WHY };')();
 }
 
 const plainText = (html) => html.replace(/<span class="vh">[^<]*<\/span>/g, '').replace(/<[^>]*>/g, '')
@@ -68,6 +69,32 @@ const WHOLE = [
   { r: { retries: {}, agents: [] }, notRun: true },
 ];
 /* Around every unit's edge, and exact ties (12.5, 0.125), where toFixed and printf round apart. */
+/* kosmos#8958 slice B5: the undo list, one file for every action and reason, then the shapes around them. */
+const UNDO_ROOT = '/Users/sam/Kosmos/undo-saved';
+function undoPlans(why) {
+  const f = (name, over) => ({ path: '/w/ann/' + name, shown: name, agent: 'ann', action: 'restore', ok: true, ...over });
+  return [
+    { on: true, ready: true, savedRoot: UNDO_ROOT, files: [f('a.js', {}), f('new.md', { action: 'move-aside' }),
+      ...Object.keys(why).filter((k) => k !== 'restore' && k !== 'move-aside').map((k) => f(k + '.md', { ok: false, why: k }))] },
+    { on: true, files: [f('new.md', { action: 'move-aside' }), f('later.md', { ok: false, why: 'a-reason-from-later' }), f('none.md', { ok: false })] },
+    { on: true, savedRoot: UNDO_ROOT, files: [f('a <b> & "c".md', {}), f('x.md', { shown: '' }), f('moved.md', { action: 'move-aside', ok: false, why: 'gone' })] },
+  ];
+}
+/* How many were done and left, and where the old versions went; the lists are made from the counts here and on the phone. */
+const UNDO_DONE = [[1, 0, UNDO_ROOT + '/1'], [2, 1, UNDO_ROOT + '/1'], [0, 2, null], [0, 0, null], [1234, 2345, '']];
+const undone = ([done, skipped, savedIn]) => ({ done: Array.from({ length: done }, (_, i) => '/w/f' + i), skipped: Array.from({ length: skipped }, () => ({})), savedIn });
+/* Each row of the list: the file sent back, its name and reason, and whether it is chosen and can be. */
+const rowsOf = (html) => [...html.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => {
+  const [, input, name, why] = m[1].match(/<input ([^>]*)><span>([\s\S]*?)<span class="tku-why"[^>]*>([\s\S]*?)<\/span>/);
+  return { path: plainText(input.match(/data-path="([^"]*)"/)[1]), shown: plainText(name), why: plainText(why), chosen: / checked\b/.test(input), choosable: !/ disabled\b/.test(input) };
+});
+/* A sentence the page writes inside its code, not through a function this can call. */
+function sentence(re) {
+  const found = [...new Set([...SCRIPT.matchAll(re)].map((m) => m[1]))];
+  if (found.length !== 1) throw new Error('the page says ' + found.length + ' things for ' + re);
+  return found[0];
+}
+
 const ABBR = [0, 1, 999, 1000, 1499, 1500, 2500, 12500, 999499, 999500, 999999, 1e6, 1250000, 1350000, 99949999, 999949999, 999950000, 1e9, 1250000000, 9949999999, 9950000000, 9999999999, 1e10, 10500000000, 12500000000, 150e9];
 const USD = [0, 0.004, 0.005, 0.125, 0.375, 1.005, 2.5, 9.994, 9.995, 9.999, 10, 10.5, 11.5, 12.49, 999.4, 999.5, 1000, 1000.5, 176332.49, 999999.5, 1e6, 2500000, 3500000, 1e9, 1125000000, 2.5e9];
 
@@ -82,6 +109,18 @@ function build() {
       return { given: a.available ? { ...a, cost: modelsCost(a.models) } : a, lines: linesOf(html), links: linksOf(html) };
     }),
     whole: WHOLE.map(({ r, replacedBy, notRun }) => ({ given: r, replaced: Number.isInteger(replacedBy), unrun: notRun === true, lines: linesOf(P.tkReceiptHtml(r, {}, replacedBy, notRun)) })),
+    undo: {
+      why: P.TKU_WHY,
+      plans: undoPlans(P.TKU_WHY).map((plan) => {
+        const html = P.tkUndoListHtml(plan);
+        return { given: plan, rows: rowsOf(html), title: plainText(html.match(/<h3[^>]*>([\s\S]*?)<\/h3>/)[1]),
+          intro: plainText(html.match(/<p class="tkr-intro">([\s\S]*?)<\/p>/)[1]), go: plainText(html.match(/data-undo="go">([\s\S]*?)<\/button>/)[1]) };
+      }),
+      done: UNDO_DONE.map((c) => ({ done: c[0], skipped: c[1], savedIn: c[2], line: P.tkUndoDoneLine(undone(c)) })),
+      open: sentence(/data-undo="open">([^<]*)<\/button>/g),
+      choose: sentence(/if \(!paths\.length\) \{ msg\.textContent = '([^']*)'/g),
+      failed: sentence(/if \(!res\.ok\) \{ msg\.textContent = out\.error \|\| '(We could not undo[^']*)'/g),
+    },
   };
 }
 
@@ -95,6 +134,8 @@ if (process.argv.includes('--write')) {
     const now = JSON.parse(JSON.stringify(build()));
     assert.ok(now.agents.some((a) => a.lines.some((l) => / at API prices/.test(l))), 'control: the page was lifted and priced something');
     assert.ok(now.agents.every((a) => a.lines.length >= 1) && now.whole.every((w) => w.lines.length >= 2), 'control: every case has words');
+    assert.ok(now.undo.plans.every((x) => x.rows.length === x.given.files.length) && now.undo.plans[0].rows.length === Object.keys(now.undo.why).length,
+      'control: a row for every file, and a file for every reason');
     assert.deepEqual(JSON.parse(fs.readFileSync(FIXTURE, 'utf8')), now,
       'the page\'s receipt words changed: node ios.receipt-words-8958.test.js --write, then make ios/Kosmos/TaskPageLogic.swift say them (ios/LogicTests/run-taskpage.sh)');
   });

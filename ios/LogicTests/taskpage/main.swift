@@ -232,6 +232,8 @@ final class FakeMac {
     var projects: (Int, Data)? = (200, projectsData)
     var activity: (Int, Data)? = (200, fixture("activity-3.json"))
     var receipt: (Int, Data)? = (200, Data(#"{"retries":{},"agents":[]}"#.utf8))
+    // What an undo would do (GET .../undo); doing it (POST) is answered from actAnswers.
+    var undo: (Int, Data)? = (200, Data(#"{"on":false,"ready":false,"because":"off","files":[]}"#.utf8))
     var actAnswers: [(Int, String)?] = []
     var seenAnswers: [(Int, String)?] = []
     var asked: [String] = []
@@ -276,6 +278,7 @@ final class FakeMac {
         if path == "/api/projects" { return answer(projects) }
         if path.hasSuffix("/activity") { return answer(activity) }
         if path.hasSuffix("/receipt") { return answer(receipt) }
+        if path.hasSuffix("/undo") && r.httpMethod != "POST" { return answer(undo) }
         if path.hasSuffix("/seen") { return answer(seenAnswers.isEmpty ? (200, Data("{}".utf8)) : seenAnswers.removeFirst().map { ($0.0, Data($0.1.utf8)) }) }
         return answer(actAnswers.isEmpty ? (200, Data("{}".utf8)) : actAnswers.removeFirst().map { ($0.0, Data($0.1.utf8)) })
     }
@@ -1233,6 +1236,50 @@ do {
 }
 await b4ModelTests()
 
+section("#8958 slice B5: undoing a closed task's file changes")
+do {
+    let u = ((try? JSONSerialization.jsonObject(with: fixture("receipt-words.json")) as? [String: Any]) ?? [:])["undo"] as? [String: Any] ?? [:]
+    let plans = u["plans"] as? [[String: Any]] ?? [], done = u["done"] as? [[String: Any]] ?? []
+    check(plans.count == 3 && done.count == 5 && (u["why"] as? [String: String])?.count == 12, "premise: the page's undo words are there")
+    check(Board.undoWhy == u["why"] as? [String: String], "every reason in the page's words, and no other")
+    check(Board.undoOpen == u["open"] as? String, "the offer, as the page's")
+    check(Board.undoChoose == u["choose"] as? String, "nothing chosen, as the page's")
+    check(Board.undoFailed == u["failed"] as? String, "a failure, as the page's")
+    for (i, x) in plans.enumerated() {
+        check(Board.undoTitle == x["title"] as? String && Board.undoIntro == x["intro"] as? String && Board.undoGo == x["go"] as? String, "list \(i): its heading, sentence and button as the page's")
+        var files: [Board.UndoFile] = []
+        if let d = try? JSONSerialization.data(withJSONObject: x["given"] ?? [:]), case .plan(let p) = Board.parseUndoPlan(d) { files = p.files }
+        let rows = x["rows"] as? [[String: Any]] ?? []
+        check(!rows.isEmpty && files.count == rows.count, "list \(i): a row for each file")
+        for (f, r) in zip(files, rows) {
+            check(f.path == r["path"] as? String && f.shown == r["shown"] as? String && f.why == r["why"] as? String
+                  && f.chosen == r["chosen"] as? Bool && f.choosable == r["choosable"] as? Bool, "list \(i): \(f.shown) as the page's: \(f.why)")
+        }
+        check(Set(files.map(\.id)).count == files.count, "list \(i): each row has its own id")
+    }
+    for x in done {
+        let n = (x["done"] as? NSNumber)?.intValue ?? -1, k = (x["skipped"] as? NSNumber)?.intValue ?? -1
+        let out: [String: Any] = ["done": Array(repeating: "f", count: max(0, n)), "skipped": Array(repeating: [String: String](), count: max(0, k)), "savedIn": x["savedIn"] ?? NSNull()]
+        check(Board.undoDoneLine(try? JSONSerialization.data(withJSONObject: out)) == x["line"] as? String, "\(n) done and \(k) left, as the page's")
+    }
+    for bad in ["{}", "<html>", "", "[]", #"{"done":3}"#] { check(Board.undoDoneLine(Data(bad.utf8)) == nil, "not an answer to an undo says nothing done: \(bad)") }
+    check(Board.undoDoneLine(nil) == nil, "no answer says nothing done")
+    for bad in ["", "null", "[]", "<html>"] { check(Board.parseUndoPlan(Data(bad.utf8)) == .unreadable, "not a plan is unreadable: \(bad)") }
+    for (what, off) in [("off", #"{"on":false,"files":[{"path":"/a","ok":true,"action":"restore"}]}"#), ("no files", #"{"on":true,"files":[]}"#),
+                        ("not ready", #"{"on":true,"ready":false,"because":"stamps-unknown","files":[]}"#), ("a file with no path", #"{"on":true,"files":[{"ok":true}, 7]}"#)] {
+        check(Board.parseUndoPlan(Data(off.utf8)) == .off, "nothing to offer: \(what)")
+    }
+    let studio = URL(string: "https://studio.kosmosplus.com")!
+    let ask = Board.taskUndoRequest(mac: studio, project: "springcatalogue", number: 3)
+    check((ask?.httpMethod ?? "GET") + " " + (ask?.url?.path ?? "") == "GET /api/project/springcatalogue/task/3/undo" && ask?.timeoutInterval == 120, "GET .../task/<n>/undo, with the receipt's wait")
+    let go = Board.taskUndoApply(mac: studio, project: "springcatalogue", number: 3, paths: ["/a", "/b"])
+    check((go?.httpMethod ?? "") + " " + (go?.url?.path ?? "") == "POST /api/project/springcatalogue/task/3/undo" && go?.timeoutInterval == 120, "POST .../task/<n>/undo, with the receipt's wait")
+    check((go?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: [String]] }) == ["paths": ["/a", "/b"]], "the chosen files, and nothing else")
+    check(Board.taskUndoApply(mac: studio, project: "springcatalogue", number: 3, paths: []) == nil, "no files: no request")
+    check(Board.taskUndoRequest(mac: studio, project: "../x", number: 3) == nil && Board.taskUndoApply(mac: studio, project: "../x", number: 3, paths: ["/a"]) == nil, "no request for a name that is not a project's")
+}
+await b5ModelTests()
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
@@ -1735,4 +1782,299 @@ func b4ModelTests() async {
     await d.press(.close, names: [:])
     await d.receiptReading?.value
     check(d.page?.closed == true && d.receipt != nil, "Mark as done draws its receipt")
+}
+
+@MainActor
+func b5ModelTests() async {
+    func with(closedAt: String?) -> (Int, Data) {
+        var doc = (try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any]) ?? [:]
+        var projs = doc["projects"] as? [[String: Any]] ?? []
+        var tks = projs.first?["tasks"] as? [[String: Any]] ?? []
+        if let i = tks.firstIndex(where: { ($0["number"] as? NSNumber)?.intValue == 3 }) {
+            tks[i]["progress"] = ["done": closedAt == nil ? 0 : 1, "total": 1, "closed": closedAt != nil]
+            tks[i]["closedAt"] = closedAt ?? NSNull()
+        }
+        if !projs.isEmpty { projs[0]["tasks"] = tks }
+        doc["projects"] = projs
+        return (200, (try? JSONSerialization.data(withJSONObject: doc)) ?? Data())
+    }
+    func offer(_ names: String...) -> (Int, Data) {
+        (200, Data((#"{"on":true,"ready":true,"files":["# + names.map { #"{"path":"/w/\#($0)","shown":"\#($0)","action":"restore","ok":true}"# }.joined(separator: ",") + "]}").utf8))
+    }
+    let off: (Int, Data) = (200, Data(#"{"on":false,"files":[]}"#.utf8))
+    let at1 = "2026-11-24T15:00:00.000Z", at2 = "2026-11-24T16:00:00.000Z"
+    let undoPath = "/api/project/springcatalogue/task/3/undo"
+    func asks(_ mac: FakeMac) -> Int { mac.asked.filter { $0 == "GET " + undoPath }.count }
+    func posts(_ mac: FakeMac) -> Int { mac.asked.filter { $0 == "POST " + undoPath }.count }
+    func shown(_ m: TaskPageModel) -> [String]? { m.undoPlan?.files.map(\.shown) }
+    var clock = Date(timeIntervalSince1970: 1_800_000_000)
+    func model(_ mac: FakeMac) -> TaskPageModel {
+        let m = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch }, now: { clock })
+        m.onScreen = true
+        m.touched()
+        return m
+    }
+    // A read of the task, then what it set off: the receipt, then the undo plan.
+    func settle(_ m: TaskPageModel) async { await m.read(); await m.receiptReading?.value; await m.undoReading?.value }
+
+    let mac = FakeMac()
+    let m = model(mac)
+    mac.projects = with(closedAt: nil)
+    mac.undo = offer("a.js", "b.md")
+    await settle(m)
+    check(asks(mac) == 0 && m.undoPlan == nil, "an open task asks for no undo")
+    mac.projects = with(closedAt: at1)
+    mac.receipt = (200, Data(#"{"ready":false}"#.utf8))
+    await settle(m)
+    check(asks(mac) == 0, "nor a closed one with no receipt")
+    mac.projects = with(closedAt: at2)
+    mac.receipt = (200, Data(#"{"retries":{},"agents":[]}"#.utf8))
+    await settle(m)
+    check(asks(mac) == 1 && shown(m) == ["a.js", "b.md"], "once the receipt is drawn, what an undo would do is read and offered")
+    check(mac.asked.suffix(2) == ["GET /api/project/springcatalogue/task/3/receipt", "GET " + undoPath], "after the receipt, from the task's own undo route")
+    var redraws = 0
+    let watch = m.objectWillChange.sink { redraws += 1 }
+    await settle(m)
+    watch.cancel()
+    check(asks(mac) == 1 && redraws == 0, "a quiet read asks nothing again and redraws nothing")
+    mac.projects = with(closedAt: at1)
+    mac.undo = offer("c.md")
+    await settle(m)
+    check(asks(mac) == 2 && shown(m) == ["c.md"], "another close: read again")
+    mac.projects = with(closedAt: nil)
+    await settle(m)
+    check(m.undoPlan == nil && asks(mac) == 2, "put back: the offer goes")
+    mac.projects = with(closedAt: at1)
+    await settle(m)
+    check(asks(mac) == 3 && shown(m) == ["c.md"], "closed at the same time again: read again")
+    // A task gone from the computer, then back: the offer goes, and is read again.
+    mac.projects = (200, Data(#"{"projects":[]}"#.utf8))
+    await settle(m)
+    check(m.gone && m.undoPlan == nil, "gone from the computer: the offer goes")
+    m.leaveUndo(); m.syncReceipt()
+    await m.undoReading?.value
+    check(asks(mac) == 3, "and nothing is asked for")
+    mac.projects = with(closedAt: at1)
+    await settle(m)
+    check(asks(mac) == 4 && shown(m) == ["c.md"], "back: read again")
+    // A receipt that goes takes the offer with it.
+    mac.projects = with(closedAt: at2)
+    mac.receipt = (500, Data())
+    await settle(m)
+    check(m.receipt == nil && m.undoPlan == nil, "a receipt that cannot be read takes the offer with it")
+
+    // A read that failed, or is not a plan: nothing offered, asked again only after 30 s.
+    for (what, bad) in [("a 500", (500, Data("{}".utf8))), ("an answer that is not a plan", (200, Data("null".utf8)))] as [(String, (Int, Data))] {
+        let fm = FakeMac(); let f = model(fm)
+        fm.projects = with(closedAt: at1); fm.undo = bad
+        await settle(f)
+        check(f.receipt != nil && f.undoPlan == nil && asks(fm) == 1, "\(what): nothing offered")
+        fm.undo = offer("a.js")
+        clock.addTimeInterval(29)
+        await settle(f)
+        check(asks(fm) == 1, "\(what): not asked again within 30 s")
+        clock.addTimeInterval(1)
+        await settle(f)
+        check(asks(fm) == 2 && shown(f) == ["a.js"], "\(what): asked again after 30 s, and offered")
+    }
+    do {
+        let fm = FakeMac(); let f = model(fm)
+        fm.projects = with(closedAt: at1); fm.undo = (500, Data())
+        await settle(f)
+        fm.projects = with(closedAt: at2); fm.undo = offer("a.js")
+        await settle(f)
+        check(asks(fm) == 2 && shown(f) == ["a.js"], "a failure for one close does not hold back another's")
+        fm.projects = with(closedAt: at1); fm.undo = off
+        await settle(f)
+        let settled = asks(fm)
+        clock.addTimeInterval(60)
+        await settle(f)
+        check(f.undoPlan == nil && asks(fm) == settled, "off is settled, not a failure: not asked again")
+    }
+
+    // Left with the plan's read still out, put back, switched to another Mac: its answer draws nothing.
+    func holdingThePlan(_ fm: FakeMac, _ f: TaskPageModel) async {
+        // Queued from the start, and the task's read and the receipt's released in turn, so only the plan's is left out.
+        fm.queueing = true
+        let reading = Task { await f.read() }
+        await waitUntil({ fm.queuedCount == 1 }, "the task's read")
+        fm.release(at: 0)
+        await reading.value
+        await waitUntil({ fm.queuedCount == 1 }, "the receipt's read")
+        let receiving = f.receiptReading
+        fm.release(at: 0)
+        await receiving?.value
+        await waitUntil({ fm.queuedCount == 1 }, "the undo's read")
+        fm.queueing = false
+    }
+    for (what, leave) in [("leaving the page", { fm, f in f.stopReceipt() }),
+                          ("put back", { fm, f in fm.projects = with(closedAt: nil); await f.read() }),
+                          ("gone from the computer", { fm, f in fm.projects = (200, Data(#"{"projects":[]}"#.utf8)); await f.read() })] as [(String, (FakeMac, TaskPageModel) async -> Void)] {
+        let fm = FakeMac(); let f = model(fm)
+        fm.projects = with(closedAt: at1); fm.undo = offer("a.js")
+        await holdingThePlan(fm, f)
+        let reading = f.undoReading
+        await leave(fm, f)
+        check(reading != nil && reading?.isCancelled == true && f.undoReading == nil, "\(what): the plan's read still out is cancelled")
+        fm.release(at: 0)
+        await reading?.value
+        check(f.undoPlan == nil, "\(what): its answer offers nothing")
+        fm.projects = with(closedAt: at1)
+        await settle(f)
+        check(asks(fm) == 2 && shown(f) == ["a.js"], "\(what), then back: asked for at once, and offered")
+    }
+    do {
+        let fm = FakeMac(); let f = model(fm)
+        fm.projects = with(closedAt: at1); fm.undo = offer("a.js")
+        await holdingThePlan(fm, f)
+        let reading = f.undoReading
+        fm.epoch += 1
+        fm.release(at: 0)
+        await reading?.value
+        check(f.undoPlan == nil, "an answer landing after the Mac was switched offers nothing")
+        f.leaveUndo()
+        check(f.undoReading == nil && asks(fm) == 1, "and nothing is asked for after it")
+        await f.undo(["/w/a.js"], names: [:])
+        check(posts(fm) == 0, "nor undone")
+    }
+    do {
+        let fm = FakeMac(); let f = model(fm)
+        fm.projects = with(closedAt: at1); fm.undo = offer("a.js")
+        await f.read()
+        f.onScreen = false
+        await f.receiptReading?.value
+        check(asks(fm) == 0, "a receipt landing after the person left asks for no plan")
+        f.onScreen = true
+        await settle(f)
+        check(asks(fm) == 1 && shown(f) == ["a.js"], "back: asked for")
+    }
+
+    // Cancel: the plan is read again, the old one offered meanwhile; a late older read never replaces a newer.
+    do {
+        let fm = FakeMac(); let f = model(fm)
+        fm.projects = with(closedAt: at1); fm.undo = offer("a.js")
+        await settle(f)
+        await f.undo([], names: [:])
+        check(f.undoSay == Board.undoChoose && !f.undoRefused && posts(fm) == 0, "no files: says to choose one, sends nothing")
+        fm.undo = offer("old.js")
+        fm.holdTheNext()
+        f.leaveUndo()
+        let older = f.undoReading
+        await waitUntil({ fm.holding }, "the first Cancel's read")
+        check(f.undoSay == nil && shown(f) == ["a.js"] && asks(fm) == 2, "Cancel: the line goes, the plan is read again, the offer stays meanwhile")
+        fm.undo = offer("new.js")
+        f.leaveUndo()
+        check(older?.isCancelled == true, "a second Cancel cancels the first one's read")
+        await f.undoReading?.value
+        fm.release()
+        await older?.value
+        check(shown(f) == ["new.js"], "and only the newest is offered")
+        fm.undo = off
+        f.leaveUndo()
+        await f.undoReading?.value
+        check(f.undoPlan == nil, "turned off meanwhile: the offer goes")
+        let before = asks(fm)
+        f.leaveUndo()
+        check(asks(fm) == before && f.undoReading == nil, "with nothing offered, leaving asks nothing")
+    }
+
+    // Undone.
+    do {
+        let fm = FakeMac(); let f = model(fm)
+        fm.projects = with(closedAt: at1); fm.undo = offer("a.js", "b.md")
+        await settle(f)
+        var sent: [[String]] = []
+        fm.onSend = { r in if r.httpMethod == "POST", let b = r.httpBody, let o = try? JSONSerialization.jsonObject(with: b) as? [String: [String]] { sent.append(o["paths"] ?? []) } }
+        fm.asked = []
+        fm.actAnswers = [(200, #"{"done":["/w/a.js"],"skipped":[],"savedIn":"/saved/1"}"#)]
+        fm.holdTheNext()
+        let going = Task { await f.undo(["/w/a.js"], names: [:]) }
+        await waitUntil({ fm.holding }, "the undo")
+        check(f.undoing && f.undoPlan != nil, "while it is out, the list stays")
+        await f.undo(["/w/b.md"], names: [:])
+        check(posts(fm) == 1, "a second press while it is out sends nothing")
+        f.leaveUndo()
+        await settle(f)
+        check(asks(fm) == 0, "and the plan is not read under it")
+        fm.release()
+        await going.value
+        check(sent == [["/w/a.js"]], "the chosen files are sent")
+        check(f.undoDone == "Undone: 1 file. The versions from before the undo are saved in /saved/1." && f.undoPlan == nil && !f.undoing, "what was done is said in the offer's place")
+        check(fm.asked.last == "GET /api/project/springcatalogue/task/3/activity", "and the activity is read")
+        await settle(f)
+        check(f.undoDone != nil && asks(fm) == 0, "the line stays: the next read does not put the offer back over it")
+        await f.undo(["/w/a.js"], names: [:])
+        check(posts(fm) == 1, "nothing offered: nothing sent")
+        fm.projects = with(closedAt: at2)
+        await settle(f)
+        check(f.undoDone == nil && shown(f) == ["a.js", "b.md"], "another close: its own offer takes the line's place")
+        // Refused, then with no answer, then with an answer that is not one.
+        for (what, answer, why) in [("turned off", (409, #"{"error":"undo is turned off in Settings","done":[],"skipped":[]}"#), "undo is turned off in Settings"),
+                                    ("refused with no words", (500, "{}"), Board.undoFailed), ("no answer", nil, Board.undoFailed),
+                                    ("an answer that is not one", (200, "<html>"), Board.undoFailed)] as [(String, (Int, String)?, String)] {
+            fm.actAnswers = [answer]
+            fm.asked = []
+            await f.undo(["/w/a.js"], names: [:])
+            check(f.undoSay == why && f.undoRefused && f.undoDone == nil && f.undoPlan != nil && !f.undoing, "\(what): said, and the list stays")
+            check(fm.asked == ["POST " + undoPath, "GET /api/project/springcatalogue/task/3/activity"], "\(what): the activity is read, where an undo whose answer was lost shows")
+        }
+        await settle(f)
+        check(f.undoSay != nil, "a quiet read leaves the refusal")
+        await f.undo([], names: [:])
+        check(f.undoSay == Board.undoChoose && !f.undoRefused, "then nothing chosen: that line in its place, not as a refusal")
+        fm.actAnswers = [(409, #"{"error":"no"}"#)]
+        await f.undo(["/w/a.js"], names: [:])
+        f.clearUndoSay()
+        check(f.undoSay == nil && !f.undoRefused, "a choice changed clears it")
+        fm.actAnswers = [(409, #"{"error":"no"}"#)]
+        await f.undo(["/w/a.js"], names: [:])
+        fm.projects = with(closedAt: nil)
+        await settle(f)
+        check(f.undoSay == nil && !f.undoRefused && f.undoPlan == nil, "put back: the refusal goes with the offer")
+    }
+    // Cancel, then the list opened again and an undo sent while Cancel's read is still out: that read never draws over it.
+    do {
+        let fm = FakeMac(); let f = model(fm)
+        fm.projects = with(closedAt: at1); fm.undo = offer("a.js")
+        await settle(f)
+        fm.holdTheNext()
+        f.leaveUndo()
+        let reading = f.undoReading
+        await waitUntil({ fm.holding }, "Cancel's read")
+        fm.actAnswers = [(200, #"{"done":["/w/a.js"]}"#)]
+        await f.undo(["/w/a.js"], names: [:])
+        fm.release()
+        await reading?.value
+        check(reading?.isCancelled == true && f.undoDone == "Undone: 1 file." && f.undoPlan == nil, "an undo stands over a Cancel's read still out")
+        await settle(f)
+        check(f.undoDone != nil, "and after the next read")
+    }
+    // Put back, or the Mac switched, while an undo is out: its answer draws nothing.
+    do {
+        let fm = FakeMac(); let f = model(fm)
+        fm.projects = with(closedAt: at1); fm.undo = offer("a.js")
+        await settle(f)
+        fm.actAnswers = [(200, #"{"done":["/w/a.js"]}"#)]
+        fm.holdTheNext()
+        let going = Task { await f.undo(["/w/a.js"], names: [:]) }
+        await waitUntil({ fm.holding }, "the undo")
+        fm.projects = with(closedAt: nil)
+        await f.read()
+        check(f.undoPlan == nil, "put back while it is out: the offer goes")
+        fm.release()
+        await going.value
+        check(f.undoDone == nil && f.undoSay == nil && !f.undoing, "and what it did is not said under no receipt")
+        fm.projects = with(closedAt: at1)
+        await settle(f)
+        check(shown(f) == ["a.js"], "closed again: offered again")
+        fm.actAnswers = [(200, #"{"done":["/w/a.js"]}"#)]
+        fm.holdTheNext()
+        let second = Task { await f.undo(["/w/a.js"], names: [:]) }
+        await waitUntil({ fm.holding }, "the second undo")
+        let before = fm.asked.count
+        fm.epoch += 1
+        fm.release()
+        await second.value
+        check(f.undoDone == nil && fm.asked.count == before, "the Mac switched while it is out: nothing said, nothing read")
+    }
 }

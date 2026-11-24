@@ -587,7 +587,7 @@ extension Board {
         text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
     }
 
-    private static func taskPost(_ url: URL?, _ body: [String: Any]) -> URLRequest? {
+    fileprivate static func taskPost(_ url: URL?, _ body: [String: Any]) -> URLRequest? {
         guard let url, let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
         var r = URLRequest(url: url)
         r.httpMethod = "POST"
@@ -1138,5 +1138,100 @@ extension Board {
         if v >= 1e6 { return "$" + toFixed(v / 1e6, 0) + "M" }
         if v >= 1e3 { return "$" + receiptNum((v + 0.5).rounded(.down)) }
         return "$" + toFixed(v, v < 10 ? 2 : 0)
+    }
+}
+
+// MARK: Undoing a closed task's file changes (kosmos#8958 slice B5: the board's tk-undo, #5153 slice 4)
+
+extension Board {
+    struct UndoFile: Equatable, Identifiable {
+        let id: Int
+        // What is sent back for it, and what the list calls it.
+        let path: String
+        let shown: String
+        // What will happen to it, or why it is left as it is.
+        let why: String
+        // Chosen when the list opens, and whether it can be.
+        let chosen: Bool
+        let choosable: Bool
+    }
+    struct UndoPlan: Equatable { let files: [UndoFile] }
+    // off: nothing to offer (undo is off, the task is not closed, or there are no files). unreadable: no answer to go by.
+    enum UndoRead: Equatable { case plan(UndoPlan), off, unreadable }
+
+    static let undoOpen = "Undo this task’s file changes"
+    static let undoTitle = "Undo"
+    static let undoIntro = "These files go back to how they were before this task. Kosmos saves each one’s current version first."
+    static let undoGo = "Undo the chosen files"
+    static let undoChoose = "Choose at least one file."
+    static let undoFailed = "We could not undo that just now."
+    static let undoLeft = "left as it is"
+    static let undoWhy = [
+        "restore": "goes back to how it was before this task",
+        "move-aside": "the agent created it: moved into Kosmos’s undo folder, not deleted",
+        "shared": "another agent also edited it meanwhile: choose it to undo theirs too",
+        "other-task": "the agent was also working on another task then: choose it to undo that work too",
+        "incomplete": "the copy may not be from before this task (undo was turned on after the agent began): choose it if that is fine",
+        "changed-since": "changed after the task closed: left as it is",
+        "gone": "not there any more: left as it is",
+        "not-a-file": "no longer a plain file here: left as it is",
+        "moved": "its folder has moved: left as it is",
+        "copy-missing": "its copy is missing: left as it is",
+        "protected": "a protected settings or key file: left as it is",
+        "cannot-check": "Kosmos could not check whether it may change this file: left as it is",
+    ]
+    // The reasons a file is not chosen for the person but can be (engine/undo.js CHOOSABLE).
+    static let undoChoosable: Set<String> = ["shared", "other-task", "incomplete"]
+
+    // GET .../task/<n>/undo: what an undo would do, file by file.
+    static func taskUndoRequest(mac: URL, project: String, number: Int) -> URLRequest? {
+        guard let url = taskRoute(mac: mac, project: project, number: number, "undo") else { return nil }
+        var plan = URLRequest(url: url)
+        plan.setValue("application/json", forHTTPHeaderField: "Accept")
+        plan.cachePolicy = .reloadIgnoringLocalCacheData
+        plan.timeoutInterval = receiptTimeout
+        return plan
+    }
+
+    // POST .../task/<n>/undo { paths }: do it for those files. It copies and checks each one before it answers, so it is
+    // given as long as the receipt: a wait given up early would say it was not done when it was.
+    static func taskUndoApply(mac: URL, project: String, number: Int, paths: [String]) -> URLRequest? {
+        guard !paths.isEmpty else { return nil }
+        var request = taskPost(taskRoute(mac: mac, project: project, number: number, "undo"), ["paths": paths])
+        request?.timeoutInterval = receiptTimeout
+        return request
+    }
+
+    // tkUndoListHtml's rows, from GET .../undo.
+    static func parseUndoPlan(_ data: Data) -> UndoRead {
+        guard let plan = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return .unreadable }
+        guard plan["on"] as? Bool == true else { return .off }
+        let root = (plan["savedRoot"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let files = (plan["files"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }.enumerated().compactMap { i, f -> UndoFile? in
+            guard let path = f["path"] as? String, !path.isEmpty else { return nil }
+            let ok = f["ok"] as? Bool == true
+            let reason = f["why"] as? String ?? ""
+            let action = f["action"] as? String ?? ""
+            var why = ok ? undoWhy[action] ?? "" : undoWhy[reason] ?? undoLeft
+            // Where a created file goes, named.
+            if ok, action == "move-aside", let root { why += " (" + root + ")" }
+            let shown = (f["shown"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? path
+            return UndoFile(id: i, path: path, shown: shown, why: why, chosen: ok, choosable: ok || undoChoosable.contains(reason))
+        }
+        return files.isEmpty ? .off : .plan(UndoPlan(files: files))
+    }
+
+    // tkUndoDoneLine: what was done, what was not, and where the saved versions are. nil when the answer names no files
+    // done (not the Mac's answer to this), where the board would read it as none.
+    static func undoDoneLine(_ body: Data?) -> String? {
+        guard let out = body.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
+              let done = out["done"] as? [Any] else { return nil }
+        let skipped = out["skipped"] as? [Any] ?? []
+        var bits = [done.count == 1 ? "Undone: 1 file." : "Undone: " + receiptNum(Double(done.count)) + " files."]
+        if !skipped.isEmpty {
+            bits.append(skipped.count == 1 ? "1 file was left as it was." : receiptNum(Double(skipped.count)) + " files were left as they were.")
+        }
+        if let saved = out["savedIn"] as? String, !saved.isEmpty { bits.append("The versions from before the undo are saved in " + saved + ".") }
+        return bits.joined(separator: " ")
     }
 }
