@@ -1700,7 +1700,11 @@ do {
           == "<x-iframe srcdoc=x></x-iframe><x-FRAME src=y><x-object data=z></x-object><x-embed src=w><x-math href=v><mi>m</mi></x-math>",
           "frames, objects, embeds and MathML are renamed too: a frame's own document could hold a link, and MathML's href is one")
     check(strip("<frameset><mathematics><objective>") == "<frameset><mathematics><objective>", "CONTROL: longer names that start the same are left alone")
-    check(Board.fileName("x.dat", type: "text/html; charset=utf-8") == "x.dat", "a type with a parameter is not judged a page here, as before this card")
+    check(Board.fileName("x.dat", type: "text/html; charset=utf-8") == "x.dat.html" && Board.isWebDocument(name: "x.dat", type: "TEXT/HTML ; charset=utf-8"),
+          "kosmos#8966: a type with parameters is judged as its bare type, so a page sent as one opens in WebFileView")
+    check(Board.bareType(" Text/HTML; charset=utf-8") == "text/html" && Board.bareType("application/pdf") == "application/pdf" && Board.bareType("") == "",
+          "bareType drops the parameters and the case")
+    check(!Board.isWebDocument(name: "x.dat", type: "application/pdf; name=a.html"), "CONTROL: a parameter that names a page does not make a PDF one")
     check(Board.inertPage(pageBytes, kind: .page) == Board.withoutLinks(pageBytes), "a page is drawn with its links taken out")
     // A UTF-16 page (its byte order mark wins over the UTF-8 the web view is told) is converted, so its links are found too.
     var utf16 = Data([0xFF, 0xFE]); utf16.append("<a href=x>go</a>".data(using: .utf16LittleEndian)!)
