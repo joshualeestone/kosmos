@@ -120,3 +120,4 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 - Fixed (NIT): MSGS_MAX now has a test that can fail.
 - Removed after mutation testing: two clauses no reachable state distinguishes (a reported message is always ready; finished records are always the oldest), with the reason in the comments.
 - Mutations red: main turn not busy, the race opener, reported messages kept, the cap.
+- My regression, caught by the neighbour run: the race-opener rule also skipped #7368's `queued` count, which broke three #7368 seam tests (their recorded streams open a turn on no message, on a fixed clock). `queued` is #7368's display and is counted as before; the opener rule changes only this module's records. I pushed b5dde867c7 before running the neighbours that round; the fix is the next commit.
