@@ -844,7 +844,8 @@ func b2ReviewTests() async {
         await m.toggleHold(wasOnHold: false, names: nm)
         check(mac.asked == ["GET /api/projects"], "a second press while one is out sends nothing")
         // Mark as done waits for the hold too (WARNING 3).
-        if let act = m.page?.act { await m.press(act, names: nm) }
+        guard let act = m.page?.act else { check(false, "premise: a task to act on"); mac.release(); await first.value; return }
+        await m.press(act, names: nm)
         check(mac.asked == ["GET /api/projects"], "Mark as done while a hold is out sends nothing")
         mac.release()
         await first.value
