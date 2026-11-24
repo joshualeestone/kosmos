@@ -320,16 +320,17 @@ function setRosterSource(fn) { rosterSource = typeof fn === 'function' ? fn : nu
 
 /* kosmos#8952 slice (d): tests replace the transcript read (async (sessionName) => { ok, pending }). */
 function setPendingReader(fn) { pendingReader = typeof fn === 'function' ? fn : null; }
-async function pendingCommandsOf(sessionName) {
+async function pendingCommandsOf(sessionName, card) {
   if (pendingReader) { try { return await pendingReader(sessionName); } catch { return { ok: false }; } }
-  let dir = null;
-  try { dir = require('./create').workerDir(sessionName); } catch { dir = null; }
-  return dir ? require('./permtranscript').pendingCommands(dir) : { ok: false };
+  if (!card || typeof card.target !== 'string' || !card.target) return { ok: false };
+  const pid = panePidOf(paneTarget(card));   // the pane's own Claude Code process names its session
+  return pid ? require('./permtranscript').pendingCommands(pid) : { ok: false };
 }
-/* The cut-box card for this screen (permissionCutCard), read against the transcript now; null on any doubt. */
-async function permissionCutCardNow(sessionName, text) {
+/* The cut-box card for this screen (permissionCutCard), read against the pane's own session transcript now; null on any
+   doubt. `card` is the agent's roster card (its pane). */
+async function permissionCutCardNow(sessionName, text, card) {
   if (!text || permissionAnswerable(text) || !permissionDenyOnly(text)) return null;
-  const got = await pendingCommandsOf(sessionName);
+  const got = await pendingCommandsOf(sessionName, card);
   return got && got.ok === true ? permissionCutCard(text, got.pending) : null;
 }
 function setPauser(fn) {
@@ -2086,7 +2087,12 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
      never a deny-only press (which needs no transcript). No card now (a transcript that changed or cannot be read, a screen
      that no longer agrees with it): the identity below is null and nothing is sent. */
   const cutBefore = menu.permission && !denyOnly && e.request && !permissionAnswerable(before)
-    ? await permissionCutCardNow(sessionName, before) : null;
+    ? await permissionCutCardNow(sessionName, before, allowed.card) : null;
+  /* Review 1: the transcript read takes time, so the screen is read again after it and must be the same, byte for byte:
+     a prompt answered at the computer meanwhile, and the next one drawn, is never approved by this key. */
+  if (cutBefore && look() !== before) {
+    return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
+  }
   const idBefore = menu.permission && (permissionAnswerable(before) || denyOnly || cutBefore) ? idOf(before) : null;
   if (menu.permission && (!e.identity || !idBefore)) {
     return { ok: false, because: 'we could not tell which request its screen is asking about, so nothing was sent; look at this page again in a moment' };
@@ -2121,7 +2127,7 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
      though the record then says placed for a prompt that may still be pending. */
   // kosmos#7020: another request under the same identity is the next prompt, so it reads answered (the direction above).
   // Slice (d): a cut box after the key is read against the transcript again (the call is still pending if the key did not take).
-  const cutAfter = cutBefore && after && still && still.permission ? await permissionCutCardNow(sessionName, after) : null;
+  const cutAfter = cutBefore && after && still && still.permission ? await permissionCutCardNow(sessionName, after, allowed.card) : null;
   const same = still && (menu.permission ? (still.permission && idOf(after) === idBefore && (!reqBefore || reqOf(after, cutAfter) === reqBefore))
     : still.question === menu.question);
   return { ok: true, key: String(opt.n), label: opt.label, answered: !!after && !same, screen: after };
@@ -3555,6 +3561,10 @@ function permissionCutCard(text, pending) {
     && (open >= 0 ? squash(p.command) === seen : squash(p.command).endsWith(seen)));
   if (new Set(fits.map((p) => p.command)).size !== 1) return null;
   const p = fits[0];
+  /* Review 1: what is shown must be what runs. A command holding a control character (other than a tab or a line break)
+     or an invisible format character (a direction override, a zero-width space) cannot be shown as it is, so no card. */
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]|\p{Cf}/u.test(p.command)) return null;
   // eslint-disable-next-line no-control-regex
   const clean = (l) => l.replace(/[\u0000-\u001f\u007f]/g, '').trim();
   const reason = lines.slice(close + 1).map(clean).filter(Boolean).join(' ');
@@ -3563,8 +3573,7 @@ function permissionCutCard(text, pending) {
   const deny = opts.find((o) => /^No\b/.test(o.label));
   if (!allow || !deny) return null;
   const says = new Set(fits.map((f) => String(f.description || ''))).size === 1 ? clean(String(p.description || '')) : '';
-  // eslint-disable-next-line no-control-regex
-  const detail = p.command.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').replace(/\s+$/, '');
+  const detail = p.command.replace(/\s+$/, '');
   return { kind: /\brm\b|delet|remov/i.test(reason) ? 'delete' : 'command', title: 'Bash command', says, target: '',
     detail, reason, allow: allow.n, deny: deny.n };
 }

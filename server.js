@@ -21742,7 +21742,7 @@ const server = http.createServer(async (req, res) => {
        live pane question. Read only while such a prompt is up, so an ordinary poll reads no transcript. */
     const cutRead = (!guideThread && card && String(card.runner || 'claude') === 'claude' && question && question === paneQuestion
       && view && typeof view.text === 'string' && chat.permissionDenyOnly(view.text))
-      ? await chat.permissionCutCardNow(card.sessionName || name, view.text).catch(() => null) : null;
+      ? await chat.permissionCutCardNow(card.sessionName || name, view.text, card).catch(() => null) : null;
     const pressable = dmPressable({ guideThread, card, options, question, view, cutVerified: Boolean(cutRead) });
     /* kosmos#6727: a permission prompt read off the screen is served as a short card (what the agent wants to do,
        Allow, Deny, the raw request under Show details), not as its screen. Only where its buttons are offered
@@ -22176,7 +22176,7 @@ const server = http.createServer(async (req, res) => {
             // kosmos#8952 slice (d): or a cut box's card from the agent's transcript, read again now (null on any doubt).
             const permLive = (seen && typeof seen.text === 'string')
               ? (chat.permissionCard(seen.text) || (body.denyOnly === true ? null
-                : await chat.permissionCutCardNow((card && card.sessionName) || name, seen.text).catch(() => null)))
+                : await chat.permissionCutCardNow((card && card.sessionName) || name, seen.text, card).catch(() => null)))
               : null;
             if (!permLive || chat.permissionRequestId(permLive) !== body.request) {
               const moved = new Error('its screen moved between drawing that button and sending it, '

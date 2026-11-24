@@ -23,6 +23,7 @@ process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-config-dir');
+process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SANDBOX, 'claude-config-root');   // slice (d): sessions/ and projects/ read here
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
@@ -36,6 +37,7 @@ const SCREENS = path.join(__dirname, 'test-support', 'claude-screens');
 const CUT = fs.readFileSync(path.join(SCREENS, 'permission-prompt-bash-cut-2.1.331.txt'), 'utf8');
 const COMMAND = Array.from({ length: 60 }, (_, k) => `mkdir -p /tmp/probe/e${String(k + 1).padStart(2, '0')}`).join('\n');
 const DESC = 'Create 60 probe directories e01 through e60';
+const PANE_PID = 4242;
 const IDLE = '⏺ Done.\n\n────────\n❯ \n────────\n  ⏸ manual mode on';
 
 let base;
@@ -56,14 +58,17 @@ async function withPrompt(screen, reader, fn, state = 'needs_you') {
   const calls = [];
   chat.setRunner((args) => {
     calls.push(args);
+    if (args[0] === 'display-message' && args.includes('#{pane_pid}')) return { ran: true, spawnFailed: false, status: 0, out: PANE_PID + '\n', err: '' };
     if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.296\t\t0\n', err: '' };
+    if (args[0] === 'capture-pane' && calls.onCapture) calls.onCapture();
     if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: now, err: '' };
     if (args[0] === 'send-keys' && /^(\d|Escape)$/.test(args[args.length - 1])) now = IDLE;
     return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
   });
   chat.setDryRun(false);
   chat.setPauser(() => {});
-  chat.setPendingReader(async (who) => reader(who));
+  if (reader) chat.setPendingReader(async (who) => reader(who));
+  calls.setScreen = (text) => { now = text; };
   calls.keys = () => calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
   try { return await fn(calls, board.agents); } finally { chat.resetForTests(); board.restore(); }
 }
@@ -180,5 +185,66 @@ test('#8952 (d): the setup guide\'s thread gets no transcript card; CONTROL: wit
     } finally { fs.rmSync(marker, { force: true }); }
     const row = questionRow(await getThread());
     assert.ok(row && row.permission, 'CONTROL: no card without the marker: ' + JSON.stringify(row));
+  });
+});
+
+/* The real transcript read, end to end: the pane's pid (tmux #{pane_pid}), Claude Code's sessions/<pid>.json in the
+   sandboxed config folder, and that session's transcript in its project folder. CONTROL: the same with the session
+   file removed keeps the deny-only card. */
+test('#8952 (d): the real transcript read, from the pane\'s pid to its session\'s file', async () => {
+  const status = require('./engine/status');
+  const receipt = require('./engine/receipt');
+  const root = status.configRoots()[0];
+  assert.ok(root && root.startsWith(SANDBOX), 'premise: the config folder is the sandbox\'s: ' + root);
+  const cwd = path.join(SANDBOX, 'workers', 'casey');
+  fs.mkdirSync(cwd, { recursive: true });
+  const sid = '0d8e6e5a-1146-46fa-9f7f-45f6523912c9';
+  const sessionFile = path.join(root, 'sessions', `${PANE_PID}.json`);
+  fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
+  fs.writeFileSync(sessionFile, JSON.stringify({ pid: PANE_PID, sessionId: sid, cwd, kind: 'interactive' }));
+  const proj = receipt.transcriptDirs(cwd)[0];
+  fs.mkdirSync(proj, { recursive: true });
+  fs.writeFileSync(path.join(proj, `${sid}.jsonl`), [
+    JSON.stringify({ type: 'user', message: { role: 'user', content: 'make the folders' } }),
+    JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't2', name: 'Bash', input: { command: COMMAND, description: DESC } }] } }),
+  ].join('\n'));
+  try {
+    await withPrompt(CUT, null, async (calls) => {
+      const thread = await getThread();
+      const row = questionRow(thread);
+      assert.ok(row && row.permission, 'no full card from the real read: ' + JSON.stringify(row));
+      assert.equal(row.permission.detail, COMMAND);
+      const p = await post({ text: '1', chose: 'Yes', asked: thread.asked, request: row.permission.request });
+      assert.equal(p.status, 200, JSON.stringify(p.json));
+      assert.deepEqual(calls.keys(), ['1']);
+    });
+    fs.rmSync(sessionFile);
+    require('./engine/permtranscript').resetForTests();
+    await withPrompt(CUT, null, async (calls) => {
+      const row = questionRow(await getThread());
+      assert.ok(row && !row.permission && row.denyOnly, 'CONTROL: without the session file it is deny-only: ' + JSON.stringify(row));
+      const p = await post({ text: '1', chose: 'Yes', asked: ASKED, request: REQUEST });
+      assert.equal(p.status, 409);
+      assert.deepEqual(calls.keys(), []);
+    });
+  } finally { fs.rmSync(path.join(root, 'sessions'), { recursive: true, force: true }); fs.rmSync(proj, { recursive: true, force: true }); }
+});
+
+/* The transcript read takes time; a screen that changed during it (answered at the computer, the next prompt drawn)
+   refuses the key. Here the next screen is the same box with one more line above it, so every other check would pass. */
+test('#8952 (d) engine: a screen that changes during the transcript read sends nothing; CONTROL: an unchanged one sends', async () => {
+  let n = 0;
+  const later = CUT.replace(/^/, ' │ mkdir -p /tmp/probe/e29\n');
+  await withPrompt(CUT, () => agrees(), async (calls, roster) => {
+    calls.onCapture = () => { n += 1; if (n === 2) calls.setScreen(later); };   // the second capture: right after the read
+    const r = await chat.answerQuestionMenu('casey', 1, roster, { label: 'Yes', identity: ASKED, request: REQUEST });
+    assert.equal(r.ok, false, JSON.stringify(r));
+    assert.ok(n >= 2, 'premise: the screen was read again after the transcript');
+    assert.deepEqual(calls.keys(), []);
+    calls.onCapture = null;
+    calls.setScreen(CUT);
+    const ok = await chat.answerQuestionMenu('casey', 1, roster, { label: 'Yes', identity: ASKED, request: REQUEST });
+    assert.equal(ok.ok, true, JSON.stringify(ok));
+    assert.deepEqual(calls.keys(), ['1']);
   });
 });

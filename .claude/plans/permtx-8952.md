@@ -19,3 +19,21 @@ Design: card comment 7120105744 item 1. Premise measured: comment 7129385550.
 
 ## Weakest premise
 A reported safety check (Claude Code's hook-raised prompt) may write no tool_use; then it keeps the deny-only card.
+
+## Challenge loop
+
+#### Iteration 1 (opus)
+- [BLOCKER] fixed: candidates came from every recent transcript in the folders, so a killed session's stale call could
+  match the visible tail. Now bound to the pane's own session: tmux #{pane_pid} -> <config>/sessions/<pid>.json
+  (measured on 2.1.331) -> that session's transcript and its subagents', newest file only, exactly one pending call.
+- [BLOCKER] fixed: the transcript read widened the gap before the key; the screen is read again after it and must be
+  byte-identical (test mutation-checked).
+- [WARNING] fixed: per-file reading cached by size and mtime; tail 2 MB; only the session's own files.
+- [WARNING] recorded, not built: a person's own PreToolUse hook returning updatedInput can change the command Claude Code
+  runs while the transcript keeps the model's. Kosmos installs no such hook (no updatedInput anywhere in engine/).
+  With a tail-only match, a hook that changes the head would show the original. Known gap; deny-only is unaffected.
+- [WARNING] fixed: route test through the real read (pid, session file, transcript; sandboxed config root), a screen
+  change during the read, a tail cut mid-line past TAIL_BYTES, stale and parallel-batch files.
+- [NIT] fixed: a command holding control or format characters gets no card (it cannot be shown as it is).
+- [NIT] kept: `says` is the model's description, the same text the whole box draws.
+- [NIT] fixed: the session comes from the pane's pid, not workerDir(sessionName).

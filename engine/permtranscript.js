@@ -13,11 +13,9 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 
 // The end of each transcript is read, not the whole file (a long session is hundreds of MB, receipt.js review 1).
-const TAIL_BYTES = 4 * 1024 * 1024;
+const TAIL_BYTES = 2 * 1024 * 1024;
 // A prompt can wait for hours; a transcript untouched for a day is not the one asking.
 const RECENT_MS = 24 * 60 * 60 * 1000;
-// More files than this in an agent's folders is not a shape we read; null (deny-only) rather than a slow board.
-const MAX_FILES = 200;
 
 /* The single pending Bash call in one transcript's text, or null. Pending: a tool_use whose id no tool_result names.
    Null unless EXACTLY ONE call is pending and it is the LAST tool_use written: two pending calls (a parallel batch) could
@@ -72,30 +70,80 @@ async function tailOf(file) {
   } finally { await fh.close(); }
 }
 
-/* Every pending Bash call across an agent's recent transcripts (its sessions and their subagents': a subagent's prompt is
-   drawn in the same pane). Resolves { ok: true, pending: [...] }, or { ok: false } when the folders could not be read
-   through, which the caller treats exactly like "nothing pending". Never throws. `deps` is for tests. */
-async function pendingCommands(workerDir, deps) {
+/* The session a pane's Claude Code is running: Claude Code writes <config>/sessions/<pid>.json for each live process
+   (measured on 2.1.331: pid, sessionId, cwd, the tmux pane). The pane's own pid (tmux #{pane_pid}, which IS the claude
+   process, status.paneCcdRead) names it, so only that session's transcript is read: never another session in the same
+   folder, a killed one still holding an unanswered call, or another account's. Null unless exactly one session is found. */
+async function sessionOfPid(pid, roots) {
+  if (!/^\d+$/.test(String(pid || ''))) return null;
+  const found = new Map();
+  for (const root of roots) {
+    let o;
+    try { o = JSON.parse(await fsp.readFile(path.join(root, 'sessions', `${pid}.json`), 'utf8')); } catch { continue; }
+    if (!o || o.pid !== Number(pid) || typeof o.sessionId !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(o.sessionId)
+      || typeof o.cwd !== 'string' || !path.isAbsolute(o.cwd)) continue;
+    found.set(o.sessionId, o.cwd);
+  }
+  if (found.size !== 1) return null;
+  const [[sessionId, cwd]] = [...found];
+  return { sessionId, cwd };
+}
+
+async function jsonlUnder(dir, out) {
+  let es;
+  try { es = await fsp.readdir(dir, { withFileTypes: true }); } catch { return; }
+  for (const e of es) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) await jsonlUnder(p, out);
+    else if (e.isFile() && e.name.endsWith('.jsonl')) out.push(p);
+  }
+}
+
+// Each file's reading, kept while its size and time are unchanged (a prompt can wait for hours on a 5-second poll).
+const READ_CACHE = new Map();
+const READ_CACHE_MAX = 64;
+async function pendingInFile(file, st) {
+  const hit = READ_CACHE.get(file);
+  if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.pending;
+  const { text, partial } = await tailOf(file);
+  const pending = pendingIn(text, partial);
+  if (READ_CACHE.size >= READ_CACHE_MAX) READ_CACHE.delete(READ_CACHE.keys().next().value);
+  READ_CACHE.set(file, { size: st.size, mtimeMs: st.mtimeMs, pending });
+  return pending;
+}
+
+/* The pending Bash call of the session running in the pane whose Claude Code process is `pid`. That session's own
+   transcript and its subagents' (a subagent's prompt is drawn in the same pane); of those, only the one written LAST
+   (the call that just asked), and only when it holds exactly one pending call (pendingIn). An older file's pending call
+   (a subagent stopped mid-prompt) is never a candidate. Resolves { ok: true, pending: [] or [call] }, or { ok: false }
+   when anything could not be read, which the caller treats exactly like "nothing pending". Never throws.
+   `deps` is for tests: { roots, transcriptDirs, now }. */
+async function pendingCommands(pid, deps) {
   const d = deps || {};
   try {
-    const receipt = d.receipt || require('./receipt');
+    const roots = d.roots || require('./status').configRoots();
+    const dirsOf = d.transcriptDirs || require('./receipt').transcriptDirs;
     const now = typeof d.now === 'function' ? d.now() : Date.now();
-    if (typeof workerDir !== 'string' || !path.isAbsolute(workerDir)) return { ok: false };
+    const session = await sessionOfPid(pid, roots);
+    if (!session) return { ok: false };
     const files = [];
-    for (const dir of receipt.transcriptDirs(workerDir)) files.push(...await receipt.transcriptsIn(dir));
-    const unique = [...new Set(files)];
-    if (unique.length > MAX_FILES) return { ok: false };
-    const pending = [];
-    for (const f of unique) {
-      let st;
-      try { st = await fsp.stat(f); } catch { continue; }   // gone since the listing: not asking
-      if (now - st.mtimeMs > RECENT_MS) continue;
-      const { text, partial } = await tailOf(f);
-      const p = pendingIn(text, partial);
-      if (p) pending.push({ ...p, file: f });
+    for (const dir of dirsOf(session.cwd)) {
+      files.push(path.join(dir, `${session.sessionId}.jsonl`));
+      await jsonlUnder(path.join(dir, session.sessionId, 'subagents'), files);
     }
-    return { ok: true, pending };
+    let newest = null;
+    for (const f of new Set(files)) {
+      let st;
+      try { st = await fsp.stat(f); } catch { continue; }
+      if (!st.isFile()) continue;
+      if (!newest || st.mtimeMs > newest.st.mtimeMs) newest = { f, st };
+    }
+    if (!newest || now - newest.st.mtimeMs > RECENT_MS) return { ok: true, pending: [] };
+    const p = await pendingInFile(newest.f, newest.st);
+    return { ok: true, pending: p ? [{ ...p, file: newest.f }] : [] };
   } catch { return { ok: false }; }
 }
 
-module.exports = { pendingIn, pendingCommands, TAIL_BYTES, RECENT_MS };
+function resetForTests() { READ_CACHE.clear(); }
+
+module.exports = { pendingIn, pendingCommands, sessionOfPid, resetForTests, TAIL_BYTES, RECENT_MS };
