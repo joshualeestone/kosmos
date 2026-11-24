@@ -680,6 +680,7 @@ function owesNotice(projectId, holder, by, all = null) {
   const key = (n) => { try { return store.safeKey(n); } catch { return null; } };
   const k = key(by);
   if (k === null || k !== key(holder)) return true;
+  if (!p) return true;   // review 8: the project cannot be read, so whether the key is unique cannot be told: owed
   const twins = ((p && p.agents) || []).filter((a) => key(a) === k).length;
   return twins > 1;   // the key names one member: the same agent. Two share it: cannot tell, so it is owed (the safe way).
 }
