@@ -104,6 +104,8 @@ const REPORT_HOLD_MS = 2 * 60 * 1000;
    each time), and said so. Ended later (a Restart, a stop) with messages still waiting, they are carried as never started,
    not as what stopped it. */
 const LOST_WINDOW_MS = 10 * 1000;
+/* kosmos#8951: the most message records kept per process (a turn's result removes the ones it ran); far past any real queue. */
+const MSGS_MAX = 500;
 
 function stateDir() { return path.join(store.ROOT, 'win32-state'); }
 /* Same key the rest of the store uses, so this agent's state, pipe, token and
@@ -755,6 +757,14 @@ function publisher(name, opts) {
     const t = timer(() => { if (current && current.unstarted === for_) { endReport(); flush(); } }, REPORT_HOLD_MS - age);
     if (t && typeof t.unref === 'function') t.unref();
   }
+  /* kosmos#8951 review 10: these messages start now (they opened a turn, or joined one). One written after a report is
+     the later write a carried report waits for. */
+  function startMsgs(list) {
+    for (const m of list) {
+      m.startedAt = nowMs();
+      if (m.afterReport === true && current.unstarted) current.wroteAfterReport = true;
+    }
+  }
   /* Review 5: every field of a report goes together, so none is left behind to change how the next report ends. */
   function endReport() {
     current.unstarted = null;
@@ -763,7 +773,6 @@ function publisher(name, opts) {
     current.needsWrite = false;
     current.reportRan = false;
     current.clearArmedFor = null;
-    current.queuedAfterReport = false;
   }
 
   /* `retrying` is true from a failed write until the next write that SUCCEEDS, so
@@ -821,14 +830,16 @@ function publisher(name, opts) {
     current.startDue = null;
     if (current.reportRan === true) endReport();   // review 5: a report whose messages ran is over, not merged into
     const prev = current.unstarted;
-    const fresh = current.inFlight && Number.isInteger(current.inFlight.count) ? current.inFlight.count : 1 + (current.queued || 0);
+    /* Review 10: the messages not started are the report now, and leave the list, so a later stop never counts them
+       again and none of them can count as a later write. */
+    const waiting = current.msgs.filter((m) => m.startedAt === null);
+    current.msgs = current.msgs.filter((m) => m.startedAt !== null);
+    const fresh = Math.max(1, waiting.length);
     const count = (prev && Number.isInteger(prev.count) ? prev.count : 0) + fresh;
-    const since = [prev && prev.since, current.inFlight && current.inFlight.since, due.at].filter((x) => typeof x === 'string').sort()[0];
+    const since = [prev && prev.since, waiting.length ? waiting[0].since : null, due.at].filter((x) => typeof x === 'string').sort()[0];
     current.unstarted = { since, count, ...(prev && prev.lost ? { lost: true } : {}) };
     current.reportAt = nowMs();   // review 5: fresh messages in the report get a fresh hold, merged or not
     current.wroteAfterReport = false;   // review 2: the write that did not start is now in the report, not after it
-    current.queuedAfterReport = false;   // review 7: the busy write it tracked is in the report now too
-    current.inFlight = null;   // now in `unstarted`, so a later death does not count them again
     current.queued = 0;
     setState(IDLE);
     flush();
@@ -850,7 +861,7 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, inFlight: null, needsWrite: false, reportRan: false, clearArmedFor: null, queuedAfterReport: false, turnMsg: null, takenMsg: null };
+      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, needsWrite: false, reportRan: false, clearArmedFor: null, msgs: [] };
       /* kosmos#8951: messages the previous process took in and never ran are this agent's still: said on the new
          process's record, so its card says so, until a turn starts. */
       const lost = lostOnStop;
@@ -882,16 +893,12 @@ function publisher(name, opts) {
       if (opens) current.opened = true;
       if (opens || (e && e.type === 'result' && current.opened === true)) {
         current.startDue = null;
+        /* Review 10: a turn that opens while no message is under way opens on the messages ready for one (written into an
+           idle agent, or left waiting when the last turn ended). All of them: Claude Code may take several waiting messages
+           into one turn, and marking only one would later call the rest "never started". A wake-up opens on none: nothing
+           is ready. */
+        if (opens && !current.msgs.some((m) => m.startedAt !== null)) startMsgs(current.msgs.filter((x) => x.startedAt === null && x.ready === true));
         reportRan();
-        /* The first message is under way; only those written behind it are still not started. */
-        /* Review 7: the message this turn opened on is under way, not yet run: if the process ends before the turn's
-           result, soon after the write, it is what stopped it (the 11-23 order is not known: a turn may have opened in the
-           ~50 ms before each death). Kept until the result. */
-        /* Review 8: only a turn a written message opened (more in flight than waiting behind it; a wake-up opens on none),
-           timed from when it opened, so a later write just before a Restart does not make a long-run turn look lost. */
-        const opener = current.inFlight && !current.turnMsg ? current.inFlight.count - (current.queued || 0) : 0;
-        if (opener > 0) current.turnMsg = { since: current.inFlight.since, count: opener, at: nowMs() };
-        current.inFlight = (current.queued || 0) > 0 && current.inFlight ? { since: current.inFlight.since, count: current.queued } : null;
       }
       const next = stateAfterEvent(e);
       if (next) setState(next);
@@ -909,33 +916,20 @@ function publisher(name, opts) {
         let closed = false;
         for (const c of content) if (c && c.type === 'tool_result' && current.open.delete(c.tool_use_id)) closed = true;
         if (closed && current.open.size === 0) {
-          /* kosmos#8951 review 9: the waiting messages join this turn now: tracked on their own clock until its result, so a
-             death within seconds counts them, and no longer in flight (so they are never counted twice). */
-          const taken = current.queued || 0;
-          if (taken > 0) {
-            const was = current.takenMsg;
-            current.takenMsg = { since: [was && was.since, current.inFlight && current.inFlight.since].filter((x) => typeof x === 'string').sort()[0] || new Date(nowMs()).toISOString(),
-              count: ((was && was.count) || 0) + taken, at: nowMs() };
-            current.inFlight = null;
-          }
           current.queued = 0;
-          /* kosmos#8951 review 6: the waiting messages are taken into this turn now, so one written after a report runs. */
-          if (current.unstarted && current.queuedAfterReport === true) { current.wroteAfterReport = true; current.queuedAfterReport = false; }
+          /* kosmos#8951 review 10: the waiting messages join this turn now, each started on this moment's clock. */
+          startMsgs(current.msgs.filter((m) => m.startedAt === null));
         }
       }
       if (e && e.type === 'result') {
-        const behind = current.queued || 0;
         current.open.clear(); current.queued = 0;
-        if (current.opened === true) { current.turnMsg = null; current.takenMsg = null; }   // review 7, 9: that turn ended
-        /* kosmos#8951 review 1 W1: messages written behind the turn are taken at this boundary and start the next turn, so
-           they are still in flight, and must now start a turn of their own by the deadline. */
-        if (behind > 0 && current.opened === true) {
-          current.inFlight = { since: (current.inFlight && current.inFlight.since) || new Date(nowMs()).toISOString(), count: behind };
-          if (current.unstarted && current.queuedAfterReport === true) current.wroteAfterReport = true;   // review 6: its turn is next
-          current.queuedAfterReport = false;
-          armStart();
-        } else if (current.opened === true) current.inFlight = null;   // a result with no turn (B1) runs nothing
-        if (!(behind > 0 && current.opened === true)) current.queuedAfterReport = false;   // review 7
+        /* kosmos#8951 review 10: the messages this turn ran are done; any still waiting are taken at this boundary and must
+           open a turn of their own by the deadline (review 1 W1). A result before any turn opened (B1) changes nothing. */
+        if (current.opened === true) {
+          current.msgs = current.msgs.filter((m) => m.startedAt === null);
+          for (const m of current.msgs) m.ready = true;
+          if (current.msgs.length) armStart();
+        }
       }
       /* kosmos#7368 (review 1): ANY event while busy is activity, so the step clock is the last sign of life, not the
          turn's start: an agent calling a new tool every minute is never on one step for an hour. */
@@ -992,17 +986,15 @@ function publisher(name, opts) {
     /** A message reached the agent's stdin. */
     wrote() {
       if (!current) return;
-      /* kosmos#8951: written and not yet run, until a turn starts on it. */
-      current.inFlight = current.inFlight ? { since: current.inFlight.since, count: current.inFlight.count + 1 } : { since: new Date(nowMs()).toISOString(), count: 1 };
+      /* kosmos#8951 review 10: each message is its own record: when it was written, whether it may open the next turn
+         (written into an idle agent; one written behind a turn waits for its boundary), when it started, and whether it was
+         written after a report (only such a message starting can end a carried report: reviews 1 and 6). */
+      current.msgs.push({ since: new Date(nowMs()).toISOString(), ready: current.state !== BUSY, startedAt: null, afterReport: !!current.unstarted });
+      if (current.msgs.length > MSGS_MAX) current.msgs.splice(0, current.msgs.length - MSGS_MAX);
       current.lastWriteAt = nowMs();   // review 3: whether a death soon after is this message's doing
       /* kosmos#7368: written into a busy agent, it waits for the agent's next boundary; into an idle one, it starts the turn. */
-      if (current.state === BUSY) {
-        current.queued = (current.queued || 0) + 1;
-        /* Review 6: it opens no turn now (the one running is not it), so it counts as the later write only at the boundary
-           where it starts its own. */
-        if (current.unstarted) current.queuedAfterReport = true;
-      } else {
-        if (current.unstarted) current.wroteAfterReport = true;   // review 1: only a turn this opens can end the report
+      if (current.state === BUSY) current.queued = (current.queued || 0) + 1;
+      else {
         setState(BUSY);
         /* kosmos#8951: into an idle agent it must start a turn; if no sign of one arrives by the deadline, it is reported
            rather than left reading busy. */
@@ -1019,15 +1011,17 @@ function publisher(name, opts) {
          anything written since. */
       /* Review 5: a report whose messages are known to have run (still on its hold) is not carried: they ran. */
       const carried = was && was.unstarted && was.reportRan !== true ? was.unstarted : null;
-      if (was && (carried || was.inFlight || was.turnMsg || was.takenMsg)) {
-        /* Review 7: a turn still open when the process ends soon after the write is lost with it, as a message not yet
-           taken is. Later than that (a Restart mid-turn), the open turn ran as far as it got and is not counted. */
-        const within = (m) => !!m && Number.isFinite(m.at) && nowMs() - m.at <= LOST_WINDOW_MS;
-        const t0 = within(was.turnMsg) ? was.turnMsg : null;   // review 8: its own clock
-        const t1 = within(was.takenMsg) ? was.takenMsg : null;   // review 9: joined the turn, on their own clock
-        const t = t0 || t1 ? { since: [t0 && t0.since, t1 && t1.since].filter((x) => typeof x === 'string').sort()[0], count: ((t0 && t0.count) || 0) + ((t1 && t1.count) || 0) } : null;
-        const w = was.inFlight;
-        const b = t || w ? { since: [t && t.since, w && w.since].filter((x) => typeof x === 'string').sort()[0], count: ((t && t.count) || 0) + ((w && w.count) || 0) } : null;
+      if (was && (carried || was.msgs.length)) {
+        /* Reviews 7 to 10: each message on its own clock. One that started (opened or joined a turn) within LOST_WINDOW_MS
+           of this stop died with the process, and is what stopped it (the 11-23 order, turn first or not, is not known);
+           one that started earlier ran as far as it got and is not counted; one not started never ran. */
+        const now = nowMs();
+        const died = was.msgs.filter((m) => m.startedAt !== null && now - m.startedAt <= LOST_WINDOW_MS);
+        const notRun = was.msgs.filter((m) => m.startedAt === null);
+        const mine = died.concat(notRun);
+        const t = died.length ? died : null;
+        const w = notRun.length ? notRun : null;
+        const b = mine.length ? { since: mine.map((m) => m.since).sort()[0], count: mine.length } : null;
         const a = carried;
         if (!a && !b) { /* only a turn that ran long before the stop: nothing to carry */ } else {
         const since = [a && a.since, b && b.since].filter((x) => typeof x === 'string').sort()[0];
