@@ -467,7 +467,7 @@ function stdoutError(e, line) {
   /* An error result carries its message in `errors: string[]` (the shape
      saysNothingToResume reads); `result` is the fallback some results use. */
   const listed = Array.isArray(e.errors) ? e.errors.filter((m) => typeof m === 'string' && m.trim()) : [];
-  const text = listed.length ? listed.join(' | ') : (typeof e.result === 'string' ? e.result : '');
+  const text = (listed.length ? listed.join(' | ') : (typeof e.result === 'string' ? e.result : '')).trim();
   return clip((subtype || 'error') + (text ? ': ' + text : ''));
 }
 

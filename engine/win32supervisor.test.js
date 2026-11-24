@@ -1265,7 +1265,8 @@ test('#8967 stdoutError reads only errors, and clips them', () => {
   assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(emoji), false, 'no lone high surrogate');
   /* Bounded work on a huge line (lineReader passes up to 16 MB): cut before collapsing,
      with the result the same as clipping the whole line. */
-  const huge = 'ab  '.repeat(4 * 1024 * 1024);
+  const huge = ('ab  '.repeat(4 * 1024 * 1024) + '!').slice(0, -1);   // flattened before the clock starts
+  huge.charCodeAt(huge.length - 1);
   const t0 = process.hrtime.bigint();
   const big = sup.stdoutError(null, huge);
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
@@ -1277,6 +1278,19 @@ test('#8967 stdoutError reads only errors, and clips them', () => {
     'error_during_execution: No conversation found with session ID x');
   assert.equal(sup.stdoutError({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['a', 'b'], result: 'ignored' }, ''),
     'error_during_execution: a | b', 'errors wins over result');
+});
+
+test('#8967 endsLastError: a result or a new turn ends the last error; nothing else does', () => {
+  assert.equal(sup.endsLastError({ type: 'result', subtype: 'success' }), true);
+  assert.equal(sup.endsLastError({ type: 'system', subtype: 'init' }), true);
+  assert.equal(sup.endsLastError({ type: 'system', subtype: 'other' }), false);
+  assert.equal(sup.endsLastError({ type: 'assistant' }), false);
+  assert.equal(sup.endsLastError(null), false);
+  assert.equal(sup.endsLastError(7), false);
+});
+
+test('#8967 an error result with only whitespace for text leaves no stray colon', () => {
+  assert.equal(sup.stdoutError({ type: 'result', subtype: 'error_during_execution', is_error: true, result: '   ' }, ''), 'error_during_execution');
 });
 
 test('#8967 the task-log line: a died line carries its exit, every other line is as before', () => {
@@ -1708,11 +1722,3 @@ test('#8928 the default browser config is asked for by the agent\'s name; CONTRO
   assert.match(require('./win32anchor').BOOT_JS, /require\(entry\)\.main\(args\);/, 'the boot shim calls main(args) with no deps');
 });
 
-test('#8967 endsLastError: a result or a new turn ends the last error; nothing else does', () => {
-  assert.equal(sup.endsLastError({ type: 'result', subtype: 'success' }), true);
-  assert.equal(sup.endsLastError({ type: 'system', subtype: 'init' }), true);
-  assert.equal(sup.endsLastError({ type: 'system', subtype: 'other' }), false);
-  assert.equal(sup.endsLastError({ type: 'assistant' }), false);
-  assert.equal(sup.endsLastError(null), false);
-  assert.equal(sup.endsLastError(7), false);
-});
