@@ -24,7 +24,7 @@ process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 
-const { start, server, boardAuthState } = require('./server');
+const { start, server, boardAuthState, givePart } = require('./server');
 const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
 const projectsEngine = require('./engine/projects');
@@ -59,12 +59,12 @@ const withBoard = (h = {}) => ({ 'x-kosmos-board-token': BOARD, ...h });
 
 /* mara and otto are both on p8989. The close is recorded, not made; it hands back a task held by `holder`. What each
    assignee's sync was asked is recorded too (projects.syncAgent is stubbed, so no instructions file is written). */
-function world(t, holder, { stored = [], closedWith } = {}) {
+function world(t, holder, { stored = [], closedWith, record = {}, more = [] } = {}) {
   const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('otto', { state: 'idle' })]);
   const real = { readAll: projectsEngine.readAll, syncAgent: projectsEngine.syncAgent, close: tasksEngine.close, reopen: tasksEngine.reopen,
     setPartClosed: tasksEngine.setPartClosed, assignPart: tasksEngine.assignPart, setText: tasksEngine.setText };
   const synced = [];
-  projectsEngine.readAll = () => [{ id: 'p8989', name: 'p8989', agents: ['mara', 'otto'], tasks: stored, made: { via: 'screen', by: null } }];
+  projectsEngine.readAll = () => [{ id: 'p8989', name: 'p8989', agents: ['mara', 'otto'], tasks: stored, made: { via: 'screen', by: null }, ...record }, ...more];
   projectsEngine.syncAgent = (who, roster, opts) => { synced.push([who, !!(opts && opts.byOther)]); return { state: projectsEngine.TOLD.TOLD, changed: true }; };
   tasksEngine.close = (id, n) => ({ number: Number(n), who: holder, state: 'closed', ...(closedWith ? { closedWith } : {}) });
   tasksEngine.setPartClosed = (id, n) => ({ ok: true, task: { number: Number(n), who: holder } });
@@ -159,4 +159,42 @@ test('a holder named by its key in another spelling is still itself', async (t) 
   const r = await call('POST', '/api/project/p8989/task/1/close', { headers: asAgent(w.otto) });
   assert.equal(r.code, 200, r.text.slice(0, 200));
   assert.deepEqual(w.synced, [['Otto', false]]);
+});
+
+// Review 5: no notice about a project the person paused, or switched this agent's swarm off in (#3564). The sync still runs.
+test('a task closed by another on a paused project is synced but owes no notice', async (t) => {
+  const w = world(t, 'otto', { record: { paused: true } });
+  assert.equal((await call('POST', '/api/project/p8989/task/1/close', { headers: asAgent(w.mara) })).code, 200);
+  assert.deepEqual(w.synced, [['otto', false]]);
+});
+
+test('a task closed by another on a project with the holder\'s swarm switched off owes it no notice', async (t) => {
+  const w = world(t, 'otto', { record: { swarmOff: ['otto'] } });
+  assert.equal((await call('POST', '/api/project/p8989/task/1/close', { headers: asAgent(w.mara) })).code, 200);
+  assert.deepEqual(w.synced, [['otto', false]]);
+});
+
+test('the screen\'s bulk close: owed when any closed task is on a project not paused, not when all are', async (t) => {
+  const w = world(t, 'otto', {
+    record: { paused: true }, stored: [{ number: 1, sentence: 'one', who: 'otto' }],
+    more: [{ id: 'q8989', name: 'q8989', agents: ['otto'], tasks: [{ number: 1, sentence: 'live', who: 'otto' }], made: { via: 'screen', by: null } }],
+  });
+  assert.equal((await call('POST', '/api/tasks/close', { headers: screen(), body: { tasks: [{ projectId: 'p8989', number: 1 }] } })).code, 200);
+  assert.equal((await call('POST', '/api/tasks/close', { headers: screen(), body: { tasks: [{ projectId: 'p8989', number: 1 }, { projectId: 'q8989', number: 1 }] } })).code, 200);
+  assert.deepEqual(w.synced, [['otto', false], ['otto', true]]);
+});
+
+// Review 5: the Assigner's failover source is already owed one line about the move (engine/failovertell.js), so the sync
+// that drops the part from its section owes no second one. A screen move of the same part (the control) owes one.
+test('a failover move syncs the source without a second notice; a screen move owes one', async (t) => {
+  const w = world(t, 'mara', { stored: [{ number: 1, sentence: 'one', parts: [{ id: 1, who: 'otto' }] }] });
+  const chat = require('./engine/chat');
+  const realDeliver = chat.deliver;
+  chat.deliver = () => ({ state: chat.DELIVERY.PLACED, because: null });   // the Assigner keeps a move only once its line is placed
+  let g1;
+  try { g1 = await givePart('p8989', 1, 1, 'mara', { assigner: true, from: 'otto' }); } finally { chat.deliver = realDeliver; }
+  assert.equal(g1.ok, true, g1.because);
+  const g2 = await givePart('p8989', 1, 1, 'mara', { screen: true, noPage: true });
+  assert.equal(g2.ok, true, g2.because);
+  assert.deepEqual(w.synced.filter(([who]) => who === 'otto'), [['otto', false], ['otto', true]]);
 });
