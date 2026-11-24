@@ -34,5 +34,15 @@ repeat line, natively. Stacked on B2 (taskhold-8958); rebased onto main once B1 
 ## Tests
 - ios/LogicTests/taskpage: B3 section (stored rules, wire, bodies, drafts, time round trip, request, the line on a
   page read) and b3ModelTests (unchanged sends nothing, a save and its reads, Saved. retired by a change elsewhere,
-  refusal, unreached). 269/269.
+  refusal, unreached). 270/270.
 - server.ios-routes-6838: 5/5.
+- Every iOS LogicTests runner, since TasksLogic.swift (fillRepeat) is compiled by most of them: run.sh 2255,
+  run-tasks 167, run-room 907, run-actions 99, run-newtask 108, run-settings 48, run-agentinfo 295, run-composer 61,
+  run-files 138, run-pullrefresh 48, run-sweep 45, run-orb, run-taskpage 270, all passing.
+
+## Review decisions
+- An edit keeps the person's choice as set, even when it equals the stored rule (Save turns off); only a change to
+  the stored rule from elsewhere runs keptRepeatDraft. After a save the draft goes only once a read shows the saved
+  rule, so a failed read leaves the controls on what was saved.
+- The page's scroll view closes the keyboard on a drag (the minutes box is a number pad, with no return key).
+- A finished task drops an unsaved choice and any Repeats line.

@@ -1070,7 +1070,7 @@ do {
     check(Board.keptRepeatDraft(weekly, stored: stored)?.every == .week, "a frequency change is a draft")
     check(Board.keptRepeatDraft(moved, stored: nil) == nil, "a rule the controls cannot show drops the draft")
     check(Board.repeatTimeString(Board.repeatTime("07:05")) == "07:05" && Board.repeatTimeString(Board.repeatTime("23:59")) == "23:59",
-          "a time goes through the picker and back unchanged, whatever this phone's time zone")
+          "a time goes through the picker's Date and back unchanged")
 
     let req = Board.taskRepeatRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "springcatalogue", number: 3, wire: .day("09:00"))
     let sentBody = req?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -1145,6 +1145,8 @@ func b3ModelTests() async {
     mac.asked = []
     let again = await m.saveRepeat(.week(on: "fri", at: "09:00"), names: nm)
     check(!again && mac.asked.isEmpty, "the same rule again sends nothing")
+    await m.read()
+    check(m.repeatSay == Board.repeatSaved, "Saved. stays through a read that still shows the saved rule")
     mac.projects = (200, withRule(["every": "hour"]))
     await m.read()
     check(m.repeatSay == nil, "Saved. goes once the rule is changed elsewhere")
