@@ -259,6 +259,7 @@ render-rename-folder-7968
 render-rename-followups-4423
 render-restart-kloader-2831
 render-restart-screen-4343
+render-restarted-8979
 render-restarting-2019
 render-restore-dircheck-2615
 render-restore-refused-4976

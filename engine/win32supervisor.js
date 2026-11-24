@@ -836,11 +836,11 @@ function superviseStreaming(spec, opts) {
       /* kosmos#8979: a restart follows (this was the running child, and the loop was not stopped), so the next process's
          card says when and why. A stop clears `child` before the child exits, so a stop is never said as a restart. A
          resume that found no conversation is Kosmos's own restart failing, not why the agent stopped: the earlier reason
-         stays (the publisher carries it). */
-      if (running && wasCurrent && !nothingToResume && typeof stream.restarting === 'function') {
+         is kept (keepEarlier). */
+      if (running && wasCurrent && typeof stream.restarting === 'function') {
         try {
-          stream.restarting({ code: code === undefined ? null : code, signal: signal || null, errEvent: saidEvent,
-            limited: turnLimited, authRefused: turnAuthRefused });
+          stream.restarting(nothingToResume ? { keepEarlier: true }
+            : { code: code === undefined ? null : code, signal: signal || null, errEvent: saidEvent, limited: turnLimited, authRefused: turnAuthRefused });
         } catch { /* the death line above still says it */ }
       }
       if (running) schedule();

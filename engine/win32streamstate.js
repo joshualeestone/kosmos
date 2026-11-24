@@ -780,9 +780,11 @@ function publisher(name, opts) {
   /* kosmos#8951: what the process that just ended had taken in and never run ({ since, count }), carried to the next one
      (on 11-23 each delivery killed the agent and the resume came back without the message). */
   let lostOnStop = null;
-  /* kosmos#8979: the restart to put on the next process's record ({ why }, and `at` when it is one carried from a
-     process that was itself a restart and never had a good turn). */
+  /* kosmos#8979: the restart to put on the next process's record ({ why }, and `at` when it is one kept from a
+     process that was itself a restart and never had a good turn); and that ended process's own record, which only a
+     restarting({ keepEarlier: true }) puts forward, so a deliberate stop carries nothing. */
   let restartOnStop = null;
+  let endedRestart = null;
 
   /* kosmos#8951: the turn deadline, armed when a message must start a turn (a write into an idle agent, or messages left
      waiting when a turn ends). Fires only while `startDue` is still this object, so a turn that started, a stop or a new
@@ -1123,9 +1125,7 @@ function publisher(name, opts) {
     /** The agent process is gone. */
     stopped() {
       const was = current;
-      /* kosmos#8979: a restart that no good turn ended stays this agent's story through the next process too (a resume
-         that failed, say), until the supervisor names a newer death with restarting(). */
-      if (was && was.restarted && !restartOnStop) restartOnStop = { at: was.restarted.at, why: was.restarted.why };
+      endedRestart = was && was.restarted ? { at: was.restarted.at, why: was.restarted.why } : null;   // kosmos#8979
       /* kosmos#8951: what it took in and never ran goes to the next process: an earlier report no turn cleared, plus
          anything written since. */
       /* Review 5: a report whose messages are known to have run (still on its hold) is not carried: they ran. */
@@ -1162,9 +1162,13 @@ function publisher(name, opts) {
     },
     /** kosmos#8979: the supervisor is starting the agent again after its process ended ({ code, signal, errEvent,
         authRefused, limited }, as `restartWhy` reads them). The next process's record says why, stamped when that
-        process starts. A newer death replaces an older one. Never throws. */
+        process starts. With `keepEarlier` (a resume that found no conversation: Kosmos's own restart failing), the
+        ended process's own uncleared record is put forward instead, and nothing when it had none. Never throws. */
     restarting(d) {
-      try { restartOnStop = { why: restartWhy(d) }; } catch { /* the card misses one restart line; the task log still has the death */ }
+      try {
+        if (d && d.keepEarlier === true) { restartOnStop = endedRestart; return; }
+        restartOnStop = { why: restartWhy(d) };
+      } catch { /* the card misses one restart line; the task log still has the death */ }
     },
     /** The running session's id rotated under it (a `/clear` does this, #2669).
         Re-stamp the file with the new id so `stateFor` still matches the live
