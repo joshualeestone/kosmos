@@ -30364,6 +30364,17 @@ function start(port = PORT) {
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) : 60 * 1000); // the env is the test seam only
       if (class1Sweep && typeof class1Sweep.unref === 'function') class1Sweep.unref();
+      /* kosmos#8952 slice (d): while a Claude agent's permission box is too tall for its window (its top cut, so it may
+         only be refused from the phone or the board), make that window tall enough to draw the whole box, and put it
+         back once the prompt is gone (engine/permgrow.js). Never a window a person is watching in a terminal. */
+      const permGrowSweep = setInterval(() => {
+        if (!liveExecution.liveExecutionAllowed()) return;   // inert under test / before opt-in, like the sweep above
+        if (process.env.AGENT_WORKFORCE_PERMGROW_OFF === '1') return;   // operator brake
+        try {
+          require('./engine/permgrow').sweepOnce({ roster: () => safeRoster(), log: (line) => process.stdout.write(line) });
+        } catch { /* best-effort */ }
+      }, Number(process.env.AGENT_WORKFORCE_PERMGROW_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_PERMGROW_MS) : 3000);
+      if (permGrowSweep && typeof permGrowSweep.unref === 'function') permGrowSweep.unref();
       /* #3410 PR 2b: recover a network-wedged agent by itself. When an agent's pane has read
          connection_lost with the same error line on consecutive ticks and the API host is
          reachable again, type one retry message into it (engine/connlost-heal.js: a nudge keeps the

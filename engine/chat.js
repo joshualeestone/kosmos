@@ -5620,7 +5620,7 @@ module.exports = {
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,
   defaultAgentFor, looksLikeManager,
   dmSeenRead, markDmSeen, dmSummaryAll, dmUnreadAll, dmUnread, DM_SEEN,
-  setRunner, setDryRun, setPauser, setChannel, resetForTests, CODEX_ENTER_GAP_MS,
+  setRunner, setDryRun, setPauser, tmuxCall: tmux /* kosmos#8952 slice (d): engine/permgrow.js, through the same runner and dry-run guard */, setChannel, resetForTests, CODEX_ENTER_GAP_MS,
   chatsDir: DIR,
 };
 
