@@ -21,10 +21,17 @@ any text/html answer because the computer's sign-in gate can answer with its own
     page is converted to UTF-8 first, so its links are found), nothing to draw (a damaged web archive) or a content rule
     that will not compile: "This page can't be shown on
     iPhone", with Share. MHTML and a compressed SVG: no reader; the sheet says so and offers Share.
-- A page has no links, image maps, forms or <link> elements: they are renamed (<a> to <x-a>, Board.withoutLinks)
-  before drawing, so nothing navigates, submits or preconnects whatever reaches it: a finger, VoiceOver's activate or a
-  keyboard (review round 1). Their text stays. Not covered: an href on other elements (MathML), which the content rule,
-  the cancelled navigations and the touch block still stand behind.
+- A page has no links, image maps, forms, <link> elements, MathML, frames, objects or embeds: they are renamed (<a> to
+  <x-a>, Board.withoutLinks) before drawing, so there is nothing to navigate, submit or preconnect, whatever reaches the
+  page: a finger, VoiceOver's activate or a keyboard (review rounds 1 and 5). Frames go too because a srcdoc or data:
+  frame holds its own document, with links this byte pass cannot see; MathML because WebKit makes an href on it a link.
+  Their text stays.
+- Share uses a fixed preview, so the share sheet never renders the file as a thumbnail (review round 5).
+  Measured in round 5: the probe page also holds a srcdoc frame, a data: frame and a data: object, each with a link to the
+  probe, and a MathML href. The UI test passes with the wider renaming, and ALSO with the old four names (control arm):
+  those frames are never drawn (their navigations are subframe navigations, which the web view cancels), and a MathML
+  href is not reported to the UI test as a link. So the wider renaming is a second layer the UI test cannot see; the
+  logic tests pin it. Share's preview was not measured with the probe; it is fixed so no thumbnail is made at all.
 - No touch reaches the page's content either (kept as a second layer): every view inside the web view's scroll view takes no touches; the scroll view
   still scrolls and zooms. Measured necessary: tapping a link had WebKit open a TCP connection to the link's host before
   the navigation was refused (no request sent, one connection), and a CSS rule making links inert (even first, in its own
@@ -57,8 +64,8 @@ Content-Disposition reaches the phone on the remote path too (read, not measured
 ## VoiceOver (review round 4)
 Touches off does not hide the page from the accessibility tree: WebFileUITests finds the page's own words through it
 (page.staticTexts["Launch page"]) with every view in the scroll view taking no touches, and that tree is what VoiceOver
-reads. VoiceOver itself was not run (a UI test cannot drive it); its activate has nothing to activate, since the page
-has no links, areas or forms left.
+reads. VoiceOver itself was not run (a UI test cannot drive it); the page has no links, areas, forms, MathML or frames left
+for its activate to reach.
 
 ## Weakest premise
 That nothing else in WebKit opens a connection for a page drawn from bytes with touches off: preconnect for prefetch

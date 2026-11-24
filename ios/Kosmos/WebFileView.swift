@@ -20,7 +20,10 @@ struct WebFileView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Done", action: close) }
-                    ToolbarItem(placement: .primaryAction) { ShareLink(item: file) }
+                    // A fixed preview, so the share sheet never draws the page itself as its thumbnail.
+                    ToolbarItem(placement: .primaryAction) {
+                        ShareLink(item: file, preview: SharePreview(file.lastPathComponent, image: Image(systemName: "doc.richtext")))
+                    }
                 }
         }
         .task(id: file) { shown = await Self.read(file) }
@@ -81,7 +84,9 @@ struct WebFileView: View {
                 defer { try? h.close() }
                 let shown = 256 * 1024
                 let data = (try? h.read(upToCount: shown + 1)) ?? Data()
-                return .text(String(decoding: data.prefix(shown), as: UTF8.self), cut: data.count > shown)
+                // UTF-16 XML (with its byte order mark) is converted first, as a page is.
+                let head = Board.asciiCompatible(data.prefix(shown)) ?? data.prefix(shown)
+                return .text(String(decoding: head, as: UTF8.self), cut: data.count > shown)
             case .page, .svg, .archive:
                 // The size first, so a file over the cap is never read into memory.
                 let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? Int.max

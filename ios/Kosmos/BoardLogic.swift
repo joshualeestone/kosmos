@@ -2076,13 +2076,14 @@ enum Board {
         return data.prefix(4096).contains(0) ? nil : data
     }
 
-    // kosmos#8953: a page's links, image maps, forms and <link> elements renamed (<a> becomes <x-a>), so the page has none
-    // of those elements for a finger, VoiceOver's activate or a keyboard to reach. An href on another element (MathML) is
-    // not renamed; the web view's cancelled navigations and blocked loads stand behind it.
-    // Their text stays. A tag is matched as "<" or "</", the name in any case, then white space, "/" or ">", so <abbr>,
-    // <aside> and <label> are left alone. One forward pass over the bytes.
+    // kosmos#8953: a page's links, image maps, forms, <link> elements, MathML (whose href WebKit makes a link), frames,
+    // objects and embeds renamed (<a> becomes <x-a>), so the page has none of those for a finger, VoiceOver's activate or a
+    // keyboard to reach, and no frame whose own document (srcdoc, a data: address) could hold a link this pass never sees.
+    // The text inside stays. A tag is matched as "<" or "</", the name in any case, then white space, "/" or ">", so
+    // <abbr>, <aside> and <label> are left alone. One forward pass over the bytes, with no idea of raw text: an "<a>" typed
+    // inside a <textarea> is shown as "<x-a>", which is wanted (tracking context would be a way past the pass).
     static func withoutLinks(_ data: Data) -> Data {
-        let names: [[UInt8]] = ["a", "area", "form", "link"].map { Array($0.utf8) }
+        let names: [[UInt8]] = ["a", "area", "form", "link", "math", "iframe", "frame", "object", "embed"].map { Array($0.utf8) }
         let bytes = [UInt8](data)
         var out = [UInt8]()
         out.reserveCapacity(bytes.count + 64)
