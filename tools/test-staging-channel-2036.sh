@@ -146,11 +146,16 @@ Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
 bw "$(printf '1:\n0:9.9.8\n0:%s' "$V")" 0 "$Sw"
 [ "$rc" = 0 ] && [ "$looks" = 3 ] && has "$out" "waiting for the board on :16180 to run $V before the gates: nothing answers on :16180" && has "$out" "runs $V: the gates check" && [ -f "$Sw/dist/latest.json" ] \
   && pass "#8960: installing (no answer), then the old release, then V: waits through both and promotes" || bad "#8960 install then V (rc=$rc looks=$looks out=$out)"
+case "$out" in *"to run $V before the gates: nothing answers"*"to run $V before the gates: it runs 9.9.8, older"*) pass "#8960: a changed reason is printed at once, not five minutes later" ;; *) bad "#8960: the second reason was not printed (out=$out)" ;; esac
 case "$out" in *"waiting for the board"*"the board on :16180 runs $V"*"running the experience gate"*) pass "#8960: the wait comes BEFORE the experience gate" ;; *) bad "#8960: the wait is not before the gate (out=$out)" ;; esac
 Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
 bw "0:9.9.10" 2 "$Sw"
 [ "$rc" = 2 ] && [ "$looks" = 1 ] && has "$out" "runs 9.9.10, later than $V" && [ ! -f "$Sw/dist/latest.json" ] \
   && pass "#8960: a board on a LATER release (9.9.10 > 9.9.9, not by string) is not waited for; the gate still holds" || bad "#8960 later board (rc=$rc looks=$looks out=$out)"
+Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
+bw "0:$V-rc1" 2 "$Sw"
+[ "$rc" = 2 ] && [ "$looks" = 1 ] && has "$out" "reports '$V-rc1', which cannot be compared with $V" \
+  && pass "#8960: a version that cannot be compared with V ($V-rc1) is not waited for, and is not called later" || bad "#8960 uncomparable (rc=$rc looks=$looks out=$out)"
 Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
 bw "2:" 2 "$Sw"
 [ "$rc" = 2 ] && [ "$looks" = 1 ] && has "$out" "no board wait: cannot read which version" \
@@ -159,16 +164,23 @@ bw "2:" 2 "$Sw"
 # nothing ever answers -> the gate's exit 1 still REFUSES, --force or not.
 Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
 BW_WAIT=2 bw "0:9.9.8" 2 "$Sw"
-[ "$rc" = 2 ] && [ "$looks" = 3 ] && has "$out" "stopped waiting after 2s: it runs 9.9.8, older than $V" && [ ! -f "$Sw/dist/latest.json" ] \
+# The wait counts real time (SECONDS), so the number of looks in 2 s is 2 or 3, not exact.
+[ "$rc" = 2 ] && [ "$looks" -ge 2 ] && [ "$looks" -le 4 ] && has "$out" "stopped waiting after " && has "$out" "s: it runs 9.9.8, older than $V" && [ ! -f "$Sw/dist/latest.json" ] \
   && pass "#8960: the wait is bounded: after it runs out the gate runs and its cannot-tell still HOLDS" || bad "#8960 timeout hold (rc=$rc looks=$looks out=$out)"
 BW_WAIT=2 bw "1:" 1 "$Sw" --force --hand-check "$HC8960"
-[ "$rc" = 1 ] && has "$out" "stopped waiting after 2s: nothing answers" && has "$out" "does not override" && [ ! -f "$Sw/dist/latest.json" ] \
+[ "$rc" = 1 ] && has "$out" "s: nothing answers" && has "$out" "does not override" && [ ! -f "$Sw/dist/latest.json" ] \
   && pass "#8960: a board that never answers still REFUSES after the wait (exit 1 not loosened, even with --force)" || bad "#8960 timeout refuse (rc=$rc looks=$looks out=$out)"
 Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
 BW_WAIT=0 bw "0:9.9.8" 0 "$Sw"
 [ "$rc" = 0 ] && [ "$looks" = 0 ] && has "$out" "board wait off (KOSMOS_PROMOTE_BOARD_WAIT=0)" \
   && pass "#8960: KOSMOS_PROMOTE_BOARD_WAIT=0 turns the wait off (no look)" || bad "#8960 wait off (rc=$rc looks=$looks out=$out)"
 Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
+# The board already runs V and the limit is 2 s, so a promote that wrongly accepted step 0 ends at once, not spinning.
+printf '0:%s\n' "$V" > "$T/bv-script"; rm -f "$T/bv-log"
+out="$(BV_SCRIPT="$T/bv-script" BV_LOG="$T/bv-log" KOSMOS_PROMOTE_BOARD_VERSION_CMD="bash $BV_STUB" KOSMOS_PROMOTE_BOARD_WAIT=2 KOSMOS_PROMOTE_BOARD_WAIT_STEP=0 \
+  KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sw" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "KOSMOS_PROMOTE_BOARD_WAIT_STEP must be a number of seconds above 0" && [ ! -f "$Sw/dist/latest.json" ] \
+  && pass "#8960: a step of 0 refuses (it would spin), prod untouched" || bad "#8960 step 0 (rc=$rc out=$out)"
 BW_WAIT=soon bw "0:$V" 0 "$Sw"
 [ "$rc" = 1 ] && [ "$looks" = 0 ] && has "$out" "KOSMOS_PROMOTE_BOARD_WAIT must be a number" && [ ! -f "$Sw/dist/latest.json" ] \
   && pass "#8960: an unusable KOSMOS_PROMOTE_BOARD_WAIT refuses, prod untouched" || bad "#8960 bad wait (rc=$rc looks=$looks out=$out)"

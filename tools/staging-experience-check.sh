@@ -137,7 +137,8 @@ if [ "$PRINT_VERSION" = 1 ]; then
   rm -f "$HF"; HF=""
   if [ -n "$BOARD_VERSION" ]; then printf '%s\n' "$BOARD_VERSION"; exit 0; fi
   say "cannot read which version the board on :$PORT runs ($VERSION_WHY)" >&2
-  case "$VCODE" in 000|"") exit 1 ;; *) exit 2 ;; esac
+  # Only a request that went out and got no answer is "nothing answered"; no node, or no request made, is cannot-tell.
+  case "$VCODE" in 000) exit 1 ;; *) exit 2 ;; esac
 fi
 
 # 1. Mint a single-use nonce, board token OFF argv via a mode-600 header file (#1979,
