@@ -157,9 +157,9 @@ test('#8951 review 2: a write merged into a report by the deadline does not coun
   assert.deepEqual(r.last().unstarted, { since: new Date(T0).toISOString(), count: 2, lost: true });
   assert.deepEqual(r.told[r.told.length - 1], { since: new Date(T0).toISOString(), count: 2, lost: true }, 'the log keeps that the process stopped on some');
   r.clock.t += HOLD;
-  r.pub.event(init); r.pub.event(result);                          // a turn nobody wrote
+  r.pub.event(init); r.pub.event(result);                          // review 13: a turn now is that message starting late
   r.fire();
-  assert.ok(r.last().unstarted, 'neither message ran: still reported');
+  assert.equal(r.last().unstarted, undefined, 'the resend started (late), and it was written after the report: over');
 });
 
 test('#8951: the process ending while a written message has not run carries it to the next process (the 11-23 crash)', () => {
@@ -483,6 +483,7 @@ test('#8951 review 6: a write queued behind a turn nobody wrote ends a carried r
   r.pub.wrote(); r.pub.stopped(); r.pub.started(7001, 'sid-1');   // carried
   r.clock.t += HOLD;
   r.pub.event(init);                                              // a wake-up turn
+  r.clock.t += 5000;                                              // well after it opened: behind it, not its opener
   r.pub.wrote();                                                  // the person resends; it waits behind it
   r.pub.event({ type: 'assistant', message: { content: [] } });  // still the wake-up turn
   assert.ok(r.last().unstarted, 'the resent message has not run: still reported');
@@ -496,6 +497,7 @@ test('#8951 review 6: a write queued behind a turn nobody wrote ends a carried r
   q.clock.t += HOLD;
   q.pub.event(init);
   q.pub.event({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'w1', name: 'Bash', input: { command: 'x' } }] } });
+  q.clock.t += 5000;
   q.pub.wrote();
   q.pub.event({ type: 'assistant', message: { content: [] } });
   assert.ok(q.last().unstarted, 'still behind the open call');
@@ -542,7 +544,7 @@ test('#8951 review 7: a deadline merge clears the busy-write marker, so a turn n
   r.pub.event({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'w1', name: 'Bash', input: { command: 'x' } }] } });
   r.pub.event({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'w1', content: 'ok' }] } });
   r.pub.event({ type: 'assistant', message: { content: [] } });
-  assert.ok(r.last().unstarted, 'a wake-up turn\'s calls returning is not the merged messages running');
+  assert.equal(r.last().unstarted, undefined, 'review 13: the next turn is the merged messages starting late, credited to them');
 });
 
 test('#8951 review 8: a wake-up turn opens on no message, and a turn that ran long is not lost because of a write just before the stop', () => {
@@ -658,4 +660,64 @@ test('#8951 review 12: a subagent\'s event is not a turn opening: it neither sta
   r.pub.event({ type: 'assistant', parent_tool_use_id: 'task_1', message: { content: [] } });   // a background subagent
   r.fire();                                            // B's turn never opens
   assert.equal(r.last().unstarted && r.last().unstarted.count, 1, 'B is reported');
+});
+
+test('#8951 review 13: a background subagent\'s event after a result does not make the next message wait behind a turn', () => {
+  const sub = { type: 'assistant', parent_tool_use_id: 't1', message: { content: [] } };
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.event(init); r.pub.event(result);   // A ran
+  r.pub.event(sub);                                         // reads busy, no main turn open
+  r.timers.splice(0);
+  r.pub.wrote();                                            // B
+  assert.equal(r.timers.length, 1, 'B must open a turn by the deadline');
+  r.pub.event(init); r.pub.event({ type: 'assistant', message: { content: [] } }); r.pub.event(result);   // B's own turn
+  r.fire();
+  assert.equal(r.last().unstarted, undefined, 'B ran: never reported');
+  const q = recording();
+  q.pub.started(6368, 'sid-1');
+  q.pub.wrote(); q.pub.event(init); q.pub.event(result); q.pub.event(sub);
+  q.timers.splice(0);
+  q.pub.wrote(); q.fire();
+  assert.equal(q.last().unstarted && q.last().unstarted.count, 1, 'CONTROL: its turn never opens, it is reported');
+});
+
+test('#8951 review 13: a reported message that starts late is matched to itself, so a newer one keeps its own turn', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.fire();                                  // m1 reported
+  r.pub.wrote();                                            // m2
+  r.pub.event(init); r.pub.event(result);                   // m1's late turn
+  r.pub.event(init);                                        // m2's turn
+  r.clock.t += 600;
+  r.pub.stopped(); r.pub.started(7001, 'sid-1');            // dies 0.6 s into it
+  assert.deepEqual(r.last().unstarted && { count: r.last().unstarted.count, lost: r.last().unstarted.lost }, { count: 1, lost: true }, 'm2, not silence');
+});
+
+test('#8951 review 13: a write whose callback comes just after a main turn opened on no message is that turn\'s opener', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.event(init);                                        // the turn opens before the write callback
+  r.clock.t += 200;
+  r.pub.wrote();
+  r.pub.event(result);
+  r.fire();
+  assert.equal(r.last().unstarted, undefined, 'it ran in that turn');
+  const q = recording();
+  q.pub.started(6368, 'sid-1');
+  q.pub.event(init);
+  q.clock.t += 5000;                                        // long after: it waits behind the turn
+  q.pub.wrote();
+  q.pub.event(result); q.timers.splice(0, q.timers.length - 1); q.fire();
+  assert.equal(q.last().unstarted && q.last().unstarted.count, 1, 'CONTROL: written well after, its own turn never opened');
+});
+
+test('#8951 review 13: over the record cap, finished records go first, so a message that never ran is still counted', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.event(init);                         // m0 under way, the turn runs long
+  for (let i = 0; i < ss.MSGS_MAX; i += 1) r.pub.wrote();   // the cap is reached behind it
+  r.clock.t += ss.LOST_WINDOW_MS + 1;
+  r.pub.stopped(); r.pub.started(7001, 'sid-1');
+  assert.equal(r.last().unstarted.count, ss.MSGS_MAX, 'm0 ran and was dropped; every waiting one is still counted');
 });
