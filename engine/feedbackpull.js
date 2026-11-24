@@ -21,7 +21,9 @@
  * build is therefore NOT blocked on the token being provisioned: until it is
  * filed (target FEEDBACK_TOKEN_TARGET, via /add-secret), pull returns a clear
  * "token not filed" answer and writes nothing -- it starts working the moment
- * the token exists, with no code change.
+ * the token exists, with no code change. kosmos#8992: "not filed" is said only
+ * when the map has no such target; a read that failed or timed out says to run
+ * the pull again (tokenReading).
  *
  * 🛑 READ-ONLY AGAINST THE STORE. pull only lists + GETs blobs; it never puts or
  * deletes. A malformed blob is skipped with a note, never written as a corrupt
@@ -40,7 +42,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 const store = require('./store');
 
 const DEFAULT_BLOB_API = 'https://blob.vercel-storage.com';
@@ -75,13 +77,27 @@ function defaultDir() { return path.join(store.ROOT, 'collected-feedback'); }
 let transport = null; // tests inject { list: async(token)=>[{url,pathname}], get: async(url, token)=>text }
 function setTransport(t) { transport = t; }
 
+/* How the secrets map is asked (tests inject one): (bin, args) -> { status, stdout, stderr, error } in the shape of
+   child_process.spawnSync, with error.code 'ENOENT' when the tool is not there. */
+let secretsRunner = null;
+function setSecretsRunner(fn) { secretsRunner = typeof fn === 'function' ? fn : null; }
+function runSecrets(bin, args) {
+  if (secretsRunner) return secretsRunner(bin, args);
+  return spawnSync(bin, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 8000 });
+}
+
 /**
- * The @vercel/blob read/write token, via the secrets map. Returns null (never
- * throws, never a partial) when the map, the tool, or the target is absent --
- * the caller turns that into a clear "not filed yet" answer. `value` is read
- * over a pipe (not a tty), which the accessor requires.
+ * The @vercel/blob read/write token, via the secrets map: { token } when it was read, else { why } saying what kind of
+ * not-read it was (kosmos#8992), never a throw:
+ *   'missing'  the map has no such target (`secrets-map.sh lookup` exits 1 saying "no credential mapped"): file it.
+ *   'unread'   the target IS in the map (lookup exits 0) but reading it failed or timed out: run again, never re-file.
+ *   'unsure'   reading failed and the map did not answer the lookup either (it timed out too, or said something else):
+ *              run again; file only if a lookup says it is missing.
+ *   'no-tool'  no secrets-map.sh on this computer at either place.
+ * Before #8992 every one of these read as "not filed yet", which told an agent to run /add-secret over a working token.
+ * `value` is read over a pipe (not a tty), which the accessor requires.
  */
-function token() {
+function tokenReading() {
   // os.homedir() (NOT process.env.HOME): cross-platform, so this carries no
   // Windows-hostile env-home coupling. The pull command runs on the agent fleet
   // where the secrets map lives; a home that cannot be resolved just drops the
@@ -91,17 +107,30 @@ function token() {
   const bins = ['secrets-map.sh'];
   if (home) bins.push(path.join(home, '.local', 'bin', 'secrets-map.sh'));
   for (const bin of bins) {
-    try {
-      const out = execFileSync(bin, ['value', FEEDBACK_TOKEN_TARGET], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-        timeout: 8000,
-      });
-      const t = String(out || '').trim();
-      if (t) return t;
-    } catch { /* tool or target absent here; try the next candidate */ }
+    let got;
+    try { got = runSecrets(bin, ['value', FEEDBACK_TOKEN_TARGET]); } catch { got = { error: new Error('could not run') }; }
+    if (got && got.error && got.error.code === 'ENOENT') continue;   // not at this place; try the next
+    const t = String((got && got.stdout) || '').trim();
+    if (got && !got.error && got.status === 0 && t) return { token: t };
+    // The tool is here and did not give the token: ask the map whether the target is in it at all.
+    let seen;
+    try { seen = runSecrets(bin, ['lookup', FEEDBACK_TOKEN_TARGET]); } catch { seen = { error: new Error('could not run') }; }
+    if (seen && !seen.error && seen.status === 0) return { why: 'unread' };
+    if (seen && !seen.error && seen.status === 1 && /no credential mapped/i.test(String(seen.stderr || ''))) return { why: 'missing' };
+    return { why: 'unsure' };
   }
-  return null;
+  return { why: 'no-tool' };
+}
+// The token or null, for callers that only need the token.
+function token() { return tokenReading().token || null; }
+
+// What a pull says when it has no token, by why (tokenReading). Only 'missing' says to file it.
+function noTokenBecause(why) {
+  const t = 'secrets-map target "' + FEEDBACK_TOKEN_TARGET + '"';
+  if (why === 'unread') return 'the collected-feedback token is filed (' + t + ') but reading it failed or timed out just now. Run the pull again; do not file it again.';
+  if (why === 'unsure') return 'the collected-feedback token could not be read just now, and the secrets map did not answer whether it is filed (' + t + '). Run the pull again; file it with /add-secret only if `secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '` says it is missing.';
+  if (why === 'no-tool') return 'the secrets map tool (secrets-map.sh) is not on this computer, so the collected-feedback token (' + t + ') cannot be read here.';
+  return 'the collected-feedback token is not filed yet (' + t + '). File it with /add-secret and re-run; nothing else changes.';
 }
 
 async function defaultList(tok) {
@@ -227,13 +256,11 @@ async function pull(dir, opts) {
   // An explicit `token` key (even '') skips resolution -- lets a test force the
   // not-filed path deterministically without depending on the machine's secrets
   // map. Absent key -> resolve via the map.
-  const tok = Object.prototype.hasOwnProperty.call(o, 'token') ? o.token : token();
+  const read = Object.prototype.hasOwnProperty.call(o, 'token') ? { token: o.token, why: 'missing' } : tokenReading();
+  const tok = read.token;
   if (!tok) {
-    return {
-      ok: false, written: 0, skipped: 0, dir: target,
-      because: 'the collected-feedback token is not filed yet (secrets-map target "'
-        + FEEDBACK_TOKEN_TARGET + '"). File it with /add-secret and re-run; nothing else changes.',
-    };
+    // kosmos#8992: only a target the map does not have is "not filed"; a read that failed or timed out says to retry.
+    return { ok: false, written: 0, skipped: 0, dir: target, why: read.why || 'missing', because: noTokenBecause(read.why) };
   }
   let blobs;
   // The token IS present here (the not-filed case returned above), so a list
@@ -438,7 +465,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  pull, runCli, setTransport, token, toMarkdown, fileName,
+  pull, runCli, setTransport, setSecretsRunner, token, tokenReading, noTokenBecause, toMarkdown, fileName,
   FEEDBACK_TOKEN_TARGET, PREFIX, defaultDir, nextLine, blobApi, DEFAULT_BLOB_API,
   defaultList, defaultGet, tokenMayGoTo, summaryLines,
 };
