@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-functions: stateReason, card
+// Browser-check-functions: stateReason, card, pillSay, pillVh
 
 /**
  * kosmos#8991: an agent waiting on the person says why in plain words on its card's pill (its hover and a screen
@@ -33,6 +33,8 @@ const WANT = {
   /* Read off the screen (the cards below are scraped), so hedged as #874's sign-in and limit sentences are. */
   permission: 'Looks like it is waiting for your permission to go on. Open it to answer.',
   other: 'Looks like it is waiting for you. Open it to see what it needs.',
+  /* A needs_you a hook reported (structured, no permission prompt seen): said without the hedge. */
+  reported: 'It is waiting for you. Open it to see what it needs.',
 };
 
 (async () => {
@@ -56,10 +58,11 @@ const WANT = {
           because: 'May I push the branch secret-plan?', restarted: null,
         }, extra);
         const kinds = [
-          ['question', { stateReported: true, stateReportedBy: 'agent', stateConfidence: 'reported' }],
-          ['held', { stateReported: true, stateReportedBy: 'agent', stateConfidence: 'reported', stateHeld: true }],
+          ['question', { stateReported: true, stateReportedBy: 'agent', stateConfidence: 'structured' }],
+          ['held', { stateReported: true, stateReportedBy: 'agent', stateConfidence: 'structured', stateHeld: true }],
           ['permission', { awaitingApproval: true }],
           ['other', {}],
+          ['reported', { stateReported: true, stateReportedBy: 'auto', stateConfidence: 'structured' }],
           ['idle', { state: 'idle', because: null }],
           ['working', { state: 'working', because: null, stateReportedBy: 'agent', awaitingApproval: true }],
           ['limited', { state: 'rate_limited', because: null, stateReportedBy: 'agent' }],
