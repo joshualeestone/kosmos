@@ -1183,4 +1183,28 @@ func b3ModelTests() async {
     mac.actAnswers = [nil]
     let unreached = await m.saveRepeat(.minutes("30"), names: nm)
     check(!unreached && m.repeatSay == Board.repeatUnreached, "no answer: the could-not-reach words")
+
+    // The guards between Save and Mark as done, each way, and Save on a finished task.
+    mac.actAnswers = []
+    mac.holdTheNext()
+    let saving = Task { await m.saveRepeat(.minutes("45"), names: nm) }
+    await waitUntil({ mac.holding }, "the repeat save held")
+    let duringSave = mac.asked.count
+    if let act = m.page?.act { await m.press(act, names: nm) }
+    check(m.repeatSaving && mac.asked.count == duringSave, "Mark as done sends nothing while a Repeats save is out")
+    mac.release()
+    _ = await saving.value
+    mac.holdTheNext()
+    let pressing = Task { if let act = m.page?.act { await m.press(act, names: nm) } }
+    await waitUntil({ mac.holding }, "the press held")
+    let duringPress = mac.asked.count
+    let savedDuringPress = await m.saveRepeat(.minutes("50"), names: nm)
+    check(!savedDuringPress && mac.asked.count == duringPress, "Save sends nothing while Mark as done is out")
+    mac.release()
+    await pressing.value
+    mac.projects = (200, withRule(["every": "hour"], closed: true))
+    await m.read()
+    mac.asked = []
+    let onClosed = await m.saveRepeat(.minutes("30"), names: nm)
+    check(m.page?.closed == true && !onClosed && mac.asked.isEmpty, "Save on a finished task sends nothing")
 }
