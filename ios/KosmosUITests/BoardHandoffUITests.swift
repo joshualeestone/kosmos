@@ -36,4 +36,20 @@ final class BoardHandoffUITests: XCTestCase {
             app.terminate()
         }
     }
+
+    func testPlusAsksBeforeItOpensTheBoard() {
+        // The sample board has no computer address (macURL), so + takes the board path, which now asks first.
+        let app = XCUIApplication()
+        app.launchEnvironment["KOSMOS_SAMPLE_AGENTS"] = "1"
+        app.launch()
+        let plus = app.buttons["Add agent"]
+        XCTAssertTrue(plus.waitForExistence(timeout: 10), "no + on Agents")
+        plus.tap()
+        let open = app.buttons["Open your computer's board"]
+        XCTAssertTrue(open.waitForExistence(timeout: 5), "+ opened the board without asking")
+        XCTAssertTrue(app.staticTexts["Add an agent on your computer's board?"].exists, "the question is not shown")
+        keep(app, "plus-asks")
+        app.buttons["Cancel"].firstMatch.tap()
+        XCTAssertTrue(plus.waitForExistence(timeout: 5) && !open.exists, "Cancel did not keep the person on the phone's screen")
+    }
 }

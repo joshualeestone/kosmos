@@ -1616,9 +1616,9 @@ private struct CreateOnBoardAsk: ViewModifier {
     let what: AppTabs.Create
     let open: () -> Void
     func body(content: Content) -> some View {
-        content.confirmationDialog(AppTabs.createOnBoardQuestion(what),
-                                   isPresented: Binding(get: { asked == what }, set: { if !$0 { asked = nil } }),
-                                   titleVisibility: .visible) {
+        // An alert, not a confirmation dialog: on iOS 27 the dialog drew as a bubble with no Cancel (only a tap elsewhere).
+        content.alert(AppTabs.createOnBoardQuestion(what),
+                      isPresented: Binding(get: { asked == what }, set: { if !$0 { asked = nil } })) {
             Button(AppTabs.createOnBoardOpen) { asked = nil; open() }
             Button("Cancel", role: .cancel) { asked = nil }
         }
