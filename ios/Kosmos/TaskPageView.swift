@@ -316,9 +316,10 @@ struct TaskPageView: View {
                         let before = model.editRefusal
                         Task {
                             if await model.saveText(title: t, detail: d, openedTitle: opened.title, openedDetail: opened.detail, names: names) { editing = nil }
-                            // An empty title refused again never leaves the line (it is set in the same turn), so it would
-                            // not be heard again: say it. A refusal from the Mac clears the line first and is heard anyway.
-                            else if let why = model.editRefusal, why == Board.taskEditNeedsTitle, why == before {
+                            // An empty title refused while a line already shows never leaves the line (it is set in the
+                            // same turn), so it would not be heard: say it. A refusal from the Mac clears the line first
+                            // and is heard anyway.
+                            else if let why = model.editRefusal, why == Board.taskEditNeedsTitle, before != nil {
                                 UIAccessibility.post(notification: .announcement, argument: why)
                             }
                         }
@@ -333,37 +334,44 @@ struct TaskPageView: View {
 
     // kosmos#8958 slice B1: the board's Due row (saveTaskDue). The picker chooses a date; Set saves it, Cancel puts it
     // back; Clear clears a stored date. With no date, Set a due date opens the picker on a week from today, unsaved.
-    // Which of these shows is Board.dueControls (tested in LogicTests/taskpage).
+    // Which of these shows is Board.dueControls (tested in LogicTests/taskpage). The picker is one view in one place for
+    // every state, so choosing a day (which turns Clear into Set and Cancel) does not rebuild it and close its calendar.
     private func dueBlock(_ p: Board.TaskPage) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let controls = Board.dueControls(stored: p.dueDate, draft: dueDraft)
+        let shown: String? = { switch controls { case .choosing(let d), .stored(let d): return d; default: return nil } }()
+        return VStack(alignment: .leading, spacing: 6) {
             sectionTitle("Due")
-            switch Board.dueControls(stored: p.dueDate, draft: dueDraft) {
-            case .choosing(let d):
-                dueRow(p, shown: d) {
+            if let shown {
+                DatePicker("Due date", selection: Binding(get: { Board.dueDay(shown) ?? Date() }, set: { d in
+                    model.touched()
+                    dueDraft = Board.keptDraft(Board.dueString(d), stored: p.dueDate)
+                }), displayedComponents: .date)
+                    .labelsHidden()
+                    .disabled(model.dueSaving)
+            }
+            HStack(spacing: 12) {
+                switch controls {
+                case .choosing(let d):
                     dueAction("Set", label: "Set the due date", strong: true) {
                         Task { if await model.setDue(d, names: names) { dueDraft = nil } }
                     }
                     dueAction("Cancel", label: "Cancel the new due date") { model.clearDueRefusal(); dueDraft = nil }
-                }
-            case .stored(let s):
-                dueRow(p, shown: s) {
+                case .stored:
                     dueAction("Clear", label: "Clear the due date") { dueDraft = nil; Task { await model.setDue(nil, names: names) } }
-                }
-            case .unreadable:
-                // A stored date this phone cannot read as a day: said as the Mac keeps it, and it can still be cleared.
-                HStack(spacing: 12) {
-                    Text(p.dueLine() ?? "").font(.footnote).foregroundColor(Palette.primary)
+                case .unreadable(let raw):
+                    // A stored date this phone cannot read as a day: said as the Mac keeps it, and it can still be cleared.
+                    Text("Due " + raw).font(.footnote).foregroundColor(Palette.primary)
                     dueAction("Clear", label: "Clear the due date") { Task { await model.setDue(nil, names: names) } }
+                case .none:
+                    Button {
+                        model.touched()
+                        dueDraft = Board.dueString(Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date())
+                    } label: {
+                        Text("Set a due date").font(.footnote).foregroundColor(Palette.link)
+                            .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
-            case .none:
-                Button {
-                    model.touched()
-                    dueDraft = Board.dueString(Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date())
-                } label: {
-                    Text("Set a due date").font(.footnote).foregroundColor(Palette.link)
-                        .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
             }
             if let why = model.dueRefusal {
                 Text(why).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
@@ -372,24 +380,6 @@ struct TaskPageView: View {
         }
         // The stored day moved (another device): a draft it now equals is dropped.
         .onChange(of: p.dueDate) { stored in dueDraft = Board.keptDraft(dueDraft, stored: stored) }
-    }
-
-    // The picker and its buttons side by side, one above the other where they do not fit.
-    private func dueRow<B: View>(_ p: Board.TaskPage, shown: String, @ViewBuilder buttons: () -> B) -> some View {
-        let b = buttons()
-        return ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) { duePicker(p, shown: shown); b }
-            VStack(alignment: .leading, spacing: 6) { duePicker(p, shown: shown); HStack(spacing: 12) { b } }
-        }
-    }
-
-    private func duePicker(_ p: Board.TaskPage, shown: String) -> some View {
-        DatePicker("Due date", selection: Binding(get: { Board.dueDay(shown) ?? Date() }, set: { d in
-            model.touched()
-            dueDraft = Board.keptDraft(Board.dueString(d), stored: p.dueDate)
-        }), displayedComponents: .date)
-            .labelsHidden()
-            .disabled(model.dueSaving)
     }
 
     private func dueAction(_ words: String, label: String, strong: Bool = false, _ run: @escaping () -> Void) -> some View {
@@ -467,6 +457,8 @@ struct TaskPageView: View {
     private static var sampleClosed: Set<Int> = []
     // kosmos#8958 slice B1: messages said on the sample tasks, shown in their activity as the Mac records them.
     private static var sampleSaid: [Int: [String]] = [:]
+    // A title edited on a sample task (POST .../text), served back by the next read.
+    private static var sampleTitle: [Int: String] = [:]
     private static func sampleSend(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         guard let r = build(URL(string: "https://sample.invalid")!), let url = r.url else { return nil }
         let path = url.path
@@ -474,7 +466,12 @@ struct TaskPageView: View {
            let words = (r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["text"] as? String {
             sampleLock.withLock { sampleSaid[n, default: []].append(words) }
         }
+        if path.hasSuffix("/text"), let n = Int(url.deletingLastPathComponent().lastPathComponent),
+           let title = (r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["sentence"] as? String {
+            sampleLock.withLock { sampleTitle[n] = title }
+        }
         let saidNow: [Int: [String]] = sampleLock.withLock { sampleSaid }
+        let titleNow: [Int: String] = sampleLock.withLock { sampleTitle }
         let closedNow: Set<Int> = sampleLock.withLock {
             if path.hasSuffix("/close") || path.hasSuffix("/reopen") {
                 if let n = Int(url.deletingLastPathComponent().lastPathComponent) {
@@ -489,7 +486,7 @@ struct TaskPageView: View {
         if path.hasSuffix("/projects") {
             body = #"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","paused":false,"agents":[{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"tasks":["#
                 + #"{"number":3,"sentence":"Print-ready catalogue","addedBy":"operator","addedVia":"screen","createdAt":""# + iso(4000) + #"",\#(closed(3, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":null,"sentence":"Print-ready catalogue"}]},"#
-                + #"{"number":4,"sentence":"Pages 1 to 8","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","dueDate":"2026-10-30","builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 1 to 8"}],"claim":{"claimed":true,"about":"dana"}},"#
+                + #"{"number":4,"sentence":"# + Self.jsonString(titleNow[4] ?? "Pages 1 to 8") + #","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","dueDate":"2026-10-30","builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 1 to 8"}],"claim":{"claimed":true,"about":"dana"}},"#
                 + #"{"number":8,"sentence":"Pages 9 to 12","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2800) + #"",\#(closed(8, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 9 to 12"}]}"#
                 + #"]}]}"#
         } else if path.hasSuffix("/activity") && !path.contains("/task/4/") {

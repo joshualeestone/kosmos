@@ -231,6 +231,8 @@ final class TaskPageModel: ObservableObject {
     @discardableResult
     func setDue(_ due: String?, names: [String: String]) async -> Bool {
         guard !dueSaving, current else { return false }
+        // A date the Mac would refuse is said here, not sent (and never read as the Mac being out of reach).
+        if let due, Board.dueDay(due) == nil { dueRefusal = Board.taskDueFailed; return false }
         dueSaving = true
         dueRefusal = nil
         let (project, number) = (self.project, self.number)
