@@ -1,5 +1,5 @@
 {
-  "version": "0.8.18",
+  "version": "0.8.19",
   "highlights": [
     {
       "icon": "shield",
@@ -10,27 +10,27 @@
       ]
     },
     {
-      "icon": "spark",
-      "title": "A message to an agent is not lost to typing",
-      "line": "If other text lands in an agent's box while Kosmos is typing a message to it, the message is kept and sent once the box is clear.",
-      "platforms": [
-        "mac"
-      ]
+      "icon": "list",
+      "title": "Spreadsheets reach your agent row by row",
+      "line": "Spreadsheets you attach reach your agent row by row, with each value named by its column."
     },
     {
       "icon": "shield",
-      "title": "A company computer says whose it is",
-      "line": "A company member's Kosmos names its company and what it reports there, and says which AI providers are allowed when the company limits them."
+      "title": "Signing in again keeps your invitation",
+      "line": "If Kosmos asks you to sign in again while you invite someone outside, you come back with who it is for already filled in."
     },
     {
-      "icon": "chat",
-      "title": "A little more space in project rooms",
-      "line": "Posts in a project room now have slightly more space between lines."
+      "icon": "tasks",
+      "title": "A task says how many subtasks are on hold",
+      "line": "A task with subtasks now says how many are on hold beside its done count, on the board and in task lists."
     },
     {
-      "icon": "chat",
-      "title": "Long agent messages say what they are about",
-      "line": "When a long message is saved to a file for an agent, its pane line now shows how it starts and its length."
+      "icon": "swarm",
+      "title": "Agent browsers left running are closed",
+      "line": "From now on, a browser an agent's session leaves running is closed when that agent starts again, so they stop piling up.",
+      "platforms": [
+        "mac"
+      ]
     }
   ]
 }
