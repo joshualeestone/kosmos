@@ -32,6 +32,7 @@
   "backgroundShells": 0,
   "deliveryStall": null,
   "restarted": null,
+  "waitCleared": null,
   "lastWorked": {
     "at": "2026-09-03T00:00:00.000Z",
     "why": null
