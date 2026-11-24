@@ -92,6 +92,8 @@ extension Board {
         // again. And whether it was closed as never run (kosmos#8301).
         var receiptKey: String? = nil
         var closedUnrun = false
+        // kosmos#8958 slice B8: the hold as it is kept, on a held, open task (nil on any other).
+        var hold: TaskHold? = nil
     }
 
     enum TaskPageRead: Equatable {
@@ -178,6 +180,7 @@ extension Board {
         page.memberOrder = memberOrder
         if closed { page.receiptKey = closedAt ?? rawParts.compactMap { text($0["closedAt"]) }.max() ?? "" }
         page.closedUnrun = t["closedUnrun"] as? Bool == true
+        if page.onHold && !closed { page.hold = taskHold(t, number: number, tasks: tasks, closed: isClosed) }
         return .page(page)
     }
 }
@@ -748,10 +751,13 @@ extension Board {
     static let holdChoose = "Choose who"
     static let holdChooseNobody = "Add an agent to this project first, then you can put them on it."
 
-    // POST .../task/<n>/hold {onHold}.
+    // POST .../task/<n>/hold {onHold}, or slice B8's whole body.
     static func taskHoldRequest(mac: URL, project: String, number: Int, onHold: Bool) -> URLRequest? {
+        taskHoldRequest(mac: mac, project: project, number: number, body: ["onHold": onHold])
+    }
+    static func taskHoldRequest(mac: URL, project: String, number: Int, body: [String: Any]) -> URLRequest? {
         guard let url = taskRoute(mac: mac, project: project, number: number, "hold"),
-              let data = try? JSONSerialization.data(withJSONObject: ["onHold": onHold]) else { return nil }
+              let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
         var hold = URLRequest(url: url)
         hold.httpMethod = "POST"
         hold.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -796,6 +802,231 @@ extension Board {
         guard let wrapped = try? JSONSerialization.data(withJSONObject: ["projects": [["id": project, "tasks": [task]]]]),
               case .page(let t) = parseTaskPage(wrapped, project: project, number: number) else { return nil }
         return t
+    }
+}
+
+// MARK: What a hold waits for and why (kosmos#8958 slice B8: the board's tkPaintHoldUntil, tkHoldChoice and tk-hold-save)
+
+extension Board {
+    enum HoldFor: String, CaseIterable, Equatable {
+        case nothing = "", task, at
+        var words: String {
+            switch self {
+            case .nothing: return "Nothing in particular"
+            case .task: return "Another task to close"
+            case .at: return "A date and time"
+            }
+        }
+    }
+    // What the form holds. `task` and `at` keep their own value whichever kind shows, as the board's two inputs do.
+    struct HoldChoice: Equatable {
+        var kind: HoldFor = .nothing
+        var task: Int? = nil
+        var at: Date? = nil
+        var why = ""
+    }
+    // Another of the project's tasks, as the form can offer it. `waitsHere`: it is on hold until this one closes.
+    struct HoldTask: Equatable { let number: Int; let words: String; let closed: Bool; let waitsHere: Bool }
+    struct TaskHold: Equatable {
+        let because: String?
+        let suggest: String?
+        let confirmedAt: Date?
+        // The stored condition as the Mac sends it, kept whole so that a Save that does not change it sends the same one
+        // back; and what the form reads in it.
+        let untilRaw: Data?
+        let stored: HoldChoice
+        // The Mac's own reading of it (holdUntil): its words, and whether it has happened. `gone`: the task it names is no
+        // longer on the project.
+        let untilWords: String?
+        let untilMet: Bool
+        let untilGone: Bool
+        let tasks: [HoldTask]
+    }
+    static func holdMinute(_ d: Date) -> Date { Date(timeIntervalSince1970: (d.timeIntervalSince1970 / 60).rounded(.down) * 60) }
+    // The task number in the Mac's "task #12 is closed", the board's /^task #(\d+) is closed$/.
+    static func holdUntilTask(_ words: String) -> Int? {
+        guard words.hasPrefix("task #"), words.hasSuffix(" is closed") else { return nil }
+        let n = words.dropFirst(6).dropLast(10)
+        return !n.isEmpty && n.allSatisfy({ $0.isASCII && $0.isNumber }) ? Int(n) : nil
+    }
+    fileprivate static func taskHold(_ t: [String: Any], number: Int, tasks: [[String: Any]], closed: ([String: Any]) -> Bool) -> TaskHold {
+        func text(_ v: Any?) -> String? { (v as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        let raw = t["onHoldUntil"] as? [String: Any]
+        let read = t["holdUntil"] as? [String: Any]
+        let words = text(read?["words"])
+        var stored = HoldChoice(why: text(t["onHoldBecause"]) ?? "")
+        if let n = integer(raw?["task"]) { stored.kind = .task; stored.task = n }
+        else if let at = text(raw?["at"]).flatMap(Tasks.parseISO) { stored.kind = .at; stored.at = holdMinute(at) }
+        let named = words.flatMap(holdUntilTask)
+        return TaskHold(
+            because: text(t["onHoldBecause"]), suggest: text(t["onHoldSuggest"]), confirmedAt: text(t["onHoldConfirmedAt"]).flatMap(Tasks.parseISO),
+            untilRaw: raw.flatMap { try? JSONSerialization.data(withJSONObject: $0, options: .sortedKeys) }, stored: stored,
+            untilWords: words, untilMet: read?["met"] as? Bool == true,
+            untilGone: named.map { n in !tasks.contains { integer($0["number"]) == n } } ?? false,
+            tasks: tasks.compactMap { x -> HoldTask? in
+                guard let n = integer(x["number"]), n != number else { return nil }
+                let its = (x["onHoldUntil"] as? [String: Any]).flatMap { integer($0["task"]) }
+                return HoldTask(number: n, words: holdTidy(text(x["sentence"]) ?? ""), closed: closed(x), waitsHere: x["onHold"] as? Bool == true && its == number)
+            })
+    }
+
+    // Words as the board and the engine tidy them (/\s+/g to one space, trimmed), so a stray space is no change.
+    static func holdTidy(_ words: String) -> String {
+        words.unicodeScalars.split { jsSpace($0) }.map { String(String.UnicodeScalarView($0)) }.joined(separator: " ")
+    }
+    private static func jsSpace(_ c: Unicode.Scalar) -> Bool {
+        switch c.value {
+        case 0x09...0x0D, 0x20, 0xA0, 0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF: return true
+        default: return false
+        }
+    }
+
+    static let holdWhyMax = 200
+    static let holdSection = "On hold"
+    static let holdForLabel = "Wait for"
+    static let holdForSpoken = "Wait for: what this hold waits for"
+    static let holdTaskSpoken = "Until: the task this hold waits for"
+    static let holdAtSpoken = "Until: the date and time this hold waits for"
+    static let holdWhyLabel = "Why"
+    static let holdWhySpoken = "Why this task is on hold, in your own words"
+    static let holdWhyPrompt = "Optional"
+    static let holdSaveSpoken = "Save what this hold waits for and why"
+    static let holdChooseTask = "Choose a task"
+    static let holdSaved = "Saved."
+    static let holdSaveFailed = "We could not change what that hold waits for."
+    static let holdTakenOff = "This was taken off hold, so nothing changed."
+    static let holdAhead = "Choose a time from now to a year ahead."   // the phone's own: the board's box says it by itself
+    static func holdTakeover(forPerson: Bool, paused: Bool) -> String {
+        forPerson && !paused
+            ? "Saving makes this hold yours, so only you can take it off, and the task leaves Needs Your Decision."
+            : "Saving makes this hold yours, so only you can take it off."
+    }
+
+    // Whether two choices wait for the same thing, times to the minute as the form shows them (tkHoldSameWait).
+    static func holdSameWait(_ a: HoldChoice, _ b: HoldChoice) -> Bool {
+        guard a.kind == b.kind else { return false }
+        switch a.kind {
+        case .nothing: return true
+        case .task: return a.task == b.task
+        case .at: return a.at.map(holdMinute) == b.at.map(holdMinute)
+        }
+    }
+    static func holdSame(_ a: HoldChoice, _ b: HoldChoice) -> Bool { holdSameWait(a, b) && holdTidy(a.why) == holdTidy(b.why) }
+    // From a minute ahead to 365 days, as the board's picker: to the minute, and a passing minute does not move it.
+    static func holdRange(now: Date) -> ClosedRange<Date> { holdMinute(now.addingTimeInterval(60))...holdMinute(now.addingTimeInterval(365 * 86_400)) }
+    static func holdAheadOK(_ c: HoldChoice, now: Date) -> Bool { c.at.map { holdRange(now: now).contains(holdMinute($0)) } ?? false }
+    // Whether Save can be pressed: something differs, and the wait is whole. A time is checked as still ahead only when the
+    // wait was changed, so a reason can be saved on a hold whose time has passed (tkHoldDirty).
+    static func holdReady(_ c: HoldChoice, stored: HoldChoice, now: Date) -> Bool {
+        if holdSame(c, stored) { return false }
+        if holdSameWait(c, stored) { return true }
+        switch c.kind {
+        case .nothing: return true
+        case .task: return c.task != nil
+        case .at: return holdAheadOK(c, now: now)
+        }
+    }
+    // The choice as the stored hold moves under it: the wait and the reason each follow what is stored unless the person
+    // changed that one (the board's repaint). nil once nothing is unsaved.
+    static func holdFollow(_ draft: HoldChoice?, base: HoldChoice?, stored: HoldChoice?) -> HoldChoice? {
+        guard var d = draft, let stored else { return nil }
+        if let base {
+            if holdSameWait(d, base) { d.kind = stored.kind; d.task = stored.task ?? d.task; d.at = stored.at ?? d.at }
+            if holdTidy(d.why) == holdTidy(base.why) { d.why = stored.why }
+        }
+        return holdSame(d, stored) ? nil : d
+    }
+    // The first time offered, when none is stored: tomorrow at nine.
+    static func holdFirstTime(now: Date, calendar: Calendar = .current) -> Date {
+        let day = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now.addingTimeInterval(86_400)
+        return calendar.date(bySettingHour: 9, minute: 0, second: 0, of: day) ?? day
+    }
+
+    // The tasks a hold can wait for (tkHoldTaskOptions): the project's open ones, the stored one and the one chosen even once
+    // closed, and never one that itself waits for this task (unless it is stored). One stored and gone is said as gone.
+    struct HoldOption: Equatable, Hashable { let value: Int?; let words: String }
+    static func holdOptions(_ h: TaskHold, chosen: Int?) -> [HoldOption] {
+        let waits = h.stored.kind == .task ? h.stored.task : nil
+        let list = h.tasks.filter { (!$0.closed || $0.number == waits || $0.number == chosen) && (!$0.waitsHere || $0.number == waits) }
+        var all = [HoldOption(value: nil, words: holdChooseTask)]
+        all += list.map { x in
+            let long = x.words.utf16.count > 60
+            return HoldOption(value: x.number, words: "#\(x.number)" + (x.words.isEmpty ? "" : " " + (long ? capped(x.words, 59) + "\u{2026}" : x.words)))
+        }
+        // The board says only the stored one as gone. One chosen here and gone since is said so too: a menu must hold its pick.
+        for n in Set([waits, chosen].compactMap { $0 }).sorted() where !list.contains(where: { $0.number == n }) {
+            all.append(HoldOption(value: n, words: "#\(n) (no longer on this project)"))
+        }
+        return all
+    }
+
+    // POST .../task/<n>/hold with only what was changed: an unchanged wait goes back as it is kept now (`now`), to the second,
+    // since a hold from a screen sets exactly the condition it sends (kosmos#7749 review 1).
+    static func taskHoldSaveBody(_ c: HoldChoice, base: HoldChoice, now: TaskHold) -> [String: Any] {
+        var body: [String: Any] = ["onHold": true]
+        if holdSameWait(c, base) {
+            if let raw = now.untilRaw, let until = try? JSONSerialization.jsonObject(with: raw) { body["until"] = until }
+        } else if c.kind == .task, let n = c.task {
+            body["until"] = ["task": n]
+        } else if c.kind == .at, let at = c.at {
+            body["until"] = ["at": holdISO(holdMinute(at))]
+        }
+        if holdTidy(c.why) != holdTidy(base.why) { body["because"] = holdTidy(c.why) }
+        return body
+    }
+    // What the hold should read once that is saved.
+    static func holdAfter(_ c: HoldChoice, base: HoldChoice, now: HoldChoice) -> HoldChoice {
+        var after = now
+        if !holdSameWait(c, base) { after.kind = c.kind; after.task = c.task; after.at = c.at }
+        if holdTidy(c.why) != holdTidy(base.why) { after.why = c.why }
+        return after
+    }
+    static func holdISO(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
+        return f.string(from: d)
+    }
+}
+
+extension Board.TaskPage {
+    // The hold's lines, one each (the board runs them together): why, how fresh, the holder's suggested answer, and what it
+    // waits for in the Mac's own reading. Empty on a task that is not held.
+    func holdLines(now: Date, calendar: Calendar = .current) -> [String] {
+        guard let h = hold else { return [] }
+        var lines: [String] = []
+        if let why = h.because {
+            lines.append("Why: " + why)
+            if let fresh = holdConfirmed(now: now, calendar: calendar) { lines.append(fresh) }
+        }
+        // tskHoldSuggestWords, for a hold that waits on the person.
+        if onHoldForPerson, let s = h.suggest?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty {
+            lines.append("Suggested: " + s + (s.last.map { ".!?".contains($0) } == true ? "" : "."))
+        }
+        if let words = h.untilWords {
+            if let n = Board.holdUntilTask(words) {
+                lines.append(h.untilGone ? "Task \(n) is no longer on this project, so this can come off hold."
+                    : h.untilMet ? "Task \(n) is closed, so this can come off hold." : "Waiting for task \(n) to close.")
+            } else if let at = Tasks.parseISO(words) {
+                lines.append(h.untilMet ? "That time has passed, so this can come off hold." : "Waiting until " + Self.holdWhen(at, calendar: calendar) + ".")
+            }
+        }
+        return lines
+    }
+    // tskHoldConfirmedWords: in whole days on this phone's clock; nothing for a hold that waits on the person, or a time ahead.
+    private func holdConfirmed(now: Date, calendar: Calendar) -> String? {
+        guard !onHoldForPerson, let at = hold?.confirmedAt, at <= now else { return nil }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: at), to: calendar.startOfDay(for: now)).day ?? 0
+        return "Last confirmed " + (days == 0 ? "today" : days == 1 ? "yesterday" : "\(days) days ago") + "."
+    }
+    static func holdWhen(_ at: Date, calendar: Calendar = .current) -> String {
+        let f = DateFormatter()
+        f.calendar = calendar
+        f.timeZone = calendar.timeZone
+        f.setLocalizedDateFormatFromTemplate("EEEdMMMjmm")
+        return f.string(from: at)
     }
 }
 

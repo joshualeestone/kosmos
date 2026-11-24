@@ -214,6 +214,58 @@ final class TaskPageActionsUITests: XCTestCase {
         waitForExpectations(timeout: 10)
         XCTAssertTrue(add.waitForExistence(timeout: 10), "Cancel did not come back to the task")
     }
+    // kosmos#8958 slice B8: put on hold, then what it waits for and why are set here and read back from the sample Mac.
+    func testAHoldSaysWhatItWaitsForAndWhy() throws {
+        let app = try openTask()
+        let put = app.buttons["Put on hold"]
+        for _ in 0..<6 where !(put.exists && put.isHittable) { app.swipeUp() }
+        put.tap()
+        XCTAssertTrue(app.buttons["Take off hold"].waitForExistence(timeout: 15), "it is not on hold")
+        let kind = app.descendants(matching: .any).matching(identifier: "taskpage.hold.for").firstMatch
+        XCTAssertTrue(kind.waitForExistence(timeout: 10), "no form on a held task")
+        let save = app.buttons["taskpage.hold.save"]
+        for _ in 0..<6 where !(save.exists && save.isHittable) { app.swipeUp() }
+        XCTAssertFalse(save.isEnabled, "Save is on with nothing changed")
+        kind.tap()
+        let another = app.buttons["Another task to close"]
+        XCTAssertTrue(another.waitForExistence(timeout: 10), "no choices of what it waits for")
+        shot(app, "hold choices")
+        another.tap()
+        let which = app.descendants(matching: .any).matching(identifier: "taskpage.hold.task").firstMatch
+        XCTAssertTrue(which.waitForExistence(timeout: 10), "no tasks to wait for")
+        XCTAssertFalse(save.isEnabled, "Save is on with no task chosen")
+        which.tap()
+        let eight = app.buttons["#8 Pages 9 to 12"]
+        XCTAssertTrue(eight.waitForExistence(timeout: 10), "the project's other task is not offered")
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "#4 ")).firstMatch.exists, "it is offered itself")
+        shot(app, "hold tasks")
+        eight.tap()
+        let why = app.textFields["taskpage.hold.why"]
+        for _ in 0..<4 where !(why.exists && why.isHittable) { app.swipeUp() }
+        why.tap()
+        why.typeText("Waiting on prices\n")
+        for _ in 0..<4 where !(save.exists && save.isHittable) { app.swipeUp() }
+        XCTAssertTrue(save.isEnabled, "Save is off with a whole change")
+        shot(app, "hold form")
+        save.tap()
+        XCTAssertTrue(app.staticTexts["Saved."].waitForExistence(timeout: 15), "it does not say it was saved")
+        XCTAssertFalse(save.isEnabled, "Save is still on")
+        for _ in 0..<4 where !app.staticTexts["Waiting for task 8 to close."].isHittable { app.swipeDown() }
+        XCTAssertTrue(app.staticTexts["Waiting for task 8 to close."].exists && app.staticTexts["Why: Waiting on prices"].exists, "the page does not say it")
+        shot(app, "held, waiting for a task")
+        // A date and time: the picker, with a first time that can be saved.
+        for _ in 0..<6 where !(kind.exists && kind.isHittable) { app.swipeUp() }
+        kind.tap()
+        app.buttons["A date and time"].tap()
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "taskpage.hold.at").firstMatch.waitForExistence(timeout: 10), "no date and time")
+        for _ in 0..<4 where !(save.exists && save.isHittable) { app.swipeUp() }
+        XCTAssertTrue(save.isEnabled, "the first time cannot be saved")
+        shot(app, "hold until a time")
+        save.tap()
+        let until = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Waiting until ")).firstMatch
+        XCTAssertTrue(until.waitForExistence(timeout: 15), "the page does not say the time")
+        XCTAssertTrue(app.staticTexts["Why: Waiting on prices"].exists, "the reason went when only the wait was changed")
+    }
     // kosmos#8958 slice B7: a part added, somebody put on it, and it marked done; each read back from the sample Mac.
     func testAPartIsAddedGivenAndDone() throws {
         let app = try openTask()

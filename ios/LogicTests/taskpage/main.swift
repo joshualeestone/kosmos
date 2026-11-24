@@ -1356,6 +1356,377 @@ do {
 }
 await b7ModelTests()
 
+section("#8958 slice B8: what a hold waits for and why")
+// A held task 1 in a project with others; `hold` is its own hold fields, `others` more tasks.
+func heldTasks(_ hold: String, others: String = "", own: String = "", paused: Bool = false, on: Bool = true) -> (Int, Data) {
+    (200, Data((#"{"projects":[{"id":"springcatalogue","name":"Spring","paused":\#(paused),"agents":[{"sessionName":"dana","name":"Dana"}],"tasks":[{"number":1,"sentence":"All"\#(on ? #","onHold":true"# : "")\#(hold)\#(own),"progress":{"done":0,"total":1,"closed":false}}\#(others)]}]}"#).utf8))
+}
+func heldPage(_ hold: String, others: String = "", own: String = "", paused: Bool = false, on: Bool = true) -> Board.TaskPage? {
+    if case .page(let p) = Board.parseTaskPage(heldTasks(hold, others: others, own: own, paused: paused, on: on).1, project: "springcatalogue", number: 1) { return p }
+    return nil
+}
+let onTask5 = #","onHoldUntil":{"task":5},"holdUntil":{"words":"task #5 is closed","met":false}"#
+let open5 = #",{"number":5,"sentence":"Prices","progress":{"done":0,"total":1,"closed":false}}"#
+let closed5 = #",{"number":5,"sentence":"Prices","closedAt":"2026-11-24T15:00:00.000Z","progress":{"done":1,"total":1,"closed":true}}"#
+do {
+    let pageURL = here.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("web/index.html")
+    let html = (try? String(contentsOf: pageURL, encoding: .utf8)) ?? ""
+    check(html.contains("function tkPaintHoldUntil"), "premise: the board's page is there")
+    for words in Board.HoldFor.allCases.map({ "<option value=\"" + $0.rawValue + "\">" + $0.words + "</option>" })
+        + ["<span>" + Board.holdSection + "</span>", "<span>" + Board.holdForLabel + "</span>", "aria-label=\"" + Board.holdForSpoken + "\"", "aria-label=\"" + Board.holdTaskSpoken + "\"", "aria-label=\"" + Board.holdAtSpoken + "\"",
+           "<span>" + Board.holdWhyLabel + "</span>", "maxlength=\"\(Board.holdWhyMax)\" aria-label=\"" + Board.holdWhySpoken + "\" placeholder=\"" + Board.holdWhyPrompt + "\"",
+           "aria-label=\"" + Board.holdSaveSpoken + "\"", "'<option value=\"\">" + Board.holdChooseTask + "</option>'", "' (no longer on this project)'", "tkHoldSay(key, '" + Board.holdSaved + "')",
+           "'" + Board.holdSaveFailed + "'", "'" + Board.holdTakenOff + "'", "'" + Board.holdTakeover(forPerson: false, paused: false) + "'", "'" + Board.holdTakeover(forPerson: true, paused: false) + "'",
+           "'Why: '".dropLast().description, "'Last confirmed '", "' Suggested: '", "' is no longer on this project, so this can come off hold.'", "' is closed, so this can come off hold.'",
+           "'That time has passed, so this can come off hold.'", "'Waiting until '", "'Waiting for task '", "' to close.'", "/^task #(\\d+) is closed$/", "Date.now() + 60000", "Date.now() + 365 * 86400000"] {
+        let want = words == "'Why: " ? ">Why: '" : words
+        check(html.contains(want), "the board says: \(want)")
+    }
+    check(Board.holdTakeover(forPerson: true, paused: true) == Board.holdTakeover(forPerson: false, paused: true) && !Board.holdTakeover(forPerson: true, paused: true).contains("Needs"), "in a paused project it is not in Needs Your Decision")
+}
+do {
+    let now = Tasks.parseISO("2026-11-24T18:00:00.000Z")!
+    func lines(_ hold: String, others: String = "", own: String = "", on: Bool = true) -> [String]? { heldPage(hold, others: others, own: own, on: on)?.holdLines(now: now, calendar: cal) }
+    check(lines("") == [], "a bare hold says nothing of its own")
+    check(lines(onTask5, others: open5, on: false) == [], "a task not on hold says nothing")
+    check(heldPage("", own: #","closedAt":"2026-11-24T15:00:00.000Z""#, on: false)?.hold == nil && heldPage("")?.hold != nil, "a hold is read on a held task alone")
+    if case .page(let p) = Board.parseTaskPage(Data(#"{"projects":[{"id":"p1","tasks":[{"number":1,"sentence":"S","onHold":true,"progress":{"closed":true}}]}]}"#.utf8), project: "p1", number: 1) {
+        check(p.hold == nil, "nor on one that is finished")
+    } else { check(false, "the closed fixture parses") }
+    check(lines(onTask5, others: open5) == ["Waiting for task 5 to close."], "waiting for a task")
+    check(lines(#","onHoldUntil":{"task":5},"holdUntil":{"words":"task #5 is closed","met":true}"#, others: closed5) == ["Task 5 is closed, so this can come off hold."], "it closed, in the Mac's reading")
+    check(lines(onTask5, others: closed5) == ["Waiting for task 5 to close."], "met is the Mac's word, never worked out here")
+    check(lines(onTask5) == ["Task 5 is no longer on this project, so this can come off hold."], "it is gone from the project")
+    let at = #","onHoldUntil":{"at":"2026-11-25T09:30:00.000Z"},"holdUntil":{"words":"2026-11-25T09:30:00.000Z","met":false}"#
+    check(lines(at)?.count == 1 && lines(at)?.first?.hasPrefix("Waiting until Wed") == true && lines(at)?.first?.contains("25") == true && lines(at)?.first?.contains("9:30") == true && lines(at)?.first?.hasSuffix(".") == true, "waiting for a time: its day and time")
+    check(lines(at.replacingOccurrences(of: "false", with: "true")) == ["That time has passed, so this can come off hold."], "the time passed")
+    check(lines(#","holdUntil":{"words":"something else","met":false}"#) == [], "words it cannot read say nothing")
+    check(Board.holdUntilTask("task #12 is closed") == 12 && Board.holdUntilTask("task # is closed") == nil && Board.holdUntilTask("task #1x is closed") == nil && Board.holdUntilTask("task #1 is closed now") == nil
+          && Board.holdUntilTask("a task #1 is closed") == nil && Board.holdUntilTask("task #\u{0661} is closed") == nil, "only the Mac's own words name a task")
+    let why = #","onHoldBecause":"Prices come Friday""#
+    check(lines(why) == ["Why: Prices come Friday"], "why")
+    check(lines(why + #","onHoldConfirmedAt":"2026-11-24T01:00:00.000Z""# + onTask5, others: open5) == ["Why: Prices come Friday", "Last confirmed today.", "Waiting for task 5 to close."], "why, how fresh, what for: in that order")
+    check(lines(why + #","onHoldConfirmedAt":"2026-11-23T23:00:00.000Z""#)?.last == "Last confirmed yesterday." && lines(why + #","onHoldConfirmedAt":"2026-11-20T23:00:00.000Z""#)?.last == "Last confirmed 4 days ago.", "in calendar days")
+    check(lines(why + #","onHoldConfirmedAt":"2026-11-25T01:00:00.000Z""#) == ["Why: Prices come Friday"] && lines(why + #","onHoldConfirmedAt":"soon""#) == ["Why: Prices come Friday"], "a time ahead, or one it cannot read, says no age")
+    check(lines(#","onHoldConfirmedAt":"2026-11-24T01:00:00.000Z""#) == [], "with no reason there is no age (the board's)")
+    let forMe = #","onHoldForPerson":true,"onHoldSuggest":" Use the spring list ","onHoldConfirmedAt":"2026-11-24T01:00:00.000Z""#
+    check(lines(why + forMe) == ["Why: Prices come Friday", "Suggested: Use the spring list."], "a hold on the person: the suggested answer, and no age")
+    check(lines(#","onHoldForPerson":true,"onHoldSuggest":"Which?""#) == ["Suggested: Which?"], "its own full stop stands")
+    check(lines(#","onHoldForPerson":true,"onHoldSuggest":"  ""#) == [] && lines(#","onHoldSuggest":"Yes""#) == [], "no suggestion when blank, or not waiting on the person")
+}
+do {
+    let others = #",{"number":2,"sentence":"  Page\n two ","progress":{"closed":false}},{"number":3,"sentence":"Done one","progress":{"closed":true}},{"number":4,"sentence":"Waits here","onHold":true,"onHoldUntil":{"task":1},"progress":{"closed":false}}"#
+        + open5 + #",{"number":6,"progress":{"closed":false}},{"number":7,"sentence":""# + String(repeating: "x", count: 61) + #"","progress":{"closed":false}},{"number":8,"sentence":""# + String(repeating: "y", count: 60)
+        + #"","onHoldUntil":{"task":1},"progress":{"closed":false}},{"number":9,"sentence":"Waits for another","onHold":true,"onHoldUntil":{"task":2},"progress":{"closed":false}}"#
+    if let h = heldPage("", others: others)?.hold {
+        let o = Board.holdOptions(h, chosen: nil)
+        check(o.map(\.value) == [nil, 2, 5, 6, 7, 8, 9], "the project's open tasks but this one, none that waits for it, with a first choice of none")
+        check(o[0].words == "Choose a task" && o[1].words == "#2 Page two" && o[3].words == "#6", "each its number and tidied words, the number alone when it has none")
+        check(o[4].words == "#7 " + String(repeating: "x", count: 59) + "\u{2026}" && o[5].words == "#8 " + String(repeating: "y", count: 60), "longer than 60 is cut, 60 is not")
+        check(Board.holdOptions(h, chosen: 3).map(\.value) == [nil, 2, 3, 5, 6, 7, 8, 9], "one chosen and closed since stays a choice")
+        check(Board.holdOptions(h, chosen: 4).map(\.value).last == 4 && Board.holdOptions(h, chosen: 99).last?.words == "#99 (no longer on this project)", "one chosen and no longer to be offered is still in the menu")
+    } else { check(false, "the options fixture parses") }
+    if let h = heldPage(#","onHoldUntil":{"task":3}"#, others: others)?.hold {
+        check(Board.holdOptions(h, chosen: nil).map(\.value) == [nil, 2, 3, 5, 6, 7, 8, 9], "the stored one stays a choice once closed")
+    } else { check(false, "the closed-wait fixture parses") }
+    if let h = heldPage(#","onHoldUntil":{"task":4}"#, others: others)?.hold {
+        check(Board.holdOptions(h, chosen: nil).map(\.value).contains(4), "and so does a stored one that waits for this task")
+    } else { check(false, "the mutual-wait fixture parses") }
+    if let h = heldPage(#","onHoldUntil":{"task":44}"#, others: others)?.hold {
+        check(Board.holdOptions(h, chosen: 44).filter { $0.value == 44 }.map(\.words) == ["#44 (no longer on this project)"], "a stored one that is gone is said so, once")
+        check(Board.holdOptions(h, chosen: 2).map(\.value).last == 44, "and stays while another is chosen")
+    } else { check(false, "the gone-wait fixture parses") }
+    check(heldPage(#","onHoldUntil":{"at":"2026-11-25T09:30:40.000Z"},"onHoldBecause":"W""#)?.hold?.stored == Board.HoldChoice(kind: .at, at: Tasks.parseISO("2026-11-25T09:30:00.000Z"), why: "W"), "a stored time shows to the minute")
+    check(heldPage(#","onHoldUntil":{"at":"never"}"#)?.hold?.stored == Board.HoldChoice() && heldPage(#","onHoldUntil":{"odd":1}"#)?.hold?.stored.kind == .nothing, "a condition it cannot read shows as none")
+}
+do {
+    let now = Tasks.parseISO("2026-11-24T18:00:30.000Z")!
+    func at(_ s: String) -> Date { Tasks.parseISO(s)! }
+    let none = Board.HoldChoice(), five = Board.HoldChoice(kind: .task, task: 5), nine = Board.HoldChoice(kind: .at, at: at("2026-11-25T09:30:00.000Z"))
+    func ready(_ c: Board.HoldChoice, _ s: Board.HoldChoice) -> Bool { Board.holdReady(c, stored: s, now: now) }
+    check(!ready(none, none) && !ready(five, five) && !ready(nine, nine), "nothing differs: Save is off")
+    check(ready(five, none) && ready(nine, none) && ready(none, five) && ready(none, nine) && ready(nine, five), "a whole change: on")
+    check(!ready(Board.HoldChoice(kind: .task), none) && !ready(Board.HoldChoice(kind: .at), none), "no task or no time chosen: off")
+    check(!ready(Board.HoldChoice(kind: .nothing, task: 5, at: now), none) && !ready(Board.HoldChoice(kind: .task, task: 5, at: now), five), "what another kind holds is no change")
+    check(!ready(Board.HoldChoice(kind: .at, at: at("2026-11-25T09:30:59.000Z")), nine) && ready(Board.HoldChoice(kind: .at, at: at("2026-11-25T09:31:00.000Z")), nine), "times compare to the minute")
+    check(!ready(Board.HoldChoice(kind: .task, task: 5, why: "  "), five) && ready(Board.HoldChoice(kind: .task, task: 5, why: "x"), five), "a stray space is no change, a reason is")
+    let w = Board.HoldChoice(why: "a b")
+    check(!ready(Board.HoldChoice(why: " a \n b\u{a0}"), w) && ready(Board.HoldChoice(why: "ab"), w) && ready(none, w), "a reason compares tidied, and can be taken away")
+    let passed = Board.HoldChoice(kind: .at, at: at("2026-11-20T09:00:00.000Z"))
+    check(ready(Board.HoldChoice(kind: .at, at: passed.at, why: "x"), passed), "a reason saves on a hold whose time has passed")
+    check(!ready(passed, none) && !ready(Board.HoldChoice(kind: .at, at: passed.at, why: "x"), none), "but a passed time cannot be set")
+    func set(_ s: String) -> Bool { ready(Board.HoldChoice(kind: .at, at: at(s)), none) }
+    check(set("2026-11-24T18:01:00.000Z") && !set("2026-11-24T18:00:59.000Z"), "from a minute ahead")
+    check(set("2027-11-24T18:00:59.000Z") && !set("2027-11-24T18:01:00.000Z"), "to 365 days")
+    check(Board.holdFirstTime(now: now, calendar: cal) == at("2026-11-25T09:00:00.000Z"), "the first time offered: tomorrow at nine")
+    check(Board.holdAheadOK(Board.HoldChoice(kind: .at, at: Board.holdFirstTime(now: now, calendar: cal)), now: now) && !Board.holdAheadOK(Board.HoldChoice(kind: .at), now: now), "and it can be saved")
+    check(Board.holdTidy("\u{feff} a\u{2003}\u{3000}b\r\nc\u{85}d ") == "a b c\u{85}d" && Board.holdTidy(" \n") == "", "tidied as the engine does, by the same spaces")
+    // Following.
+    func follow(_ d: Board.HoldChoice?, _ b: Board.HoldChoice?, _ s: Board.HoldChoice?) -> Board.HoldChoice? { Board.holdFollow(d, base: b, stored: s) }
+    check(follow(nil, none, five) == nil && follow(five, none, nil) == nil, "nothing unsaved, or no hold: none")
+    check(follow(five, none, five) == nil && follow(none, none, five) == nil, "what is stored now, or was not changed: nothing unsaved")
+    check(follow(Board.HoldChoice(why: "mine"), none, Board.HoldChoice(kind: .task, task: 5, why: "theirs")) == Board.HoldChoice(kind: .task, task: 5, why: "mine"), "a reason typed stays, and the wait follows")
+    check(follow(five, none, Board.HoldChoice(why: "theirs")) == Board.HoldChoice(kind: .task, task: 5, why: "theirs"), "a wait chosen stays, and the reason follows")
+    check(follow(Board.HoldChoice(kind: .task, task: 5, why: "mine"), none, Board.HoldChoice(kind: .task, task: 6, why: "theirs")) == Board.HoldChoice(kind: .task, task: 5, why: "mine"), "both changed: both stay")
+    check(follow(Board.HoldChoice(kind: .nothing, task: 7, why: "mine"), none, Board.HoldChoice(kind: .at, at: nine.at))?.task == 7, "a box that is not shown keeps its value")
+    check(follow(Board.HoldChoice(why: "mine"), nil, five) == Board.HoldChoice(why: "mine"), "with nothing to compare with, the draft stays")
+    // What is sent.
+    func sent(_ c: Board.HoldChoice, _ b: Board.HoldChoice, _ hold: String) -> String {
+        guard let h = heldPage(hold)?.hold, let d = try? JSONSerialization.data(withJSONObject: Board.taskHoldSaveBody(c, base: b, now: h), options: .sortedKeys) else { return "?" }
+        return String(decoding: d, as: UTF8.self)
+    }
+    check(sent(five, none, "") == #"{"onHold":true,"until":{"task":5}}"#, "a task alone")
+    check(sent(Board.HoldChoice(kind: .at, at: at("2026-11-25T09:30:59.500Z")), none, "") == #"{"onHold":true,"until":{"at":"2026-11-25T09:30:00.000Z"}}"#, "a time, at its minute")
+    check(sent(none, five, #","onHoldUntil":{"task":5}"#) == #"{"onHold":true}"#, "nothing in particular sends no condition, which clears it")
+    check(sent(Board.HoldChoice(kind: .at, at: nine.at, why: " new  one "), nine, #","onHoldUntil":{"at":"2026-11-25T09:30:40.000Z"}"#) == #"{"because":"new one","onHold":true,"until":{"at":"2026-11-25T09:30:40.000Z"}}"#, "a reason alone sends the wait back as it is kept, to the second")
+    check(sent(Board.HoldChoice(why: "x"), none, #","onHoldUntil":{"task":8}"#) == #"{"because":"x","onHold":true,"until":{"task":8}}"#, "or as it has become since")
+    check(sent(Board.HoldChoice(why: "x"), none, "") == #"{"because":"x","onHold":true}"#, "and none when there is none")
+    check(sent(Board.HoldChoice(why: "x"), none, #","onHoldUntil":{"odd":{"a":[1]}}"#) == #"{"because":"x","onHold":true,"until":{"odd":{"a":[1]}}}"#, "a condition this phone cannot read goes back whole")
+    check(sent(none, Board.HoldChoice(why: "old"), #","onHoldBecause":"old""#) == #"{"because":"","onHold":true}"#, "an emptied reason clears it")
+    check(sent(Board.HoldChoice(kind: .task, task: 5, why: "w"), Board.HoldChoice(why: "w"), "") == #"{"onHold":true,"until":{"task":5}}"#, "a reason not changed is not sent")
+    check(Board.holdAfter(Board.HoldChoice(kind: .task, task: 5, why: "w"), base: Board.HoldChoice(why: "w"), now: Board.HoldChoice(why: "theirs")) == Board.HoldChoice(kind: .task, task: 5, why: "theirs")
+          && Board.holdAfter(Board.HoldChoice(kind: .task, task: 5, why: "w"), base: five, now: nine) == Board.HoldChoice(kind: .at, at: nine.at, why: "w"), "saved: what was changed, over what is kept")
+    let r = Board.taskHoldRequest(mac: macURL, project: "springcatalogue", number: 4, body: ["onHold": true, "because": "x"])
+    check(r?.httpMethod == "POST" && r?.url?.path == "/api/project/springcatalogue/task/4/hold" && bodyOf(r)?["because"] as? String == "x" && bodyOf(r)?["onHold"] as? Bool == true, "to the hold route")
+}
+await b8ModelTests()
+
+@MainActor
+func b8ModelTests() async {
+    var clock = Tasks.parseISO("2026-11-24T18:00:30.000Z")!
+    func model(_ mac: FakeMac) async -> TaskPageModel {
+        let m = TaskPageModel(project: "springcatalogue", number: 1, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch }, now: { clock },
+                              parse: { Board.parseTaskPage($0, project: $1, number: $2) })   // on this actor: waitUntil cannot wait for another thread (kosmos#7751)
+        m.onScreen = true
+        await m.read()
+        mac.asked = []
+        return m
+    }
+    let none = Board.HoldChoice(), five = Board.HoldChoice(kind: .task, task: 5)
+    let bare = heldTasks("", others: open5), onFive = heldTasks(onTask5, others: open5), off = heldTasks("", others: open5, on: false)
+    let post = "POST /api/project/springcatalogue/task/1/hold", list = "GET /api/projects", act = "GET /api/project/springcatalogue/task/1/activity"
+    func posted(_ mac: FakeMac) -> Int { mac.asked.filter { $0 == post }.count }
+    func save(_ m: TaskPageModel, _ c: Board.HoldChoice? = nil, base: Board.HoldChoice? = nil) async -> Bool { await m.saveHold(c ?? five, base: base ?? none, names: [:]) }
+    do {
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        var body: [String: Any]?
+        var sawSaving = false
+        mac.onSend = { r in if r.httpMethod == "POST" { body = bodyOf(r); sawSaving = m.holding && m.holdFormSaving; mac.projects = onFive } }
+        let ok = await save(m)
+        check(ok && mac.asked == [list, post, list, act], "Save reads the task, posts, then reads the page and activity")
+        check((body?["until"] as? [String: Any])?["task"] as? Int == 5 && body?["because"] == nil, "with what was changed")
+        check(sawSaving && !m.holding && !m.holdFormSaving, "in the air while it is, and not after")
+        check(m.holdSay == Board.holdSaved && m.holdSayAtForm && !m.holdRefused, "Saved., by the form")
+        check(m.page?.hold?.stored == five, "and the page shows it")
+        await m.read()
+        check(m.holdSay == Board.holdSaved, "a read of the same leaves it")
+        mac.projects = bare
+        await m.read()
+        check(m.holdSay == nil && !m.holdSayAtForm, "changed elsewhere, it goes")
+    }
+    for (what, words) in [("off", off), ("gone", (200, Data(#"{"projects":[{"id":"springcatalogue","name":"Spring","tasks":[]}]}"#.utf8)))] {
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = onFive } }
+        _ = await save(m)
+        check(m.holdSay == Board.holdSaved, "premise: saved, then \(what)")
+        mac.projects = words
+        await m.read()
+        check(m.holdSay == nil, "\(what): Saved. goes")
+    }
+    do {
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.projects = off
+        let ok = await save(m)
+        check(!ok && posted(mac) == 0 && m.holdSay == "This was taken off hold, so nothing changed." && !m.holdRefused, "taken off meanwhile: nothing sent, and said")
+        check(mac.asked == [list, list, act] && m.page?.onHold == false && !m.holding && !m.holdFormSaving, "and the page shows it off")
+        await m.read()
+        check(m.holdSay == Board.holdTakenOff, "that line is of the press, so a read leaves it")
+    }
+    do {
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.projects = (200, Data(#"{"projects":[{"id":"springcatalogue","name":"Spring","tasks":[]}]}"#.utf8))
+        let ok = await save(m)
+        check(!ok && posted(mac) == 0 && m.holdSay == Board.holdTaskGone && m.gone, "gone: nothing sent, and said")
+    }
+    for (what, answer) in [("no answer", nil as (Int, Data)?), ("an error", (500, Data("{}".utf8))), ("not a list", (200, Data("{}".utf8)))] {
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.projects = answer
+        let ok = await save(m)
+        check(!ok && mac.asked == [list] && m.holdSay == Board.holdCheckFailed && !m.holding && !m.holdFormSaving, "the check failed (\(what)): nothing sent, and said")
+    }
+    do {
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.actAnswers = [(409, #"{"error":"task #5 is already closed, so there is nothing to wait for"}"#)]
+        let ok = await save(m)
+        check(!ok && m.holdSay == "task #5 is already closed, so there is nothing to wait for" && m.holdRefused && m.holdSayAtForm && !m.holding && !m.holdFormSaving, "a refusal is the Mac's words, by the form")
+        await m.read()
+        check(m.holdSay != nil, "a read of the same hold leaves it")
+        mac.projects = onFive
+        await m.read()
+        check(m.holdSay == nil && !m.holdRefused, "it goes once the hold reads otherwise")
+        mac.projects = bare
+        await m.read()
+        mac.actAnswers = [(500, "{}")]
+        _ = await save(m)
+        check(m.holdSay == Board.holdSaveFailed && m.holdRefused, "no words of its own: the board's")
+        mac.actAnswers = [nil]
+        _ = await save(m)
+        check(m.holdSay == Board.holdUnreached && m.holdRefused, "no answer")
+        m.clearHoldFormSay()
+        check(m.holdSay == nil && !m.holdRefused && !m.holdSayAtForm, "a new choice retires it")
+    }
+    do {
+        // A hold that moved between the page's read and the press: the refusal is of it as just read, and stays.
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.projects = onFive
+        mac.actAnswers = [(409, #"{"error":"no"}"#)]
+        _ = await save(m, Board.HoldChoice(why: "x"))
+        await m.read()
+        check(m.holdSay == "no", "a refusal outlives the page catching up with what it was said of")
+    }
+    do {
+        // Only what was changed, over what is kept now.
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        var body: [String: Any]?
+        mac.projects = onFive
+        mac.onSend = { r in if r.httpMethod == "POST" { body = bodyOf(r); mac.projects = heldTasks(onTask5 + #","onHoldBecause":"x""#, others: open5) } }
+        let ok = await save(m, Board.HoldChoice(why: "x"))
+        check(ok && (body?["until"] as? [String: Any])?["task"] as? Int == 5 && body?["because"] as? String == "x" && m.holdSay == Board.holdSaved, "a wait set by somebody else since is sent back, not cleared")
+    }
+    do {
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = heldTasks(#","onHoldBecause":"theirs""#, others: open5) } }
+        let ok = await save(m)
+        check(ok && m.holdSay == nil, "changed elsewhere before the page was read again: not Saved. over something else")
+    }
+    do {
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = nil } }
+        let ok = await save(m)
+        check(ok && m.holdSay == Board.holdSaved && m.page?.hold?.stored == none, "the read after it failed: Saved.")
+        mac.onSend = nil
+        mac.projects = onFive
+        await m.read()
+        check(m.holdSay == Board.holdSaved, "and the read that shows it leaves it")
+    }
+    do {
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        for c in [none, Board.HoldChoice(kind: .task), Board.HoldChoice(kind: .at), Board.HoldChoice(kind: .at, at: clock)] { _ = await save(m, c) }
+        check(mac.asked.isEmpty && m.holdSay == nil, "nothing changed, or not whole: nothing sent")
+        let at = Board.HoldChoice(kind: .at, at: clock.addingTimeInterval(600))
+        clock = clock.addingTimeInterval(1200)
+        _ = await save(m, at)
+        check(mac.asked.isEmpty, "a time that passed while the form was open: nothing sent")
+        mac.epoch += 1
+        _ = await save(m)
+        check(mac.asked.isEmpty, "switched before the press: nothing sent")
+    }
+    do {
+        let mac = FakeMac(); mac.projects = off; let m = await model(mac)
+        _ = await save(m)
+        check(mac.asked.isEmpty, "not on hold: nothing sent")
+    }
+    // One at a time with everything that could cross it.
+    for what in ["save", "button", "done", "part"] {
+        let mac = FakeMac(); mac.projects = heldTasks("", others: open5, own: #","parts":[{"id":1,"sentence":"All"},{"id":2,"sentence":"Two"}]"#); let m = await model(mac)
+        mac.holdTheNext()
+        let going = Task {
+            switch what {
+            case "save": _ = await save(m)
+            case "button": await m.toggleHold(wasOnHold: true, names: [:])
+            case "done": await m.press(.close, names: [:])
+            default: _ = await m.writePart(.close(part: "2"), name: { $1 }, names: [:])
+            }
+        }
+        await waitUntil({ mac.holding }, what)
+        let before = mac.asked.count
+        let ok = await save(m)
+        check(!ok && mac.asked.count == before, "no Save while \(what) is out")
+        mac.release()
+        await going.value
+    }
+    for what in ["button", "done", "part", "save"] {
+        let mac = FakeMac(); mac.projects = heldTasks("", others: open5, own: #","parts":[{"id":1,"sentence":"All"},{"id":2,"sentence":"Two"}]"#); let m = await model(mac)
+        mac.holdTheNext()
+        let going = Task { _ = await save(m) }
+        await waitUntil({ mac.holding }, "save")
+        let before = mac.asked.count
+        switch what {
+        case "button": await m.toggleHold(wasOnHold: true, names: [:])
+        case "done": await m.press(.close, names: [:])
+        case "part": _ = await m.writePart(.close(part: "2"), name: { $1 }, names: [:])
+        default: m.clearHoldFormSay()
+        }
+        check(mac.asked.count == before, "no \(what) while a Save is out")
+        mac.release()
+        await going.value
+        check(!m.holding && !m.holdFormSaving, "and it ends")
+    }
+    // Another account or Mac while it is out: nothing more is sent or said. Held at each request in turn.
+    for at in 0..<4 {
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.queueing = true
+        let going = Task { await save(m) }
+        for i in 0..<at {
+            await waitUntil({ mac.queuedCount == 1 }, "request \(i)")
+            mac.release(at: 0)
+        }
+        await waitUntil({ mac.queuedCount == 1 }, "request \(at)")
+        mac.epoch += 1
+        let before = mac.asked.count
+        mac.queueing = false
+        mac.release(at: 0)
+        let ok = await going.value
+        check(!ok && mac.asked.count == before && m.holdSay == nil, "switched at request \(at): nothing more")
+    }
+    for at in 0..<3 {
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.projects = off
+        mac.queueing = true
+        let going = Task { await save(m) }
+        for i in 0..<at {
+            await waitUntil({ mac.queuedCount == 1 }, "request \(i)")
+            mac.release(at: 0)
+        }
+        await waitUntil({ mac.queuedCount == 1 }, "request \(at)")
+        mac.epoch += 1
+        mac.queueing = false
+        mac.release(at: 0)
+        _ = await going.value
+        check(m.holdSay == nil, "switched at request \(at) of one taken off: nothing said")
+    }
+    // Lines of one press do not stay under the next.
+    do {
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.actAnswers = [(409, #"{"error":"no"}"#)]
+        _ = await save(m)
+        check(m.holdSay == "no" && m.holdSayAtForm, "premise: refused at the form")
+        mac.actAnswers = [(409, #"{"error":"not now"}"#)]
+        await m.toggleHold(wasOnHold: true, names: [:])
+        check(m.holdSay == "not now" && !m.holdSayAtForm && m.holdRefused, "the button's refusal is by the button")
+        m.clearHoldFormSay()
+        check(m.holdSay == "not now", "and a new choice in the form leaves it")
+        mac.projects = onFive
+        await m.read()
+        check(m.holdSay == "not now", "and it is not the form's, so the hold moving leaves it")
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = bare } }
+        _ = await save(m, Board.HoldChoice(), base: five)
+        check(m.holdSay == Board.holdSaved && !m.holdRefused && m.holdSayAtForm, "a Save starts clean")
+        m.sayNoMembersOnHold()
+        check(m.holdSay == Board.holdChooseNobody && !m.holdSayAtForm, "a line by the button is by the button")
+        await m.read()
+        check(m.holdSay == Board.holdChooseNobody, "and stays")
+    }
+    do {
+        // A part's line goes at a Save, as at the button.
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        m.sayNoMembers()
+        check(m.partSay != nil, "premise: a part line")
+        _ = await save(m)
+        check(m.partSay == nil, "a Save takes the part's line down")
+    }
+}
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

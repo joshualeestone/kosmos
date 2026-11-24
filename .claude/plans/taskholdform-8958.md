@@ -1,6 +1,6 @@
 # taskholdform-8958: what a hold waits for and why, on the iPhone's task page (kosmos#8958 slice B8)
 
-Stacked on taskparts-8958 (B7, 1ddfcd1962). Not built yet: this is what was read and decided on 2026-11-24.
+Stacked on taskparts-8958 (B7, 1ddfcd1962). Read and decided on 2026-11-24, and built the same day.
 
 ## What the board does (web/index.html tkPaintHoldUntil, tkHoldChoice, tk-hold-save; engine/tasks.js setOnHold, holdUntilOf)
 Lines on a held, open task, in this order:
@@ -35,3 +35,13 @@ The form, on a held, open task only:
   the painter and whether the board can edit them).
 - The wake line (tk-wake-line, tskWakeSentence, #8669).
 Then the info button goes or is relabelled, and the card's simulator screenshots are taken.
+
+## Built, and where it differs from the board on purpose
+- The lines (why, how fresh, the suggested answer, what it waits for) are under the hold hint, one line each, where the board runs
+  them together; so no full stop is added between them. The form is its own section, On hold, under the hold button and Mark as done.
+- What Save says is by its Save; what the hold button says is by the button (the board has one line for both).
+- The date picker is limited as the board's is, but a stored time that has passed is still shown, never another drawn over it. A time
+  chosen out of range says so (the phone's own words); the board's box does it by itself. The first time offered is tomorrow at nine.
+- A condition the phone cannot read goes back whole when only the reason is saved, as the board sends it.
+- A refusal, or Saved., goes once the stored hold reads otherwise; Saved. is not said over something else.
+- The weakest premise: a menu holds every open task of the project (as the New Task sheet's Part of does), long on a big project.

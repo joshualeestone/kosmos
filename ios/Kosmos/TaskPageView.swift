@@ -50,6 +50,10 @@ struct TaskPageView: View {
     private static var subKept = NewTask.KeptDrafts()
     // kosmos#8958 slice B7: the part being typed.
     @State private var newPart = ""
+    // kosmos#8958 slice B8: what the hold form holds while it differs from the stored hold, and the stored hold it was made
+    // against, or last followed.
+    @State private var holdDraft: Board.HoldChoice?
+    @State private var holdBase: Board.HoldChoice?
 
     init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
         self.client = client
@@ -104,7 +108,7 @@ struct TaskPageView: View {
                 model.tookAdded()
             }
             // Another account or Mac: the list is about nothing, and an undo still out would hold it open.
-            .onChange(of: client.chatEpoch) { _ in undoOpen = false; newPart = ""; adding = nil; subDraft = NewTask.Draft(); subHeld = nil; subAdded = nil }
+            .onChange(of: client.chatEpoch) { _ in undoOpen = false; newPart = ""; holdDraft = nil; holdBase = nil; adding = nil; subDraft = NewTask.Draft(); subHeld = nil; subAdded = nil }
             .onChange(of: subDraft) { _ in keepSub() }
             .onChange(of: subHeld) { _ in keepSub() }
             .sheet(item: $adding) { start in
@@ -201,6 +205,7 @@ struct TaskPageView: View {
         VStack(alignment: .leading, spacing: 20) {
             header(p)
             doneBlock(p)
+            if let hold = p.hold { holdBlock(p, hold) }
             dueBlock(p)
             if !p.closed { repeatBlock(p) }
             whoBlock(p)
@@ -212,6 +217,12 @@ struct TaskPageView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         // A finished task has no Repeats section, and an unsaved choice does not come back if it is reopened.
         .onChange(of: p.closed) { closed in if closed { repeatDraft = nil; repeatDraftBase = nil; repeatBox = nil } }
+        // The stored hold moved (another device, an agent, a Save): what was not changed here follows it. Taken off, or the task
+        // finished: the next hold's form starts from what is stored.
+        .onChange(of: p.hold?.stored) { stored in
+            holdDraft = Board.holdFollow(holdDraft, base: holdBase, stored: stored)
+            holdBase = holdDraft == nil ? nil : stored
+        }
         // Another receipt starts with its files closed, as the board's does: which are open is kept by the agent's place in
         // the list, and another receipt can put another agent there. One read again and found the same keeps them.
         .onChange(of: model.receipt) { _ in if !receiptFilesOpen.isEmpty { receiptFilesOpen = [] } }
@@ -269,13 +280,15 @@ struct TaskPageView: View {
             if let hold = p.holdLine {
                 Text(hold).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            // kosmos#8958 slice B2: the board's tk-hold, on an open task. What a hold waits for and why are still set on
-            // the board's page (the info button).
+            ForEach(Array(p.holdLines(now: Date()).enumerated()), id: \.offset) { _, line in
+                Text(line).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            // kosmos#8958 slice B2: the board's tk-hold, on an open task. What a hold waits for and why: holdBlock.
             if !p.closed {
                 let was = p.onHold
                 Button { model.touched(); Task { await model.toggleHold(wasOnHold: was, names: names) } } label: {
                     HStack(spacing: 8) {
-                        if model.holding { SweepDots(scales: false) }
+                        if model.holding && !model.holdFormSaving { SweepDots(scales: false) }
                         Text(Board.holdTitle(onHold: was)).font(.body.weight(.semibold)).foregroundColor(Palette.link)
                     }
                     .frame(maxWidth: .infinity, minHeight: 44)
@@ -285,12 +298,9 @@ struct TaskPageView: View {
                 .buttonStyle(.plain)
                 .disabled(model.holding || model.pressing || model.partWriting != nil)
                 .opacity(model.holding || model.pressing || model.partWriting != nil ? 0.6 : 1)
-                .accessibilityValue(model.holding ? "In progress" : "")
-                if let say = model.holdSay {
-                    Text(say).font(.footnote).foregroundColor(model.holdRefused ? Palette.dangerWord : Palette.secondary).fixedSize(horizontal: false, vertical: true)
-                        .id("hold:" + say)
-                        .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
-                }
+                .accessibilityValue(model.holding && !model.holdFormSaving ? "In progress" : "")
+                // The form's own line is by its Save, while the form is there.
+                if !model.holdSayAtForm || p.hold == nil { holdLine }
                 if model.holdSay != nil, model.holdChoose { chooseWho(p) }
                 if model.partAtHold { partLine }   // whoBlock draws it once the task is finished and this block is not
             }
@@ -335,6 +345,135 @@ struct TaskPageView: View {
                 Text(refusal).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
                     .onAppear { UIAccessibility.post(notification: .announcement, argument: refusal) }
             }
+        }
+    }
+
+    // What the last press or Save said about the hold.
+    @ViewBuilder private var holdLine: some View {
+        if let say = model.holdSay {
+            Text(say).font(.footnote).foregroundColor(model.holdRefused ? Palette.dangerWord : Palette.secondary).fixedSize(horizontal: false, vertical: true)
+                .id("hold:" + say)
+                .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
+        }
+    }
+
+    // kosmos#8958 slice B8: the board's form on a held, open task (tk-hold-for, tk-hold-task, tk-hold-at, tk-hold-why-in): what
+    // the hold waits for and why. It shows what is stored unless there is an unsaved change; Save sends only what was changed.
+    private func holdBlock(_ p: Board.TaskPage, _ h: Board.TaskHold) -> some View {
+        let stored = h.stored
+        let shown = holdDraft ?? stored
+        let edit = { (change: (inout Board.HoldChoice) -> Void) in
+            var c = holdDraft ?? stored
+            if holdDraft == nil { holdBase = stored }
+            model.touched()
+            model.clearHoldFormSay()
+            change(&c)
+            // Kept even when it is now what is stored (Save is then off): dropped here, a space typed at the end of the reason
+            // would be taken from under the person's fingers.
+            holdDraft = c
+        }
+        let base = holdBase ?? stored
+        let now = Date()
+        let ready = Board.holdReady(shown, stored: base, now: now)
+        let late = shown.kind == .at && !Board.holdSameWait(shown, base) && !Board.holdAheadOK(shown, now: now)
+        let off = !ready || model.holding || model.pressing || model.partWriting != nil
+        return VStack(alignment: .leading, spacing: 6) {
+            sectionTitle(Board.holdSection)
+            holdRow(Board.holdForLabel) {
+                Picker(Board.holdForSpoken, selection: Binding(get: { shown.kind }, set: { v in edit { c in
+                    c.kind = v
+                    if v == .at, c.at == nil { c.at = Board.holdFirstTime(now: Date()) }
+                } })) {
+                    ForEach(Board.HoldFor.allCases, id: \.self) { Text($0.words).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityLabel(Board.holdForSpoken)
+                .accessibilityInputLabels([Board.holdForLabel, shown.kind.words])
+                .tint(Palette.link)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("taskpage.hold.for")
+            }
+            switch shown.kind {
+            case .nothing: EmptyView()
+            case .task:
+                let options = Board.holdOptions(h, chosen: shown.task)
+                Picker(Board.holdTaskSpoken, selection: Binding(get: { shown.task }, set: { v in edit { $0.task = v } })) {
+                    ForEach(options, id: \.self) { Text(verbatim: $0.words).tag($0.value) }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityLabel(Board.holdTaskSpoken)
+                .tint(Palette.link)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("taskpage.hold.task")
+            case .at:
+                // A time that has passed is shown as it is kept: a range that left it out would draw another one over it.
+                let range = Board.holdRange(now: now)
+                let at = shown.at ?? Board.holdFirstTime(now: now)
+                DatePicker(Board.holdAtSpoken, selection: Binding(get: { at }, set: { v in edit { $0.at = v } }),
+                           in: min(range.lowerBound, at)...max(range.upperBound, at), displayedComponents: [.date, .hourAndMinute])
+                    .labelsHidden()
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("taskpage.hold.at")
+                if late {
+                    Text(Board.holdAhead).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+                        .onAppear { UIAccessibility.post(notification: .announcement, argument: Board.holdAhead) }
+                }
+            }
+            holdRow(Board.holdWhyLabel) {
+                TextField(Board.holdWhyPrompt, text: Binding(get: { shown.why }, set: { v in
+                    let kept = Board.capped(v, Board.holdWhyMax)
+                    if kept != shown.why { edit { $0.why = kept } }
+                }))
+                .submitLabel(.done)
+                .frame(minHeight: 44)
+                .padding(.horizontal, 8)
+                .background(RoundedRectangle(cornerRadius: 8).stroke(Palette.secondary.opacity(0.4), lineWidth: 1))
+                .accessibilityLabel(Board.holdWhySpoken)
+                .accessibilityInputLabels([Board.holdWhyLabel, Board.holdWhySpoken])
+                .accessibilityIdentifier("taskpage.hold.why")
+            }
+            if !p.onHoldByPerson {
+                Text(Board.holdTakeover(forPerson: p.onHoldForPerson, paused: p.projectPaused)).font(.footnote).foregroundColor(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 12) {
+                Button {
+                    model.touched()
+                    let choice = shown
+                    Task {
+                        // The draft goes once the page reads what was saved (onChange of the stored hold); if that read failed,
+                        // the form keeps what was saved.
+                        await model.saveHold(choice, base: base, names: names)
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        if model.holdFormSaving { SweepDots(scales: false) }
+                        Text("Save").font(.footnote.weight(.semibold)).foregroundColor(Palette.link)
+                    }
+                    .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(off)
+                .opacity(off ? 0.5 : 1)
+                .accessibilityLabel(Board.holdSaveSpoken)
+                .accessibilityInputLabels(["Save", Board.holdSaveSpoken])
+                .accessibilityValue(model.holdFormSaving ? "In progress" : "")
+                .accessibilityIdentifier("taskpage.hold.save")
+                if holdDraft != nil && !Board.holdSame(shown, stored) {
+                    dueAction("Cancel", label: "Cancel the change to this hold", busy: model.holding) { model.clearHoldFormSay(); holdDraft = nil; holdBase = nil }
+                }
+            }
+            if model.holdSayAtForm { holdLine }
+        }
+        .disabled(model.holdFormSaving)
+    }
+    private func holdRow<C: View>(_ label: String, @ViewBuilder _ control: () -> C) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            // Hidden from VoiceOver: the control's own label says it, so it is not read twice.
+            Text(label).font(.footnote).foregroundColor(Palette.secondary).accessibilityHidden(true)
+            control()
         }
     }
 
@@ -1115,6 +1254,18 @@ struct TaskPageView: View {
         if path.hasSuffix("/who") { sampleParts[i].who = body["who"] as? String }
         else { sampleParts[i].closed = path.hasSuffix("/close") }
     }
+    // kosmos#8958 slice B8: the sample task 4's hold (POST .../hold), served back by the next read.
+    private static var sampleHold: [String: Any]?
+    private static func sampleHolding(_ body: [String: Any]) {
+        guard body["onHold"] as? Bool == true else { sampleHold = nil; return }
+        var h: [String: Any] = ["onHold": true, "onHoldByPerson": true]
+        h["onHoldBecause"] = body["because"] ?? sampleHold?["onHoldBecause"]
+        if let until = body["until"] as? [String: Any] {
+            h["onHoldUntil"] = until
+            h["holdUntil"] = ["words": (until["at"] as? String) ?? "task #\(until["task"] ?? 0) is closed", "met": false]
+        }
+        sampleHold = h
+    }
     private static func sampleSend(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         guard let r = build(URL(string: "https://sample.invalid")!), let url = r.url else { return nil }
         let path = url.path
@@ -1146,6 +1297,13 @@ struct TaskPageView: View {
                 #"{"id":\#(p.id),"who":\#(p.who.map(Self.jsonString) ?? "null"),"sentence":\#(Self.jsonString(p.sentence)),"closedAt":\#(p.closed ? #""2026-11-24T16:00:00.000Z""# : "null")}"#
             }.joined(separator: ",")
         }
+        let holdNow: String = sampleLock.withLock {
+            if r.httpMethod == "POST", path.hasSuffix("/task/4/hold") {
+                sampleHolding(r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:])
+            }
+            guard let h = sampleHold, let d = try? JSONSerialization.data(withJSONObject: h) else { return "" }
+            return String(String(decoding: d, as: UTF8.self).dropFirst().dropLast()) + ","
+        }
         let undoneNow: [Int: Int] = sampleLock.withLock { sampleUndone }
         let repeatNow: [Int: (rule: String, words: String)] = sampleLock.withLock { sampleRepeat }
         let dueNow: [Int: String] = sampleLock.withLock { sampleDue }
@@ -1166,7 +1324,7 @@ struct TaskPageView: View {
         if path.hasSuffix("/projects") {
             body = #"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","paused":false,"agents":[{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"tasks":["#
                 + #"{"number":3,"sentence":"Print-ready catalogue","addedBy":"operator","addedVia":"screen","createdAt":""# + iso(4000) + #"",\#(closed(3, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":null,"sentence":"Print-ready catalogue"}]},"#
-                + #"{"number":4,"sentence":"# + Self.jsonString(titleNow[4] ?? "Pages 1 to 8") + #","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","# + (dueNow[4].map { $0.isEmpty ? "" : #""dueDate":"# + Self.jsonString($0) + "," } ?? #""dueDate":"2026-10-30","#) + (repeatNow[4].map { #""repeat":"# + $0.rule + #","repeatWords":"# + Self.jsonString($0.words) + "," } ?? "") + #""builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":["# + partsNow + #"],"claim":{"claimed":true,"about":"dana"}},"#
+                + #"{"number":4,"sentence":"# + Self.jsonString(titleNow[4] ?? "Pages 1 to 8") + #","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","# + (dueNow[4].map { $0.isEmpty ? "" : #""dueDate":"# + Self.jsonString($0) + "," } ?? #""dueDate":"2026-10-30","#) + (repeatNow[4].map { #""repeat":"# + $0.rule + #","repeatWords":"# + Self.jsonString($0.words) + "," } ?? "") + #""builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(holdNow)\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":["# + partsNow + #"],"claim":{"claimed":true,"about":"dana"}},"#
                 + #"{"number":8,"sentence":"Pages 9 to 12","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2800) + #"",\#(closed(8, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 9 to 12"}]}"#
                 + #"]}]}"#
         } else if path.contains("/part"), path.hasSuffix("/who"),
