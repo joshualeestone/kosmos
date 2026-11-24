@@ -112,3 +112,11 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 ## Challenge loop iteration 12 (sonnet)
 - Fixed (WARNING): a subagent's event (parent_tool_use_id) counted as a turn opening, so a background subagent's event after a result could disarm a waiting message's deadline and mark it started. Only the main agent's events open a turn now, as the join path already filtered.
 - Mutation red: the subagent filter.
+
+## Challenge loop iteration 13 (opus, the whole diff and the whole test file)
+- Fixed (WARNING): whether a message waits behind a turn was read from the busy state, which a background subagent's event sets with no main turn open, so a message that ran was reported as never started (and the person told to send it again). It is now `mainTurnOpen` (the first main-agent event opens a turn, its result ends it). A write whose callback comes within OPEN_RACE_MS (1 s) of a main turn that opened on no message is that turn's opener (the bytes reached the agent before the callback). One deadline per run of unstarted writes.
+- Fixed (WARNING): the deadline dropped reported messages from the list, so a late start of one was credited to a newer message, which could then be lost in silence. Reported messages stay, marked `reported`, are matched to their own late start, and are never counted at a stop. A deadline report ends once its reported messages have started (not on any turn). When a report ends, its messages that never started leave the list.
+- Decided, with its cost: a turn that opens after reported messages is credited to them as a late start. A wake-up cannot be told from a late start in the stream. The cost of crediting is that a truly dropped message is taken to have run; the other way silences a newer one. Two earlier tests (reviews 2 and 7) built exactly that indistinguishable turn and now expect the credit; the guard that a wake-up with NOTHING reported cannot end a carried report still holds.
+- Fixed (NIT): MSGS_MAX now has a test that can fail.
+- Removed after mutation testing: two clauses no reachable state distinguishes (a reported message is always ready; finished records are always the oldest), with the reason in the comments.
+- Mutations red: main turn not busy, the race opener, reported messages kept, the cap.
