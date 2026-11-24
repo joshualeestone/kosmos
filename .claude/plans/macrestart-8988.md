@@ -88,6 +88,7 @@ until the next turn's Stop. It fails toward showing a restart a little too long,
   STARTUP, ADOPT, RETURN, GROUP, HASH, NOLANG, MODE (with its control), RACE and SPACE; the header of the file says what each
   proves. Each supervisor piece was removed in turn and its arm failed, and the supervisor's stderr must carry no
   shell error (it caught `session_id_exact` defined after its caller).
-- engine/macrestart-8988.test.js: parsing, the window, a later start, exit 0, the clearer over real self-report files read
-  by the real `selfreport.history`, and the card's
+- engine/macrestart-8988.test.js: parsing, the run that died and the run after it, a later launch, exit 0, the boot check,
+  Kosmos's own restarts, the clearer over real self-report files read by the real `selfreport.history`, the cleared-line
+  memory, the death file removed with the run file, no record in a named Kosmos, and the card's
   Mac branch of status.restartedOf (ours, not ours, another runner).

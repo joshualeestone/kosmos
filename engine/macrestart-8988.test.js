@@ -102,7 +102,9 @@ test('#8988 a finished answer after the restart clears it; one before it, an ope
   const reached = [{ state: 'working', at: T0 * 1000 - 1000, by: 'auto' }]; reached.truncated = true;
   assert.ok(mr.restartedFor('hal', { memo: false, bootMs: 0, history: () => reached, read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' status 7\n' : runs) }),
     'CONTROL: a cut record that reaches back past the restart, with no finished turn, keeps the line');
-  const unreadable = mr.restartedFor('hal', { memo: false, read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' status 7\n' : runs), history: () => { throw new Error('x'); } });
+  let asked = 0;
+  const unreadable = mr.restartedFor('hal', { memo: false, bootMs: 0, read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' status 7\n' : runs), history: () => { asked += 1; throw new Error('x'); } });
+  assert.equal(asked, 1, 'precondition: the record was asked for');
   assert.equal(unreadable, null, 'when the record cannot say, no line');
 });
 

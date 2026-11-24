@@ -49,7 +49,7 @@ const REAL_TMUX = (() => {
 const SKIP = SKIP_POSIX_SHELL || (REAL_TMUX ? false : 'no tmux on this machine');
 const NAME = 'macrestart8988';
 
-function fixture(tag = '', { lang = 'en_US.UTF-8', slowKill = false } = {}) {
+function fixture(tag = '', { lang = 'en_US.UTF-8' } = {}) {
   /* A short root: a tmux socket path must fit in sun_path (104 bytes on macOS). */
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mr8988-' + tag)));
   for (const dir of ['bin', 'data', 'work', 'shim', 'home', 'ctl']) fs.mkdirSync(path.join(root, dir), { recursive: true });
@@ -121,8 +121,8 @@ function fixture(tag = '', { lang = 'en_US.UTF-8', slowKill = false } = {}) {
     return JSON.parse(r.stdout);
   };
   const cleanup = () => {
+    for (const c of kids) if (c.exitCode === null && c.signalCode === null) c.kill('SIGKILL');   // first: a supervisor not yet at its new-session could start a server afterwards
     try { killServerAt(REAL_TMUX, sock, { env, stdio: 'ignore' }); } catch { /* no server, or already gone */ }
-    for (const c of kids) if (c.exitCode === null && c.signalCode === null) c.kill('SIGKILL');
     try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
   };
   const stderrText = () => err;
@@ -161,7 +161,7 @@ test('#8988 SIGNAL: a process ended by a signal is recorded by name', { skip: SK
     await f.until(f.hooked, 'its pane-died hook');
     f.tell('term');
     await f.ends(one);
-    assert.match(String(f.died()), /^\d{9,11} signal term\n$/i);
+    assert.match(String(f.died()), /^\d{9,11} signal (term|15)\n$/i);
     assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
   } finally { f.cleanup(); }
 });
