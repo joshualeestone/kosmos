@@ -2015,6 +2015,12 @@ function questionMenuKeysAllowed(sessionName, roster) {
 }
 const QMENU_BUSY = new Set();   // pane targets with a key answer or a close in progress
 const QMENU_BUSY_SENTENCE = 'its question is being handled right now, so nothing was sent; look at this page again in a moment';
+/* kosmos#8952 slice (d): is a key answer, a close or a delivery under way on this card's pane? engine/permgrow.js leaves
+   such a pane's size alone, so a press's before and after reads see the same screen. */
+function paneKeysBusy(card) {
+  const t = paneTarget(card);
+  return QMENU_BUSY.has(t) || deliveryQueues.has(t);
+}
 /* Run `fn` holding the pane's key-answer slot (the check above refused if it was taken). */
 async function withQmenuSlot(allowed, fn) {
   const t = paneTarget(allowed.card);
@@ -5620,7 +5626,7 @@ module.exports = {
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,
   defaultAgentFor, looksLikeManager,
   dmSeenRead, markDmSeen, dmSummaryAll, dmUnreadAll, dmUnread, DM_SEEN,
-  setRunner, setDryRun, setPauser, tmuxCall: tmux /* kosmos#8952 slice (d): engine/permgrow.js, through the same runner and dry-run guard */, setChannel, resetForTests, CODEX_ENTER_GAP_MS,
+  setRunner, setDryRun, setPauser, tmuxCall: tmux, paneKeysBusy /* kosmos#8952 slice (d): engine/permgrow.js, through the same runner and dry-run guard */, setChannel, resetForTests, CODEX_ENTER_GAP_MS,
   chatsDir: DIR,
 };
 

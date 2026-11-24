@@ -1,38 +1,47 @@
 'use strict';
 
 /*
- * kosmos#8952 slice (d): let a long permission request be approved from the phone or the board.
+ * kosmos#8952 slice (d): let a long permission request be approved from the board or the phone's conversation page.
  *
  * THE PROBLEM. Agents start at tmux's default 80x24 (bin/agent-supervisor.sh passes no size). A permission prompt for a
- * long command does not fit, so Claude Code draws the bottom of the box only ("↑ 50 more lines"), its top rule and title
- * off screen. chat.permissionAnswerable is false there on purpose (#6054 review 3: a cut box could share its visible tail
- * with another command's), so slice (c) offers only its No.
+ * long command does not fit, so Claude Code draws the bottom of the box only, ending in its own hint "↑ 50 more lines",
+ * the top rule and title off screen. chat.permissionAnswerable is false there on purpose (#6054 review 3: a cut box could
+ * share its visible tail with another command's), so slice (c) offers only its No.
  *
  * WHAT THIS DOES. While such a cut prompt is up on a Claude agent's window that nobody is watching, the window is made
- * GROW_ROWS tall. Claude Code redraws the WHOLE box at that height (measured 2026-11-24 on 2.1.331, tmux 3.6a: a 60-line
- * mkdir at 80x24 showed 15 lines; at 200 rows every line, title to question). The next read of the screen then takes the
- * ordinary whole-box path (permissionCard, the request fingerprint, the press route's re-look), unchanged. When the
- * prompt is gone the window goes back to the size it had.
+ * taller by exactly the hidden rows (plus FIT_MARGIN), up to MAX_ROWS. Claude Code redraws the WHOLE box at that height,
+ * and the next read of the screen takes the ordinary whole-box path (permissionCard, the request fingerprint, the press
+ * route's re-look), unchanged. When the prompt is gone the window goes back to the size it had.
  *
- * MEASURED, AND WHY EACH RULE IS HERE:
+ * MEASURED (2026-11-24, Claude Code 2.1.331, tmux 3.6a; card comment 7131048790 and the round-1 notes):
+ *  - At 80x24 a 60-line mkdir shows 15 lines and "↑ 50 more lines". At 24 + 50 + 2 = 76 rows every line draws, title to
+ *    question, with nothing below the box, and status.classify reads needs_you. A flat 200 rows left 26 blank rows under
+ *    the box (the screen is shorter than the pane), and classify, which reads the last 25 rows, said unknown. So the
+ *    window grows by the hint, never by a guess, and with no hint on screen it is not grown at all.
  *  - `resize-window` sets the window's `window-size` option to manual, and so does `resize-window -A`. Restoring is the
  *    recorded size first, THEN unsetting the option (unset before the resize and the resize sets it again).
  *  - A client attached to the session (a person watching in a terminal) is panned to the TOP of a window taller than
- *    itself, so it loses sight of the question. So a window with a client attached is never grown, and a grown window
- *    whose session gains a client is put back at once. That person is at the computer and can answer there.
- *  - The size is recorded in a window option (GROWN_OPT) BEFORE the resize, so a board restart or a crash between the two
- *    still finds the window to put back. Nothing else is kept in memory.
+ *    itself and loses sight of the question. So a window with any client (its own session's, or a grouped session's) is
+ *    never grown, and a grown window that gains one is put back at once. That person can answer at the computer.
+ *  - The size is recorded in a window option (GROWN_OPT) BEFORE the resize, as "<W>x<H>@<world>", so a board restart or a
+ *    crash between the two still finds the window to put back, and a second board on the same tmux server (another
+ *    world) never touches this board's windows, nor this board its.
  *
- * NOT DONE: a box taller than GROW_ROWS stays cut, and slice (c)'s No stays. A window with more than one pane is left
- * alone (resizing the window would resize the other panes too; agents run one pane per session).
+ * NOT DONE: a box taller than MAX_ROWS stays cut, and slice (c)'s No stays. A window with more than one pane is left
+ * alone (resizing it would resize the other panes too; agents run one pane per session). The lock-screen notice is
+ * unchanged: it offers buttons only for a one-line command (server.js phonePermissionNow), which a cut box never is.
  */
 
 const status = require('./status');
 const chat = require('./chat');
 
 const GROWN_OPT = '@kosmos_permgrow';
-const GROW_ROWS = 200;
-const FIELDS = ['#{session_name}', '#{window_index}', '#{window_panes}', '#{session_attached}', '#{window_width}', '#{window_height}', `#{${GROWN_OPT}}`];
+const MAX_ROWS = 200;
+const FIT_MARGIN = 4;
+const DEFAULT_SIZE = { w: 80, h: 24 };   // tmux's default-size, what an agent starts at: the restore for a mark with no size
+const RETRY_AFTER_MS = 60 * 1000;
+const FIELDS = ['#{session_name}', '#{window_index}', '#{window_panes}', '#{session_attached}', '#{session_group_attached}',
+  '#{window_width}', '#{window_height}', `#{${GROWN_OPT}}`];
 const LIST_ARGS = ['list-windows', '-a', '-F', FIELDS.join('\t')];
 
 function sizeOf(v) {
@@ -42,6 +51,13 @@ function sizeOf(v) {
   return w > 0 && h > 0 ? { w, h } : null;
 }
 
+/* A mark is "<W>x<H>@<world>". { world, size } with size null when the size part does not read; null when there is no
+   "@<world>" (not a mark this code writes). */
+function markOf(v) {
+  const m = /^(.*)@([A-Za-z0-9_-]+)$/.exec(String(v == null ? '' : v).trim());
+  return m ? { world: m[2], size: sizeOf(m[1]) } : null;
+}
+
 /* One row per window, from LIST_ARGS's output. A row that does not parse is dropped (it names no window we can act on). */
 function parseWindows(out) {
   const rows = [];
@@ -49,16 +65,16 @@ function parseWindows(out) {
     if (!line) continue;
     const c = line.split('\t');
     if (c.length !== FIELDS.length) continue;
-    const [session, win, panes, attached, w, h, grown] = c;
+    const [session, win, panes, attached, groupAttached, w, h, mark] = c;
     if (!session || !/^\d+$/.test(win)) continue;
     rows.push({
       session,
       window: win,
       panes: Number(panes),
-      attached: Number(attached) || 0,
+      attached: Math.max(Number(attached) || 0, Number(groupAttached) || 0),
       size: sizeOf(`${w}x${h}`),
-      grown: grown ? sizeOf(grown) : null,
-      grownRaw: grown || '',
+      mark: mark ? markOf(mark) : null,
+      markRaw: mark || '',
     });
   }
   return rows;
@@ -70,95 +86,151 @@ function windowOf(card) {
   return m ? { session: m[1], window: m[2] } : null;
 }
 
-/* PURE. What to do this tick: [{ act: 'grow' | 'restore', session, window, size? }].
-   `cards` is the roster; `windows` is parseWindows' rows; `screenOf(card)` returns the screen text the thread route
-   would read (chat.viewport's), or null when it could not be read. */
-function plan({ cards, windows, screenOf }) {
+/* The rows Claude Code says it left out of a box: its own "↑ N more lines" hint, read only in the last few rows (where it
+   draws it, under the options). null when there is none. */
+function hiddenRows(text) {
+  const tail = String(text == null ? '' : text).replace(/\s+$/, '').split('\n').slice(-6);
+  for (const l of tail) {
+    const m = /^\s*↑\s+(\d{1,4})\s+more lines?\s*$/.exec(l);
+    if (m) return Number(m[1]);
+  }
+  return null;
+}
+
+/* PURE. What to do this tick: [{ act: 'grow' | 'restore', session, window, size, rows? }] plus `judged`, the waiting
+   agents whose screen was read and needs nothing (so the next tick need not read it again while the same report stands).
+   `cards`: the roster. `windows`: parseWindows' rows. `waiting`: Map of session name -> report time, the agents whose
+   own hook reports a permission wait now. `skip`: Set of names judged earlier under the same report. `screenOf(card)`:
+   the screen the thread route would read, or null when it could not be read. `busy(card)`: a key answer or a delivery is
+   under way on its pane. `world`: this board's world id. */
+function plan({ cards, windows, waiting, skip, screenOf, busy, world }) {
   const acts = [];
-  const byKey = new Map();
-  for (const w of windows || []) byKey.set(`${w.session}\u0000${w.window}`, w);
+  const judged = [];
+  const list = Array.isArray(cards) ? cards : [];
   const cardAt = new Map();
-  for (const c of Array.isArray(cards) ? cards : []) {
+  for (const c of list) {
     const at = windowOf(c);
     if (at) cardAt.set(`${at.session}\u0000${at.window}`, c);
   }
-  for (const [key, w] of byKey) {
-    if (!w.grownRaw) continue;
-    /* A mark we cannot read back is cleared at the current size: no size to restore, and keeping it would keep this
-       window out of the grow arm forever. */
-    if (!w.grown) { acts.push({ act: 'restore', session: w.session, window: w.window, size: null }); continue; }
-    if (w.attached > 0) { acts.push({ act: 'restore', session: w.session, window: w.window, size: w.grown }); continue; }
-    const card = cardAt.get(key);
-    let text = null;
-    if (card) { try { text = screenOf(card); } catch { text = null; } }
-    if (card && text == null) continue;   // could not read it: keep the size, ask again next tick
-    if (!card || !status.claudePermissionPrompt(text)) acts.push({ act: 'restore', session: w.session, window: w.window, size: w.grown });
+  const read = (card) => { try { return screenOf(card); } catch { return null; } };
+  const isBusy = (card) => { try { return Boolean(busy && busy(card)); } catch { return true; } };
+  for (const w of windows || []) {
+    if (!w.mark || w.mark.world !== world) continue;   // not ours: another board's, or nothing this code wrote
+    const card = cardAt.get(`${w.session}\u0000${w.window}`);
+    const size = w.mark.size || DEFAULT_SIZE;
+    const restore = { act: 'restore', session: w.session, window: w.window, size };
+    if (card && isBusy(card)) continue;   // a press is reading this screen: leave it for the next tick
+    if (!w.mark.size || w.attached > 0 || !card) { acts.push(restore); continue; }
+    const text = read(card);
+    if (text == null) continue;   // could not read it: keep the size, ask again next tick
+    if (!status.claudePermissionPrompt(text)) acts.push(restore);
   }
-  for (const card of Array.isArray(cards) ? cards : []) {
+  for (const card of list) {
     if (!card || card.isNamedOurs !== true || card.reachedByChannel === true) continue;
     if (String(card.runner || 'claude') !== 'claude') continue;
-    if (card.state !== status.STATE.NEEDS_YOU) continue;
+    const name = card.sessionName;
+    if (!waiting || !waiting.has(name) || (skip && skip.has(name))) continue;
     const at = windowOf(card);
-    const w = at && byKey.get(`${at.session}\u0000${at.window}`);
-    if (!w || w.grownRaw || w.attached > 0 || w.panes !== 1 || !w.size || w.size.h >= GROW_ROWS) continue;
-    let text = null;
-    try { text = screenOf(card); } catch { text = null; }
-    if (text == null || !status.claudePermissionPrompt(text) || chat.permissionAnswerable(text)) continue;
-    acts.push({ act: 'grow', session: w.session, window: w.window, size: w.size });
+    const w = at && (windows || []).find((x) => x.session === at.session && x.window === at.window);
+    if (!w || w.markRaw || w.attached > 0 || w.panes !== 1 || !w.size || isBusy(card)) continue;
+    const text = read(card);
+    if (text == null) continue;
+    const hidden = status.claudePermissionPrompt(text) && !chat.permissionAnswerable(text) ? hiddenRows(text) : null;
+    const rows = hidden ? w.size.h + hidden + FIT_MARGIN : 0;
+    if (!hidden || rows > MAX_ROWS) { judged.push(name); continue; }
+    acts.push({ act: 'grow', session: w.session, window: w.window, size: w.size, rows });
   }
-  return acts;
+  return { acts, judged };
 }
 
 /* Runs one action through `tmux(args)` (chat's runner: { ran, status, out }). Returns true when tmux took every step. */
-function run(a, tmux) {
+function run(a, tmux, world) {
   const t = `=${a.session}:${a.window}`;
   const ok = (r) => Boolean(r && r.ran && r.status === 0);
   if (a.act === 'grow') {
-    if (!ok(tmux(['set-option', '-w', '-t', t, GROWN_OPT, `${a.size.w}x${a.size.h}`]))) return false;
-    if (ok(tmux(['resize-window', '-t', t, '-y', String(GROW_ROWS)]))) return true;
+    if (!ok(tmux(['set-option', '-w', '-t', t, GROWN_OPT, `${a.size.w}x${a.size.h}@${world}`]))) return false;
+    if (ok(tmux(['resize-window', '-t', t, '-y', String(a.rows)]))) return true;
+    // The resize may still have set window-size to manual: put the window back as it was, then clear the mark.
+    tmux(['resize-window', '-t', t, '-x', String(a.size.w), '-y', String(a.size.h)]);
     tmux(['set-option', '-w', '-t', t, '-u', 'window-size']);
     tmux(['set-option', '-w', '-t', t, '-u', GROWN_OPT]);
     return false;
   }
-  let fine = true;
-  if (a.size) fine = ok(tmux(['resize-window', '-t', t, '-x', String(a.size.w), '-y', String(a.size.h)]));
+  let fine = ok(tmux(['resize-window', '-t', t, '-x', String(a.size.w), '-y', String(a.size.h)]));
   // After the resize: resize-window sets window-size to manual, and unsetting it hands the size back to tmux's rule.
   fine = ok(tmux(['set-option', '-w', '-t', t, '-u', 'window-size'])) && fine;
   if (fine) fine = ok(tmux(['set-option', '-w', '-t', t, '-u', GROWN_OPT]));
   return fine;
 }
 
-/* Does any agent's own hook report a permission wait right now (selfreport's by:'auto' needs_you, what the phone's
-   notice keys on)? A cheap file read per agent, so the board's whole roster (a screen capture per agent) is built only
-   on a tick that could act. A report that cannot be read counts as asking: the roster then decides. */
-function anyPermissionWait() {
+/* Which agents' own hooks report a permission wait right now (selfreport's by:'auto' needs_you, what the phone's notice
+   keys on): Map of the store's key (store.safeKey of the session name) -> the report's time. A cheap file read per agent,
+   so the roster and the screens are read only on a tick that could act. */
+function permissionWaits() {
   const selfreport = require('./selfreport');
+  const found = new Map();
   let names;
-  try { names = require('node:fs').readdirSync(selfreport.DIR); } catch (e) { return !(e && e.code === 'ENOENT'); }
+  try { names = require('node:fs').readdirSync(selfreport.DIR); } catch { return found; }
   for (const f of names) {
     if (!f.endsWith('.jsonl')) continue;
-    try { if (selfreport.isAutoPermissionWait(selfreport.read(f.slice(0, -'.jsonl'.length)))) return true; } catch { return true; }
+    const key = f.slice(0, -'.jsonl'.length);
+    try {
+      const rep = selfreport.read(key);
+      if (selfreport.isAutoPermissionWait(rep)) found.set(key, String(rep.at || ''));
+    } catch { /* unreadable: not known to be waiting */ }
   }
-  return false;
+  return found;
 }
 
-/* One tick: list the windows, and only when a window is grown or an agent reports a permission wait, read the roster,
-   plan and act. `roster` is the board's roster or a function returning it (called at most once); `tmux` and `screenOf`
-   default to chat's; `asking` defaults to anyPermissionWait. */
-function sweepOnce({ roster, tmux = chat.tmuxCall, screenOf, log, asking = anyPermissionWait } = {}) {
+function keyOf(name) {
+  try { return require('./store').safeKey(name); } catch { return null; }
+}
+
+/* The sweep's memory between ticks: the reports already judged, and windows whose last action failed (left alone for
+   RETRY_AFTER_MS, and logged once). */
+function newMemory() { return { judged: new Map(), failedUntil: new Map() }; }
+
+/* One tick. `roster()` returns the board's roster (called at most once, and only on a tick that could act); `tmux`,
+   `screenOf`, `busy` default to chat's; `waits()` to permissionWaits; `world` to this board's. `restoreOnly` (the
+   operator brake) puts grown windows back and grows none. */
+function sweepOnce({ roster, tmux = chat.tmuxCall, screenOf, busy = chat.paneKeysBusy, waits = permissionWaits,
+  world = require('./launchidentity').currentWorldId(), memory = newMemory(), now = Date.now(), restoreOnly = false, log } = {}) {
   const listed = tmux(LIST_ARGS);
   if (!listed || !listed.ran || listed.status !== 0) return [];
   const windows = parseWindows(listed.out);
-  if (!windows.some((w) => w.grownRaw) && !asking()) return [];
+  const ours = windows.some((w) => w.mark && w.mark.world === world);
+  const byKey = restoreOnly ? new Map() : waits();
+  for (const k of memory.judged.keys()) if (byKey.get(k) !== memory.judged.get(k)) memory.judged.delete(k);
+  const fresh = [...byKey.keys()].some((k) => !memory.judged.has(k));
+  if (!ours && !fresh) return [];
   const cards = typeof roster === 'function' ? roster() : roster;
   if (!Array.isArray(cards)) return [];
-  const read = screenOf || ((card) => chat.viewport(card.sessionName, cards).text);
-  const acts = plan({ cards, windows, screenOf: read });
-  for (const a of acts) {
-    const done = run(a, tmux);
-    if (typeof log === 'function') log(`[permgrow] ${a.act} ${a.session}:${a.window}${a.size ? ` ${a.size.w}x${a.size.h}` : ''} ${done ? 'done' : 'failed'}\n`);
+  const waiting = new Map();
+  const skip = new Set();
+  for (const c of cards) {
+    const k = c && keyOf(c.sessionName);
+    if (k == null || !byKey.has(k)) continue;
+    waiting.set(c.sessionName, k);
+    if (memory.judged.has(k)) skip.add(c.sessionName);
   }
-  return acts;
+  const read = screenOf || ((card) => chat.viewport(card.sessionName, cards).text);
+  const { acts, judged } = plan({ cards, windows, waiting, skip, screenOf: read, busy, world });
+  for (const name of judged) { const k = waiting.get(name); if (k != null) memory.judged.set(k, byKey.get(k)); }
+  const done = [];
+  for (const a of acts) {
+    const key = `${a.session}\u0000${a.window}`;
+    const until = memory.failedUntil.get(key);
+    if (until && now < until) continue;
+    const took = run(a, tmux, world);
+    if (took) memory.failedUntil.delete(key);
+    else memory.failedUntil.set(key, now + RETRY_AFTER_MS);
+    if (typeof log === 'function' && (took || !until)) {
+      log(`[permgrow] ${a.act} ${a.session}:${a.window} ${a.act === 'grow' ? `to ${a.rows} rows` : `to ${a.size.w}x${a.size.h}`} ${took ? 'done' : 'failed'}\n`);
+    }
+    done.push({ ...a, took });
+  }
+  return done;
 }
 
-module.exports = { GROWN_OPT, GROW_ROWS, LIST_ARGS, parseWindows, windowOf, plan, run, anyPermissionWait, sweepOnce };
+module.exports = { GROWN_OPT, MAX_ROWS, FIT_MARGIN, DEFAULT_SIZE, RETRY_AFTER_MS, LIST_ARGS, parseWindows, markOf, windowOf,
+  hiddenRows, plan, run, permissionWaits, newMemory, sweepOnce };

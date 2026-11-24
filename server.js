@@ -30367,11 +30367,17 @@ function start(port = PORT) {
       /* kosmos#8952 slice (d): while a Claude agent's permission box is too tall for its window (its top cut, so it may
          only be refused from the phone or the board), make that window tall enough to draw the whole box, and put it
          back once the prompt is gone (engine/permgrow.js). Never a window a person is watching in a terminal. */
+      const permGrowMemory = require('./engine/permgrow').newMemory();
       const permGrowSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return;   // inert under test / before opt-in, like the sweep above
-        if (process.env.AGENT_WORKFORCE_PERMGROW_OFF === '1') return;   // operator brake
         try {
-          require('./engine/permgrow').sweepOnce({ roster: () => safeRoster(), log: (line) => process.stdout.write(line) });
+          require('./engine/permgrow').sweepOnce({
+            roster: () => sweepRoster(),   // the 20 s kept roster: built only on a tick that could act
+            memory: permGrowMemory,
+            // Operator brake: grow nothing, but still put back any window already grown.
+            restoreOnly: process.env.AGENT_WORKFORCE_PERMGROW_OFF === '1',
+            log: (line) => process.stdout.write(line),
+          });
         } catch { /* best-effort */ }
       }, Number(process.env.AGENT_WORKFORCE_PERMGROW_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_PERMGROW_MS) : 3000);
       if (permGrowSweep && typeof permGrowSweep.unref === 'function') permGrowSweep.unref();
