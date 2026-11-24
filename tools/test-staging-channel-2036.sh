@@ -127,6 +127,8 @@ has "$out" "run the check it could not: KOSMOS_GATE_EXPECT_VERSION=$V bash $(cd 
 has "$out" "this agent-spawn pass is not a check of $V" && pass "#5084: after a forced cannot-tell, the agent-spawn pass says it is not a check of $V" || bad "#5084: forced cannot-tell, agent pass not qualified (out=$out)"
 
 # ---- kosmos#8960: the board wait before the gates ----
+# A caller's own board-wait settings must not change these cases.
+unset KOSMOS_PROMOTE_BOARD_VERSION_CMD KOSMOS_PROMOTE_BOARD_SILENT_WAIT KOSMOS_PROMOTE_BOARD_WAIT KOSMOS_PROMOTE_BOARD_WAIT_STEP
 # A stub version reader plays a script of looks, one line per call, "rc:version"; the last line repeats. It logs each
 # call, so a case can count the looks. A fresh site per case.
 BV_STUB="$T/stub-board-version.sh"
@@ -156,6 +158,11 @@ Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
 bw "0:$V-rc1" 2 "$Sw"
 [ "$rc" = 2 ] && [ "$looks" = 1 ] && has "$out" "reports '$V-rc1', which cannot be compared with $V" \
   && pass "#8960: a version that cannot be compared with V ($V-rc1) is not waited for, and is not called later" || bad "#8960 uncomparable (rc=$rc looks=$looks out=$out)"
+# A cannot-tell look right after a silence is a board still starting: the wait goes on through it to V.
+Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
+bw "$(printf '1:\n2:\n0:%s' "$V")" 0 "$Sw"
+[ "$rc" = 0 ] && [ "$looks" = 3 ] && has "$out" "is still starting: it answered, but not with a version" && [ -f "$Sw/dist/latest.json" ] \
+  && pass "#8960: a cannot-tell look after a silence counts as the board starting, and the wait goes on to V" || bad "#8960 silence then cannot-tell (rc=$rc looks=$looks out=$out)"
 Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
 bw "2:" 2 "$Sw"
 ! has "$out" "the board wait already ran out" && pass "#8960 control: a HOLD with no wait run out has no skip hint" || bad "#8960: skip hint printed though the wait did not run out (out=$out)"

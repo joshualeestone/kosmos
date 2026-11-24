@@ -96,16 +96,19 @@
 #   KOSMOS_PROMOTE_BOARD_WAIT_STEP   seconds between looks (default 30; 0 is refused while the wait is on)
 #   KOSMOS_PROMOTE_BOARD_SILENT_WAIT   the longest the wait goes on while nothing answers, or only a server error does
 #             (default 600): an install takes a few minutes; a wrong port, a stopped board or one stuck on a 5xx never
-#             gets past it, and the gate then refuses it, about ten minutes later than with no wait
+#             gets past it, and the gate then refuses it, about ten minutes later than with no wait; 0 stops at the
+#             first silent look
 #   KOSMOS_PROMOTE_BOARD_VERSION_CMD  prints the version the board runs (default: bash <repo>/tools/staging-experience-check.sh
 #             --print-version). When KOSMOS_PROMOTE_GATE_CMD is set and this is not, there is no wait: the board is not known.
 #
 # THE BOARD WAIT (kosmos#8960). A board on the staging channel updates itself to V a few minutes after staging serves V.
 # Run the gates before that and the experience gate either refuses (exit 1: nothing answers on the port while the board
 # installs) or cannot tell (the board still runs the release before V), which is how 0.8.19 ended up forced. So before
-# the gates, promote waits, up to KOSMOS_PROMOTE_BOARD_WAIT seconds, while nothing answers on the gate's port or the
-# board answers with a version older than V, and prints what it is waiting for. It does not wait for a board that runs
-# V, a later release (a named promote after staging moved on), or one whose version it cannot read. When the time runs
+# the gates, promote waits, up to KOSMOS_PROMOTE_BOARD_WAIT seconds, while nothing answers on the gate's port, it
+# answers only with a server error, or it answers with a version older than V, and prints what it is waiting for. It
+# does not wait for a board that runs V, a later release (a named promote after staging moved on), a version that cannot
+# be compared with V, or one whose version it cannot read (unless that follows a silence: a board still starting).
+# A silence is capped by KOSMOS_PROMOTE_BOARD_SILENT_WAIT (see above). When the time runs
 # out it says so and runs the gates anyway, which then hold or refuse exactly as they would have. The gates are not
 # loosened: exit 1 still refuses.
 #
@@ -522,7 +525,7 @@ wait_for_board_on_v() {
   while :; do
     rc=0; bv="$($cmd ${PORT:+"$PORT"} 2>/dev/null)" || rc=$?
     bv="$(printf '%s' "$bv" | head -1 | tr -d '[:space:]')"
-    [ "$rc" = 1 ] || silent_since=""
+    [ "$rc" = 1 ] || [ "$rc" = 2 ] || silent_since=""
     if [ "$rc" = 0 ] && [ -n "$bv" ]; then
       if [ "$bv" = "$want" ]; then echo "promote-channel: the board on $port_words runs $want: the gates check $want itself."; return 0; fi
       local o=0; version_older "$bv" "$want" || o=$?
@@ -531,8 +534,10 @@ wait_for_board_on_v() {
         1) echo "promote-channel: no board wait: the board on $port_words runs $bv, later than $want, and will not run $want again; the gates say what that means."; return 0 ;;
         *) echo "promote-channel: no board wait: the board on $port_words reports '$bv', which cannot be compared with $want; the gates say what that means."; return 0 ;;
       esac
-    elif [ "$rc" = 1 ]; then
+    elif [ "$rc" = 1 ] || { [ -n "$silent_since" ] && [ "$rc" = 2 ]; }; then
+      # A cannot-tell answer right after a silence is a board still starting, and counts as part of the silence.
       why="nothing answers on $port_words, or only with a server error (a board installing an update or starting, or down)"
+      [ "$rc" = 1 ] || why="the board on $port_words is still starting: it answered, but not with a version (reader exit 2)"
       [ -n "$silent_since" ] || silent_since=$SECONDS
       if [ $((SECONDS - silent_since)) -ge "$silent_limit" ]; then
         BOARD_WAIT_RAN_OUT=1
@@ -552,8 +557,15 @@ wait_for_board_on_v() {
       echo "promote-channel: waiting for the board on $port_words to run $want before the gates: $why (${waited}s of ${limit}s; KOSMOS_PROMOTE_BOARD_WAIT=0 skips this)"
       last_said="$waited"; last_why="$why"
     fi
-    # Never sleep past the limit, so the last look lands on it.
-    [ $((limit - waited)) -lt "$step" ] && sleep "$((limit - waited))" || sleep "$step"
+    # Never sleep past either limit, so the last look lands on it.
+    local nap="$step" left=$((limit - waited))
+    [ "$left" -ge "$nap" ] || nap="$left"
+    if [ -n "$silent_since" ]; then
+      left=$((silent_limit - (SECONDS - silent_since)))
+      [ "$left" -lt 1 ] && left=1
+      [ "$left" -ge "$nap" ] || nap="$left"
+    fi
+    sleep "$nap"
   done
 }
 
