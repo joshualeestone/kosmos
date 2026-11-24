@@ -426,6 +426,10 @@ function record(sessionName, entry) {
        buzz, the Recommender does not convene, the card says it is held, and the next direct message from the person
        carries a note saying they are back. */
     held: state === 'needs_you' && entry.held === true && entry.auto !== true ? true : undefined,
+    /* kosmos#9011: `kosmos report clear` (a working report the agent sent to say its wait is answered or withdrawn),
+       kept so the card can tell a question the agent closed from one it dropped by reporting something else. Only on
+       the agent's own working report; every other line is unchanged. */
+    cleared: state === 'working' && entry.clear === true && entry.auto !== true ? true : undefined,
     /* #763: the project this report is about (a project id), when the agent
        says. A needs_you that names one lights that project alone; one that
        names none lights no project and is read on the Agents page. */
@@ -568,7 +572,8 @@ function latestOf(rows, cut) {
   /* kosmos#9011: the wait the agent raised itself (needs_you or blocked, by:'agent'), and once a later line has ended
      it, what ended it, so the card can say so instead of the wait vanishing. The hook's automatic idle, working and
      needs_you are refused over such a wait (record()), so they never appear after it; an automatic `blocked` (a
-     provider outage) is not an end, #6209 handles it. Kinds: 'agent' (its own report of another state), 'person' (a
+     provider outage) is not an end, #6209 handles it. Kinds: 'agent' (its own `kosmos report clear`), 'replaced' (its own report of
+     anything else), 'person' (a
      person's clear, by:'operator'), 'left' (it left the project, clearLeftovers), 'restart' (a new run's `started`,
      which retires the old wait by Josh's #5943 ruling), 'ended' (its session ended). A line with no author ends
      nothing said here (legacy provenance is not known). */
@@ -578,7 +583,9 @@ function latestOf(rows, cut) {
     if (WAITING_ON_A_PERSON.includes(row.state) && row.by === 'agent') {
       waitStanding = row; waitCleared = null;
     } else if (waitStanding && typeof row.at === 'string') {
-      const kind = row.by === 'agent' ? 'agent'
+      /* 'agent' only for its `kosmos report clear`; any other report of its own drops the question as a side effect
+         ('replaced'): the instructions say to raise needs_you and carry on, and a later plain report replaces it. */
+      const kind = row.by === 'agent' ? (row.cleared === true ? 'agent' : 'replaced')
         : row.by === 'operator' ? (typeof row.left === 'string' && row.left ? 'left' : 'person')
           : row.by === 'auto' && row.state === 'started' ? 'restart'
             : row.by === 'auto' && row.state === 'stopped' ? 'ended' : null;

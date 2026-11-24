@@ -29,6 +29,7 @@ const BASE = require('./fixtures/agent-card.json');
 
 const ENDS = {
   agent: ' was closed at {T} by the agent itself.',
+  replaced: ' was dropped at {T} when it reported something else.',
   person: ' was closed at {T} by you.',
   left: ' was closed at {T} when it left the project.',
   restart: ' was set aside at {T} when it started again.',

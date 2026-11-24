@@ -20304,6 +20304,7 @@ const server = http.createServer(async (req, res) => {
           owner: said(body.owner),
           until: said(body.until),
           held: body.held === true,   // #7915
+          clear: body.clear === true,   // kosmos#9011: `kosmos report clear`, kept on the line as `cleared`
           /* #570: which RUN said it, when the sender came from a launch token.
              The pane arm resolves no instance and leaves this undefined. */
           instance: sender.instance,
