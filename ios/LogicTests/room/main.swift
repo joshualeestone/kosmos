@@ -2200,6 +2200,7 @@ do {
     let none = P.parseAccounts(Data(#"{"accounts":[]}"#.utf8))
     let signedOut = P.parseAccounts(Data(#"{"accounts":[{"dir":"/a","provider":"anthropic","connection":{"badge":"signed_out","state":"none"}}]}"#.utf8))
     let refused = P.parseAccounts(Data(#"{"accounts":[{"dir":"/o","provider":"openai","offerable":false}]}"#.utf8))
+    let stateNone = P.parseAccounts(Data(#"{"accounts":[{"dir":"/a","provider":"anthropic","connection":{"badge":"ok","state":"none"}}]}"#.utf8))
     check(one?.count == 1 && none?.count == 0 && signedOut?.count == 1 && refused?.count == 1, "the fixtures parse as the board's rows")
     check(P.emptyStateGoesNative(connected: true, firstRunDone: true, accounts: one), "connected, set up, with an account: native")
     check(!P.emptyStateGoesNative(connected: false, firstRunDone: true, accounts: one), "CONTROL: not connected, the board's form")
@@ -2208,6 +2209,7 @@ do {
     check(!P.emptyStateGoesNative(connected: true, firstRunDone: true, accounts: none), "no AI account: the board's form")
     check(!P.emptyStateGoesNative(connected: true, firstRunDone: true, accounts: signedOut), "only a signed-out account: the board's form")
     check(!P.emptyStateGoesNative(connected: true, firstRunDone: true, accounts: refused), "review 1: only a row the board marks not offerable: the board's form")
+    check(stateNone?.count == 1 && !P.emptyStateGoesNative(connected: true, firstRunDone: true, accounts: stateNone), "review 2: a connection whose state is none (badge ok): the board's form")
     check(!P.emptyStateGoesNative(connected: true, firstRunDone: true, accounts: nil), "accounts not read: the board path, never a guess")
     check(P.parseFirstRunDone(Data(#"{"done":true,"steps":[]}"#.utf8)) == true && P.parseFirstRunDone(Data(#"{"done":false}"#.utf8)) == false,
           "first-run's done is read")

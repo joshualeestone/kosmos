@@ -34,6 +34,8 @@ test('kosmos#8783: the empty Agents tab offers "Make an agent", which opens the 
     'native only when the rule says so (first-run done and an account)');
   assert.match(content, /guard NewAgentPicker\.tapAnswerStands\(epochAtTap: epoch, epochNow: board\.chatEpoch, unlocked: isUnlocked\) else \{ return \}\s*if native \{ newAgentOpen = true \} else \{ openCreate\(\.agent\) \}/,
     'review 1: a late answer must not open anything after a switch or the lock');
+  // Review 2: the busy flag is reset BEFORE the late-answer gate, so a refused answer can never leave the button stuck.
+  assert.match(content, /firstAgentBusy = false\s*guard NewAgentPicker\.tapAnswerStands/, 'the busy flag is not reset before the gate');
   assert.match(view, /accessibilityIdentifier\("agents-empty-setup"\)/, 'the button has no identifier for a UI test');
   assert.match(view, /Text\("It takes a few steps, and you can stop at any point\."\)/, 'Mona Lisa\'s line under the heading (11-19)');
 });

@@ -139,7 +139,7 @@ enum NewAgentPicker {
        Anything not read (nil) is the board path, never a guess. */
     static func emptyStateGoesNative(connected: Bool, firstRunDone: Bool?, accounts: [Account]?) -> Bool {
         guard connected, firstRunDone == true, let rows = accounts else { return false }
-        return rows.contains { offerable($0) && !($0.hasConnection && $0.state == "none") && $0.offerable }
+        return rows.contains(where: usable)
     }
     /* kosmos#8954 review 1: /api/first-run's `done`, or nil when the answer is not that shape. */
     static func parseFirstRunDone(_ data: Data) -> Bool? {
@@ -154,6 +154,8 @@ enum NewAgentPicker {
     static func tapAnswerStands(epochAtTap: Int, epochNow: Int, unlocked: Bool) -> Bool {
         unlocked && epochAtTap == epochNow
     }
+    /* An account the create and switch lists can both use (the provider menu's "usable", kosmos#8954 review 2: one copy). */
+    static func usable(_ a: Account) -> Bool { offerable(a) && !(a.hasConnection && a.state == "none") && a.offerable }
     // acctUnknownLive: a live check that could not be read.
     static func unknownLive(_ a: Account) -> Bool {
         guard a.hasConnection else { return false }
@@ -270,7 +272,7 @@ enum NewAgentPicker {
                 if p == .deepseek && ready.compat != true { return Option(provider: p, enabled: false, off: Words.comingSoon) }
                 // "Usable" is both rules: the create list's and the switch list's.
                 let has = acc.known && acc.rows.contains {
-                    $0.provider == p && offerable($0) && !($0.hasConnection && $0.state == "none") && $0.offerable
+                    $0.provider == p && usable($0)
                 }
                 if has { return Option(provider: p, enabled: true, off: nil) }
                 return Option(provider: p, enabled: false, off: acc.known ? Words.connect : acc.failed ? Words.couldNotCheck : Words.checking)
