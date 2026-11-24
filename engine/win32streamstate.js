@@ -299,6 +299,19 @@ function unstartedFor(name) {
   return { since: new Date(Date.parse(u.since)).toISOString(), count: u.count, lost: u.lost === true };   // lost: the process ended with them
 }
 
+/** kosmos#8979: { at (ISO, when its process ended and was started again), why } from the agent's state file while no
+    turn on the restarted process has ended without an error, or null. Only for a file whose process is alive. */
+function restartedFor(name) {
+  let rec;
+  try { rec = JSON.parse(fs.readFileSync(statePath(name), 'utf8')); } catch { return null; }
+  if (!rec || typeof rec !== 'object' || rec.v !== STATE_FILE_VERSION) return null;
+  const r = rec.restarted;
+  if (!r || typeof r !== 'object' || typeof r.at !== 'string' || !Number.isFinite(Date.parse(r.at))) return null;
+  if (typeof r.why !== 'string' || !r.why.trim()) return null;
+  if (!Number.isInteger(rec.pid) || !processAlive(rec.pid)) return null;
+  return { at: new Date(Date.parse(r.at)).toISOString(), why: r.why.trim().slice(0, 300) };
+}
+
 /** #5805: an epoch time from `resetsAt` as an ISO string, or null. The schema gives seconds; a value already in
     milliseconds (past 1e12) is taken as it is, so a later change of unit cannot put the reset in 1970 or 57000 AD. */
 function resetIso(v) {
@@ -461,6 +474,45 @@ function signInAfterEvent(event, turnAuthRefused = false) {
   const status401 = !!event.api_error && typeof event.api_error === 'object' && (event.api_error.status === 401 || event.api_error.statusCode === 401);
   if (!isStreamSignInError(text) && !isStreamSignInError(apiErr) && !status401) return undefined;
   return { line: text.replace(/\s+/g, ' ').trim().slice(0, LIMIT_LINE_MAX) || null };
+}
+
+/** kosmos#8967 / #8979: "exit code N", with its NTSTATUS hex for a Windows code past 255 or below 0, or null for no code. */
+function exitCodeText(code) {
+  if (typeof code !== 'number' || !Number.isFinite(code)) return null;
+  const hex = code > 255 || code < 0 ? ' = 0x' + (code >>> 0).toString(16).toUpperCase().padStart(8, '0') : '';
+  return 'exit code ' + code + hex;
+}
+
+/** kosmos#8979: the most of Claude's own error text that the card's restart line carries. */
+const RESTART_TEXT_MAX = 160;
+
+/**
+ * kosmos#8979: why an agent's process ended, in plain words for its card's "Restarted at <time>: <why>" line.
+ * `errEvent` is the last error result it printed (#8967: read by is_error, or an `error...` subtype, never by a
+ * `success` subtype, which Claude uses for usage and sign-in failures too); `auth` and `limited` are what the ended
+ * process's own stream had already shown. In that order: the sign-in, the usage limit, Claude's own error, the signal,
+ * the exit code. Never throws.
+ */
+function restartWhy(d) {
+  const o = d && typeof d === 'object' ? d : {};
+  const ev = o.errEvent;
+  const e = ev && typeof ev === 'object' && !Array.isArray(ev) && ev.type === 'result'
+    && (ev.is_error === true || (typeof ev.subtype === 'string' && /^error/.test(ev.subtype))) ? ev : null;
+  let signedOut = o.auth === true;
+  if (!signedOut && e && e.is_error === true) { try { signedOut = !!signInAfterEvent(e); } catch { signedOut = false; } }
+  if (signedOut) return 'Claude is not signed in.';
+  if (o.limited === true) return 'Claude reached its usage limit.';
+  if (e) {
+    const list = Array.isArray(e.errors) ? e.errors.filter((x) => typeof x === 'string' && x.trim()) : [];
+    let text = (list.length ? list.join(' | ') : (typeof e.result === 'string' ? e.result : '')).replace(/\s+/g, ' ').trim();
+    if (text.length > RESTART_TEXT_MAX) text = text.slice(0, RESTART_TEXT_MAX - 1).trimEnd() + '\u2026';
+    if (!text) return 'Claude stopped on an error.';
+    return 'Claude stopped on an error: ' + text + (/[.!?\u2026]$/.test(text) ? '' : '.');
+  }
+  if (typeof o.signal === 'string' && o.signal) return 'Claude was ended (signal ' + o.signal + ').';
+  const code = exitCodeText(o.code);
+  if (code && o.code !== 0) return 'Claude stopped unexpectedly (' + code + ').';
+  return 'Claude stopped without saying why.';
 }
 
 /** One stream line as an event, or null when it is not JSON. */
@@ -727,6 +779,10 @@ function publisher(name, opts) {
   /* kosmos#8951: what the process that just ended had taken in and never run ({ since, count }), carried to the next one
      (on 11-23 each delivery killed the agent and the resume came back without the message). */
   let lostOnStop = null;
+  /* kosmos#8979: the restart the supervisor said it is about to make ({ at, why }), put on the next process's record;
+     and what the process that just ended had shown about its sign-in and limit, which the reason reads. */
+  let restartOnStop = null;
+  let endedShowed = { auth: false, limited: false };
 
   /* kosmos#8951: the turn deadline, armed when a message must start a turn (a write into an idle agent, or messages left
      waiting when a turn ends). Fires only while `startDue` is still this object, so a turn that started, a stop or a new
@@ -818,7 +874,8 @@ function publisher(name, opts) {
     /* #7369: and the sign-in record, which a result can set or clear while the token stays idle. */
     return c.state + '\u0000' + JSON.stringify(c.limit || null) + '\u0000' + JSON.stringify(c.auth || null) + '\u0000' + clock
       + '\u0000' + (c.queued || 0) + '\u0000' + ((c.queued || 0) > 0 ? (c.step || '') : '')
-      + '\u0000' + JSON.stringify(c.unstarted || null);   // kosmos#8951
+      + '\u0000' + JSON.stringify(c.unstarted || null)   // kosmos#8951
+      + '\u0000' + JSON.stringify(c.restarted || null);   // kosmos#8979
   }
   function setState(next) {
     if (next === BUSY && current.state !== BUSY) { current.step = null; current.stepSince = new Date(nowMs()).toISOString(); }
@@ -835,6 +892,7 @@ function publisher(name, opts) {
     if (current.queued > 0) rec.queued = current.queued;
     if (current.auth) rec.auth = current.auth;
     if (current.unstarted) rec.unstarted = current.unstarted;   // kosmos#8951: taken in, never started (unstartedFor)
+    if (current.restarted) rec.restarted = current.restarted;   // kosmos#8979: its process ended and was started again (restartedFor)
     const r = write(rec);
     if (r && r.ok) { written = keyOf(current); retrying = false; return; }
     onProblem('we could not record its state (' + ((r && r.because) || 'unknown') + ')');
@@ -894,7 +952,9 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, needsWrite: false, reportRan: false, clearArmedFor: null, msgs: [], mainTurnOpen: false };
+      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, needsWrite: false, reportRan: false, clearArmedFor: null, msgs: [], mainTurnOpen: false, restarted: null };
+      /* kosmos#8979: a restart the supervisor said it was making is this process's record until a turn ends well. */
+      if (restartOnStop) { current.restarted = restartOnStop; restartOnStop = null; }
       /* kosmos#8951: messages the previous process took in and never ran are this agent's still: said on the new
          process's record, so its card says so, until a turn starts. */
       const lost = lostOnStop;
@@ -1027,7 +1087,14 @@ function publisher(name, opts) {
         current.auth = null;
         authChanged = true;
       }
-      if (next || lim !== undefined || current.limit || authChanged || stepChanged) flush();
+      /* kosmos#8979: a turn on the restarted process that reached the model and ended without an error (the rule that
+         clears the sign-in and the limit above) ends the restart's story. */
+      let restartCleared = false;
+      if (current.restarted && e && e.type === 'result' && e.is_error !== true && !e.api_error && current.reachedModel === true) {
+        current.restarted = null;
+        restartCleared = true;
+      }
+      if (next || lim !== undefined || current.limit || authChanged || stepChanged || restartCleared) flush();
     },
     /** A message reached the agent's stdin. */
     wrote() {
@@ -1056,6 +1123,7 @@ function publisher(name, opts) {
     /** The agent process is gone. */
     stopped() {
       const was = current;
+      endedShowed = { auth: !!(was && was.auth), limited: !!(was && was.limit) };   // kosmos#8979
       /* kosmos#8951: what it took in and never ran goes to the next process: an earlier report no turn cleared, plus
          anything written since. */
       /* Review 5: a report whose messages are known to have run (still on its hold) is not carried: they ran. */
@@ -1090,6 +1158,14 @@ function publisher(name, opts) {
          its own, so it clears nothing. */
       if (was) clear(was.pid);
     },
+    /** kosmos#8979: the supervisor is starting the agent again after its process ended ({ code, signal, errEvent }, as
+        `restartWhy` reads them). Recorded on the next process's state, so its card says when and why. Never throws. */
+    restarting(d) {
+      try {
+        const o = d && typeof d === 'object' ? d : {};
+        restartOnStop = { at: new Date(nowMs()).toISOString(), why: restartWhy({ ...o, auth: endedShowed.auth, limited: endedShowed.limited }) };
+      } catch { /* the card misses one restart line; the task log still has the death */ }
+    },
     /** The running session's id rotated under it (a `/clear` does this, #2669).
         Re-stamp the file with the new id so `stateFor` still matches the live
         row; the pid and the state token do not change, so the write is forced. */
@@ -1105,4 +1181,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { startedAt, STEP_CLOCK_MS, START_DEADLINE_MS, LOST_WINDOW_MS, REPORT_HOLD_MS, MSGS_MAX, unstartedFor, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
+module.exports = { restartWhy, restartedFor, exitCodeText, RESTART_TEXT_MAX, startedAt, STEP_CLOCK_MS, START_DEADLINE_MS, LOST_WINDOW_MS, REPORT_HOLD_MS, MSGS_MAX, unstartedFor, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };

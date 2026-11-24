@@ -405,7 +405,7 @@ if (require.main === module) main(process.argv.slice(2));
 /* ── the streaming supervisor (7c-1) ───────────────────────────────────────── */
 
 /* A stream sink that records nothing: the default, so only `main()` publishes. */
-const NO_STREAM = { started() {}, event() {}, wrote() {}, stopped() {}, rekey() {} };
+const NO_STREAM = { started() {}, event() {}, wrote() {}, stopped() {}, rekey() {}, restarting() {} };
 
 /* How long between attempts to record an agent's new session id after a `/clear`
    (#2669), and how many attempts. The failures worth retrying are short: a rename
@@ -488,9 +488,8 @@ function endsLastError(e) {
  */
 function exitWords(code, signal) {
   if (signal) return ' (signal ' + signal + ')';
-  if (typeof code !== 'number' || !Number.isFinite(code)) return '';
-  const hex = code > 255 || code < 0 ? ' = 0x' + (code >>> 0).toString(16).toUpperCase().padStart(8, '0') : '';
-  return ' (exit code ' + code + hex + ')';
+  const text = require('./win32streamstate').exitCodeText(code);   // kosmos#8979: one spelling, shared with the card
+  return text ? ' (' + text + ')' : '';
 }
 
 /** kosmos#8967: one task-log line for one supervisor event. A `died` line carries its exit. */
@@ -725,16 +724,17 @@ function superviseStreaming(spec, opts) {
        unrelated death. The death waits for stdout to end (see `gone`). */
     let stdoutSaid = '';
     let saidIsResult = false;   // an error result outranks any non-event line after it in the same turn
+    let saidEvent = null;   // kosmos#8979: that error result itself, for the card's plain reason (null for a non-event line)
     if (c.stdout && typeof c.stdout.on === 'function') {
       const feed = lineReader((line) => {
         const e = parseEvent(line);
         const err = stdoutError(e, line);
         const isEvent = Boolean(e) && typeof e === 'object' && !Array.isArray(e);
-        if (err && (isEvent || !saidIsResult)) { stdoutSaid = err; saidIsResult = isEvent; }
+        if (err && (isEvent || !saidIsResult)) { stdoutSaid = err; saidIsResult = isEvent; saidEvent = isEvent ? e : null; }
         /* A success, or the start of a new turn, ends the last error's story (an
            error result, or a non-event line, alike): "its last error" means this
            turn's, never one from hours before. */
-        else if (endsLastError(e)) { stdoutSaid = ''; saidIsResult = false; }
+        else if (endsLastError(e)) { stdoutSaid = ''; saidIsResult = false; saidEvent = null; }
         /* The record above is this child's own, so it is kept even once the child is
            replaced or has exited (its death's line still needs it); what follows
            publishes, and only the CURRENT child may. An exited child is no longer
@@ -822,6 +822,11 @@ function superviseStreaming(spec, opts) {
       /* A stopped loop decides no next start: `stop()` clears `child` before the
          child exits, so a stop during a failed resume leaves its row alone. */
       if (nothingToResume && wasCurrent) startFreshAfter(handle.sessionId);
+      /* kosmos#8979: a restart follows (this was the running child, and the loop was not stopped), so the next process's
+         card says when and why. A stop clears `running` before the child exits, so a stop is never said as a restart. */
+      if (running && wasCurrent && typeof stream.restarting === 'function') {
+        try { stream.restarting({ code: code === undefined ? null : code, signal: signal || null, errEvent: saidEvent }); } catch { /* the death line above still says it */ }
+      }
       if (running) schedule();
     };
     c.on('exit', gone);
