@@ -36,3 +36,10 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 - Fixed (NIT): the stall's words are singular for one message.
 - Accepted (NIT): idle Windows Claude cards now read their state file once more per poll (unstartedFor); stateFor already reads it, and the write retries once on a failed rename.
 - Mutations red: the result gate, the kept-behind message, the hold, the later-write rule (after a test fix: the wake-up now comes past the hold, so only that rule keeps the report), the lost flag, not re-saying a carried report.
+
+## Challenge loop iteration 2 (sonnet) and PigeonPete's read (card #8951)
+- Fixed (WARNING, iteration 2): a write the deadline merged into an existing report still counted as "a later write", so a turn nobody wrote could end it while neither message had run. The merge now resets it.
+- Fixed (NIT, iteration 2): the log line for a merged report keeps `lost` when the stopped process lost some of them.
+- Fixed (PigeonPete, should-fix): a report the deadline made on the same process stayed on the card after the message started late and finished. Now a deadline report ends on any turn the same process opens (after the hold); a report carried from a stopped process (`lost`) still needs a turn opened by a later write. The round 1 test now uses a carried report; a new test covers the late start.
+- Fixed (PigeonPete, nit): the #8951 block in deliveryStallOf sat between #7368's comment and its code.
+- Mutations red: the merge reset, the late-start rule, the lost rule.
