@@ -1718,6 +1718,11 @@ do {
     check(Board.shownText(xml16, limit: 9)?.text == "<a>" && Board.shownText(xml16, limit: 9)?.cut == true,
           "UTF-16 text cut at an odd byte is cut to whole characters and converted, and says it was cut")
     check(Board.shownText(Data("bplist00".utf8) + Data([0, 1, 2]), limit: 100) == nil, "a binary property list is not shown as text")
+    var emoji16 = Data([0xFF, 0xFE]); emoji16.append("ab\u{1F600}cd".data(using: .utf16LittleEndian)!)
+    check(Board.shownText(emoji16, limit: 8)?.text == "ab", "a cut inside an emoji (between its two halves) drops the first half, and the rest shows")
+    var emoji16be = Data([0xFE, 0xFF]); emoji16be.append("ab\u{1F600}cd".data(using: .utf16BigEndian)!)
+    check(Board.shownText(emoji16be, limit: 8)?.text == "ab" && Board.shownText(emoji16be, limit: 10)?.text == "ab\u{1F600}",
+          "the same in big-endian; CONTROL: a cut after the whole emoji keeps it")
     check(Board.shownText(Data("<r>ok</r>".utf8), limit: 100).map { $0.text == "<r>ok</r>" && !$0.cut } == true
           && Board.shownText(Data("<r>ok</r>".utf8), limit: 3).map { $0.text == "<r>" && $0.cut } == true, "CONTROL: plain text, whole and cut")
     let svgBytes = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"><a href=\"http://x/\"><rect width=\"1\" height=\"1\"/></a></svg>".utf8)

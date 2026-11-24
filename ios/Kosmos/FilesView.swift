@@ -3,8 +3,8 @@ import QuickLook   // review 2: .quickLookPreview, never reached only through an
 
 // kosmos#7679: an agent's or a project's Files, as the board's Files screens show them. An agent's opens at the top of its
 // Files folder with its folders first (the board's paintAgentFilesAll, through /files/browse); a project's is one list
-// (the board's Documents view, through /documents). A file opens in Quick Look exactly as a chat file does (fetchFile),
-// and Quick Look's share button is the share sheet. A page or markup file opens on the board instead, as in the chat.
+// (the board's Documents view, through /documents). A file opens exactly as a chat file does (fetchFile, then
+// filePreview: Quick Look, or WebFileView for a page or markup file), each with its share button.
 // The decisions and the words are in FilesLogic.swift (tested).
 struct FilesView: View {
     @ObservedObject var client: BoardClient
@@ -255,7 +255,7 @@ struct FilesSection: View {
 }
 
 // Opening a listed file, shared by the Files screen and the agent page's section: one file at a time, fetched through
-// the chat's fetchFile and shown in Quick Look; a page or markup file opens on the board instead (the chat's rule).
+// the chat's fetchFile and shown by filePreview, as the chat shows one.
 @MainActor
 final class FileOpener: ObservableObject {
     @Published var opening: String?
