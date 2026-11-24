@@ -568,10 +568,9 @@ struct AgentInfoView: View {
         let res = await client.throughMac { Board.removalPlanRequest(mac: $0, session: session) }
         guard mine == removalLoad, !removed, !removeBusy else { return }
         let plan = Board.removalPlan(status: res?.1.statusCode ?? 0, body: res?.0, session: session)
-        // A read that did not answer keeps a plan already shown (the next refresh asks again).
-        if plan == .unreached, case .can? = removal { return }
-        if case .can = plan {} else { removeAsk = nil }
-        removal = plan
+        guard let next = Board.removalNext(shown: removal, read: plan) else { return }
+        if case .can = next {} else { removeAsk = nil }
+        removal = next
     }
 
     @MainActor private func remove(_ ask: Board.RemovalAsk) async {
@@ -601,9 +600,10 @@ struct AgentInfoView: View {
 
     @MainActor private func restart() async {
         let session = agent.session
-        let mine = (AgentInfoView.restartTokens[session] ?? 0) + 1
-        AgentInfoView.restartTokens[session] = mine
-        let current = { AgentInfoView.restartTokens[session] == mine }
+        let key = (client.macURL?.host ?? "") + "|" + session   // the same name on another computer is another agent
+        let mine = (AgentInfoView.restartTokens[key] ?? 0) + 1
+        AgentInfoView.restartTokens[key] = mine
+        let current = { AgentInfoView.restartTokens[key] == mine }
         // A newer restart of this agent (from another page) owns the wait and its line; this page lets go of its hold.
         let superseded = { restartBusy = false; restartLine = nil }
         restartBusy = true
