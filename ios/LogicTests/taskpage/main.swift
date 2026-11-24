@@ -100,7 +100,7 @@ check(parts?.stateWord == "1 of 2 parts done", "two parts, one done: the count")
 check(parts?.partLines(roster: roster).map { "\($0.who)|\($0.line ?? "")|\($0.done)" } == ["Eli||true", "Dana|Check linen prices|false"],
       "each part: who, its own words when they differ, and done")
 check(parts?.holdLine == "You put this on hold, so only you can take it off, here. Kosmos does not nudge anyone about it or hand it out.",
-      "held by the person: said, and where it is taken off (the phone has no control for it)")
+      "held by the person: said, and where it is taken off (here, since #8958 slice B2)")
 check(parts?.added(now: createdAt, calendar: cal) == "eli, today", "added by an agent: the board's own words (its session name)")
 
 let replaced = page(6)
@@ -726,6 +726,10 @@ check(Board.taskEdit(title: "Pages 1 to 8", detail: "", openedTitle: "Pages 1\nt
 await b1ModelTests()
 
 section("#8958 slice B2: Put on hold and Take off hold")
+// Declared before the B2 tests run: a main.swift global below its first use is still empty there.
+let heldTask3 = Data(#"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","tasks":[{"number":3,"sentence":"Pages 9 to 12","onHold":true,"createdAt":"2026-10-24T12:00:00.000Z","parts":[{"id":1,"who":"dana"}]}]}]}"#.utf8)
+let noTask3 = Data(#"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","tasks":[]}]}"#.utf8)
+let closedTask3 = Data(#"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","tasks":[{"number":3,"sentence":"Pages 9 to 12","closedAt":"2026-10-25T12:00:00.000Z","createdAt":"2026-10-24T12:00:00.000Z","parts":[{"id":1,"who":"dana","closedAt":"2026-10-25T12:00:00.000Z"}],"progress":{"done":1,"total":1,"closed":true}}]}]}"#.utf8)
 let hold = Board.taskHoldRequest(mac: macURL, project: "springcatalogue", number: 4, onHold: true)
 check(hold?.httpMethod == "POST" && hold?.url?.path == "/api/project/springcatalogue/task/4/hold" && bodyOf(hold)?["onHold"] as? Bool == true,
       "Put on hold posts onHold true to the task's hold route")
@@ -733,7 +737,20 @@ check(bodyOf(Board.taskHoldRequest(mac: macURL, project: "springcatalogue", numb
 check(Board.holdTitle(onHold: false) == "Put on hold" && Board.holdTitle(onHold: true) == "Take off hold", "the board's two words")
 check(Board.holdNextLine(Data(#"{"task":{},"next":"It stays with Dana."}"#.utf8)) == "It stays with Dana.", "an unhold's next sentence is said")
 check(Board.holdNextLine(Data(#"{"next":"Nobody is on it, and the Assigner is off, so it waits for a person. To choose who, assign it now."}"#.utf8))
-      == "Nobody is on it, and the Assigner is off, so it waits for a person.", "the board's assign ask is cut (no picker here yet)")
+      == "Nobody is on it, and the Assigner is off, so it waits for a person. To choose who, open this task on your computer's board.",
+      "the board's assign ask is cut (no picker here yet) and the person told where choosing happens")
+let looseBeside = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"dana","sentence":"S"},{"id":2,"sentence":"T"}]}"#)
+let allOn = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"dana","sentence":"S"}]}"#)
+check(Board.holdNextLine(Data(#"{"next":"It stays with Dana."}"#.utf8), page: looseBeside) == "It stays with Dana. To choose who, open this task on your computer's board.",
+      "a free part beside one somebody is on (the board's looseBesideHeld): where to choose is said too")
+check(Board.holdNextLine(Data(#"{"next":"It stays with Dana."}"#.utf8), page: allOn) == "It stays with Dana.", "CONTROL: every open part has somebody: nothing added")
+if let a = allOn, let held = synthetic(#"{"number":1,"sentence":"S","onHold":true,"parts":[{"id":1,"who":"dana","sentence":"S"}]}"#),
+   let paused = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"dana","sentence":"S"}]}"#, paused: true),
+   let other = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"eli","sentence":"S"}]}"#) {
+    check(Board.holdNextSig(a) == Board.holdNextSig(a), "the next line's signature is stable for the same task")
+    check(Board.holdNextSig(held) != Board.holdNextSig(a) && Board.holdNextSig(paused) != Board.holdNextSig(a) && Board.holdNextSig(other) != Board.holdNextSig(a),
+          "the signature changes when the task is held again, the project paused, or someone else is on it")
+} else { check(false, "the signature fixtures parse") }
 check(Board.holdNextLine(Data(#"{"task":{}}"#.utf8)) == nil, "a hold answers with no next: nothing said")
 
 await b2ModelTests()
@@ -771,6 +788,110 @@ func b2ModelTests() async {
     mac.asked = []
     await m.toggleHold(wasOnHold: true, names: nm)
     check(mac.asked.isEmpty, "a press whose button no longer matches the task sends nothing")
+    await b2ReviewTests()
+}
+
+
+// kosmos#8958 slice B2 review 1: the guards no check above could tell from their absence.
+@MainActor
+func b2ReviewTests() async {
+    let nm = ["dana": "Dana"]
+    func fresh(_ mac: FakeMac, parse: TaskPageModel.Parse? = nil) async -> TaskPageModel {
+        let m = parse.map { TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch }, parse: $0) }
+            ?? TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch })
+        m.onScreen = true
+        await m.read()
+        return m
+    }
+    let posted: (FakeMac) -> Bool = { $0.asked.contains { $0.hasSuffix("/hold") } }
+
+    // The check is its own read: the tick's read overtaking it cannot leave the check on the task as it was (WARNING 1).
+    do {
+        final class Gate { var armed = false; var held: CheckedContinuation<Void, Never>? }
+        let gate = Gate()
+        let mac = FakeMac()
+        let m = await fresh(mac, parse: { data, project, number in
+            if gate.armed { gate.armed = false; await withCheckedContinuation { gate.held = $0 } }
+            return Board.parseTaskPage(data, project: project, number: number)
+        })
+        check(m.page?.onHold == false, "premise: shown as not on hold")
+        mac.projects = (200, heldTask3)   // an agent has just put it on hold
+        mac.asked = []
+        mac.holdTheNext()
+        let pressing = Task { await m.toggleHold(wasOnHold: false, names: nm) }
+        await waitUntil({ mac.holding }, "the press's check held on the wire")
+        gate.armed = true
+        let tick = Task { await m.read() }
+        await waitUntil({ gate.held != nil }, "the tick's read held in its parse")
+        mac.release()
+        await pressing.value
+        check(!posted(mac) && m.holdSay == Board.holdAlready, "a tick read overtaking the press's check: the agent's hold is seen, nothing is posted")
+        gate.held?.resume(); gate.held = nil
+        await tick.value
+    }
+    // Two presses at once: the second sends nothing.
+    do {
+        let mac = FakeMac(); let m = await fresh(mac)
+        mac.asked = []
+        mac.holdTheNext()
+        let first = Task { await m.toggleHold(wasOnHold: false, names: nm) }
+        await waitUntil({ mac.holding }, "the first press's check held")
+        await m.toggleHold(wasOnHold: false, names: nm)
+        check(mac.asked == ["GET /api/projects"], "a second press while one is out sends nothing")
+        // Mark as done waits for the hold too (WARNING 3).
+        if let act = m.page?.act { await m.press(act, names: nm) }
+        check(mac.asked == ["GET /api/projects"], "Mark as done while a hold is out sends nothing")
+        mac.release()
+        await first.value
+        check(mac.asked.filter { $0.hasSuffix("/hold") }.count == 1, "the first press still posts its one hold")
+    }
+    // A closed task: no hold is sent.
+    do {
+        let mac = FakeMac(); mac.projects = (200, closedTask3); let m = await fresh(mac)
+        check(m.page?.closed == true, "premise: task 3 reads closed")
+        mac.asked = []
+        await m.toggleHold(wasOnHold: false, names: nm)
+        check(mac.asked.isEmpty && m.holdSay == nil, "a closed task: nothing sent")
+    }
+    // Gone by the check, and a check that could not read: nothing posted, and the board's words.
+    do {
+        let mac = FakeMac(); let m = await fresh(mac)
+        mac.projects = (200, noTask3); mac.asked = []
+        await m.toggleHold(wasOnHold: false, names: nm)
+        check(!posted(mac) && m.holdSay == Board.holdTaskGone && m.gone, "gone by the check: nothing posted, said so, and the page knows")
+        let mac2 = FakeMac(); let m2 = await fresh(mac2)
+        mac2.projects = (500, Data("{}".utf8)); mac2.asked = []
+        await m2.toggleHold(wasOnHold: false, names: nm)
+        check(!posted(mac2) && m2.holdSay == Board.holdCheckFailed && !m2.holding, "a check that could not read: nothing posted, said so")
+        mac2.projects = nil
+        await m2.toggleHold(wasOnHold: false, names: nm)
+        check(m2.holdSay == Board.holdCheckFailed, "no answer at all: the same")
+    }
+    // Signed out while the hold is in the air: nothing more is read or said.
+    do {
+        let mac = FakeMac(); let m = await fresh(mac)
+        mac.asked = []
+        mac.onSend = { r in if r.url!.path.hasSuffix("/hold") { mac.epoch += 1 } }
+        mac.actAnswers = [(200, #"{"task":{},"next":"It stays with Dana."}"#)]
+        mac.projects = (200, heldTask3)
+        await m.read()   // the page shows it held, so Take off hold
+        mac.asked = []
+        await m.toggleHold(wasOnHold: true, names: nm)
+        check(mac.asked == ["POST /api/project/springcatalogue/task/3/hold"] && m.holdSay == nil, "signed out mid-press: no read after, nothing said")
+    }
+    // The next line goes when the task no longer reads as it did (WARNING 2), and stays while it does.
+    do {
+        let mac = FakeMac(); mac.projects = (200, heldTask3); let m = await fresh(mac)
+        mac.projects = (200, projectsData)
+        mac.actAnswers = [(200, #"{"task":{},"next":"It stays with Dana."}"#)]
+        await m.toggleHold(wasOnHold: true, names: nm)
+        check(m.holdSay == "It stays with Dana.", "premise: the next line is said")
+        await m.read()
+        check(m.holdSay == "It stays with Dana.", "CONTROL: a tick that reads the same keeps the line")
+        mac.projects = (200, heldTask3)   // an agent holds it again
+        await m.read()
+        check(m.holdSay == nil, "held again elsewhere: the stale next line goes")
+    }
 }
 
 @MainActor

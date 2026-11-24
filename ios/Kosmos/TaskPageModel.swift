@@ -30,6 +30,9 @@ final class TaskPageModel: ObservableObject {
     // kosmos#8958 slice B2: Put on hold / Take off hold in the air, and the line under it (the board's tk-hold-msg).
     @Published private(set) var holding = false
     @Published private(set) var holdSay: String?
+    // What the task read as when holdSay was the unhold's next sentence (Board.holdNextSig): the line goes once the task
+    // reads otherwise, as the board's repaint takes it down (review 1).
+    private var holdSaySig: String?
     // The title and detail being saved, and the line for the last save (the board's tk-msg for the form).
     // Like `pressing`, saying, dueSaving and editSaving stay set when the epoch moves mid-request: the page is then about
     // nothing.
@@ -123,9 +126,11 @@ final class TaskPageModel: ObservableObject {
             // A refusal is about the press it answered: once the task reads otherwise (another device did it), it goes.
             if refusal != nil, let was = page, was.act != p.act { refusal = nil }
             if p != page { page = p }
+            if let sig = holdSaySig, Board.holdNextSig(p) != sig { holdSay = nil; holdSaySig = nil }
             set(\.gone, false)
             set(\.readFailed, false)
         case .gone:
+            if holdSaySig != nil { holdSay = nil; holdSaySig = nil }
             set(\.gone, true)
             set(\.readFailed, false)
         case .unreadable:
@@ -193,7 +198,9 @@ final class TaskPageModel: ObservableObject {
     // Mark as done or Reopen, as the button showed it. A press whose button no longer matches the task (another
     // device closed it meanwhile) sends nothing: the page already shows the new state. Then both are read again.
     func press(_ shown: Board.TaskAct, names: [String: String]) async {
-        guard !pressing, current, let page, page.act == shown else { return }
+        // Not while a hold is out either (review 1): a close landing between a hold's check and its post would answer the
+        // hold with the Mac's refusal for a closed task.
+        guard !pressing, !holding, current, let page, page.act == shown else { return }
         pressing = true
         refusal = nil
         let (project, number) = (self.project, self.number)
@@ -210,21 +217,43 @@ final class TaskPageModel: ObservableObject {
     // task first, because a hold from the screen sets exactly what it sends and would replace what an agent's hold, not
     // yet shown here, waits for; if it is already on hold, nothing is sent. Then the page and activity are read, and an
     // unhold's sentence about who has it next is said.
+    // The board's tkHoldFresh: one read of this task for this press alone, so the shared tick's read (numbered, and
+    // dropped when a newer one overtakes it) can never leave the check looking at the task as it was before the press.
+    // nil when the Mac gave no list.
+    private func freshRead() async -> Board.TaskPageRead? {
+        let answer = await send { Board.projectsRequest(mac: $0) }
+        guard let (data, response) = answer, (200...299).contains(response.statusCode) else { return nil }
+        let parsed = await parse(data, project, number)
+        if case .unreadable = parsed { return nil }
+        return parsed
+    }
+
     func toggleHold(wasOnHold: Bool, names: [String: String]) async {
-        guard !holding, current, let page, !page.closed, page.onHold == wasOnHold else { return }
+        guard !holding, !pressing, current, let page, !page.closed, page.onHold == wasOnHold else { return }
         holding = true
         holdSay = nil
+        holdSaySig = nil
         if !wasOnHold {
-            await read()
+            // Putting on hold sets exactly what it sends, so it would replace an agent's hold (its until and why) not
+            // yet shown: the task is read fresh first, and nothing is sent if it is already on hold, gone or unread.
+            let fresh = await freshRead()
             guard current else { return }
-            if gone { holdSay = Board.holdTaskGone; holding = false; return }
-            if readFailed { holdSay = Board.holdCheckFailed; holding = false; return }
-            if self.page?.onHold == true {
+            switch fresh {
+            case .none, .some(.unreadable):
+                holdSay = Board.holdCheckFailed; holding = false; return
+            case .some(.gone):
+                await read()
+                guard current else { return }
+                holdSay = Board.holdTaskGone; holding = false; return
+            case .some(.page(let p)) where p.onHold:
+                await read()
                 await readActivity(names: names)
                 guard current else { return }
                 holdSay = Board.holdAlready
                 holding = false
                 return
+            case .some(.page):
+                break
             }
         }
         let (project, number) = (self.project, self.number)
@@ -239,7 +268,10 @@ final class TaskPageModel: ObservableObject {
         await read()
         await readActivity(names: names)
         guard current else { return }
-        holdSay = Board.holdNextLine(answer?.0)
+        if let shown = self.page, let next = Board.holdNextLine(answer?.0, page: shown) {
+            holdSay = next
+            holdSaySig = Board.holdNextSig(shown)
+        }
         holding = false
     }
 

@@ -221,6 +221,7 @@ struct TaskPageView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(model.holding || model.pressing)
+                .opacity(model.holding || model.pressing ? 0.6 : 1)
                 .accessibilityValue(model.holding ? "In progress" : "")
                 if let say = model.holdSay {
                     Text(say).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
@@ -243,8 +244,8 @@ struct TaskPageView: View {
                 .background(RoundedRectangle(cornerRadius: 10).fill(Palette.primary))
             }
             .buttonStyle(.plain)
-            .disabled(model.pressing)
-            .opacity(model.pressing ? 0.6 : 1)
+            .disabled(model.pressing || model.holding)
+            .opacity(model.pressing || model.holding ? 0.6 : 1)
             .accessibilityValue(model.pressing ? "In progress" : "")
             if let refusal = model.refusal {
                 Text(refusal).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)

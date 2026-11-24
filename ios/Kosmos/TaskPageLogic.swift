@@ -715,8 +715,10 @@ extension Board {
     static let holdFailed = "We could not change that task."
     static let holdUnreached = "We could not reach Kosmos to change that task."
     // The board cuts this ask off the unhold route's sentence and puts a Choose who button under it; the phone has no
-    // picker for a task's parts yet, so the ask is cut and the rest said.
+    // picker for a task's parts yet, so the ask is cut and holdChooseOnBoard said in its place (review 1: the person is
+    // told where choosing happens, not left at "so it waits for a person.").
     static let holdAssignAsk = " To choose who, assign it now."
+    static let holdChooseOnBoard = " To choose who, open this task on your computer's board."
 
     // POST .../task/<n>/hold {onHold}.
     static func taskHoldRequest(mac: URL, project: String, number: Int, onHold: Bool) -> URLRequest? {
@@ -730,11 +732,26 @@ extension Board {
         return hold
     }
 
-    // What the unhold route says next (who gets the task now), or nil: a hold answers with none.
-    static func holdNextLine(_ body: Data?) -> String? {
+    // What the unhold route says next (who gets the task now), or nil: a hold answers with none. Where the board would
+    // show Choose who (the route's closing ask, or a free part beside one somebody is on: its looseBesideHeld), the phone
+    // says to choose on the computer's board instead.
+    static func holdNextLine(_ body: Data?, page: TaskPage? = nil) -> String? {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         guard var next = obj?["next"] as? String, !next.isEmpty else { return nil }
-        if next.hasSuffix(holdAssignAsk) { next.removeLast(holdAssignAsk.count) }
-        return next.isEmpty ? nil : next
+        var ask = false
+        if next.hasSuffix(holdAssignAsk) { next.removeLast(holdAssignAsk.count); ask = true }
+        let open = page?.parts.filter { !$0.closed } ?? []
+        let looseBesideHeld = open.contains { $0.who != nil } && open.contains { $0.who == nil }
+        if next.isEmpty { return nil }
+        return ask || looseBesideHeld ? next + holdChooseOnBoard : next
+    }
+
+    // The board's tkHoldNextSig: what the next sentence was read from (open, held or closed, who is on each open part,
+    // and the project's pause and members). The line goes when the task no longer reads this way.
+    static func holdNextSig(_ t: TaskPage) -> String {
+        let state = t.closed ? "closed" : t.onHold ? "held" : "open"
+        let who = t.parts.filter { !$0.closed }.map { $0.who ?? "" }.joined(separator: ",")
+        let proj = (t.projectPaused ? "paused" : "live") + ":" + t.members.keys.sorted().joined(separator: ",")
+        return state + "|" + who + "|" + proj
     }
 }
