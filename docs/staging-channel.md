@@ -87,7 +87,7 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    (provably broken) refuses and is **not** `--force`able; exit 2 (cannot-tell -- e.g. the dev box,
    a provider not signed in, or a board not running the version being promoted) **HOLDS**,
    `--force`able only after a hand check, named with `--hand-check "<what you checked>"` (20 or more
-   characters; it is printed beside every gate `--force` passes, kosmos#8960). After a forced cannot-tell from the board gate, the agent
+   bytes; it is printed beside every gate `--force` passes and recorded in promote-forced.log on the promoting machine, kosmos#8960). After a forced cannot-tell from the board gate, the agent
    gate's result is printed with a note that it is not a check of that version (same board). The agent gate's
    exit 3 (Claude online, OpenAI/Codex arm failed) also HOLDS but is `--force`able and prints
    which arm failed -- a routed decision (ship the Claude fix + gating now and chase the codex
@@ -145,7 +145,7 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
      nothing protects V's files from a `tools/dist-retention.sh --prune` but its keep window, so do not
      prune while a GO is pending. A pruned tarball can be fetched back from installkosmos.com (as in
      releasing.md) only while a deploy still serves it, so keep a copy if in doubt.
-   - **Guards.** `--force` with `--version` needs `--sha`. A V older than prod's, or one that cannot be
+   - **Guards.** `--force` with `--version` needs `--sha`, and every `--force` needs `--hand-check` (kosmos#8960). A V older than prod's, or one that cannot be
      compared with it, is refused unless `--allow-older` is given. The same version as prod's with other
      bytes (a re-cut replacing it) is allowed, and the promote says so.
    - **The board gates still need a board on V.** Once the cut box's board has moved to a later staging

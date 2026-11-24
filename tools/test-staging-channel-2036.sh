@@ -146,7 +146,7 @@ S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash 
 S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check="$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ -f "$S8960a/dist/latest.json" ] && has "$out" "the hand check named for this --force: $HC8960" && pass "promote: #8960 CONTROL --force with a named check (= form) promotes and prints the check" || bad "promote 8960 control (rc=$rc, out=$out)"
 
-# the boundary, exactly: 19 characters refuses, 20 promotes (a space and a control character squeeze to one space)
+# the boundary, exactly: 19 bytes refuses, 20 promotes; then a text of only spaces and control characters, which squeeze to nothing
 S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "1234567890123456789" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 a 19-character hand check refuses" || bad "promote 8960 19 chars (rc=$rc, out=$out)"
 S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "12345678901234567890" 2>&1)"; rc=$?
@@ -157,8 +157,16 @@ S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash 
 # a value that is another option is refused, whatever its length; and the floor counts bytes in every locale
 S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check --allow-older-than-twenty-characters 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "not another option" && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 --hand-check followed by an option refuses" || bad "promote 8960 option as check (rc=$rc, out=$out)"
+# this case can go red only where tr stops on an invalid byte under a UTF-8 locale (BSD tr, the Mac); GNU tr passes it either way
 S8960a="$(new8960)"; out="$(LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "$(printf 'caf\303\251 board ok \377\376 checked')" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ -f "$S8960a/dist/latest.json" ] && ! has "$out" "Illegal byte" && pass "promote: #8960 a check with invalid UTF-8 under a UTF-8 locale is read, not cut short" || bad "promote 8960 utf8 (rc=$rc, out=$out)"
+
+# the durable record: a forced promote writes one promote-forced.log line naming its check; an unforced one writes none
+FLOG="$KOSMOS_PLUS_VERIFY_DIR/promote-forced.log"; rm -f "$FLOG"
+S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$S8960a" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ -f "$S8960a/dist/latest.json" ] && [ ! -f "$FLOG" ] && pass "promote: #8960 CONTROL an unforced promote writes no forced-promote line" || bad "promote 8960 unforced log (rc=$rc, out=$out)"
+S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "$HC8960" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ -f "$FLOG" ] && [ "$(wc -l < "$FLOG" | tr -d ' ')" = 1 ] && [ "$(grep -c "version=9.9.9.*hand_check=$HC8960\$" "$FLOG")" = 1 ] && has "$out" "recorded in $FLOG" && pass "promote: #8960 a forced promote leaves one promote-forced.log line naming its hand check" || bad "promote 8960 forced log (rc=$rc, log=$(cat "$FLOG" 2>/dev/null), out=$out)"
 
 # THE load-bearing guarantee: --force overrides ONLY the experience gate, NEVER the
 # same-bytes invariant. Prove it decisively -- a byte-refusal (wrong pointer sha) with
