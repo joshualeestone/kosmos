@@ -42,6 +42,11 @@ final class TaskPageModel: ObservableObject {
     @Published private(set) var repeatSay: String?
     @Published private(set) var repeatRefused = false
     private var repeatSavedAs: Board.RepeatWire?
+    // kosmos#8958 slice B3b: "If missed, tell" being saved (the choice sent), and the line under it (tk-review-msg).
+    @Published private(set) var reviewerSaving: String?
+    @Published private(set) var reviewerSay: String?
+    @Published private(set) var reviewerRefused = false
+    private var reviewerSavedAs: String?
     // The title and detail being saved, and the line for the last save (the board's tk-msg for the form).
     // Like `pressing`, saying, dueSaving and editSaving stay set when the epoch moves mid-request: the page is then about
     // nothing.
@@ -139,6 +144,10 @@ final class TaskPageModel: ObservableObject {
             if let w = repeatSavedAs, p.closed || p.repeatStored.map(Board.repeatWire) != w { repeatSay = nil; repeatSavedAs = nil }
             // Nothing about Repeats outlives the task being finished (the board's tkPaintRepeat, review 2).
             if p.closed && repeatRefused { repeatSay = nil; repeatRefused = false }
+            // "Saved." for the reviewer goes once the stored reviewer reads otherwise, the task finishes or stops repeating;
+            // a refusal goes with the section (the board's review 7).
+            if let w = reviewerSavedAs, p.closed || p.repeatRow == nil || p.repeatReviewer != w { reviewerSay = nil; reviewerSavedAs = nil }
+            if reviewerRefused && (p.closed || p.repeatRow == nil) { reviewerSay = nil; reviewerRefused = false }
             set(\.gone, false)
             set(\.readFailed, false)
         case .gone:
@@ -212,8 +221,8 @@ final class TaskPageModel: ObservableObject {
     func press(_ shown: Board.TaskAct, names: [String: String]) async {
         // Not while a hold is out either (review 1): a close landing between a hold's check and its post would answer the
         // hold with the Mac's refusal for a closed task.
-        // Nor while a Repeats save is out (B3): its answer would be about a task this press is closing.
-        guard !pressing, !holding, !repeatSaving, current, let page, page.act == shown else { return }
+        // Nor while a Repeats or reviewer save is out (B3, B3b): its answer would be about a task this press is closing.
+        guard !pressing, !holding, !repeatSaving, reviewerSaving == nil, current, let page, page.act == shown else { return }
         pressing = true
         refusal = nil
         let (project, number) = (self.project, self.number)
@@ -370,10 +379,10 @@ final class TaskPageModel: ObservableObject {
         return true
     }
     // kosmos#8958 slice B3: the board's Repeats Save (tk-repeat-save). Nothing is sent while a box is empty, while one is
-    // on its way, while Mark as done is out, on a finished task, or for the rule already stored. A hold in flight does not stop it: the board's repeat and hold routes
+    // on its way, while a reviewer save or Mark as done is out, on a finished task, or for the rule already stored. A hold in flight does not stop it: the board's repeat and hold routes
     // change different fields, and a held task can still repeat. true when the Mac recorded it; then the task and activity are read.
     func saveRepeat(_ wire: Board.RepeatWire, names: [String: String]) async -> Bool {
-        guard !repeatSaving, !pressing, current, let page, !page.closed, Board.repeatBody(wire) != nil,
+        guard !repeatSaving, reviewerSaving == nil, !pressing, current, let page, !page.closed, Board.repeatBody(wire) != nil,
               page.repeatStored.map(Board.repeatWire) != wire else { return false }
         repeatSaving = true
         repeatSay = nil
@@ -397,6 +406,35 @@ final class TaskPageModel: ObservableObject {
         repeatSaving = false
         return true
     }
+    // kosmos#8958 slice B3b: the board's tk-review-who change. Nothing is sent for the reviewer already stored, while one
+    // is on its way, while a Repeats save or Mark as done is out, or on a task that is finished or does not repeat.
+    // true when the Mac recorded it; then the task and activity are read.
+    func saveReviewer(_ want: String, names: [String: String]) async -> Bool {
+        guard reviewerSaving == nil, !repeatSaving, !pressing, current, let page, !page.closed, page.repeatRow != nil,
+              page.repeatReviewer != want else { return false }
+        reviewerSaving = want
+        reviewerSay = nil
+        reviewerSavedAs = nil
+        reviewerRefused = false
+        let (project, number) = (self.project, self.number)
+        let answer = await send { Board.taskReviewerRequest(mac: $0, project: project, number: number, reviewer: want) }
+        guard current else { return false }
+        if case .refused(let why) = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0,
+                                                          failed: Board.reviewerFailed, unreached: Board.reviewerUnreached) {
+            reviewerSay = why
+            reviewerRefused = true
+            reviewerSaving = nil
+            return false
+        }
+        await read()
+        await readActivity(names: names)
+        guard current else { return false }
+        reviewerSay = Board.repeatSaved
+        reviewerSavedAs = want
+        reviewerSaving = nil
+        return true
+    }
+
     // A new choice retires the last answer (the board's review 1).
     func clearRepeatSay() { repeatSay = nil; repeatSavedAs = nil; repeatRefused = false }
     func clearEditRefusal() { editRefusal = nil }

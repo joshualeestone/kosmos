@@ -1129,6 +1129,38 @@ do {
 }
 await b3ModelTests()
 
+section("slice B3b: who is told when a run is missed (kosmos#8958)")
+do {
+    // The fields engine/tasks.js setReviewer writes, on task 3 of the captured read.
+    func pageWith(_ fields: [String: Any]) -> Board.TaskPage? {
+        var doc = (try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any]) ?? [:]
+        var projs = doc["projects"] as? [[String: Any]] ?? []
+        var tks = projs.first?["tasks"] as? [[String: Any]] ?? []
+        if let i = tks.firstIndex(where: { ($0["number"] as? NSNumber)?.intValue == 3 }) { for (k, v) in fields { tks[i][k] = v } }
+        if !projs.isEmpty { projs[0]["tasks"] = tks }
+        doc["projects"] = projs
+        guard let d = try? JSONSerialization.data(withJSONObject: doc), case .page(let pg) = Board.parseTaskPage(d, project: "springcatalogue", number: 3) else { return nil }
+        return pg
+    }
+    let rule: [String: Any] = ["every": "hour"]
+    check(page(3)?.repeatReviewer == "none" && page(3)?.memberOrder == ["dana", "eli"], "no reviewer reads as none; members in the project's order")
+    check(pageWith(["repeat": rule, "repeatReviewerPerson": true])?.repeatReviewer == "me", "the person as reviewer reads as me")
+    check(pageWith(["repeat": rule, "repeatReviewer": "eli"])?.repeatReviewer == "eli", "an agent as reviewer reads as its session")
+    if let pg = pageWith(["repeat": rule, "repeatReviewer": "eli"]) {
+        check(Board.reviewerOptions(pg, roster: roster).map(\.words) == ["Nobody", "Me", "Dana", "Eli"]
+              && Board.reviewerOptions(pg, roster: roster).map(\.value) == ["none", "me", "dana", "eli"], "Nobody, Me, then the project's agents by name")
+    } else { check(false, "a page with a reviewer") }
+    if let gone = pageWith(["repeat": rule, "repeatReviewer": "gus"]) {
+        check(Board.reviewerOptions(gone, roster: roster).last == Board.ReviewerOption(value: "gus", words: "Gus (left the project)"),
+              "a stored reviewer no longer on the project stays listed, and says so")
+    } else { check(false, "a page with a reviewer who left") }
+    let req = Board.taskReviewerRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "springcatalogue", number: 3, reviewer: "me")
+    check(req?.url?.path == "/api/project/springcatalogue/task/3/repeat"
+          && (req?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?.keys.sorted() == ["reviewer"],
+          "POST .../repeat with the reviewer alone, so the rule is left as it is")
+}
+await b3bModelTests()
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
@@ -1225,4 +1257,94 @@ func b3ModelTests() async {
     mac.asked = []
     let onClosed = await m.saveRepeat(.minutes("30"), names: nm)
     check(m.page?.closed == true && !onClosed && mac.asked.isEmpty, "Save on a finished task sends nothing")
+}
+
+@MainActor
+func b3bModelTests() async {
+    let mac = FakeMac()
+    let m = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch })
+    m.onScreen = true
+    m.touched()
+    let nm = ["dana": "Dana"]
+    func with(_ fields: [String: Any], closed: Bool = false) -> Data {
+        var doc = (try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any]) ?? [:]
+        var projs = doc["projects"] as? [[String: Any]] ?? []
+        var tks = projs.first?["tasks"] as? [[String: Any]] ?? []
+        if let i = tks.firstIndex(where: { ($0["number"] as? NSNumber)?.intValue == 3 }) {
+            for (k, v) in fields { tks[i][k] = v }
+            if closed { tks[i]["progress"] = ["done": 1, "total": 1, "closed": true]; tks[i]["closedAt"] = "2026-11-24T15:00:00.000Z" }
+        }
+        if !projs.isEmpty { projs[0]["tasks"] = tks }
+        doc["projects"] = projs
+        return (try? JSONSerialization.data(withJSONObject: doc)) ?? Data()
+    }
+    let rule: [String: Any] = ["every": "hour"]
+    await m.read()
+    mac.asked = []
+    let noRule = await m.saveReviewer("me", names: nm)
+    check(!noRule && mac.asked.isEmpty, "a task that does not repeat sends nothing")
+    mac.projects = (200, with(["repeat": rule]))
+    await m.read()
+    mac.asked = []
+    let same = await m.saveReviewer("none", names: nm)
+    check(!same && mac.asked.isEmpty, "the reviewer already stored sends nothing")
+    var body: [String: Any]?
+    mac.onSend = { r in if r.url!.path.hasSuffix("/repeat") { body = r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } } }
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "dana"]))
+    let saved = await m.saveReviewer("dana", names: nm)
+    check(saved && body?["reviewer"] as? String == "dana" && body?.count == 1, "the reviewer is posted alone")
+    check(mac.asked == ["POST /api/project/springcatalogue/task/3/repeat", "GET /api/projects", "GET /api/project/springcatalogue/task/3/activity"],
+          "then the page and its activity are read")
+    check(m.reviewerSay == Board.repeatSaved && m.reviewerSaving == nil && m.page?.repeatReviewer == "dana", "Saved., and the page shows the new reviewer")
+    await m.read()
+    check(m.reviewerSay == Board.repeatSaved, "Saved. stays through a read that still shows the saved reviewer")
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "eli"]))
+    await m.read()
+    check(m.reviewerSay == nil, "Saved. goes once the reviewer is changed elsewhere")
+    mac.onSend = nil
+    mac.actAnswers = [(403, #"{"error":"only the person can name themselves as the reviewer"}"#)]
+    let refused = await m.saveReviewer("me", names: nm)
+    check(!refused && m.reviewerSay == "only the person can name themselves as the reviewer" && m.reviewerRefused && m.reviewerSaving == nil,
+          "a refusal is the Mac's own sentence, marked as a refusal")
+    mac.projects = (200, with(["repeat": NSNull()]))
+    await m.read()
+    check(m.reviewerSay == nil && !m.reviewerRefused, "a refusal goes when the task stops repeating")
+    mac.projects = (200, with(["repeat": rule]))
+    await m.read()
+
+    // The guards each way: a reviewer save against Mark as done and against a Repeats save.
+    mac.actAnswers = []
+    mac.holdTheNext()
+    let saving = Task { await m.saveReviewer("eli", names: nm) }
+    await waitUntil({ mac.holding }, "the reviewer save held")
+    let during = mac.asked.count
+    if let act = m.page?.act { await m.press(act, names: nm) }
+    let repeatDuring = await m.saveRepeat(.minutes("30"), names: nm)
+    check(m.reviewerSaving == "eli" && !repeatDuring && mac.asked.count == during, "Mark as done and a Repeats save send nothing while a reviewer save is out")
+    mac.release()
+    _ = await saving.value
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "eli"]))
+    await m.read()
+    mac.holdTheNext()
+    let repeatSaving = Task { await m.saveRepeat(.minutes("30"), names: nm) }
+    await waitUntil({ mac.holding }, "the repeat save held")
+    let duringRepeat = mac.asked.count
+    let reviewerDuring = await m.saveReviewer("me", names: nm)
+    check(!reviewerDuring && mac.asked.count == duringRepeat, "a reviewer save sends nothing while a Repeats save is out")
+    mac.release()
+    _ = await repeatSaving.value
+    mac.holdTheNext()
+    let pressing = Task { if let act = m.page?.act { await m.press(act, names: nm) } }
+    await waitUntil({ mac.holding }, "the press held")
+    let duringPress = mac.asked.count
+    let reviewerPress = await m.saveReviewer("me", names: nm)
+    check(!reviewerPress && mac.asked.count == duringPress, "a reviewer save sends nothing while Mark as done is out")
+    mac.release()
+    await pressing.value
+    mac.projects = (200, with(["repeat": rule], closed: true))
+    await m.read()
+    mac.asked = []
+    let onClosed = await m.saveReviewer("me", names: nm)
+    check(!onClosed && mac.asked.isEmpty, "a finished task sends nothing")
 }
