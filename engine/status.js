@@ -2939,6 +2939,9 @@ function claudeQuestionReviewUp(lines) {
    select footer ending in it, so agent prose that merely ends in those words is not a footer. */
 const CLAUDE_PERMISSION_FOOTER = /^\s*(?:Enter to select\s*·.*·\s*)?Esc to cancel(?:\s*·.*)?\s*$/;
 const CLAUDE_PERMISSION_QUESTION = /^\s*(?:Do you want to|Would you like to)\b/;
+/* kosmos#8952: Claude Code draws "↑ 37 more lines" when a prompt is taller than the window (a long command), and it can
+   sit between the options and the footer. It is not part of any option: skipped when the options are read. */
+const CLAUDE_SCROLL_HINT = /^\s*[↑↓]\s*\d+\s+more\s+lines?\s*$/;
 /* 'wording' (a "Do you want to" / "Would you like to" question: a permission request), 'shape' (only a highlighted
    numbered option over the footer: may be a permission request in other wording, or one of Claude Code's own pickers),
    or null. */
@@ -2989,7 +2992,7 @@ function claudePermissionPrompt(text) {
   let wrap = [];
   for (let i = foot - 1; i >= Math.max(0, foot - 30); i -= 1) {
     const l = lines[i];
-    if (!l.trim()) continue;
+    if (!l.trim() || CLAUDE_SCROLL_HINT.test(l)) continue;
     const m = CLAUDE_QMENU_OPTION.exec(l);
     if (m) {
       const label = [m[3], ...wrap.map((w) => w.trim())].join(' ');

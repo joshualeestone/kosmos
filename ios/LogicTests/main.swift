@@ -6336,5 +6336,58 @@ do {
     check(Board.inviteStep(#"{"show":true,"link":"http://x.test/","headline":"H","line":"L"}"#.data(using: .utf8)) == nil, "not https, no step")
     check(Board.inviteStep(nil) == nil, "no answer, no step")
 }
+// kosmos#8952: a question or permission row with no buttons opens nothing; it says where to answer only while it is the
+// one being asked.
+do {
+    let row = { (id: String, way: Board.ChatRow.WayThrough?) in
+        Board.ChatRow(id: id, atRaw: nil, at: nil, text: id, who: .agent, wayThrough: way)
+    }
+    let rows = [row("q1", .question), row("a", nil), row("p1", .permission), row("f", .attachment), row("p2", .permission), row("b", nil)]
+    check(Board.askingNow(rows[4], in: rows, waiting: true, approval: false), "the newest permission row is the one being asked while the agent needs you")
+    check(!Board.askingNow(rows[2], in: rows, waiting: true, approval: false) && !Board.askingNow(rows[0], in: rows, waiting: true, approval: false),
+          "an older question or permission is past, even while the agent needs you")
+    check(!Board.askingNow(rows[4], in: rows, waiting: false, approval: false), "CONTROL: nothing is being asked when the agent is not waiting on an answer")
+    check(!Board.askingNow(rows[3], in: rows, waiting: true, approval: false), "a file row is never a question")
+    let reply = Board.ChatRow(id: "y", atRaw: nil, at: nil, text: "yes", who: .person, wayThrough: nil)
+    let typedAfter = rows + [reply]
+    check(Board.askingNow(typedAfter[4], in: typedAfter, waiting: true, approval: false),
+          "a permission is still asked after the person typed: typed words do not answer one")
+    let asked = [row("p0", .permission), row("q2", .question)]
+    check(Board.askingNow(asked[1], in: asked, waiting: true, approval: false), "premise: the newest question is asked")
+    check(!Board.askingNow(asked[1], in: asked + [reply], waiting: true, approval: false), "a question the person replied to is past")
+    var unsent = reply; unsent.notSent = Board.failedWords
+    check(Board.askingNow(asked[1], in: asked + [unsent], waiting: true, approval: false),
+          "a reply that did not go does not end the question")
+    // Review 5: the case this was built for. A permission with no buttons arrives as a plain question row.
+    check(Board.askingNow(asked[1], in: asked + [reply], waiting: true, approval: true),
+          "a question row while the agent waits on its permission prompt stays asked after the person types")
+    check(Board.askedWay(.question, approval: true) == .permission && Board.askedWay(.question, approval: false) == .question
+          && Board.askedWay(.attachment, approval: true) == .attachment,
+          "a question row is worded as a permission only while the agent waits on its permission prompt")
+    let agent = { (s: String, stuck: Bool) in
+        Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, needsYou: true, crashLooping: stuck)
+    }
+    check(Board.waitsOnAnswer(agent("needs_you", false)) && Board.waitsOnAnswer(agent("question", false))
+          && Board.waitsOnAnswer(agent("approval", false)), "needs_you, question and approval wait on an answer")
+    check(!Board.waitsOnAnswer(agent("working", true)) && !Board.waitsOnAnswer(agent("needs_trust", false))
+          && !Board.waitsOnAnswer(agent("connection_lost", false)),
+          "CONTROL: needing the person for a crash loop, a trust prompt or a lost connection is not an open question")
+    var noRestart = agent("needs_you", false); noRestart.restartFailed = true
+    check(!Board.waitsOnAnswer(agent("needs_you", true)) && !Board.waitsOnAnswer(noRestart),
+          "a needs_you agent that keeps stopping or failed to restart is not waiting on its question")
+    check(Board.askedLine(.permission, now: true) == " needs your permission. Answer it on your computer."
+          && Board.askedLine(.permission, now: false) == " asked for your permission."
+          && Board.askedLine(.question, now: true) == " asked you something. Reply here or on your computer."
+          && Board.askedLine(.question, now: false) == " asked you something.",
+          "the words: where to answer while asked, only what was asked once past")
+    check(Board.askedLine(.attachment, now: true) == nil && Board.askedLine(.draft, now: false) == nil,
+          "a file and unsent words keep their link to the board")
+    for way in [Board.ChatRow.WayThrough.question, .permission] {
+        for now in [true, false] {
+            let line = Board.askedLine(way, now: now) ?? ""
+            check(!line.contains("board") && !line.contains("\u{203A}") && !line.contains("Esc"), "no board, no chevron, no terminal words: \(line)")
+        }
+    }
+}
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

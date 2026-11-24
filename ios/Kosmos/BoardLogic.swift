@@ -2433,6 +2433,39 @@ enum Board {
         row.wayThrough == .question || row.wayThrough == .permission ? (row.reported ? nil : thread.choices) : nil
     }
 
+    // kosmos#8952: a question or permission row with no buttons opens nothing: the board draws none for it either (the same
+    // choices), only the window's text. It says where to answer only while it is the newest such row and the agent is
+    // waiting on an answer (waitsOnAnswer). A question is also past once a reply from the person went after it; a
+    // permission is not, since typed words do not answer one (#6054).
+    static func askingNow(_ row: ChatRow, in rows: [ChatRow], waiting: Bool, approval: Bool) -> Bool {
+        guard waiting, let way = row.wayThrough, way == .question || way == .permission,
+              let at = rows.lastIndex(where: { $0.wayThrough == .question || $0.wayThrough == .permission }),
+              rows[at].id == row.id else { return false }
+        return askedWay(way, approval: approval) == .permission
+            || !rows[(at + 1)...].contains { $0.who == .person && $0.notSent == nil }
+    }
+    // Review 5: a permission the Mac cannot offer buttons for reaches the phone as a plain question row (the board adds
+    // `permission` only where it is pressable), so while the agent waits on its permission prompt (awaitingApproval)
+    // the asked row is a permission.
+    static func askedWay(_ way: ChatRow.WayThrough, approval: Bool) -> ChatRow.WayThrough {
+        way == .question && approval ? .permission : way
+    }
+    // The agent's state is a wait on the person (needs_you, question, approval), and it is neither crash looping nor failed
+    // to restart.
+    static func waitsOnAnswer(_ a: Agent) -> Bool {
+        ["needs_you", "question", "approval"].contains(a.state) && !a.crashLooping && !a.restartFailed
+    }
+    // The words after the agent's name on that row, or nil for a row that keeps its link (a file, unsent words). A question
+    // can be answered by a reply in this chat (server.js closes a question menu and sends the words); a permission only by
+    // a press, so only the computer.
+    static func askedLine(_ way: ChatRow.WayThrough, now: Bool) -> String? {
+        switch way {
+        case .question: return now ? " asked you something. Reply here or on your computer." : " asked you something."
+        case .permission: return now ? " needs your permission. Answer it on your computer." : " asked for your permission."
+        case .attachment, .draft: return nil
+        }
+    }
+
     // DM_PERM_DOES.
     static func permissionDoes(_ kind: String) -> String {
         switch kind {

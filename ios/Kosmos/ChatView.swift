@@ -1871,7 +1871,11 @@ struct ChatView: View {
                                    previewImage: row.preview?.image.flatMap { client.previewImages[$0] })
                             .task(id: previewTaskKey(row)) { if let p = row.preview { await client.loadPreviewImage(p) } }
                     }
-                    WayThroughRow(text: wayText(way), action: openOnBoard)
+                    // kosmos#8952: a question or permission opens nothing (the board has no buttons for it either).
+                    let now = Board.askingNow(row, in: thread?.rows ?? [], waiting: Board.waitsOnAnswer(shown),
+                                              approval: shown.awaitingApproval)
+                    let asked = Board.askedLine(now ? Board.askedWay(way, approval: shown.awaitingApproval) : way, now: now)
+                    WayThroughRow(text: wayText(way, asked: asked), action: asked == nil ? openOnBoard : nil)
                 }
                 .padding(.top, 10)
             } else if row.who == .kosmos {
@@ -2260,11 +2264,12 @@ struct ChatView: View {
         }
     }
 
-    private func wayText(_ way: Board.ChatRow.WayThrough) -> Text {
+    private func wayText(_ way: Board.ChatRow.WayThrough, asked: String?) -> Text {
         let name = Text(shown.name).fontWeight(.semibold).foregroundColor(Palette.askedWord)
+        if let asked { return name + Text(asked) }   // kosmos#8952: no link, no chevron
         switch way {
-        case .question: return name + Text(" asked you something. Answer on your computer's board \u{203A}")
-        case .permission: return name + Text(" needs your permission. Answer on your computer's board \u{203A}")
+        case .question: return name + Text(Board.askedLine(.question, now: false) ?? "")
+        case .permission: return name + Text(Board.askedLine(.permission, now: false) ?? "")
         case .attachment: return Text("A file. Open on your computer's board \u{203A}")
         case .draft: return Text("Words sat unsent in ") + name + Text("'s input box. See them on your computer's board \u{203A}")
         }
@@ -3373,21 +3378,27 @@ struct WorkingLine: View {
     }
 }
 
-// Mona Lisa's way-through row: a card-colour pill that opens the agent's chat on the board.
+// Mona Lisa's way-through row: a card-colour pill that opens the agent's chat on the board, or, with no action
+// (kosmos#8952: a question or permission), the same pill that only says something.
 struct WayThroughRow: View {
     let text: Text
-    let action: () -> Void
+    let action: (() -> Void)?
 
     var body: some View {
-        Button(action: action) {
-            text.font(.footnote).foregroundColor(Palette.secondary)
-                .multilineTextAlignment(.leading)
-                .padding(.horizontal, 12).padding(.vertical, 9)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
-                // White on the light ground barely shows (Mona Lisa's review): a hairline in light mode only.
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.pillStroke, lineWidth: 0.5))
+        if let action {
+            Button(action: action) { pill }.buttonStyle(.plain)
+        } else {
+            pill.accessibilityElement(children: .combine)
         }
-        .buttonStyle(.plain)
+    }
+
+    private var pill: some View {
+        text.font(.footnote).foregroundColor(Palette.secondary)
+            .multilineTextAlignment(.leading)
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
+            // White on the light ground barely shows (Mona Lisa's review): a hairline in light mode only.
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.pillStroke, lineWidth: 0.5))
     }
 }
 
