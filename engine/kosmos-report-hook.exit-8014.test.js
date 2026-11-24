@@ -7,8 +7,9 @@ require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, remo
  * a stdin that never closes still ends shortly after the 5 s stdin backstop.
  * kosmos#8968: no upper bound here is a total wall-clock time, which a loaded Mac doubled (10.4 s against a 7 s ceiling, the
  * same file passing alone). The 2 s backstop is armed only after the hook's last request is answered, so a run that
- * waits for it ends 2 s or more after the board saw that request: the bound is on that tail. The 5 s stdin backstop
- * is timed from when node starts the hook (a preload's mark), so a slow start is not counted against it.
+ * waits for it ends 2 s or more after the board saw that request: the bound is on that tail. For the 5 s stdin
+ * backstop, a preload records the delay each of the hook's timers was armed with, and the check is on the timer that
+ * ran the hook, so neither a slow start nor a late timer is counted against it.
  *   node --test engine/kosmos-report-hook.exit-8014.test.js */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -44,12 +45,21 @@ function fakeBoard(stall) {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port, seen, at })));
 }
 
+// kosmos#8968: runs inside the hook's process ahead of its code (node -r). Marks the start, and for every setTimeout
+// writes the delay it was armed with and when its callback ran.
+function hookMarks() {
+  process.stderr.write('KOSMOS-8968-START ' + Date.now() + '\n');
+  const arm = global.setTimeout;
+  global.setTimeout = function (fn, ms, ...args) {
+    return arm.call(this, function (...a) { process.stderr.write('KOSMOS-8968-FIRED ' + ms + ' ' + Date.now() + '\n'); return fn.apply(this, a); }, ms, ...args);
+  };
+}
+
 function runHook(port, evt, { closeStdin = true } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rhk8014x-'));
   const env = { ...process.env, KOSMOS_PORT: String(port), KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_AGENT_TOKEN_ONLY: '1', TEMP: tmp, TMP: tmp, TMPDIR: tmp };
-  // kosmos#8968: the preload runs just before the hook's own code, so its mark is when the hook's timers start.
-  const preload = path.join(tmp, 'mark.js');
-  fs.writeFileSync(preload, "process.stderr.write('KOSMOS-8968-START ' + Date.now() + '\\n');\n");
+  const preload = path.join(tmp, 'marks.js');
+  fs.writeFileSync(preload, '(' + hookMarks.toString() + ')();\n');
   const t0 = Date.now();
   const child = spawn(process.execPath, ['-r', preload, HOOK], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   let out = ''; let err = '';
@@ -61,7 +71,8 @@ function runHook(port, evt, { closeStdin = true } = {}) {
     if (!closeStdin) { try { child.stdin.destroy(); } catch { /* gone */ } }
     const closedAt = Date.now();
     const m = /KOSMOS-8968-START (\d+)/.exec(err);
-    resolve({ code, out, err, ms: closedAt - t0, closedAt, startedAt: m ? Number(m[1]) : null });
+    const fires = [...err.matchAll(/KOSMOS-8968-FIRED (\d+) (\d+)/g)].map((f) => ({ ms: Number(f[1]), at: Number(f[2]) }));
+    resolve({ code, out, err, ms: closedAt - t0, closedAt, startedAt: m ? Number(m[1]) : null, fires });
   }));
 }
 
@@ -100,7 +111,11 @@ test('a stdin that never closes still ends shortly after the 5 s stdin backstop,
     assert.ok(r.ms >= 4500, 'ended before the stdin backstop, at ' + r.ms + ' ms');
     assert.ok(r.startedAt, 'the start mark is missing: ' + r.err);
     const fired = b.at[0] - r.startedAt;   // the first request goes out once the stdin backstop has run the hook
-    assert.ok(fired >= 4500 && fired < 9000, 'the stdin backstop ran the hook ' + fired + ' ms after it started (5 s expected)');
+    assert.ok(fired >= 4500, 'the hook ran ' + fired + ' ms after it started, before the stdin backstop');
+    // The timer that ran the hook is the last one to fire before its first request; it must be the 5 s backstop.
+    const ran = r.fires.filter((f) => f.at <= b.at[0]).pop();
+    assert.ok(ran, 'no timer fired before the first request: ' + r.err);
+    assert.ok(ran.ms >= 4500 && ran.ms <= 5000, 'the hook was run by a timer armed for ' + ran.ms + ' ms (the 5 s stdin backstop expected)');
     assert.ok(tail(b, r) < TAIL_MS, 'the run waited 2 s more after the backstop (' + tail(b, r) + ' ms after the last request, ' + r.ms + ' ms in all)');
   } finally { b.server.close(); }
 });
