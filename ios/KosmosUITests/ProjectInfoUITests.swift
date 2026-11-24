@@ -36,6 +36,56 @@ final class ProjectInfoUITests: XCTestCase {
         shot(app, "project-info-files")
     }
 
+    // kosmos#8956: adding a member, removing one and archiving are native screens, and none of them opens the board page.
+    // The sample board admits no computer, so these stop at the screens (PigeonPete, #8954): what the taps send is covered
+    // in ios/LogicTests/room. On iOS 26+ a confirmationDialog is a popover with no Cancel button (Renet, #8955).
+    private func dismissDialog(_ app: XCUIApplication) {
+        let cancel = app.buttons["Cancel"]
+        if cancel.waitForExistence(timeout: 2) && cancel.isHittable { cancel.tap(); return }
+        let outside = app.otherElements["PopoverDismissRegion"]
+        if outside.waitForExistence(timeout: 2) { outside.tap() }
+    }
+
+    func testMembersAndArchiveAreNative() throws {
+        guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
+        let app = XCUIApplication()
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"]
+        app.launch()
+        XCTAssertTrue(app.buttons["Add a file to this conversation"].waitForExistence(timeout: 20), "the sample room did not open")
+        app.buttons["room-info"].tap()
+        XCTAssertTrue(app.staticTexts["What it is for"].waitForExistence(timeout: 10), "About did not open")
+        app.buttons["Settings"].tap()
+        let add = app.buttons["project-add-member"]
+        for _ in 0..<4 where !add.isHittable { app.swipeUp() }
+        XCTAssertTrue(add.waitForExistence(timeout: 5), "no Add a member")
+        shot(app, "project-members-settings")
+        add.tap()
+        XCTAssertTrue(app.navigationBars["Add a member"].waitForExistence(timeout: 5), "Add a member did not open natively")
+        XCTAssertEqual(app.webViews.count, 0, "the board page opened")
+        shot(app, "project-add-member")
+        app.navigationBars["Add a member"].buttons["Cancel"].tap()
+        XCTAssertFalse(app.navigationBars["Add a member"].waitForExistence(timeout: 2), "Cancel did not close Add a member")
+        let remove = app.buttons["project-remove-member"].firstMatch
+        XCTAssertTrue(remove.waitForExistence(timeout: 5), "no member to remove")
+        remove.tap()
+        XCTAssertTrue(app.buttons["Remove from this project"].waitForExistence(timeout: 5), "Remove did not ask first")
+        XCTAssertEqual(app.webViews.count, 0, "the board page opened")
+        shot(app, "project-remove-member-ask")
+        dismissDialog(app)
+        XCTAssertFalse(app.buttons["Remove from this project"].waitForExistence(timeout: 2), "the Remove question stayed after Cancel")
+        let archive = app.buttons["project-archive"]
+        for _ in 0..<4 where !archive.isHittable { app.swipeUp() }
+        XCTAssertTrue(archive.waitForExistence(timeout: 5), "no Archive project")
+        archive.tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label == 'Archive project'")).count >= 1
+                      && app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Archive Spring'")).firstMatch.waitForExistence(timeout: 5), "Archive did not ask first")
+        XCTAssertEqual(app.webViews.count, 0, "the board page opened")
+        shot(app, "project-archive-ask")
+        dismissDialog(app)
+        XCTAssertTrue(app.buttons["project-outside-members"].waitForExistence(timeout: 5), "the labelled hand-off for members from other computers is missing")
+        shot(app, "project-settings-lower")
+    }
+
     // kosmos#7847: a project's room has no tab bar (as a direct conversation has none); Back to the list brings it back.
     func testTheRoomHasNoTabBar() throws {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }

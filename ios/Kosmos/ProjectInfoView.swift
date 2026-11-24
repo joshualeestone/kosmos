@@ -254,7 +254,7 @@ struct ProjectInfoView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("project-outside-members")
-        }
+        } footer: { Text(Board.projectStillOnBoard) }
     }
 
     // kosmos#8956: add (POST) or remove (DELETE) one member, then read the projects again so every list shows it.
