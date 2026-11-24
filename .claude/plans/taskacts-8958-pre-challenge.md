@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: taskacts-8958
-diff_hash: f8090ec4e0ddc7f8bd5fbe04b1dc913f60986bc82dbd0caf6758c847b6e80903
+diff_hash: 5f10695f18d1b645e2db688ce0e702d79f8abda0580915ec93a805e005a3d022
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-24T12:20:53Z
+timestamp: 2026-11-24T13:40:51Z
 iterations: 8
 converged: false
 ---
@@ -16,7 +16,7 @@ converged: false
 **Converged:** No (stopped at the 8-round cap, Splinter's standing usage rule of 10-22 and 10-26: stop at 8 unless a BLOCKER is open; none was open after iteration 8)
 **Fixed:** every finding from iterations 1 to 7 | **Deferred:** 2 (iteration 8) | **Asked (awaiting user):** 0
 
-Validation: full run through the heavy queue at head 776543381f. The first run (05:21 CST) had one red, engine/create.test.js "the startup script, actually run, hands the pane its account and its board" (#587), at 56.6 s under load 32 with a second full suite on the machine; this branch touches no engine file, and that test passed alone on this branch (1 test, 1 pass). The second run passed: validation_rc=0 audit_rc=0, rc=0 (06:20 CST). Between rounds: the ios LogicTests runners and a swiftc typecheck of the ios sources, since a queued full run cannot share the tree with edits.
+Validation: full run through the heavy queue at head 776543381f. The first run (05:21 CST) had one red, engine/create.test.js "the startup script, actually run, hands the pane its account and its board" (#587), at 56.6 s under load 32 with a second full suite on the machine; this branch touches no engine file, and that test passed alone on this branch (1 test, 1 pass). The second run passed: validation_rc=0 audit_rc=0, rc=0 (06:20 CST). Then rebased onto origin/main aa24bd6f4: ios/tools/ui-sample.sh conflicted with #8953 (WebFileUITests) on the classes line and the header comment, both kept; the ui-sample shard and tally tests 6 of 6; full validation passed again (validation_rc=0 audit_rc=0, rc=0, 07:40 CST). Between rounds: the ios LogicTests runners and a swiftc typecheck of the ios sources, since a queued full run cannot share the tree with edits.
 
 ### Per-Iteration Breakdown
 
