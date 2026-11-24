@@ -153,7 +153,10 @@ check(S.newPlaceLine(got[1], when: when) == "Signed in 14 Nov 2023, 22:13. Not m
 check(S.newPlaceLine(.init(id: "x", name: "y", at: nil, notMeAt: 9), when: when) == "Signed in at a time this iPhone could not show. Not me was pressed.", "no times")
 check(S.notMeBody(got[0])["id"] as? String == "p1", "not-me sends the id")
 check(S.notMe(status: 200, json: ["ok": true]) == .signedOutEverywhere, "done: signed out everywhere")
-check(S.notMe(status: 401, json: nil) == .signedOutEverywhere, "401: already gone, so the same")
+check(S.notMe(status: 401, json: nil) == .sessionGone, "401: this iPhone's own sign-in was already refused, so nobody was signed out (review 5)")
+check(S.notMeSessionGone.contains("did not sign anyone out"), "the 401 words say nobody was signed out")
+check(S.madeButRefused("That passkey request expired; start again.") == "That passkey was made on this iPhone, but Kosmos+ did not add it: that passkey request expired; start again. Delete it in the Passwords app.",
+      "any refusal after the passkey was made says to delete it (review 5)")
 check(S.notMe(status: 404, json: ["error": "no such sign-in"]) == .refused("No such sign-in."), "its own sentence")
 check(S.notMe(status: 500, json: nil) == .refused(S.notMeFailed), "the page's line")
 

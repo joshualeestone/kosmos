@@ -73,6 +73,10 @@ struct AccountView: View {
     @State private var passkeys: PasskeyLoad = .reading
     @State private var passkeyTicket = 0
     @State private var passkeyNote: String?
+    @State private var passkeyListNote: String?   // review 5: a failed read's note, apart from an Add or Remove's
+    // Review 5: B1b's confirm renews the session for the SAME account (old -> fresh). B1c follows that chain, so a renewal is
+    // never read as a sign-in change (which dropped an Add, a Not me's sign-out, or a read, without a word).
+    @State private var renewedFrom: [String: String] = [:]
     @State private var passkeyDone: String?
     @State private var passkeyBusy = false
     @State private var passkeyFor: String?
@@ -117,7 +121,7 @@ struct AccountView: View {
             second = .reading
             maker.cancel(); passkeyBusy = false; passkeyFor = nil; removing = nil; passkeyNote = nil; passkeyDone = nil
             passkeys = .reading; newPlaces = []; notMeFor = nil; notMeBusy = false; notMeBusyFor = nil; notMeNote = nil
-            removingFor = nil; notMeAskedFor = nil; heldAdd = nil
+            removingFor = nil; notMeAskedFor = nil; heldAdd = nil; renewedFrom = [:]; passkeyListNote = nil
             load = .reading
             Task { await read() }
         }
@@ -240,7 +244,7 @@ struct AccountView: View {
                     Text(AccountSecond.offerWords).font(.footnote).foregroundColor(Palette.secondary)
                     ForEach(AccountSecond.choices(status), id: \.self) { kind in
                         Button(kind == .sms ? "Set up text messages" : "Set up an authenticator app") { Task { await startSetup(kind) } }
-                            .disabled(setupBusy || busy != nil)
+                            .disabled(setupBusy || busy != nil || passkeyBusy || notMeBusy)   // review 5: no renewal mid-Add or mid-Not me
                             .accessibilityIdentifier(kind == .sms ? "account-second-sms" : "account-second-app")
                     }
                 }
@@ -385,8 +389,8 @@ struct AccountView: View {
             } header: {
                 Text(AccountSecurity.passkeysTitle)
             } footer: {
-                if let passkeyNote {
-                    Text(passkeyNote).font(.footnote).foregroundColor(Palette.dangerWord)
+                if let note = passkeyNote ?? passkeyListNote {
+                    Text(note).font(.footnote).foregroundColor(Palette.dangerWord)
                 } else {
                     Text(passkeyDone ?? AccountSecurity.passkeysWords).font(.footnote).foregroundColor(Palette.secondary)
                 }
@@ -693,6 +697,7 @@ struct AccountView: View {
         case .on(let kind, let fresh):
             // First, before anything else asks Kosmos+: the old session is refused from now on.
             let kept = fresh.map { renewed(session, $0) } ?? true
+            if kept, let fresh { renewedFrom[session] = fresh }   // review 5 (B1c): the same account, followed by stillHeld
             closeSetup(force: true)
             second = .known(.init(enrolled: kind, smsAvailable: { if case .known(let s) = second { return s.smsAvailable }; return false }()))
             // Not kept (the keychain refused it, or the sign-in changed meanwhile): this iPhone's session is now refused.
@@ -744,23 +749,41 @@ struct AccountView: View {
 
     // MARK: Passkeys and new places, asking Kosmos+
 
+    /// Review 5: the session held now when it is `asked`, or `asked` renewed (B1b's confirm) along its chain; nil when the
+    /// sign-in really changed (signed out, or another account). Later requests use the session this returns.
+    private func stillHeld(_ asked: String) -> String? {
+        guard let now = currentSession() else { return nil }
+        var s = asked
+        for _ in 0..<8 {
+            if s == now { return now }
+            guard let next = renewedFrom[s] else { return nil }
+            s = next
+        }
+        return nil
+    }
+
     @MainActor private func readPasskeys() async {
         if sample { passkeys = .loaded(Self.samplePasskeys); return }
         passkeyTicket += 1
         let ticket = passkeyTicket
         guard let session = currentSession() else { passkeys = .failed("You are signed out."); return }
         let (status, data) = await send(AccountSecurity.listRequest(coordinator: coordinator, session: session))
-        guard !Task.isCancelled, ticket == passkeyTicket, currentSession() == session else {
+        guard !Task.isCancelled, ticket == passkeyTicket, stillHeld(session) != nil else {
             if ticket == passkeyTicket, case .reading = passkeys { passkeys = .failed(AccountSecurity.listFailed) }
             return
         }
         // No answer, or a failure: a list already shown stays, with the note; a first read says it could not list them.
-        guard let status else { if case .loaded = passkeys { passkeyNote = Account.reach } else { passkeys = .failed(Account.reach) }; return }
+        guard let status else { if case .loaded = passkeys { passkeyListNote = Account.reach } else { passkeys = .failed(Account.reach) }; return }
         switch AccountSecurity.list(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) {
-        case .passkeys(let rows): passkeys = .loaded(rows); passkeyNote = nil   // review 1: a good read clears a failed one's note
+        // A good read clears only a failed read's note: an Add or Remove's own note (such as "delete it in the Passwords
+        // app") stays until the person acts again (review 5).
+        case .passkeys(let rows): passkeys = .loaded(rows); passkeyListNote = nil
         case .off: passkeys = .off
-        case .signedOut: passkeys = .failed("You are signed out.")
-        case .failed: if case .loaded = passkeys { passkeyNote = AccountSecurity.listFailed } else { passkeys = .failed(AccountSecurity.listFailed) }
+        case .signedOut:
+            // Answered for a renewed session (the old one is refused now): read again for the session held now.
+            if session != currentSession(), stillHeld(session) != nil { await readPasskeys(); return }
+            passkeys = .failed("You are signed out.")
+        case .failed: if case .loaded = passkeys { passkeyListNote = AccountSecurity.listFailed } else { passkeys = .failed(AccountSecurity.listFailed) }
         }
     }
 
@@ -770,32 +793,36 @@ struct AccountView: View {
         let ticket = placesTicket
         guard let session = currentSession() else { newPlaces = []; return }
         let (status, data) = await send(AccountSecurity.newPlacesRequest(coordinator: coordinator, session: session))
-        guard !Task.isCancelled, ticket == placesTicket, currentSession() == session else { return }
+        guard !Task.isCancelled, ticket == placesTicket, stillHeld(session) != nil else { return }
+        // Review 5: answered for a session renewed meanwhile (refused now): read again for the one held now, so a list of
+        // possible intruders is never left hidden by a renewal.
+        if status == 401, session != currentSession() { await readNewPlaces(); return }
         // A blip leaves what was shown, as the page does (`if (!r.ok) return`): the email is still how the owner hears of one.
         guard let status, (200..<300).contains(status) else { return }
         newPlaces = AccountSecurity.newPlaces(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) })
     }
 
     @MainActor private func addPasskey() async {
-        guard !passkeyBusy, let session = sample ? "sample" : currentSession() else { return }
+        guard !passkeyBusy, let first = sample ? "sample" : currentSession() else { return }
         passkeyNote = nil; passkeyDone = nil
         if sample { passkeyDone = AccountSecurity.added; return }
         // Review 3: known before begin from the list shown, so no fresh sign-in is asked for an Add this iPhone cannot do.
         // Review 4: when the list is not shown, the check after begin (on its exclude list) still stops it; nothing is made.
         if #available(iOS 17.4, *) {} else if case .loaded(let rows) = passkeys, !rows.isEmpty { passkeyNote = AccountSecurity.addNeedsNewer; return }
-        passkeyBusy = true; passkeyFor = session
-        defer { if passkeyFor == session { passkeyBusy = false; passkeyFor = nil } }
+        passkeyBusy = true; passkeyFor = first
+        defer { if passkeyFor == first { passkeyBusy = false; passkeyFor = nil } }
         /* Review 2: a challenge is held from the moment begin answers, with the time begin answered (its true age), and is
            let go only once finish has been sent. Every other end (Apple's sheet closed or refused, the host refused, an
-           older iOS) leaves it for the next press, so presses do not stack up waiting challenges (Kosmos+ keeps five). */
+           older iOS) leaves it for the next press, so presses do not stack up waiting challenges (Kosmos+ keeps five).
+           Review 5: the challenge belongs to the account, not the session (passkey.rs), so a renewed session keeps it. */
         let reg: AccountSecurity.Registration
         let begunAt: Date   // review 4: the challenge's own age, carried here rather than read back from heldAdd
-        if let held = heldAdd, held.session == session, Date().timeIntervalSince(held.at) < AccountSecurity.heldChallengeSeconds {
+        if let held = heldAdd, stillHeld(held.session) == first, Date().timeIntervalSince(held.at) < AccountSecurity.heldChallengeSeconds {
             reg = held.reg; begunAt = held.at
         } else {
             heldAdd = nil
-            let (status, data) = await send(AccountSecurity.beginRequest(coordinator: coordinator, session: session))
-            guard currentSession() == session else { return }
+            let (status, data) = await send(AccountSecurity.beginRequest(coordinator: coordinator, session: first))
+            guard stillHeld(first) != nil else { return }
             guard let status else { passkeyNote = Account.reach; return }
             let begun = data.flatMap { try? JSONSerialization.jsonObject(with: $0) }
             guard (200..<300).contains(status) else { passkeyNote = AccountSecurity.refusal(json: begun, fallback: AccountSecurity.addNotNow); return }
@@ -803,32 +830,38 @@ struct AccountView: View {
             // than making a passkey finish would turn away.
             guard let got = AccountSecurity.registration(status: status, json: begun) else { passkeyNote = AccountSecurity.addFailed; return }
             reg = got; begunAt = Date()
-            heldAdd = (got, begunAt, session)
+            heldAdd = (got, begunAt, first)
         }
         if let refusal = AccountSecurity.rpRefusal(reg, coordinator: coordinator) { passkeyNote = refusal; return }
         if #available(iOS 17.4, *) {} else if !reg.exclude.isEmpty { passkeyNote = AccountSecurity.addNeedsNewer; return }
         switch await maker.make(reg, closeAfter: AccountSecurity.sheetSeconds(ageSeconds: Date().timeIntervalSince(begunAt))) {
         case .cancelled:
             // The challenge stays held for the next press of this sign-in (it is live for five minutes).
-            if currentSession() == session { passkeyNote = AccountSecurity.addCancelled }
+            if stillHeld(first) != nil { passkeyNote = AccountSecurity.addCancelled }
             return
-        case .alreadyHere: if currentSession() == session { passkeyNote = AccountSecurity.addHave }; return
-        case .failed: if currentSession() == session { passkeyNote = AccountSecurity.addFailed }; return
+        case .alreadyHere: if stillHeld(first) != nil { passkeyNote = AccountSecurity.addHave }; return
+        case .failed: if stillHeld(first) != nil { passkeyNote = AccountSecurity.addFailed }; return
         case .made(let id, let att, let client):
-            // Signed out, or another sign-in, while Apple's sheet was open: nothing is sent for it.
-            guard currentSession() == session else { return }
+            // Signed out, or another account, while Apple's sheet was open: nothing is sent for it. A renewal is the same
+            // account, and finish goes with the session held now.
+            guard let session = stillHeld(first) else { return }
             heldAdd = nil   // finish uses the challenge up, whatever it answers
             guard let body = AccountSecurity.finishBody(credentialID: id, attestationObject: att, clientDataJSON: client,
                                                         name: AccountSecurity.passkeyName)
-            else { passkeyNote = AccountSecurity.addFailed; return }
+            else { passkeyNote = AccountSecurity.madeButRefused(AccountSecurity.addFailed); return }
             let (fs, fd) = await send(AccountSecurity.finishRequest(coordinator: coordinator, session: session, body: body))
-            guard currentSession() == session else { return }
-            guard let fs else { passkeyNote = Account.reach; await readPasskeys(); return }
+            guard stillHeld(session) != nil else { return }
+            // No answer: it may have been added or not. The list is read again; the note (kept apart from the list's) says
+            // what to do if it is not there.
+            guard let fs else {
+                passkeyNote = "Kosmos+ did not answer. If the new passkey is not listed, delete it in the Passwords app and add one again."
+                await readPasskeys(); return
+            }
             guard (200..<300).contains(fs) else {
                 let answer = fd.flatMap { try? JSONSerialization.jsonObject(with: $0) }
-                // Review 4: the passkey exists on the iPhone already; a step-up refusal here must say to delete it.
+                // Review 4/5: the passkey exists on the iPhone already; any refusal here says to delete it there.
                 let usual = AccountSecurity.refusal(json: answer, fallback: AccountSecurity.addFailed)
-                passkeyNote = usual == AccountSecurity.stepUp ? AccountSecurity.stepUpAfterMade : usual
+                passkeyNote = usual == AccountSecurity.stepUp ? AccountSecurity.stepUpAfterMade : AccountSecurity.madeButRefused(usual)
                 return
             }
             passkeyDone = AccountSecurity.added
@@ -838,13 +871,14 @@ struct AccountView: View {
 
     @MainActor private func removePasskey(_ p: AccountSecurity.Passkey, for asked: String?) async {
         removing = nil; removingFor = nil
-        guard !passkeyBusy, let session = sample ? "sample" : currentSession(), asked == session else { return }
+        guard !passkeyBusy, let asked else { return }
+        if sample { if asked == "sample" { passkeyNote = nil; passkeyDone = AccountSecurity.removed }; return }
+        guard let session = stillHeld(asked) else { return }
         passkeyNote = nil; passkeyDone = nil
-        if sample { passkeyDone = AccountSecurity.removed; return }
         passkeyBusy = true; passkeyFor = session
         let (status, data) = await send(AccountSecurity.removeRequest(coordinator: coordinator, session: session, p))
         if passkeyFor == session { passkeyBusy = false; passkeyFor = nil }
-        guard currentSession() == session else { return }
+        guard stillHeld(session) != nil else { return }
         guard let status else { passkeyNote = Account.reach; return }
         guard (200..<300).contains(status) else {
             passkeyNote = AccountSecurity.refusal(json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }, fallback: AccountSecurity.removeFailed)
@@ -856,17 +890,21 @@ struct AccountView: View {
 
     @MainActor private func notMe(_ p: AccountSecurity.NewPlace, for asked: String?) async {
         notMeFor = nil; notMeAskedFor = nil
-        // Confirmed for another sign-in (it changed while the question was up): nothing is signed out.
-        guard !notMeBusy, !sample, let session = currentSession(), asked == session else { return }
+        // Confirmed for another account (it changed while the question was up): nothing is signed out. A renewal is the
+        // same account (review 5).
+        guard !notMeBusy, !sample, let asked, let session = stillHeld(asked) else { return }
         notMeNote = nil
         notMeBusy = true; notMeBusyFor = session
         let (status, data) = await send(AccountSecurity.notMeRequest(coordinator: coordinator, session: session, p))
         if notMeBusyFor == session { notMeBusy = false; notMeBusyFor = nil }
-        guard currentSession() == session else { return }
+        // Review 5: Kosmos+ refuses every session issued before Not me, a renewed one too, so the sign-out goes to the
+        // session held now when it is still this account.
+        guard let held = stillHeld(session) else { return }
         guard let status else { notMeNote = Account.reach; return }
         switch AccountSecurity.notMe(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) {
         // The account is signed out everywhere, this iPhone included: the app's own sign-out way.
-        case .signedOutEverywhere: signedOut(session)
+        case .signedOutEverywhere: signedOut(held)
+        case .sessionGone: notMeNote = AccountSecurity.notMeSessionGone
         case .refused(let why): notMeNote = why
         }
     }
