@@ -280,10 +280,11 @@ struct TaskPageView: View {
             if let note = p.closeNote(roster: roster) {
                 Text(note).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            if let hold = p.holdLine {
+            // Neither this nor the lines under it while the form shows a hold that has not been read back (holdShown): they are of
+            // the one before it.
+            if let hold = p.holdLine, model.holdShown == nil || p.projectPaused {
                 Text(hold).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            // Not while the form shows a hold that has not been read back (holdShown): these are of the one before it.
             ForEach(Array((model.holdShown == nil ? p.holdLines(now: Date()) : []).enumerated()), id: \.offset) { _, line in
                 Text(line).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
             }

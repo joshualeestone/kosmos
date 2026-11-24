@@ -250,13 +250,16 @@ final class TaskPageActionsUITests: XCTestCase {
         save.tap()
         XCTAssertTrue(app.staticTexts["Saved."].waitForExistence(timeout: 15), "it does not say it was saved")
         XCTAssertFalse(save.isEnabled, "Save is still on")
-        for _ in 0..<4 where !app.staticTexts["Waiting for task 8 to close."].isHittable { app.swipeDown() }
-        XCTAssertTrue(app.staticTexts["Waiting for task 8 to close."].exists && app.staticTexts["Why: Waiting on prices"].exists, "the page does not say it")
+        let waits = app.staticTexts["Waiting for task 8 to close."]
+        for _ in 0..<4 where !(waits.exists && waits.isHittable) { app.swipeDown() }
+        XCTAssertTrue(waits.exists && app.staticTexts["Why: Waiting on prices"].exists, "the page does not say it")
         shot(app, "held, waiting for a task")
         // A date and time: the picker, with a first time that can be saved.
         for _ in 0..<6 where !(kind.exists && kind.isHittable) { app.swipeUp() }
         kind.tap()
-        app.buttons["A date and time"].tap()
+        let dated = app.buttons["A date and time"]
+        XCTAssertTrue(dated.waitForExistence(timeout: 10), "no choices the second time")
+        dated.tap()
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "taskpage.hold.at").firstMatch.waitForExistence(timeout: 10), "no date and time")
         for _ in 0..<4 where !(save.exists && save.isHittable) { app.swipeUp() }
         XCTAssertTrue(save.isEnabled, "the first time cannot be saved")
@@ -270,7 +273,8 @@ final class TaskPageActionsUITests: XCTestCase {
         XCTAssertEqual((why.value as? String)?.count, 200, "the box shows words it does not keep")
         app.buttons["Cancel the change to this hold"].tap()
         XCTAssertEqual(why.value as? String, "Waiting on prices", "Cancel does not bring back what is kept")
-        for _ in 0..<4 where !app.staticTexts["Why: Waiting on prices"].isHittable { app.swipeDown() }
+        let kept = app.staticTexts["Why: Waiting on prices"]
+        for _ in 0..<4 where !(kept.exists && kept.isHittable) { app.swipeDown() }
         let until = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Waiting until ")).firstMatch
         XCTAssertTrue(until.waitForExistence(timeout: 15), "the page does not say the time")
         XCTAssertTrue(app.staticTexts["Why: Waiting on prices"].exists, "the reason went when only the wait was changed")
