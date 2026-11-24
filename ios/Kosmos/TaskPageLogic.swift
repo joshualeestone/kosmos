@@ -1168,6 +1168,7 @@ extension Board {
     // The phone's own: no answer, or not the Mac's, says nothing about whether the files were undone (a phone put away
     // mid-undo loses the answer; the board has only undoFailed).
     static let undoUnsure = "Kosmos could not tell whether the files were undone. Cancel, then look at the task's activity."
+    static let undoClosedAgain = "This task was closed again after this list was read. Cancel, then open the list again."
     static let undoLeft = "left as it is"
     static let undoWhy = [
         "restore": "goes back to how it was before this task",
@@ -1197,7 +1198,7 @@ extension Board {
     }
 
     // POST .../task/<n>/undo { paths }: do it for those files. It copies and checks each one before it answers, so it is
-    // given as long as the receipt: a wait given up early would say it was not done when it was.
+    // given as long as the receipt: a wait given up early could not tell whether it was done.
     static func taskUndoApply(mac: URL, project: String, number: Int, paths: [String]) -> URLRequest? {
         guard !paths.isEmpty else { return nil }
         var request = taskPost(taskRoute(mac: mac, project: project, number: number, "undo"), ["paths": paths])
@@ -1209,6 +1210,8 @@ extension Board {
     static func parseUndoPlan(_ data: Data) -> UndoRead {
         guard let plan = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return .unreadable }
         guard plan["on"] as? Bool == true else { return .off }
+        // The Mac could not read its records just now (engine/undo.js): asked again, not taken as nothing to offer.
+        if plan["ready"] as? Bool == false, plan["because"] as? String == "stamps-unknown" { return .unreadable }
         let root = (plan["savedRoot"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let files = (plan["files"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }.enumerated().compactMap { i, f -> UndoFile? in
             guard let path = f["path"] as? String, !path.isEmpty else { return nil }
@@ -1228,6 +1231,8 @@ extension Board {
     // The Mac's answer to an undo. Its own words when it refused; one that did nothing and says why (the task was put back,
     // or its records could not be read: a 200 all the same) is a refusal too, where the board says "Undone: 0 files.".
     static func undoResult(status: Int, body: Data?) -> UndoResult {
+        // A 5xx may come from the relay or the tunnel after the Mac did it, so it is no answer (the route's own refusals are 4xx).
+        if status >= 500 { return .refused(undoUnsure) }
         if case .refused(let why) = taskWriteResult(status: status, body: body, failed: undoFailed, unreached: undoUnsure) { return .refused(why) }
         guard let line = undoDoneLine(body) else { return .refused(undoUnsure) }
         let out = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
