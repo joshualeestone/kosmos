@@ -3466,7 +3466,8 @@ extension Board {
         guard let list = o["commitments"] as? [Any] else {
             return Commitments(state: "unknown", items: [], because: o["because"] as? String)
         }
-        let items = list.compactMap { c -> String? in
+        // Every entry counts, as on the board: one it cannot read is an empty line, not left out of the count.
+        let items = list.map { c -> String in
             if let s = c as? String { return s }
             return (c as? [String: Any])?["text"] as? String ?? ""
         }

@@ -324,7 +324,17 @@ check(wh?.url?.path == "/api/agent/cleo/thread" && whBody?["text"] as? String ==
 check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"state":"placed"}}"#)) == Board.restartSaidHello, "placed: said hello")
 check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"state":"recorded"}}"#)) == Board.restartManual, "recorded is not placed: the person says hello")
 check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"state":"could_not","held":true,"heldBy":"menu"}}"#)) == Board.restartManual + " It is waiting for an answer on its screen, so Kosmos sent nothing; answer it in its window first.", "held by a menu: why")
-check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"held":true,"heldFor":"signin"}}"#)).hasSuffix("It is signed out, so Kosmos sent nothing. Sign it in again first."), "held for sign-in")
+// The engine's sign-in hold is heldBy limit with heldFor signin (engine/chat.js): sign-in wins, as on the board.
+check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"held":true,"heldBy":"limit","heldFor":"signin"}}"#)).hasSuffix("It is signed out, so Kosmos sent nothing. Sign it in again first."), "held for sign-in, in the engine's shape")
+let nowT = Board.isoDate("2026-11-23T20:00:00Z")!
+check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"held":true,"heldBy":"limit","limitReset":"2026-11-23T19:00:00Z"}}"#), now: nowT).hasSuffix(" Its usage has reset, but its limit screen is still up, so Kosmos sent nothing; answer it in its window first."), "a limit past its reset: the screen is still up")
+check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"held":true,"heldBy":"limit","limitReset":"2026-11-23T21:00:00Z"}}"#), now: nowT).hasSuffix(" It is out of usage, so Kosmos sent nothing."), "a limit before its reset: out of usage")
+check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"held":true,"heldBy":"limit"}}"#), now: nowT).hasSuffix(" It is out of usage, so Kosmos sent nothing."), "a limit with no reset: out of usage")
+let heldSrc = boardPage.range(of: "function wakeHeldLine").map { String(boardPage[$0.lowerBound...].prefix(4000)) } ?? ""
+let signinAt = heldSrc.range(of: "delivery.heldFor === 'signin'")?.lowerBound
+let limitAt = heldSrc.range(of: "delivery.heldBy === 'limit'")?.lowerBound
+check(signinAt != nil && limitAt != nil && signinAt! < limitAt!, "the board still checks sign-in before the limit")
+check(boardPage.contains("' Its usage has reset, but its limit screen is still up, so Kosmos sent nothing; answer it in its window first.'"), "the board still says the reset line")
 check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"held":true}}"#)).hasSuffix("This computer\u{2019}s shared Google quota is out, so Kosmos sent nothing."), "held, no reason: the quota line, untimed")
 check(Board.wakeLine(status: 0, body: nil) == Board.restartManual, "no answer: the person says hello")
 for w in ["'Restarted, and said hello to wake them. Say hello when you want to talk to them.'", "'Restarted. You will need to say ‘hello’ to wake them.'", "showNote('Restarted. Waking them…');", "' It is waiting for an answer on its screen, so Kosmos sent nothing; answer it in its window first.'", "' Its input box holds text that has not been sent, so Kosmos sent nothing; send or clear that in its window first.'", "' It is signed out, so Kosmos sent nothing. Sign it in again first.'", "' It is out of usage, so Kosmos sent nothing.'", "\"This computer's shared Google quota is out, so Kosmos sent nothing.\"", "' The Gemini subscription agents on this computer are at the limit you set for working at once, so Kosmos sent nothing.'", "body: JSON.stringify({ text: 'hello', automatic: true })"] {
@@ -352,7 +362,10 @@ check(Board.removeResult(status: 200, body: j(#"{"outcome":"partial","because":"
 check(Board.removeResult(status: 400, body: j(#"{"outcome":"refused","because":"it is already removed"}"#)) == .refused("It is already removed."), "refused: the reason")
 check(Board.removeResult(status: 500, body: j(#"{"error":"the removal failed partway and we cannot tell you how far it got"}"#)) == .refused("The removal failed partway and we cannot tell you how far it got."), "thrown: its error, never 'nothing happened'")
 check(Board.removeResult(status: 200, body: j("{}")) == .removed, "a 200 with no outcome is the board's success too")
-check(Board.removeResult(status: 0, body: nil) == .refused("We could not reach Kosmos, so nothing was removed."), "no answer: nothing was removed")
+check(Board.removeResult(status: 0, body: nil) == .refused("We could not reach your computer, so we cannot tell you whether it was removed."), "no answer: never says nothing was removed")
+check(boardPage.contains("'We could not reach the board, so we cannot tell you whether it was removed. ('"), "the board's rm-go still says it cannot tell")
+check(Board.removeResult(status: 403, body: j(#"{"error":"sign in"}"#)) == .refused(Board.phoneShutOut), "a gate's 403 with words: the phone's sentence, never the gate's")
+check(Board.removeResult(status: 403, body: j(#"{"error":"only the person can force a removal; ask them to remove it from the board"}"#)) == .refused(Board.phoneShutOut), "any 403 without an outcome is a shut-out")
 for w in ["'We cannot remove this agent right now.'", ">Remove this agent…</button>", "'Remove ' + shown;", "keep.textContent = 'Leave ' + shown + ' running';", "<h3 class=\"rm-colhead\">Loses</h3>", "<h3 class=\"rm-colhead\">Keeps</h3>", "|| 'we could not remove it, and we cannot tell you why'", "if (done.outcome === 'partial') {", "cols.hidden = !((ask.loses || []).length && (ask.keeps || []).length);"] {
     check(boardPage.contains(w), "the board still says: \(w.prefix(60))")
 }
