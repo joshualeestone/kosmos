@@ -23,7 +23,7 @@ for id in $(gh run list --repo "$R" --workflow ios.yml --branch main --limit "$N
   printf '%s\n' "$out" | sed -n -E 's/^.*UI-NOTE (kosmos#[0-9]+).*/NOTE \1/p' >> "$T"
 done
 echo "main: asked $N, read $asked: $ran with a verdict, $red red; $none with no verdict (cancelled or timed out); the rest had no log yet"
-[ "$skipped" -gt 0 ] && echo "$skipped of $asked runs skipped \"$J\" (uibuild was red or cancelled, so it was not tested at all, kosmos#8993)"
+[ "$skipped" -gt 0 ] && echo "$skipped of $asked runs skipped \"$J\" (uibuild did not succeed, so it was not tested at all, kosmos#8993)"
 [ "$nojob" -gt 0 ] && echo "$nojob of $asked runs had no job named \"$J\""
 [ "$apierr" -gt 0 ] && echo "$apierr of $asked runs: their job list could not be read"
 sort "$T" | uniq -c | sort -rn

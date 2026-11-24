@@ -51,7 +51,7 @@ measure both.
   ARCHS=$(uname -m). Measured: arm64 only, 46 MB (was 93).
 - uibuild verifies the tar round trip itself (extract, codesign each app) and tars with COPYFILE_DISABLE=1; upload at
   compression-level 0; a missing shared build is a ::warning; the header says a skipped UI job means not tested.
-- ui-flaky-count.sh's "no verdict" line names a uibuild red as a cause.
+- ui-flaky-count.sh: a UI job skipped by a red uibuild is reported (finalised in round 3 as its own line).
 - --build-only replaces only a folder holding its own marker (.ui-sample-products), cleans its temp build on any exit;
   the shared run keeps its derived data in the run's own mktemp folder ($work, under TMPDIR), removed with the run.
 
@@ -67,3 +67,9 @@ measure both.
 - ui-flaky-count.sh counts a UI job skipped by a red uibuild apart (it has no log, so it read as "no log yet").
 - The test compares the two xcodebuild lines' arguments whole (a control adds one argument), checks the checksum gate.
 - EndPull on this Mac, measured: the shared-build half failed the same 2 checks as the full run; the built half pending.
+
+## Round 4 (sonnet): no blocker, no warning; nits applied
+- A test RUNS the unpack step (its run block taken from ios.yml) for a good download, a bad checksum, a cut-short tar
+  and none: only the good one unpacks, the rest warn and leave the folder empty (mutation: drop the checksum, red).
+- --products uses the products only when they hold exactly one .xctestrun (several test plans would make it a guess).
+- The new argument arms sit above the comment that belongs to -h; the flaky counter's skipped line says "did not succeed".

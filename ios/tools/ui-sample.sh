@@ -44,11 +44,11 @@ while [ $# -gt 0 ]; do
     --uikit) uikit=1; shift ;;
     # kosmos#8453: half of the UIKit arm's classes, 1/2 (the earlier-pages classes) or 2/2 (the rest); see "shard" below.
     --shard) shard="${2:-}"; case "$shard" in 1/2|2/2) ;; *) echo "ui-sample: --shard takes 1/2 or 2/2" >&2; exit 2 ;; esac; shift 2 ;;
-    # The header comment, however long it grows: a fixed line range has to be raised each time the header grows, and
-    # #7690's longer header would have cut its last line.
     # kosmos#8993: build once, test from the products (see the header).
     --build-only) build_only="${2:-}"; [ -n "$build_only" ] || { echo "ui-sample: --build-only takes a folder" >&2; exit 2; }; shift 2 ;;
     --products) products="${2:-}"; [ -n "$products" ] || { echo "ui-sample: --products takes a folder" >&2; exit 2; }; shift 2 ;;
+    # The header comment, however long it grows: a fixed line range has to be raised each time the header grows, and
+    # #7690's longer header would have cut its last line.
     -h|--help) awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) echo "ui-sample: unknown argument $1" >&2; exit 2 ;;
   esac
@@ -171,9 +171,11 @@ fi
 run_file=""
 if [ -n "$products" ] && [ -d "$products" ]; then products="$(cd "$products" && pwd)"; fi   # xcodebuild runs from ios/
 if [ -n "$products" ]; then
-  cand="$(find "$products" -maxdepth 1 -name '*.xctestrun' 2>/dev/null | head -1)"
+  # Exactly one: a scheme with several test plans would leave one per plan, and taking the first found would be a guess.
+  cands="$(find "$products" -maxdepth 1 -name '*.xctestrun' 2>/dev/null)"
+  cand=""; [ "$(printf '%s\n' "$cands" | grep -c .)" = 1 ] && cand="$cands"
   if [ -z "$cand" ]; then
-    echo "ui-sample: no built products in $products, so the app is built here"
+    echo "ui-sample: not exactly one built test run in $products, so the app is built here"
   elif [ "$(cat "$products/xcode-version" 2>/dev/null)" != "$({ xcodebuild -version && uname -m; } 2>/dev/null)" ]; then
     echo "ui-sample: the products were built by another Xcode or for another architecture ($(head -1 "$products/xcode-version" 2>/dev/null || echo unknown)), so the app is built here"
   else

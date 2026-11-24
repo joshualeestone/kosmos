@@ -117,3 +117,49 @@ test('ui-sample.sh refuses bad --build-only and --products uses before any Xcode
     assert.ok(fs.existsSync(path.join(stray, 'xcode-version')), 'untouched');
   } finally { for (const d of [full, stray]) fs.rmSync(d, { recursive: true, force: true }); }
 });
+
+/* The unpack step itself, run: its `run:` block taken from ios.yml and run in a temp RUNNER_TEMP for a good download, one
+   whose checksum does not match, one that is cut short, and none at all. Only the good one is unpacked; the rest leave
+   the folder empty and warn, so ui-sample.sh builds the app itself. */
+test('the unpack step: a good download is unpacked; a bad checksum, a cut-short tar or none falls back with a warning', () => {
+  const block = job('ui').split('\n');
+  const at = block.findIndex((l) => l.includes('- name: Unpack the shared build'));
+  assert.ok(at >= 0, 'premise: the ui job has the unpack step');
+  const runAt = block.findIndex((l, i) => i > at && /^ {8}run: \|$/.test(l));
+  const body = [];
+  for (let i = runAt + 1; i < block.length && /^( {10}|$)/.test(block[i]); i += 1) body.push(block[i].slice(10));
+  const script = body.join('\n');
+  assert.match(script, /shasum -a 256 -c/, 'premise: the extracted block is the unpack step');
+  const cases = [];
+  const setup = (name, fn) => {
+    const rt = fs.mkdtempSync(path.join(os.tmpdir(), `uibuild-unpack-${name}-`));
+    const src = path.join(rt, 'src');
+    fs.mkdirSync(src);
+    fs.writeFileSync(path.join(src, 'Kosmos.xctestrun'), 'x');
+    const d = path.join(rt, 'ui-products-tar');
+    fs.mkdirSync(d);
+    spawnSync('tar', ['-C', src, '-cf', path.join(d, 'ui-products.tar'), '.']);
+    spawnSync('sh', ['-c', 'cd "$1" && shasum -a 256 ui-products.tar > ui-products.tar.sha256', 'sh', d]);
+    fn(d);
+    const r = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...process.env, RUNNER_TEMP: rt } });
+    const got = fs.readdirSync(path.join(rt, 'ui-products'));
+    cases.push(rt);
+    return { r, got };
+  };
+  try {
+    const good = setup('good', () => {});
+    assert.equal(good.r.status, 0, good.r.stderr);
+    assert.match(good.r.stdout, /using the shared build/);
+    assert.deepEqual(good.got, ['Kosmos.xctestrun'], 'unpacked');
+    for (const [name, spoil] of [
+      ['badsum', (d) => fs.appendFileSync(path.join(d, 'ui-products.tar'), 'x')],
+      ['cut', (d) => { const f = path.join(d, 'ui-products.tar'); fs.truncateSync(f, 100); spawnSync('sh', ['-c', 'cd "$1" && shasum -a 256 ui-products.tar > ui-products.tar.sha256', 'sh', d]); }],
+      ['none', (d) => fs.rmSync(d, { recursive: true, force: true })],
+    ]) {
+      const bad = setup(name, spoil);
+      assert.equal(bad.r.status, 0, `${name}: the step never goes red: ${bad.r.stderr}`);
+      assert.match(bad.r.stdout, /::warning::no usable shared build/, name);
+      assert.deepEqual(bad.got, [], `${name}: nothing unpacked, so the job builds the app itself`);
+    }
+  } finally { for (const rt of cases) fs.rmSync(rt, { recursive: true, force: true }); }
+});
