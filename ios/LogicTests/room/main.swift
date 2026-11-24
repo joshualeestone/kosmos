@@ -2190,6 +2190,22 @@ do {
     check(Board.blockRefusal(status: 503, Data(#"{"error":"the block list could not be saved"}"#.utf8))?.contains("Try again") == true, "CONTROL: a fault does")
 }
 
+// kosmos#8954: the empty Agents tab's "Make an agent" goes native only when the phone can post to its computer AND that
+// computer has an AI account to make an agent on; otherwise the board's form and its first-run setup (kosmos#8783).
+section("the empty Agents tab: native New Agent or the board's setup")
+do {
+    typealias P = NewAgentPicker
+    let one = P.parseAccounts(Data(#"{"accounts":[{"dir":"/a","provider":"anthropic","isDefault":true,"connection":{"badge":"ok","state":"ready"}}]}"#.utf8))
+    let none = P.parseAccounts(Data(#"{"accounts":[]}"#.utf8))
+    let signedOut = P.parseAccounts(Data(#"{"accounts":[{"dir":"/a","provider":"anthropic","connection":{"badge":"signed_out","state":"none"}}]}"#.utf8))
+    check(one?.count == 1 && none?.count == 0 && signedOut?.count == 1, "the fixtures parse as the board's rows")
+    check(P.emptyStateGoesNative(connected: true, accounts: one), "a connected computer with an account goes native")
+    check(!P.emptyStateGoesNative(connected: false, accounts: one), "CONTROL: not connected, the board's form")
+    check(!P.emptyStateGoesNative(connected: true, accounts: none), "no AI account yet: the board's first-run setup (kosmos#8783)")
+    check(!P.emptyStateGoesNative(connected: true, accounts: signedOut), "only a signed-out account: the board's setup")
+    check(!P.emptyStateGoesNative(connected: true, accounts: nil), "accounts not read: the board path, never a guess")
+}
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

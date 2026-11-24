@@ -13,8 +13,9 @@ struct AgentsView: View {
     @Binding var agentRequest: PushBridge.AgentTarget?
     let openChat: (URL) -> Void
     let openBoard: () -> Void
-    /* kosmos#8783 (Mona Lisa, 11-19): the empty state's one button opens the BOARD's New agent form, never the native
-       sheet: a person not yet set up then meets the board's first-run setup, and one who is lands on the form. */
+    /* kosmos#8783 (Mona Lisa, 11-19): the empty state's one button. A person not yet set up meets the board's first-run
+       setup. kosmos#8954: one whose connected computer already has an AI account gets the native New Agent, as + gives
+       (ContentView.makeFirstAgent decides). */
     var createOnBoard: () -> Void = {}
     // kosmos#7266: the + at the top right, the board's own new-agent form (ContentView.openCreate).
     var create: () -> Void = {}

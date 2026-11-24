@@ -131,6 +131,14 @@ enum NewAgentPicker {
         if let b = a.badge { return b != "rejected" && b != "signed_out" }
         return a.state != "none"
     }
+    /* kosmos#8954: the empty Agents tab's "Make an agent" opens the native New Agent only when the phone can post to the
+       computer (`connected`, board.macURL set) AND that computer reports at least one AI account it could make an agent
+       on (offerable, as the provider menu counts them). Otherwise the board's own form, whose first-run setup a person
+       not yet set up needs (kosmos#8783). Accounts not read (nil) are the board path too, never a guess. */
+    static func emptyStateGoesNative(connected: Bool, accounts: [Account]?) -> Bool {
+        guard connected, let rows = accounts else { return false }
+        return rows.contains(where: offerable)
+    }
     // acctUnknownLive: a live check that could not be read.
     static func unknownLive(_ a: Account) -> Bool {
         guard a.hasConnection else { return false }

@@ -558,6 +558,20 @@ struct ContentView: View {
         .accessibilityAddTraits(.isModal)
     }
 
+    /* kosmos#8954: the empty Agents tab's "Make an agent". The native New Agent when this phone can post to its computer
+       and that computer has an AI account to make an agent on (NewAgentPicker.emptyStateGoesNative); else the board's
+       form, whose first-run setup a person not yet set up needs (kosmos#8783). The accounts are read on the tap, so the
+       answer is the computer's now; a read that fails or does not answer keeps the board path. */
+    private func makeFirstAgent() {
+        guard board.macURL != nil else { openCreate(.agent); return }
+        Task { @MainActor in
+            let got = await board.throughMac { NewAgentPicker.accountsRequest(mac: $0) }
+            let rows = got.flatMap { (200...299).contains($0.1.statusCode) ? NewAgentPicker.parseAccounts($0.0) : nil }
+            if NewAgentPicker.emptyStateGoesNative(connected: board.macURL != nil, accounts: rows) { newAgentOpen = true }
+            else { openCreate(.agent) }
+        }
+    }
+
     // Agents, Projects (kosmos#7032), Tasks (kosmos#7031) and Settings are native, and Today when nothing was sent
     // under it (kosmos#7030); the rest show the board.
     @ViewBuilder private func tabPage(_ which: Tab) -> some View {
@@ -566,7 +580,7 @@ struct ContentView: View {
         if which == .agents {
             AgentsView(client: board, push: pushManager, agentRequest: $agentRequest, openChat: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            }, openBoard: { showBoardToday() }, createOnBoard: { openCreate(.agent) }, create: {
+            }, openBoard: { showBoardToday() }, createOnBoard: { makeFirstAgent() }, create: {
                 // kosmos#7488: the native New Agent flow posts to the computer this phone is connected to; before that
                 // computer has let the phone in there is none, so the board page is used, as New project does.
                 if board.macURL != nil { newAgentOpen = true } else { createOnBoardAsked = .agent }
