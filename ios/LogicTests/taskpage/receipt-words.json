@@ -868,5 +868,361 @@
     "Nobody held this task, so there is no work to show."
    ]
   }
- ]
+ ],
+ "undo": {
+  "why": {
+   "restore": "goes back to how it was before this task",
+   "move-aside": "the agent created it: moved into Kosmos’s undo folder, not deleted",
+   "shared": "another agent also edited it meanwhile: choose it to undo theirs too",
+   "other-task": "the agent was also working on another task then: choose it to undo that work too",
+   "incomplete": "the copy may not be from before this task (undo was turned on after the agent began): choose it if that is fine",
+   "changed-since": "changed after the task closed: left as it is",
+   "gone": "not there any more: left as it is",
+   "not-a-file": "no longer a plain file here: left as it is",
+   "moved": "its folder has moved: left as it is",
+   "copy-missing": "its copy is missing: left as it is",
+   "protected": "a protected settings or key file: left as it is",
+   "cannot-check": "Kosmos could not check whether it may change this file: left as it is"
+  },
+  "plans": [
+   {
+    "given": {
+     "on": true,
+     "ready": true,
+     "savedRoot": "/Users/sam/Kosmos/undo-saved",
+     "files": [
+      {
+       "path": "/w/ann/a.js",
+       "shown": "a.js",
+       "agent": "ann",
+       "action": "restore",
+       "ok": true
+      },
+      {
+       "path": "/w/ann/new.md",
+       "shown": "new.md",
+       "agent": "ann",
+       "action": "move-aside",
+       "ok": true
+      },
+      {
+       "path": "/w/ann/shared.md",
+       "shown": "shared.md",
+       "agent": "ann",
+       "action": "restore",
+       "ok": false,
+       "why": "shared"
+      },
+      {
+       "path": "/w/ann/other-task.md",
+       "shown": "other-task.md",
+       "agent": "ann",
+       "action": "restore",
+       "ok": false,
+       "why": "other-task"
+      },
+      {
+       "path": "/w/ann/incomplete.md",
+       "shown": "incomplete.md",
+       "agent": "ann",
+       "action": "restore",
+       "ok": false,
+       "why": "incomplete"
+      },
+      {
+       "path": "/w/ann/changed-since.md",
+       "shown": "changed-since.md",
+       "agent": "ann",
+       "action": "restore",
+       "ok": false,
+       "why": "changed-since"
+      },
+      {
+       "path": "/w/ann/gone.md",
+       "shown": "gone.md",
+       "agent": "ann",
+       "action": "restore",
+       "ok": false,
+       "why": "gone"
+      },
+      {
+       "path": "/w/ann/not-a-file.md",
+       "shown": "not-a-file.md",
+       "agent": "ann",
+       "action": "restore",
+       "ok": false,
+       "why": "not-a-file"
+      },
+      {
+       "path": "/w/ann/moved.md",
+       "shown": "moved.md",
+       "agent": "ann",
+       "action": "restore",
+       "ok": false,
+       "why": "moved"
+      },
+      {
+       "path": "/w/ann/copy-missing.md",
+       "shown": "copy-missing.md",
+       "agent": "ann",
+       "action": "restore",
+       "ok": false,
+       "why": "copy-missing"
+      },
+      {
+       "path": "/w/ann/protected.md",
+       "shown": "protected.md",
+       "agent": "ann",
+       "action": "restore",
+       "ok": false,
+       "why": "protected"
+      },
+      {
+       "path": "/w/ann/cannot-check.md",
+       "shown": "cannot-check.md",
+       "agent": "ann",
+       "action": "restore",
+       "ok": false,
+       "why": "cannot-check"
+      }
+     ]
+    },
+    "rows": [
+     {
+      "path": "/w/ann/a.js",
+      "shown": "a.js",
+      "why": "goes back to how it was before this task",
+      "chosen": true,
+      "choosable": true
+     },
+     {
+      "path": "/w/ann/new.md",
+      "shown": "new.md",
+      "why": "the agent created it: moved into Kosmos’s undo folder, not deleted (/Users/sam/Kosmos/undo-saved)",
+      "chosen": true,
+      "choosable": true
+     },
+     {
+      "path": "/w/ann/shared.md",
+      "shown": "shared.md",
+      "why": "another agent also edited it meanwhile: choose it to undo theirs too",
+      "chosen": false,
+      "choosable": true
+     },
+     {
+      "path": "/w/ann/other-task.md",
+      "shown": "other-task.md",
+      "why": "the agent was also working on another task then: choose it to undo that work too",
+      "chosen": false,
+      "choosable": true
+     },
+     {
+      "path": "/w/ann/incomplete.md",
+      "shown": "incomplete.md",
+      "why": "the copy may not be from before this task (undo was turned on after the agent began): choose it if that is fine",
+      "chosen": false,
+      "choosable": true
+     },
+     {
+      "path": "/w/ann/changed-since.md",
+      "shown": "changed-since.md",
+      "why": "changed after the task closed: left as it is",
+      "chosen": false,
+      "choosable": false
+     },
+     {
+      "path": "/w/ann/gone.md",
+      "shown": "gone.md",
+      "why": "not there any more: left as it is",
+      "chosen": false,
+      "choosable": false
+     },
+     {
+      "path": "/w/ann/not-a-file.md",
+      "shown": "not-a-file.md",
+      "why": "no longer a plain file here: left as it is",
+      "chosen": false,
+      "choosable": false
+     },
+     {
+      "path": "/w/ann/moved.md",
+      "shown": "moved.md",
+      "why": "its folder has moved: left as it is",
+      "chosen": false,
+      "choosable": false
+     },
+     {
+      "path": "/w/ann/copy-missing.md",
+      "shown": "copy-missing.md",
+      "why": "its copy is missing: left as it is",
+      "chosen": false,
+      "choosable": false
+     },
+     {
+      "path": "/w/ann/protected.md",
+      "shown": "protected.md",
+      "why": "a protected settings or key file: left as it is",
+      "chosen": false,
+      "choosable": false
+     },
+     {
+      "path": "/w/ann/cannot-check.md",
+      "shown": "cannot-check.md",
+      "why": "Kosmos could not check whether it may change this file: left as it is",
+      "chosen": false,
+      "choosable": false
+     }
+    ],
+    "title": "Undo",
+    "intro": "These files go back to how they were before this task. Kosmos saves each one’s current version first.",
+    "go": "Undo the chosen files"
+   },
+   {
+    "given": {
+     "on": true,
+     "files": [
+      {
+       "path": "/w/ann/new.md",
+       "shown": "new.md",
+       "agent": "ann",
+       "action": "move-aside",
+       "ok": true
+      },
+      {
+       "path": "/w/ann/later.md",
+       "shown": "later.md",
+       "agent": "ann",
+       "action": "restore",
+       "ok": false,
+       "why": "a-reason-from-later"
+      },
+      {
+       "path": "/w/ann/none.md",
+       "shown": "none.md",
+       "agent": "ann",
+       "action": "restore",
+       "ok": false
+      }
+     ]
+    },
+    "rows": [
+     {
+      "path": "/w/ann/new.md",
+      "shown": "new.md",
+      "why": "the agent created it: moved into Kosmos’s undo folder, not deleted",
+      "chosen": true,
+      "choosable": true
+     },
+     {
+      "path": "/w/ann/later.md",
+      "shown": "later.md",
+      "why": "left as it is",
+      "chosen": false,
+      "choosable": false
+     },
+     {
+      "path": "/w/ann/none.md",
+      "shown": "none.md",
+      "why": "left as it is",
+      "chosen": false,
+      "choosable": false
+     }
+    ],
+    "title": "Undo",
+    "intro": "These files go back to how they were before this task. Kosmos saves each one’s current version first.",
+    "go": "Undo the chosen files"
+   },
+   {
+    "given": {
+     "on": true,
+     "savedRoot": "/Users/sam/Kosmos/undo-saved",
+     "files": [
+      {
+       "path": "/w/ann/a <b> & \"c\".md",
+       "shown": "a <b> & \"c\".md",
+       "agent": "ann",
+       "action": "restore",
+       "ok": true
+      },
+      {
+       "path": "/w/ann/x.md",
+       "shown": "",
+       "agent": "ann",
+       "action": "restore",
+       "ok": true
+      },
+      {
+       "path": "/w/ann/moved.md",
+       "shown": "moved.md",
+       "agent": "ann",
+       "action": "move-aside",
+       "ok": false,
+       "why": "gone"
+      }
+     ]
+    },
+    "rows": [
+     {
+      "path": "/w/ann/a <b> & \"c\".md",
+      "shown": "a <b> & \"c\".md",
+      "why": "goes back to how it was before this task",
+      "chosen": true,
+      "choosable": true
+     },
+     {
+      "path": "/w/ann/x.md",
+      "shown": "/w/ann/x.md",
+      "why": "goes back to how it was before this task",
+      "chosen": true,
+      "choosable": true
+     },
+     {
+      "path": "/w/ann/moved.md",
+      "shown": "moved.md",
+      "why": "not there any more: left as it is",
+      "chosen": false,
+      "choosable": false
+     }
+    ],
+    "title": "Undo",
+    "intro": "These files go back to how they were before this task. Kosmos saves each one’s current version first.",
+    "go": "Undo the chosen files"
+   }
+  ],
+  "done": [
+   {
+    "done": 1,
+    "skipped": 0,
+    "savedIn": "/Users/sam/Kosmos/undo-saved/1",
+    "line": "Undone: 1 file. The versions from before the undo are saved in /Users/sam/Kosmos/undo-saved/1."
+   },
+   {
+    "done": 2,
+    "skipped": 1,
+    "savedIn": "/Users/sam/Kosmos/undo-saved/1",
+    "line": "Undone: 2 files. 1 file was left as it was. The versions from before the undo are saved in /Users/sam/Kosmos/undo-saved/1."
+   },
+   {
+    "done": 0,
+    "skipped": 2,
+    "savedIn": null,
+    "line": "Undone: 0 files. 2 files were left as they were."
+   },
+   {
+    "done": 0,
+    "skipped": 0,
+    "savedIn": null,
+    "line": "Undone: 0 files."
+   },
+   {
+    "done": 1234,
+    "skipped": 2345,
+    "savedIn": "",
+    "line": "Undone: 1,234 files. 2,345 files were left as they were."
+   }
+  ],
+  "open": "Undo this task’s file changes",
+  "choose": "Choose at least one file.",
+  "failed": "We could not undo that just now."
+ }
 }

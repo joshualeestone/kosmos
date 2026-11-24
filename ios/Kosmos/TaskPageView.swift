@@ -4,9 +4,9 @@ import SwiftUI
 // what TaskPageLogic.swift says and does what TaskPageModel.swift does: the board's task page (web/index.html,
 // paintTaskPage) for reading, and its human verbs: Mark as done / Reopen, and (kosmos#8958 slice B1) a message on the
 // task, its due date, and editing its title or detail, (slice B2) Put on hold / Take off hold, and (slice B3) how often
-// it repeats, and (B3b) who is told when a run is missed; and (B4) a closed task's receipt. What this page does not do yet
-// (the hold form, parts, Add subtask, Close them and this task, undo) is on the board's page, one tap away by the info
-// button.
+// it repeats, and (B3b) who is told when a run is missed; (B4) a closed task's receipt; and (B5) undoing its file changes. What this page
+// does not do yet (the hold form, parts, Add subtask, Close them and this task) is on the board's page, one tap away by
+// the info button.
 struct TaskPageRef: Hashable {
     let project: String
     let number: Int
@@ -37,6 +37,11 @@ struct TaskPageView: View {
     @State private var repeatBox: String?
     // kosmos#8958 slice B4: the receipt's agents whose file list is open.
     @State private var receiptFilesOpen: Set<Int> = []
+    // kosmos#8958 slice B5: whether the undo list is open, its files as it opened, and those chosen. The files stay while the
+    // sheet slides away, so it never empties in view.
+    @State private var undoOpen = false
+    @State private var undoFiles: [Board.UndoFile] = []
+    @State private var undoChosen: Set<String> = []
 
     init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
         self.client = client
@@ -79,6 +84,9 @@ struct TaskPageView: View {
             }
             .background(subLink)
             .sheet(isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) { editSheet }
+            .sheet(isPresented: Binding(get: { undoOpen }, set: { if !$0 { undoOpen = false; model.leaveUndo() } })) { undoSheet }
+            // Undone, put back, or read again as something else: the list that was open is about nothing any more.
+            .onChange(of: model.undoPlan) { _ in undoOpen = false }
             // The person in front of it (the board's tkPresent): on screen, the app in front, and a touch (or a key press
             // that reaches the window) in the last two minutes (PresenceProbe); opening the page or coming back counts.
             .background(PresenceProbe { model.touched() })
@@ -676,7 +684,7 @@ struct TaskPageView: View {
     }
 
     // kosmos#8958 slice B4: the board's tk-receipt, under a closed task's activity. The put-back line ends the history
-    // above it, then the receipt. Undo stays on the board (it changes files on the computer).
+    // above it, then the receipt, then its undo (slice B5).
     private func receiptBlock(_ r: Board.Receipt, _ p: Board.TaskPage) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             if let again = r.again {
@@ -688,7 +696,88 @@ struct TaskPageView: View {
                 Text(Board.receiptNobody).font(.footnote).foregroundColor(Palette.secondary)
             }
             ForEach(r.agents) { receiptAgent($0, name: p.name($0.who, roster: roster)) }
+            if let done = model.undoDone {
+                Text(done).font(.footnote).foregroundColor(Palette.primary).fixedSize(horizontal: false, vertical: true)
+                    .onAppear { UIAccessibility.post(notification: .announcement, argument: done) }
+            } else if let plan = model.undoPlan {
+                Button {
+                    model.touched()
+                    model.clearUndoSay()
+                    undoChosen = Set(plan.files.filter(\.chosen).map(\.path))
+                    undoFiles = plan.files
+                    undoOpen = true
+                } label: {
+                    Text(Board.undoOpen).font(.footnote).foregroundColor(Palette.link)
+                        .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(model.pressing)
+            }
         }
+    }
+
+    // kosmos#8958 slice B5: the board's tk-undo list: each file with what will happen to it or why it is left, chosen as the
+    // board chooses them; "Undo the chosen files" does it, and Cancel or a swipe down leaves everything as it is.
+    private var undoSheet: some View {
+        NavigationView {
+            Form {
+                Section {
+                    ForEach(undoFiles) { f in
+                        Toggle(isOn: Binding(get: { undoChosen.contains(f.path) }, set: { on in
+                            model.touched()
+                            model.clearUndoSay()
+                            if on { undoChosen.insert(f.path) } else { undoChosen.remove(f.path) }
+                        })) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(f.shown).font(.body).foregroundColor(f.choosable ? Palette.primary : Palette.secondary)
+                                Text(f.why).font(.footnote).foregroundColor(Palette.secondary)
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(minHeight: 44)
+                        .disabled(!f.choosable || model.undoing)
+                    }
+                } header: {
+                    Text(Board.undoIntro).font(.footnote).foregroundColor(Palette.secondary).textCase(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section {
+                    Button {
+                        model.touched()
+                        let paths = undoFiles.filter { $0.choosable && undoChosen.contains($0.path) }.map(\.path)
+                        let before = model.undoSay
+                        Task {
+                            await model.undo(paths, names: names)
+                            // Nothing chosen twice running sets the same line in one turn, so it would not be heard again.
+                            if paths.isEmpty, before == Board.undoChoose {
+                                UIAccessibility.post(notification: .announcement, argument: Board.undoChoose)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if model.undoing { SweepDots(scales: false) }
+                            Text(Board.undoGo).font(.body.weight(.semibold)).foregroundColor(Palette.link)
+                        }
+                        .frame(minHeight: 44)
+                    }
+                    .disabled(model.undoing)
+                    .accessibilityValue(model.undoing ? "In progress" : "")
+                    if let say = model.undoSay {
+                        Text(say).font(.footnote).foregroundColor(model.undoRefused ? Palette.dangerWord : Palette.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .id("undo:" + say)
+                            .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
+                    }
+                }
+            }
+            .navigationTitle(Board.undoTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { undoOpen = false; model.leaveUndo() }.disabled(model.undoing) }
+            }
+        }
+        .navigationViewStyle(.stack)
+        .interactiveDismissDisabled(model.undoing)
     }
 
     private func receiptAgent(_ a: Board.ReceiptAgent, name: String) -> some View {
@@ -755,6 +844,8 @@ struct TaskPageView: View {
     // kosmos#8958 slice B3: a sample task's repeat rule and words for it in the board's shape (POST .../repeat; only the
     // hourly words and task 4's starting words are written as the board's describe says them), served back by
     // the next read. Task 4 starts on twice a day, the case where the controls keep a second time.
+    // kosmos#8958 slice B5: the files undone on a sample task (POST .../undo), said in its activity; nothing is undone before.
+    private static var sampleUndone: [Int: Int] = [:]
     private static var sampleRepeat: [Int: (rule: String, words: String)] = [4: (#"{"every":"day","at":["09:00","17:00"]}"#, "every day at 9am and 5pm")]
     private static func sampleRule(_ body: [String: Any]) -> (rule: String, words: String)? {
         let at = body["at"] as? String ?? ""
@@ -790,6 +881,11 @@ struct TaskPageView: View {
            let body = r.httpBody.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) {
             sampleLock.withLock { sampleRepeat[n] = body["clear"] as? Bool == true ? nil : sampleRule(body) }
         }
+        if path.hasSuffix("/undo"), r.httpMethod == "POST", let n = Int(url.deletingLastPathComponent().lastPathComponent),
+           let body = r.httpBody.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) {
+            sampleLock.withLock { sampleUndone[n] = (body["paths"] as? [String] ?? []).count }
+        }
+        let undoneNow: [Int: Int] = sampleLock.withLock { sampleUndone }
         let repeatNow: [Int: (rule: String, words: String)] = sampleLock.withLock { sampleRepeat }
         let dueNow: [Int: String] = sampleLock.withLock { sampleDue }
         let saidNow: [Int: [String]] = sampleLock.withLock { sampleSaid }
@@ -817,12 +913,22 @@ struct TaskPageView: View {
             body = path.contains("/task/4/")
                 ? #"{"version":3,"closedAt":""# + iso(0) + #"","retries":{"reopened":1,"handoffs":0},"agents":[{"who":"dana","available":true,"provider":"claude","folder":"/Users/sam/Kosmos/Dana","models":{"claude-opus-5":{"input_tokens":200000,"output_tokens":40000,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000000,"rows":9}},"files":["captions.md","pages-1-8.md"],"filesMore":0,"commands":12,"prs":[{"repo":"acme/catalogue","number":12,"url":"https://github.com/acme/catalogue/pull/12"}],"prsMore":0,"transcriptsWithWork":1,"cost":{"usd":2.5,"unpriced":[]}},{"who":"eli","available":false,"because":"provider","provider":"grok"}]}"#
                 : #"{"version":3,"retries":{"reopened":0,"handoffs":0},"agents":[]}"#
+        } else if path.hasSuffix("/undo"), path.contains("/task/4/"), r.httpMethod == "POST" {
+            let n = undoneNow[4] ?? 0
+            body = #"{"done":["# + Array(repeating: #""/Users/sam/Kosmos/Dana/file""#, count: n).joined(separator: ",") + #"],"skipped":[],"savedIn":"/Users/sam/Kosmos/undo-saved/2026-11-24"}"#
+        } else if path.hasSuffix("/undo"), path.contains("/task/4/") {
+            // Task 4's: one file that goes back, one the agent made, one another agent also edited, and one left as it is.
+            let f = { (name: String, rest: String) in #"{"path":"/Users/sam/Kosmos/Dana/"# + name + #"","shown":""# + name + #"",\#(rest)}"# }
+            body = #"{"on":true,"ready":true,"savedRoot":"/Users/sam/Kosmos/undo-saved","files":["#
+                + [f("captions.md", #""action":"restore","ok":true"#), f("pages-1-8.md", #""action":"move-aside","ok":true"#),
+                   f("prices.md", #""action":"restore","ok":false,"why":"shared""#), f("style.md", #""action":"restore","ok":false,"why":"changed-since""#)].joined(separator: ",") + "]}"
         } else if path.hasSuffix("/activity") && !path.contains("/task/4/") {
             body = #"{"events":[{"at":""# + iso(4000) + #"","kind":"created"}]}"#
         } else if path.hasSuffix("/activity") {
             body = #"{"events":[{"at":""# + iso(2900) + #"","kind":"created","who":"dana","parent":3},{"at":""# + iso(300) + #"","kind":"said","text":"Use the March photos for the captions."},{"at":""# + iso(40) + #"","kind":"built","by":"dana","note":"captions need a check"}"#
                 + (saidNow[4] ?? []).map { #",{"at":""# + iso(0) + #"","kind":"said","text":"# + Self.jsonString($0) + "}" }.joined()
-                + (closedNow[4] != nil ? #",{"at":""# + iso(0) + #"","kind":"closed"}"# : "") + "]}"
+                + (closedNow[4] != nil ? #",{"at":""# + iso(0) + #"","kind":"closed"}"# : "")
+                + (undoneNow[4].map { #",{"at":""# + iso(0) + #"","kind":"undone","files":"# + String($0) + "}" } ?? "") + "]}"
         } else {
             body = "{}"
         }
