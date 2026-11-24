@@ -92,4 +92,35 @@ final class TaskPageActionsUITests: XCTestCase {
         waitForExpectations(timeout: 10)
         XCTAssertTrue(app.staticTexts["Pages 1 to 8 and the cover"].waitForExistence(timeout: 15), "the page does not show the saved title")
     }
+
+    // kosmos#8958 slice B3: Repeats. Sample task 4 repeats twice a day; Every hour is chosen and saved, and the page's
+    // line then says the saved rule and Save turns off (the sample Mac stores it), so a Save that sent nothing, or a page
+    // that kept the old rule, cannot pass.
+    func testRepeatIsChangedAndSaved() throws {
+        for dark in [false, true] {
+            let app = try openTask(dark: dark)
+            let line = app.descendants(matching: .any)["taskpage.repeat.line"]
+            for _ in 0..<4 where !(line.exists && line.isHittable) { app.swipeUp() }
+            XCTAssertTrue(line.waitForExistence(timeout: 10), "no repeat line on a task that repeats")
+            XCTAssertTrue(line.label.contains("Repeats every day at 9am and 5pm"), "the line is not the stored rule: \(line.label)")
+            let save = app.buttons["taskpage.repeat.save"]
+            XCTAssertTrue(save.exists && !save.isEnabled, "Save is on with nothing changed")
+            shot(app, "repeats, \(dark ? "dark" : "light")")
+            let every = app.buttons["taskpage.repeat.every"]
+            XCTAssertTrue(every.exists, "no How often control")
+            every.tap()
+            let hourly = app.buttons["Every hour"]
+            XCTAssertTrue(hourly.waitForExistence(timeout: 5), "the How often menu did not open")
+            hourly.tap()
+            XCTAssertTrue(save.isEnabled, "Save did not turn on for a new choice")
+            save.tap()
+            let saved = NSPredicate(format: "label CONTAINS %@", "Repeats every hour")
+            expectation(for: saved, evaluatedWith: line)
+            waitForExpectations(timeout: 15)
+            XCTAssertFalse(save.isEnabled, "Save is still on after the rule was saved")
+            XCTAssertTrue(app.staticTexts["Saved."].exists, "no Saved. under Repeats")
+            shot(app, "repeat saved, \(dark ? "dark" : "light")")
+            app.terminate()
+        }
+    }
 }

@@ -252,8 +252,8 @@ struct TaskPageView: View {
                 .background(RoundedRectangle(cornerRadius: 10).fill(Palette.primary))
             }
             .buttonStyle(.plain)
-            .disabled(model.pressing || model.holding)
-            .opacity(model.pressing || model.holding ? 0.6 : 1)
+            .disabled(model.pressing || model.holding || model.repeatSaving)
+            .opacity(model.pressing || model.holding || model.repeatSaving ? 0.6 : 1)
             .accessibilityValue(model.pressing ? "In progress" : "")
             if let refusal = model.refusal {
                 Text(refusal).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
@@ -502,7 +502,7 @@ struct TaskPageView: View {
                     .opacity(!ready || model.repeatSaving || model.pressing ? 0.5 : 1)
                     .accessibilityLabel("Save how this task repeats")
                     .accessibilityIdentifier("taskpage.repeat.save")
-                    if repeatDraft != nil && !model.repeatSaving {
+                    if repeatDraft != nil {
                         dueAction("Cancel", label: "Cancel the change to how this task repeats", busy: model.repeatSaving) { model.clearRepeatSay(); repeatDraft = nil }
                     }
                 }
@@ -611,6 +611,24 @@ struct TaskPageView: View {
     private static var sampleTitle: [Int: String] = [:]
     // A due date set or cleared on a sample task (POST .../due), served back by the next read ("" for cleared).
     private static var sampleDue: [Int: String] = [:]
+    // kosmos#8958 slice B3: a sample task's repeat rule and the board's words for it (POST .../repeat), served back by
+    // the next read. Task 4 starts on twice a day, the case where the controls keep a second time.
+    private static var sampleRepeat: [Int: (rule: String, words: String)] = [4: (#"{"every":"day","at":["09:00","17:00"]}"#, "every day at 9am and 5pm")]
+    private static func sampleRule(_ body: [String: Any]) -> (rule: String, words: String)? {
+        let at = body["at"] as? String ?? ""
+        switch body["every"] as? String {
+        case "hour": return (#"{"every":"hour"}"#, "every hour")
+        case "minutes": return (#"{"every":"minutes","n":"# + (Int(at).map(String.init) ?? "30") + "}", "every " + at + " minutes")
+        case "day":
+            let list = at.split(separator: ",").map { "\"" + $0 + "\"" }.joined(separator: ",")
+            return (#"{"every":"day","at":["# + list + "]}", "every day at " + at)
+        case "week":
+            let on = body["on"] as? String ?? "mon"
+            let day = Board.repeatDayOfNumber.firstIndex(of: on) ?? 1
+            return (#"{"every":"week","day":"# + String(day) + #","at":""# + at + #""}"#, "every week on " + on + " at " + at)
+        default: return nil
+        }
+    }
     private static func sampleSend(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         guard let r = build(URL(string: "https://sample.invalid")!), let url = r.url else { return nil }
         let path = url.path
@@ -626,6 +644,11 @@ struct TaskPageView: View {
            let body = r.httpBody.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) {
             sampleLock.withLock { sampleDue[n] = body["dueDate"] as? String ?? "" }
         }
+        if path.hasSuffix("/repeat"), let n = Int(url.deletingLastPathComponent().lastPathComponent),
+           let body = r.httpBody.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) {
+            sampleLock.withLock { sampleRepeat[n] = body["clear"] as? Bool == true ? nil : sampleRule(body) }
+        }
+        let repeatNow: [Int: (rule: String, words: String)] = sampleLock.withLock { sampleRepeat }
         let dueNow: [Int: String] = sampleLock.withLock { sampleDue }
         let saidNow: [Int: [String]] = sampleLock.withLock { sampleSaid }
         let titleNow: [Int: String] = sampleLock.withLock { sampleTitle }
@@ -643,7 +666,7 @@ struct TaskPageView: View {
         if path.hasSuffix("/projects") {
             body = #"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","paused":false,"agents":[{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"tasks":["#
                 + #"{"number":3,"sentence":"Print-ready catalogue","addedBy":"operator","addedVia":"screen","createdAt":""# + iso(4000) + #"",\#(closed(3, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":null,"sentence":"Print-ready catalogue"}]},"#
-                + #"{"number":4,"sentence":"# + Self.jsonString(titleNow[4] ?? "Pages 1 to 8") + #","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","# + (dueNow[4].map { $0.isEmpty ? "" : #""dueDate":"# + Self.jsonString($0) + "," } ?? #""dueDate":"2026-10-30","#) + #""builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 1 to 8"}],"claim":{"claimed":true,"about":"dana"}},"#
+                + #"{"number":4,"sentence":"# + Self.jsonString(titleNow[4] ?? "Pages 1 to 8") + #","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","# + (dueNow[4].map { $0.isEmpty ? "" : #""dueDate":"# + Self.jsonString($0) + "," } ?? #""dueDate":"2026-10-30","#) + (repeatNow[4].map { #""repeat":"# + $0.rule + #","repeatWords":"# + Self.jsonString($0.words) + "," } ?? "") + #""builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 1 to 8"}],"claim":{"claimed":true,"about":"dana"}},"#
                 + #"{"number":8,"sentence":"Pages 9 to 12","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2800) + #"",\#(closed(8, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 9 to 12"}]}"#
                 + #"]}]}"#
         } else if path.hasSuffix("/activity") && !path.contains("/task/4/") {

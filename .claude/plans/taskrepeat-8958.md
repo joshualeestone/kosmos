@@ -34,8 +34,13 @@ repeat line, natively. Stacked on B2 (taskhold-8958); rebased onto main once B1 
 ## Tests
 - ios/LogicTests/taskpage: B3 section (stored rules, wire, bodies, drafts, time round trip, request, the line on a
   page read) and b3ModelTests (unchanged sends nothing, a save and its reads, Saved. retired by a change elsewhere,
-  refusal, unreached, Saved. gone on a finished task). 275/275.
+  refusal, unreached, Saved. gone on a finished task, a box moved past the other daily time and saved). 277/277.
 - server.ios-routes-6838: 5/5.
+- UI: TaskPageActionsUITests.testRepeatIsChangedAndSaved (light and dark) against the sample board, which now
+  stores a repeat rule (task 4 starts twice a day): the line says the stored rule, Save is off until a change,
+  Every hour is chosen and saved, then the line follows, Save turns off and Saved. shows. 4/4 locally on an
+  iPhone 16e simulator. ios/tools/ui-sample.sh tally 3 to 4 (its tests 6/6).
+- The app's sources typecheck for iOS 16 (the view is compiled by no logic runner).
 - Every iOS LogicTests runner, since TasksLogic.swift (fillRepeat) is compiled by most of them: run.sh 2255,
   run-tasks 167, run-room 907, run-actions 99, run-newtask 108, run-settings 48, run-agentinfo 295, run-composer 61,
   run-files 138, run-pullrefresh 48, run-sweep 45, run-orb, run-taskpage 270, all passing.
@@ -47,6 +52,8 @@ repeat line, natively. Stacked on B2 (taskhold-8958); rebased onto main once B1 
 - A change to the stored rule from elsewhere: a draft that equals the OLD rule follows the new one
   (Board.followStored, the board's tkPaintRepeat review 3), so Never is never left showing over a rule an agent set.
   Any other draft stands, its daily other times following the new rule.
-- Mark as done sends nothing while a Repeats save is out, as it already waits for a hold.
+- keptRepeatDraft compares the draft with the stored rule as it stands BEFORE re-deriving a daily rule's other times:
+  re-deriving first rebuilt them from the sorted stored list and dropped a time the box had moved past, after a save.
+- Mark as done sends nothing, and is drawn off, while a Repeats save is out, as it already waits for a hold.
 - The page's scroll view closes the keyboard on a drag (the minutes box is a number pad, with no return key).
 - A finished task drops an unsaved choice and any Repeats line.

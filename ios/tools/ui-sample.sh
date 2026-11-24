@@ -57,8 +57,9 @@ done
 #   it sets no list by environment, so it runs in this lazy-arm run only).
 # kosmos#8959: TextSetupUITests, "Use text messages instead" opening the number screen (no web page) and back, and the
 #   texted-code and refused-number screens (2 checks).
-# kosmos#8958 slice B1: TaskPageActionsUITests, a task page's message box, due date and Edit title or detail (3 checks).
-classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3 BlankRingUITests:5 SendMovesOnceUITests:3 EndPullUITests:6 NewChatListSwitchUITests:1 WarmReturnChatUITests:3 TextSetupUITests:2 WebFileUITests:1 TaskPageActionsUITests:3"
+# kosmos#8958 slice B1: TaskPageActionsUITests, a task page's message box, due date and Edit title or detail (3 checks);
+# slice B3 adds Repeats changed and saved (4).
+classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3 BlankRingUITests:5 SendMovesOnceUITests:3 EndPullUITests:6 NewChatListSwitchUITests:1 WarmReturnChatUITests:3 TextSetupUITests:2 WebFileUITests:1 TaskPageActionsUITests:4"
 # kosmos#7609: AttachMenuUITests.testTheRowFitsAtTheLargestText skips itself in this run (TEST_RUNNER_KOSMOS_UI_SAMPLE) and is named as skipped.
 #   Alone on a Mac it runs: TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/AttachMenuUITests/testTheRowFitsAtTheLargestText
 # ChatOpensAtNewestUITests is left out of this run: its 260-message chat is too big for a CI runner to query (XCTest
