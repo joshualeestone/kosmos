@@ -164,7 +164,7 @@ test('every message row draws the attachment card, and the + and drop targets ar
   /* Attach, then send (Josh, 2026-08-23 1:59 PM): a picked file waits on a
      chip beside the composer, and the surface's own sender carries every
      pending id with the words as `attachments`, clearing them on success. */
-  assert.match(SCRIPT, /attachAdd\(where, \{ id: body\.attachment\.id, name: body\.attachment\.name \}\)/, 'the upload does not attach the file to the composer');
+  assert.match(SCRIPT, /attachAdd\(where, \{ id: body\.attachment\.id, name: body\.attachment\.name, \.\.\.\(cut \? \{ incomplete: true \} : \{\}\) \}\)/, 'the upload does not attach the file to the composer (with kosmos#9016\'s mark when it did not arrive whole)');
   assert.doesNotMatch(SCRIPT, /await where\.send\(/, 'the upload still sends on pick');
   /* #3419: the talk (/thread) sender dropped the old `chose ? ... : (pendingIds ...)`
      answer-menu wrapper, so its send body now reads exactly like the room sender's.
