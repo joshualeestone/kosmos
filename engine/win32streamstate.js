@@ -737,13 +737,13 @@ function publisher(name, opts) {
   }
   /* kosmos#8951 review 1: the report is over only once a message written AFTER it opened a turn (a wake-up or a turn
      nobody wrote does not prove the lost message ran, and the person must still be told), and not before REPORT_HOLD_MS
-     since it was made, so the minute sweep shows it and pushes it at least once. */
+     since it was made, so the minute sweep can show it on the card (whether the person is pushed is tellStalls's call). */
   function reportRan() {
     if (!current || !current.unstarted) return;
     /* PigeonPete (#8951): a report the deadline made on THIS process ends on any turn it opens, which is most likely that
-       message starting late. One carried from a process that stopped (`lost`) needs a later write: the process that took
-       it in is gone, so no turn here can be it. */
-    if (current.unstarted.lost === true && current.wroteAfterReport !== true) return;
+       message starting late. One carried from a process that stopped (`needsWrite`, lost or not: review 4) needs a later
+       write: the process that took it in is gone, so no turn here can be it. */
+    if (current.needsWrite === true && current.wroteAfterReport !== true) return;   // review 4: carried, whether lost or not
     const age = nowMs() - (Number.isFinite(current.reportAt) ? current.reportAt : 0);
     if (age >= REPORT_HOLD_MS) { current.unstarted = null; current.reportAt = null; current.wroteAfterReport = false; return; }
     const for_ = current.unstarted;
@@ -835,7 +835,7 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, inFlight: null };
+      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, inFlight: null, needsWrite: false };
       /* kosmos#8951: messages the previous process took in and never ran are this agent's still: said on the new
          process's record, so its card says so, until a turn starts. */
       const lost = lostOnStop;
@@ -843,6 +843,7 @@ function publisher(name, opts) {
       if (lost) {
         current.unstarted = { since: lost.since, count: lost.count, ...(lost.lost ? { lost: true } : {}) };
         current.reportAt = lost.reportAt;
+        current.needsWrite = true;   // review 4: whatever its wording, no turn on this process can be those messages
       }
       flush();
       if (lost && lost.fresh) { try { onUnstarted({ since: lost.since, count: lost.count, lost: lost.lost }); } catch { /* the record is on disk; the log line is extra */ } }
@@ -979,7 +980,7 @@ function publisher(name, opts) {
         /* `lost`: the process ended with them (review 1 W4: said differently, since the message may be what ended it);
            `fresh`: some of them are newly lost now (the task log says those; a report carried as it was is not said again). */
         lostOnStop = { since, count: ((a && a.count) || 0) + ((b && b.count) || 0), lost: (!!b && Number.isFinite(was.lastWriteAt) && nowMs() - was.lastWriteAt <= LOST_WINDOW_MS) || !!(a && a.lost), fresh: !!b,
-          reportAt: a && Number.isFinite(was.reportAt) ? was.reportAt : nowMs() };
+          reportAt: !b && a && Number.isFinite(was.reportAt) ? was.reportAt : nowMs() };   // review 4: a fresh loss gets a fresh hold
       }
       generation += 1;
       current = null;
