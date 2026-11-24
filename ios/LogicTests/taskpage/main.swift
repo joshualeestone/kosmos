@@ -1642,6 +1642,7 @@ func b4ModelTests() async {
     check(l.receipt == nil, "an answer landing after the Mac was switched draws nothing")
     let gone = FakeMac()
     let g = TaskPageModel(project: "springcatalogue", number: 3, send: { await gone.asyncSend($0) }, sleep: { _ in }, epoch: { gone.epoch }, now: { clock })
+    g.onScreen = true
     gone.projects = with(closedAt: at1)
     gone.receipt = (500, Data())
     await g.read()
@@ -1655,6 +1656,7 @@ func b4ModelTests() async {
     // A task no longer on the computer: its page is a message, and nothing is asked for.
     let off = FakeMac()
     let o = TaskPageModel(project: "springcatalogue", number: 3, send: { await off.asyncSend($0) }, sleep: { _ in }, epoch: { off.epoch }, now: { clock })
+    o.onScreen = true
     off.projects = with(closedAt: at1)
     off.receipt = (500, Data())
     await o.read()
@@ -1669,6 +1671,7 @@ func b4ModelTests() async {
     // Marked replaced while the receipt was out: said as the task reads when it lands.
     let mid = FakeMac()
     let r = TaskPageModel(project: "springcatalogue", number: 3, send: { await mid.asyncSend($0) }, sleep: { _ in }, epoch: { mid.epoch })
+    r.onScreen = true
     mid.projects = with(closedAt: at1)
     await readHolding(r, mid)
     mid.projects = with(closedAt: at1, ["replacedBy": 4])
@@ -1692,6 +1695,7 @@ func b4ModelTests() async {
     // The page leaves the screen with its receipt still out: cancelled, no failure (no 30 s wait), asked for on the next read.
     let left = FakeMac()
     let x = TaskPageModel(project: "springcatalogue", number: 3, send: { await left.asyncSend($0) }, sleep: { _ in }, epoch: { left.epoch }, now: { clock })
+    x.onScreen = true
     left.projects = with(closedAt: at1)
     await readHolding(x, left)
     let leaving = x.receiptReading
@@ -1707,6 +1711,19 @@ func b4ModelTests() async {
     await x.read()
     await x.receiptReading?.value
     check(asksReceipt(left) == 2 && x.receipt != nil, "leaving with the receipt drawn keeps it, and asks nothing more")
+    // A read landing after the person left, or with the app not in front, asks for no receipt; the read on their return does.
+    for (what, leave, back) in [("off screen", { x.onScreen = false }, { x.onScreen = true }), ("not in front", { x.appActive = false }, { x.appActive = true })] as [(String, () -> Void, () -> Void)] {
+        let before = asksReceipt(left)
+        leave()
+        left.projects = with(closedAt: before == 2 ? at2 : at1)
+        await x.read()
+        await x.receiptReading?.value
+        check(x.page?.receiptKey == (before == 2 ? at2 : at1) && asksReceipt(left) == before, "\(what): a read that lands asks for no receipt")
+        back()
+        await x.read()
+        await x.receiptReading?.value
+        check(asksReceipt(left) == before + 1, "\(what), then back: asked for")
+    }
 
     // Mark as done: its receipt is asked for at once, not at the next tick.
     let done = FakeMac()

@@ -282,6 +282,9 @@ final class TaskPageModel: ObservableObject {
         }
         guard key != receiptAsked else { return }
         stopReceipt()   // one still out is for another close
+        // Only while the page is in front: a press's read landing after the person left asks for nothing; the read on their
+        // return does.
+        guard shouldReadTask else { return }
         if let f = receiptFailed, f.key == key, now().timeIntervalSince(f.at) < Self.receiptRetry { return }
         receiptAsked = key
         receiptReads += 1
