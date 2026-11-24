@@ -30,7 +30,7 @@ final class PasskeyMaker {
     }
 
     /// One sheet at a time: a second ask while one is open answers `failed` at once.
-    func make(_ r: AccountSecurity.Registration) async -> Answer {
+    func make(_ r: AccountSecurity.Registration, closeAfter seconds: Double = 285) async -> Answer {
         guard asker == nil else { return .failed }
         let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: r.rpID)
         let request = provider.createCredentialRegistrationRequest(challenge: r.challenge, name: r.userName, userID: r.userID)
@@ -52,8 +52,9 @@ final class PasskeyMaker {
             c.delegate = mine
             c.presentationContextProvider = mine
             c.performRequests()
-            // A sheet that never answers is closed after six minutes, past the challenge's five.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 360) { [weak self, weak mine] in
+            // Closed before Kosmos+'s challenge lapses (AccountSecurity.sheetSeconds), so no passkey is made for a
+            // challenge finish would refuse; also bounds a sheet that never answers.
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self, weak mine] in
                 if let self, let mine, self.asker === mine { self.cancel() }
             }
         }

@@ -97,13 +97,33 @@ enum AccountSecurity {
 
     static func removeBody(_ p: Passkey) -> [String: Any] { ["credential_id": p.credentialID] }
 
-    /// What a refused add or remove says: the step-up words when Kosmos+ asks for a recent sign-in, else its own
-    /// sentence, else the fallback.
+    /// What a refused add or remove says. Kosmos+'s usual step-up refusal ("for this, sign in again ...") becomes the
+    /// page's step-up words; review 3: any other sentence sent with that code (the review account's "the review account
+    /// cannot do this", a company sign-in pause) is said as Kosmos+ wrote it, since signing in again would not help.
+    /// Otherwise Kosmos+'s own sentence, else the fallback.
     static func refusal(json: Any?, fallback: String) -> String {
         let body = json as? [String: Any] ?? [:]
-        if body["code"] as? String == "step_up_required" { return stepUp }
+        if body["code"] as? String == "step_up_required" {
+            let said = (body["error"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            if said.isEmpty || said.lowercased().hasPrefix("for this, sign in again") { return stepUp }
+            return SignIn.refusal(said) ?? stepUp
+        }
         return SignIn.refusal(body["error"]) ?? fallback
     }
+
+    /// Review 3: what the Remove dialog says. A passkey removed here stays in the Passwords app until it is deleted there
+    /// too, and iOS would keep offering it at sign-in. The date tells two passkeys of one name apart.
+    static func removeQuestion(_ p: Passkey, day: (Int) -> String) -> String {
+        let added = p.createdAt.map(day).flatMap { $0.isEmpty ? nil : ", added \($0)," } ?? ""
+        return "Remove \(p.name)\(added) from your Kosmos+ account? It stays in your Passwords app until you delete it there."
+    }
+    /// Review 3: the Not me dialog's words. The page's "Press it again" fits its two presses, not a phone's named button.
+    static let notMeQuestion = "This signs your account out everywhere, this iPhone included."
+
+    /// Review 3: how long Apple's sheet may stay open for a challenge `ageSeconds` old: Kosmos+ keeps one for five
+    /// minutes and spends it at finish, so the sheet closes 15 seconds before that, as the page caps the browser's
+    /// timeout (signin.html). A passkey made after the challenge lapsed would sit in the Passwords app, refused for good.
+    static func sheetSeconds(ageSeconds: Double) -> Double { max(10, 300 - ageSeconds - 15) }
 
     // MARK: - Adding one
 
