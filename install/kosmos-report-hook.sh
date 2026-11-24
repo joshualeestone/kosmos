@@ -367,6 +367,7 @@ exit 0 unless defined $c && !ref $c;
 my $pr = sub { $d->{hook_event_name} = 'PermissionRequest'; print JSON::PP->new->utf8->canonical->encode($d), "\n" };
 if (index($c, '$' . '$(') >= 0) { print "pid\n"; $pr->(); exit 0 }
 exit 0 unless index($c, '${(') >= 0;
+exit 0 if length($c) > 262144;   # the reader takes a character list: past 256 KB it lets the call run (review round 2)
 my @ch = split //, $c; my $n = @ch; my $i = 0;
 my @ctx = (['N', 0]);   # N: unquoted, with its own ( depth; B: inside backticks, read as N; D: inside double quotes
 my @pend;               # heredocs waiting for the end of the line: [delimiter, quoted, strip tabs]
@@ -555,18 +556,23 @@ allow_hook_present() { # this agent runs with Kosmos's allow hook: an agent Kosm
   case "$KOSMOS_PERMISSION_ALLOW_SCRIPT" in */kosmos-permission-allow.js) ;; *) return 1 ;; esac
   [ -f "$KOSMOS_PERMISSION_ALLOW_NODE" ] && [ -x "$KOSMOS_PERMISSION_ALLOW_NODE" ] && [ -f "$KOSMOS_PERMISSION_ALLOW_SCRIPT" ] || return 1
 }
+# Returns 0 when it answers allow, 1 when it ran cleanly and did not (it steps aside), 2 when it could not be asked (no
+# hook, no temp file, a node that failed or ran past the clock). kosmos_allows reads any non-zero as no, as before; the
+# shape guard refuses only on 1, so a hook that cannot run never blocks a command (review round 2).
 allow_hook_allows() {
-  allow_hook_present || return 1
-  local out p r start=$SECONDS
-  out=$(mktemp "${TMPDIR:-/tmp}/kosmos-allow.XXXXXX" 2>/dev/null) || return 1
+  allow_hook_present || return 2
+  local out p r n start=$SECONDS
+  out=$(mktemp "${TMPDIR:-/tmp}/kosmos-allow.XXXXXX" 2>/dev/null) || return 2
   printf '%s' "$1" | "$KOSMOS_PERMISSION_ALLOW_NODE" "$KOSMOS_PERMISSION_ALLOW_SCRIPT" > "$out" 2>/dev/null &
   p=$!
   while kill -0 "$p" 2>/dev/null && [ $((SECONDS - start)) -lt 6 ]; do sleep 0.1; done
-  if kill -0 "$p" 2>/dev/null; then kill "$p" 2>/dev/null; rm -f "$out" 2>/dev/null; return 1; fi
-  wait "$p" 2>/dev/null
+  if kill -0 "$p" 2>/dev/null; then kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; rm -f "$out" 2>/dev/null; return 2; fi
+  wait "$p" 2>/dev/null; n=$?
   grep -q '"behavior":"allow"' "$out" 2>/dev/null; r=$?
   rm -f "$out" 2>/dev/null
-  return "$r"
+  [ "$r" -eq 0 ] && return 0
+  [ "$r" -eq 1 ] && [ "$n" -eq 0 ] && return 1
+  return 2
 }
 
 # kosmos#7989 slice 3: whether this agent may ask for its file notices now, at most once per FILE_NOTICE_EVERY seconds.
@@ -718,13 +724,14 @@ case "$EVENT" in
           # runs today and nothing reaches the person: leave it alone. Refuse only where that hook would not answer.
           # Only an agent Kosmos started (it has the allow hook): in the person's own Claude Code, where this hook also
           # runs, the prompt is theirs to answer at their own screen, so nothing is refused there (review round 1).
-          if [ -n "$_SG_WHY" ] && [ "$_SG_PR" != "$_SG_OUT" ] && allow_hook_present && ! allow_hook_allows "$_SG_PR"; then
+          _SG_RC=2; if [ -n "$_SG_WHY" ] && [ "$_SG_PR" != "$_SG_OUT" ]; then allow_hook_allows "$_SG_PR"; _SG_RC=$?; fi
+          if [ "$_SG_RC" -eq 1 ]; then   # 1: the allow hook ran and steps aside; 0 or 2 (absent, could not run): runs
             case "$_SG_WHY" in
               pid)
                 printf '%s\n' 'Kosmos stopped this Bash command before it ran: it contains the three characters $$( (as in page.$$( ). Claude Code'"'"'s own safety check refuses any shell command holding them, even inside quotes, a comment or a quoted heredoc: it would show the person you work for a permission prompt they cannot usefully answer, then decline by itself (kosmos#9001). Write the code to a file with the Write or Edit tool and run that file.' >&2
                 exit 2 ;;
               zsh)
-                printf '%s\n' 'Kosmos stopped this Bash command before it ran: it uses a zsh expansion flag, ${(...)...} (such as ${(f)x} to split lines or ${(u)x} for unique values). Claude Code cannot read it, so its own safety check would show the person you work for a permission prompt they cannot usefully answer, then decline by itself (kosmos#9001). Write it the plain way: while IFS= read -r line; do ...; done <<< "$x" to go line by line, sort -u for unique values, paste -sd, - to join lines with commas. The same text inside single quotes or a quoted heredoc (<<'"'"'EOF'"'"') is fine.' >&2
+                printf '%s\n' 'Kosmos stopped this Bash command before it ran: it uses a zsh expansion flag, ${(...)...} (such as ${(f)x} to split lines or ${(u)x} for unique values), also inside double quotes. Claude Code cannot read it, so its own safety check would show the person you work for a permission prompt they cannot usefully answer, then decline by itself (kosmos#9001). Write it the plain way: while IFS= read -r line; do ...; done <<< "$x" to go line by line, sort -u for unique values, paste -sd, - to join lines with commas. The same text inside single quotes or a quoted heredoc (<<'"'"'EOF'"'"') is fine.' >&2
                 exit 2 ;;
             esac
           fi ;;

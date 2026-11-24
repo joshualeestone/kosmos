@@ -44,6 +44,18 @@ person still runs.
   adds `paste -sd, -` for a join.
 - Mutations checked: no own-session gate, no here-string rule, no backtick level: each turns the suite red.
 
+## Round 2 (sonnet, blind) fixes
+- WARNING fixed: an allow hook that could not be asked (node failed, past the 6 s clock, no temp file) read as "steps
+  aside", so a command that runs today was refused. allow_hook_allows now returns 0 allow, 1 ran cleanly and did not
+  answer, 2 could not be asked; the guard refuses only on 1. kosmos_allows reads any non-zero as no, as before (a node
+  that printed allow is still allow whatever its exit). Tests: failing node, slow node (stopped by the clock), no temp
+  folder all run; a clean node that answers nothing is refused (the control). The killed job is reaped quietly.
+- WARNING fixed: the reader's cost is bounded: past 256 KB of command it lets the call run (tested both sides).
+- Measured, not assumed: `\$$(` (a backslash before the first dollar only) IS refused by Claude Code (T80, T81), so the
+  raw substring rule is right; both are now test cases.
+- The zsh message says "also inside double quotes"; the test header no longer overstates what the RAN list controls.
+- Mutations: refusing on any no, and no size cap: each turns the suite red.
+
 ## Weakest premise
 The shapes are Claude Code 2.1.331's. A later version may refuse more (those still prompt, as today) or fewer (the
 guard then refuses a command that would have run with a prompt the allow hook steps aside from; the message names the

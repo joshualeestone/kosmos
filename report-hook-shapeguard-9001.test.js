@@ -13,7 +13,9 @@
  *
  * The CLI the hook reports through is a stub (KOSMOS_REPORT_CLI); nothing here reaches a board and no command is run.
  *
- * CONTROLS: the RAN list must exit 0 (a guard that refuses everything fails), the allow-hook arm must let a shape run
+ * CONTROLS: the RAN entries holding a shape in a place Claude Code does not refuse (single quotes, a quoted heredoc, a
+ * comment, an escape) must exit 0, so a reader that refuses every match fails (the others only pass the cheap
+ * pre-check, and say so by having no shape at all); the allow-hook arm must let a shape run
  * when Kosmos's allow hook would answer, and KOSMOS_SHAPE_GUARD=off, no perl, and another tool must all exit 0.
  */
 const test = require('node:test');
@@ -63,6 +65,8 @@ const REFUSED = [
   ['T51 PID( in a comment', 'echo "x" # page.PID(a)', 'pid'],
   ['T52 PID( at the end, in a comment', "python3 -c 'print(1)' # PID(", 'pid'],
   ['T56 PID( in a printf argument', `printf '%s\\n' 'page.PID("a")'`, 'pid'],
+  ['T80 a backslash before the first dollar only', 'echo \\PID(echo a)', 'pid'],
+  ['T81 the same in double quotes', 'echo "a\\PID(echo b)"', 'pid'],
   ['real shape: a python heredoc editing a browser check (2026-11-16)',
     "ROOT=/tmp/w; python3 - \"$ROOT/a.js\" <<'PY'\nimport sys\ns=open(sys.argv[1]).read()\ns+=\"chk((await page.PID('.ptabs button')).length === 8, 'chips wrap')\"\nopen(sys.argv[1],'w').write(s)\nPY", 'pid'],
   ['real shape: a file list made unique (2026-11-20)', 'files=($(grep -rl x /tmp/w)); files=(ZF(u)files}); echo "${#files[@]}"', 'zsh'],
@@ -128,6 +132,24 @@ test('only where the prompt would reach the person: the allow hook answers, it r
     // An allow-hook path that is not the allow hook is no hook: left alone too.
     assert.equal(run(plain, { allowHook: false, env: { KOSMOS_PERMISSION_ALLOW_NODE: process.execPath, KOSMOS_PERMISSION_ALLOW_SCRIPT: path.join(SANDBOX, 'kosmos-permission-allow.js') } }).code, 0,
       'an allow-hook script that does not exist: not a Kosmos agent');
+    // review round 2: an allow hook that cannot be asked is not one that steps aside. The command runs, as today.
+    const node = (file, body) => { const p = path.join(SANDBOX, file); fs.writeFileSync(p, body, { mode: 0o755 }); return p; };
+    const failing = node('node-fails', '#!/bin/sh\ncat >/dev/null; exit 1\n');
+    const fakeAllow = path.join(SANDBOX, 'kosmos-permission-allow.js'); fs.writeFileSync(fakeAllow, '');
+    assert.equal(run(plain, { allowHook: false, env: { KOSMOS_PERMISSION_ALLOW_NODE: failing, KOSMOS_PERMISSION_ALLOW_SCRIPT: fakeAllow } }).code, 0,
+      'a node that fails: runs');
+    const silent = node('node-silent', '#!/bin/sh\ncat >/dev/null; exit 0\n');
+    assert.equal(run(plain, { allowHook: false, env: { KOSMOS_PERMISSION_ALLOW_NODE: silent, KOSMOS_PERMISSION_ALLOW_SCRIPT: fakeAllow } }).code, 2,
+      'control: a node that runs cleanly and answers nothing steps aside: refused');
+    assert.equal(run(plain, { env: { TMPDIR: path.join(SANDBOX, 'no-such-folder') } }).code, 0, 'no temp file for the answer: runs');
+    const slow = node('node-slow', '#!/bin/sh\ncat >/dev/null; sleep 9\n');
+    const t0 = Date.now();
+    const r = run(plain, { allowHook: false, env: { KOSMOS_PERMISSION_ALLOW_NODE: slow, KOSMOS_PERMISSION_ALLOW_SCRIPT: fakeAllow } });
+    assert.equal(r.code, 0, 'a node past the clock: runs');
+    assert.ok(Date.now() - t0 < 9000, 'and the clock stopped it');
+    // A very long command with a flag is not read (it runs): the reader's cost stays bounded.
+    assert.equal(run('echo ZF(f)x}\n# ' + 'x'.repeat(300000)).code, 0, 'over 256 KB: runs');
+    assert.equal(run('echo ZF(f)x}\n# ' + 'x'.repeat(200000)).code, 2, 'control: under 256 KB: read and refused');
     // Text beyond ASCII survives the rename to PermissionRequest (the allow hook still reads it).
     assert.equal(run("cat <<'PY'\nx = page.PID('café ✓')\nPY", { protectedName: false }).code, 0, 'non-ASCII, the allow hook answers');
     assert.equal(run("cat <<'PY'\nx = page.PID('café ✓')\nPY").code, 2, 'non-ASCII, naming .claude');
