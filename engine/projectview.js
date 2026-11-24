@@ -531,10 +531,15 @@ function activityOf(p, o) {
   const readTask = opts.lastActivityOf || ((id, t) => require('./tasks').lastActivityOf(id, t));
   const taskAt = (id, t) => { try { return readTask(id, t); } catch { return null; } };   // review 2: guarded, injected or not
   const seen = [];
-  /* A time far in the future proves nothing and is dropped. Review 5: one a few minutes ahead is clock skew (an outside
-     post, a clock stepped back), and is read as now, so a project that just had a post is never called quiet. */
-  const SKEW_MS = 5 * 60000;
-  const add = (ms, kind) => { if (Number.isFinite(ms) && ms <= now + SKEW_MS) seen.push({ ms: Math.min(ms, now), kind }); };
+  /* A post or a task time in the future (clock skew, a wrong zone on an outside post, a clock stepped back) is read as
+     now. Review 6: the readers return only the newest time, so dropping it would hide every older one under it, and a
+     busy project could be called quiet; read as now, it errs toward "not quiet", never toward a false notice. The
+     making in the future proves nothing and is left out, so it can never outrank a real post. */
+  const add = (ms, kind) => {
+    if (!Number.isFinite(ms)) return;
+    if (kind === 'made' && ms > now) return;
+    seen.push({ ms: Math.min(ms, now), kind });
+  };
   if (Number.isFinite(room)) add(room, 'post');
   for (const t of Array.isArray(p.tasks) ? p.tasks : []) add(Date.parse(taskAt(p.id, t)), 'task');
   add(Date.parse(p.createdAt), 'made');
@@ -544,7 +549,7 @@ function activityOf(p, o) {
   let isTest = p.testOnly === true;
   let isStarter = p.starter === true;
   try { const pj = require('./projects'); isTest = isTest || pj.isTestOnly(p); isStarter = isStarter || pj.isStarter(p); } catch { /* the payload's own flags */ }
-  /* Review 5: the starter project only while it holds no task. Work the person put there (a task) is watched like any
+  /* Review 5: the starter project only while it holds no task, open or finished. Work put there (a task) is watched like any
      project's (the Assigner's isStarterGoal draws the same line for a goal the person wrote). */
   const hasTasks = Array.isArray(p.tasks) && p.tasks.some(Boolean);
   const set = p.archived === true ? 'archived' : p.paused === true ? 'paused' : isTest ? 'test' : (isStarter && !hasTasks) ? 'starter' : null;
@@ -780,7 +785,7 @@ function activityLine(a, id) {
   const room = typeof id === 'string' && id ? 'kosmos room ' + one(id) : 'its room';
   // Review 3: only a member can read or post in the room, and the person may run this too.
   if (a.quiet === true) return head + ' That is past the ' + days(quietDays) + ' Kosmos counts as normal quiet. If you are on'
-    + ' the project, read ' + room + ': if nobody has said so there, post it there once.';
+    + ' the project, read ' + room + ': if nobody has told your person there that it is quiet, post that there once.';
   if (a.kind === 'made') return head + ' Nothing has been posted or moved since it was made; quiet is normal until ' + days(quietDays) + '.';
   return head + ' Quiet is normal until ' + days(quietDays) + '.';
 }

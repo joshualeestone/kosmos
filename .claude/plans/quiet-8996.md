@@ -11,7 +11,7 @@ since says so.
 
 Activity = newest of messages.lastPostAt (the room's last post, Kosmos's own notes excluded, #6341), each task's
 tasks.lastActivityOf (the board's "Quietest first" measure: a task made, closed, or anything said on an open one), and
-createdAt. A future time is ignored. An unreadable room log is "cannot say", never quiet.
+createdAt. A future post or task time reads as now; a future making is ignored. An unreadable room log is "cannot say", never quiet.
 
 ## Rejected
 - A board badge or a "needs you" flag in this slice: #6209 and #6341 closed exactly that kind of noise, and the card's
@@ -42,6 +42,11 @@ counts as expected quiet only while it holds no task. A reason or kind an older 
 ("Kosmos expects this project to be quiet", "something on the project"); a missing threshold is 14 days; a
 non-numeric age is left out. Every printed sentence is pinned. A pause an agent set counts the same as the person's:
 decided, since either way the room was told who paused it.
+Review 6 (replaces review 5's skew window): any post or task time in the future is read as now. The readers return
+only the newest time, so dropping one would hide every older time under it and could call a busy project quiet; read
+as now, it errs toward "not quiet". A making in the future is left out, so it never outranks a real post. The starter
+excuse holds only while it has no task, open or finished. The verdict says what to post: "if nobody has told your person
+there that it is quiet, post that there once".
 KNOWN LIMITS, stated not fixed:
 - The one quiet notice is itself a post, so it restarts the clock: a project dead for months reads "a post, 3 days ago"
   and gets one notice every 14 days. Telling notices from work would need a marked post kind; the room shows both.
