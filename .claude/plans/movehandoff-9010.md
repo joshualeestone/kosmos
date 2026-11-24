@@ -43,6 +43,17 @@ reaches fewer agents (about 25 busy ones); the automatic mover moves one per tic
 - KNOWN, stated: the agent is released once its restart answers, so the pickup's wait is unheld; moves run one at a time
   and the automatic mover rests a moved agent for a day, so another restart in that window is a person's own.
 
+## Review 3 (opus): one BLOCKER, fixed
+- BLOCKER: on Windows no session start can be read (it is read from tmux), so the pickup never found a new session.
+  Where no start is readable, it now waits as #3492's restartReadyWait does: a not-ready look after the ask, then idle;
+  with no gap seen, idle only after 20 s. Tested both ways.
+- A failed pickup no longer also says "picks up". An agent asked, not saved and not restarted gets the true-either-way
+  line too (without a path). A stop during the handoff wait is said as such in Settings (waitingForHandoff). Both CLIs
+  wait 450 s for a move (the restart's 300 plus the handoff); the Windows CLI's pinned test moved with it. An agent
+  not running adds no handoff clause (the move's words already say it).
+- NOT changed: the pickup's { cap: false } (a Gemini working-at-once cap is a person's; an automatic move skips it as
+  #3492's pickup does): noted.
+
 ## Rejected
 - Asking an agent that is out of usage: it cannot take a turn to write anything, and the usage mover moves exactly such
   agents. It is moved at once, and the move says why no handoff was asked for.

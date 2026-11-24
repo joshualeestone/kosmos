@@ -31159,7 +31159,8 @@ function offerStopMove(afterEl, sayEl) {
   b.stopped = (out) => {
     if (sayEl) { sayEl.hidden = false; sayEl.setAttribute('data-stop-move-said', ''); }   // un-hidden; and a repaint waiting on it gives it a period
     b.remove();
-    if (sayEl) sayEl.textContent = 'The move will stop' + (out.waitingFor ? ' once ' + out.waitingFor + ' has finished restarting' : '')
+    // kosmos#9010: an agent still waiting for its handoff is not restarted; it goes back with the rest.
+    if (sayEl) sayEl.textContent = 'The move will stop' + (out.waitingFor && !out.waitingForHandoff ? ' once ' + out.waitingFor + ' has finished restarting' : '')
       + '. Kosmos puts the agents it had not reached back on their old account where it can, and Settings, AI Models shows which account each agent is on. Try again once the move has ended.';
   };
   b.addEventListener('click', async () => {

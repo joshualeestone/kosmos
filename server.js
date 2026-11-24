@@ -3660,7 +3660,7 @@ function moveHandoffDeps(o = {}) {
     ask: async (rawName) => {
       const name = clean(rawName);
       const session = sessionOf(name);
-      if (!session) return { asked: false, why: 'it was not running.' };
+      if (!session) return { asked: false, why: null };   // not running: the move's own words already say so (review 3)
       /* The live state is on the board's status card (safeRoster), matched as delivery matches it (chat.resolveCard).
          Not claimantFor's: the pane roster carries no state (test-support/fleet refuses that read). */
       const roster = rosterNow();
@@ -3696,14 +3696,24 @@ function moveHandoffDeps(o = {}) {
          second of margin: tmux reads seconds), so an unread start at the ask cannot let the old session pass. Idle is
          waited for; a new session that is busy at once (it took up other work) is typed to at the deadline anyway,
          since a line typed into a busy session is queued and read. */
+      /* Review 3: where no session start can be read (Windows: it is read from tmux), it waits as #3492's
+         restartReadyWait does: a look that is not ready (no card, or not idle) after the ask, then idle; and with no such
+         gap seen, idle only after MIN_GAP_MS, so a status that has not caught up cannot pass the old session as new. */
+      const minGapMs = Number.isFinite(o.minGapMs) ? o.minGapMs : 20000;
+      const t0 = Date.now();
       let newUp = false;
+      let sawGap = false;
       for (;;) {
         let started = null;
         try { started = await startedAt(name); } catch { started = null; }
-        newUp = Number.isFinite(started) && started !== was.start && started + 1000 >= was.at;
         const card = chat.resolveCard(rosterNow(), name);
-        if (newUp && card && card.state === 'idle') break;
-        if (Date.now() >= until) { if (newUp) break; return { ok: false }; }
+        const idle = !!card && card.state === 'idle';
+        if (!idle) sawGap = true;
+        const readable = Number.isFinite(started) || Number.isFinite(was.start);
+        newUp = readable ? (Number.isFinite(started) && started !== was.start && started + 1000 >= was.at)
+          : (sawGap || Date.now() - t0 >= minGapMs);
+        if (newUp && idle) break;
+        if (Date.now() >= until) { if (newUp && card) break; return { ok: false }; }
         await new Promise((r) => { const t = setTimeout(r, pollMs); if (t && typeof t.unref === 'function') t.unref(); });
       }
       // The restart's own pickup line (the moved note rides it, #5400), through the shared-quota gate as #3492's does.
