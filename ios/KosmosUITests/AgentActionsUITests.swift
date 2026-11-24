@@ -40,7 +40,7 @@ final class AgentActionsUITests: XCTestCase {
         // page's other dialogs, Compact and Clear, close the same way).
         XCTAssertTrue(app.buttons["Restart Dana"].exists, "the dialog's answer does not name the agent")
         dismissPopover(app)
-        XCTAssertFalse(restartTitle.waitForExistence(timeout: 2), "Leave it running did not close the dialog")
+        XCTAssertTrue(restartTitle.waitForNonExistence(timeout: 5), "Leave it running did not close the dialog")
 
         // Remove, at the foot of the page, below the fresh start.
         let remove = app.buttons["Remove this agent\u{2026}"]
@@ -59,6 +59,6 @@ final class AgentActionsUITests: XCTestCase {
         shot(app, "agent-remove-dialog")
         XCTAssertTrue(app.buttons["Remove Dana"].exists, "the removal's answer does not name the agent")
         dismissPopover(app)
-        XCTAssertFalse(question.waitForExistence(timeout: 2), "Leave it running did not close the removal dialog")
+        XCTAssertTrue(question.waitForNonExistence(timeout: 5), "Leave it running did not close the removal dialog")
     }
 }

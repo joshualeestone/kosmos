@@ -37,8 +37,8 @@ struct AgentInfoView: View {
     @State private var restartAsking = false
     @State private var restartBusy = false
     @State private var restartLine: (text: String, ok: Bool)?
-    @State private var restartSeq = 0   // the newest restart; an older one's wait stands down (RESTART_HELLO_SEQ)
     @State private var removal: Board.RemovalPlan?   // nil until the first plan is read
+    @State private var removalLoad = 0   // the newest plan read; an older one that finishes later is dropped (REMOVE_TOKEN)
     @State private var removeAsk: Board.RemovalAsk?
     @State private var removeBusy = false
     @State private var removeLine: (text: String, ok: Bool)?
@@ -283,15 +283,15 @@ struct AgentInfoView: View {
         } header: { label("Memory") }
         Section {
             Button { asking = .compact } label: { Text("Compact: summarise and keep going") }
-                .disabled(freshBusy || removed)
+                .disabled(freshBusy || restartBusy || removeBusy || removed)
             Button(role: .destructive) { asking = .clear } label: { Text("Clear: start over, loses what it is holding") }
-                .disabled(freshBusy || removed)
+                .disabled(freshBusy || restartBusy || removeBusy || removed)
             if let freshLine {
                 Text(freshLine.text).font(.footnote).foregroundColor(freshLine.ok ? Palette.secondary : Palette.dangerWord)
             }
             // kosmos#8955: the board's third (d-restart-start), after Compact and Clear as the pack draws it.
             Button { restartAsking = true } label: { Text(Board.restartLabel(live.name)) }
-                .disabled(restartBusy || removed)
+                .disabled(restartBusy || removeBusy || freshBusy || removed)
                 .accessibilityLabel("Fresh start: " + Board.restartLabel(live.name))
             if let restartLine {
                 Text(restartLine.text).font(.footnote).foregroundColor(restartLine.ok ? Palette.secondary : Palette.dangerWord)
@@ -552,7 +552,7 @@ struct AgentInfoView: View {
                 case .can(let ask)?:
                     if !ask.hint.isEmpty { Text(ask.hint).font(.footnote).foregroundColor(Palette.secondary) }
                     Button(role: .destructive) { removeAsk = ask } label: { Text("Remove this agent\u{2026}") }
-                        .disabled(removeBusy)
+                        .disabled(removeBusy || restartBusy || freshBusy)
                 }
                 if let removeLine {
                     Text(removeLine.text).font(.footnote).foregroundColor(removeLine.ok ? Palette.secondary : Palette.dangerWord)
@@ -562,8 +562,10 @@ struct AgentInfoView: View {
     }
 
     private func loadRemoval(_ session: String) async {
+        removalLoad += 1
+        let mine = removalLoad
         let res = await client.throughMac { Board.removalPlanRequest(mac: $0, session: session) }
-        guard !removed else { return }
+        guard mine == removalLoad, !removed else { return }
         let plan = Board.removalPlan(status: res?.1.statusCode ?? 0, body: res?.0, session: session)
         // A read that did not answer keeps a plan already shown (the next refresh asks again).
         if plan == .unreached, case .can? = removal { return }
@@ -591,15 +593,20 @@ struct AgentInfoView: View {
 
     // MARK: Restart (kosmos#8955: the board's rst-go, then its wake hello)
 
+    // RESTART_HELLO_SEQ: per agent and outliving this page, so a restart from a reopened page supersedes the wait of
+    // one started before it, and only the newest sends the hello.
+    @MainActor private static var restartTokens: [String: Int] = [:]
+
     private func restart() async {
         let session = agent.session
-        restartSeq += 1
-        let mine = restartSeq
+        let mine = (AgentInfoView.restartTokens[session] ?? 0) + 1
+        AgentInfoView.restartTokens[session] = mine
+        let current = { AgentInfoView.restartTokens[session] == mine }
         restartBusy = true
         restartLine = nil
         let res = await client.throughMac { Board.restartRequest(mac: $0, session: session) }
         let said = Board.restartResult(status: res?.1.statusCode ?? 0, body: res?.0)
-        guard mine == restartSeq else { return }
+        guard current() else { return }
         guard said.ok else {
             restartBusy = false
             restartLine = (said.sentence ?? "We could not restart them.", false)
@@ -608,23 +615,26 @@ struct AgentInfoView: View {
         }
         restartLine = (Board.restartWaking, true)
         UIAccessibility.post(notification: .announcement, argument: Board.restartWaking)
-        // restartReadyWait: seen down, then up, within the window; otherwise the person says hello themselves.
+        // restartReadyWait: its own read of /api/status (not the list's refresh, which re-sorts the Agents list and can
+        // reconnect), seen down, then up, within the window; otherwise the person says hello themselves. A read that
+        // fails counts as not ready, as the board's does.
         var sawUnready = false
         var ready = false
         let until = Date().addingTimeInterval(Board.restartReadyWindow)
         while Date() < until {
             try? await Task.sleep(nanoseconds: UInt64(Board.restartReadyPoll * 1_000_000_000))
-            guard mine == restartSeq else { return }
-            await client.refreshNow()
-            guard mine == restartSeq else { return }
-            if Board.readyStep(client.agents.first { $0.session == session }, sawUnready: &sawUnready) { ready = true; break }
+            guard current() else { return }
+            let r = await client.throughMac { Board.statusRequest(mac: $0) }
+            guard current() else { return }
+            let agents = r.flatMap { $0.1.statusCode == 200 ? Board.parseAgents($0.0) : nil } ?? []
+            if Board.readyStep(agents.first { $0.session == session }, sawUnready: &sawUnready) { ready = true; break }
         }
         var line = Board.restartManual
         if ready {
             let r = await client.throughMac { Board.wakeHelloRequest(mac: $0, session: session) }
             line = Board.wakeLine(status: r?.1.statusCode ?? 0, body: r?.0)
         }
-        guard mine == restartSeq else { return }
+        guard current() else { return }
         restartBusy = false
         restartLine = (line, true)
         UIAccessibility.post(notification: .announcement, argument: line)

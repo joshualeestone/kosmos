@@ -705,25 +705,29 @@ extension Board {
     static let restartSaidHello = "Restarted, and said hello to wake them. Say hello when you want to talk to them."
     static let restartManual = "Restarted. You will need to say \u{2018}hello\u{2019} to wake them."
     // The line after the wake: said hello only when the delivery was placed; a held one says why (wakeHeldLine).
-    static func wakeLine(status: Int, body: Data?) -> String {
+    static func wakeLine(status: Int, body: Data?, now: Date = Date()) -> String {
         guard (200..<300).contains(status),
               let d = (body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["delivery"] as? [String: Any]
         else { return restartManual }
         if (d["state"] as? String) == "placed" { return restartSaidHello }
         guard (d["held"] as? Bool) == true else { return restartManual }
-        return wakeHeldLine(restartManual, d)
+        return wakeHeldLine(restartManual, d, now: now)
     }
-    // wakeHeldLine's reasons, word for word. The board names a reset time where it has one (quotaResetWords); the phone
-    // keeps the untimed form of the same sentence, which the board itself shows when it has no time.
-    static func wakeHeldLine(_ manual: String, _ d: [String: Any]) -> String {
-        switch d["heldBy"] as? String {
-        case "cap": return manual + " The Gemini subscription agents on this computer are at the limit you set for working at once, so Kosmos sent nothing."
-        case "menu": return manual + " It is waiting for an answer on its screen, so Kosmos sent nothing; answer it in its window first."
-        case "input": return manual + " Its input box holds text that has not been sent, so Kosmos sent nothing; send or clear that in its window first."
-        case "limit": return manual + " It is out of usage, so Kosmos sent nothing."
-        default: break
-        }
+    // wakeHeldLine's reasons, in the board's order (a sign-in hold arrives as heldBy "limit" with heldFor "signin", so
+    // the sign-in check comes before the limit one). Where the board names a reset time (quotaResetWords) the phone
+    // says the same sentence without the time.
+    static func wakeHeldLine(_ manual: String, _ d: [String: Any], now: Date = Date()) -> String {
+        let by = d["heldBy"] as? String
+        if by == "cap" { return manual + " The Gemini subscription agents on this computer are at the limit you set for working at once, so Kosmos sent nothing." }
+        if by == "menu" { return manual + " It is waiting for an answer on its screen, so Kosmos sent nothing; answer it in its window first." }
+        if by == "input" { return manual + " Its input box holds text that has not been sent, so Kosmos sent nothing; send or clear that in its window first." }
         if (d["heldFor"] as? String) == "signin" { return manual + " It is signed out, so Kosmos sent nothing. Sign it in again first." }
+        if by == "limit" {
+            if let reset = isoDate(d["limitReset"] as? String), reset <= now {
+                return manual + " Its usage has reset, but its limit screen is still up, so Kosmos sent nothing; answer it in its window first."
+            }
+            return manual + " It is out of usage, so Kosmos sent nothing."
+        }
         return manual + " This computer\u{2019}s shared Google quota is out, so Kosmos sent nothing."
     }
 
@@ -794,13 +798,14 @@ extension Board {
         case refused(String)
     }
     static func removeResult(status: Int, body: Data?) -> RemoveDone {
-        guard status != 0 else { return .refused("We could not reach Kosmos, so nothing was removed.") }
+        // No answer is not "nothing happened": the request may have gone out and the removal begun (rm-go's catch).
+        guard status != 0 else { return .refused(removeUnanswered) }
         let o = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         let outcome = o?["outcome"] as? String
         // rm-go: `error` as well as `because`, since a thrown removal says it may be half done.
         let said = (o?["because"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (o?["error"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         if !(200..<300).contains(status) || o == nil || outcome == "refused" {
-            if (status == 401 || status == 403), outcome == nil, said == nil { return .refused(phoneShutOut) }
+            if status == 401 || status == 403, outcome == nil { return .refused(phoneShutOut) }
             return .refused(sentence(said ?? "we could not remove it, and we cannot tell you why"))
         }
         if outcome == "partial" { return .partial(sentence(said ?? "It was only partly removed.")) }
@@ -808,6 +813,7 @@ extension Board {
     }
     // Only what happened: putting it back is not on offer for an agent with no startup job (engine/remove.js plan), and
     // the phone does not know which kind it removed.
+    static let removeUnanswered = "We could not reach your computer, so we cannot tell you whether it was removed."
     static func removedLine(_ label: String) -> String { "Removed. \(label) has left your board." }
 }
 

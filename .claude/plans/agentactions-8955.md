@@ -11,14 +11,17 @@ the board row says only what is still there, and that it is a web page.
     engine's because or error plus both step lists (restartFailureLine).
   - The dialog: "Restart <name>?", the cost line from restartCost on /api/status commitments (an earned clear only
     when state clear and an empty list; a malformed record is unknown), "Restart <name>", "Leave it running".
-  - After it took: restartReadyWait (30 s, every 2 s, ready only after seeing it not ready, ready = boardCanSeeIt
-    and not restarting), then the automatic hello to /thread; "said hello" only when the delivery was placed, a held
-    hello says why (wakeHeldLine; the timed forms use their untimed sentence, which the board also shows).
+  - After it took: restartReadyWait (30 s, every 2 s, its own /api/status read, ready only after seeing it not ready,
+    ready = boardCanSeeIt and not restarting; one token per agent, outliving the page, as RESTART_HELLO_SEQ), then
+    the automatic hello to /thread; "said hello" only when the delivery was placed, a held hello says why
+    (wakeHeldLine, in its order: sign-in before limit; where the board names a reset time the phone leaves it out).
   - Remove: GET /api/agent/<n>/removal for the engine's hint, question, reassurance, Loses, Keeps; DELETE without
     ?force. A 5xx, unparsed or shut-out read is "could not reach", never a fact about the agent (loadRemoval);
     partial is not success (rm-go).
-- Not offered on the phone, and the page says where they are: "Write a handoff, then restart", the setup-and-restart
-  offer for a hand-linked window (canWriteJob), and "Remove from my board anyway" for an untied agent.
+- Not offered on the phone: "Write a handoff, then restart" (the board-row footer names it), "Remove from my board
+  anyway" for an untied agent (the Remove section says to use the board), and the board's "Set up and restart" offer
+  for a hand-linked window with no launch job (canWriteJob): the phone sends a plain restart and shows the engine's
+  own refusal.
 - After a removal the page stays, with "Removed. <name> has left your board." It does not promise putting it back,
   because a jobless agent cannot be (engine/remove.js plan), and the phone does not know which kind it removed.
   Rejected: popping the page and the chat in code, which goes through #8055's link-close detection and could record
@@ -26,8 +29,8 @@ the board row says only what is still there, and that it is a web page.
 - Commitments live on Board.Agent (BoardLogic.swift), since every LogicTests runner compiles that file.
 
 ## Tests
-- ios/LogicTests/run-agentinfo.sh: 270 (79 new), with guards that the board's page still holds each mirrored
-  sentence and rule. Mutants: any 200 counted as restarted; ready without seeing the gap: each red.
+- ios/LogicTests/run-agentinfo.sh: 278 (87 new), with guards that the board's page still holds each mirrored
+  sentence and rule. Mutants: any 200 counted as restarted; ready without seeing the gap; the limit check before sign-in: each red.
 - Every LogicTests runner green on the final tree.
 - App build for the iOS Simulator.
 - KosmosUITests/AgentActionsUITests (TEST_RUNNER_KOSMOS_UI_PLUS=1): both dialogs open with their words and close by
