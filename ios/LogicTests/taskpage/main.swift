@@ -647,6 +647,104 @@ check(whoPage(8)?.whoLeftLine(roster: roster) == nil, "control: one agent, no li
 
 await modelTests()
 
+section("#8958 slice B1: a message on the task, the due date, and the words")
+let macURL = URL(string: "https://studio.kosmosplus.com")!
+func bodyOf(_ r: URLRequest?) -> [String: Any]? { r?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } }
+let say = Board.taskMessageRequest(mac: macURL, project: "springcatalogue", number: 4, text: "  Use the March photos.\n")
+check(say?.httpMethod == "POST" && say?.url?.path == "/api/project/springcatalogue/task/4/message"
+      && bodyOf(say)?["text"] as? String == "Use the March photos.", "a message posts its trimmed words to the task's message route")
+check(Board.taskMessageRequest(mac: macURL, project: "springcatalogue", number: 4, text: " \n ") == nil, "an empty box sends nothing")
+let due = Board.taskDueRequest(mac: macURL, project: "springcatalogue", number: 4, due: "2026-11-30")
+check(due?.url?.path == "/api/project/springcatalogue/task/4/due" && bodyOf(due)?["dueDate"] as? String == "2026-11-30", "a due date posts the calendar date")
+let clear = Board.taskDueRequest(mac: macURL, project: "springcatalogue", number: 4, due: nil)
+check(bodyOf(clear)?["dueDate"] is NSNull, "clearing the due date sends null")
+check(Board.taskDueRequest(mac: macURL, project: "springcatalogue", number: 4, due: "2026-02-30") == nil
+      && Board.taskDueRequest(mac: macURL, project: "springcatalogue", number: 4, due: "30/11/2026") == nil, "no request for a date that is not a real calendar date")
+var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(identifier: "America/Chicago")!
+check(Board.dueDay("2026-11-30", calendar: utc).map { Board.dueString($0, calendar: utc) } == "2026-11-30", "a due date reads and writes back as the same day")
+check(Board.taskEdit(title: "Pages 1 to 8", detail: "", openedTitle: "Pages 1 to 8", openedDetail: nil) == .nothing, "nothing changed: nothing is sent")
+check(Board.taskEdit(title: "  ", detail: "x", openedTitle: "Pages 1 to 8", openedDetail: nil) == .needsTitle, "an empty title is refused before sending")
+check(Board.taskEdit(title: " Pages 1 to 9 ", detail: "keep", openedTitle: "Pages 1 to 8", openedDetail: "keep") == .send(["sentence": "Pages 1 to 9"]),
+      "only the title, when only it changed (trimmed)")
+check(Board.taskEdit(title: "Pages 1 to 8", detail: "  ", openedTitle: "Pages 1 to 8", openedDetail: "old words") == .send(["detail": String?.none]),
+      "an emptied detail is sent as cleared")
+check(Board.taskEdit(title: "Pages 1 to 8", detail: "a\nb", openedTitle: "Pages 1 to 8", openedDetail: "a\r\nb") == .nothing,
+      "line ends compared as the board's textarea gives them back")
+check(bodyOf(Board.taskTextRequest(mac: macURL, project: "springcatalogue", number: 4, body: Board.taskTextBody(["detail": String?.none])))?["detail"] is NSNull,
+      "the cleared detail goes on the wire as null")
+check(Board.taskTextRequest(mac: macURL, project: "springcatalogue", number: 4, body: [:]) == nil, "no request with nothing to say")
+check(Board.taskWriteResult(status: 200, body: nil, failed: "f", unreached: "u") == .done, "a 2xx is done")
+check(Board.taskWriteResult(status: 400, body: Data(#"{"error":"that is not a real date"}"#.utf8), failed: "f", unreached: "u") == .refused("that is not a real date"),
+      "a refusal is the Mac's own words")
+check(Board.taskWriteResult(status: 500, body: nil, failed: "f", unreached: "u") == .refused("f")
+      && Board.taskWriteResult(status: 0, body: nil, failed: "f", unreached: "u") == .refused("u"), "else the board's words, and its could-not-reach words with no answer")
+func said(_ json: String) -> String? { Board.taskSaidLine(Data(json.utf8), name: { ["dana": "Dana", "eli": "Eli"][$0] ?? $0 }) }
+check(said(#"{"delivered":[{"agent":"dana","state":"placed"}]}"#) == nil, "every assignee reached: no line")
+check(said(#"{"delivered":[]}"#) == "No agent is assigned to this task, so nobody was told.", "nobody assigned is said")
+check(said(#"{"ok":true}"#) == nil, "CONTROL: no list, no line")
+check(said(#"{"delivered":[{"agent":"dana","state":"could_not","because":"dana is switched off in this project"}]}"#)
+      == "Dana is switched off in this project, so it was not told. Switch it on in the project's members to send it work here. Your message stays on the task.",
+      "switched off, by its card name, and the message stays")
+check(said(#"{"delivered":[{"agent":"eli","state":"held","heldFor":"signin"}]}"#)
+      == "Eli is signed out. Kosmos will try to send your message to Eli once it is signed in again.", "signed out")
+check(said(#"{"delivered":[{"agent":"eli","state":"held","heldUntil":"2999-01-01T00:00:00Z"}]}"#)
+      == "Eli is out of usage. Kosmos will try to send your message to Eli once its usage resets.", "out of usage, without the board's time")
+check(said(#"{"delivered":[{"agent":"dana","state":"placed"},{"agent":"dana","state":"could_not","because":"x"}]}"#)
+      == "Kosmos could not reach Dana, so it was not told. Your message stays on the task.", "listed twice: its worst outcome")
+check(said(#"{"delivered":[{"agent":"eli","state":"unconfirmed"}]}"#) == "Kosmos could not confirm that Eli got it.", "anything else: not confirmed")
+
+await b1ModelTests()
+
+@MainActor
+func b1ModelTests() async {
+    let mac = FakeMac()
+    let m = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch })
+    m.onScreen = true
+    m.touched()
+    let nm = ["dana": "Dana"]
+    await m.read()
+    mac.asked = []
+    mac.actAnswers = [(200, #"{"ok":true,"delivered":[{"agent":"dana","state":"could_not","because":"input box already holds text"}]}"#)]
+    let recorded = await m.say("Check the captions", name: { nm[$0] ?? $0 }, names: nm)
+    check(recorded && mac.asked == ["POST /api/project/springcatalogue/task/3/message", "GET /api/project/springcatalogue/task/3/activity"],
+          "a message is posted, then the activity read again (where it now shows)")
+    check(m.sayLine == "Dana's input box held text that had not been sent, so it was not told. Your message stays on the task." && !m.sayRefused && !m.saying,
+          "the line says who it did not reach")
+    mac.asked = []
+    mac.actAnswers = [(400, #"{"error":"keep the message to 2000 characters or fewer"}"#)]
+    let refused = await m.say("x", name: { $0 }, names: nm)
+    check(!refused && m.sayRefused && m.sayLine == "keep the message to 2000 characters or fewer" && mac.asked.count == 1,
+          "a refusal keeps the box (false), says the Mac's words, and reads nothing more")
+    mac.asked = []
+    let empty = await m.say("   ", name: { $0 }, names: nm)
+    check(!empty && mac.asked.isEmpty, "an empty box sends nothing")
+
+    mac.asked = []
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    await m.setDue("2026-11-30", names: nm)
+    check(mac.asked == ["POST /api/project/springcatalogue/task/3/due", "GET /api/projects", "GET /api/project/springcatalogue/task/3/activity"]
+          && m.dueRefusal == nil && !m.dueSaving, "a due date is saved, then the task and its activity read again")
+    mac.actAnswers = [(400, #"{"error":"that is not a real date"}"#)]
+    await m.setDue("2026-11-29", names: nm)
+    check(m.dueRefusal == "that is not a real date", "a refused date is said")
+
+    mac.asked = []
+    let nothing = await m.saveText(title: "Pages 9 to 12", detail: "", openedTitle: "Pages 9 to 12", openedDetail: nil, names: nm)
+    check(nothing && mac.asked.isEmpty, "Save with nothing changed closes the form and sends nothing")
+    let untitled = await m.saveText(title: " ", detail: "", openedTitle: "Pages 9 to 12", openedDetail: nil, names: nm)
+    check(!untitled && m.editRefusal == Board.taskEditNeedsTitle && mac.asked.isEmpty, "no title: said, nothing sent")
+    var sent: [String: Any]?
+    mac.onSend = { r in if r.url!.path.hasSuffix("/text") { sent = r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } } }
+    mac.actAnswers = [(200, #"{"task":{},"changed":true}"#)]
+    let saved = await m.saveText(title: "Pages 9 to 13", detail: "", openedTitle: "Pages 9 to 12", openedDetail: nil, names: nm)
+    check(saved && m.editRefusal == nil && sent?["sentence"] as? String == "Pages 9 to 13" && sent?["detail"] == nil,
+          "a changed title is saved alone, and the form closes")
+    mac.onSend = nil
+    mac.actAnswers = [(400, #"{"error":"say what needs doing in 200 characters or fewer; the detail has the room"}"#)]
+    let long = await m.saveText(title: String(repeating: "a", count: 201), detail: "", openedTitle: "Pages 9 to 12", openedDetail: nil, names: nm)
+    check(!long && m.editRefusal == "say what needs doing in 200 characters or fewer; the detail has the room", "a refused save keeps the form open with the Mac's words")
+}
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
