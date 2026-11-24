@@ -70,6 +70,17 @@ check(A.confirmed(status: 401, json: ["error": "that code is not what the app sh
 check(A.confirmed(status: 401, json: ["error": "that code is not the one we texted"]) == .refused("That code is not the one we texted."), "a wrong texted code stays")
 check(A.confirmed(status: 401, json: nil) == .refused(A.codeRefused), "a 401 with no sentence is not read as signed out")
 check(A.confirmed(status: 401, json: ["error": "missing bearer token"]) == .signedOut("Missing bearer token."), "a 401 about the session, not the code, is signed out")
+// Every session refusal confirm can answer with (second.rs: the bearer check, refuse_signed_out, refuse_stale_session,
+// ENROL_EXPIRED). None names a code, so each must read as signed out: a rewording that adds "code" fails here, rather
+// than leaving the person typing codes into a session that is over.
+for sentence in ["this device was signed out or removed from a computer since; sign in again",
+                 "this Kosmos+ account is being deleted",
+                 "this account has a second step now; sign in again with it",
+                 "token invalid or expired; start again from the email",
+                 "not a session token"] {
+    if case .signedOut = A.confirmed(status: 401, json: ["error": sentence]) { check(true, "signed out: " + sentence) }
+    else { check(false, "signed out: " + sentence) }
+}
 check(A.confirmed(status: 403, json: ["error": "this device was refused on your account", "code": "session_refused"]) == .startOver("This device was refused on your account."), "a refused device starts over: no code fixes it")
 check(A.confirmed(status: 400, json: ["error": "that code has expired"]) == .refused("That code has expired."), "a 400 that does not say start again stays")
 check(A.confirmed(status: 400, json: nil) == .refused(A.codeRefused), "the page's line with none")

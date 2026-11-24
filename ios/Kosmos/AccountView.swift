@@ -579,7 +579,9 @@ struct AccountView: View {
             await settleUncertainSetup(why, closing: true)
         case .signedOut(let why):
             closeSetup(force: true)
-            secondNote = why
+            // This session is over: the section no longer knows the account's state, so it offers nothing.
+            second = .unreadable(why)
+            secondNote = nil
         }
     }
 
@@ -589,8 +591,12 @@ struct AccountView: View {
     @MainActor private func settleUncertainSetup(_ why: String, closing: Bool) async {
         if closing { closeSetup(force: true); secondNote = why }
         // Busy while the read is out, so a second Confirm cannot start a request this read then closes the sheet over.
+        let asked = currentSession()
         setupBusy = true
         await readSecond()
+        // The sign-in changed while the read was out: everything here belongs to the new one now (accountGeneration
+        // reset it), so nothing is written over it.
+        guard currentSession() == asked else { return }
         setupBusy = false
         switch second {
         case .unreadable:
