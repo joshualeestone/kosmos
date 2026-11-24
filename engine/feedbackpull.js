@@ -91,9 +91,10 @@ function runSecrets(bin, args) {
  * not-read it was (kosmos#8992), never a throw:
  *   'missing'   the map has no such target, or no credential folder at all (lookup exits 1 saying "no credential
  *               mapped" or "no credential dir at"): file it.
- *   'misfiled'  the target IS in the map but the map will not read it as filed (lookup shows a "consume: BLOCKED" line,
- *               or more than one credential for it): running again cannot help; fix the filing.
- *   'unread'    the target is in the map, looks right, and reading it failed or timed out: run again, never re-file.
+ *   'misfiled'  the target IS in the map but `value` cannot give it as filed: lookup does not show one credential
+ *               consumed by `secrets-map.sh value` (it shows BLOCKED, an env or path shape, an undeterminable shape, or
+ *               more than one credential). Running again cannot help; fix the filing.
+ *   'unread'    one credential, consumed by `value`, and reading it failed or timed out: run again, never re-file.
  *   'unsure'    reading failed and the map did not answer the lookup either: run again; file only if a lookup says
  *               it is missing.
  *   'no-tool'   no secrets-map.sh at either place.
@@ -126,9 +127,13 @@ function tokenReading() {
     let seen;
     try { seen = runSecrets(bin, ['lookup', FEEDBACK_TOKEN_TARGET]); } catch { seen = { error: new Error('could not run') }; }
     if (seen && !seen.error && seen.status === 0) {
+      /* Review 2: only a single credential whose report says to consume it with `value` is one a read can give, so its
+         failure is passing ('unread'). Any other consume line (BLOCKED, an env, a path, an undeterminable shape) is a
+         filing `value` refuses every time ('misfiled'). */
       const report = String(seen.stdout || '');
       const creds = (report.match(/^cred:/gm) || []).length;
-      return { why: /^consume:\s*BLOCKED/m.test(report) || creds > 1 ? 'misfiled' : 'unread' };
+      const byValue = new RegExp('^consume:\\s*secrets-map\\.sh value ' + FEEDBACK_TOKEN_TARGET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*$', 'm');
+      return { why: creds === 1 && byValue.test(report) ? 'unread' : 'misfiled' };
     }
     const said = String((seen && seen.stderr) || '');
     if (seen && !seen.error && seen.status === 1 && /no credential (mapped|dir at)/i.test(said)) return { why: 'missing' };
@@ -143,7 +148,7 @@ function token() { return tokenReading().token || null; }
 function noTokenBecause(why) {
   const t = 'secrets-map target "' + FEEDBACK_TOKEN_TARGET + '"';
   if (why === 'unread') return 'the collected-feedback token is filed (' + t + ') but reading it failed or timed out just now. Run the pull again; do not file it again. If it fails again, `secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '` says why.';
-  if (why === 'misfiled') return 'the collected-feedback token is filed (' + t + ') but the secrets map will not read it as filed: `secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '` shows why (a BLOCKED line, or more than one credential for it). Fix the filing with /add-secret; running the pull again will not help.';
+  if (why === 'misfiled') return 'the collected-feedback token is filed (' + t + ') but the secrets map will not read it as filed: `secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '` shows why (a BLOCKED line, a shape other than a bare token, or more than one credential for it). Fix the filing with /add-secret, or the file\'s mode if it says not readable; running the pull again will not help.';
   if (why === 'unsure') return 'the collected-feedback token could not be read just now, and the secrets map did not answer whether it is filed (' + t + '). Run the pull again; file it with /add-secret only if `secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '` says it is missing.';
   if (why === 'no-tool') return 'the secrets map tool (secrets-map.sh) is not on this computer, so the collected-feedback token (' + t + ') cannot be read here.';
   return 'the collected-feedback token is not filed yet (' + t + '). File it with /add-secret and re-run; nothing else changes.';

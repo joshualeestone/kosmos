@@ -27,6 +27,8 @@ function map({ value, lookup }) {
   return asked;
 }
 const ok = (stdout) => ({ status: 0, stdout, stderr: '' });
+// What the real lookup prints for one bare-token credential (secrets-map.sh lookup, measured 2026-11-24).
+const FILED = `cred:     /x/.config/secrets/blob\nidentity: feedback store\nformat:   bare-token\nconsume:  secrets-map.sh value ${T}\n`;
 
 test('filed and read: the token, and the map is asked nothing more', () => {
   const asked = map({ value: ok('vercel_blob_rw_x\n') });
@@ -35,7 +37,7 @@ test('filed and read: the token, and the map is asked nothing more', () => {
 });
 
 test('a read that TIMED OUT on a filed target says run again, never file it', async () => {
-  map({ value: { status: null, stdout: '', stderr: '', error: TIMEOUT }, lookup: ok('target ' + T + '\n') });
+  map({ value: { status: null, stdout: '', stderr: '', error: TIMEOUT }, lookup: ok(FILED) });
   assert.deepEqual(fp.tokenReading(), { why: 'unread' });
   fp.setTransport({ list: async () => { throw new Error('must not list without a token'); }, get: async () => '' });
   const r = await fp.pull(path.join(SB, 'd1'));
@@ -47,21 +49,27 @@ test('a read that TIMED OUT on a filed target says run again, never file it', as
 });
 
 test('a read that timed out after printing part of the token never uses the part', () => {
-  map({ value: { status: null, stdout: 'vercel_blob_rw_part', stderr: '', error: TIMEOUT }, lookup: ok('cred:     /x/a\n') });
+  map({ value: { status: null, stdout: 'vercel_blob_rw_part', stderr: '', error: TIMEOUT }, lookup: ok(FILED) });
   assert.deepEqual(fp.tokenReading(), { why: 'unread' });
-  map({ value: { status: 1, stdout: 'vercel_blob_rw_part', stderr: '' }, lookup: ok('cred:     /x/a\n') });
+  map({ value: { status: 1, stdout: 'vercel_blob_rw_part', stderr: '' }, lookup: ok(FILED) });
   assert.deepEqual(fp.tokenReading(), { why: 'unread' }, 'nor a part printed before a failing exit');
 });
 
 test('review 1: filed but the map will not read it as filed (BLOCKED, or two credentials): fix the filing, not run again', async () => {
   map({ value: { status: 1, stdout: '', stderr: 'secrets-map: refused\n' }, lookup: ok('cred:     /x/a\nformat:   bare-token   ** MISMATCH - the file looks like: sourceable-env **\nconsume:  BLOCKED until the mismatch above is resolved\n') });
   assert.deepEqual(fp.tokenReading(), { why: 'misfiled' });
-  map({ value: { status: 1, stdout: '', stderr: '' }, lookup: ok('cred:     /x/a\ncred:     /x/b\n') });
+  map({ value: { status: 1, stdout: '', stderr: '' }, lookup: ok(FILED + FILED) });
   assert.deepEqual(fp.tokenReading(), { why: 'misfiled' }, 'two credentials for one target');
+  // Review 2: shapes `value` refuses every time, though lookup shows no BLOCKED (secrets-map.sh lookup's other lines).
+  for (const consume of [`secrets-map.sh path ${T}   (consumed by PATH - never by value)`, 'shape undeterminable - inspect the file before using it',
+    `eval "$(secrets-map.sh env ${T})"  (or: value ${T} <VAR>)`, `secrets-map.sh value ${T}X`]) {
+    map({ value: { status: 1, stdout: '', stderr: '' }, lookup: ok(`cred:     /x/a\nconsume:  ${consume}\n`) });
+    assert.deepEqual(fp.tokenReading(), { why: 'misfiled' }, consume);
+  }
   const r = await fp.pull(path.join(SB, 'd5'));
   assert.equal(r.why, 'misfiled');
   assert.match(r.because, /will not read it as filed/);
-  assert.match(r.because, /Fix the filing with \/add-secret; running the pull again will not help/);
+  assert.match(r.because, /Fix the filing with \/add-secret, or the file's mode if it says not readable; running the pull again will not help/);
 });
 
 test('review 1: no credential folder at all is missing (file it), as the tool itself says', () => {
@@ -80,15 +88,15 @@ test('review 1: a first copy that cannot be run, or does not know the verb, lets
   }
   // A timeout answers at the first place (the wait stays one read and one lookup).
   const asked = [];
-  fp.setSecretsRunner((bin, args) => { asked.push(bin === 'secrets-map.sh' ? 'first ' + args[0] : 'second ' + args[0]); return args[0] === 'value' ? { error: TIMEOUT } : ok('cred:     /x/a\n'); });
+  fp.setSecretsRunner((bin, args) => { asked.push(bin === 'secrets-map.sh' ? 'first ' + args[0] : 'second ' + args[0]); return args[0] === 'value' ? { error: TIMEOUT } : ok(FILED); });
   assert.deepEqual(fp.tokenReading(), { why: 'unread' });
   assert.deepEqual(asked, ['first value', 'first lookup']);
 });
 
 test('a read that failed some other way (exit 1, not "no credential") on a filed target: run again', () => {
-  map({ value: { status: 1, stdout: '', stderr: 'refusing: stdout is a tty\n' }, lookup: ok('x') });
+  map({ value: { status: 1, stdout: '', stderr: 'refusing: stdout is a tty\n' }, lookup: ok(FILED) });
   assert.deepEqual(fp.tokenReading(), { why: 'unread' });
-  map({ value: ok('   \n'), lookup: ok('x') });
+  map({ value: ok('   \n'), lookup: ok(FILED) });
   assert.deepEqual(fp.tokenReading(), { why: 'unread' }, 'an empty value at exit 0 is not a token');
 });
 
@@ -139,8 +147,11 @@ test('the real secrets-map.sh, its secrets folder pointed at an empty and at an 
   // Measured 2026-11-24: lookup exits 1 saying "no credential mapped" (an empty folder) or "no credential dir at" (none).
   // Driven through the real tool, so a change to its wording is seen here, not as every agent being told to re-file.
   const was = process.env.SECRETS_DIR;
+  const wasPath = process.env.PATH;
   const empty = fs.mkdtempSync(path.join(SB, 'secrets-'));
   try {
+    // Review 2: the tool's own folder first, so the copy tokenReading finds on PATH is the one this test checked for.
+    process.env.PATH = path.dirname(real) + path.delimiter + (wasPath || '');
     process.env.SECRETS_DIR = empty;
     assert.deepEqual(fp.tokenReading(), { why: 'missing' }, 'an empty secrets folder');
     process.env.SECRETS_DIR = path.join(SB, 'no-such-secrets-folder');
@@ -148,5 +159,6 @@ test('the real secrets-map.sh, its secrets folder pointed at an empty and at an 
     assert.equal(fs.existsSync(path.join(SB, 'no-such-secrets-folder')), false, 'and the tool did not make one');
   } finally {
     if (was === undefined) delete process.env.SECRETS_DIR; else process.env.SECRETS_DIR = was;
+    process.env.PATH = wasPath;
   }
 });

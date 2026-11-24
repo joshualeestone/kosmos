@@ -33,3 +33,11 @@ run again and check lookup), the safe side. The real-tool test pins the wording 
 - 'unread' adds: if it fails again, `secrets-map.sh lookup` says why.
 - Tests: a part printed before a timeout is never used; the real tool driven through tokenReading with SECRETS_DIR at an
   empty and an absent folder (never the real one). Mutations checked: misfiled, nodir, fallback, partial token.
+
+## Round 2 (sonnet) fixes
+- 'unread' only when lookup shows exactly one credential whose consume line is `secrets-map.sh value <target>`; any
+  other consume line (BLOCKED, env, path, undeterminable) is 'misfiled' (value refuses those every time). Every consume
+  line was read from secrets-map.sh's lookup.
+- The misfiled message also names the file's mode (the not-readable case).
+- The real-tool test puts that tool's folder first on PATH, so the copy found is the one checked.
+- Tests use the real lookup report shape (FILED); mutation checked (dropping the consume match).
