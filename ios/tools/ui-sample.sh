@@ -61,7 +61,8 @@ done
 #   Retire sheet (1 check; no chat list, so this lazy-arm run only).
 # kosmos#8958: UnsentDraftUITests, an unsent draft drawn in the chat with Put in the message box and Dismiss, never the
 #   board (3 checks).
-classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3 BlankRingUITests:5 SendMovesOnceUITests:3 EndPullUITests:6 NewChatListSwitchUITests:1 WarmReturnChatUITests:3 TextSetupUITests:2 WebFileUITests:1 AccountScreenUITests:2 UnsentDraftUITests:3"
+# kosmos#8958 slice B1: TaskPageActionsUITests, a task page's message box, due date and Edit title or detail (3 checks).
+classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3 BlankRingUITests:5 SendMovesOnceUITests:3 EndPullUITests:6 NewChatListSwitchUITests:1 WarmReturnChatUITests:3 TextSetupUITests:2 WebFileUITests:1 AccountScreenUITests:2 UnsentDraftUITests:3 TaskPageActionsUITests:3"
 # kosmos#7609: AttachMenuUITests.testTheRowFitsAtTheLargestText skips itself in this run (TEST_RUNNER_KOSMOS_UI_SAMPLE) and is named as skipped.
 #   Alone on a Mac it runs: TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/AttachMenuUITests/testTheRowFitsAtTheLargestText
 # ChatOpensAtNewestUITests is left out of this run: its 260-message chat is too big for a CI runner to query (XCTest
