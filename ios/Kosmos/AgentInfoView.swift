@@ -43,6 +43,8 @@ struct AgentInfoView: View {
     @State private var removeBusy = false
     @State private var removeLine: (text: String, ok: Bool)?
     @State private var removed = false
+    // kosmos#8955 review 2: while a restart or removal runs, or once it is removed, nothing else on the page acts on it.
+    private var actionsHeld: Bool { restartBusy || removeBusy || removed }
     // kosmos#8626: the provider switch. The accounts are /api/accounts (nil until read, the board's ACCOUNTS_LOADED;
     // accountsFailed is its ACCOUNTS_UNREADABLE), Claude's models ride the /api/roles read the page already makes.
     @State private var accountRows: [[String: Any]]?
@@ -164,7 +166,7 @@ struct AgentInfoView: View {
             TextField("What you call them", text: $nameText)
                 // Review 2: typing during a save would be marked saved, then overwritten. Review 5: and before the first read,
                 // what was typed would be overwritten by it.
-                .disabled(saving || details == nil)
+                .disabled(saving || details == nil || actionsHeld)
                 .onChange(of: nameText) { v in let c = Board.capped(v); if c != v { nameText = c } }
                 .textInputAutocapitalization(.words)
                 .foregroundColor(Palette.primary)
@@ -178,7 +180,7 @@ struct AgentInfoView: View {
         }
         Section {
             TextField("Executive Assistant, Bookkeeper, Researcher…", text: $roleText)
-                .disabled(saving || details == nil)
+                .disabled(saving || details == nil || actionsHeld)
                 .onChange(of: roleText) { v in let c = Board.capped(v); if c != v { roleText = c } }
                 .foregroundColor(Palette.primary)
         } header: { label("What they do") } footer: {
@@ -190,7 +192,7 @@ struct AgentInfoView: View {
                     Button { Task { await save() } } label: {
                         HStack { Text("Save"); if saving { Spacer(); SweepDots(label: "Loading", scales: false) } }
                     }
-                    .disabled(saving || nameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(saving || actionsHeld || nameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 if let saveLine {
                     Text(saveLine.text).font(.footnote).foregroundColor(saveLine.ok ? Palette.secondary : Palette.dangerWord)
@@ -283,15 +285,15 @@ struct AgentInfoView: View {
         } header: { label("Memory") }
         Section {
             Button { asking = .compact } label: { Text("Compact: summarise and keep going") }
-                .disabled(freshBusy || restartBusy || removeBusy || removed)
+                .disabled(freshBusy || switching || actionsHeld)
             Button(role: .destructive) { asking = .clear } label: { Text("Clear: start over, loses what it is holding") }
-                .disabled(freshBusy || restartBusy || removeBusy || removed)
+                .disabled(freshBusy || switching || actionsHeld)
             if let freshLine {
                 Text(freshLine.text).font(.footnote).foregroundColor(freshLine.ok ? Palette.secondary : Palette.dangerWord)
             }
             // kosmos#8955: the board's third (d-restart-start), after Compact and Clear as the pack draws it.
             Button { restartAsking = true } label: { Text(Board.restartLabel(live.name)) }
-                .disabled(restartBusy || removeBusy || freshBusy || removed)
+                .disabled(freshBusy || switching || actionsHeld)
                 .accessibilityLabel("Fresh start: " + Board.restartLabel(live.name))
             if let restartLine {
                 Text(restartLine.text).font(.footnote).foregroundColor(restartLine.ok ? Palette.secondary : Palette.dangerWord)
@@ -341,7 +343,7 @@ struct AgentInfoView: View {
                             Label { Text(p.label) } icon: { menuMark(p.mark) }.tag(Board.SwitchProvider?.some(p))
                         }
                     }
-                    .disabled(switching)
+                    .disabled(switching || actionsHeld)
                     // Review 1: only a pick resets the rest. Clearing it after a switch must not wipe the result line.
                     .onChange(of: switchTo) { v in if v != nil { pickedProvider() } }
                     if switchAccounts.count > 1 {
@@ -359,7 +361,7 @@ struct AgentInfoView: View {
                         })) {
                             ForEach(switchAccounts) { Text($0.label).tag(String?.some($0.dir)) }
                         }
-                        .disabled(switching)
+                        .disabled(switching || actionsHeld)
                     } else if let only = switchAccounts.first {
                         row("Account", only.label)
                     }
@@ -369,7 +371,7 @@ struct AgentInfoView: View {
                         Picker("Model", selection: $switchModel) {
                             ForEach(switchModels) { Text($0.label).tag($0.key) }
                         }
-                        .disabled(switching)
+                        .disabled(switching || actionsHeld)
                     }
                     if let to = switchTo, let from = currentProvider, to.rawValue != from {
                         Text(Board.switchNote(from: from, to: to, name: live.name))
@@ -380,7 +382,7 @@ struct AgentInfoView: View {
                                 if switching { Spacer(); SweepDots(label: "Switching", scales: false) }
                             }
                         }
-                        .disabled(switching || openaiModelsLoading)
+                        .disabled(switching || openaiModelsLoading || actionsHeld)
                         .confirmationDialog("Switch \(live.name) to \(to.titleWord)?", isPresented: $confirmSwitch, titleVisibility: .visible) {
                             Button("Switch and restart") { Task { await doSwitch(to) } }
                             Button("Cancel", role: .cancel) {}
@@ -552,7 +554,7 @@ struct AgentInfoView: View {
                 case .can(let ask)?:
                     if !ask.hint.isEmpty { Text(ask.hint).font(.footnote).foregroundColor(Palette.secondary) }
                     Button(role: .destructive) { removeAsk = ask } label: { Text("Remove this agent\u{2026}") }
-                        .disabled(removeBusy || restartBusy || freshBusy)
+                        .disabled(freshBusy || switching || actionsHeld)
                 }
                 if let removeLine {
                     Text(removeLine.text).font(.footnote).foregroundColor(removeLine.ok ? Palette.secondary : Palette.dangerWord)
@@ -561,7 +563,7 @@ struct AgentInfoView: View {
         } header: { label("Remove this agent") }
     }
 
-    private func loadRemoval(_ session: String) async {
+    @MainActor private func loadRemoval(_ session: String) async {
         removalLoad += 1
         let mine = removalLoad
         let res = await client.throughMac { Board.removalPlanRequest(mac: $0, session: session) }
@@ -572,7 +574,7 @@ struct AgentInfoView: View {
         removal = plan
     }
 
-    private func remove(_ ask: Board.RemovalAsk) async {
+    @MainActor private func remove(_ ask: Board.RemovalAsk) async {
         let session = agent.session
         removeBusy = true
         removeLine = ("Removing\u{2026}", true)
@@ -597,7 +599,7 @@ struct AgentInfoView: View {
     // one started before it, and only the newest sends the hello.
     @MainActor private static var restartTokens: [String: Int] = [:]
 
-    private func restart() async {
+    @MainActor private func restart() async {
         let session = agent.session
         let mine = (AgentInfoView.restartTokens[session] ?? 0) + 1
         AgentInfoView.restartTokens[session] = mine
