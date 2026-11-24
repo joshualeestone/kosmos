@@ -93,9 +93,10 @@
 #   KOSMOS_PROMOTE_GATE_CMD   the experience gate to run (default: bash <repo>/tools/staging-experience-check.sh)
 #   KOSMOS_PROMOTE_LINUX_CHECK_CMD   the Linux check-runs lookup (default: bash <repo>/tools/linux-check-runs.sh)
 #   KOSMOS_PROMOTE_BOARD_WAIT   seconds to wait for the gate's board to run V before the Mac gates (default 1800; 0 = no wait)
-#   KOSMOS_PROMOTE_BOARD_WAIT_STEP   seconds between looks (default 30)
-#   KOSMOS_PROMOTE_BOARD_SILENT_WAIT   the longest the wait goes on while NOTHING answers (default 600): an install
-#             takes a few minutes, a wrong port or a stopped board never answers, and the gate refuses that at once
+#   KOSMOS_PROMOTE_BOARD_WAIT_STEP   seconds between looks (default 30; 0 is refused while the wait is on)
+#   KOSMOS_PROMOTE_BOARD_SILENT_WAIT   the longest the wait goes on while nothing answers, or only a server error does
+#             (default 600): an install takes a few minutes; a wrong port, a stopped board or one stuck on a 5xx never
+#             gets past it, and the gate then refuses it, about ten minutes later than with no wait
 #   KOSMOS_PROMOTE_BOARD_VERSION_CMD  prints the version the board runs (default: bash <repo>/tools/staging-experience-check.sh
 #             --print-version). When KOSMOS_PROMOTE_GATE_CMD is set and this is not, there is no wait: the board is not known.
 #

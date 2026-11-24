@@ -181,8 +181,10 @@ t0=$SECONDS; KOSMOS_PROMOTE_BOARD_SILENT_WAIT=2 BW_WAIT=60 bw "1:" 1 "$Sw"; took
   && pass "#8960: nothing answering at all stops the wait after the silent limit (${took}s, not 60) and the gate still refuses" || bad "#8960 silent (rc=$rc took=$took out=$out)"
 # An answer resets the silent clock: a board that answers between silences waits on to V.
 Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
-KOSMOS_PROMOTE_BOARD_SILENT_WAIT=3 BW_WAIT=60 bw "$(printf '1:\n1:\n0:9.9.8\n1:\n1:\n0:%s' "$V")" 0 "$Sw"
-[ "$rc" = 0 ] && [ "$looks" = 6 ] && ! has "$out" "nothing has answered" && [ -f "$Sw/dist/latest.json" ] \
+# Each silence is 3 looks (about 2 s) against a limit of 5, so a loaded machine has headroom; both together (about
+# 6 s) are over it, so a wait that never reset the clock would stop.
+KOSMOS_PROMOTE_BOARD_SILENT_WAIT=5 BW_WAIT=60 bw "$(printf '1:\n1:\n1:\n0:9.9.8\n1:\n1:\n1:\n0:%s' "$V")" 0 "$Sw"
+[ "$rc" = 0 ] && [ "$looks" = 8 ] && ! has "$out" "nothing has answered" && [ -f "$Sw/dist/latest.json" ] \
   && pass "#8960: an answer between silences resets the silent clock, and the wait goes on to V" || bad "#8960 silent reset (rc=$rc looks=$looks out=$out)"
 Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
 BW_WAIT=0 bw "0:9.9.8" 0 "$Sw"
