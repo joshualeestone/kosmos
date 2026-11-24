@@ -572,7 +572,7 @@ struct BoardStates<Empty: View>: View {
                 message("Sign in to Kosmos+", detail: signedOutDetail)
                 Button { openBoard() } label: { Text("Sign in").foregroundColor(Palette.card) }
                     .buttonStyle(.borderedProminent)
-                OpensOnBoardNote(words: Board.opensSignInPage)   // kosmos#8957: signed out, so the Kosmos+ sign-in
+                OpensOnBoardNote(words: Board.opensSignInPage, foot: 8)   // kosmos#8957: signed out, so the Kosmos+ sign-in
             }
         case .noMac:
             message("No Mac to connect to.", detail: "Turn on remote access in Kosmos on your computer, then try again.", retry: true)
@@ -625,7 +625,7 @@ struct BoardStates<Empty: View>: View {
             VStack(spacing: 12) {
                 message("Kosmos+ did not let this iPhone in.", detail: "If this iPhone was removed from your account, sign in again. Otherwise try again in a moment.", retry: true)
                 Button { openBoard() } label: { Text("Sign in") }
-                OpensOnBoardNote()   // kosmos#8957: a 403 keeps the web session, so this is the board page, not a sign-in
+                OpensOnBoardNote(foot: 8)   // kosmos#8957: a 403 keeps the web session, so this is the board page, not a sign-in
             }
         }
     }

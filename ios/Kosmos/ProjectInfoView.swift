@@ -306,7 +306,7 @@ struct ProjectInfoView: View {
             .frame(minHeight: 44).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityHint(agent == nil ? Board.opensOnBoard : "Opens the conversation")
+        .accessibilityHint(agent == nil ? "" : "Opens the conversation")   // kosmos#8957: the note in the label says it
     }
 
     @ViewBuilder private var tasksSection: some View {

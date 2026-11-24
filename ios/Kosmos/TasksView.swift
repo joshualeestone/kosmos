@@ -360,7 +360,7 @@ struct TasksView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Answer " + agentName(a.who))   // final review: as the web's aria-label, one per agent
-            .accessibilityHint(answersOnBoard(a.who) ? Board.opensOnBoard : "Opens the chat")
+            .accessibilityHint(answersOnBoard(a.who) ? "" : "Opens the chat")   // kosmos#8957: the note below says it
             if answersOnBoard(a.who) { OpensOnBoardNote() }   // kosmos#8957: said in words, not only the icon
         }
         .padding(.vertical, 4)
@@ -395,7 +395,7 @@ struct TasksView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Answer")   // kosmos#8957: never the board icon's symbol name
-                .accessibilityHint(t.waitingOn.first.map { answersOnBoard($0.who) } ?? false ? Board.opensOnBoard : "Opens the chat")
+                .accessibilityHint(t.waitingOn.first.map { answersOnBoard($0.who) } ?? false ? "" : "Opens the chat")   // the note says it
                 if t.waitingOn.first.map({ answersOnBoard($0.who) }) ?? false { OpensOnBoardNote() }   // kosmos#8957
             }
         }

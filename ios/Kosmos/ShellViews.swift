@@ -179,11 +179,12 @@ struct LoadFailureView: View {
 struct OpensOnBoardNote: View {
     // The words: the board's by default; the Kosmos+ sign-in page for the sign-in fallbacks, which are not the board.
     var words = Board.opensOnBoard
+    var foot: CGFloat = 0   // space under it, where a screen puts its button at the foot, above the tab bar
     var body: some View {
         (Text(Image(systemName: Board.boardIcon)) + Text(" ") + Text(words))
             .font(.caption).foregroundColor(Palette.secondary)
             .accessibilityLabel(words)   // read after the button, so the button itself carries no second hint
-            .padding(.bottom, 8)   // off the tab bar where a screen puts its button at the foot
+            .padding(.bottom, foot)
     }
 }
 

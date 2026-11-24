@@ -714,7 +714,6 @@ struct RoomView: View {
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
                 .accessibilityLabel("\(row.act) \(row.name)")
-                .accessibilityHint(onBoard ? Board.opensOnBoard : "")
                 // "Try again" after a dismiss that did not go, as the board relabels its button (review 4).
                 Button { dismiss(row) } label: {
                     Text(store.needsFailed[project.id]?.session == row.session ? "Try again" : "Dismiss")
