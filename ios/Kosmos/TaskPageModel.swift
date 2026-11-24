@@ -264,7 +264,6 @@ final class TaskPageModel: ObservableObject {
             // Open: no receipt, and one still in the air draws nothing.
             receiptReads += 1
             receiptAsked = nil
-            receiptFailed = nil
             if receipt != nil { receipt = nil }
             return
         }
@@ -274,13 +273,13 @@ final class TaskPageModel: ObservableObject {
         receiptReads += 1
         let mine = receiptReads
         let (project, number) = (self.project, self.number)
-        let (replaced, unrun) = (page.replacedBy != nil, page.closedUnrun)
         receiptReading = Task { [weak self, send] in
             let answer = await send { Board.taskReceiptRequest(mac: $0, project: project, number: number) }
             guard let self, self.current, mine == self.receiptReads else { return }
             var read = Board.ReceiptRead.unreadable
             if let (data, response) = answer, (200...299).contains(response.statusCode) {
-                read = Board.parseReceipt(data, replaced: replaced, unrun: unrun)
+                // Replaced or never run as the task reads now, not as it did when this was asked.
+                read = Board.parseReceipt(data, replaced: self.page?.replacedBy != nil, unrun: self.page?.closedUnrun == true)
             }
             var shown: Board.Receipt?
             switch read {

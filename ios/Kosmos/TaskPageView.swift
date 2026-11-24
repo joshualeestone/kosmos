@@ -4,8 +4,9 @@ import SwiftUI
 // what TaskPageLogic.swift says and does what TaskPageModel.swift does: the board's task page (web/index.html,
 // paintTaskPage) for reading, and its human verbs: Mark as done / Reopen, and (kosmos#8958 slice B1) a message on the
 // task, its due date, and editing its title or detail, (slice B2) Put on hold / Take off hold, and (slice B3) how often
-// it repeats, and (B3b) who is told when a run is missed. What this page does not do yet (the hold form, parts, Add
-// subtask, Close them and this task, the receipt, undo) is on the board's page, one tap away by the info button.
+// it repeats, and (B3b) who is told when a run is missed; and (B4) a closed task's receipt. What this page does not do yet
+// (the hold form, parts, Add subtask, Close them and this task, undo) is on the board's page, one tap away by the info
+// button.
 struct TaskPageRef: Hashable {
     let project: String
     let number: Int
@@ -168,6 +169,8 @@ struct TaskPageView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         // A finished task has no Repeats section, and an unsaved choice does not come back if it is reopened.
         .onChange(of: p.closed) { closed in if closed { repeatDraft = nil; repeatDraftBase = nil; repeatBox = nil } }
+        // Every receipt drawn starts with its files closed, as the board's does (they are kept by an agent's place in it).
+        .onChange(of: model.receipt) { _ in if !receiptFilesOpen.isEmpty { receiptFilesOpen = [] } }
     }
 
     private func header(_ p: Board.TaskPage) -> some View {
@@ -741,7 +744,7 @@ struct TaskPageView: View {
     // screenshot never shows a real account. A press closes or reopens the sample task for real (in memory).
     // Locked: the sample Mac is called off the main actor, by the loop, a press and a seen mark at once.
     private static let sampleLock = NSLock()
-    private static var sampleClosed: Set<Int> = []
+    private static var sampleClosed: [Int: String] = [:]   // when, so its receipt is asked for once
     // kosmos#8958 slice B1: messages said on the sample tasks, shown in their activity as the Mac records them.
     private static var sampleSaid: [Int: [String]] = [:]
     // A title edited on a sample task (POST .../text), served back by the next read.
@@ -790,17 +793,17 @@ struct TaskPageView: View {
         let dueNow: [Int: String] = sampleLock.withLock { sampleDue }
         let saidNow: [Int: [String]] = sampleLock.withLock { sampleSaid }
         let titleNow: [Int: String] = sampleLock.withLock { sampleTitle }
-        let closedNow: Set<Int> = sampleLock.withLock {
+        let closedNow: [Int: String] = sampleLock.withLock {
             if path.hasSuffix("/close") || path.hasSuffix("/reopen") {
                 if let n = Int(url.deletingLastPathComponent().lastPathComponent) {
                     // Closing clears its repeat rule, as the engine does.
-                    if path.hasSuffix("/close") { sampleClosed.insert(n); sampleRepeat[n] = nil } else { sampleClosed.remove(n) }
+                    if path.hasSuffix("/close") { sampleClosed[n] = ISO8601DateFormatter().string(from: Date()); sampleRepeat[n] = nil } else { sampleClosed[n] = nil }
                 }
             }
             return sampleClosed
         }
         let iso = { (m: Double) in ISO8601DateFormatter().string(from: Date().addingTimeInterval(-m * 60)) }
-        func closed(_ n: Int, _ open: String) -> String { closedNow.contains(n) ? #""closedAt":""# + iso(0) + #"","progress":{"done":1,"total":1,"closed":true}"# : open }
+        func closed(_ n: Int, _ open: String) -> String { closedNow[n] != nil ? #""closedAt":""# + closedNow[n]! + #"","progress":{"done":1,"total":1,"closed":true}"# : open }
         let body: String
         if path.hasSuffix("/projects") {
             body = #"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","paused":false,"agents":[{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"tasks":["#
@@ -809,7 +812,7 @@ struct TaskPageView: View {
                 + #"{"number":8,"sentence":"Pages 9 to 12","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2800) + #"",\#(closed(8, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 9 to 12"}]}"#
                 + #"]}]}"#
         } else if path.hasSuffix("/receipt") {
-            // Task 4's, in the shape server.js sends (the price the Mac worked out included); any other closed task's holder left.
+            // Task 4's, in the shape server.js sends (the price the Mac worked out included); any other task's says nobody held it.
             body = path.contains("/task/4/")
                 ? #"{"version":3,"closedAt":""# + iso(0) + #"","retries":{"reopened":1,"handoffs":0},"agents":[{"who":"dana","available":true,"provider":"claude","folder":"/Users/sam/Kosmos/Dana","models":{"claude-opus-5":{"input_tokens":200000,"output_tokens":40000,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000000,"rows":9}},"files":["captions.md","pages-1-8.md"],"filesMore":0,"commands":12,"prs":[{"repo":"acme/catalogue","number":12,"url":"https://github.com/acme/catalogue/pull/12"}],"prsMore":0,"transcriptsWithWork":1,"cost":{"usd":2.5,"unpriced":[]}},{"who":"eli","available":false,"because":"provider","provider":"grok"}]}"#
                 : #"{"version":3,"retries":{"reopened":0,"handoffs":0},"agents":[]}"#
@@ -818,7 +821,7 @@ struct TaskPageView: View {
         } else if path.hasSuffix("/activity") {
             body = #"{"events":[{"at":""# + iso(2900) + #"","kind":"created","who":"dana","parent":3},{"at":""# + iso(300) + #"","kind":"said","text":"Use the March photos for the captions."},{"at":""# + iso(40) + #"","kind":"built","by":"dana","note":"captions need a check"}"#
                 + (saidNow[4] ?? []).map { #",{"at":""# + iso(0) + #"","kind":"said","text":"# + Self.jsonString($0) + "}" }.joined()
-                + (closedNow.contains(4) ? #",{"at":""# + iso(0) + #"","kind":"closed"}"# : "") + "]}"
+                + (closedNow[4] != nil ? #",{"at":""# + iso(0) + #"","kind":"closed"}"# : "") + "]}"
         } else {
             body = "{}"
         }

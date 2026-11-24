@@ -1217,6 +1217,8 @@ do {
     for bad in ["null", "[]", "", "<html>"] { check(Board.parseReceipt(Data(bad.utf8), replaced: false, unrun: false) == .unreadable, "an answer that is not a receipt is unreadable: \(bad)") }
     check(Board.taskReceiptRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "springcatalogue", number: 3)
         .map { ($0.httpMethod ?? "GET") + " " + ($0.url?.path ?? "") } == "GET /api/project/springcatalogue/task/3/receipt", "GET .../task/<n>/receipt")
+    check(Board.taskReceiptRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "springcatalogue", number: 3)?.timeoutInterval == 120,
+          "it waits longer than the 15 s of other calls: the Mac answers only once the receipt is worked out")
     check(Board.taskReceiptRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "../x", number: 3) == nil, "no request for a name that is not a project's")
     // The key the receipt belongs to (the board's tkReceiptSync): the close time, the task's own or its newest part's.
     func keyed(_ fields: String) -> Board.TaskPage? { synthetic(#"{"number":1,"sentence":"S",\#(fields)}"#) }
@@ -1643,6 +1645,32 @@ func b4ModelTests() async {
     g.syncReceipt()
     await g.receiptReading?.value
     check(g.page != nil && asksReceipt(gone) == 0, "after a switch, no receipt is asked for")
+
+    // A task no longer on the computer: its page is a message, and nothing is asked for.
+    let off = FakeMac()
+    let o = TaskPageModel(project: "springcatalogue", number: 3, send: { await off.asyncSend($0) }, sleep: { _ in }, epoch: { off.epoch })
+    off.projects = with(closedAt: at1)
+    await o.read()
+    off.projects = (200, Data(#"{"projects":[]}"#.utf8))
+    await o.read()
+    o.syncReceipt()
+    await o.receiptReading?.value
+    check(o.gone && o.page != nil && asksReceipt(off) == 0, "a task no longer on the computer asks for no receipt")
+
+    // Marked replaced while the receipt was out: said as the task reads when it lands.
+    let mid = FakeMac()
+    let r = TaskPageModel(project: "springcatalogue", number: 3, send: { await mid.asyncSend($0) }, sleep: { _ in }, epoch: { mid.epoch })
+    mid.projects = with(closedAt: at1)
+    await r.read()
+    mid.queueing = true
+    r.syncReceipt()
+    await waitUntil({ mid.queuedCount == 1 }, "the receipt ask before the replace")
+    mid.queueing = false
+    mid.projects = with(closedAt: at1, ["replacedBy": 4])
+    await r.read()
+    mid.release(at: 0)
+    await r.receiptReading?.value
+    check(r.receipt != nil && r.receipt?.again == nil, "marked replaced while it was out: no line about put-backs")
 
     // A tick does not wait for the receipt: the page is read again while the receipt is still out.
     let slow = FakeMac()

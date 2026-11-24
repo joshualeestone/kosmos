@@ -1014,8 +1014,12 @@ extension Board {
         var receipt = URLRequest(url: url)
         receipt.setValue("application/json", forHTTPHeaderField: "Accept")
         receipt.cachePolicy = .reloadIgnoringLocalCacheData
+        // The Mac answers only when the whole receipt is worked out, and an agent's long transcripts can take longer than the
+        // 15 s every other call keeps (the board's own read sets no limit).
+        receipt.timeoutInterval = receiptTimeout
         return receipt
     }
+    static let receiptTimeout: TimeInterval = 120
 
     // tkReceiptHtml. `replaced` (the task was closed as replaced) and `unrun` (closed as never run): the board then says
     // nothing about put-backs when there were none.
