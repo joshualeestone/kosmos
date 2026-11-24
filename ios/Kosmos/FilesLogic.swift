@@ -3,8 +3,8 @@ import Foundation
 // kosmos#7679 (Josh 10-31: "I feel like we need to add the files to the agents and projects"): an agent's and a project's
 // Files on the phone, read from the board's own routes, so the phone and the board list the same files. The words are the
 // board's (web/index.html paintAgentFilesAll, pjDocMeta, pjSize, the Documents view), checked by ios/LogicTests/files.
-// Opening a file is the chat's: fetched through BoardClient.fetchFile and shown in Quick Look, whose share button is the
-// share sheet.
+// Opening a file is the chat's: fetched through BoardClient.fetchFile and shown by filePreview (Quick Look, or WebFileView
+// for a page or markup file), each with a share button.
 extension Board {
     // Whose Files: an agent's (by session) or a project's (by id).
     enum FilesOwner: Hashable {
