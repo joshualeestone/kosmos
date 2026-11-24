@@ -580,7 +580,8 @@ struct TaskPageView: View {
                 .frame(minWidth: 44, minHeight: 44)
                 .disabled(model.reviewerSaving != nil || model.repeatSaving || model.pressing)
                 .accessibilityIdentifier("taskpage.repeat.reviewer")
-                .accessibilityValue(model.reviewerSaving != nil ? "In progress" : "")
+                // The choice itself, said as the value (an empty value would hide it), and that it is saving while it is.
+                .accessibilityValue((options.first { $0.value == shown }?.words ?? "") + (model.reviewerSaving != nil ? ", in progress" : ""))
                 if model.reviewerSaving != nil { SweepDots(scales: false) }
             }
             if let say = model.reviewerSay {

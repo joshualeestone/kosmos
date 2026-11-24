@@ -105,6 +105,10 @@ final class TaskPageActionsUITests: XCTestCase {
             XCTAssertTrue(line.label.contains("Repeats every day at 9am and 5pm"), "the line is not the stored rule: \(line.label)")
             let save = app.buttons["taskpage.repeat.save"]
             XCTAssertTrue(save.exists && !save.isEnabled, "Save is on with nothing changed")
+            // kosmos#8958 slice B3b: who is told of a missed run, its choice said as its value (Nobody on the sample).
+            let reviewer = app.descendants(matching: .any)["taskpage.repeat.reviewer"]
+            XCTAssertTrue(reviewer.exists, "no If missed, tell on a task that repeats")
+            XCTAssertEqual(reviewer.value as? String, "Nobody", "the reviewer menu does not say its choice")
             shot(app, "repeats, \(dark ? "dark" : "light")")
             let every = app.buttons["taskpage.repeat.every"]
             XCTAssertTrue(every.exists, "no How often control")
