@@ -816,7 +816,8 @@ extension Board {
     }
 
     // What a choice sends, as the board's tkRepeatChoice: nothing yet for an empty box (needsMinutes, needsTime). Two
-    // choices are the same rule when these are equal, which is how Save knows there is nothing to save.
+    // choices are the same rule when these are equal, which is how Save knows there is nothing to save. Unlike the
+    // board, a daily list is compared sorted on both sides (the engine stores it sorted, so the two agree on real data).
     enum RepeatWire: Equatable {
         case clear, hour, minutes(String), day(String), week(on: String, at: String), needsMinutes, needsTime
     }

@@ -498,9 +498,11 @@ struct TaskPageView: View {
                         Task {
                             // Saved: the draft goes once the page reads the saved rule; if that read failed, the controls
                             // keep showing what was saved rather than the rule from before it.
-                            let box: String? = shown.every == .day ? shown.at : nil
+                            // The box's time is kept before the save's reads, which change the stored rule mid-save, so the
+                            // box never shows the sorted first time in between (the board's tkRepeatSaved runs before its
+                            // reload). A refused save changes no stored rule, so it shows nothing different.
+                            repeatBox = shown.every == .day ? shown.at : nil
                             if await model.saveRepeat(wire, names: names) {
-                                repeatBox = box
                                 repeatDraft = Board.keptRepeatDraft(repeatDraft, stored: model.page?.repeatStored)
                             }
                         }
@@ -541,6 +543,8 @@ struct TaskPageView: View {
         // The stored rule moved (another device, an agent): a draft it now equals is dropped, and a daily edit's other
         // times follow it.
         .onChange(of: p.repeatStored) { s in
+            // A rule changed by anything but this phone's own save shows as the board shows it, box on its first time.
+            if !model.repeatSaving { repeatBox = nil }
             repeatDraft = Board.followStored(repeatDraft, old: repeatDraftBase, new: s)
             repeatDraftBase = s
         }
