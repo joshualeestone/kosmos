@@ -546,7 +546,12 @@ test('#8951 review 7: a deadline merge clears the busy-write marker, so a turn n
   r.pub.event({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'w1', name: 'Bash', input: { command: 'x' } }] } });
   r.pub.event({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'w1', content: 'ok' }] } });
   r.pub.event({ type: 'assistant', message: { content: [] } });
-  assert.equal(r.last().unstarted, undefined, 'review 13: the next turn is the merged messages starting late, credited to them');
+  // Review 13 and 19: the turn is the first merged message starting late; the second keeps its own turn to come, so it
+  // stays reported (an over-report if it was batched, which the plan accepts).
+  assert.equal(r.last().unstarted && r.last().unstarted.count, 1, 'the second merged message is still not started');
+  r.pub.event(result); r.pub.event(init);   // its own turn
+  r.clock.t += HOLD; r.fire();
+  assert.equal(r.last().unstarted, undefined, 'and once it opens, the report is over');
 });
 
 test('#8951 review 8: a wake-up turn opens on no message, and a turn that ran long is not lost because of a write just before the stop', () => {
@@ -846,4 +851,19 @@ test('#8951 review 18: a message written before a turn opened does not join it w
   r.timers.splice(0, r.timers.length - 1);
   r.fire();                                           // B's turn never opens
   assert.equal(r.last().unstarted && r.last().unstarted.count, 1, 'B is reported');
+});
+
+test('#8951 review 19: a second reported message does not join the first one\'s late turn, so its own turn is tracked', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.wrote(); r.fire();             // R1 and R2 reported
+  r.clock.t += 10 * MIN;
+  r.pub.event(init);                                  // R1 starts late
+  r.pub.event({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'x' } }] } });
+  r.pub.event({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } });
+  assert.equal(r.last().unstarted && r.last().unstarted.count, 1, 'R2 did not join');
+  r.pub.event(result);
+  r.pub.event(init);                                  // R2's own turn
+  r.clock.t += 600; r.pub.stopped(); r.pub.started(7001, 'sid-1');
+  assert.deepEqual(r.last().unstarted && { count: r.last().unstarted.count, lost: r.last().unstarted.lost }, { count: 1, lost: true }, 'R2 died with it: said');
 });
