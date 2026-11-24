@@ -19934,8 +19934,8 @@ const server = http.createServer(async (req, res) => {
           // Review 2: a name is the person's, printed into a terminal: brackets (the markers' own delimiters) out.
           // Review 5: and every line break (as a space) and dropped control, by the same rule as the text.
           .map((a) => (a && typeof a.name === 'string'
-            ? a.name.split(INBOX_BREAK).join(' ').replace(INBOX_DROP, '').replace(/[\[\]]/g, '') || 'a file'
-            : 'a file'));
+            ? (a.name.split(INBOX_BREAK).join(' ').replace(INBOX_DROP, '').replace(/[\[\]]/g, '') || 'a file') + (a.incomplete === true ? ' (incomplete)' : '')
+            : 'a file'));   // kosmos#9016: an agent that reads back its messages is told too
         return {
           at: typeof m.at === 'string' ? m.at : null,
           from: person ? 'person' : 'you',
@@ -23030,7 +23030,7 @@ const server = http.createServer(async (req, res) => {
        a chunked or forwarded body need not carry and which is about the bytes on the wire: this is about the file, so
        a body that arrived short or long of it is refused in words, never stored as if it were whole. */
     const sent = req.headers['x-attachment-size'];
-    const sizeOf = typeof sent === 'string' && /^\d{1,12}$/.test(sent.trim()) ? Number(sent.trim()) : null;
+    const sizeOf = typeof sent === 'string' && /^\d{1,30}$/.test(sent.trim()) ? Number(sent.trim()) : null;   // up to 30 digits is still a plain number, and far past the cap is refused
     if (sizeOf !== null && sizeOf > attachments.MAX_BYTES) { refuseUpload(req, res, attachments.TOO_LARGE); return; }
     attachments.saveStream(scope, owner, { name, type: req.headers['content-type'], ...(sizeOf === null ? {} : { fileSize: sizeOf }) }, req)
       .then((rec) => {

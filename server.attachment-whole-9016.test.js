@@ -126,7 +126,7 @@ test('#9016 zip: an xlsx with its end missing is kept and marked, whatever the c
     assert.equal(a.incomplete, true, 'a zip of ' + cut + ' bytes of ' + whole.length + ' is marked');
     const rec = attachments.read(a.id);
     assert.equal(rec.incomplete, true);
-    assert.match(attachments.wireNote([rec]), /INCOMPLETE: its end is missing\. Ask for it to be sent again/);
+    assert.match(attachments.wireNote([rec]), /INCOMPLETE: its ending could not be found, so it may be cut short\. Ask for it to be sent again/);
   }
   const fine = JSON.parse((await put(headers('whole.xlsx', { 'content-length': String(whole.length) }), (r) => r.end(whole))).body).attachment;
   assert.equal(fine.incomplete, undefined, 'CONTROL: a whole zip says nothing');
@@ -165,6 +165,16 @@ test('#9016 zip: what is and is not judged', () => {
   const zip64 = Buffer.from(whole);
   zip64.writeUInt32LE(0xffffffff, zip64.length - 6);
   assert.equal(attachments.incompleteZip(at('zip64.zip', zip64)), false, 'the zip64 form is not judged');
+  /* A volume of a split archive has no end of its own. */
+  assert.equal(attachments.incompleteZip(at('big.zip.001', whole.subarray(0, 60))), false);
+  assert.equal(attachments.incompleteZip(at('big.z01', whole.subarray(0, 60))), false);
+  assert.equal(attachments.incompleteZip(at('big.zip', whole.subarray(0, 60))), true, 'CONTROL: the same bytes under another name');
+  /* An encrypted directory does not start as one, but ends where the record begins. */
+  const enc = Buffer.from(whole);
+  const cd = whole.length - 22 - 51;   // the central entry is 46 + the 5-letter name
+  enc.fill(0x7a, cd, whole.length - 22);
+  assert.equal(attachments.incompleteZip(at('encrypted.zip', enc)), false, 'a directory that is not readable but is whole');
+  assert.equal(attachments.incompleteZip(at('over.zip', Buffer.concat([whole.subarray(0, whole.length - 5), Buffer.alloc(1)]))), true);
   assert.equal(attachments.incompleteZip(at('tiny.zip', Buffer.from('PK'))), false);
   assert.equal(attachments.incompleteZip(at('text.txt', Buffer.from('PK is a word'))), false);
   assert.equal(attachments.incompleteZip(path.join(d, 'none.zip')), false, 'a file that cannot be read is as it was');
@@ -233,4 +243,32 @@ test('#9016 an agent that attaches its own cut file is told, and nothing is kept
     assert.match(bad.because, /looks cut short.*save it again/);
     assert.equal(fs.existsSync(path.join(attachments.ROOT, 'agent', store.safeKey('cut9016'))) && fs.readdirSync(path.join(attachments.ROOT, 'agent', store.safeKey('cut9016'))).length, 1, 'only the whole file is kept');
   } else { assert.fail('this environment did not let an agent attach its own file: ' + ok.because); }
+});
+
+test('#9016 the page says it on the chip, the status line, the documents list and the preview', () => {
+  const page = require('./test-support/page');
+  const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const SCRIPT = page.scriptOf(html);
+  const pv = new Map();
+  const card = new Function('esc', 'pjFileWord', 'pjSize', 'PV_ATTS', page.lift(SCRIPT, 'pjAttachmentCard') + '\nreturn pjAttachmentCard;')(
+    (x) => String(x), () => 'Excel spreadsheet', () => '64 KB', pv);
+  const url = '/api/attachment/' + 'c'.repeat(24);
+  card({ url, name: 'book.xlsx', kind: 'other', size: 65536, incomplete: true });
+  assert.equal(pv.get('c'.repeat(24)).meta, 'Excel spreadsheet · 64 KB · incomplete upload, please send again', 'the full-page preview says it');
+  card({ url, name: 'book.xlsx', kind: 'other', size: 65536 });
+  assert.equal(pv.get('c'.repeat(24)).meta, 'Excel spreadsheet · 64 KB', 'CONTROL');
+  /* The pending chip: the real function, over a fake box and list. */
+  const box = { hidden: true, innerHTML: '' };
+  const list = [{ id: 'x', name: 'book.xlsx', incomplete: true }, { id: 'y', name: 'ok.txt' }];
+  const chips = new Function('document', 'attachList', 'esc', page.lift(SCRIPT, 'attachPaint') + '\nreturn attachPaint;')(
+    { getElementById: () => box }, () => list, (x) => String(x));
+  chips({ chipsId: 'c' });
+  const parts = box.innerHTML.split('attach-chip-name').slice(1);
+  assert.equal(parts.length, 2);
+  assert.match(parts[0], /incomplete upload, please send again/, 'the chip of the cut file says it');
+  assert.doesNotMatch(parts[1], /incomplete/, 'CONTROL: the other chip does not');
+  assert.match(SCRIPT, /may be cut short: its ending could not be found\. Remove it and send it again\./, 'the status line at upload says it');
+  assert.match(SCRIPT, /w\.textContent = pjSize\(a\.size\) \+ \(a\.incomplete === true \? ' · incomplete upload, please send again' : ''\)/, 'the documents list says it');
+  const loop = page.lift(SCRIPT, 'attachUploadAll');
+  assert.match(loop, /if \(how === 'refused'\) return;/, 'a pick of several stops at a refusal, so its sentence stays');
 });
