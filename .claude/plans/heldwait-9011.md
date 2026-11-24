@@ -16,7 +16,8 @@ reader text). Part 2 (a "waiting on review" project state) is a separate branch 
 | the hook's automatic `needs_you` (a permission prompt) | refused (#2456) | stands |
 | the hook's automatic `started` (Claude: a new session, `source: startup` only; the Grok and Gemini bridges: every session start, resume and `/clear` included) | lands | the wait is gone |
 | the hook's automatic `stopped` (SessionEnd: a restart, `/clear`, a quit) | lands | the wait is gone |
-| the agent's own report of any state | lands | gone (the agent cleared it) |
+| the agent's own `kosmos report clear` (a working report with clear) | lands | gone (it closed the question) |
+| the agent's own report of anything else | lands | gone, as a side effect: the instructions say to raise needs_you and carry on, so a later plain report (working, idle) replaces it. The likeliest silent reset. |
 | a person's clear (`by: operator`), or leaving the project | lands | gone |
 
 The board's reconcileReport keeps a reported needs_you over a working or idle screen (probed), so the reset is in the
@@ -33,7 +34,9 @@ were each ended by the agent's own report, so which path the reporter hit is not
   already reads (no extra file read per poll); status.waitClearedOf puts it on the pane and paneless card for 12 hours;
   stateReason says it on an idle or working card, low: after #8979's restart line and after every sentence that asks the
   person to act (crash loop, no message reached it, unsent text, one long step, #5154's give-up; review round 2):
-  - "Its question for you was closed at 2:02 PM by the agent itself." / "... by you." / "... when it left the project."
+  - "Its question for you was closed at 2:02 PM by the agent itself." (its `kosmos report clear`, now kept on the line
+    as `cleared`; review round 4) / "... was dropped at 2:02 PM when it reported something else." (any other report
+    of its own) / "... closed ... by you." / "... when it left the project."
   - "Its question for you was set aside at 2:02 PM when it started again." / "... when its session ended."
   - "What it was waiting on ..." for a blocked.
   Fixed words, never the old question's.
@@ -72,6 +75,8 @@ then nothing is said (as for askedAt).
   named; a provider block and the hook's permission wait not said; the 12-hour window and a future time; the page
   sentence per kind, after #8979's line, idle or working only, never on the tile, never the old words. Mutations: the
   page sentence off fails 1 test; the record tracking off fails 2.
+- server.waitcleared-9011.test.js: over the real /api/report route, a clear is kept as closed, a plain report as
+  dropped, the hook's working ends nothing. Mutation: the route's clear pass-through off fails it.
 - engine/status.waitcleared-9011.test.js: the real status.snapshot() puts waitCleared on a pane card and a paneless
   card (controls: a standing wait and a stop with no wait carry null). Mutation: both cards fed waitClearedOf(null)
   fails both tests.

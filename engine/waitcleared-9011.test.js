@@ -39,7 +39,9 @@ test('#9011 what ends an agent\'s own wait is kept, by kind; what cannot end it 
   const cases = [
     ['a new session', { state: 'started', auto: true }, 'restart'],
     ['the session ending', { state: 'stopped', auto: true }, 'ended'],
-    ['its own report', { state: 'working', by: 'agent' }, 'agent'],
+    ['its own `kosmos report clear`', { state: 'working', clear: true }, 'agent'],
+    ['its own report of something else', { state: 'working' }, 'replaced'],
+    ['its own idle', { state: 'idle' }, 'replaced'],
     ['a person\'s clear', { state: 'idle', by: 'operator', because: 'operator dismissed a stale needs_you' }, 'person'],
     ['leaving the project', { state: 'idle', by: 'operator', because: 'it left', left: 'p1', project: undefined }, 'left'],
   ];
@@ -69,7 +71,7 @@ test('#9011 a new wait starts over; a blocked wait is named as one; a provider b
   sr.record(a, ASK); sr.record(a, { state: 'started', auto: true }); sr.record(a, ASK);
   assert.equal(sr.read(a).waitCleared, null, 'asking again: nothing has ended the new question');
   sr.record(a, { state: 'idle', by: 'agent' });
-  assert.equal(sr.read(a).waitCleared.by, 'agent', 'the second question\'s own end');
+  assert.equal(sr.read(a).waitCleared.by, 'replaced', 'the second question\'s own end');
 
   const b = fresh();
   sr.record(b, { state: 'blocked', by: 'agent', on: 'the lawyer' }); sr.record(b, { state: 'stopped', auto: true });
@@ -83,7 +85,11 @@ test('#9011 a new wait starts over; a blocked wait is named as one; a provider b
   const d = fresh();
   sr.record(d, ASK);
   sr.record(d, { state: 'working' });   // no auto, no operator: the route records this as the agent's own (by: 'agent')
-  assert.equal(sr.read(d).waitCleared && sr.read(d).waitCleared.by, 'agent');
+  assert.equal(sr.read(d).waitCleared && sr.read(d).waitCleared.by, 'replaced');
+  /* A clear flag on anything but the agent's own working report is not a clear. */
+  const f = fresh();
+  sr.record(f, ASK); sr.record(f, { state: 'idle', clear: true });
+  assert.equal(sr.read(f).waitCleared.by, 'replaced', 'an idle carries no clear');
   /* A plain report of a wait by the hook (a permission prompt) is not the agent's own wait, so nothing is kept for it. */
   const e = fresh();
   sr.record(e, { state: 'needs_you', auto: true, because: 'asking permission to use Bash: ls' });
@@ -115,6 +121,7 @@ test('#9011 the pill says what ended the wait, after #8979\'s restart line, on a
   const wc = (by, state) => ({ at: at.toISOString(), by, state: state || 'needs_you', held: false });
   const say = (by, extra) => stateReason({ name: 'Ada', state: 'idle', waitCleared: wc(by), ...extra });
   assert.equal(say('agent'), 'Its question for you was closed at ' + clock + ' by the agent itself.');
+  assert.equal(say('replaced'), 'Its question for you was dropped at ' + clock + ' when it reported something else.');
   assert.equal(say('person'), 'Its question for you was closed at ' + clock + ' by you.');
   assert.equal(say('left'), 'Its question for you was closed at ' + clock + ' when it left the project.');
   assert.equal(say('restart'), 'Its question for you was set aside at ' + clock + ' when it started again.');

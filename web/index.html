@@ -23737,7 +23737,7 @@ function stateReason(a, opts) {
     if (it.cls === 'firstreply') return 'It has not answered its first message. Kosmos tried to remind it and stopped ' + ago + '. Open it to see what it shows, or send it a message.';
   }
   /* kosmos#9011: the agent's own question (or what it was blocked on) was ended recently, and by what (engine/status.js
-     waitClearedOf: the agent itself, the person, leaving the project, starting again or the session ending), so a wait
+     waitClearedOf: the agent's own clear, its own other report, the person, leaving the project, starting again or the session ending), so a wait
      does not vanish from the card unexplained. Low, after #8979's restart line and after #5154's give-up below them (review round
      2): every sentence that asks the person to act leads. Idle or working only, like #8979's: a new wait, a stop or a limit says itself. Fixed words, never the old question's. A new
      session retiring the old wait is Josh's design (#5943); this only says it happened. "Started again", not "a new
@@ -23745,7 +23745,7 @@ function stateReason(a, opts) {
      alone, so the time words repeat #8979's today-or-weekday rule; the 12-hour span makes its date arm unneeded. */
   if (a && (a.state === 'idle' || a.state === 'working') && a.waitCleared && typeof a.waitCleared.at === 'string') {
     const at = new Date(a.waitCleared.at);
-    const by = { agent: ' by the agent itself', person: ' by you', left: ' when it left the project',
+    const by = { agent: ' by the agent itself', replaced: ' when it reported something else', person: ' by you', left: ' when it left the project',
       restart: ' when it started again', ended: ' when its session ended' }[a.waitCleared.by];
     if (Number.isFinite(at.getTime()) && by) {
       const clock = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -23753,7 +23753,10 @@ function stateReason(a, opts) {
       const when = at.toDateString() === now.toDateString() ? clock
         : at.toLocaleDateString([], { weekday: 'short' }) + ' ' + clock;
       const what = a.waitCleared.state === 'blocked' ? 'What it was waiting on' : 'Its question for you';
-      const verb = a.waitCleared.by === 'restart' || a.waitCleared.by === 'ended' ? ' was set aside at ' : ' was closed at ';
+      /* Closed: someone meant to end it. Dropped: the agent's own other report replaced it. Set aside: a new run or the end
+         of the session (#5943). */
+      const verb = a.waitCleared.by === 'restart' || a.waitCleared.by === 'ended' ? ' was set aside at '
+        : a.waitCleared.by === 'replaced' ? ' was dropped at ' : ' was closed at ';
       return what + verb + when + by + '.';
     }
   }

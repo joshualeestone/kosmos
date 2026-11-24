@@ -37,7 +37,7 @@ test('#9011 a pane card carries what ended the agent\'s own wait; one still wait
   const cards = status.snapshot().agents;
   const of = (n) => cards.find((c) => c.sessionName === n) || {};
   assert.ok(of('ended').sessionName, 'fixture: the pane agent is not on the board: ' + cards.map((c) => c.sessionName).join(','));
-  assert.equal(of('ended').waitCleared && of('ended').waitCleared.by, 'agent', JSON.stringify(of('ended').waitCleared));
+  assert.equal(of('ended').waitCleared && of('ended').waitCleared.by, 'replaced', JSON.stringify(of('ended').waitCleared));
   assert.equal(of('ended').waitCleared.held, true);
   assert.ok('waitCleared' in of('asking'), 'the field is missing from the card, not just null');
   assert.equal(of('asking').waitCleared, null, 'CONTROL: a wait still standing has ended nothing');
