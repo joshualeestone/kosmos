@@ -101,7 +101,10 @@
 #             gets past it, and the gate then refuses it, about ten minutes later than with no wait; 0 stops at the
 #             first silent look
 #   KOSMOS_PROMOTE_BOARD_VERSION_CMD  prints the version the board runs (default: bash <repo>/tools/staging-experience-check.sh
-#             --print-version). When KOSMOS_PROMOTE_GATE_CMD is set and this is not, there is no wait: the board is not known.
+#             --print-version). It is given [port] as its last argument, and its exit is read as the default reader's
+#             is: 0 a version on stdout, 1 nothing answered, 2 cannot tell. It must bound its own time: the limits
+#             are checked between looks, so a reader that hangs holds the promote. When KOSMOS_PROMOTE_GATE_CMD is set
+#             and this is not, there is no wait: the board is not known.
 #
 # THE BOARD WAIT (kosmos#8960). A board on the staging channel updates itself to V a few minutes after staging serves V.
 # Run the gates before that and the experience gate either refuses (exit 1: nothing answers on the port while the board

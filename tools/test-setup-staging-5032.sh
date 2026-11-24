@@ -122,6 +122,7 @@ release_site_restore "$S" 1.0.2 1 >/dev/null
 # ---- promote-channel.sh: the staging installer moves onto /setup with the pointer ----
 V=9.9.9; ART="kosmos-$V-arm64.tar.gz"
 STUB="$T/stub-gate.sh"; printf '#!/usr/bin/env bash\nexit 0\n' > "$STUB"; chmod +x "$STUB"
+unset KOSMOS_PROMOTE_BOARD_VERSION_CMD KOSMOS_PROMOTE_BOARD_SILENT_WAIT KOSMOS_PROMOTE_BOARD_WAIT KOSMOS_PROMOTE_BOARD_WAIT_STEP   # kosmos#8960: a caller's board wait must not reach these cases
 export KOSMOS_PROMOTE_GATE_CMD="bash $STUB" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $STUB" KOSMOS_PROMOTE_PLUS_GATE_CMD="bash $STUB" KOSMOS_PROMOTE_TUNNEL_GATE_CMD="bash $STUB"
 export KOSMOS_PLUS_VERIFY_DIR="$T/plus-verify"
 promote_site() {   # a git site: committed prod installer, a published staging pointer, and (with $1=yes) a committed staging installer

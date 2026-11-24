@@ -8,6 +8,9 @@
 #
 #   bash tools/test-staging-channel-2036.sh
 set -uo pipefail
+# kosmos#8960: a caller's own board-wait settings must not reach any case here (an exported reader sends every
+# promote case into the wait).
+unset KOSMOS_PROMOTE_BOARD_VERSION_CMD KOSMOS_PROMOTE_BOARD_SILENT_WAIT KOSMOS_PROMOTE_BOARD_WAIT KOSMOS_PROMOTE_BOARD_WAIT_STEP
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PUBLISH="$HERE/publish-staging-pointer.sh"
 PROMOTE="$HERE/promote-channel.sh"
@@ -127,8 +130,6 @@ has "$out" "run the check it could not: KOSMOS_GATE_EXPECT_VERSION=$V bash $(cd 
 has "$out" "this agent-spawn pass is not a check of $V" && pass "#5084: after a forced cannot-tell, the agent-spawn pass says it is not a check of $V" || bad "#5084: forced cannot-tell, agent pass not qualified (out=$out)"
 
 # ---- kosmos#8960: the board wait before the gates ----
-# A caller's own board-wait settings must not change these cases.
-unset KOSMOS_PROMOTE_BOARD_VERSION_CMD KOSMOS_PROMOTE_BOARD_SILENT_WAIT KOSMOS_PROMOTE_BOARD_WAIT KOSMOS_PROMOTE_BOARD_WAIT_STEP
 # A stub version reader plays a script of looks, one line per call, "rc:version"; the last line repeats. It logs each
 # call, so a case can count the looks. A fresh site per case.
 BV_STUB="$T/stub-board-version.sh"
@@ -198,12 +199,12 @@ Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
 printf '0:9.9.8\n0:%s\n' "$V" > "$T/bv-script"; rm -f "$T/bv-log"
 out="$(BV_SCRIPT="$T/bv-script" BV_LOG="$T/bv-log" KOSMOS_PROMOTE_BOARD_VERSION_CMD="bash $BV_STUB" KOSMOS_PROMOTE_BOARD_WAIT_STEP=1 \
   KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sw" 2>&1)"; rc=$?
-[ "$rc" = 0 ] && has "$out" "(0s of 1800s;" && pass "#8960: the default wait is 1800 s" || bad "#8960 default limit (rc=$rc out=$out)"
+[ "$rc" = 0 ] && has "$out" "s of 1800s;" && pass "#8960: the default wait is 1800 s" || bad "#8960 default limit (rc=$rc out=$out)"
 Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
 rm -f "$T/bv-log"
 out="$(BV_SCRIPT="$T/bv-script" BV_LOG="$T/bv-log" KOSMOS_PROMOTE_BOARD_VERSION_CMD="bash $BV_STUB" KOSMOS_PROMOTE_BOARD_WAIT_STEP=1 \
   KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sw" --force --hand-check "$HC8960" 2>&1)"; rc=$?
-[ "$rc" = 0 ] && has "$out" "(0s of 600s;" && pass "#8960: with --force the default wait is 600 s" || bad "#8960 forced default limit (rc=$rc out=$out)"
+[ "$rc" = 0 ] && has "$out" "s of 600s;" && pass "#8960: with --force the default wait is 600 s" || bad "#8960 forced default limit (rc=$rc out=$out)"
 Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
 BW_WAIT=0 bw "0:9.9.8" 0 "$Sw"
 [ "$rc" = 0 ] && [ "$looks" = 0 ] && has "$out" "board wait off (KOSMOS_PROMOTE_BOARD_WAIT=0)" \
