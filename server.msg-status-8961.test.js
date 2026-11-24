@@ -36,7 +36,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const app = require('./server');
-const { start, server } = app;
+const { start, server, boardAuthState } = app;
 const status = require('./engine/status');
 const create = require('./engine/create');
 const chat = require('./engine/chat');
@@ -133,6 +133,22 @@ test('#8961 an answer by command reads as answered, citing the message', async (
   assert.equal(r.json.cites, true);
 });
 
+test('#8961 on an enforcing board a pane-only caller is refused, and an agent token still answers', async () => {
+  const was = { on: boardAuthState.on, token: boardAuthState.token };
+  const id = await send('writer', 'mara', 'enforced');
+  boardAuthState.on = true; boardAuthState.token = 'board-token-8961';
+  try {
+    const res = await fetch(base + '/api/msg/status', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, from_pane: '%1' }) });
+    const j = await res.json().catch(() => null);
+    assert.notEqual(j && j.found, true, 'a pane-only caller was answered on an enforcing board: ' + JSON.stringify(j));
+    // Refused by the board's own gate before the route runs (the route's denyPaneFallback is the second line).
+    assert.match(String(j && (j.error || j.sentence)), /no board token or agent token came/, JSON.stringify(j));
+    const ok = await post('/api/msg/status', 'writer', { id });
+    assert.equal(ok.json.found, true, JSON.stringify(ok.json));
+  } finally { boardAuthState.on = was.on; boardAuthState.token = was.token; }
+});
+
 test('#8961 a bad body or id is refused in words', async () => {
   assert.equal((await post('/api/msg/status', 'writer', {})).status, 400);
   const r = await post('/api/msg/status', 'writer', { id: 'x1' });
@@ -156,6 +172,9 @@ test('#8961 the bash CLI prints the board\'s sentence', { skip: process.platform
   const bad = await cli(['--status', 'nope']);
   assert.equal(bad.code, 2, bad.text);
   assert.match(bad.text, /Usage: kosmos msg --status <message id>/);
+  const sentOut = await cli(['mara', 'hello from the cli']);
+  assert.equal(sentOut.code, 0, sentOut.text);
+  assert.match(sentOut.text, /Placed with mara\.\s+Its id is m\d+: kosmos msg --status m\d+ says later/);
   const missing = await cli(['--status', 'm99999']);
   assert.equal(missing.code, 1, missing.text);
   assert.match(missing.text, /there is no direct message m99999/);
@@ -175,6 +194,9 @@ test('#8961 the Windows CLI prints the board\'s sentence', async () => {
   const ok = await winRun(['msg', '--status', id]);
   assert.equal(ok.code, 0, ok.err);
   assert.match(ok.out, /mara has not started or finished a turn since your message arrived/);
+  const sentOut = await winRun(['msg', 'mara', 'hello from windows']);
+  assert.equal(sentOut.code, 0, sentOut.err);
+  assert.match(sentOut.out, /Placed with mara\.\nIts id is m\d+: kosmos msg --status m\d+ says later/);
   const bad = await winRun(['msg', '--status', 'bad']);
   assert.equal(bad.code, 2, bad.out + bad.err);
   assert.match(bad.err, /Usage: kosmos msg --status <message id>/);

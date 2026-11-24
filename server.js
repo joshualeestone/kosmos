@@ -20899,7 +20899,8 @@ const server = http.createServer(async (req, res) => {
         out = msgstatus.status(body.id, {
           rows: messages.readLog(),
           asker: caller.card.sessionName,
-          // The longest tail history() reads: a busy agent's heartbeats fill the short one in well under an hour.
+          /* The longest tail history() reads: a busy agent's heartbeats fill the short one in well under an hour. A
+             synchronous read of up to 4 MB per call, open to any agent with a token, as the summary-overdue read is. */
           history: (session) => selfreport.history(session, selfreport.HISTORY_MAX_BYTES),
           sessionOf: (name) => { const card = chat.resolveCard(roster, name); return (card && card.sessionName) || name; },
         });

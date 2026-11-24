@@ -122,6 +122,30 @@ test('a session restart ends a standing wait: the new session\'s turns count', (
   assert.equal(run([sent()], [end(-60), ask, restart, start(2), end(5)]).status, STATUS.READ_NO_ANSWER);
 });
 
+test('a turn running at delivery that ended, then a whole turn after it: read with no answer', () => {
+  assert.equal(run([sent()], [end(-60), start(-30), end(3), start(5), end(9)]).status, STATUS.READ_NO_ANSWER);
+  assert.equal(run([sent()], [end(-60), start(-30), end(3), start(5)]).status, STATUS.READING);
+});
+
+test('an automatic blocked (a provider stop) is a standing wait; the hook\'s permission ask is not', () => {
+  assert.equal(run([sent()], [end(-60), { state: 'blocked', at: ms(-10), by: 'auto' }]).status, STATUS.UNKNOWN);
+});
+
+test('a reply that cites another message, or came before a held message was typed, is not its answer', () => {
+  const other = { kind: 'message', id: 'm11', from: 'mara', to: 'leo', at: at(3), state: 'placed', in_reply_to: 'm7' };
+  assert.equal(run([sent(), other], [end(-60), start(2), end(5)]).status, STATUS.READ_NO_ANSWER);
+  const held = sent({ state: 'held' });
+  const typed = { kind: 'held-delivered', of: 'm10', from: 'leo', to: 'mara', at: at(20), state: 'placed' };
+  const early = { kind: 'message', id: 'm12', from: 'mara', to: 'leo', at: at(10), state: 'placed' };
+  assert.equal(run([held, early, typed], [end(-60)]).status, STATUS.NOT_YET);
+});
+
+test('every sentence is plain ASCII', () => {
+  for (const h of [[end(-60), { state: 'stopped', at: ms(4), by: 'auto' }], [end(-60), start(2), end(9)]]) {
+    assert.match(sentence(run([sent()], h)), /^[\x20-\x7e]*$/);
+  }
+});
+
 test('an unsent line in the input box is said', () => {
   assert.match(sentence(run([sent({ unsubmitted: true })], [end(-60)])), /left unsent in its input box/);
 });

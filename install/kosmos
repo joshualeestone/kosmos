@@ -2896,7 +2896,7 @@ _msg_status() {
     -H 'content-type: application/json' --data-binary @- 2>/dev/null) || rc=$?
   if [ "$rc" -ne 0 ]; then say_unreached "check that message" "$rc"; exit 1; fi
   case "$body" in
-    *'"error"'*)
+    '{"error":'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
       say "Kosmos refused that request: ${because:-it did not say why}."
       token_refused_hint "$_tok" "$body"
@@ -2905,8 +2905,17 @@ _msg_status() {
   sentence=$(printf '%s' "$body" | sed -n 's/.*"sentence":"\([^"]*\)".*/\1/p')
   case "$body" in
     *'"found":true'*) say "${sentence:-Kosmos answered, but not in a shape this command can read.}" ;;
-    *) say "${sentence:-Kosmos could not read that message.}"; exit 1 ;;
+    *) say "${sentence:-Kosmos could not read that message.}"; token_refused_hint "$_tok" "$body"; exit 1 ;;
   esac
+}
+
+# kosmos#8961: after a send, the message's id and the command that says later what happened to it (answered, read with
+# no answer, or not read yet). Silent when the answer carries no id (an older board).
+_say_msg_id() {
+  local _mid
+  _mid=$(printf '%s' "${1:-}" | sed -n 's/.*"id":"\(m[0123456789]*\)".*/\1/p')
+  [ -n "$_mid" ] && say "Its id is $_mid: kosmos msg --status $_mid says later whether they answered or read it."
+  return 0
 }
 
 cmd_msg() {
@@ -3094,8 +3103,8 @@ cmd_msg() {
             *'"queued":true'*|*'"queued": true'*) say "Queued with $to (it had arrived the first time; it was not sent twice)." ;;
             *) say "Placed with $to (it had arrived the first time; it was not sent twice)." ;;
           esac ;;
-        *'"queued":true'*|*'"queued": true'*) say "Queued with $to (they are mid-task, so they will not read this until it finishes)." ;;
-        *) say "Placed with $to." ;;
+        *'"queued":true'*|*'"queued": true'*) say "Queued with $to (they are mid-task, so they will not read this until it finishes)."; _say_msg_id "$body" ;;
+        *) say "Placed with $to."; _say_msg_id "$body" ;;
       esac ;;
     *'"state":"unconfirmed"'*)
       # The server's own sentence: unconfirmed has two flavors (typed with
