@@ -54,6 +54,10 @@ were each ended by the agent's own report, so which path the reporter hit is not
   the wait survives there.
 
 ## Residual
+- A card with no pane carries waitCleared too, but it usually reads stopped, and the sentence speaks only on an idle or
+  working card, so there it is mostly carried and not said (review round 5). Nothing false shows.
+- "by you" assumes the person who pressed Clear is the board's person; anyone holding the board token can press it.
+  A removed project reads "when it left the project", which is close to true.
 - 12 hours is kept although a busy agent will have done other things since (review round 2 suggested shorter): the
   card's whole complaint is a person coming back to find the wait gone with no word, so the word must outlast an
   evening away.

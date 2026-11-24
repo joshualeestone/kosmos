@@ -8544,7 +8544,8 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
    after an evening away, short enough not to explain yesterday's question forever. */
 const WAIT_CLEARED_SHOW_MS = 12 * 60 * 60 * 1000;
 /* kosmos#9011: { at, by, state, held } when the agent's own needs_you or blocked was ended within WAIT_CLEARED_SHOW_MS by
-   the agent itself, a person, leaving the project, a new run or the session ending (selfreport.latestOf), else null.
+   the agent's own clear or other report, a person, leaving the project, a new run or the session ending
+   (selfreport.latestOf), else null.
    The page says it only while the card reads idle or working (a new wait, a stop or a limit say themselves). */
 function waitClearedOf(report, nowMs) {
   const w = report && report.found === true ? report.waitCleared : null;
