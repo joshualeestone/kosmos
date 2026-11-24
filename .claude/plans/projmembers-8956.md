@@ -52,3 +52,8 @@ Finished when: from project info, adding a member, removing one and archiving th
 
 ## Challenge loop iteration 6 (sonnet): converged
 - No new findings. Device checks, as recorded: closing on archive, the confirm buttons posting, and whether dismissing the room pops the info page with it.
+
+## After convergence
+- Full validation PASSED on 66083739f8 (30263 node pass, 0 fail; shell shards green; hash e7eadbd879c0).
+- UI run PASSED 5/5 ProjectInfoUITests on iPhone 17e, iOS 27, with a screenshot of each new screen (members in Settings, Add a member, the Remove question, the Archive question, the lower Settings with the hand-off).
+- Copy fix from reading those screenshots: the Remove question called the agent "it" while the result lines say "them"; it now reads "They stop being told about its room and tasks, and stay on your computer. You can add them back." Room 945/945, build and node ios tests pass; validated again on the final head.
