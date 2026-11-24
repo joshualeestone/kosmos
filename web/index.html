@@ -23650,7 +23650,7 @@ function stateReason(a, opts) {
      does not vanish from the card unexplained. After #8979's restart line, which says more about a restart. Idle or
      working only, like it: a new wait, a stop or a limit says itself. Fixed words, never the old question's. A new
      session retiring the old wait is Josh's design (#5943); this only says it happened. Literals: tests lift stateReason
-     alone, so the time words are #8979's, repeated. */
+     alone, so the time words repeat #8979's today-or-weekday rule; the 12-hour span makes its date arm unneeded. */
   if (a && (a.state === 'idle' || a.state === 'working') && a.waitCleared && typeof a.waitCleared.at === 'string') {
     const at = new Date(a.waitCleared.at);
     const by = { agent: ' by the agent itself', person: ' by you', left: ' when it left the project',

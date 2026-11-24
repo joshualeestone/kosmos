@@ -49,7 +49,9 @@ const ENDS = {
       await page.goto('file://' + PAGE);
       const r = await page.evaluate(({ base, kinds }) => {
         if (typeof card !== 'function') return { error: 'card is not a function (renamed? re-anchor this check)' };
-        const at = new Date(Date.now() - 25 * 60e3);
+        /* Inside today, so the page says the bare clock at any hour. */
+        const today = new Date(); today.setHours(0, 1, 0, 0);
+        const at = new Date(Math.max(Date.now() - 25 * 60e3, today.getTime()));
         const mk = (id, extra) => Object.assign({}, base, {
           sessionName: 's-' + id, name: 'Agent ' + id, isNamedOurs: true, paneless: false, runner: 'claude',
           state: 'idle', stateConfidence: 'structured', stateReported: true, stateReportedBy: 'agent', stateEvidence: null,

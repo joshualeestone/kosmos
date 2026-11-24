@@ -631,6 +631,7 @@ function latestOf(rows, cut) {
     until: latest.until || null,
     held: latest.state === 'needs_you' && latest.held === true,   // #7915
     // kosmos#9011: { at, by, state, held } when the agent's own last wait was ended by a later line (see the loop), else null.
+    // `held` is carried for a reader that names a held question; the card's sentence does not use it today.
     waitCleared,
     at: latest.at || null,
     // #5943: null unless the latest report waits on a person (see the loop above).
