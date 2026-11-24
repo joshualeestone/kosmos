@@ -16,6 +16,23 @@ those steps; a move restarts on the board, so the steps are driven there:
   rides it, #5400). Not asked: an agent not running, and one OUT OF USAGE (the status card's state, rate_limited).
 - AGENT_WORKFORCE_MOVE_HANDOFF_OFF=1 turns the step off (the card's control).
 
+## Review 1 (opus): one BLOCKER, fixed
+- BLOCKER: the pickup was typed as soon as the restart said RESTARTED (only the launch job loaded). Now the pickup waits
+  for a session start other than the one read at the ask AND an idle card (as #3492's restartReadyWait does for the
+  page), gives up after 3 minutes, and its answer is written back to the move's record ("could not point its new
+  session at it: tell it to read its handoff").
+- Out of usage also covers Claude Code's own usage-limit report (blocked + limitReported, autobalance's stoppedAtLimit)
+  and a signed-out agent (auth_failed): none is asked.
+- A saved handoff whose restart did not happen says "when it starts again, tell it to read its handoff". An agent asked
+  and then not restarted (a stop, a failed restart) is told to carry on (handoff-restart.carryOnPrompt); a stopped one
+  stays held until its put-back settles.
+- The file counts as written once it is fresh AND unchanged since the previous look (a handoff written in edits).
+- The words reach a person: the move's view carries `handoff`; Settings says "No handoff written in time (names)"; the
+  automatic mover's notice adds what happened to the handoff. Settings' polling window grew by the 120 s wait.
+- Comments: the move's total bound (67.5 minutes) and stop() during the wait.
+KNOWN, stated: a bulk move of many busy agents now spends up to 2 minutes each before its restart, so its 60-minute cap
+reaches fewer agents (about 25 busy ones); the automatic mover moves one per tick and is unaffected.
+
 ## Rejected
 - Asking an agent that is out of usage: it cannot take a turn to write anything, and the usage mover moves exactly such
   agents. It is moved at once, and the move says why no handoff was asked for.
@@ -26,10 +43,12 @@ Weakest premise: that 2 minutes is enough for a busy agent to finish its turn an
 "not written in time", said plainly; the next session then starts cold, as today.
 
 ## Tests
-- engine/accountmove-handoff-9010.test.js (6): written in time (ask, restart, pickup, in order, and the words); not in
+- engine/accountmove-handoff-9010.test.js (9, after review 1: also a handoff written in edits, a pickup that does not
+  land, a restart that did not happen after a saved handoff): written in time (ask, restart, pickup, in order, and the words); not in
   time (restarted anyway, no pickup, said); not asked (out of usage) said; an ask that throws never stops the move; a
   stop during the wait puts it back; CONTROL: no handoffFirst is the old move, word for word.
-- server.move-handoff-9010.test.js (4): the wiring is on by default with every step; not running and out of usage are
+- server.move-handoff-9010.test.js (8, after review 1: also blocked-at-limit and signed out, the ask's real prompt and
+  path, freshness against a real file, the pickup waiting for the new idle session, and giving up): the wiring is on by default with every step; not running and out of usage are
   not asked, with the reason; CONTROL: the off switch.
 - Existing move and auto-move tests (146) unchanged and green. Mutants: dropping the usage check, dropping the pickup:
   each fails its test.

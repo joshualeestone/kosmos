@@ -104,4 +104,12 @@ function handoffIsFresh(before, after) {
   return a > b;                                          // it was rewritten
 }
 
-module.exports = { handoffForRestartPrompt, pickupPrompt, handoffIsFresh };
+/* kosmos#9010 review 1: told to an agent that was asked for its handoff before an account move and then NOT restarted
+   (the person stopped the move, or the restart did not happen). The ask said the restart comes as soon as the handoff
+   is written, so without this it would sit idle waiting for one. */
+function carryOnPrompt() {
+  return 'You were not restarted after all: the account move that asked for your handoff stopped before restarting you.'
+    + ' Carry on with your work. Your handoff stays where you wrote it.';
+}
+
+module.exports = { handoffForRestartPrompt, pickupPrompt, handoffIsFresh, carryOnPrompt };

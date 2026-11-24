@@ -3644,19 +3644,32 @@ function accountMoveDeps() {
   };
 }
 /* kosmos#9010: the move's handoff steps, from #3492's pieces (handoffFileSnap, handoffRestart's prompts and freshness
-   test, chat's delivery). Not asked: an agent that is not running (no session to write it), and one out of usage (it
-   cannot take a turn to write anything: the usage mover often moves exactly such an agent). */
-function moveHandoffDeps() {
+   test, chat's delivery). Not asked: an agent that is not running (no session to write it), and one that cannot take a
+   turn (review 1: out of usage, as a rate_limited card or Claude Code's own usage-limit report, autobalance's
+   stoppedAtLimit; or signed out). The pickup waits for the NEW session (review 1: RESTARTED only means its launch job
+   loaded): a session start other than the one read at the ask, and a card that reads idle, as #3492's restartReadyWait
+   waits for the page. `o` is for tests: { readyWaitMs, pollMs, startedAt(name), roster() }. */
+function moveHandoffDeps(o = {}) {
+  const startedAt = o.startedAt || ((n) => sessionStartForAsync(n));
+  const rosterNow = o.roster || (() => safeRoster());
+  const before = new Map();   // name -> its session's start when it was asked
+  const clean = (n) => create.cleanName(n) || n;
+  const cannotTurn = (card) => !!card && (card.state === 'rate_limited' || card.state === 'auth_failed'
+    || (card.state === 'blocked' && card.limitReported === true));
   return {
-    ask: async (name) => {
+    ask: async (rawName) => {
+      const name = clean(rawName);
       const session = sessionOf(name);
       if (!session) return { asked: false, why: 'it was not running.' };
       /* The live state is on the board's status card (safeRoster), matched as delivery matches it (chat.resolveCard).
          Not claimantFor's: the pane roster carries no state (test-support/fleet refuses that read). */
-      const roster = safeRoster();
+      const roster = rosterNow();
       const card = chat.resolveCard(roster, name);
-      if (card && card.state === 'rate_limited') return { asked: false, why: 'it was out of usage, so it could not write one.' };
+      if (cannotTurn(card)) {
+        return { asked: false, why: card.state === 'auth_failed' ? 'it was signed out, so it could not write one.' : 'it was out of usage, so it could not write one.' };
+      }
       const snap = handoffFileSnap(session);
+      try { before.set(name, await startedAt(name)); } catch { before.set(name, null); }
       let delivery;
       try { delivery = await chat.deliverAsync(name, handoffRestart.handoffForRestartPrompt(snap.path), roster, undefined, undefined, { movedNote: false }); }
       catch { return { asked: false, why: 'we could not reach it.' }; }
@@ -3664,13 +3677,34 @@ function moveHandoffDeps() {
       if (!delivery || delivery.state === chat.DELIVERY.COULD_NOT) return { asked: false, why: 'the request did not reach it.' };
       return { asked: true, path: snap.path, before: { exists: snap.exists, mtimeMs: snap.mtimeMs } };
     },
-    isFresh: (name, before) => {
-      const session = sessionOf(name);
+    // The fresh file's modification time (the engine waits for it to settle), else false.
+    isFresh: (rawName, was) => {
+      const session = sessionOf(clean(rawName));
       if (!session) return false;
-      return handoffRestart.handoffIsFresh(before, handoffFileSnap(session));
+      const now = handoffFileSnap(session);
+      return handoffRestart.handoffIsFresh(was, now) && Number.isFinite(now.mtimeMs) ? now.mtimeMs : false;
     },
-    // The restart's own pickup line (the moved note rides it, #5400), through the shared-quota gate as #3492's does.
-    pickup: (name, path) => chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(path), safeRoster(), undefined, undefined, { cap: false }),
+    pickup: async (rawName, path) => {
+      const name = clean(rawName);
+      const old = before.has(name) ? before.get(name) : null;
+      const waitMs = Number.isFinite(o.readyWaitMs) ? o.readyWaitMs : 3 * 60 * 1000;
+      const pollMs = Number.isFinite(o.pollMs) ? o.pollMs : 2000;
+      const until = Date.now() + waitMs;
+      for (;;) {
+        let started = null;
+        try { started = await startedAt(name); } catch { started = null; }
+        const card = chat.resolveCard(rosterNow(), name);
+        if (Number.isFinite(started) && started !== old && card && card.state === 'idle') break;
+        if (Date.now() >= until) return { ok: false };
+        await new Promise((r) => { const t = setTimeout(r, pollMs); if (t && typeof t.unref === 'function') t.unref(); });
+      }
+      // The restart's own pickup line (the moved note rides it, #5400), through the shared-quota gate as #3492's does.
+      let delivery;
+      try { delivery = await chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(path), rosterNow(), undefined, undefined, { cap: false }); }
+      catch { return { ok: false }; }
+      return { ok: !!delivery && delivery.state !== chat.DELIVERY.COULD_NOT };
+    },
+    carryOn: (rawName) => chat.deliverAsync(clean(rawName), handoffRestart.carryOnPrompt(), rosterNow(), undefined, undefined, { movedNote: false }),
   };
 }
 
@@ -32082,7 +32116,7 @@ module.exports = { _setStartedProofPlatformForTest, _setStartWaitForTest,   // k
   _agentInCommunityForTest: agentInCommunity,   // kosmos#8156: a test seat is never a community member
   _tellOwnBoundForTest: tellOwnBound, _ownBoundToldForTest: ownBoundTold, _ownboundsPushedForTest: ownboundsPushed, _ownboundsPushKeyForTest: ownboundsPushKey, // kosmos#7633: the stall push's own-bounds question, for its test
   _usagePollPlanForTest: usagePollPlan, // kosmos#8846 review 2
-  _automoveDepsForTest: automoveDeps, _accountMoveDepsForTest: accountMoveDeps, // kosmos#7548: the mover's wiring, for its test
+  _automoveDepsForTest: automoveDeps, _accountMoveDepsForTest: accountMoveDeps, _moveHandoffDepsForTest: moveHandoffDeps, // kosmos#7548: the mover's wiring, for its test
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
   _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
