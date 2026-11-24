@@ -138,7 +138,7 @@ struct AccountView: View {
             }
             .navigationTitle("Retire a computer")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { closeRetire() } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { closeRetire() }.disabled(retireBusy) } }
         }
         .navigationViewStyle(.stack)
         .interactiveDismissDisabled(retireBusy)
@@ -212,10 +212,7 @@ struct AccountView: View {
         guard ticket == readTicket else { return }
         // The answer belongs to the sign-in that asked. One that changed meanwhile is not shown; the change itself
         // (accountGeneration) clears the list and reads it again; without one, this reads again for the sign-in held now.
-        guard currentSession() == session else {
-            if ticket == readTicket { await read() }
-            return
-        }
+        guard currentSession() == session else { await read(); return }
         guard let status else { if case .loaded = load { listNote = Account.reach } else { load = .failed(Account.reach) }; return }
         if (200...299).contains(status), let rows = Account.parseComputers(data) {
             load = .loaded(rows); listNote = nil
