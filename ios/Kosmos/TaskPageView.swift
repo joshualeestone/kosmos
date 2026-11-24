@@ -577,12 +577,16 @@ struct TaskPageView: View {
                 .pickerStyle(.menu)
                 .labelsHidden()
                 .accessibilityLabel("Who is told if a run is missed")
+                // Voice Control: the words on screen work as well as the spoken label.
+                .accessibilityInputLabels(["If missed, tell", "Who is told if a run is missed"])
                 .tint(Palette.link)
                 .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
                 .disabled(model.reviewerSaving != nil || model.repeatSaving || model.pressing)
                 .accessibilityIdentifier("taskpage.repeat.reviewer")
                 // The choice itself, said as the value (an empty value would hide it), and that it is saving while it is.
-                .accessibilityValue((options.first { $0.value == shown }?.words ?? "") + (model.reviewerSaving != nil ? ", in progress" : ""))
+                .accessibilityValue([options.first { $0.value == shown }?.words ?? shown, model.reviewerSaving != nil ? "in progress" : nil]
+                    .compactMap { $0 }.joined(separator: ", "))
                 if model.reviewerSaving != nil { SweepDots(scales: false) }
             }
             if let say = model.reviewerSay {
