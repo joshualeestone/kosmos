@@ -562,3 +562,35 @@ test('#8951 review 8: a wake-up turn opens on no message, and a turn that ran lo
   q.pub.stopped(); q.pub.started(7001, 'sid-1');   // then a Restart
   assert.equal(q.last().unstarted.count, 1, 'only the one waiting: the first ran for half an hour');
 });
+
+test('#8951 review 9: a message taken into a running turn when its calls return is counted if the process dies within seconds', () => {
+  const tool = (id) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'Bash', input: { command: 'x' } }] } });
+  const back = (id) => ({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] } });
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.clock.t += 50; r.pub.event(init); r.pub.event(tool('w1'));   // a turn a message opened, with a call
+  r.clock.t += 950; r.pub.wrote();                                               // a second, behind the call
+  r.clock.t += 1000; r.pub.event(back('w1'));                                    // the call returns: it joins the turn
+  r.clock.t += 1000; r.pub.event({ type: 'assistant', message: { content: [] } });
+  r.clock.t += 600; r.pub.stopped(); r.pub.started(7001, 'sid-1');
+  assert.deepEqual(r.last().unstarted, { since: new Date(T0).toISOString(), count: 2, lost: true }, 'both died with it');
+  // Long after it joined, a Restart does not count it (nor the opener).
+  const q = recording();
+  q.pub.started(6368, 'sid-1');
+  q.pub.wrote(); q.pub.event(init); q.pub.event(tool('w1'));
+  q.pub.wrote(); q.pub.event(back('w1'));
+  q.clock.t += ss.LOST_WINDOW_MS + 1;
+  q.pub.stopped(); q.pub.started(7001, 'sid-1');
+  assert.equal(q.last().unstarted, undefined, 'both ran as far as they got');
+});
+
+test('#8951 review 9: a turn counted because it opened within seconds of the stop is worded as what stopped it, whenever it was written', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.event(init);
+  r.clock.t += 60 * 1000; r.pub.wrote();               // written behind a long turn
+  r.clock.t += 20 * MIN; r.pub.event(result);          // taken at its end
+  r.clock.t += 50; r.pub.event(init);                  // its own turn opens
+  r.clock.t += 550; r.pub.stopped(); r.pub.started(7001, 'sid-1');
+  assert.deepEqual(r.last().unstarted, { since: new Date(T0 + 60 * 1000).toISOString(), count: 1, lost: true });
+});
