@@ -1635,6 +1635,8 @@ enum Board {
         var earlierPart = false
         // kosmos#7864: the link preview the Mac attached to the row (its withPreviews), drawn under the bubble.
         var preview: LinkPreview? = nil
+        // kosmos#8958: on an unsent draft (Kosmos's own row, draft: true), the id the Mac dismisses it by.
+        var draftId: String? = nil
         // Reply and reactions only on this agent's own messages, not a question (server.js: a reply_to must be the
         // agent's or the person's, never a question; chat.reactDirect: only `from === name`), as the board's hover bar.
         func answerable(by session: String) -> Bool {
@@ -1746,6 +1748,47 @@ enum Board {
     }
     static func withReactions(_ thread: Thread, at: String, pills: [ChatReaction]) -> Thread {
         Thread(rows: withReactions(thread.rows, at: at, pills: pills), olderCount: thread.olderCount, choices: thread.choices)
+    }
+
+    // MARK: An unsent draft (kosmos#8958; the board's dm-draft, kosmos#6717)
+
+    // Text Kosmos took out of the agent's input box, where it sat unsent and kept messages from reaching it. Nothing
+    // sends it: the person puts it in the message box or dismisses it. The board's words.
+    static let draftBand = "This text sat unsent in its input box and kept messages from reaching it, so Kosmos took it out and saved it here. It was not sent."
+    static let draftUse = "Put in the message box"
+    static let draftDismiss = "Dismiss"
+    static let draftDismissFailed = "Kosmos could not dismiss that draft. Try again."
+
+    // The Mac's draft ids (server.js refuses any other shape).
+    static func draftId(_ raw: Any?) -> String? {
+        guard let s = raw as? String, s.range(of: #"^[0-9a-f]{12}$"#, options: .regularExpression) != nil else { return nil }
+        return s
+    }
+
+    // POST /api/agent/<name>/unsent-draft/dismiss {id}.
+    static func draftDismissRequest(mac: URL, session: String, id: String) -> URLRequest? {
+        guard isAgentSession(session), let id = draftId(id) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/unsent-draft/dismiss", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = try? JSONSerialization.data(withJSONObject: ["id": id])
+        return r
+    }
+
+    // Gone either way: 200 dismissed, or 404 already dismissed (the board's dmDraftDismiss). Anything else, or no answer,
+    // and it stays.
+    static func draftDismissed(status: Int) -> Bool { (200...299).contains(status) || status == 404 }
+
+    // The draft's words in the message box, after what is already typed (on a new line), as the board's dmDraftUse.
+    static func usingDraft(_ typed: String, words: String) -> String {
+        guard !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return words }
+        return typed.replacingOccurrences(of: #"\s+$"#, with: "", options: .regularExpression) + "\n" + words
+    }
+
+    // The dismissed draft taken out at once (the next read confirms).
+    static func withoutDraft(_ thread: Thread, id: String) -> Thread {
+        Thread(rows: thread.rows.filter { $0.draftId != id }, olderCount: thread.olderCount, choices: thread.choices)
     }
 
     // MARK: Deleting the person's own message (kosmos#7614, Josh 10-30; the routes are Mona Lisa's, contract on the card)
@@ -2905,7 +2948,8 @@ enum Board {
                            permission: permission, denyOnly: denyOnly, reported: isTrue(row["reported"]), attachments: parseAttachments(row),
                            replyTo: (row["replyTo"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                            reactions: parseReactions(row["reactions"]), from: from, earlierPart: isTrue(row["earlierPart"]),
-                           preview: parseLinkPreview(row["preview"]))
+                           preview: parseLinkPreview(row["preview"]),
+                           draftId: way == .draft && kind == "kosmos" ? draftId(row["draftId"]) : nil)
         }
     }
 

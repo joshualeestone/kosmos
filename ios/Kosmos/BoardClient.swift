@@ -1210,6 +1210,22 @@ final class BoardClient: ObservableObject {
         return Board.deleteResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
     }
 
+    // MARK: Dismissing an unsent draft (kosmos#8958, the board's dmDraftDismiss)
+
+    // true when the draft is gone (dismissed now, or already); false when it stays, and the chat says so.
+    func dismissDraft(id: String, of agent: Board.Agent) async -> Bool {
+        #if DEBUG
+        if let sample = sampleThreads[agent.session] {
+            // The sample chats (a Debug build only): removed in memory, as the Mac would.
+            sampleThreads[agent.session] = Board.withoutDraft(sample, id: id)
+            return true
+        }
+        #endif
+        guard let held = admitted, let request = Board.draftDismissRequest(mac: held.url, session: agent.session, id: id) else { return false }
+        let answer = await env.send(request)
+        return Board.draftDismissed(status: answer?.1.statusCode ?? 0)
+    }
+
     // MARK: Answering a question (kosmos#7016, the board's dmChoicePress)
 
     // Agents with a press in the air: their buttons are drawn off, and a typed send waits.

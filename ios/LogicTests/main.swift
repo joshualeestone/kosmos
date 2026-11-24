@@ -1166,6 +1166,32 @@ do {
           "a conversation the Mac cannot file says why, not that there are no messages")
     let draft = Board.parseThread(Data(#"{"messages":[{"at":"T","text":"git push --force","from":null,"kind":"kosmos","draft":true,"draftId":"d1"}]}"#.utf8))?.rows.first
     check(draft?.wayThrough == .draft, "words that sat unsent in the agent's box are a way-through row, never drawn as Kosmos speaking")
+    // kosmos#8958: the draft's id, only in the Mac's shape and only on Kosmos's own draft row.
+    func draftRow(_ json: String) -> Board.ChatRow? { Board.parseThread(Data(json.utf8))?.rows.first }
+    let withId = draftRow(#"{"messages":[{"at":"T","text":"git push","from":null,"kind":"kosmos","draft":true,"draftId":"0123456789ab"}]}"#)
+    check(withId?.draftId == "0123456789ab" && withId?.text == "git push", "a draft row carries its id and its words")
+    check(draftRow(#"{"messages":[{"at":"T","text":"x","from":null,"kind":"kosmos","draft":true,"draftId":"d1"}]}"#)?.draftId == nil,
+          "an id not in the Mac's shape is not taken (nothing could dismiss it)")
+    check(draftRow(#"{"messages":[{"at":"T","text":"x","from":null,"kind":"kosmos","draftId":"0123456789ab"}]}"#)?.draftId == nil,
+          "CONTROL: a row that is not a draft has no draft id")
+    check(draftRow(#"{"messages":[{"at":"T","text":"x","from":"dana","kind":"agent","draft":true,"draftId":"0123456789ab"}]}"#)?.draftId == nil,
+          "only Kosmos's own row is a draft to dismiss, as the board's m.kind === 'kosmos'")
+    let dismiss = Board.draftDismissRequest(mac: URL(string: "http://mac.local:7777")!, session: "dana", id: "0123456789ab")
+    check(dismiss?.httpMethod == "POST" && dismiss?.url?.path == "/api/agent/dana/unsent-draft/dismiss"
+          && (dismiss?.httpBody).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] } == ["id": "0123456789ab"],
+          "Dismiss posts the draft's id to the Mac's route")
+    check(Board.draftDismissRequest(mac: URL(string: "http://mac.local:7777")!, session: "dana", id: "../x") == nil,
+          "no request for an id the Mac would refuse")
+    check(Board.draftDismissed(status: 200) && Board.draftDismissed(status: 404), "dismissed, or already dismissed: gone either way")
+    check(!Board.draftDismissed(status: 500) && !Board.draftDismissed(status: 403) && !Board.draftDismissed(status: 0),
+          "a refusal or no answer: it stays")
+    check(Board.usingDraft("", words: "git push") == "git push" && Board.usingDraft("  \n", words: "git push") == "git push",
+          "into an empty box, the words alone")
+    check(Board.usingDraft("first, \n", words: "git push") == "first,\ngit push", "after typed words, on a new line, as the board's dmDraftUse")
+    if let t = Board.parseThread(Data(#"{"messages":[{"at":"A","text":"hi","from":"dana","kind":"agent"},{"at":"T","text":"x","from":null,"kind":"kosmos","draft":true,"draftId":"0123456789ab"}]}"#.utf8)) {
+        let after = Board.withoutDraft(t, id: "0123456789ab")
+        check(after.rows.count == 1 && after.rows.first?.text == "hi", "a dismissed draft goes at once, the agent's message stays")
+    } else { check(false, "the draft thread parses") }
 }
 
 section("native chat: runs, times and day lines (Mona Lisa's slice 3a spec)")
