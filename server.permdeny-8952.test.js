@@ -123,7 +123,7 @@ test('#8952 (c): a denyOnly No for another identity sends nothing; CONTROL: the 
 });
 
 test('#8952 (c) CONTROL: the whole box gets the full card and no denyOnly', async () => {
-  const whole = withScroll(BASH);
+  const whole = BASH;   // slice (d) review 5: without the scroll line, which now means "not drawn whole" by itself
   await withPrompt(whole, async () => {
     const row = questionRow(await getThread());
     assert.ok(row && row.permission, 'no full card on the whole box: ' + JSON.stringify(row));

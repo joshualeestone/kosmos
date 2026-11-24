@@ -105,8 +105,10 @@ test('#8952: a cut-off box with the scroll line offers nothing to press, on the 
   });
 });
 
-test('#8952 CONTROL: the whole box with the same scroll line is pressable, so the test above can fail', async () => {
-  const whole = withScroll(BASH);
+test('#8952 CONTROL: the whole box is pressable, so the test above can fail', async () => {
+  /* slice (d) review 5: the whole box WITHOUT the scroll line. A box carrying Claude Code's own "more lines" hint is one it
+     says it did not draw whole, so it is not answerable even with a top above it (chat.permissionAnswerable). */
+  const whole = BASH;
   assert.equal(chat.permissionAnswerable(whole), true, 'premise');
   await withPrompt(whole, async () => {
     const r = await notice(reportId());

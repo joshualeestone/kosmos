@@ -10884,7 +10884,7 @@ module.exports = { panesWithCommands /* kosmos#8719 */, boardTmux /* kosmos#8719
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  ASKING_GENERIC, APPROVAL_WAITING, SELF_EXPIRING_DECLINE /* kosmos#9001 */, claudeSelfExpiringPrompt /* kosmos#9001 */, selfExpiringCommand /* kosmos#9001 */, awaitingApprovalOf, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudePermissionPrompt, claudeAnswerableMenu, claudeSafeguardsMenuUp,
+  CLAUDE_SCROLL_HINT /* kosmos#8952 slice (d): chat.permissionAnswerable */, ASKING_GENERIC, APPROVAL_WAITING, SELF_EXPIRING_DECLINE /* kosmos#9001 */, claudeSelfExpiringPrompt /* kosmos#9001 */, selfExpiringCommand /* kosmos#9001 */, awaitingApprovalOf, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudePermissionPrompt, claudeAnswerableMenu, claudeSafeguardsMenuUp,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,

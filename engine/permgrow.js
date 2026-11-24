@@ -126,11 +126,12 @@ function hiddenRows(text) {
    own hook reports a permission wait now. `skip`: Set of names judged earlier under the same report. `screenOf(card)`:
    the screen the thread route would read, or null when it could not be read. `busy(card)`: a key answer or a delivery is
    under way on its pane. `world`: this board's world id. */
-function plan({ cards, windows, waiting, skip, screenOf, busy, world, grownFor = new Map(), restoreOnly = false }) {
+function plan({ cards, windows, waiting, skip, screenOf, busy, world, grownFor = new Map(), restoreOnly = false, unreadable = new Map(), reportOf = () => null }) {
   const acts = [];
   const judged = [];
   const unsure = [];
   const watched = [];
+  const unreadSeen = [];
   const seen = [];   // [window id, request id] of a whole box on a grown window, for the caller to remember
   const list = Array.isArray(cards) ? cards : [];
   const cardAt = new Map();
@@ -147,8 +148,15 @@ function plan({ cards, windows, waiting, skip, screenOf, busy, world, grownFor =
     const restore = { act: 'restore', id: w.id, session: w.session, window: w.window, size };
     if (card && isBusy(card)) continue;   // a press is reading this screen: leave it for the next tick
     if (restoreOnly || !w.mark.size || w.attached > 0 || !card) { acts.push(restore); continue; }
+    /* Review 5: a card this sweep would never grow (no longer ours, reached another way, another runner) is put back. */
+    if (card.isNamedOurs !== true || card.reachedByChannel === true || String(card.runner || 'claude') !== 'claude') { acts.push(restore); continue; }
     const text = read(card);
-    if (text == null) continue;   // could not read it: keep the size, ask again next tick
+    if (text == null) {
+      // Review 5: kept through a few unreadable ticks, then put back: never tall for good on a screen nobody can read.
+      if ((unreadable.get(w.id) || 0) + 1 >= UNREADABLE_TICKS) acts.push(restore);
+      else unreadSeen.push(w.id);
+      continue;
+    }
     if (status.claudePermissionPrompt(text) && chat.permissionAnswerable(text)) {
       /* Review 3 and 4: the window is kept for the box it was grown for, known by that box's own fingerprint (the
          request id) the first time it reads whole. Another box (a new prompt, such as a short one right after the long
@@ -158,15 +166,20 @@ function plan({ cards, windows, waiting, skip, screenOf, busy, world, grownFor =
       const card0 = chat.permissionCard(text);
       const req = card0 ? chat.permissionRequestId(card0) : null;
       const had = grownFor.get(w.id);
-      if (req && had && had !== req) { acts.push(restore); continue; }
-      if (req && !had) seen.push([w.id, req]);
+      if (req && had && had.req && had.req !== req) { acts.push(restore); continue; }
+      if (req && !(had && had.req)) seen.push([w.id, req]);
       continue;
     }
     if (!status.claudePermissionPrompt(text)) {
       acts.push(restore);
-      /* Review 2: while the same report stands, never grow this window again: a screen that stops reading as a prompt
-         at the grown height (another layout, a redraw) would otherwise grow and shrink every tick. */
-      if (waiting && waiting.has(card.sessionName)) judged.push(card.sessionName);
+      /* Review 2: while the report it was grown for stands, never grow this window again: a screen that stops reading
+         as a prompt at the grown height would otherwise grow and shrink every tick. Review 5: only THAT report. A newer
+         one (the next prompt, whose hook can report before its box is drawn) is unsure, looked at again. */
+      const name = card.sessionName;
+      if (waiting && waiting.has(name)) {
+        const had = grownFor.get(w.id);
+        if (had && had.at != null && had.at === reportOf(name)) judged.push(name); else unsure.push(name);
+      }
       continue;
     }
     /* Review 2: a second long prompt in the same turn, or a box still cut at the fitted height: grow again by its own
@@ -190,7 +203,7 @@ function plan({ cards, windows, waiting, skip, screenOf, busy, world, grownFor =
     if (w.panes !== 1 || !w.size) { judged.push(name); continue; }
     /* Review 4: someone watching is a moment, not evidence about the screen: looked at again every tick (the roster is
        the 20 s kept one), never counted toward the unsure budget. */
-    if (w.attached > 0) { watched.push(name); continue; }
+    if (w.attached > 0) { watched.push([name, w.id]); continue; }
     if (isBusy(card)) continue;
     const text = read(card);
     if (text == null) { unsure.push(name); continue; }
@@ -205,7 +218,7 @@ function plan({ cards, windows, waiting, skip, screenOf, busy, world, grownFor =
     if (rows > MAX_ROWS) { judged.push(name); continue; }
     acts.push({ act: 'grow', id: w.id, session: w.session, window: w.window, size: w.size, rows, name });
   }
-  return { acts, judged, unsure, watched, seen };
+  return { acts, judged, unsure, watched, seen, unreadSeen };
 }
 
 /* Runs one action through `tmux(args)` (chat's runner: { ran, status, out }). Returns true when tmux took every step. */
@@ -271,7 +284,11 @@ function keyOf(name) {
 /* The sweep's memory between ticks: the reports already judged, and windows whose last action failed (left alone for
    RETRY_AFTER_MS, and logged once). */
 const UNSURE_READS = 3;
-function newMemory() { return { judged: new Map(), unsure: new Map(), failedUntil: new Map(), reports: new Map(), grownFor: new Map() }; }
+const UNSURE_MS = 30 * 1000;   // review 5: and at least this long after the report, whatever the tick rate
+const UNREADABLE_TICKS = 3;
+function newMemory() {
+  return { judged: new Map(), unsure: new Map(), failedUntil: new Map(), reports: new Map(), grownFor: new Map(), unreadable: new Map(), watching: new Map() };
+}
 
 /* The world as a mark carries it: only the characters markOf reads back (a world id is [a-z0-9_-] already). */
 function worldTag(world) { return String(world == null ? '' : world).replace(/[^A-Za-z0-9_-]/g, '') || 'default'; }
@@ -289,7 +306,11 @@ function sweepOnce({ roster, tmux = chat.tmuxCall, screenOf, busy = chat.paneKey
   const byKey = restoreOnly ? new Map() : waits(memory.reports);
   for (const k of memory.judged.keys()) if (byKey.get(k) !== memory.judged.get(k)) memory.judged.delete(k);
   for (const [k, u] of memory.unsure) if (byKey.get(k) !== u.at) memory.unsure.delete(k);
-  const fresh = [...byKey.keys()].some((k) => !memory.judged.has(k));
+  /* Review 5: an agent last seen watched, whose window still has a viewer, needs no roster read: list-windows already
+     says nothing can be done for it. */
+  const viewed = new Set(rows.filter((r) => r.attached > 0).map((r) => r.id));
+  for (const [k, id] of memory.watching) if (!byKey.has(k) || !viewed.has(id)) memory.watching.delete(k);
+  const fresh = [...byKey.keys()].some((k) => !memory.judged.has(k) && !memory.watching.has(k));
   if (!ours && !fresh) return [];
   const cards = typeof roster === 'function' ? roster() : roster;
   if (!Array.isArray(cards)) return [];
@@ -310,9 +331,16 @@ function sweepOnce({ roster, tmux = chat.tmuxCall, screenOf, busy = chat.paneKey
   const ids = new Set(windows.map((w) => w.id));
   for (const k of memory.failedUntil.keys()) if (!ids.has(k)) memory.failedUntil.delete(k);
   for (const k of memory.grownFor.keys()) if (!ids.has(k)) memory.grownFor.delete(k);
+  for (const k of memory.unreadable.keys()) if (!ids.has(k)) memory.unreadable.delete(k);
+  const reportOf = (name) => { const k = keyOf(name); return k != null && byKey.has(k) ? byKey.get(k) : null; };
   const read = screenOf || ((card) => chat.viewport(card.sessionName, cards).text);
-  const { acts, judged, unsure, seen } = plan({ cards, windows, waiting, skip, screenOf: read, busy, world, grownFor: memory.grownFor, restoreOnly });
-  for (const [id, req] of seen) memory.grownFor.set(id, req);
+  const { acts, judged, unsure, seen, watched, unreadSeen } = plan({ cards, windows, waiting, skip, screenOf: read, busy, world,
+    grownFor: memory.grownFor, restoreOnly, unreadable: memory.unreadable, reportOf });
+  for (const [id, req] of seen) memory.grownFor.set(id, { ...(memory.grownFor.get(id) || { at: null }), req });
+  for (const [name, id] of watched) { const k = waiting.get(name); if (k != null) memory.watching.set(k, id); }
+  const unreadNow = new Set(unreadSeen);
+  for (const id of unreadSeen) memory.unreadable.set(id, (memory.unreadable.get(id) || 0) + 1);
+  for (const k of memory.unreadable.keys()) if (!unreadNow.has(k)) memory.unreadable.delete(k);
   for (const name of judged) { const k = waiting.get(name); if (k != null) { memory.judged.set(k, byKey.get(k)); memory.unsure.delete(k); } }
   /* An unsure screen is read again, UNSURE_READS times per report: a stale report whose agent shows no prompt costs a
      few reads, not one every tick for as long as the report stands. */
@@ -321,7 +349,9 @@ function sweepOnce({ roster, tmux = chat.tmuxCall, screenOf, busy = chat.paneKey
     if (k == null) return;
     const u = memory.unsure.get(k) || { at: byKey.get(k), reads: 0 };
     u.reads += 1;
-    if (u.reads >= UNSURE_READS) { memory.judged.set(k, byKey.get(k)); memory.unsure.delete(k); } else memory.unsure.set(k, u);
+    const since = Date.parse(byKey.get(k) || '');
+    const old = !Number.isFinite(since) || now - since >= UNSURE_MS;
+    if (u.reads >= UNSURE_READS && old) { memory.judged.set(k, byKey.get(k)); memory.unsure.delete(k); } else memory.unsure.set(k, u);
   };
   for (const name of unsure) countUnsure(name);
   const done = [];
@@ -330,8 +360,13 @@ function sweepOnce({ roster, tmux = chat.tmuxCall, screenOf, busy = chat.paneKey
     const until = memory.failedUntil.get(key);
     if (until && now < until) continue;
     const took = run(a, tmux, world);
-    if (took && a.act === 'restore') memory.grownFor.delete(key);
-    if (took && a.act === 'grow' && !a.again) memory.grownFor.delete(key);   // the box is learned when it reads whole
+    if (took && a.act === 'restore') { memory.grownFor.delete(key); memory.unreadable.delete(key); }
+    /* The box is learned when it reads whole; the report it was grown for is kept now. Review 5: an again-grow forgets
+       the old box too (a longer next box, grown again, must not be put back as "another box"). */
+    if (took && a.act === 'grow') {
+      const name = a.name || (cards.find((c) => { const at = windowOf(c); return at && at.session === a.session && at.window === a.window; }) || {}).sessionName;
+      memory.grownFor.set(key, { at: a.again ? reportOf(name) : reportOf(a.name), req: null });
+    }
     // Review 4: a grow that fails counts toward the unsure budget, so a window tmux will not resize stops costing reads.
     if (!took && a.act === 'grow' && a.name) countUnsure(a.name);
     if (took) memory.failedUntil.delete(key);
@@ -344,5 +379,5 @@ function sweepOnce({ roster, tmux = chat.tmuxCall, screenOf, busy = chat.paneKey
   return done;
 }
 
-module.exports = { GROWN_OPT, MAX_ROWS, FIT_MARGIN, DEFAULT_SIZE, RETRY_AFTER_MS, UNSURE_READS, LIST_ARGS, parseWindows, oneRowPerWindow, markOf, windowOf, worldTag,
+module.exports = { GROWN_OPT, MAX_ROWS, FIT_MARGIN, DEFAULT_SIZE, RETRY_AFTER_MS, UNSURE_READS, UNSURE_MS, UNREADABLE_TICKS, LIST_ARGS, parseWindows, oneRowPerWindow, markOf, windowOf, worldTag,
   hiddenRows, plan, run, permissionWaits, newMemory, sweepOnce };

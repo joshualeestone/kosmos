@@ -37,9 +37,13 @@ test('#8952 CONTROL: any other line in that place is still refused, so the walk 
   }
 });
 
-test('#8952: the scroll line changes nothing about whether the box is answerable (its top is the #6054 gate)', () => {
-  assert.equal(chat.permissionAnswerable(withLineUnderNo('  ↑ 37 more lines')), chat.permissionAnswerable(BASH));
-  assert.equal(chat.permissionAnswerable(BASH), true, 'premise: the whole box is on screen');
+/* slice (d) review 5 CHANGED THIS: the scroll line now makes a box not answerable even with a top above it. Claude Code
+   draws it only for a box it did not draw whole (see cutOff below), and a top above such a box can be a stale one left
+   in scrollback by an earlier, taller drawing of the same window. */
+test('#8952: a box carrying the scroll line is not answerable, even with a top above it; without it, it is', () => {
+  for (const line of ['  ↑ 37 more lines', '  ↓ 3 more lines']) assert.equal(chat.permissionAnswerable(withLineUnderNo(line)), false, line);
+  assert.equal(chat.permissionCard(withLineUnderNo('  ↑ 37 more lines')), null);
+  assert.equal(chat.permissionAnswerable(BASH), true, 'CONTROL: the whole box is');
 });
 
 // The only place the line appears for real: a box taller than the window, its top (the full-width rule) scrolled away.

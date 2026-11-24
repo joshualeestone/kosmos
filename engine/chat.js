@@ -3500,7 +3500,14 @@ function permissionBox(text) {
    so it gets no buttons, no key, and no promise of buttons. */
 function permissionAnswerable(text) {
   const box = permissionBox(text);
-  return Boolean(box && box.top >= 0);
+  if (!box || box.top < 0) return false;
+  /* kosmos#8952 slice (d) review 5: a box carrying Claude Code's own "↑ N more lines" (or "↓") under its question is a
+     box Claude Code itself says it did not draw whole. Claude Code 2.1.331 clears the scrollback when the window is
+     resized, so the top found above such a box is today never a stale one; this makes that not matter: a top left in
+     scrollback by an earlier, taller drawing can never pass for this box's. */
+  const lines = String(text == null ? '' : text).split('\n');
+  for (let i = box.pp.at; i < lines.length; i += 1) if (status.CLAUDE_SCROLL_HINT.test(lines[i])) return false;
+  return true;
 }
 /* kosmos#8952 slice (c): a permission prompt that is not permissionAnswerable (no box top on screen: usually scrolled
    away by a long command, or a layout without its top rule) cannot be approved from a phone or the board (#6054
@@ -3526,6 +3533,7 @@ const PERMISSION_DASHED = /^\s*╌{8,}\s*$/;
 function permissionCard(text) {
   const box = permissionBox(text);
   if (!box || box.top < 0) return null;
+  if (!permissionAnswerable(text)) return null;   // kosmos#8952 slice (d) review 5: the same gate, its own hint included
   const lines = String(text == null ? '' : text).split('\n').slice(box.top, box.pp.at);
   const segs = [[]];
   for (const l of lines) {

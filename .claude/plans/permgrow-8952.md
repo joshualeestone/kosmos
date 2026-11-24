@@ -71,3 +71,15 @@ last 25 lines; the prompt sits at the bottom). Checked in review.
   (0 unviewed grouped or linked; 1 viewed through either), then the real run passed.
 - Stateful multi-tick tests (fake tmux that keeps height, mark, clients): grow once and keep, report ends under the same
   box, attach then detach, grouped duplicate row. Mutations checked: dedupe, watched budget, fingerprint.
+
+## Round 5 (opus) fixes
+- chat.permissionAnswerable (and so permissionCard): a box carrying Claude Code's own "↑/↓ N more lines" is not whole,
+  even with a top above it. Control measured: a stale grown top stitched over the shrunk tail passed the OLD rule. Today
+  2.1.331 clears scrollback on resize, so this guards versions that do not. Changed three slice-1/(c) tests whose
+  "whole box with a scroll line" control was a synthetic shape (their own header: the line only appears for a cut box);
+  the controls are now the real whole box.
+- The next prompt reported before its box is drawn is unsure, not settled: only the report a window was grown for is
+  settled by a no-prompt restore (grownFor = { at, req }).
+- A watched agent whose window still has a viewer costs no roster read (list-windows says so).
+- A grown window unreadable for 3 ticks, or whose card is no longer one this sweep grows, is put back.
+- An again-grow forgets the old box; the no-box-yet allowance is 3 reads AND 30 s after the report.
