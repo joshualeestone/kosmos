@@ -532,8 +532,11 @@ enum SignIn {
     static func enrolBody(phone: String) -> [String: Any] { ["kind": "sms", "phone": phone.trimmingCharacters(in: .whitespacesAndNewlines)] }
     /// Seconds to wait for Kosmos+ to answer a text enrol (SignInClient.enrol).
     static let textSendTimeout: TimeInterval = 45
+    /// The request's own timeout for an enrol: the text one waits textSendTimeout, the authenticator one keeps the
+    /// session's (nil).
+    static func enrolTimeout(phone: String?) -> TimeInterval? { phone == nil ? nil : textSendTimeout }
     /// No answer to "Text me a code": Kosmos+ may have sent the text all the same, so the line says so before a retry.
-    static let textMayBeComing = "Kosmos+ did not answer in time. A text may still arrive: wait a minute before you try again."
+    static let textMayBeComing = "Kosmos+ did not answer in time. A text may still arrive: if it does, tap I got a code."
     static func confirmBody(code: String) -> [String: Any] { ["code": code] }
 
     /// enrol's answer (kosmos-relay second.rs EnrolResp): for an authenticator the otpauth link and the secret (only an

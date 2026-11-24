@@ -33,7 +33,8 @@ fresh sign-in sheet (ContentView.swift:317), so that path is covered too.
 - Text enrol waits up to SignIn.textSendTimeout (45 s), not the session's 15 s: Kosmos+ answers only after its
   text provider (up to about 28 s with retries). Measured on macOS: a request's own timeoutInterval overrides the
   session's (3 s session, 20 s request, an 8 s answer arrived).
-- Only a timeout (URLError.timedOut, SignInError.timedOut) says a text may still arrive; any other failure says
+- Only a timeout (URLError.timedOut, SignInError.timedOut) says a text may still arrive, with an "I got a code" link
+  to the code screen (if Kosmos+ never staged it, confirm says start again and the sign-in goes back to the email); any other failure says
   Kosmos+ could not be reached. While a text is being sent (up to 45 s) the field, the send button, "Use an
   authenticator app instead" and "Not now" are disabled, as every other wait on these screens is.
 - No resend button: "Use a different number" then "Text me a code" sends again, and Kosmos+ rate-limits it.

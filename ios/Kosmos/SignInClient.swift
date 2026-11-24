@@ -128,8 +128,8 @@ final class SignInClient {
     // MARK: - Passkey sign-in (kosmos#7050 slice C)
 
     /// What begin said: an offer a passkey can answer, passkeys switched off (a 404: the route is not there), or an
-    /// answer that is neither (a server error, an offer for another host). Throws SignInError.unreachable (.timedOut on a timeout) when Kosmos+
-    /// did not answer at all.
+    /// answer that is neither (a server error, an offer for another host). Throws SignInError.unreachable (.timedOut
+    /// on a timeout) when Kosmos+ did not answer at all.
     enum PasskeyBegin { case offer(SignIn.PasskeyOffer), off, unusable(String?) }
 
     func passkeyOffer() async throws -> PasskeyBegin {
@@ -248,7 +248,7 @@ final class SignInClient {
         let body = phone.map { SignIn.enrolBody(phone: $0) } ?? SignIn.enrolBody()
         // Kosmos+ answers a text enrol only after its text provider does (second.rs sms_send_off_runtime: up to about
         // 28 s with its retries), and sends nothing meanwhile, so the session's 15 s would give up on a text being sent.
-        let (status, json) = try await post(SignIn.enrolPath, body, bearer: token, timeout: phone == nil ? nil : SignIn.textSendTimeout)
+        let (status, json) = try await post(SignIn.enrolPath, body, bearer: token, timeout: SignIn.enrolTimeout(phone: phone))
         return SignIn.enrolled(status: status, json: json)
     }
 

@@ -244,6 +244,13 @@ final class SignInModel: ObservableObject {
         }
     }
 
+    /// After a send that timed out (SignIn.textMayBeComing): the code screen for a text that came anyway. If Kosmos+ never
+    /// staged it, confirm says to start again and the sign-in goes back to the email.
+    func haveCode() {
+        guard !busy, case .setupPhone(let token) = step else { return }
+        code = ""; error = nil; step = .setupTextConfirm(token: token, sentTo: "your phone")
+    }
+
     /// A new number: back to the number screen, the typed one kept to correct.
     func changeNumber() {
         guard !busy, case .setupTextConfirm(let token, _) = step else { return }
@@ -665,6 +672,7 @@ struct SignInView: View {
             errorLine
             primary("Text me a code", action: model.sendText)
             VStack(spacing: 0) {
+                if model.error == SignIn.textMayBeComing { link("I got a code", action: model.haveCode).disabled(model.busy) }
                 link("Use an authenticator app instead", action: model.useAuthenticator).disabled(model.busy)
                 if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
             }
