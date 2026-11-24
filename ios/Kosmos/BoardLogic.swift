@@ -2466,6 +2466,11 @@ enum Board {
         }
     }
 
+    // kosmos#8957: the one hand-off to the computer's board: every phone control that opens the board says
+    // "on your computer's board" and carries this icon (not a chevron, which reads as "more of this app").
+    static let boardIcon = "arrow.up.forward.square"
+    static let opensOnBoard = "Opens on your computer's board"
+
     // DM_PERM_DOES.
     static func permissionDoes(_ kind: String) -> String {
         switch kind {

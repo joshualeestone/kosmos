@@ -402,6 +402,8 @@ struct AgentsView: View {
                 .buttonStyle(.borderedProminent)
                 .padding(.top, 6)
                 .accessibilityIdentifier("agents-empty-setup")
+                .opensOnBoardHint()
+            OpensOnBoardNote()   // kosmos#8957: it is the board's own setup
         }
         .multilineTextAlignment(.center)
         .padding()
@@ -571,6 +573,8 @@ struct BoardStates<Empty: View>: View {
                 message("Sign in to Kosmos+", detail: signedOutDetail)
                 Button { openBoard() } label: { Text("Sign in").foregroundColor(Palette.card) }
                     .buttonStyle(.borderedProminent)
+                    .opensOnBoardHint()
+                OpensOnBoardNote()   // kosmos#8957
             }
         case .noMac:
             message("No Mac to connect to.", detail: "Turn on remote access in Kosmos on your computer, then try again.", retry: true)
@@ -623,6 +627,8 @@ struct BoardStates<Empty: View>: View {
             VStack(spacing: 12) {
                 message("Kosmos+ did not let this iPhone in.", detail: "If this iPhone was removed from your account, sign in again. Otherwise try again in a moment.", retry: true)
                 Button { openBoard() } label: { Text("Sign in") }
+                    .opensOnBoardHint()
+                OpensOnBoardNote()   // kosmos#8957
             }
         }
     }

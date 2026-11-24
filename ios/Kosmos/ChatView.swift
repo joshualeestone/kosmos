@@ -1165,10 +1165,10 @@ struct ChatView: View {
                 Spacer()
                 if let refusal {
                     Text(refusal).font(.subheadline).foregroundColor(Palette.primary).multilineTextAlignment(.center)
-                    WayThroughRow(text: Text("Open this chat on your computer's board \u{203A}"), action: openOnBoard)
+                    WayThroughRow(text: Text("Open this chat on your computer's board") + Text(" ") + Text(Image(systemName: Board.boardIcon)), action: openOnBoard)
                 } else if lost {
                     Text(Shell.macUnreachableTitle(client.failingMacName)).font(.headline).foregroundColor(Palette.primary)
-                    WayThroughRow(text: Text("Open this chat on your computer's board \u{203A}"), action: openOnBoard)
+                    WayThroughRow(text: Text("Open this chat on your computer's board") + Text(" ") + Text(Image(systemName: Board.boardIcon)), action: openOnBoard)
                 } else {
                     SweepDots(scales: false)
                     Text("Loading the conversation\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
@@ -2270,8 +2270,8 @@ struct ChatView: View {
         switch way {
         case .question: return name + Text(Board.askedLine(.question, now: false) ?? "")
         case .permission: return name + Text(Board.askedLine(.permission, now: false) ?? "")
-        case .attachment: return Text("A file. Open on your computer's board \u{203A}")
-        case .draft: return Text("Words sat unsent in ") + name + Text("'s input box. See them on your computer's board \u{203A}")
+        case .attachment: return Text("A file. Open it on your computer's board") + Text(" ") + Text(Image(systemName: Board.boardIcon))
+        case .draft: return Text("Words sat unsent in ") + name + Text("'s input box. See them on your computer's board") + Text(" ") + Text(Image(systemName: Board.boardIcon))
         }
     }
 
