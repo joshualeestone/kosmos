@@ -1645,7 +1645,7 @@ final class BoardClient: ObservableObject {
             <img src="\(probe)/img.png" srcset="\(probe)/img2x.png 2x" alt=""><iframe src="\(probe)/frame.html"></iframe>
             <video poster="\(probe)/poster.png" src="\(probe)/video.mp4"></video><audio src="\(probe)/audio.mp3"></audio>
             <object data="\(probe)/object.pdf"></object><embed src="\(probe)/embed.pdf"><form action="\(probe)/form"><input type="image" src="\(probe)/input.png" alt="go"></form>
-            <div style="width:10px;height:10px;background-image:url('\(probe)/bg.png')"></div><a href="\(probe)/pinged" ping="\(probe)/ping">pinged</a>
+            <div style="width:10px;height:10px;background-image:url('\(probe)/bg.png')"></div><a href="\(probe)/pinged" ping="\(probe)/ping-attr">pinged</a>
             <iframe srcdoc="&lt;a href=&quot;\(probe)/srcdoc-link&quot;&gt;framed link&lt;/a&gt;"></iframe>
             <iframe src="data:text/html,%3Ca%20href%3D%22\(probe)/data-link%22%3Edata%20link%3C/a%3E"></iframe>
             <object data="data:text/html,%3Ca%20href%3D%22\(probe)/object-link%22%3Eobject%20link%3C/a%3E"></object>
