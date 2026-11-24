@@ -37,7 +37,7 @@ const SCREENS = path.join(__dirname, 'test-support', 'claude-screens');
 const CUT = fs.readFileSync(path.join(SCREENS, 'permission-prompt-bash-cut-2.1.331.txt'), 'utf8');
 const COMMAND = Array.from({ length: 60 }, (_, k) => `mkdir -p /tmp/probe/e${String(k + 1).padStart(2, '0')}`).join('\n');
 const DESC = 'Create 60 probe directories e01 through e60';
-const PANE_PID = 4242;
+const PANE_PID = process.pid;   // the real start-time check (ps) then reads a live process: this one
 const IDLE = '⏺ Done.\n\n────────\n❯ \n────────\n  ⏸ manual mode on';
 
 let base;
@@ -201,7 +201,7 @@ test('#8952 (d): the real transcript read, from the pane\'s pid to its session\'
   const sid = '0d8e6e5a-1146-46fa-9f7f-45f6523912c9';
   const sessionFile = path.join(root, 'sessions', `${PANE_PID}.json`);
   fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
-  fs.writeFileSync(sessionFile, JSON.stringify({ pid: PANE_PID, sessionId: sid, cwd, kind: 'interactive' }));
+  fs.writeFileSync(sessionFile, JSON.stringify({ pid: PANE_PID, sessionId: sid, cwd, kind: 'interactive', startedAt: Math.round(Date.now() - process.uptime() * 1000) + 1500 }));
   const proj = receipt.transcriptDirs(cwd)[0];
   fs.mkdirSync(proj, { recursive: true });
   fs.writeFileSync(path.join(proj, `${sid}.jsonl`), [

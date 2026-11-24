@@ -3543,6 +3543,7 @@ function permissionDenyOnly(text) {
    line, a box rule) is not one. The command shown, and approved, is the transcript's: the same call Claude Code will run.
    Returns permissionCard's shape (kind 'command' or 'delete', title "Bash command", says = the call's description,
    detail = the whole command, reason from the screen), or null, and a null keeps slice (c)'s deny-only card. */
+const PERMISSION_CUT_MIN_SEEN = 40;
 function permissionCutCard(text, pending) {
   const box = permissionBox(text);
   if (!box || box.top >= 0 || !Array.isArray(pending) || pending.length === 0) return null;
@@ -3556,7 +3557,9 @@ function permissionCutCard(text, pending) {
   if (body.some((l) => /^\s*[⏺⎿✻]/.test(l) || /^\s*─{8,}\s*$/.test(l))) return null;
   const squash = (s) => String(s).replace(/\s+/g, '');
   const seen = squash(body.map((l) => l.replace(/^\s*│ ?/, '')).join('\n'));
-  if (!seen) return null;
+  /* Review 2: a tail of a line or two ("done", "EOF") would agree with almost any call, so too little on screen to tell
+     calls apart is no card. The floor is in characters without whitespace. */
+  if (!seen || (open < 0 && seen.length < PERMISSION_CUT_MIN_SEEN)) return null;
   const fits = pending.filter((p) => p && typeof p.command === 'string'
     && (open >= 0 ? squash(p.command) === seen : squash(p.command).endsWith(seen)));
   if (new Set(fits.map((p) => p.command)).size !== 1) return null;
@@ -3569,8 +3572,8 @@ function permissionCutCard(text, pending) {
   const clean = (l) => l.replace(/[\u0000-\u001f\u007f]/g, '').trim();
   const reason = lines.slice(close + 1).map(clean).filter(Boolean).join(' ');
   const opts = box.pp.options;
-  const allow = opts.find((o) => o.label === 'Yes');
-  const deny = opts.find((o) => /^No\b/.test(o.label));
+  const allow = opts.find((o) => o.label === 'Yes' && !o.lasting);   // review 2: the one-time Yes, never a lasting one
+  const deny = opts.find((o) => /^No\b/.test(o.label) && !o.lasting);
   if (!allow || !deny) return null;
   const says = new Set(fits.map((f) => String(f.description || ''))).size === 1 ? clean(String(p.description || '')) : '';
   const detail = p.command.replace(/\s+$/, '');

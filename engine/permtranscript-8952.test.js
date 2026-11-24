@@ -70,8 +70,9 @@ function sessionTree(name, sid = '0d8e6e5a-1146-46fa-9f7f-45f6523912c9', pid = 4
   const proj = path.join(root, 'projects', '-w-casey');
   fs.mkdirSync(path.join(root, 'sessions'), { recursive: true });
   fs.mkdirSync(proj, { recursive: true });
-  fs.writeFileSync(path.join(root, 'sessions', `${pid}.json`), JSON.stringify({ pid, sessionId: sid, cwd: '/w/casey', kind: 'interactive' }));
-  const deps = { roots: [root], transcriptDirs: (cwd) => (cwd === '/w/casey' ? [proj] : []) };
+  const started = Date.now() - 3600000;
+  fs.writeFileSync(path.join(root, 'sessions', `${pid}.json`), JSON.stringify({ pid, sessionId: sid, cwd: '/w/casey', kind: 'interactive', startedAt: started + 2000 }));
+  const deps = { roots: [root], transcriptDirs: (cwd) => (cwd === '/w/casey' ? [proj] : []), procStart: (p) => (Number(p) === pid ? started : null) };
   return { root, proj, sid, pid, deps, main: path.join(proj, `${sid}.jsonl`) };
 }
 const ago = (file, ms) => { const t = (Date.now() - ms) / 1000; fs.utimesSync(file, t, t); };
@@ -104,6 +105,28 @@ test('#8952 (d) pendingCommands: only the pane\'s own session, and only its file
   assert.deepEqual((await pt.pendingCommands(t.pid, t.deps)).pending, []);
 });
 
+test('#8952 (d) pendingCommands: two waiting calls across the session\'s files claim nothing (parallel subagents)', async () => {
+  const t = sessionTree('par');
+  const subDir = path.join(t.proj, t.sid, 'subagents');
+  fs.mkdirSync(subDir, { recursive: true });
+  // The main file waits on its subagent launches ("Agent", not a request of its own).
+  fs.writeFileSync(t.main, [said('go'), use('L1', { prompt: 'a' }, 'Agent'), use('L2', { prompt: 'b' }, 'Agent')].join('\n'));
+  fs.writeFileSync(path.join(subDir, 'agent-a.jsonl'), PENDING);
+  assert.deepEqual((await pt.pendingCommands(t.pid, t.deps)).pending.map((p) => p.id), ['t2'], 'CONTROL: one subagent waiting');
+  fs.writeFileSync(path.join(subDir, 'agent-b.jsonl'), [said('go'), use('b2', { command: 'echo other\n' + COMMAND })].join('\n'));
+  assert.deepEqual((await pt.pendingCommands(t.pid, t.deps)).pending, [], 'two subagents waiting, each could be on screen');
+  fs.writeFileSync(path.join(subDir, 'agent-b.jsonl'), [said('go'), use('b3', { file_path: '/x', content: 'y' }, 'Write')].join('\n'));
+  assert.deepEqual((await pt.pendingCommands(t.pid, t.deps)).pending, [], 'a waiting Write could be the prompt on screen');
+});
+
+test('#8952 (d) unresolvedIn: only a typed message settles earlier calls, not a meta line or text riding a result', () => {
+  const metaLine = JSON.stringify({ type: 'user', isMeta: true, message: { role: 'user', content: 'Caveat: local command' } });
+  const carrier = JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'zz', content: 'ok' }, { type: 'text', text: 'a reminder' }] } });
+  assert.equal(pt.pendingIn(PENDING + '\n' + metaLine, false).id, 't2', 'a meta line settled the call');
+  assert.equal(pt.pendingIn(PENDING + '\n' + carrier, false).id, 't2', 'text riding another call\'s result settled it');
+  assert.equal(pt.pendingIn(PENDING + '\n' + said('stop'), false), null, 'CONTROL: a typed message settles it');
+});
+
 test('#8952 (d) pendingCommands: no session for the pid, or two, is unreadable (CONTROL: one)', async () => {
   pt.resetForTests();
   const t = sessionTree('pid');
@@ -116,6 +139,17 @@ test('#8952 (d) pendingCommands: no session for the pid, or two, is unreadable (
   fs.writeFileSync(path.join(t.root, 'sessions', `${t.pid}.json`), JSON.stringify({ pid: t.pid + 1, sessionId: t.sid, cwd: '/w/casey' }));
   assert.deepEqual(await pt.pendingCommands(t.pid, t.deps), { ok: false }, 'a file naming another pid');
   assert.deepEqual(await pt.pendingCommands(t.pid, { ...t.deps, transcriptDirs: () => { throw new Error('x'); } }), { ok: false });
+});
+
+test('#8952 (d) pendingCommands: a session file left by a dead process with a reused pid is not this one (CONTROL: same start)', async () => {
+  const t = sessionTree('reuse');
+  fs.writeFileSync(t.main, PENDING);
+  assert.equal((await pt.pendingCommands(t.pid, t.deps)).pending.length, 1, 'CONTROL');
+  const laterStart = (p) => (Number(p) === t.pid ? Date.now() - 60000 : null);   // this process started a minute ago
+  assert.deepEqual(await pt.pendingCommands(t.pid, { ...t.deps, procStart: laterStart }), { ok: false });
+  assert.deepEqual(await pt.pendingCommands(t.pid, { ...t.deps, procStart: () => null }), { ok: false }, 'start unreadable');
+  assert.ok(Number.isFinite(pt.procStartOf(process.pid)), 'the real reading of a live process');
+  assert.ok(Math.abs(pt.procStartOf(process.pid) - (Date.now() - process.uptime() * 1000)) < 3000, 'within a second or two of node\'s own start');
 });
 
 test('#8952 (d) pendingCommands: a file read again once it grows (the reading is kept only while it is unchanged)', async () => {
@@ -173,6 +207,12 @@ test('#8952 (d) permissionCutCard: the screen must be only the request above its
   const opened = dash + '\n' + CUT;
   assert.equal(chat.permissionCutCard(opened, pend(COMMAND)), null, 'the visible body is lines 30-60, not the whole command');
   assert.ok(chat.permissionCutCard(opened, pend(COMMAND.split('\n').slice(29).join('\n'))), 'control: exactly the visible body');
+  // Too little on screen to tell calls apart: the last line alone (cut box, top at the screen's first line).
+  const lines = CUT.split('\n');
+  const close = lines.findIndex((l) => /^\s*╌{8,}\s*$/.test(l));
+  const short = lines.slice(close - 1).join('\n');
+  assert.equal(chat.permissionCutCard(short, pend(COMMAND)), null, 'one visible line agreed');
+  assert.ok(chat.permissionCutCard(lines.slice(close - 2).join('\n'), pend(COMMAND)), 'CONTROL: two lines (46 characters) agree');
 });
 
 test('#8952 (d) permissionCutCard: a delete reason reads as a delete; a command it cannot show as it is gets no card', () => {

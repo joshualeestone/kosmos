@@ -37,3 +37,21 @@ A reported safety check (Claude Code's hook-raised prompt) may write no tool_use
 - [NIT] fixed: a command holding control or format characters gets no card (it cannot be shown as it is).
 - [NIT] kept: `says` is the model's description, the same text the whole box draws.
 - [NIT] fixed: the session comes from the pane's pid, not workerDir(sessionName).
+
+#### Iteration 2 (sonnet)
+- [BLOCKER] fixed: only the newest file was judged, so parallel subagents could each hold a waiting call and the card
+  could show the other one. Now every recent file of the session is read and exactly one call may be waiting across
+  all of them (subagent launches, "Agent"/"Task", excepted), Bash, last in its file. Test with two subagents, and a
+  waiting Write (mutation-checked).
+- [WARNING] fixed: a cut box with under 40 visible non-space characters gets no card (one line like "done" agreed with
+  almost any call).
+- [WARNING] fixed: sessions/<pid>.json must be written by this process: its startedAt falls 5 s before to 120 s after
+  the process start (now minus `ps -o etime=`; measured 1 to 6 s on three live agents). procStart text was rejected:
+  it is written in the agent's own time zone (measured: UTC on one agent).
+  Measured fleet-wide: 21 of 21 panes' pane_pid is claude with a session file; 4 of 4 sessionIds name the newest
+  transcript.
+- [WARNING] fixed: Yes and No must be the one-time options (!lasting).
+- [WARNING] kept as recorded in iteration 1 (a person's own updatedInput hook).
+- [NIT] deferred: no per-pid memo; a memo would let the press read the GET-time answer, and the reads are cached per file.
+- [NIT] fixed: only a typed message (no tool_result, not isMeta) settles earlier calls (mutation-checked).
+- [NIT] deferred: a second transcript read after the re-look; the key follows synchronously after the re-look.
