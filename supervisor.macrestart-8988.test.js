@@ -23,6 +23,7 @@
  *             and ends the session.
  *   STARTUP   a session of ours whose pane is dead (kept by remain-on-exit, no hook) is not adopted as alive: a launch
  *             records it and replaces it with a live one.
+ *   ADOPT     an adopted session of ours (no armed pane) whose pane dies kept is ended, not watched forever.
  *   RETURN    the supervisor is gone and the agent's kept pane is dead beside a live pane a person split off: the next
  *             launch reads the agent's own pane as dead, records it, and starts a fresh agent.
  *   Every supervisor's stderr is kept and must carry no "command not found".
@@ -214,6 +215,24 @@ test('#8988 STARTUP: a dead session of ours is recorded and replaced, never adop
     assert.match(String(f.died()), /^\d{9,11} status 9\n$/);
     f.tell('exit 0');
     await f.ends(one);
+    assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
+  } finally { f.cleanup(); }
+});
+
+test('#8988 ADOPT: an adopted session of ours with no armed pane, whose every pane dies kept, is ended by the wait loop', { skip: SKIP }, async () => {
+  const f = fixture();
+  try {
+    /* An older launch, or a runner this does not arm: a session of ours kept by a person's own remain-on-exit. */
+    /* A process the startup allowlist reads as an agent (node), alive long enough to be adopted. */
+    const node = `${JSON.stringify(process.execPath)} -e "setTimeout(() => process.exit(9), 1500)"`;
+    assert.equal(f.tx('new-session', '-d', '-s', NAME, node).status, 0);
+    f.tx('set-option', '-w', '-t', '=' + NAME + ':', 'remain-on-exit', 'on');
+    const mark = f.tx('set-option', '-t', NAME, '@kosmos_agent', NAME);
+    assert.equal(mark.status, 0, mark.stderr);
+    const one = f.start();   // it adopts the live session
+    await f.until(() => f.paneDead() === '1', 'the pane to die, kept');
+    await f.ends(one);
+    assert.equal(f.alive(), false, 'a kept dead session is ended, not watched forever');
     assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
   } finally { f.cleanup(); }
 });
