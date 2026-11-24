@@ -40,4 +40,8 @@ fresh sign-in sheet (ContentView.swift:317), so that path is covered too.
 - XCUIDevice.shared.appearance did NOT change the appearance on this simulator (two runs, "dark" shots came out
   light), so the test takes the simulator's appearance and names no appearance in its shots. That pattern is also in
   ComposerSendUITests; not changed here.
+- Not covered by any automated check: the model's wiring in SignInView.swift (sendText's guard and its use of
+  afterTextEnrol, changeNumber, the phone reset, confirmSetup's text-or-app choice). The decisions it applies are pure
+  functions in SignInLogic.swift with LogicTests; the sample screens have no client, so the UI test moves between
+  screens and shows a refusal the sample sets itself.
 - Repo tests reading ios/ (9 files, 59 tests) and the 78 em-dash audit files: 0 fail.

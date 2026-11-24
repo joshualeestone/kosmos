@@ -15,7 +15,7 @@ final class SignInModel: ObservableObject {
     @Published var step: SignIn.Step = .email {
         didSet {
             if step == .denied(asking: false), oldValue != .denied(asking: false) { failures += 1 }
-            if step == .email { phone = "" }   // kosmos#8959
+            if step == .email || step == .done { phone = "" }   // kosmos#8959
         }
     }
     @Published var email = ""
@@ -264,7 +264,7 @@ final class SignInModel: ObservableObject {
             do {
                 let answer = try await client.confirmSetup(token: token, code: typed)
                 guard mine == attempt else { return }
-                // A wrong code stays here: the authenticator is added already, only its code was early or late.
+                // A wrong code stays here: the authenticator or the number is added already, only the code was wrong or late.
                 if case .refused(let message, false) = answer {
                     // Kosmos+ says to start again (the setup expired): back to the email, with its sentence.
                     if SignIn.startsOver(message) { code = ""; step = .email }
