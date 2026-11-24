@@ -166,6 +166,7 @@ struct TaskPageView: View {
             }
             // kosmos#8958 slice B1: the board's "Edit title or detail", on every task (closed ones too, as the board).
             Button {
+                model.touched()
                 model.clearEditRefusal()
                 editTitle = p.sentence
                 editDetail = Board.boardLineEnds(p.detail ?? "")
@@ -340,7 +341,7 @@ struct TaskPageView: View {
             case .choosing(let d):
                 dueRow(p, shown: d) {
                     dueAction("Set", label: "Set the due date", strong: true) {
-                        Task { await model.setDue(d, names: names); if model.dueRefusal == nil { dueDraft = nil } }
+                        Task { if await model.setDue(d, names: names) { dueDraft = nil } }
                     }
                     dueAction("Cancel", label: "Cancel the new due date") { model.clearDueRefusal(); dueDraft = nil }
                 }

@@ -227,19 +227,23 @@ final class TaskPageModel: ObservableObject {
     }
 
     // The due date set (a YYYY-MM-DD) or cleared (nil), as the board's saveTaskDue; then the task and activity are read.
-    func setDue(_ due: String?, names: [String: String]) async {
-        guard !dueSaving, current else { return }
+    // true when the Mac recorded it (false when refused, or when nothing was sent).
+    @discardableResult
+    func setDue(_ due: String?, names: [String: String]) async -> Bool {
+        guard !dueSaving, current else { return false }
         dueSaving = true
         dueRefusal = nil
         let (project, number) = (self.project, self.number)
         let answer = await send { Board.taskDueRequest(mac: $0, project: project, number: number, due: due) }
-        guard current else { return }
+        guard current else { return false }
+        var recorded = true
         if case .refused(let why) = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0,
-                                                          failed: Board.taskDueFailed, unreached: Board.taskDueUnreached) { dueRefusal = why }
+                                                          failed: Board.taskDueFailed, unreached: Board.taskDueUnreached) { dueRefusal = why; recorded = false }
         await read()
         await readActivity(names: names)
-        guard current else { return }
+        guard current else { return false }
         dueSaving = false
+        return recorded
     }
 
     // The board's tk-editform Save: true when the form can close (saved, or nothing changed). The words compared are the

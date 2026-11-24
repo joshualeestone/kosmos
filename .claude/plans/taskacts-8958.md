@@ -28,7 +28,7 @@ Hold, repeat, the receipt and undo are B2 to B5. The info button stays (parts an
   without the time, as its other held lines.
 
 ## Tests
-- run-taskpage.sh: 46 new checks (now more; see the runner) (requests, bodies, the null clear, bad dates refused, taskEdit cases, the write
+- run-taskpage.sh: 54 new checks (187 in all) (requests, bodies, the null clear, bad dates refused, taskEdit cases, the write
   results, every said-line branch, and the model's three actions through the fake Mac). All 13 LogicTests runners pass.
 - Mutant: dropping "Your message stays on the task." reds 3 checks. (Sending a nil due as Any is equivalent: Foundation
   writes it as null, and the test reads the wire.)
