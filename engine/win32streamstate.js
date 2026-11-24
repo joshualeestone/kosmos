@@ -299,7 +299,7 @@ function unstartedFor(name) {
   return { since: new Date(Date.parse(u.since)).toISOString(), count: u.count, lost: u.lost === true };   // lost: the process ended with them
 }
 
-/** kosmos#8979: { at (ISO, when its process ended and was started again), why } from the agent's state file while no
+/** kosmos#8979: { at (ISO, when its process was started again), why } from the agent's state file while no
     turn on the restarted process has ended without an error, or null. Only for a file whose process is alive. */
 function restartedFor(name) {
   let rec;
@@ -489,16 +489,17 @@ const RESTART_TEXT_MAX = 160;
 /**
  * kosmos#8979: why an agent's process ended, in plain words for its card's "Restarted at <time>: <why>" line.
  * `errEvent` is the last error result it printed (#8967: read by is_error, or an `error...` subtype, never by a
- * `success` subtype, which Claude uses for usage and sign-in failures too); `auth` and `limited` are what the ended
- * process's own stream had already shown. In that order: the sign-in, the usage limit, Claude's own error, the signal,
- * the exit code. Never throws.
+ * `success` subtype, which Claude uses for usage and sign-in failures too); `authRefused` and `limited` are what the
+ * stream showed in the turn it died in (a refused sign-in, a refused rate_limit_event), so an earlier turn's never
+ * names a later death. In that order: the sign-in, the usage limit, Claude's own error, the signal, the exit code.
+ * Never throws.
  */
 function restartWhy(d) {
   const o = d && typeof d === 'object' ? d : {};
   const ev = o.errEvent;
   const e = ev && typeof ev === 'object' && !Array.isArray(ev) && ev.type === 'result'
     && (ev.is_error === true || (typeof ev.subtype === 'string' && /^error/.test(ev.subtype))) ? ev : null;
-  let signedOut = o.auth === true;
+  let signedOut = o.authRefused === true;
   if (!signedOut && e && e.is_error === true) { try { signedOut = !!signInAfterEvent(e); } catch { signedOut = false; } }
   if (signedOut) return 'Claude is not signed in.';
   if (o.limited === true) return 'Claude reached its usage limit.';
@@ -779,10 +780,9 @@ function publisher(name, opts) {
   /* kosmos#8951: what the process that just ended had taken in and never run ({ since, count }), carried to the next one
      (on 11-23 each delivery killed the agent and the resume came back without the message). */
   let lostOnStop = null;
-  /* kosmos#8979: the restart the supervisor said it is about to make ({ at, why }), put on the next process's record;
-     and what the process that just ended had shown about its sign-in and limit, which the reason reads. */
+  /* kosmos#8979: the restart to put on the next process's record ({ why }, and `at` when it is one carried from a
+     process that was itself a restart and never had a good turn). */
   let restartOnStop = null;
-  let endedShowed = { auth: false, limited: false };
 
   /* kosmos#8951: the turn deadline, armed when a message must start a turn (a write into an idle agent, or messages left
      waiting when a turn ends). Fires only while `startDue` is still this object, so a turn that started, a stop or a new
@@ -954,7 +954,7 @@ function publisher(name, opts) {
       }
       current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, needsWrite: false, reportRan: false, clearArmedFor: null, msgs: [], mainTurnOpen: false, restarted: null };
       /* kosmos#8979: a restart the supervisor said it was making is this process's record until a turn ends well. */
-      if (restartOnStop) { current.restarted = restartOnStop; restartOnStop = null; }
+      if (restartOnStop) { current.restarted = { at: restartOnStop.at || current.startedAt, why: restartOnStop.why }; restartOnStop = null; }
       /* kosmos#8951: messages the previous process took in and never ran are this agent's still: said on the new
          process's record, so its card says so, until a turn starts. */
       const lost = lostOnStop;
@@ -1123,7 +1123,9 @@ function publisher(name, opts) {
     /** The agent process is gone. */
     stopped() {
       const was = current;
-      endedShowed = { auth: !!(was && was.auth), limited: !!(was && was.limit) };   // kosmos#8979
+      /* kosmos#8979: a restart that no good turn ended stays this agent's story through the next process too (a resume
+         that failed, say), until the supervisor names a newer death with restarting(). */
+      if (was && was.restarted && !restartOnStop) restartOnStop = { at: was.restarted.at, why: was.restarted.why };
       /* kosmos#8951: what it took in and never ran goes to the next process: an earlier report no turn cleared, plus
          anything written since. */
       /* Review 5: a report whose messages are known to have run (still on its hold) is not carried: they ran. */
@@ -1158,13 +1160,11 @@ function publisher(name, opts) {
          its own, so it clears nothing. */
       if (was) clear(was.pid);
     },
-    /** kosmos#8979: the supervisor is starting the agent again after its process ended ({ code, signal, errEvent }, as
-        `restartWhy` reads them). Recorded on the next process's state, so its card says when and why. Never throws. */
+    /** kosmos#8979: the supervisor is starting the agent again after its process ended ({ code, signal, errEvent,
+        authRefused, limited }, as `restartWhy` reads them). The next process's record says why, stamped when that
+        process starts. A newer death replaces an older one. Never throws. */
     restarting(d) {
-      try {
-        const o = d && typeof d === 'object' ? d : {};
-        restartOnStop = { at: new Date(nowMs()).toISOString(), why: restartWhy({ ...o, auth: endedShowed.auth, limited: endedShowed.limited }) };
-      } catch { /* the card misses one restart line; the task log still has the death */ }
+      try { restartOnStop = { why: restartWhy(d) }; } catch { /* the card misses one restart line; the task log still has the death */ }
     },
     /** The running session's id rotated under it (a `/clear` does this, #2669).
         Re-stamp the file with the new id so `stateFor` still matches the live
@@ -1181,4 +1181,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { restartWhy, restartedFor, exitCodeText, RESTART_TEXT_MAX, startedAt, STEP_CLOCK_MS, START_DEADLINE_MS, LOST_WINDOW_MS, REPORT_HOLD_MS, MSGS_MAX, unstartedFor, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
+module.exports = { restartWhy, restartedFor, exitCodeText, RESTART_TEXT_MAX, limitAfterEvent, startedAt, STEP_CLOCK_MS, START_DEADLINE_MS, LOST_WINDOW_MS, REPORT_HOLD_MS, MSGS_MAX, unstartedFor, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };

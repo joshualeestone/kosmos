@@ -23592,7 +23592,11 @@ function stateReason(a, opts) {
     const at = new Date(a.restarted.at);
     if (Number.isFinite(at.getTime())) {
       const clock = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-      const when = at.toDateString() === new Date().toDateString() ? clock : at.toLocaleDateString([], { weekday: 'short' }) + ' ' + clock;
+      const now = new Date();
+      /* Six days or more ago, a weekday alone could read as this week's, so the date comes with it. */
+      const far = now.getTime() - at.getTime() >= 6 * 86400e3;
+      const when = at.toDateString() === now.toDateString() ? clock
+        : at.toLocaleDateString([], far ? { weekday: 'short', month: 'short', day: 'numeric' } : { weekday: 'short' }) + ' ' + clock;
       return 'Restarted at ' + when + ': ' + a.restarted.why;
     }
   }
