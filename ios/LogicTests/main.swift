@@ -6434,6 +6434,12 @@ do {
           "the press says it is the deny-only card, with the No's digit and words and the visible identity")
     let plainPress = Board.pressRequest(mac: mac, session: "cleo", option: c!.options[0], asked: "Q")!
     check((try! JSONSerialization.jsonObject(with: plainPress.httpBody!) as! [String: Any])["denyOnly"] == nil, "CONTROL: any other press does not")
+    check(Board.liveChoices(cut)?.key == c?.key && Board.liveChoices(whole)?.key == whole.choices?.key,
+          "the choices a press was for: the row's Deny on a cut thread, the thread's buttons otherwise")
+    let dropped = Board.withoutChoices(cut)
+    check(dropped.choices == nil && dropped.rows.allSatisfy { $0.denyOnly == nil } && Board.choices(for: dropped.rows[0], in: dropped) == nil
+          && dropped.rows.count == cut.rows.count,
+          "no thread read, no buttons: the row's Deny goes too, the rows stay")
     check(Board.choicesState(.main(allow: -1, deny: 4), pressing: false, typing: false, answered: (sure: true, n: 4), armedN: nil, unsure: false).note == "Denied.",
           "a sure press reads Denied.")
     for words in [Board.denyOnlyAsk, Board.denyOnlyYesNote] {

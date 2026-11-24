@@ -2058,7 +2058,8 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   const idOf = (text) => { const q = questionIn(text, 'claude'); const a = q ? questionAbove(q.text) : null; return a ? cleanMessage(a) : null; };
   /* kosmos#8952 slice (c): a press that says it is the deny-only card (permissionDenyOnly) may answer a permission prompt
      whether or not its whole box is on screen, but only with that prompt's own No: refusing a request nobody could read
-     whole is safe, approving one is not. Its identity is the visible part, compared on this last look like any other. */
+     whole is safe, approving one is not. Its identity is the visible part, compared on this last look like any other.
+     Deliberately looser than what the thread route serves (permissionDenyOnly): any check it skips can only refuse. */
   const denyOnly = e.denyOnly === true;
   if (denyOnly && (!menu.permission || !opt || !/^No\b/.test(opt.label) || opt.lasting || e.request)) {
     return { ok: false, because: 'only No can be sent for a request too long to show in full, so nothing was sent' };

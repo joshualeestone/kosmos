@@ -28,3 +28,7 @@ instead, which is still a refusal.
 ## Tests
 server.permdeny-8952.test.js (real routes, whole-box control, both gate halves mutation-checked),
 server.permscroll-8952.test.js unchanged, LogicTests 2228/2228 + 12 run-*.sh, simulator build, light/dark shots.
+
+## Also covered, on purpose
+A tall plan-mode prompt ("Would you like to proceed?") whose top is off screen gets the same card; Deny there presses its
+own No ("keep planning"), which is still a refusal. The card's words hold for it.

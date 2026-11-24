@@ -2456,6 +2456,18 @@ enum Board {
                        key: "deny\u{3}" + d.asked + "\u{3}\(d.n)\u{1}" + d.label, denyOnly: true)
     }
 
+    // kosmos#8952 slice (c): the choices a press on this thread was for: the thread's buttons, or else the Deny of its live
+    // question row (the last unreported one). A refusal line stays while these keep the pressed key.
+    static func liveChoices(_ t: Thread) -> Choices? {
+        if let c = t.choices { return c }
+        guard let row = t.rows.last(where: { ($0.wayThrough == .question || $0.wayThrough == .permission) && !$0.reported }) else { return nil }
+        return choices(for: row, in: t)
+    }
+    // No thread read, no buttons (dropChoices): the thread without its buttons and without any row's Deny.
+    static func withoutChoices(_ t: Thread) -> Thread {
+        Thread(rows: t.rows.map { var r = $0; r.denyOnly = nil; return r }, olderCount: t.olderCount)
+    }
+
     // kosmos#8952: a question or permission row with no buttons opens nothing: the board draws none for it either (the same
     // choices), only the window's text. It says where to answer only while it is the newest such row and the agent is
     // waiting on an answer (waitsOnAnswer). A question is also past once a reply from the person went after it; a

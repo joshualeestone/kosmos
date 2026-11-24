@@ -2261,8 +2261,9 @@ struct ChatView: View {
     private func dropChoices() {
         // kosmos#7810: the shown window no longer matches the Mac's body, so the next read asks for it whole.
         threadTag = nil
-        guard let t = thread, t.choices != nil else { return }
-        thread = Board.Thread(rows: t.rows, olderCount: t.olderCount)
+        // kosmos#8952 slice (c): a row's Deny goes too.
+        guard let t = thread, t.choices != nil || t.rows.contains(where: { $0.denyOnly != nil }) else { return }
+        thread = Board.withoutChoices(t)
     }
 
     private func redraw(after seconds: TimeInterval) {
@@ -2856,7 +2857,7 @@ struct ChatView: View {
             // A moved reset leaves the top in view with nothing loading: the next read asks again.
             loadEarlier("read")
             // A line about a question that is no longer the one up would read as a warning about the next one.
-            if pressLine != nil, fresh.choices?.key != pressLineKey { pressLine = nil }
+            if pressLine != nil, Board.liveChoices(fresh)?.key != pressLineKey { pressLine = nil }   // kosmos#8952 (c): a Deny's key too
             #if DEBUG
             applySampleChoice(fresh)
             #endif
