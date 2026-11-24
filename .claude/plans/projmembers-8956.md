@@ -8,3 +8,11 @@ Finished when: from project info, adding a member, removing one and archiving th
 - PigeonPete (#8954): a native screen that posts to the computer needs board.macURL, set only when a real computer admits the phone; the sample board never does. Cover the rule in LogicTests; device check via TestFlight or ios/tools/ui-signin.sh.
 - Mona Lisa (#8957, fallback-8957): board hand-offs use Board.opensOnBoard ("on your computer's board"), Board.boardIcon (arrow.up.forward.square) and OpensOnBoardNote; she changes memberRow's unknown-member case (board icon and hint, ~line 296). Native copy: "Add a member", "Remove from this project", "Archive project"; ask before removing or archiving; always a Cancel.
 - April (#8959): keep every entry on ui-sample.sh's classes= line when adding a UI test class.
+
+## Build (first pass)
+- Logic (ios/Kosmos/BoardRoom.swift, tested in ios/LogicTests/room): projectArchiveBody ({archived:true}, the board's own PUT), projectMemberRequest (POST or DELETE /api/project/<id>/agent/<session>, built in place per method for server.ios-routes-6838), projectMemberResult (done(told) / refused / cannotTell / noAnswer; Renet's 5xx rule), the lines, projectAddable (not a member, not the guide, list order).
+- UI (ProjectInfoView): Settings gains Members (each with a Remove that asks on its own button) and Add a member (a sheet of addable agents, with Cancel), and Archive project (asks first) at the bottom. About and Settings each end in one labelled hand-off, "Members from other computers", "Opens on your computer's board", arrow.up.forward.square, with a footer naming what else stays on the board (webhooks, folder, the rest).
+- Removed: the two general "Open on your computer's board" rows and their three now-unused strings.
+- Decided: About keeps its member list read-only (a tap opens the member's chat, as before); changing members is in Settings with the project's other settings, as on the board.
+- Weakest premise: after archiving, the page stays open with "Archived."; the project leaves the list on the re-read. Closing the page on archive is the alternative; kept open so the result line is seen.
+- Evidence so far: room 931/931; simulator SDK build succeeded; server.ios-routes-6838 5/5; the 13 node tests that read ios/ 93/93. UI test (ProjectInfoUITests, all four, mine plus the three earlier) queued for the shared box.
