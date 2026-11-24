@@ -64,7 +64,8 @@ enum AccountSecurity {
         let head = "That passkey was made on this iPhone, but Kosmos+ did not add it"
         let tail = " Delete it in \(passwordsPlace)."
         if why == addFailed || why.isEmpty { return head + "." + tail }
-        return head + ". Kosmos+ said: " + (why.hasSuffix(".") ? why : why + ".") + tail
+        let ends = why.last.map { ".!?".contains($0) } ?? false   // review 8: a sentence keeps its own end mark
+        return head + ". Kosmos+ said: " + (ends ? why : why + ".") + tail
     }
     /// Review 1: before iOS 17.4 the exclude list cannot be passed, and an account that already has a passkey could see it
     /// replaced in iCloud Keychain. Review 7: Safari or a computer, since the page opened inside the app hides Add.
@@ -130,7 +131,7 @@ enum AccountSecurity {
     /// too, and iOS would keep offering it at sign-in. The date tells two passkeys of one name apart.
     static func removeQuestion(_ p: Passkey, day: (Int) -> String) -> String {
         let added = p.createdAt.map(day).flatMap { $0.isEmpty ? nil : ", added \($0)," } ?? ""
-        return "Remove \(p.name)\(added) from your Kosmos+ account? If it is saved on this iPhone, delete it in \(passwordsPlace) too."
+        return "Remove \(p.name)\(added) from your Kosmos+ account? If it is saved on this iPhone, also delete it in \(passwordsPlace)."
     }
     /// Review 3: the Not me dialog's words. The page's "Press it again" fits its two presses, not a phone's named button.
     static let notMeQuestion = "This signs your account out everywhere, this iPhone included."

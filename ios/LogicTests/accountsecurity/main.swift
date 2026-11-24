@@ -30,9 +30,9 @@ check(S.removeBody(.init(credentialID: "AAA", name: "x", createdAt: nil, lastUse
 check(S.removeAsk(name: "iPhone") == "Press it again to remove iPhone.", "the remove ask")
 // Review 3: the phone's dialogs, and the review account's own step-up sentence.
 check(S.removeQuestion(.init(credentialID: "A", name: "iPhone", createdAt: 1_700_000_000, lastUsedAt: nil), day: day)
-      == "Remove iPhone, added 14 Nov 2023, from your Kosmos+ account? If it is saved on this iPhone, delete it in the Passwords app (Settings > Passwords before iOS 18) too.", "the remove question, dated")
+      == "Remove iPhone, added 14 Nov 2023, from your Kosmos+ account? If it is saved on this iPhone, also delete it in the Passwords app (Settings > Passwords before iOS 18).", "the remove question, dated")
 check(S.removeQuestion(.init(credentialID: "A", name: "iPhone", createdAt: nil, lastUsedAt: nil), day: day)
-      == "Remove iPhone from your Kosmos+ account? If it is saved on this iPhone, delete it in the Passwords app (Settings > Passwords before iOS 18) too.", "the remove question, undated")
+      == "Remove iPhone from your Kosmos+ account? If it is saved on this iPhone, also delete it in the Passwords app (Settings > Passwords before iOS 18).", "the remove question, undated")
 check(S.notMeQuestion == "This signs your account out everywhere, this iPhone included.", "the Not me question")
 check(S.refusal(json: ["error": "for this, sign in again the way you usually do (and your second step, if you have one), then do it within 10 minutes", "code": "step_up_required"], fallback: "x") == S.stepUp,
       "the usual step-up sentence becomes the page's words")
@@ -171,6 +171,7 @@ check(S.notMe(status: 401, json: nil) == .sessionGone, "401: this iPhone's own s
 check(S.notMeSessionGone.contains("did not sign anyone out"), "the 401 words say nobody was signed out")
 check(S.madeButRefused("That passkey request expired; start again.") == "That passkey was made on this iPhone, but Kosmos+ did not add it. Kosmos+ said: That passkey request expired; start again. Delete it in the Passwords app (Settings > Passwords before iOS 18).",
       "any refusal after the passkey was made says to delete it (review 5)")
+check(S.madeButRefused("Is that yours?").contains("Kosmos+ said: Is that yours? Delete it"), "a sentence keeps its own end mark (review 8)")
 check(S.madeButRefused(S.addFailed) == "That passkey was made on this iPhone, but Kosmos+ did not add it. Delete it in the Passwords app (Settings > Passwords before iOS 18).",
       "the generic fallback is not repeated (review 7)")
 check(S.addNeedsNewer.hasSuffix("You can add one in Safari, or on your computer."), "the 17.4 note does not send the person to the in-app page, which hides Add (review 7)")
@@ -214,7 +215,9 @@ if let page = relayPage() {
     }
     check(page.contains("Your passkeys could not be listed just now. "), "listFailed starts as the page's")
 } else {
-    print("NOTE: kosmos-relay's signin.html not found, so the words were not compared with the page")
+    let skipped = ProcessInfo.processInfo.environment["KOSMOS_RELAY"].map { $0.isEmpty } ?? false
+    print(skipped ? "NOTE: KOSMOS_RELAY is set empty (as on CI), so the words were not compared with the page"
+                  : "NOTE: kosmos-relay's signin.html could not be read, so the words were not compared with the page")
 }
 
 print(failures == 0 ? "VERDICT: PASS \(total)/\(total)" : "VERDICT: FAIL \(total - failures)/\(total)")
