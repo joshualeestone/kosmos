@@ -74,8 +74,8 @@ classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpen
 # kosmos#8958: on their own line, so a change here and one to the list above never conflict. UnsentDraftUITests, an unsent
 #   draft drawn in the chat with Put in the message box and Dismiss, never the board (3 checks). TaskPageActionsUITests, a
 #   task page's message box, due date and Edit title or detail (3), Repeats changed and saved (1), a done task's
-#   receipt (1), its file changes undone (1), and a subtask added
-#   to it (1).
+#   receipt (1), its file changes undone (1), and Add subtask
+#   opening New Task for it (1).
 classes="$classes UnsentDraftUITests:3 TaskPageActionsUITests:7"
 skip=""
 arm="lazy"
