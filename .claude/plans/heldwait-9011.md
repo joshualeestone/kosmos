@@ -31,7 +31,8 @@ were each ended by the agent's own report, so which path the reporter hit is not
   holds within a session (the guard above) but not across one, by Josh's design; what was missing is that it was silent.
 - **So the card says it.** selfreport.latestOf carries `waitCleared` { at, by, state, held } from the same tail read()
   already reads (no extra file read per poll); status.waitClearedOf puts it on the pane and paneless card for 12 hours;
-  stateReason says it on an idle or working card, after #8979's restart line:
+  stateReason says it on an idle or working card, low: after #8979's restart line and after every sentence that asks the
+  person to act (crash loop, no message reached it, unsent text, one long step, #5154's give-up; review round 2):
   - "Its question for you was closed at 2:02 PM by the agent itself." / "... by you." / "... when it left the project."
   - "Its question for you was set aside at 2:02 PM when it started a new session." / "... when its session ended."
   - "What it was waiting on ..." for a blocked.
@@ -50,6 +51,9 @@ were each ended by the agent's own report, so which path the reporter hit is not
   the wait survives there.
 
 ## Residual
+- 12 hours is kept although a busy agent will have done other things since (review round 2 suggested shorter): the
+  card's whole complaint is a person coming back to find the wait gone with no word, so the word must outlast an
+  evening away.
 - A person's Clear on a provider block that was covering the agent's own question reads "closed ... by you": true
   (the question is gone), though the person acted on the block they could see.
 

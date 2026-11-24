@@ -120,9 +120,23 @@ test('#9011 the pill says what ended the wait, after #8979\'s restart line, on a
   assert.equal(say('restart'), 'Its question for you was set aside at ' + clock + ' when it started a new session.');
   assert.equal(say('ended'), 'Its question for you was set aside at ' + clock + ' when its session ended.');
   assert.equal(stateReason({ state: 'working', waitCleared: wc('agent', 'blocked') }), 'What it was waiting on was closed at ' + clock + ' by the agent itself.');
-  /* #8979's restart line says more about a restart, so it leads. */
-  const restarted = { at: at.toISOString(), why: 'Claude stopped unexpectedly (exit code 1).' };
-  assert.match(stateReason({ state: 'idle', restarted, waitCleared: wc('restart') }), /^Restarted at /);
+  /* Every sentence that asks the person to act, or says more, leads (review round 2); each with a control that the same
+     card says this one without it. */
+  const since = (mins) => new Date(Date.now() - mins * 60e3).toISOString();
+  const leaders = [
+    ['#8979 restart', { restarted: { at: at.toISOString(), why: 'Claude stopped unexpectedly (exit code 1).' } }, /^Restarted at /],
+    ['#5154 crash loop', { crashLoop: { looping: true, count: 3 } }, /^Kosmos has restarted it 3 times/],
+    ['#7212 no message reached it', { deliveryStall: { since: since(40), words: 'Nothing it was sent reached it', next: 'Open it', count: 1, lastWhy: 'send' } }, /^No message has reached Ada/],
+    ['#6249 unsent text', { unsentInput: { since: since(5) } }, /^Text has been sitting unsent/],
+    ['#5154 give-up', { ownBound: { raised: true, items: [{ cls: 'nudge', forMs: 5 * 60e3 }] } }, /^It sat idle with an open task/],
+    ['#8719 untied window', { isNamedOurs: false }, /^Kosmos cannot confirm it started this window/],
+  ];
+  for (const [label, extra, re] of leaders) {
+    assert.match(stateReason({ name: 'Ada', state: 'idle', waitCleared: wc('agent'), ...extra }), re, label + ' leads');
+  }
+  assert.match(stateReason({ name: 'Ada', state: 'working', waitCleared: wc('agent'), oneStep: { tool: 'Bash', since: since(20) } }),
+    /^Ada has been on one step/, '#8286 one long step leads');
+  assert.match(stateReason({ name: 'Ada', state: 'idle', waitCleared: wc('agent') }), /was closed at/, 'CONTROL: the same card without them says this one');
   /* CONTROLS: only on an idle or working card, only for a known kind, never on the tile. */
   for (const state of ['needs_you', 'stopped', 'rate_limited', 'auth_failed']) {
     assert.doesNotMatch(String(stateReason({ state, waitCleared: wc('agent') })), /was (closed|set aside) at/, state);

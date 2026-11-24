@@ -23645,26 +23645,6 @@ function stateReason(a, opts) {
       return 'Restarted at ' + when + ': ' + a.restarted.why;
     }
   }
-  /* kosmos#9011: the agent's own question (or what it was blocked on) was ended recently, and by what (engine/status.js
-     waitClearedOf: the agent itself, the person, leaving the project, a new session or the session ending), so a wait
-     does not vanish from the card unexplained. After #8979's restart line, which says more about a restart. Idle or
-     working only, like it: a new wait, a stop or a limit says itself. Fixed words, never the old question's. A new
-     session retiring the old wait is Josh's design (#5943); this only says it happened. Literals: tests lift stateReason
-     alone, so the time words repeat #8979's today-or-weekday rule; the 12-hour span makes its date arm unneeded. */
-  if (a && (a.state === 'idle' || a.state === 'working') && a.waitCleared && typeof a.waitCleared.at === 'string') {
-    const at = new Date(a.waitCleared.at);
-    const by = { agent: ' by the agent itself', person: ' by you', left: ' when it left the project',
-      restart: ' when it started a new session', ended: ' when its session ended' }[a.waitCleared.by];
-    if (Number.isFinite(at.getTime()) && by) {
-      const clock = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-      const now = new Date();
-      const when = at.toDateString() === now.toDateString() ? clock
-        : at.toLocaleDateString([], { weekday: 'short' }) + ' ' + clock;
-      const what = a.waitCleared.state === 'blocked' ? 'What it was waiting on' : 'Its question for you';
-      const verb = a.waitCleared.by === 'restart' || a.waitCleared.by === 'ended' ? ' was set aside at ' : ' was closed at ';
-      return what + verb + when + by + '.';
-    }
-  }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard
@@ -23755,6 +23735,26 @@ function stateReason(a, opts) {
     if (it.cls === 'quota') return 'Its quota reset, but it has not finished its turn. Kosmos tried to start it again and stopped ' + ago + '. Open it to see what it shows, or send it a message.';
     if (it.cls === 'nudge') return 'It sat idle with an open task. Kosmos tried to remind it and stopped ' + ago + '. Open it to see what it shows, or send it a message.';
     if (it.cls === 'firstreply') return 'It has not answered its first message. Kosmos tried to remind it and stopped ' + ago + '. Open it to see what it shows, or send it a message.';
+  }
+  /* kosmos#9011: the agent's own question (or what it was blocked on) was ended recently, and by what (engine/status.js
+     waitClearedOf: the agent itself, the person, leaving the project, a new session or the session ending), so a wait
+     does not vanish from the card unexplained. Low, after #8979's restart line and after #5154's give-up below them (review round
+     2): every sentence that asks the person to act leads. Idle or working only, like #8979's: a new wait, a stop or a limit says itself. Fixed words, never the old question's. A new
+     session retiring the old wait is Josh's design (#5943); this only says it happened. Literals: tests lift stateReason
+     alone, so the time words repeat #8979's today-or-weekday rule; the 12-hour span makes its date arm unneeded. */
+  if (a && (a.state === 'idle' || a.state === 'working') && a.waitCleared && typeof a.waitCleared.at === 'string') {
+    const at = new Date(a.waitCleared.at);
+    const by = { agent: ' by the agent itself', person: ' by you', left: ' when it left the project',
+      restart: ' when it started a new session', ended: ' when its session ended' }[a.waitCleared.by];
+    if (Number.isFinite(at.getTime()) && by) {
+      const clock = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const now = new Date();
+      const when = at.toDateString() === now.toDateString() ? clock
+        : at.toLocaleDateString([], { weekday: 'short' }) + ' ' + clock;
+      const what = a.waitCleared.state === 'blocked' ? 'What it was waiting on' : 'Its question for you';
+      const verb = a.waitCleared.by === 'restart' || a.waitCleared.by === 'ended' ? ' was set aside at ' : ' was closed at ';
+      return what + verb + when + by + '.';
+    }
   }
   /* #5957 slice 2's rules-far-behind note for a calm card lives in pillSay since #6716 (no sentence on a tile). */
   if (!a || a.state !== 'rate_limited') return '';
