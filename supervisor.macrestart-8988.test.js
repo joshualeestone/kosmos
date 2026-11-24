@@ -9,6 +9,8 @@
  *             exits as it does today, and after the relaunch engine/macrestart.js reads "exit code 7".
  *   STOP      a deliberate kill-session records nothing (the death file is unchanged).
  *   SIGNAL    the runner is ended by SIGTERM: "signal term", read as "(signal SIGTERM)".
+ *   SPLIT     a pane a person split off ending neither ends the agent nor is recorded.
+ *   GROUP     a session a person grouped with the agent's is not left holding its dead pane.
  *   WAIT      the hook is gone (unset by the test): the supervisor's own wait loop finds the dead pane, records it
  *             and ends the session.
  *   STARTUP   a session of ours whose pane is dead (kept by remain-on-exit, no hook) is not adopted as alive: a launch
@@ -228,6 +230,22 @@ test('#8988 RETURN: a dead agent pane beside a live split pane is recorded and r
     assert.match(String(f.died()), /^\d{9,11} status 5\n$/, 'the agent pane\'s exit, not the split pane\'s');
     f.tell('exit 0');
     await f.ends(two);
+    assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
+  } finally { f.cleanup(); }
+});
+
+test('#8988 GROUP: a session a person grouped with the agent\'s does not keep the dead pane', { skip: SKIP }, async () => {
+  const f = fixture();
+  try {
+    const one = f.start();
+    await f.until(f.alive, 'the session');
+    await f.until(f.hooked, 'its pane-died hook');
+    assert.equal(f.tx('new-session', '-d', '-s', 'viewer', '-t', '=' + NAME).status, 0);
+    f.tell('exit 6');
+    await f.ends(one);
+    assert.match(String(f.died()), /^\d{9,11} status 6\n$/);
+    const left = (f.tx('list-panes', '-a', '-F', '#{session_name} #{pane_dead}').stdout || '').split('\n').filter((l) => / 1$/.test(l));
+    assert.deepEqual(left, [], 'no dead pane is left in the grouped session');
     assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
   } finally { f.cleanup(); }
 });

@@ -12,17 +12,16 @@
  * Stop row: idle, "finished responding") at or after that start clears it.
  */
 const fs = require('fs');
-const path = require('path');
-const store = require('./store');
+const os = require('os');
 const crashloop = require('./crashloop');
 
 /* launchd's ThrottleInterval (30 s) plus the supervisor's 10 s wait poll and its start-up, with room to spare. */
 const RESTART_WINDOW_MS = 5 * 60 * 1000;
 /* A restart, switch or change Kosmos made itself stamps the run file ("kosmos <epoch>", crashloop.noteDeliberate) when
-   it begins, just before it ends the process. A death this soon after such a stamp is Kosmos's, not a crash. */
+   it begins, just before it ends the process. A death this soon after such a stamp, with no start between the two, is
+   Kosmos's own. One with a start between is the new process's (a switch whose new agent crashed), and a stamp after the
+   death is a person's restart of an agent that had already stopped: both keep the line. */
 const DELIBERATE_BEFORE_MS = 60 * 1000;
-
-function diedFileFor(sessionName) { return path.join(crashloop.dir(), store.safeKey(sessionName) + '.died'); }
 
 /** { atMs, code, signal } from a died file's text, or null. A signal name is given as tmux prints it ("term"). */
 function parseDied(text) {
@@ -33,7 +32,6 @@ function parseDied(text) {
   const name = m[3].toUpperCase();
   return { atMs, code: null, signal: name.startsWith('SIG') ? name : 'SIG' + name };
 }
-
 
 /** Did a turn finish at or after `sinceMs`? The report hook's Stop, as selfreport.history marks it (turn 'end', its
     `at` in ms). null when the record could not be read. */
@@ -54,18 +52,22 @@ function restartedFor(sessionName, opts) {
     const read = o.read || ((f) => fs.readFileSync(f, 'utf8'));
     const history = o.history || ((n) => require('./selfreport').history(n));
     let died;
-    try { died = parseDied(read(diedFileFor(sessionName))); } catch { return null; }
+    try { died = parseDied(read(crashloop.diedFileFor(sessionName))); } catch { return null; }
     /* An exit with code 0 is Claude closing on purpose (a person typing /exit): not a crash to explain. */
     if (!died || died.code === 0) return null;
     let runs;
     try { runs = crashloop.parse(read(crashloop.fileFor(sessionName))); } catch { return null; }
     const start = runs.length ? runs[runs.length - 1].start : null;
     if (start === null || start < died.atMs || start - died.atMs > RESTART_WINDOW_MS) return null;
-    if ((runs.deliberate || []).some((d) => d >= died.atMs - DELIBERATE_BEFORE_MS && d <= start)) return null;
+    const ours = (runs.deliberate || []).some((d) => d <= died.atMs && d >= died.atMs - DELIBERATE_BEFORE_MS
+      && !runs.some((r) => r.start > d && r.start <= died.atMs));
+    if (ours) return null;
+    /* A shutdown or logout ends every agent by signal, so a death before this boot is the machine's, not Claude's. */
+    if (died.atMs < (Number.isFinite(o.bootMs) ? o.bootMs : Date.now() - os.uptime() * 1000)) return null;
     if (finishedSince(sessionName, start, history) !== false) return null;
     const why = require('./win32streamstate').restartWhy({ code: died.code, signal: died.signal });
     return { at: new Date(start).toISOString(), why };
   } catch { return null; }
 }
 
-module.exports = { RESTART_WINDOW_MS, DELIBERATE_BEFORE_MS, diedFileFor, parseDied, finishedSince, restartedFor };
+module.exports = { RESTART_WINDOW_MS, DELIBERATE_BEFORE_MS, diedFileFor: crashloop.diedFileFor, parseDied, finishedSince, restartedFor };

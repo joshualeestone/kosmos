@@ -104,10 +104,17 @@ function noteDeliberate(sessionName, now = Date.now()) {
   } catch { return false; }
 }
 
+/* kosmos#8988: how the agent's last process ended (engine/macrestart.js), beside its run file. */
+function diedFileFor(sessionName) { return path.join(dir(), store.safeKey(sessionName) + '.died'); }
+
 /* Review 1: the agent was removed, or a new one is being made under its name: its runs go with it, so a new agent
-   never inherits "Keeps stopping" from the last one. */
+   never inherits "Keeps stopping" from the last one; nor (kosmos#8988) the last one's death as its restart line. */
 function forget(sessionName) {
-  try { fs.rmSync(fileFor(sessionName), { force: true }); return true; } catch { return false; }
+  let ok = true;
+  for (const f of [fileFor(sessionName), diedFileFor(sessionName)]) {
+    try { fs.rmSync(f, { force: true }); } catch { ok = false; }
+  }
+  return ok;
 }
 
 /* The phone tick's decision, pure (review 1: it was untested). For each run-file `key`, `readOne(key)` answers; a key
@@ -133,4 +140,4 @@ function keys() {
   try { return fs.readdirSync(dir()).filter((f) => f.endsWith('.log')).map((f) => f.slice(0, -4)); } catch { return []; }
 }
 
-module.exports = { SHORT_RUN_MS, WINDOW_MS, LOOP_RUNS, DISRUPTION_SLACK_MS, dir, fileFor, parse, assess, read, noteDeliberate, forget, tellLoops, keys };
+module.exports = { SHORT_RUN_MS, WINDOW_MS, LOOP_RUNS, DISRUPTION_SLACK_MS, dir, fileFor, diedFileFor, parse, assess, read, noteDeliberate, forget, tellLoops, keys };

@@ -258,7 +258,7 @@ session_id_exact() {
 
 # kosmos#8988: how this agent's last process ended, one line "<epoch> status <N>" or "<epoch> signal <name>", beside
 # the run file above (same folder, same key), so the card can say "Restarted at <time>: <why>" after the restart
-# (engine/macrestart.js). Written by the session's pane-died hook (arm_death_record) or, when that hook never ran, by
+# (engine/macrestart.js). Written by the agent pane's pane-died hook (arm_death_record) or, when that hook never ran, by
 # the supervisor itself when it finds the pane dead (record_dead_pane). Prints the path, or nothing.
 died_file() {
   local _key _dir
@@ -292,6 +292,14 @@ EOF
     return 1
   fi
   session_all_dead
+}
+# End the dead agent's session as the hook does: its own pane by id first, since a session a person grouped with it (or a
+# window linked elsewhere) shares that pane and would keep it, dead, after a kill-session.
+end_dead_session() {
+  local _p
+  _p="$(agent_pane_id)"
+  [ -n "$_p" ] && "$TMUX_BIN" kill-pane -t "$_p" 2>/dev/null
+  "$TMUX_BIN" kill-session -t "$TARGET" 2>/dev/null
 }
 # Every pane of this session is dead (see agent_dead).
 session_all_dead() {
@@ -378,7 +386,7 @@ while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
     # forever. A session whose agent pane is dead crashed: its exit is recorded and it is replaced.
     if agent_dead; then
       record_dead_pane
-      "$TMUX_BIN" kill-session -t "$TARGET" 2>/dev/null
+      end_dead_session
       break
     fi
     panes=$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_current_command}' 2>/dev/null)
@@ -897,7 +905,7 @@ if [ -z "$adopt" ]; then
     "$TMUX_BIN" set-option -p -t "$_p" remain-on-exit on 2>/dev/null || return 0
     _inner="printf '%s %s %s\\n' '#{pane_dead_time}' '#{?pane_dead_signal,signal,status}' '#{?pane_dead_signal,#{pane_dead_signal},#{pane_dead_status}}' > '$_f' 2>/dev/null; true"
     _q="'$(printf '%s' "$_inner" | sed "s/'/'\\\\''/g")'"
-    "$TMUX_BIN" set-hook -p -t "$_p" pane-died "run-shell $_q ; kill-session -t '=$SESSION'" 2>/dev/null \
+    "$TMUX_BIN" set-hook -p -t "$_p" pane-died "run-shell $_q ; kill-pane -t '$_p' ; kill-session -t '=$SESSION'" 2>/dev/null \
       || "$TMUX_BIN" set-option -p -t "$_p" remain-on-exit off 2>/dev/null
     return 0
   }
@@ -1869,7 +1877,7 @@ while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
   # can never hold the agent stopped.
   if agent_dead; then
     record_dead_pane
-    "$TMUX_BIN" kill-session -t "$TARGET" 2>/dev/null   # then the usual wait, so a refused kill cannot spin
+    end_dead_session   # then the usual wait, so a refused kill cannot spin
   fi
   sleep 10
 done

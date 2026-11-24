@@ -32,12 +32,17 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
   - When the agent's pane is dead, the whole session ends, including a pane a person split off and left running. That
     is the crash path today too (startup's "every pane is a shell: it crashed"), and before this change such a split
     pane kept a crashed agent's session alive, so the supervisor waited on it and the agent never came back.
-  - Startup: an ours-session whose panes are all dead is recorded and replaced, never adopted.
+  - Startup: an ours-session whose agent pane is dead is recorded and replaced, never adopted. Any of the three ends
+    the agent's pane by id as well as the session (a session a person grouped with it shares that pane: GROUP arm).
+    These session-ending paths apply to every runner, not Claude only: a session whose every pane is dead is never
+    an agent to keep.
 - engine/macrestart.js: `restartedFor(name)`: the died file, plus the LAST start in the run file, within 5 minutes after
   the death (a later start is a launch of its own). A death within a minute after a "kosmos <epoch>" stamp in the run file (a
-  restart, switch or change Kosmos made itself, crashloop.noteDeliberate) is Kosmos's own and shows nothing. An exit with code 0 shows nothing: Claude closed on purpose
+  restart, switch or change Kosmos made itself, crashloop.noteDeliberate), with no start between, is Kosmos's own and
+  shows nothing (a switch whose new process crashed is still said). A death before this boot is a shutdown's. An exit with code 0 shows nothing: Claude closed on purpose
   (a person typing /exit), not a crash to explain. Cleared by a turn end (the report hook's Stop, as
   `selfreport.history` marks it: `turn: 'end'`) at or after that start. Words from `win32streamstate.restartWhy`.
+- engine/crashloop.js `forget`: removes the death file with the run file, so a re-made agent does not inherit it.
 - engine/status.js `restartedOf`: Windows as before; a Mac pane that is ours and runs Claude reads macrestart.
 
 ## Rejected
