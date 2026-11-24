@@ -34,7 +34,7 @@ repeat line, natively. Stacked on B2 (taskhold-8958); rebased onto main once B1 
 ## Tests
 - ios/LogicTests/taskpage: B3 section (stored rules, wire, bodies, drafts, time round trip, request, the line on a
   page read) and b3ModelTests (unchanged sends nothing, a save and its reads, Saved. retired by a change elsewhere,
-  refusal, unreached, Saved. gone on a finished task, a box moved past the other daily time and saved). 277/277.
+  refusal, unreached, Saved. gone on a finished task, a box moved past the other daily time and saved, the guards between Save and Mark as done each way and Save on a finished task, each red when its guard is removed). 280/280.
 - server.ios-routes-6838: 5/5.
 - UI: TaskPageActionsUITests.testRepeatIsChangedAndSaved (light and dark) against the sample board, which now
   stores a repeat rule (task 4 starts twice a day): the line says the stored rule, Save is off until a change,
@@ -49,7 +49,8 @@ repeat line, natively. Stacked on B2 (taskhold-8958); rebased onto main once B1 
 - An edit keeps the person's choice as set, even when it equals the stored rule (Save turns off); only a change to
   the stored rule from elsewhere runs keptRepeatDraft. After a save the draft goes only once a read shows the saved
   rule, so a failed read leaves the controls on what was saved.
-- A change to the stored rule from elsewhere: a draft that equals the OLD rule follows the new one
+- A change to the stored rule from elsewhere: a draft that equals the rule it was started from (or last followed,
+  kept in the view's own state, repeatDraftBase) follows the new one
   (Board.followStored, the board's tkPaintRepeat review 3), so Never is never left showing over a rule an agent set.
   Any other draft stands, its daily other times following the new rule.
 - keptRepeatDraft compares the draft with the stored rule as it stands BEFORE re-deriving a daily rule's other times:

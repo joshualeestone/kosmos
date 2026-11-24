@@ -30,6 +30,8 @@ struct TaskPageView: View {
     @State private var dueDraft: String?
     // kosmos#8958 slice B3: the Repeats choice being made, nil while the controls show the stored rule.
     @State private var repeatDraft: Board.RepeatChoice?
+    // The stored rule the draft was started from, or last followed: what a change to the stored rule is compared with.
+    @State private var repeatDraftBase: Board.RepeatChoice?
 
     init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
         self.client = client
@@ -123,7 +125,8 @@ struct TaskPageView: View {
             // Redrawn every 30 seconds, so "2 minutes ago" and "today" move on while nothing else changes.
             TimelineView(.periodic(from: .now, by: 30)) { _ in
                 ScrollView { pageBody(page).padding(16) }
-                    // The Repeats minutes box is a number pad, which has no return key: a drag closes it.
+                    // A drag closes the keyboard, for every box on the page. The Repeats minutes box needs it most: a number pad
+                    // has no return key.
                     .scrollDismissesKeyboard(.interactively)
             }
                 .dotsRefresh { await model.read(); await model.readActivity(names: names) }
@@ -423,6 +426,7 @@ struct TaskPageView: View {
         let unchanged = wire == stored.map(Board.repeatWire)
         let edit = { (change: (inout Board.RepeatChoice) -> Void) in
             guard var c = repeatDraft ?? stored else { return }
+            if repeatDraft == nil { repeatDraftBase = stored }
             model.touched()
             model.clearRepeatSay()
             change(&c)
@@ -448,7 +452,8 @@ struct TaskPageView: View {
                     HStack(spacing: 8) {
                         TextField("30", text: Binding(get: { shown.minutes }, set: { v in edit { $0.minutes = v } }))
                             .keyboardType(.numberPad)
-                            .frame(width: 80, height: 44)
+                            .frame(minWidth: 80, minHeight: 44)
+                            .fixedSize()
                             .padding(.horizontal, 8)
                             .background(RoundedRectangle(cornerRadius: 8).stroke(Palette.secondary.opacity(0.4), lineWidth: 1))
                             .accessibilityLabel("When: every how many minutes")
@@ -466,12 +471,14 @@ struct TaskPageView: View {
                             .labelsHidden()
                             .accessibilityLabel("When: day of the week")
                             .tint(Palette.link)
+                            .frame(minHeight: 44)
                             .accessibilityIdentifier("taskpage.repeat.day")
                         }
                         DatePicker("When: time of day", selection: Binding(get: { Board.repeatTime(shown.at) }, set: { d in
                             edit { $0.at = Board.repeatTimeString(d) }
                         }), displayedComponents: .hourAndMinute)
                             .labelsHidden()
+                            .frame(minHeight: 44)
                             .environment(\.timeZone, Board.repeatClock.timeZone)
                             .accessibilityIdentifier("taskpage.repeat.time")
                     }
@@ -526,8 +533,10 @@ struct TaskPageView: View {
         }
         // The stored rule moved (another device, an agent): a draft it now equals is dropped, and a daily edit's other
         // times follow it.
-        // The capture is the rule this body was drawn with, so it is the OLD rule when the change arrives.
-        .onChange(of: p.repeatStored) { [old = p.repeatStored] s in repeatDraft = Board.followStored(repeatDraft, old: old, new: s) }
+        .onChange(of: p.repeatStored) { s in
+            repeatDraft = Board.followStored(repeatDraft, old: repeatDraftBase, new: s)
+            repeatDraftBase = s
+        }
     }
 
     // `busy` is the section's own save in flight (the due date's, unless another section names its own).
@@ -611,7 +620,8 @@ struct TaskPageView: View {
     private static var sampleTitle: [Int: String] = [:]
     // A due date set or cleared on a sample task (POST .../due), served back by the next read ("" for cleared).
     private static var sampleDue: [Int: String] = [:]
-    // kosmos#8958 slice B3: a sample task's repeat rule and the board's words for it (POST .../repeat), served back by
+    // kosmos#8958 slice B3: a sample task's repeat rule and words for it in the board's shape (POST .../repeat; only the
+    // hourly words match the board's describe exactly, and only those are asserted), served back by
     // the next read. Task 4 starts on twice a day, the case where the controls keep a second time.
     private static var sampleRepeat: [Int: (rule: String, words: String)] = [4: (#"{"every":"day","at":["09:00","17:00"]}"#, "every day at 9am and 5pm")]
     private static func sampleRule(_ body: [String: Any]) -> (rule: String, words: String)? {
