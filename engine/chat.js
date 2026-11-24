@@ -2061,7 +2061,7 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
      one is not. Its identity is the visible part, compared on this last look like any other. Anything else is refused. */
   const denyOnly = e.denyOnly === true;
   if (denyOnly && (!menu.permission || !opt || !/^No\b/.test(opt.label) || opt.lasting || e.request)) {
-    return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
+    return { ok: false, because: 'only No can be sent for a request too long to show in full, so nothing was sent' };
   }
   const idBefore = menu.permission && (permissionAnswerable(before) || denyOnly) ? idOf(before) : null;
   if (menu.permission && (!e.identity || !idBefore)) {

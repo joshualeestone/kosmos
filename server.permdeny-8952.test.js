@@ -29,7 +29,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const chat = require('./engine/chat');
-const selfreport = require('./engine/selfreport');
 const fleet = require('./test-support/fleet');
 
 const SCREENS = path.join(__dirname, 'test-support', 'claude-screens');
@@ -40,24 +39,12 @@ let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
 test.after(() => { try { server.closeAllConnections(); server.close(); } catch { /* already down */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
-const notice = async (id) => {
-  const res = await fetch(base + '/api/phone/notice?id=' + encodeURIComponent(id));
-  return { status: res.status, json: await res.json().catch(() => null) };
-};
 const post = async (body) => {
   const res = await fetch(`${base}/api/agent/casey/thread`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify(body) });
   return { status: res.status, json: await res.json().catch(() => null) };
 };
 const getThread = async () => (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
 
-/* The permission hook's needs_you (auto), or an agent's own (auto=false), as recorded; its id is what phonenotify sends. */
-function reportId(auto = true, because = 'Claude needs your permission to use Bash') {
-  // A working report first: an automatic wait never overwrites an agent's own needs_you (selfreport), as in life.
-  selfreport.record('casey', { state: 'working', because: 'on it' });
-  const kept = selfreport.record('casey', { state: 'needs_you', because, ...(auto ? { auto: true } : {}) });
-  assert.ok(kept && kept.at, 'premise: the report was recorded: ' + JSON.stringify(kept));
-  return 'report:' + kept.at + ':casey';
-}
 
 /* A pane that shows `screen` until a digit or Escape reaches it, then an idle prompt (what Claude Code does). */
 async function withPrompt(screen, fn, state = 'needs_you') {
@@ -74,7 +61,7 @@ async function withPrompt(screen, fn, state = 'needs_you') {
   chat.setDryRun(false);
   chat.setPauser(() => {});
   calls.keys = () => calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
-  try { return await fn(calls); } finally { chat.resetForTests(); board.restore(); }
+  try { return await fn(calls, board.agents); } finally { chat.resetForTests(); board.restore(); }
 }
 
 // The real screen with the scroll line just under its "4. No"; cut = its full-width top rule gone (scrolled away).
@@ -113,6 +100,8 @@ test('#8952 (c): a denyOnly press of Yes, or of a lasting option, on a cut box s
     await withPrompt(CUT, async (calls) => {
       const p = await post({ text, chose, asked, denyOnly: true, ...(text === '2' ? { lasting: true } : {}) });
       assert.equal(p.status, 409, text + ' was accepted: ' + JSON.stringify(p.json));
+      // Refused by the deny-only gate itself (answerQuestionMenuHeld), not by an earlier route check.
+      assert.match(String(p.json && (p.json.error || JSON.stringify(p.json))), /only No can be sent/, 'refused for another reason: ' + JSON.stringify(p.json));
       assert.deepEqual(calls.keys(), [], 'a key reached the pane for ' + text);
     });
   }
@@ -135,5 +124,22 @@ test('#8952 (c) CONTROL: the whole box gets the full card and no denyOnly', asyn
     const row = questionRow(await getThread());
     assert.ok(row && row.permission, 'no full card on the whole box: ' + JSON.stringify(row));
     assert.equal('denyOnly' in row, false);
+  });
+});
+
+/* The route's own `asked` check refuses another identity first (above), so the engine's last-look checks are tested on
+   their own here, through chat.answerQuestionMenu. */
+test('#8952 (c) engine: a denyOnly No for another identity, or naming a request, sends nothing; CONTROL: the right one does', async () => {
+  const asked = chat.questionAbove(chat.questionIn(CUT, 'claude').text);
+  await withPrompt(CUT, async (calls, roster) => {
+    const other = await chat.answerQuestionMenu('casey', 4, roster, { label: 'No', identity: asked.replace('uuidgen', 'rm -rf build'), denyOnly: true });
+    assert.equal(other.ok, false, JSON.stringify(other));
+    const req = await chat.answerQuestionMenu('casey', 4, roster, { label: 'No', identity: asked, denyOnly: true, request: 'a'.repeat(64) });
+    assert.equal(req.ok, false, JSON.stringify(req));
+    assert.match(req.because, /only No can be sent/);
+    assert.deepEqual(calls.keys(), []);
+    const right = await chat.answerQuestionMenu('casey', 4, roster, { label: 'No', identity: asked, denyOnly: true });
+    assert.equal(right.ok, true, JSON.stringify(right));
+    assert.deepEqual(calls.keys(), ['4']);
   });
 });

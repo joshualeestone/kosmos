@@ -21745,9 +21745,8 @@ const server = http.createServer(async (req, res) => {
     const permCard = permRead ? { ...permRead, request: chat.permissionRequestId(permRead) } : null;
     /* kosmos#8952 slice (c): a permission prompt whose box top scrolled away gets no card above (nobody may approve what
        cannot be shown whole), but its own No may still be pressed: `denyOnly` on the live question row, with the visible
-       part's identity (questionAbove), which the press names and the key path checks again (answerQuestionMenuHeld). Under
-       the same conditions as a card's buttons apart from the whole box: a Claude card, never the setup guide's thread, the
-       live pane question, and a label a press could carry. */
+       part's identity (questionAbove), which the press names and the key path checks again (answerQuestionMenuHeld). Only
+       on a Claude card, never in the setup guide's thread, for the live pane question, with a label a press could carry. */
     const denyRead = (!pressable && !guideThread && card && String(card.runner || 'claude') === 'claude' && question
       && question === paneQuestion && typeof question.text === 'string' && view && typeof view.text === 'string')
       ? chat.permissionDenyOnly(view.text) : null;
