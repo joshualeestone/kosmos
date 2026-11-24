@@ -213,3 +213,18 @@ test('a stop during the handoff wait is said as such (Settings does not wait for
   assert.equal(body.waitingForHandoff, true, JSON.stringify(body));
   await out.done;
 });
+
+test('an ask that answers after its bound is told the line true either way', async () => {
+  let answer;
+  const d = deps({ handoff: (events) => ({
+    ask: () => new Promise((r) => { answer = r; }),
+    isFresh: () => true, pickup: async () => ({ ok: true }),
+    maybeRestarted: async (n, p) => { events.push(['maybeRestarted', n, p]); },
+    askMs: 20,
+  }) });
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
+  await out.done;
+  answer({ asked: true, path: '/h/al', before: { exists: false } });   // it was typed after all
+  await until(() => d.events.some((e) => e[0] === 'maybeRestarted'));
+  assert.deepEqual(d.events.filter((e) => e[0] === 'maybeRestarted'), [['maybeRestarted', 'al', null]]);
+});

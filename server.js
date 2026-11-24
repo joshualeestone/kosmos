@@ -3696,7 +3696,9 @@ function moveHandoffDeps(o = {}) {
          since a line typed into a busy session is queued and read. */
       /* Review 3: where no session start can be read (Windows: it is read from tmux), it waits as #3492's
          restartReadyWait does: a look that is not ready (no card, or not idle) after the ask, then idle; and with no such
-         gap seen, idle only after MIN_GAP_MS, so a status that has not caught up cannot pass the old session as new. */
+         gap seen, idle only after minGapMs, so a status that has not caught up cannot pass the old session as new.
+         KNOWN (review 4): a status still showing the old session busy, then idle, passes as a gap: the same weakness the
+         page's wait has. Only a readable session start on Windows would close it. */
       const minGapMs = Number.isFinite(o.minGapMs) ? o.minGapMs : 20000;
       const t0 = Date.now();
       let newUp = false;
@@ -3711,7 +3713,8 @@ function moveHandoffDeps(o = {}) {
         newUp = readable ? (Number.isFinite(started) && started !== was.start && started + 1000 >= was.at)
           : (sawGap || Date.now() - t0 >= minGapMs);
         if (newUp && idle) break;
-        if (Date.now() >= until) { if (newUp && card) break; return { ok: false }; }
+        // Review 4: at the deadline a busy new session is typed to, but never one that cannot take a turn.
+        if (Date.now() >= until) { if (newUp && card && !cannotTurn(card)) break; return { ok: false }; }
         await new Promise((r) => { const t = setTimeout(r, pollMs); if (t && typeof t.unref === 'function') t.unref(); });
       }
       // The restart's own pickup line (the moved note rides it, #5400), through the shared-quota gate as #3492's does.
