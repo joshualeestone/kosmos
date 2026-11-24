@@ -23,7 +23,7 @@ The board's part verbs (#206 step 2, tk-who) natively. Stacked on tasksubs-8958 
 - One part write at a time, and none while Mark as done, a hold, or a Repeats or reviewer save is out (a part's Done can
   finish the task), nor they while one is.
 - Weakest premise: an added part whose answer was lost is recognised by its words, so somebody else adding the same words to
-  the same task in that second reads as ours. An Add that could not be told is settled by a later read, which empties the box.
+  the same task between the page's last read and ours (up to a tick) reads as ours. An Add that could not be told is settled by a later read, which empties the box.
 
 ## Left for B8
 The hold form (Wait for, Until, Why). Then the info button goes.
