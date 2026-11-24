@@ -5,7 +5,7 @@ require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, remo
  * board followed by process.exit died on a libuv assertion (exit 127); the entry now lets the process end on its own.
  * Checks the exit code, that the hook JSON is printed whole, that the run ends well before the 2 s backstop, and that
  * a stdin that never closes still ends shortly after the 5 s stdin backstop.
- * kosmos#8968: no bound here is a total wall-clock time, which a loaded Mac doubled (10.4 s against a 7 s ceiling, the
+ * kosmos#8968: no upper bound here is a total wall-clock time, which a loaded Mac doubled (10.4 s against a 7 s ceiling, the
  * same file passing alone). The 2 s backstop is armed only after the hook's last request is answered, so a run that
  * waits for it ends 2 s or more after the board saw that request: the bound is on that tail. The 5 s stdin backstop
  * is timed from when node starts the hook (a preload's mark), so a slow start is not counted against it.
@@ -73,6 +73,13 @@ function tail(b, r) {
   assert.ok(b.at.length > 0, 'the hook never reached the board');
   return r.closedAt - b.at[b.at.length - 1];
 }
+// kosmos#8968: how long the hook took between the board seeing `route` and its next request (or its close). A hook
+// that waited on an answer's body would sit here until that call's abort timer, a stall the tail cannot see.
+function after(b, r, route) {
+  const i = b.seen.indexOf(route);
+  assert.ok(i >= 0, 'the hook never asked for ' + route + ': ' + b.seen.join(' '));
+  return (i + 1 < b.at.length ? b.at[i + 1] : r.closedAt) - b.at[i];
+}
 
 test('a UserPromptSubmit that reports and takes its notices exits 0 on its own, printing the hook JSON whole', async () => {
   const b = await fakeBoard();
@@ -104,6 +111,7 @@ test('an answer whose body never finishes (keep-copy on an edit) does not hold t
     const r = await runHook(b.port, { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: path.join(os.tmpdir(), 'x8014.md'), old_string: 'a', new_string: 'b' }, cwd: os.tmpdir(), session_id: 's' });
     assert.equal(r.code, 0, 'exit ' + r.code + ': ' + r.err);
     assert.ok(b.seen.includes('/api/undo/keep'), 'the edit never asked for a copy: ' + b.seen.join(' '));
+    assert.ok(after(b, r, '/api/undo/keep') < TAIL_MS, 'the hook waited on the unfinished body (' + after(b, r, '/api/undo/keep') + ' ms before it went on, ' + r.ms + ' ms in all)');
     assert.ok(tail(b, r) < TAIL_MS, 'the unfinished body held the run (' + tail(b, r) + ' ms after the last request, ' + r.ms + ' ms in all)');
   } finally { b.server.closeAllConnections(); b.server.close(); }
 });
