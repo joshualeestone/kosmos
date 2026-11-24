@@ -97,6 +97,9 @@ const WRITE_RETRY_MS = 250;
    and never ran them, and the card read busy for 4 hours. Generous against the 50 ms, so a slow first start after a boot
    is not reported, and still minutes rather than hours. */
 const START_DEADLINE_MS = 5 * 60 * 1000;
+/* kosmos#8951 review 1: a report of messages not started is kept at least this long once a later turn opens, so the
+   board's minute sweep shows it on the card and tells the person at least once. */
+const REPORT_HOLD_MS = 2 * 60 * 1000;
 
 function stateDir() { return path.join(store.ROOT, 'win32-state'); }
 /* Same key the rest of the store uses, so this agent's state, pipe, token and
@@ -287,7 +290,7 @@ function unstartedFor(name) {
   if (!u || typeof u !== 'object' || typeof u.since !== 'string' || !Number.isFinite(Date.parse(u.since))) return null;
   if (!Number.isInteger(u.count) || u.count < 1) return null;
   if (!Number.isInteger(rec.pid) || !processAlive(rec.pid)) return null;
-  return { since: new Date(Date.parse(u.since)).toISOString(), count: u.count };
+  return { since: new Date(Date.parse(u.since)).toISOString(), count: u.count, lost: u.lost === true };   // lost: the process ended with them
 }
 
 /** #5805: an epoch time from `resetsAt` as an ISO string, or null. The schema gives seconds; a value already in
@@ -719,6 +722,29 @@ function publisher(name, opts) {
      (on 11-23 each delivery killed the agent and the resume came back without the message). */
   let lostOnStop = null;
 
+  /* kosmos#8951: the turn deadline, armed when a message must start a turn (a write into an idle agent, or messages left
+     waiting when a turn ends). Fires only while `startDue` is still this object, so a turn that started, a stop or a new
+     process (a new `current`) disarms it. */
+  function armStart() {
+    const due = { at: new Date(nowMs()).toISOString() };
+    current.startDue = due;
+    const t = timer(() => missedStart(due), startDeadlineMs);
+    if (t && typeof t.unref === 'function') t.unref();   // never what keeps a process (or a test) alive
+  }
+  /* kosmos#8951 review 1: the report is over only once a message written AFTER it opened a turn (a wake-up or a turn
+     nobody wrote does not prove the lost message ran, and the person must still be told), and not before REPORT_HOLD_MS
+     since it was made, so the minute sweep shows it and pushes it at least once. */
+  function reportRan() {
+    if (!current || !current.unstarted || current.wroteAfterReport !== true) return;
+    const age = nowMs() - (Number.isFinite(current.reportAt) ? current.reportAt : 0);
+    if (age >= REPORT_HOLD_MS) { current.unstarted = null; current.reportAt = null; current.wroteAfterReport = false; return; }
+    const for_ = current.unstarted;
+    if (current.clearArmedFor === for_) return;   // one deferred clear per report
+    current.clearArmedFor = for_;
+    const t = timer(() => { if (current && current.unstarted === for_) { current.unstarted = null; current.reportAt = null; current.wroteAfterReport = false; flush(); } }, REPORT_HOLD_MS - age);
+    if (t && typeof t.unref === 'function') t.unref();
+  }
+
   /* `retrying` is true from a failed write until the next write that SUCCEEDS, so
      the retry below -- or any transition that comes first -- is the second
      attempt, and a second failure in a row is what clears. */
@@ -773,13 +799,16 @@ function publisher(name, opts) {
     if (!current || current.startDue !== due) return;
     current.startDue = null;
     const prev = current.unstarted;
-    const count = (prev && Number.isInteger(prev.count) ? prev.count : 0) + 1 + (current.queued || 0);
-    current.unstarted = { since: prev && typeof prev.since === 'string' ? prev.since : due.at, count };
+    const fresh = current.inFlight && Number.isInteger(current.inFlight.count) ? current.inFlight.count : 1 + (current.queued || 0);
+    const count = (prev && Number.isInteger(prev.count) ? prev.count : 0) + fresh;
+    const since = [prev && prev.since, current.inFlight && current.inFlight.since, due.at].filter((x) => typeof x === 'string').sort()[0];
+    current.unstarted = { since, count, ...(prev && prev.lost ? { lost: true } : {}) };
+    if (!prev) { current.reportAt = nowMs(); current.wroteAfterReport = false; }
     current.inFlight = null;   // now in `unstarted`, so a later death does not count them again
     current.queued = 0;
     setState(IDLE);
     flush();
-    try { onUnstarted({ since: current.unstarted.since, count }); } catch { /* the record is on disk; the log line is extra */ }
+    try { onUnstarted({ since, count, lost: false }); } catch { /* the record is on disk; the log line is extra */ }
   }
 
   return {
@@ -797,14 +826,17 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null };
+      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, inFlight: null };
       /* kosmos#8951: messages the previous process took in and never ran are this agent's still: said on the new
          process's record, so its card says so, until a turn starts. */
       const lost = lostOnStop;
       lostOnStop = null;
-      if (lost) current.unstarted = lost;
+      if (lost) {
+        current.unstarted = { since: lost.since, count: lost.count, ...(lost.lost ? { lost: true } : {}) };
+        current.reportAt = lost.reportAt;
+      }
       flush();
-      if (lost) { try { onUnstarted({ ...lost, lost: true }); } catch { /* the record is on disk; the log line is extra */ } }
+      if (lost && lost.fresh) { try { onUnstarted({ since: lost.since, count: lost.count, lost: lost.lost }); } catch { /* the record is on disk; the log line is extra */ } }
     },
     /** One parsed stream event. */
     event(e) {
@@ -818,11 +850,14 @@ function publisher(name, opts) {
         } catch { /* the next event tries again */ }
       }
       const before = keyOf(current);
-      /* kosmos#8951: any sign of a turn means the message was started on: the deadline is off, and an earlier "taken in, not
-         started" is over (a later message did start a turn, as the 11-23 agent's 19:55 one did). */
-      if (e && (e.type === 'result' || e.type === 'assistant' || e.type === 'user' || (e.type === 'system' && e.subtype === 'init'))) {
+      /* kosmos#8951: a sign of a turn means the message was started on, and the deadline is off. Review 1 B1: a `result`
+         counts only after this process opened a turn (init, assistant or user): a resumed session with nothing to resume
+         answers with one error `result` and no turn, and that must not erase what the dead process lost. */
+      const opens = !!e && (e.type === 'assistant' || e.type === 'user' || (e.type === 'system' && e.subtype === 'init'));
+      if (opens) current.opened = true;
+      if (opens || (e && e.type === 'result' && current.opened === true)) {
         current.startDue = null;
-        current.unstarted = null;
+        reportRan();
         /* The first message is under way; only those written behind it are still not started. */
         current.inFlight = (current.queued || 0) > 0 && current.inFlight ? { since: current.inFlight.since, count: current.queued } : null;
       }
@@ -843,7 +878,16 @@ function publisher(name, opts) {
         for (const c of content) if (c && c.type === 'tool_result' && current.open.delete(c.tool_use_id)) closed = true;
         if (closed && current.open.size === 0) current.queued = 0;
       }
-      if (e && e.type === 'result') { current.open.clear(); current.queued = 0; current.inFlight = null; }   // kosmos#8951: ended, nothing in flight
+      if (e && e.type === 'result') {
+        const behind = current.queued || 0;
+        current.open.clear(); current.queued = 0;
+        /* kosmos#8951 review 1 W1: messages written behind the turn are taken at this boundary and start the next turn, so
+           they are still in flight, and must now start a turn of their own by the deadline. */
+        if (behind > 0 && current.opened === true) {
+          current.inFlight = { since: (current.inFlight && current.inFlight.since) || new Date(nowMs()).toISOString(), count: behind };
+          armStart();
+        } else if (current.opened === true) current.inFlight = null;   // a result with no turn (B1) runs nothing
+      }
       /* kosmos#7368 (review 1): ANY event while busy is activity, so the step clock is the last sign of life, not the
          turn's start: an agent calling a new tool every minute is never on one step for an hour. */
       if (current.state === BUSY && e && (e.type === 'assistant' || e.type === 'user' || e.type === 'system')) current.stepSince = new Date(nowMs()).toISOString();
@@ -899,19 +943,16 @@ function publisher(name, opts) {
     /** A message reached the agent's stdin. */
     wrote() {
       if (!current) return;
-      /* kosmos#8951: written and not yet run, until a turn starts on it (or a result ends the turn). */
+      /* kosmos#8951: written and not yet run, until a turn starts on it. */
       current.inFlight = current.inFlight ? { since: current.inFlight.since, count: current.inFlight.count + 1 } : { since: new Date(nowMs()).toISOString(), count: 1 };
+      if (current.unstarted) current.wroteAfterReport = true;   // review 1: only a turn this opens can end the report
       /* kosmos#7368: written into a busy agent, it waits for the agent's next boundary; into an idle one, it starts the turn. */
       if (current.state === BUSY) current.queued = (current.queued || 0) + 1;
       else {
         setState(BUSY);
         /* kosmos#8951: into an idle agent it must start a turn; if no sign of one arrives by the deadline, it is reported
-           rather than left reading busy. Armed for this write only: it fires only while `startDue` is still this object, so a
-           turn that started, a stop or a new process (a new `current`) disarms it. */
-        const due = { at: new Date(nowMs()).toISOString() };
-        current.startDue = due;
-        const t = timer(() => missedStart(due), startDeadlineMs);
-        if (t && typeof t.unref === 'function') t.unref();   // never what keeps a process (or a test) alive
+           rather than left reading busy. */
+        armStart();
       }
       current.reachedModel = false;
       current.authRefused = false;   // #7369
@@ -925,7 +966,10 @@ function publisher(name, opts) {
       if (was && (was.unstarted || was.inFlight)) {
         const a = was.unstarted, b = was.inFlight;
         const since = [a && a.since, b && b.since].filter((x) => typeof x === 'string').sort()[0];
-        lostOnStop = { since, count: ((a && a.count) || 0) + ((b && b.count) || 0) };
+        /* `lost`: the process ended with them (review 1 W4: said differently, since the message may be what ended it);
+           `fresh`: some of them are newly lost now (the task log says those; a report carried as it was is not said again). */
+        lostOnStop = { since, count: ((a && a.count) || 0) + ((b && b.count) || 0), lost: !!b || !!(a && a.lost), fresh: !!b,
+          reportAt: a && Number.isFinite(was.reportAt) ? was.reportAt : nowMs() };
       }
       generation += 1;
       current = null;
