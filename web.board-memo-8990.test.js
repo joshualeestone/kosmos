@@ -24,7 +24,7 @@ const count = (re) => (PAGE.match(re) || []).length;
 
 test('the grid is written in exactly two places: setGridHtml and the failed-poll card', () => {
   assert.equal(count(/getElementById\('grid'\)\.innerHTML\s*=/g), 0, 'a direct write to #grid by id bypasses GRID_HTML');
-  assert.equal(count(/\bgrid\.innerHTML\s*=\s*html;/g), 1, 'setGridHtml no longer writes the grid');
+  assert.equal(count(/\bgrid\.innerHTML\s*=/g), 1, 'a write to grid.innerHTML was added or removed (setGridHtml is the one)');
   assert.match(PAGE, /function setGridHtml\(html\) \{\s*const grid = document\.getElementById\('grid'\);\s*if \(!grid \|\| html === GRID_HTML\) return;\s*GRID_HTML = html;\s*grid\.innerHTML = html;\s*\}/,
     'setGridHtml no longer skips markup it already wrote');
 });
