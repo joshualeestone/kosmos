@@ -1827,6 +1827,15 @@ do {
           "one byte over: the board's sentence, before any byte is sent")
     check(Board.uploadRefusal(size: 10, waiting: 10) == "A message can carry 10 files; send these first.", "an eleventh file: the board's sentence")
     check(Board.uploadRefusal(size: nil, waiting: 0) == nil, "a size the phone could not read is left to the Mac")
+    // kosmos#9016: a copy that is not the whole of the person's file is refused before a byte goes.
+    check(Board.copyIsWhole(sourceBefore: 65_537, sourceAfter: 65_537, copy: 65_537), "a whole copy goes")
+    check(!Board.copyIsWhole(sourceBefore: 112_000, sourceAfter: 112_000, copy: 65_536), "a copy cut at 64 KiB is refused")
+    check(!Board.copyIsWhole(sourceBefore: 65_536, sourceAfter: 70_000, copy: 70_000), "a source still growing under the copy is refused")
+    check(!Board.copyIsWhole(sourceBefore: 65_536, sourceAfter: 65_536, copy: 65_537), "a copy longer than its source is refused")
+    check(Board.copyIsWhole(sourceBefore: nil, sourceAfter: nil, copy: 10), "sizes the phone could not read are not held against the file")
+    check(Board.notWhole == "That file did not arrive whole; please send it again.", "the board's words for it (#9016)")
+    let sized = Board.withSize(URLRequest(url: URL(string: "https://mac.example/api/agent/dana/attachment")!), 65_537)
+    check(sized.value(forHTTPHeaderField: "X-Attachment-Size") == "65537", "the request says how many bytes it carries, in digits")
 
     func res(_ status: Int, _ body: String?, size: Int? = 1000) -> Board.UploadResult {
         Board.uploadResult(status: status, body: body.map { Data($0.utf8) }, name: "deck.pdf", size: size)
@@ -2151,6 +2160,7 @@ final class FakeBoardWorld {
     // each carried (path, type, name header, the bytes read from the file), and each post's `attachments`.
     var uploadQueue: [(Int, String)?] = []
     var uploads: [(path: String, type: String, name: String, bytes: Data, file: String)] = []
+    var uploadSizes: [String] = []   // kosmos#9016: each upload's X-Attachment-Size ("" when it had none)
     var uploadYields = 0
     var uploadsCancelled = 0   // kosmos#7682
     var uploadsStarted = 0     // kosmos#7682
@@ -2174,6 +2184,7 @@ final class FakeBoardWorld {
         fetchSites.append(("\(r.httpMethod ?? "GET") \(url.host ?? "")\(url.path)", r.value(forHTTPHeaderField: "Sec-Fetch-Site") ?? ""))
         uploads.append((url.path, r.value(forHTTPHeaderField: "Content-Type") ?? "", r.value(forHTTPHeaderField: "X-Attachment-Name") ?? "",
                         (try? Data(contentsOf: file)) ?? Data(), file.standardizedFileURL.path))
+        uploadSizes.append(r.value(forHTTPHeaderField: "X-Attachment-Size") ?? "")
         let next: (Int, String)? = uploadQueue.isEmpty
             ? (200, #"{"attachment":{"id":"\#(String(format: "%024lx", uploads.count))","name":"\#(r.value(forHTTPHeaderField: "X-Attachment-Name")?.removingPercentEncoding ?? "")"}}"#)
             : uploadQueue.removeFirst()
@@ -3310,6 +3321,7 @@ section("native board loop: connecting")
         check(w.uploads.count == 1 && w.uploads[0].path == "/api/agent/dana/attachment" && w.uploads[0].type == "application/pdf"
               && w.uploads[0].name == "deck.pdf" && w.uploads[0].bytes == Data("%PDF-1.4 deck".utf8),
               "a picked file goes up at once: the agent's route, its type from its name, its name and its bytes")
+        check(w.uploadSizes == [String(Data("%PDF-1.4 deck".utf8).count)], "kosmos#9016: and says its size, the bytes it carries")
         check(attached().map(\.name) == ["deck.pdf"] && c.uploading["dana"] == 0, "and waits on the composer")
         check(FileManager.default.fileExists(atPath: a.path), "the person's own file is never removed (the client sends a copy)")
         check(w.uploads[0].file.hasPrefix(uploadsRoot.standardizedFileURL.path + "/") && w.uploads[0].file != a.standardizedFileURL.path,

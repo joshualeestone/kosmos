@@ -987,7 +987,7 @@ final class BoardClient: ObservableObject {
             if sample {
                 // The sample chats (a Debug build only): added at once, so a screenshot never shows a real Mac's file.
                 result = .added(Board.Attached(id: String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(24)), name: name))
-            } else if let held = admitted, let request = request(held.url, name, type) {
+            } else if let held = admitted, let request = request(held.url, name, type).map({ Board.withSize($0, size) }) {   // kosmos#9016
                 // kosmos#7682 review 1: the upload runs as its own task, kept per chat, so the x CANCELS it (its
                 // connection and the copy go), rather than only ignoring what it answers.
                 let upload = env.upload
