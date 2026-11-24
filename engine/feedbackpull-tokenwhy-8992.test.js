@@ -81,7 +81,8 @@ test('review 1: no credential folder at all is missing (file it), as the tool it
 
 test('review 1: a first copy that cannot be run, or does not know the verb, lets the second place answer', () => {
   const EACCES = Object.assign(new Error('spawnSync secrets-map.sh EACCES'), { code: 'EACCES' });
-  for (const first of [{ error: EACCES }, { status: 2, stdout: '', stderr: 'usage: secrets-map.sh ...\n' }]) {
+  const OLD = { status: 2, stdout: '', stderr: "secrets-map.sh: unknown subcommand 'value' (try --help)\n" };   // a copy without the verb
+  for (const first of [{ error: EACCES }, OLD]) {
     fp.setSecretsRunner((bin, args) => (bin === 'secrets-map.sh' ? first : (args[0] === 'value' ? ok('tok2') : ok(''))));
     assert.deepEqual(fp.tokenReading(), { token: 'tok2' }, JSON.stringify(first));
     fp.setSecretsRunner((bin) => (bin === 'secrets-map.sh' ? first : { error: ENOENT }));
@@ -95,11 +96,17 @@ test('review 1: a first copy that cannot be run, or does not know the verb, lets
 });
 
 test('a tool that cannot run value says update it, never run again or file it', async () => {
-  fp.setSecretsRunner(() => ({ status: 2, stdout: '', stderr: 'usage: secrets-map.sh <lookup|...>\n' }));
+  fp.setSecretsRunner(() => ({ status: 2, stdout: '', stderr: "secrets-map.sh: unknown subcommand 'value' (try --help)\n" }));
   const r = await fp.pull(path.join(SB, 'd6'));
   assert.equal(r.why, 'tool-broken');
   assert.match(r.because, /Update it with \/agent-refresh, then run the pull again; do not file the token again/);
   assert.doesNotMatch(r.because, /File it with/);
+});
+
+test('round 4: any other exit 2 is the verb refusing a filed shape, which the lookup names: never "update the tool"', () => {
+  const REFUSED = { status: 2, stdout: '', stderr: `secrets-map: '${T}' is a sourceable-env credential - it holds NAMED values,\n` };
+  map({ value: REFUSED, lookup: ok(`cred:     /x/a\nformat:   sourceable-env\nconsume:  eval "$(secrets-map.sh env ${T})"  (or: value ${T} <VAR>)\n`) });
+  assert.deepEqual(fp.tokenReading(), { why: 'misfiled' });
 });
 
 test('the token the map gives is the one the pull sends', async () => {
@@ -179,6 +186,30 @@ test('the real secrets-map.sh, its secrets folder pointed at an empty and at an 
     process.env.SECRETS_DIR = path.join(SB, 'no-such-secrets-folder');
     noToken(fp.tokenReading(), 'no secrets folder');
     assert.equal(fs.existsSync(path.join(SB, 'no-such-secrets-folder')), false, 'and the tool did not make one');
+  } finally {
+    if (was === undefined) delete process.env.SECRETS_DIR; else process.env.SECRETS_DIR = was;
+    process.env.PATH = wasPath;
+  }
+});
+
+test('the real secrets-map.sh with FAKE credentials in a temp folder: a bare token is read, an env-shaped one is misfiled', (t) => {
+  const real = path.join(os.homedir(), '.local', 'bin', 'secrets-map.sh');
+  if (!fs.existsSync(real)) { t.skip('no secrets-map.sh on this computer'); return; }
+  // Measured 2026-11-24 (round 4): `value` exits 2 refusing an env-shaped credential, the same code an old copy gives
+  // for an unknown verb; only the wording tells them apart. Fake values only, in a folder this test made.
+  const was = process.env.SECRETS_DIR;
+  const wasPath = process.env.PATH;
+  const write = (dir, body) => { fs.mkdirSync(dir, { mode: 0o700 }); fs.writeFileSync(path.join(dir, 'blob'), body, { mode: 0o600 }); return dir; };
+  const head = `# secret-map: fake test credential\n# targets: ${T}\n`;
+  try {
+    process.env.PATH = path.dirname(real) + path.delimiter + (wasPath || '');
+    process.env.SECRETS_DIR = write(path.join(SB, 'fake-bare'), head + '# format: bare-token\nfake_blob_token_8992\n');
+    const bare = fp.tokenReading();
+    assert.equal(bare.token, 'fake_blob_token_8992', 'CONTROL: a well-filed (fake) token is read');
+    process.env.SECRETS_DIR = write(path.join(SB, 'fake-env'), head + '# format: sourceable-env\nFAKE_A=one\nFAKE_B=two\n');
+    const env = fp.tokenReading();
+    assert.ok(!Object.prototype.hasOwnProperty.call(env, 'token'), 'an env file must not read as a token');
+    assert.equal(env.why, 'misfiled');
   } finally {
     if (was === undefined) delete process.env.SECRETS_DIR; else process.env.SECRETS_DIR = was;
     process.env.PATH = wasPath;

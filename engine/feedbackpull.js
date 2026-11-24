@@ -120,12 +120,16 @@ function tokenReading() {
     if (got && got.error && got.error.code === 'ENOENT') continue;   // not at this place; try the next
     const t = String((got && got.stdout) || '').trim();
     if (got && !got.error && got.status === 0 && t) return { token: t };
-    /* A copy that could not be started (not executable, not runnable here) or that does not know the verb (a usage
-       exit 2) is not this place's answer: the next place may work, as it did before #8992. If none does, the tool is
-       broken, which running again cannot fix. A timeout does answer here, so a hung tool costs one read and one lookup
-       at this place (a broken first copy that is also slow adds the second place's wait). */
+    /* A copy that could not be started (not executable, not runnable here) or that does not know the verb (it says
+       "unknown subcommand 'value'") is not this place's answer: the next place may work, as it did before #8992. If
+       none does, the tool is broken, which running again cannot fix. Any other exit 2 is the verb refusing a filed
+       credential's shape (an env file, say), which the lookup below names. A timeout does answer here, so a hung tool
+       costs one read and one lookup at this place (a broken first copy that is also slow adds the second place's wait).
+       A non-zero exit never yields a token, even with something on stdout: Kosmos reads the whole output, so it is
+       not the tool's broken-pipe case. */
     const timedOut = Boolean(got && got.error && got.error.code === 'ETIMEDOUT');
-    if ((got && got.error && !timedOut) || (got && !got.error && got.status === 2)) { fallback = 'tool-broken'; continue; }
+    const noVerb = Boolean(got && !got.error && got.status === 2 && /unknown subcommand 'value'/.test(String(got.stderr || '')));
+    if ((got && got.error && !timedOut) || noVerb) { fallback = 'tool-broken'; continue; }
     // The tool is here and did not give the token: ask the map whether the target is in it, and in what state.
     let seen;
     try { seen = runSecrets(bin, ['lookup', FEEDBACK_TOKEN_TARGET]); } catch { seen = { error: new Error('could not run') }; }

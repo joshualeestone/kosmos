@@ -49,3 +49,13 @@ run again and check lookup), the safe side. The real-tool test pins the wording 
 - 'missing' adds: if you believe it is filed, run `secrets-map.sh audit` first (an unreadable header looks unfiled).
 - A test that the token the map gives is the one the pull sends; the test's temp folder is removed; "Review N" labels
   dropped from new comments; the wait note made exact.
+
+## Round 4 (sonnet) fixes
+- BLOCKER fixed: `value` exits 2 both for an old copy's unknown verb and for refusing a filed shape (an env file).
+  Only "unknown subcommand 'value'" is tool-broken; any other exit 2 goes to the lookup, which says misfiled.
+  Measured on the real tool with FAKE credentials in a temp SECRETS_DIR: env-shaped -> misfiled; bare fake -> read.
+  Kept as a test (fake values only).
+- A non-zero exit never yields a token (comment: Kosmos reads the whole output, so it is not the tool's broken-pipe case).
+- Slip, recorded: while measuring I ran `secrets-map.sh generate` once without SECRETS_DIR, which regenerated the real
+  map README (the idempotent rebuild /add-secret runs; headers only, no values). Checked after: 107 rows, the target
+  listed, lookup reads it as a bare token.
