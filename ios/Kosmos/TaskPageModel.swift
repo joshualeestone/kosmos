@@ -20,8 +20,18 @@ final class TaskPageModel: ObservableObject {
     // A press in the air, and the Mac's sentence for the last one it refused.
     @Published private(set) var pressing = false
     @Published private(set) var refusal: String?
-    // kosmos#8958 slice B6: the subtasks as they read when a refusal about closing them was said; it goes when they change.
+    // kosmos#8958 slice B6: closing the built subtasks with the task is the press in the air.
+    @Published private(set) var closingSubtasks = false
+    // The subtasks as they read when a refusal about closing them was said; it goes when they change. When the read after the
+    // closes failed, the next read that works says what they were (refusalAwaits): against an older one, the closes themselves
+    // would be the change.
     private var refusalSubtasks: [Board.SubtaskRow]?
+    private var refusalAwaits = false
+    private func clearRefusal() {
+        if refusal != nil { refusal = nil }
+        refusalSubtasks = nil
+        refusalAwaits = false
+    }
     // kosmos#8958 slice B1: a message on its way, and the line under the box (who it did not reach, or the refusal).
     @Published private(set) var saying = false
     @Published private(set) var sayLine: String?
@@ -174,9 +184,10 @@ final class TaskPageModel: ObservableObject {
             // Only when set: assigning a published value redraws the page, and a quiet tick must redraw nothing.
             if reviewerShown != nil { reviewerShown = nil }
             // A refusal is about the press it answered: once the task reads otherwise (another device did it), it goes.
-            if refusal != nil, let was = page, was.act != p.act { refusal = nil }
+            if refusal != nil, let was = page, was.act != p.act { clearRefusal() }
             if p != page { page = p }
-            if let was = refusalSubtasks, was != p.subtasks { refusal = nil; refusalSubtasks = nil }
+            if refusalAwaits { refusalAwaits = false; refusalSubtasks = p.subtasks }
+            if let was = refusalSubtasks, was != p.subtasks { clearRefusal() }
             if let sig = holdSaySig, Board.holdNextSig(p) != sig { holdSay = nil; holdSaySig = nil }
             if let w = repeatSavedAs, p.closed || p.repeatStored.map(Board.repeatWire) != w { repeatSay = nil; repeatSavedAs = nil }
             // Nothing about Repeats outlives the task being finished (the board's tkPaintRepeat, review 2).
@@ -263,7 +274,7 @@ final class TaskPageModel: ObservableObject {
         // Nor while a Repeats or reviewer save is out (B3, B3b): its answer would be about a task this press is closing.
         guard !pressing, !holding, !repeatSaving, reviewerSaving == nil, current, let page, page.act == shown else { return }
         pressing = true
-        refusal = nil
+        clearRefusal()
         let (project, number) = (self.project, self.number)
         let answer = await send { Board.taskActRequest(mac: $0, project: project, number: number, act: shown) }
         guard current else { return }
@@ -277,41 +288,55 @@ final class TaskPageModel: ObservableObject {
     // kosmos#8958 slice B6: the board's "Close them and this task": each built subtask in number order, then this task, through
     // the route Mark as done uses. The first refusal, or no answer, stops it there. The task is read first (the page may be
     // an hour old): nothing is sent unless the subtasks are still as the line said, nor while another press is out. Then
-    // both are read again. True when this task reads closed after it.
+    // both are read again. True when all of them are closed: every close was answered so, or they read so (an answer lost).
     @discardableResult
     func closeWithSubtasks(names: [String: String]) async -> Bool {
         guard !pressing, !holding, !repeatSaving, reviewerSaving == nil, current, let page, page.allSubtasksBuilt else { return false }
         pressing = true
-        refusal = nil
-        refusalSubtasks = nil
+        closingSubtasks = true
+        clearRefusal()
         let (project, number) = (self.project, self.number)
         let built = page.subtasks.filter { $0.status == "Built" }.map(\.number)
-        var stopped: String?
+        enum Stop { case unsent(String), refused(at: Int?, why: String, closed: Int), unsure }
+        var stopped: Stop?
         let fresh = await freshRead()
         guard current else { return false }
         var same = false
         if case .some(.page(let p)) = fresh { same = p.allSubtasksBuilt && p.subtasks.filter { $0.status == "Built" }.map(\.number) == built }
-        if !same { stopped = fresh == nil ? Board.subtasksCheckFailed : Board.subtasksChanged }
+        if !same { stopped = .unsent(fresh == nil ? Board.subtasksCheckFailed : Board.subtasksChanged) }
         if stopped == nil {
             for (closed, n) in (built + [number]).enumerated() {
                 let answer = await send { Board.taskActRequest(mac: $0, project: project, number: n, act: .close) }
                 guard current else { return false }
                 if let stop = Board.closeStop(status: answer?.1.statusCode ?? 0, body: answer?.0) {
-                    if case .refused(let why) = stop { stopped = Board.subtasksStopped(at: closed < built.count ? n : nil, why: why, closed: closed) }
-                    else { stopped = Board.subtasksCloseUnsure }
+                    if case .refused(let why) = stop { stopped = .refused(at: closed < built.count ? n : nil, why: why, closed: closed) }
+                    else { stopped = .unsure }
                     break
                 }
             }
         }
+        // As saveReviewer's: the number read() gives the read below.
+        let ownRead = pageReads + 1
         await read()
+        guard current else { return false }
+        let readOK = pageReadOK >= ownRead
         await readActivity(names: names)
         guard current else { return false }
-        if stopped == Board.subtasksCloseUnsure, readFailed { stopped = Board.subtasksCloseUnsureUnread }
         pressing = false
-        // Not over a read that found this task closed after all (an answer that was lost).
-        if self.page?.closed == true { return true }
-        refusal = stopped
-        refusalSubtasks = stopped == nil ? nil : self.page?.subtasks
+        closingSubtasks = false
+        guard let stopped else { return true }
+        // Read after the press: this task and all its subtasks are closed, whatever an answer said or was lost.
+        let shut = self.page?.closed == true
+        if shut, self.page?.subtasks.allSatisfy(\.closed) == true { return true }
+        switch stopped {
+        case .unsent(let words):
+            // Closed elsewhere: the page says that, and nothing was sent.
+            if shut { return false }
+            refusal = words
+        case .refused(let at, let why, let closed): refusal = Board.subtasksStopped(at: at, why: why, closed: closed, open: !shut)
+        case .unsure: refusal = readOK ? Board.subtasksCloseUnsure : Board.subtasksCloseUnsureUnread
+        }
+        if readOK { refusalSubtasks = self.page?.subtasks } else { refusalAwaits = true }
         return false
     }
 

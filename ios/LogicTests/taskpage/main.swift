@@ -1300,6 +1300,7 @@ do {
     check(Board.subtasksStopped(at: nil, why: "no", closed: 2) == "no. Its built subtasks are closed.", "stopped at this task")
     check(Board.subtasksStopped(at: 4, why: "no", closed: 0) == "Task #4: no. This task is still open.", "stopped at the first")
     check(Board.subtasksStopped(at: 4, why: "no", closed: 1) == "Task #4: no. 1 subtask before it is closed. This task is still open.", "stopped at the second")
+    check(Board.subtasksStopped(at: 4, why: "no", closed: 1, open: false) == "Task #4: no. 1 subtask before it is closed.", "stopped, and this task closed elsewhere: not said to be open")
     check(Board.subtasksStopped(at: 4, why: "no", closed: 2) == "Task #4: no. 2 subtasks before it are closed. This task is still open.", "stopped at the third")
     let e = Data(#"{"error":"no"}"#.utf8)
     check(Board.closeStop(status: 204, body: nil) == nil && Board.closeStop(status: 409, body: e) == .refused("no") && Board.closeStop(status: 400, body: nil) == .refused("we could not close it"), "closed, refused with words, refused with none")
@@ -2310,7 +2311,7 @@ func b6ModelTests() async {
         check(said, "and it says it is closed")
         check(closes(mac) == ["3/close", "4/close", "1/close"], "each built subtask in number order, not the one already closed, then this task")
         check(mac.asked.first == "GET /api/projects" && mac.asked.dropFirst(4).first == "GET /api/projects" && mac.asked.contains("GET /api/project/springcatalogue/task/1/activity"), "read first, then the task and its activity again")
-        check(m.page?.closed == true && m.refusal == nil && !m.pressing, "closed, nothing refused")
+        check(m.page?.closed == true && m.refusal == nil && !m.pressing && !m.closingSubtasks, "closed, nothing refused")
     }
     for (what, answers, want, sent) in [("the second refused", [(200, "{}"), (409, #"{"error":"no"}"#)], "Task #4: no. 1 subtask before it is closed. This task is still open.", 2),
                                         ("the first refused", [(409, #"{"error":"no"}"#)], "Task #3: no. This task is still open.", 1),
@@ -2326,8 +2327,8 @@ func b6ModelTests() async {
         let mac = FakeMac(); mac.projects = tasks(built, built); let m = await model(mac)
         mac.actAnswers = [(200, "{}"), (200, "{}"), nil]
         mac.onSend = { r in if r.url?.path.hasSuffix("/task/1/close") == true { mac.projects = tasks(closed, closed, own: closed) } }
-        await m.closeWithSubtasks(names: [:])
-        check(m.page?.closed == true && m.refusal == nil, "this task's answer lost, but it reads closed: nothing is said to have stopped")
+        let said = await m.closeWithSubtasks(names: [:])
+        check(said && m.page?.closed == true && m.refusal == nil, "this task's answer lost, but all read closed: nothing is said to have stopped")
     }
     for (what, three, four) in [("one open", built, [:]), ("one held", built, ["builtAt": "x", "onHold": true]), ("all done", closed, closed)] as [(String, [String: Any], [String: Any])] {
         let mac = FakeMac(); mac.projects = tasks(three, four); let m = await model(mac)
@@ -2344,7 +2345,7 @@ func b6ModelTests() async {
         mac.release()
         mac.holdTheNext()
         await waitUntil({ mac.holding }, "the first close")
-        check(m.pressing && m.refusal == nil, "in progress while it is out")
+        check(m.pressing && m.closingSubtasks && m.refusal == nil, "in progress while it is out")
         await m.closeWithSubtasks(names: [:])
         await m.press(.close, names: [:])
         check(closes(mac).count == 1, "a second press, or Mark as done, sends nothing meanwhile")
@@ -2365,7 +2366,7 @@ func b6ModelTests() async {
         let going = Task { await m.press(.close, names: [:]) }
         await waitUntil({ mac.holding }, "Mark as done")
         await m.closeWithSubtasks(names: [:])
-        check(closes(mac).count == 1, "nothing while Mark as done is out")
+        check(closes(mac).count == 1 && !m.closingSubtasks, "nothing while Mark as done is out")
         mac.release()
         await going.value
         mac.asked = []
@@ -2382,8 +2383,9 @@ func b6ModelTests() async {
                         ("the task closed since", tasks(built, built, own: closed)), ("gone", (200, Data(#"{"projects":[]}"#.utf8)))] as [(String, (Int, Data))] {
         let mac = FakeMac(); mac.projects = tasks(built, built); let m = await model(mac)
         mac.projects = now
-        await m.closeWithSubtasks(names: [:])
-        check(closes(mac).isEmpty && !m.pressing, "\(what): nothing is closed")
+        let said = await m.closeWithSubtasks(names: [:])
+        check(closes(mac).isEmpty && !m.pressing && !m.closingSubtasks && !said, "\(what): nothing is closed, nor said to be")
+        if what == "the task closed since" { check(m.page?.closed == true && m.refusal == nil, "\(what): the page says it, not a line") }
         if what == "one open since" || what == "one held since" { check(m.refusal == Board.subtasksChanged, "\(what): and it says they changed") }
     }
     do {
@@ -2404,6 +2406,56 @@ func b6ModelTests() async {
         mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = (500, Data()) } }
         await m.closeWithSubtasks(names: [:])
         check(m.refusal == Board.subtasksCloseUnsureUnread, "no answer, and the list could not be read again: it does not point at the list")
+    }
+    // This task closed elsewhere while its subtasks were being closed.
+    for (what, answers, three, want) in [("the first refused", [(409, #"{"error":"no"}"#)], built, "Task #3: no."),
+                                        ("no answer to the second", [(200, "{}"), nil], closed, Board.subtasksCloseUnsure)] as [(String, [(Int, String)?], [String: Any], String)] {
+        let mac = FakeMac(); mac.projects = tasks(built, built); let m = await model(mac)
+        mac.actAnswers = answers
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = tasks(three, built, own: closed) } }
+        let said = await m.closeWithSubtasks(names: [:])
+        check(!said && m.page?.closed == true && m.refusal == want, "\(what), this task closed elsewhere: a subtask is still built, and it says so, not that all are closed")
+    }
+    do {
+        let mac = FakeMac(); mac.projects = tasks(built, built); let m = await model(mac)
+        mac.onSend = { r in if r.url?.path.hasSuffix("/task/1/close") == true { mac.projects = (500, Data()) } }
+        let said = await m.closeWithSubtasks(names: [:])
+        check(said && m.refusal == nil && m.readFailed, "every close answered, the read after them failed: they are closed")
+    }
+    // A partial close whose read after it failed: the line is not taken away by the closes themselves.
+    for (what, answers) in [("refused", [(200, "{}"), (409, #"{"error":"no"}"#)]), ("no answer", [(200, "{}"), nil])] as [(String, [(Int, String)?])] {
+        let mac = FakeMac(); mac.projects = tasks(built, built); let m = await model(mac)
+        mac.actAnswers = answers
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = (500, Data()) } }
+        await m.closeWithSubtasks(names: [:])
+        let line = m.refusal
+        check(line != nil, "\(what): it says so")
+        mac.projects = tasks(closed, built)
+        await m.read()
+        check(m.refusal == line && m.page?.subtasks.first?.status != m.page?.subtasks.last?.status, "\(what): the next read shows what was closed, and the line stays")
+        await m.read()
+        check(m.refusal == line, "\(what): and stays while they read the same")
+        mac.projects = tasks(closed, closed)
+        await m.read()
+        check(m.refusal == nil, "\(what): and goes once they change")
+    }
+    // A later press's refusal is not that line: a change to the subtasks leaves it, whichever way the last one ended.
+    for failed in [false, true] {
+        let mac = FakeMac(); mac.projects = tasks(built, built); let m = await model(mac)
+        mac.actAnswers = [(409, #"{"error":"no"}"#)]
+        if failed { mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = (500, Data()) } } }
+        await m.closeWithSubtasks(names: [:])
+        check(m.refusal != nil, "premise: refused")
+        mac.onSend = nil
+        mac.actAnswers = [(409, #"{"error":"not yet"}"#)]
+        if !failed { mac.projects = tasks(built, built) }
+        await m.press(.close, names: [:])
+        let line = m.refusal
+        mac.projects = tasks(built, built)
+        await m.read()
+        mac.projects = tasks(closed, built)
+        await m.read()
+        check(line != nil && m.refusal == line, "Mark as done's refusal outlives a change to the subtasks (the read failed: \(failed))")
     }
     // Nor while the repeat rule or its reviewer is being saved (a task that repeats).
     for which in ["repeat", "reviewer"] {
