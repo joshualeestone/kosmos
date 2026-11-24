@@ -81,8 +81,9 @@ struct LoadFailureView: View {
     let detail: String
     let retrying: Bool
     let onRetry: () -> Void
-    // Leaves a page that will not load: back to the page before it, or the board home.
-    let onBack: () -> Void
+    // Leaves a page that will not load: back to the page before it, or the board home. kosmos#8957: nil on the phone's
+    // own tabs, where "Back to Kosmos" opened the board (which is not answering either); Try again is the way on there.
+    let onBack: (() -> Void)?
     // kosmos#6850: shown only for a Mac that is not answering (Shell.offersOtherComputer).
     var onOtherComputer: (() -> Void)? = nil
     // kosmos#7197: the Mac that is not answering, by name, when it is known.
@@ -160,10 +161,12 @@ struct LoadFailureView: View {
                     .foregroundColor(KosmosColor.ink)
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(KosmosColor.muted, lineWidth: 1))
                 }
-                Button("Back to Kosmos", action: onBack)
-                    .font(.body)
-                    .foregroundColor(KosmosColor.ink)
-                    .frame(minHeight: 44)
+                if let onBack {
+                    Button("Back to Kosmos", action: onBack)
+                        .font(.body)
+                        .foregroundColor(KosmosColor.ink)
+                        .frame(minHeight: 44)
+                }
             }
             .padding(.horizontal, 32)
             .frame(maxWidth: 420)

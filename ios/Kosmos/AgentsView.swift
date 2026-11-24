@@ -557,13 +557,14 @@ struct BoardStates<Empty: View>: View {
         case .live:
             empty()    // the list is fresh here (`waiting` took the rest)
         case .unreachable(let mac):
-            // Today's navy page, as it is: no title over it, and Back opens Today, the board. kosmos#7197: naming the Mac.
-            LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard, macName: mac,
+            // Today's navy page, as it is: no title over it. kosmos#8957: no Back to Kosmos (it opened the board, which is not
+            // answering either); Try again. kosmos#7197: naming the Mac.
+            LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: nil, macName: mac,
                             lastHeard: client.lastHeard(address: client.failingAddress, name: mac))
                 .onAppear { client.refreshLastSeen() }   // kosmos#7416 review 2: the list's time, read afresh
                 .navigationBarHidden(true)
         case .kosmosPlusDown:
-            LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)
+            LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: nil)
                 .navigationBarHidden(true)
         case .signedOut:
             VStack(spacing: 12) {
