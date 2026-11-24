@@ -65,3 +65,6 @@ Validation: full run through the heavy queue at head 776543381f. The first run (
 - [WARNING] the UI test row query could match a sibling row --> DEFERRED: recorded in the plan (776543381f), for slice B2's review
 - [WARNING] the box check in the UI test --> DEFERRED: recorded in the plan (776543381f)
 - [NIT] Return in the title field --> NOTED in the plan
+
+### Rebase and combination, 11:44 CST
+Rebased onto origin/main 87918b0c75 and stacked on slice A (unsentdraft-8958), so this PR carries A and B1 in one CI run. One conflict: the classes line of ios/tools/ui-sample.sh, against the AccountScreenUITests entry of #8959; every class kept. On the combined tree: all 14 ios/LogicTests runners pass, the ios/Kosmos typecheck passes, and the 13 root test files that name ios/ pass (93 of 93). The diff_hash above is the hash of the last full validation, before this rebase; the full suite for the combined tree is the CI of this PR.
