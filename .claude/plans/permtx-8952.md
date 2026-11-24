@@ -55,3 +55,10 @@ A reported safety check (Claude Code's hook-raised prompt) may write no tool_use
 - [NIT] deferred: no per-pid memo; a memo would let the press read the GET-time answer, and the reads are cached per file.
 - [NIT] fixed: only a typed message (no tool_result, not isMeta) settles earlier calls (mutation-checked).
 - [NIT] deferred: a second transcript read after the re-look; the key follows synchronously after the re-look.
+
+#### Iteration 3 (opus): STOPPED, approach wrong
+- [BLOCKER] confirmed by measurement (card comment 7130937528): a PreToolUse hook returning updatedInput makes Claude
+  Code draw and run a rewritten command while the transcript keeps the original; a tail-only match cannot see it, and
+  hook sources cannot be enumerated completely. This branch is NOT to be merged as a transcript reader.
+- Next: show the whole box by a temporary taller window (screen stays the only source). Reusable here: the byte-identical
+  re-look before the key, the tests' fixture (permission-prompt-bash-cut-2.1.331.txt).
