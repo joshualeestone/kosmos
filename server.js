@@ -668,11 +668,14 @@ const BULK_CLOSE_MAX = 200;
 /* kosmos#8989: `changedBy` is set only by a caller that knows who made the change (task close and reopen): the agent its
    token named, or null for the person or a caller with no token. Every assignee who is not that agent is owed a re-read
    of its projects section (projects.syncAgent byOther). Unset, nobody is owed one for the task change (as before). */
+/* kosmos#8989 review 3: by the token store's key too (sameAgentName), as the take route matches, so an agent named by
+   its key whose stored spelling differs is still itself, and is not typed a notice about its own change. */
+function changedByOther(holder, by) { return !(typeof by === 'string' && sameAgentName(holder, by, true)); }
 function tellEveryoneOn(t, roster, { changedBy } = {}) {
   const named = tasks.whoOf(t);
   if (!named.length) return undefined;
   if (!roster) roster = safeRoster();
-  const byOtherFor = (one) => changedBy !== undefined && one !== changedBy;
+  const byOtherFor = (one) => changedBy !== undefined && changedByOther(one, changedBy);
   let last;
   for (const one of named) {
     try { last = projects.syncAgent(one, roster, { byOther: byOtherFor(one) }); }
@@ -781,7 +784,7 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
        since it learns of the move only when it is back from its limit. */
     const before = out.changed && typeof out.previous === 'string' ? out.previous : null;
     if (before && before !== who && !tasks.whoOf(out.task).includes(before)) {
-      try { projects.syncAgent(before, r, { byOther: before !== (screen ? null : by) }); } catch { /* the give stands; the next sync catches up */ }
+      try { projects.syncAgent(before, r, { byOther: changedByOther(before, screen ? null : by) }); } catch { /* the give stands; the next sync catches up */ }
     }
     return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
   };
@@ -27283,7 +27286,7 @@ const server = http.createServer(async (req, res) => {
             const named = new Set();
             for (const sub of t.closedWith) { const k = rec ? tasks.byNumber(rec, sub) : null; if (k) for (const one of tasks.whoOf(k)) named.add(one); }
             for (const one of tasks.whoOf(t)) named.delete(one);   // told above
-            for (const one of named) { try { projects.syncAgent(one, roster, { byOther: one !== actor }); } catch { /* non-gating */ } }
+            for (const one of named) { try { projects.syncAgent(one, roster, { byOther: changedByOther(one, actor) }); } catch { /* non-gating */ } }
           } catch { /* non-gating */ }
         }
         sendJson(res, 200, { task: taskForCaller(req, {}, t), told });
@@ -27476,7 +27479,7 @@ const server = http.createServer(async (req, res) => {
           const roster = safeRoster();
           for (const one of tasks.whoOf(out.task)) {
             // kosmos#8989: a title changed by someone else (the person, or another agent) owes its holder a re-read.
-            try { projects.syncAgent(one, roster, { byOther: one !== (who.card ? who.card.sessionName : null) }); } catch { /* the edit stands; the next sync catches up */ }
+            try { projects.syncAgent(one, roster, { byOther: changedByOther(one, who.card ? who.card.sessionName : null) }); } catch { /* the edit stands; the next sync catches up */ }
           }
         }
         sendJson(res, 200, { task: taskForCaller(req, body, out.task), changed: out.changed });

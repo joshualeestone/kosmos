@@ -126,7 +126,10 @@ test('closing a task with its built subtasks: the closer is not owed, a subtask\
   assert.deepEqual(w.synced, [['otto', false], ['mara', true]]);
 });
 
-test('a part closed by another agent is owed to its holder; its own part close is not', async (t) => {
+/* The part route names who closed the part, and passes it on. Whether a notice follows is the engine's call: the section
+   lists tasks, not parts, so a part closed while the task's other parts stay open changes nothing there and owes
+   nothing (the plan's stated limit); closing the last part closes the task, and that is owed. */
+test('the part close route passes who closed the part: another agent, then the holder itself', async (t) => {
   const w = world(t, 'otto');
   assert.equal((await call('POST', '/api/project/p8989/task/1/part/1/close', { headers: withBoard(asAgent(w.mara)), body: {} })).code, 200);
   assert.equal((await call('POST', '/api/project/p8989/task/1/part/1/close', { headers: withBoard(asAgent(w.otto)), body: {} })).code, 200);
@@ -152,4 +155,11 @@ test('a title changed by another agent is owed to the holder; its own retitle is
   assert.equal((await call('POST', '/api/project/p8989/task/1/text', { headers: withBoard(asAgent(w.mara)), body: { sentence: 'new words' } })).code, 200);
   assert.equal((await call('POST', '/api/project/p8989/task/1/text', { headers: withBoard(asAgent(w.otto)), body: { sentence: 'new words' } })).code, 200);
   assert.deepEqual(w.synced, [['otto', true], ['otto', false]]);
+});
+
+test('a holder named by its key in another spelling is still itself', async (t) => {
+  const w = world(t, 'Otto');
+  const r = await call('POST', '/api/project/p8989/task/1/close', { headers: asAgent(w.otto) });
+  assert.equal(r.code, 200, r.text.slice(0, 200));
+  assert.deepEqual(w.synced, [['Otto', false]]);
 });
