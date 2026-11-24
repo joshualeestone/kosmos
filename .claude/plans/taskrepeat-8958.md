@@ -48,7 +48,8 @@ repeat line, natively. Stacked on B2 (taskhold-8958); rebased onto main once B1 
 ## Review decisions
 - An edit keeps the person's choice as set, even when it equals the stored rule (Save turns off); only a change to
   the stored rule from elsewhere runs keptRepeatDraft. After a save the draft goes only once a read shows the saved
-  rule, so a failed read leaves the controls on what was saved.
+  rule. If that read fails, the draft stays, so the controls show what was saved and Save is on again until a read
+  succeeds (a second tap sends the same rule). Not pinned by a test: it is view state.
 - A change to the stored rule from elsewhere: a draft that equals the rule it was started from (or last followed,
   kept in the view's own state, repeatDraftBase) follows the new one
   (Board.followStored, the board's tkPaintRepeat review 3), so Never is never left showing over a rule an agent set.
