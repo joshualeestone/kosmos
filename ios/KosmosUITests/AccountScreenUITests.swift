@@ -39,7 +39,18 @@ final class AccountScreenUITests: XCTestCase {
         XCTAssertTrue(app.buttons["account-sign-out"].exists && app.buttons["account-sign-out-everywhere"].exists, "no sign-out buttons")
         reveal(app, app.buttons["account-more"])
         XCTAssertTrue(app.buttons["account-more"].exists, "no way to the rest of the account")
+        // kosmos#8959 slice B2: the footer says only what the in-app page still offers, and nothing on the phone sells.
+        XCTAssertTrue(app.staticTexts["Your Kosmos+ address, and choosing one if you have none yet, are on your Kosmos+ account page."].exists,
+                      "the More on Kosmos+ footer does not say what that page offers in the app")
+        let selling = NSPredicate(format: "label CONTAINS[c] 'billing' OR label CONTAINS[c] 'subscription' OR label CONTAINS[c] 'payment' OR label CONTAINS[c] 'cloud machine'")
+        XCTAssertEqual(app.descendants(matching: .any).matching(selling).count, 0, "money words on the phone's account screen (kosmos#718)")
         shot(app, "account-sign-out")
+        // The plan line sits at the top: scroll back up to it.
+        let plan = app.staticTexts["account-plan"]
+        for _ in 0..<8 where !plan.exists || !plan.isHittable { app.swipeDown() }
+        XCTAssertTrue(plan.exists, "no plan line for an account Kosmos+ says is active")
+        XCTAssertEqual(plan.label, "Kosmos+ \u{00B7} Active", "the plan line's words are not the page's")
+        shot(app, "account-plan")
     }
 
     // kosmos#8959 slice B1b: with no second step set up (the sample's state), the screen offers one. Setting up an

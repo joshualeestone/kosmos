@@ -3,12 +3,13 @@ import UniformTypeIdentifiers
 
 // kosmos#8959 slice B1a: the Kosmos+ account, native. Opened from the Settings tab's "Your Kosmos+ account" row, where
 // the web page used to open. The computers on the account (each with the web page's words, and Retire), Sign out and
-// Sign out everywhere; billing and adding a computer are one row away on the web page, until slice B2. The logic is
+// Sign out everywhere, and (slice B2) the plan line the in-app web page shows; billing, the subscription and the cloud
+// machine are never on the phone (kosmos#718's CAN_BUY_HERE, Josh's switch). The logic is
 // AccountLogic.swift; the second step (slice B1b) is AccountSecondLogic.swift; passkeys and sign-ins from new places
 // (slice B1c) are AccountSecurityLogic.swift, with Apple's passkey sheet in PasskeyMaker.swift.
 struct AccountView: View {
     let coordinator: URL
-    // The account's web page, for what is not here yet.
+    // The account's web page, for what is not here yet (the Kosmos+ address; slice B3).
     let openPage: (URL) -> Void
     // This iPhone signs out (the app's own path, PushNotificationManager), with the session that was ended.
     let signedOut: (String) -> Void
@@ -97,9 +98,12 @@ struct AccountView: View {
     @State private var notMeBusy = false
     @State private var notMeBusyFor: String?   // review 1: the busy flag belongs to the sign-in that asked
     @State private var notMeNote: String?
+    @State private var plan: String?          // slice B2: Account.planActive, or nil (no line)
+    @State private var planTicket = 0
 
     var body: some View {
         List {
+            planSection
             computers
             secondSection
             passkeySection
@@ -124,6 +128,7 @@ struct AccountView: View {
             maker.cancel(); passkeyBusy = false; passkeyFor = nil; passkeyAdding = false; removing = nil; passkeyNote = nil; passkeyDone = nil
             passkeys = .reading; newPlaces = []; notMeFor = nil; notMeBusy = false; notMeBusyFor = nil; notMeNote = nil
             removingFor = nil; notMeAskedFor = nil; heldAdd = nil; renewedFrom = [:]; passkeyListNote = nil
+            plan = nil
             load = .reading
             Task { await read() }
         }
@@ -151,6 +156,18 @@ struct AccountView: View {
         }
         .onAppear { onScreen = true }
         .onDisappear { onScreen = false; maker.cancel() }
+    }
+
+    // MARK: The plan (slice B2)
+
+    // Only the line the in-app page shows (signin.html #plan-line): no section at all when Kosmos+ does not say the plan is
+    // active, and never a way to buy, change or cancel it here.
+    @ViewBuilder private var planSection: some View {
+        if let plan {
+            Section {
+                Text(plan).foregroundColor(Palette.primary).accessibilityIdentifier("account-plan")
+            }
+        }
     }
 
     // MARK: Computers
@@ -482,8 +499,9 @@ struct AccountView: View {
             }
             .accessibilityIdentifier("account-more")
         } footer: {
-            // Review 3: passkeys are here when Kosmos+ has them, and off on the page too when it does not.
-            Text("Your plan, billing and adding a computer are on your Kosmos+ account page.")
+            // Slice B2: only what that page still offers inside the app. It hides billing, the cloud machine and adding a
+            // computer there (CAN_BUY_HERE), so this footer names none of them.
+            Text("Your Kosmos+ address, and choosing one if you have none yet, are on your Kosmos+ account page.")
                 .font(.footnote).foregroundColor(Palette.secondary)
         }
     }
@@ -503,8 +521,8 @@ struct AccountView: View {
     // `again`: this read follows one whose sign-in changed while it was out; it is not repeated a second time.
     @MainActor private func read(again: Bool = false) async {
         if !again {
-            async let s: Void = readSecond(), k: Void = readPasskeys(), n: Void = readNewPlaces()
-            await readComputers(again: again); await s; await k; await n; return
+            async let s: Void = readSecond(), k: Void = readPasskeys(), n: Void = readNewPlaces(), m: Void = readPlan()
+            await readComputers(again: again); await s; await k; await n; await m; return
         }
         await readComputers(again: again)
     }
@@ -603,6 +621,19 @@ struct AccountView: View {
         case .signOutHere: signedOut(session)
         case .stay(let why): signOutNote = why
         }
+    }
+
+    // MARK: The plan, asking Kosmos+
+
+    // A failed read keeps a line already shown; a first read that fails shows none (the page shows none either).
+    @MainActor private func readPlan() async {
+        if sample { plan = Account.planActive; return }
+        planTicket += 1
+        let ticket = planTicket
+        guard let session = currentSession() else { plan = nil; return }
+        let (status, data) = await send(Account.meRequest(coordinator: coordinator, session: session))
+        guard !Task.isCancelled, ticket == planTicket, currentSession() == session, let status else { return }
+        if (200...299).contains(status) { plan = Account.planLine(data) } else if status == 401 { plan = nil }
     }
 
     // MARK: Two-step sign-in, asking Kosmos+
