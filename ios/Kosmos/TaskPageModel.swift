@@ -228,7 +228,8 @@ final class TaskPageModel: ObservableObject {
             if holdShown != nil { holdShown = nil }
             if let of = holdSayOf, mine > holdSayAfter {
                 let same = p.hold.map { h in of.map { Board.holdSame(h.stored, $0) } ?? false } ?? (of == nil)
-                if !same { clearHoldSay() }
+                // Nothing about a hold outlives the task being finished.
+                if !same || p.closed { clearHoldSay() }
             }
             if let w = repeatSavedAs, p.closed || p.repeatStored.map(Board.repeatWire) != w { repeatSay = nil; repeatSavedAs = nil }
             // Nothing about Repeats outlives the task being finished (the board's tkPaintRepeat, review 2).
@@ -775,7 +776,7 @@ final class TaskPageModel: ObservableObject {
             await read()
             await readActivity(names: names)
             guard current else { return false }
-            if isGone { done(Board.holdTaskGone) } else { done(Board.holdTakenOff, of: .some(nil)) }
+            done(isGone ? Board.holdTaskGone : Board.holdTakenOff, of: .some(nil))
             return false
         }
         let (project, number) = (self.project, self.number)
