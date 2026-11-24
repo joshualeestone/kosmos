@@ -85,6 +85,8 @@ test('#8988 a finished answer after the restart clears it; one before it, an ope
   assert.ok(read(T0 + ' status 7\n', runs, [done(T0 + 100, { by: 'operator' })]), 'a person\'s row is not the agent\'s turn');
   assert.ok(read(T0 + ' status 7\n', runs, [{ state: 'working', because: 'started', at: at(T0 + 100) }]), 'a turn that only started does not');
   assert.ok(read(T0 + ' status 7\n', runs, [{ state: 'idle', because: 'waiting for direction', at: at(T0 + 100) }]), 'another idle is not a finished answer');
+  assert.ok(read(T0 + ' status 7\n', runs, [{ state: 'blocked', because: 'provider api (rate_limit)', by: 'auto', on: 'provider api (rate_limit)', at: at(T0 + 100) }]),
+    'a turn that ended in an API error (StopFailure) does not clear it');
   const unreadable = mr.restartedFor('hal', { read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' status 7\n' : runs), history: () => { throw new Error('x'); } });
   assert.equal(unreadable, null, 'when the record cannot say, no line');
 });

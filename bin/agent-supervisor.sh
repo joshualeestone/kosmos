@@ -229,16 +229,21 @@ say() {
 # cannot carry this. Lines: "start <epoch>" when this supervisor launches a session, "end <epoch>" when that session
 # is confirmed gone. Kept to the last 40 lines. engine/crashloop.js reads it (same root and the same key rule as
 # store.safeKey). Best-effort: a write that fails changes nothing about the run.
-record_run() {
-  local _key _dir _f
+# The file this agent's runs are kept in, `runs/<key>.<ext>` (engine/crashloop.js dir() and the key rule of
+# store.safeKey): the store's root is $AGENT_WORKFORCE_DATA/Kosmos when set, else this install's own folder (the
+# installed supervisor lives in <store root>/bin). Prints the path, or nothing when it cannot be made.
+runs_file() {
+  local _key _dir
   _key="$(printf '%s' "$SESSION" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9_-')"
-  [ -n "$_key" ] || return 0
-  # The store's root (engine/store.js dataRootFor): $AGENT_WORKFORCE_DATA/Kosmos when set, else this install's own
-  # folder (the installed supervisor lives in <store root>/bin). Caught by the test: the env case is one level deeper.
+  [ -n "$_key" ] || return 1
   if [ -n "${AGENT_WORKFORCE_DATA:-}" ]; then _dir="$AGENT_WORKFORCE_DATA/Kosmos/runs"
   else _dir="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)/runs"; fi
-  _f="$_dir/$_key.log"
-  mkdir -p "$_dir" 2>/dev/null || return 0
+  mkdir -p "$_dir" 2>/dev/null || return 1
+  printf '%s\n' "$_dir/$_key.$1"
+}
+record_run() {
+  local _f
+  _f="$(runs_file log)" || return 0
   { printf '%s %s\n' "$1" "$(date +%s)" >> "$_f"; } 2>/dev/null || return 0
   if [ "$(wc -l < "$_f" 2>/dev/null | tr -d ' ')" -gt 40 ] 2>/dev/null; then
     { tail -n 40 "$_f" > "$_f.tmp" && mv -f "$_f.tmp" "$_f"; } 2>/dev/null || rm -f "$_f.tmp" 2>/dev/null
@@ -261,13 +266,8 @@ session_id_exact() {
 # (engine/macrestart.js). Written by the agent pane's pane-died hook (arm_death_record) or, when that hook never ran, by
 # the supervisor itself when it finds the pane dead (record_dead_pane). Prints the path, or nothing.
 died_file() {
-  local _key _dir
-  _key="$(printf '%s' "$SESSION" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9_-')"
-  [ -n "$_key" ] || return 0
-  if [ -n "${AGENT_WORKFORCE_DATA:-}" ]; then _dir="$AGENT_WORKFORCE_DATA/Kosmos/runs"
-  else _dir="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)/runs"; fi
-  mkdir -p "$_dir" 2>/dev/null || return 0
-  printf '%s\n' "$_dir/$_key.died"
+  runs_file died
+  return 0
 }
 # kosmos#8988: the agent's own pane (its id, kept on the session as @kosmos_agent_pane by arm_death_record), or
 # nothing when the session carries none (an older launch, another runner).
