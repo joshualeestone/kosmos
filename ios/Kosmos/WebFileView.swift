@@ -126,6 +126,7 @@ struct LockedWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate {
         private var started = false
         private var failed: () -> Void = {}
+        private var drawn = false
         static let blockAll = #"[{"trigger":{"url-filter":".*"},"action":{"type":"block"}}]"#
         static let ruleID = "kosmos-webfile-block-all"
 
@@ -149,17 +150,18 @@ struct LockedWebView: UIViewRepresentable {
             for v in view.scrollView.subviews { v.isUserInteractionEnabled = false }
         }
 
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { Self.untappable(webView) }
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { drawn = true; Self.untappable(webView) }
 
         // kosmos#8966: the page itself failing to draw shows the can't-show card, not a blank page. A navigation this
-        // delegate cancelled also ends here, and is not one (Board.isDeliberateCancel).
+        // delegate cancelled also ends here, and is not one (Board.isDeliberateCancel); nor is any error once the page has
+        // drawn, since the only navigations after it are ones this delegate refuses (a refresh, a frame).
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failIfReal(error) }
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failIfReal(error) }
         // The page's process ended (a page too big for memory, say): what was drawn is gone, so the same card.
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { failed() }
         private func failIfReal(_ error: Error) {
             let e = error as NSError
-            if !Board.isDeliberateCancel(domain: e.domain, code: e.code) { failed() }
+            if !drawn, !Board.isDeliberateCancel(domain: e.domain, code: e.code) { failed() }
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
