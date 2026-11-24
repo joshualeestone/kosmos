@@ -2469,6 +2469,15 @@ enum Board {
         }
     }
 
+    // kosmos#8957: the one hand-off to the computer's board: every phone control that opens the board says
+    // "on your computer's board" and carries this icon (not a chevron, which reads as "more of this app").
+    static let boardIcon = "arrow.up.forward.square"
+    static let opensOnBoard = "Opens on your computer's board"
+    static let opensSignInPage = "Opens the Kosmos+ sign-in page"   // the sign-in fallbacks: a web page, not the board
+    // An agent's native chat opens only when the phone's agents list has it; otherwise the tap opens the computer's board
+    // (the room's needs-you button, a project member, Tasks' Answer), and only then says so.
+    static func opensBoardFor(_ session: String, agents: [Agent]) -> Bool { !agents.contains { $0.session == session } }
+
     // DM_PERM_DOES.
     static func permissionDoes(_ kind: String) -> String {
         switch kind {

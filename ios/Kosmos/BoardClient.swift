@@ -435,6 +435,10 @@ final class BoardClient: ObservableObject {
             switch ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_WAIT"] {
             case "allow": phase = .waitingForAllow(mac: "Studio Mac", code: "7K3Q"); return
             case "connecting": phase = .connecting(mac: "Studio Mac"); return
+            // kosmos#8957: the fallback screens whose board hand-off it labels, for its design shots.
+            case "unreachable": phase = .unreachable(mac: "Studio Mac"); return
+            case "signedout": phase = .signedOut; return
+            case "refused": phase = .kosmosPlusRefused; return
             default: break
             }
             // Through the real parser, as /api/status rows from a Mac that sends its words ready-made (#7004).

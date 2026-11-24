@@ -113,7 +113,7 @@ struct ProjectInfoView: View {
                     HStack {
                         Text(Board.projectMoreOnBoard).foregroundColor(Palette.primary)
                         Spacer()
-                        Image(systemName: "arrow.up.right").foregroundColor(Palette.secondary).accessibilityHidden(true)
+                        Image(systemName: Board.boardIcon).foregroundColor(Palette.secondary).accessibilityHidden(true)   // kosmos#8957: the one board icon
                     }
                     .frame(minHeight: 44).contentShape(Rectangle())
                 }
@@ -194,7 +194,7 @@ struct ProjectInfoView: View {
                     HStack {
                         Text(Board.projectMoreOnBoard).foregroundColor(Palette.primary)
                         Spacer()
-                        Image(systemName: "arrow.up.right").foregroundColor(Palette.secondary).accessibilityHidden(true)
+                        Image(systemName: Board.boardIcon).foregroundColor(Palette.secondary).accessibilityHidden(true)   // kosmos#8957: the one board icon
                     }
                     .frame(minHeight: 44).contentShape(Rectangle())
                 }
@@ -293,6 +293,7 @@ struct ProjectInfoView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(m.name).foregroundColor(Palette.primary)
                     if let line { Text(line).font(.footnote).foregroundColor(Palette.secondary) }
+                    if agent == nil && client.macURL != nil { OpensOnBoardNote() }   // kosmos#8957; review 7: only when it can open
                 }
                 Spacer(minLength: 8)
                 if m.needsYouHere != nil {
@@ -302,7 +303,7 @@ struct ProjectInfoView: View {
             .frame(minHeight: 44).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityHint(agent == nil ? "Opens your computer\u{2019}s board" : "Opens the conversation")
+        .accessibilityHint(agent == nil ? "" : "Opens the conversation")   // kosmos#8957: the note in the label says it
     }
 
     @ViewBuilder private var tasksSection: some View {

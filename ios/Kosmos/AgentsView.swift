@@ -402,6 +402,7 @@ struct AgentsView: View {
                 .buttonStyle(.borderedProminent)
                 .padding(.top, 6)
                 .accessibilityIdentifier("agents-empty-setup")
+            OpensOnBoardNote()   // kosmos#8957: it is the board's own setup
         }
         .multilineTextAlignment(.center)
         .padding()
@@ -557,19 +558,28 @@ struct BoardStates<Empty: View>: View {
         case .live:
             empty()    // the list is fresh here (`waiting` took the rest)
         case .unreachable(let mac):
-            // Today's navy page, as it is: no title over it, and Back opens Today, the board. kosmos#7197: naming the Mac.
-            LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard, macName: mac,
+            // Today's navy page, as it is: no title over it. kosmos#8957: no Back to Kosmos (it opened the board, which is not
+            // answering either); Try again. kosmos#7197: naming the Mac.
+            LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: nil, macName: mac,
                             lastHeard: client.lastHeard(address: client.failingAddress, name: mac))
                 .onAppear { client.refreshLastSeen() }   // kosmos#7416 review 2: the list's time, read afresh
                 .navigationBarHidden(true)
+                // kosmos#8957: with Back to Kosmos gone (it opened the board, whose page offered another computer), the
+                // switcher itself, light on the navy page, when the account has another computer to show.
+                .overlay(alignment: .topLeading) {
+                    if Board.switcherRows(client.macs, shown: client.switcherShown, heard: client.heardFrom).count > 1 {   // as MacSwitcher's own menu
+                        MacSwitcher(client: client).environment(\.colorScheme, .dark).frame(minHeight: 44).padding(16)
+                    }
+                }
         case .kosmosPlusDown:
-            LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)
+            LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: nil)
                 .navigationBarHidden(true)
         case .signedOut:
             VStack(spacing: 12) {
                 message("Sign in to Kosmos+", detail: signedOutDetail)
                 Button { openBoard() } label: { Text("Sign in").foregroundColor(Palette.card) }
                     .buttonStyle(.borderedProminent)
+                OpensOnBoardNote(words: Board.opensSignInPage, foot: 8)   // kosmos#8957: signed out, so the Kosmos+ sign-in
             }
         case .noMac:
             message("No Mac to connect to.", detail: "Turn on remote access in Kosmos on your computer, then try again.", retry: true)
@@ -622,6 +632,7 @@ struct BoardStates<Empty: View>: View {
             VStack(spacing: 12) {
                 message("Kosmos+ did not let this iPhone in.", detail: "If this iPhone was removed from your account, sign in again. Otherwise try again in a moment.", retry: true)
                 Button { openBoard() } label: { Text("Sign in") }
+                OpensOnBoardNote(foot: 8)   // kosmos#8957: a 403 keeps the web session, so this is the board page, not a sign-in
             }
         }
     }

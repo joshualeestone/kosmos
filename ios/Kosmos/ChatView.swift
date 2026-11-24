@@ -1165,10 +1165,12 @@ struct ChatView: View {
                 Spacer()
                 if let refusal {
                     Text(refusal).font(.subheadline).foregroundColor(Palette.primary).multilineTextAlignment(.center)
-                    WayThroughRow(text: Text("Open this chat on your computer's board \u{203A}"), action: openOnBoard)
+                    WayThroughRow(text: Text("Open this chat on your computer's board") + Text(" ") + Text(Image(systemName: Board.boardIcon)), action: openOnBoard,
+                                  spoken: "Open this chat on your computer's board")
                 } else if lost {
                     Text(Shell.macUnreachableTitle(client.failingMacName)).font(.headline).foregroundColor(Palette.primary)
-                    WayThroughRow(text: Text("Open this chat on your computer's board \u{203A}"), action: openOnBoard)
+                    WayThroughRow(text: Text("Open this chat on your computer's board") + Text(" ") + Text(Image(systemName: Board.boardIcon)), action: openOnBoard,
+                                  spoken: "Open this chat on your computer's board")
                 } else {
                     SweepDots(scales: false)
                     Text("Loading the conversation\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
@@ -1875,7 +1877,8 @@ struct ChatView: View {
                     let now = Board.askingNow(row, in: thread?.rows ?? [], waiting: Board.waitsOnAnswer(shown),
                                               approval: shown.awaitingApproval)
                     let asked = Board.askedLine(now ? Board.askedWay(way, approval: shown.awaitingApproval) : way, now: now)
-                    WayThroughRow(text: wayText(way, asked: asked), action: asked == nil ? openOnBoard : nil)
+                    WayThroughRow(text: wayText(way, asked: asked), action: asked == nil ? openOnBoard : nil,
+                                  spoken: asked == nil ? wayWords(way) : nil)
                 }
                 .padding(.top, 10)
             } else if row.who == .kosmos {
@@ -2264,14 +2267,23 @@ struct ChatView: View {
         }
     }
 
+    // The pill's words for VoiceOver, without the board icon (kosmos#8957).
+    private func wayWords(_ way: Board.ChatRow.WayThrough) -> String? {
+        switch way {
+        case .attachment: return "A file. Open it on your computer's board"
+        case .draft: return "Words sat unsent in \(shown.name)'s input box. See them on your computer's board"
+        case .question, .permission: return nil
+        }
+    }
+
     private func wayText(_ way: Board.ChatRow.WayThrough, asked: String?) -> Text {
         let name = Text(shown.name).fontWeight(.semibold).foregroundColor(Palette.askedWord)
         if let asked { return name + Text(asked) }   // kosmos#8952: no link, no chevron
         switch way {
         case .question: return name + Text(Board.askedLine(.question, now: false) ?? "")
         case .permission: return name + Text(Board.askedLine(.permission, now: false) ?? "")
-        case .attachment: return Text("A file. Open on your computer's board \u{203A}")
-        case .draft: return Text("Words sat unsent in ") + name + Text("'s input box. See them on your computer's board \u{203A}")
+        case .attachment: return Text("A file. Open it on your computer's board") + Text(" ") + Text(Image(systemName: Board.boardIcon))
+        case .draft: return Text("Words sat unsent in ") + name + Text("'s input box. See them on your computer's board") + Text(" ") + Text(Image(systemName: Board.boardIcon))
         }
     }
 
@@ -3383,9 +3395,13 @@ struct WorkingLine: View {
 struct WayThroughRow: View {
     let text: Text
     let action: (() -> Void)?
+    // kosmos#8957: what VoiceOver says, when the text carries the board icon (whose symbol name it would read).
+    var spoken: String? = nil
 
     var body: some View {
-        if let action {
+        if let action, let spoken {
+            Button(action: action) { pill }.buttonStyle(.plain).accessibilityLabel(spoken)
+        } else if let action {
             Button(action: action) { pill }.buttonStyle(.plain)
         } else {
             pill.accessibilityElement(children: .combine)

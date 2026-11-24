@@ -81,8 +81,9 @@ struct LoadFailureView: View {
     let detail: String
     let retrying: Bool
     let onRetry: () -> Void
-    // Leaves a page that will not load: back to the page before it, or the board home.
-    let onBack: () -> Void
+    // Leaves a page that will not load: back to the page before it, or the board home. kosmos#8957: nil on the phone's
+    // own tabs, where "Back to Kosmos" opened the board (which is not answering either); Try again is the way on there.
+    let onBack: (() -> Void)?
     // kosmos#6850: shown only for a Mac that is not answering (Shell.offersOtherComputer).
     var onOtherComputer: (() -> Void)? = nil
     // kosmos#7197: the Mac that is not answering, by name, when it is known.
@@ -160,14 +161,30 @@ struct LoadFailureView: View {
                     .foregroundColor(KosmosColor.ink)
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(KosmosColor.muted, lineWidth: 1))
                 }
-                Button("Back to Kosmos", action: onBack)
-                    .font(.body)
-                    .foregroundColor(KosmosColor.ink)
-                    .frame(minHeight: 44)
+                if let onBack {
+                    Button("Back to Kosmos", action: onBack)
+                        .font(.body)
+                        .foregroundColor(KosmosColor.ink)
+                        .frame(minHeight: 44)
+                }
             }
             .padding(.horizontal, 32)
             .frame(maxWidth: 420)
         }
+    }
+}
+
+// kosmos#8957: under a button whose own word stays (Sign in, Make an agent), the line that says the tap leaves the app's
+// screens for the computer's board, with the same icon as every other hand-off.
+struct OpensOnBoardNote: View {
+    // The words: the board's by default; the Kosmos+ sign-in page for the sign-in fallbacks, which are not the board.
+    var words = Board.opensOnBoard
+    var foot: CGFloat = 0   // space under it, where a screen puts its button at the foot, above the tab bar
+    var body: some View {
+        (Text(Image(systemName: Board.boardIcon)) + Text(" ") + Text(words))
+            .font(.caption).foregroundColor(Palette.secondary)
+            .accessibilityLabel(words)   // read after the button, so the button itself carries no second hint
+            .padding(.bottom, foot)
     }
 }
 

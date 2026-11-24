@@ -656,7 +656,9 @@ struct AgentInfoView: View {
                 HStack {
                     Text("Open on your computer\u{2019}s board").foregroundColor(Palette.primary)
                     Spacer()
-                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundColor(Palette.tertiary)
+                    // kosmos#8957: the one board icon, not a chevron (which reads as more of this app)
+                    Image(systemName: Board.boardIcon).font(.footnote.weight(.semibold)).foregroundColor(Palette.tertiary)
+                        .accessibilityHidden(true)
                 }
             }
         } footer: {

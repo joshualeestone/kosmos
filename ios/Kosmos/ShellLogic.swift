@@ -327,6 +327,11 @@ enum AppTabs {
     // kosmos#7266: the + on Agents and on Projects open the board's own create form (the phone cannot make either
     // natively yet): the board's door takes these names as well as its sections.
     enum Create: String { case agent = "new-agent", project = "new-project" }
+    // kosmos#8957: before the computer lets the phone in, + can only open the board's own form, so it asks first.
+    static func createOnBoardQuestion(_ what: Create) -> String {
+        what == .agent ? "Add an agent on your computer's board?" : "Add a project on your computer's board?"
+    }
+    static let createOnBoardOpen = "Open your computer's board"
 
     // What to show when the bar changes under a selection it no longer has (Tasks on a Mac that has not earned it).
     // The tab that lights for a section the PAGE is on. A Tasks section the bar does not offer (a project's View all,

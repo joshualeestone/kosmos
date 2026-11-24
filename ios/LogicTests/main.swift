@@ -6389,5 +6389,24 @@ do {
         }
     }
 }
+// kosmos#8957: every phone control that opens the computer's board says so, in one wording with one icon.
+do {
+    check(Board.opensOnBoard == "Opens on your computer's board" && Board.boardIcon == "arrow.up.forward.square",
+          "the one hand-off: its words and its icon")
+    check(Board.opensSignInPage.contains("Kosmos+") && !Board.opensSignInPage.contains("board"),
+          "the sign-in fallbacks name the Kosmos+ page, never the board (it is not the board)")
+    check(AppTabs.createOnBoardQuestion(.agent) == "Add an agent on your computer's board?"
+          && AppTabs.createOnBoardQuestion(.project) == "Add a project on your computer's board?"
+          && AppTabs.createOnBoardOpen == "Open your computer's board",
+          "+ before the computer lets the phone in asks first, in the same words")
+    let listed = [Board.Agent(session: "dana", name: "Dana", role: nil, state: "idle", task: nil, needsYou: false)]
+    check(!Board.opensBoardFor("dana", agents: listed) && Board.opensBoardFor("eli", agents: listed)
+          && Board.opensBoardFor("dana", agents: []),
+          "the board is named only when the agents list lacks the agent (its native chat opens otherwise)")
+    for w in [Board.opensOnBoard, Board.opensSignInPage, AppTabs.createOnBoardQuestion(.agent),
+              AppTabs.createOnBoardQuestion(.project), AppTabs.createOnBoardOpen] {
+        check(!w.contains("\u{2014}") && !w.contains("\u{203A}") && !w.contains("Mac"), "no em dash, no chevron, no Mac: \(w)")
+    }
+}
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
