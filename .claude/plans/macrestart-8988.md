@@ -23,7 +23,7 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
     `@kosmos_agent_pane`), `remain-on-exit on` and a pane `pane-died` hook that writes "<epoch> status <N>" or
     "<epoch> signal <name>" and kills the session. Never the window or session: a pane a person splits off and closes
     must neither end the agent nor be recorded (review 1 reproduced that). If the hook cannot be set, remain-on-exit goes
-    back off. A path or name with a single quote or a # (run-shell reads # as a format) gets no hook.
+    back off. A path or name with a single quote, a # (run-shell reads # as a format), a ; or a \ gets no hook.
   - `agent_dead` (that pane's `#{pane_dead}` is 1; with no pane id, every pane's must be exactly 1) and
     `record_dead_pane` (that pane's exit).
   - The wait loop: a dead session is recorded and killed (then the usual sleep), so a missing hook cannot hold it.
@@ -34,7 +34,8 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
     pane kept a crashed agent's session alive, so the supervisor waited on it and the agent never came back.
   - Startup: an ours-session whose panes are all dead is recorded and replaced, never adopted.
 - engine/macrestart.js: `restartedFor(name)`: the died file, plus the LAST start in the run file, within 5 minutes after
-  the death (a later start is a launch of its own). An exit with code 0 shows nothing: Claude closed on purpose
+  the death (a later start is a launch of its own). A death within a minute after a "kosmos <epoch>" stamp in the run file (a
+  restart, switch or change Kosmos made itself, crashloop.noteDeliberate) is Kosmos's own and shows nothing. An exit with code 0 shows nothing: Claude closed on purpose
   (a person typing /exit), not a crash to explain. Cleared by a turn end (the report hook's Stop, as
   `selfreport.history` marks it: `turn: 'end'`) at or after that start. Words from `win32streamstate.restartWhy`.
 - engine/status.js `restartedOf`: Windows as before; a Mac pane that is ours and runs Claude reads macrestart.

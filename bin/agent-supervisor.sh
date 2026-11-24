@@ -313,7 +313,7 @@ record_dead_pane() {
   _line=""
   while IFS= read -r _l; do
     if [ -n "$_p" ]; then case "$_l" in "$_p 1 "*) _line="${_l#"$_p 1 "}"; break ;; esac
-    else case "$_l" in %*" 1 "*) _line="${_l#* 1 }"; break ;; esac; fi
+    else case "$_l" in %[0-9]*" 1 "*) _line="${_l#* 1 }"; break ;; esac; fi
   done <<EOF
 $_all
 EOF
@@ -885,8 +885,9 @@ if [ -z "$adopt" ]; then
     [ "$RUNNER" = claude ] || return 0
     local _f _inner _q _sid _p
     _f="$(died_file)"; [ -n "$_f" ] || return 0
-    # A quote cannot ride the hook's quoting, and run-shell reads a # as a format: no record for such a path, as before.
-    case "$_f$SESSION" in *"'"*|*"#"*) return 0 ;; esac
+    # A quote cannot ride the hook's quoting, run-shell reads a # as a format, and a ; or \ is tmux's own syntax: no
+    # record for such a path or name, as before.
+    case "$_f$SESSION" in *"'"*|*"#"*|*";"*|*\\*) return 0 ;; esac
     # The session's ID names exactly this session (a plain name falls back to a prefix match; #4530).
     _sid="$(session_id_exact)"; [ -n "$_sid" ] || return 0
     _p="$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_id}' 2>/dev/null)"
