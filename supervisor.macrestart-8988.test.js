@@ -11,6 +11,7 @@
  *   SIGNAL    the runner is ended by SIGTERM: "signal term", read as "(signal SIGTERM)".
  *   SPLIT     a pane a person split off ending neither ends the agent nor is recorded.
  *   HASH      a data folder with a # in it gets no hook (run-shell reads # as a format): nothing is kept or recorded.
+ *   NOLANG    a launch without a UTF-8 locale cannot read the session's id: it says so, records nothing, keeps nothing.
  *   GROUP     a session a person grouped with the agent's is not left holding its dead pane.
  *   WAIT      the hook is gone (unset by the test): the supervisor's own wait loop finds the dead pane, records it
  *             and ends the session.
@@ -40,7 +41,7 @@ const REAL_TMUX = (() => {
 const SKIP = SKIP_POSIX_SHELL || (REAL_TMUX ? false : 'no tmux on this machine');
 const NAME = 'macrestart8988';
 
-function fixture(tag = '') {
+function fixture(tag = '', { lang = 'en_US.UTF-8' } = {}) {
   /* A short root: a tmux socket path must fit in sun_path (104 bytes on macOS). */
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mr8988-' + tag)));
   for (const dir of ['bin', 'data', 'work', 'shim', 'home', 'ctl']) fs.mkdirSync(path.join(root, dir), { recursive: true });
@@ -72,7 +73,7 @@ function fixture(tag = '') {
     KOSMOS_AGENT_BROWSER: 'off',
     /* As every agent's plist sets it (engine/create.js). Without a UTF-8 locale tmux prints a tab in -F output as "_",
        so the supervisor's session_id_exact finds no session and the hook is never set. */
-    LANG: 'en_US.UTF-8',
+    ...(lang ? { LANG: lang } : {}),
   };
   const args = [path.join(root, 'bin', 'agent-supervisor.sh'), NAME, path.join(root, 'work'), runner, tmux, '', '', 'claude'];
   const kids = [];
@@ -116,7 +117,8 @@ function fixture(tag = '') {
     for (const c of kids) if (c.exitCode === null && c.signalCode === null) c.kill('SIGKILL');
     try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
   };
-  return { root, start, ends, tx, alive, paneDead, agentPane, hooked, until, died, tell, card, noisy, cleanup };
+  const stderrText = () => err;
+  return { root, stderrText, start, ends, tx, alive, paneDead, agentPane, hooked, until, died, tell, card, noisy, cleanup };
 }
 
 test('#8988 CRASH and STOP: an exit is recorded by the hook and read on the card after the relaunch; a stop records nothing', { skip: SKIP }, async () => {
@@ -261,6 +263,20 @@ test('#8988 HASH: a data folder with a # in it gets no hook, so nothing is kept 
     f.tell('exit 4');
     await f.ends(one);
     assert.equal(f.alive(), false, 'the session ended as it does today');
+    assert.equal(f.died(), null, 'nothing recorded, nothing kept');
+    assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
+  } finally { f.cleanup(); }
+});
+
+test('#8988 NOLANG: a launch that cannot read the session\'s id says so, and arms nothing', { skip: SKIP }, async () => {
+  const f = fixture('', { lang: '' });
+  try {
+    const one = f.start();
+    await f.until(f.alive, 'the session');
+    await f.until(() => /how it stops will not be recorded/.test(f.stderrText()), 'the line that says so');
+    assert.equal(f.agentPane(), '', 'no pane was armed');
+    f.tell('exit 4');
+    await f.ends(one);
     assert.equal(f.died(), null, 'nothing recorded, nothing kept');
     assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
   } finally { f.cleanup(); }
