@@ -1990,16 +1990,17 @@ enum Board {
     }
 
     // kosmos#8966: a MIME type without its parameters ("text/html; charset=utf-8" is "text/html"), lowercased, so a file is
-    // judged the same whether or not its sender named a charset. A malformed type that starts with one ";" reads as what
-    // follows it, as fileAnswerAccepted always read it: ";text/html" is then a page to both readers, the safe side for each
-    // (WebFileView draws it locked; a fetched answer typed so is refused).
+    // judged the same whether or not its sender named a charset. A malformed type that starts with ";" (any number) reads
+    // as what follows, as fileAnswerAccepted always read it: ";;text/html" is then a page to both readers, the safe side for
+    // each (WebFileView draws it locked; a fetched answer typed so is refused).
     static func bareType(_ type: String) -> String {
-        (type.split(separator: ";", maxSplits: 1).first.map(String.init) ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+        let rest = type.drop(while: { $0 == ";" || $0 == " " || $0 == "\t" })
+        return (rest.split(separator: ";", maxSplits: 1).first.map(String.init) ?? "").trimmingCharacters(in: .whitespaces).lowercased()
     }
 
-    // kosmos#8966: whether a web view's navigation error is one it was meant to have: a navigation the delegate cancelled
-    // (NSURLErrorCancelled) or WebKit's "frame load interrupted" (102), as a page's own refresh reports. Any other error
-    // means the page did not draw.
+    // kosmos#8966: whether a web view's navigation error is one it was meant to have: WebKit's "frame load interrupted by
+    // policy change" (102), which a navigation the delegate refused reports, or NSURLErrorCancelled, a load stopped or
+    // replaced by another. Any other error means the page did not draw.
     static func isDeliberateCancel(domain: String, code: Int) -> Bool {
         (domain == NSURLErrorDomain && code == NSURLErrorCancelled) || (domain == "WebKitErrorDomain" && code == 102)
     }

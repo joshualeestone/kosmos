@@ -14,7 +14,7 @@
   side (that the content rule applies to a restarted page process, that the error codes are these) is not driven by any
   test: a UI test cannot make WebKit fail or end its process on demand.
 - The same bare-type reading for savedName, fileWord, isPreviewableImage and fileAnswerAccepted (review round 1): a file
-  typed "application/pdf; charset=binary" is saved as report.pdf. A malformed ";text/html" reads as text/html, the safe
+  typed "application/pdf; charset=binary" is saved as report.pdf. A malformed ";text/html" (any number of leading ";") reads as text/html, the safe
   side for both the viewer and the fetch gate (review round 2).
 - Item 1: WebFileUITests' fixed sleeps replaced by Probe.stays(at:for:), which watches the connection count through each
   window and fails on the first connection. A window is still needed: "nothing came" can only be shown over time. The
@@ -33,5 +33,5 @@ drawn path, and the codes themselves are pinned only by logic tests. A cancelled
 the can't-show card if it reported another code.
 
 ## Tests
-- ios/LogicTests/run.sh PASS 2262/2262.
+- ios/LogicTests/run.sh PASS (count in the proof file); a mutation (WebPageState.processEnded without its started reset) fails a check.
 - WebFileUITests passes on iOS 27 with all three changes; control arm fails as it should.
