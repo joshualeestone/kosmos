@@ -233,12 +233,13 @@ extension Board.TaskPage {
         guard !closed else { return nil }
         if projectPaused { return "This project is paused, so Kosmos does not nudge anyone about its tasks or hand them out." }
         guard onHold else { return nil }
-        // kosmos#7788: an agent's hold that waits on the person, in the board's words (tk-hold-hint) bar the place.
+        // kosmos#7788: an agent's hold that waits on the person, in the board's words (tk-hold-hint). kosmos#8958 slice B2:
+        // the page takes it off now (Take off hold), so "here", as the board says.
         if onHoldForPerson && !onHoldByPerson {
-            return "An agent put this on hold because it waits on you. Once you have answered, take it off hold on your computer's board, or tell the agent. Kosmos does not nudge anyone about it or hand it out."
+            return "An agent put this on hold because it waits on you. Once you have answered, take it off hold here, or tell the agent. Kosmos does not nudge anyone about it or hand it out."
         }
         return onHoldByPerson
-            ? "You put this on hold, so only you can take it off, on your computer's board. Kosmos does not nudge anyone about it or hand it out."
+            ? "You put this on hold, so only you can take it off, here. Kosmos does not nudge anyone about it or hand it out."
             : "This was put on hold outside this screen (by an agent, or with kosmos task hold), so an agent or you can take it off. Kosmos does not nudge anyone about it or hand it out."
     }
 
@@ -701,5 +702,39 @@ extension Board {
             }
         }
         return lines.isEmpty ? nil : lines.joined(separator: " ")
+    }
+}
+
+// MARK: Putting it on hold and taking it off (kosmos#8958 slice B2: the board's tk-hold button)
+
+extension Board {
+    static func holdTitle(onHold: Bool) -> String { onHold ? "Take off hold" : "Put on hold" }
+    static let holdCheckFailed = "We could not check that task just now, so nothing changed."
+    static let holdTaskGone = "That task is no longer on this project, so nothing changed."
+    static let holdAlready = "This is already on hold, so nothing changed."
+    static let holdFailed = "We could not change that task."
+    static let holdUnreached = "We could not reach Kosmos to change that task."
+    // The board cuts this ask off the unhold route's sentence and puts a Choose who button under it; the phone has no
+    // picker for a task's parts yet, so the ask is cut and the rest said.
+    static let holdAssignAsk = " To choose who, assign it now."
+
+    // POST .../task/<n>/hold {onHold}.
+    static func taskHoldRequest(mac: URL, project: String, number: Int, onHold: Bool) -> URLRequest? {
+        guard let url = taskRoute(mac: mac, project: project, number: number, "hold"),
+              let data = try? JSONSerialization.data(withJSONObject: ["onHold": onHold]) else { return nil }
+        var hold = URLRequest(url: url)
+        hold.httpMethod = "POST"
+        hold.setValue("application/json", forHTTPHeaderField: "Accept")
+        hold.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        hold.httpBody = data
+        return hold
+    }
+
+    // What the unhold route says next (who gets the task now), or nil: a hold answers with none.
+    static func holdNextLine(_ body: Data?) -> String? {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        guard var next = obj?["next"] as? String, !next.isEmpty else { return nil }
+        if next.hasSuffix(holdAssignAsk) { next.removeLast(holdAssignAsk.count) }
+        return next.isEmpty ? nil : next
     }
 }

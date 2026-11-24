@@ -43,6 +43,7 @@ final class TaskPageActionsUITests: XCTestCase {
             let app = try openTask(dark: dark)
             XCTAssertTrue(app.buttons["Edit title or detail"].waitForExistence(timeout: 10), "no Edit title or detail")
             XCTAssertTrue(app.buttons["Clear the due date"].exists, "no due date to clear on a task that has one")
+            XCTAssertTrue(app.buttons["Put on hold"].exists, "no Put on hold on an open task (kosmos#8958 slice B2)")
             let say = box(app)
             for _ in 0..<6 where !say.isHittable { app.swipeUp() }
             XCTAssertTrue(say.isHittable, "no message box within reach on the task")

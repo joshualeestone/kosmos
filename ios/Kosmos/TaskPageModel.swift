@@ -27,6 +27,9 @@ final class TaskPageModel: ObservableObject {
     // The due date being saved, and the Mac's refusal of the last one.
     @Published private(set) var dueSaving = false
     @Published private(set) var dueRefusal: String?
+    // kosmos#8958 slice B2: Put on hold / Take off hold in the air, and the line under it (the board's tk-hold-msg).
+    @Published private(set) var holding = false
+    @Published private(set) var holdSay: String?
     // The title and detail being saved, and the line for the last save (the board's tk-msg for the form).
     // Like `pressing`, saying, dueSaving and editSaving stay set when the epoch moves mid-request: the page is then about
     // nothing.
@@ -201,6 +204,43 @@ final class TaskPageModel: ObservableObject {
         await readActivity(names: names)
         guard current else { return }
         pressing = false
+    }
+
+    // kosmos#8958 slice B2: the board's tk-hold button, as the button showed it (`wasOnHold`). Putting it on hold reads the
+    // task first, because a hold from the screen sets exactly what it sends and would replace what an agent's hold, not
+    // yet shown here, waits for; if it is already on hold, nothing is sent. Then the page and activity are read, and an
+    // unhold's sentence about who has it next is said.
+    func toggleHold(wasOnHold: Bool, names: [String: String]) async {
+        guard !holding, current, let page, !page.closed, page.onHold == wasOnHold else { return }
+        holding = true
+        holdSay = nil
+        if !wasOnHold {
+            await read()
+            guard current else { return }
+            if gone { holdSay = Board.holdTaskGone; holding = false; return }
+            if readFailed { holdSay = Board.holdCheckFailed; holding = false; return }
+            if self.page?.onHold == true {
+                await readActivity(names: names)
+                guard current else { return }
+                holdSay = Board.holdAlready
+                holding = false
+                return
+            }
+        }
+        let (project, number) = (self.project, self.number)
+        let answer = await send { Board.taskHoldRequest(mac: $0, project: project, number: number, onHold: !wasOnHold) }
+        guard current else { return }
+        if case .refused(let why) = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0,
+                                                          failed: Board.holdFailed, unreached: Board.holdUnreached) {
+            holdSay = why
+            holding = false
+            return
+        }
+        await read()
+        await readActivity(names: names)
+        guard current else { return }
+        holdSay = Board.holdNextLine(answer?.0)
+        holding = false
     }
 
     // kosmos#8958 slice B1: a message on the task (the board's tkSayPost). true when the Mac recorded it, so the box can
