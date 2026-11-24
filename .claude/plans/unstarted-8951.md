@@ -26,3 +26,13 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 - So the main fix: a message written and not yet run (inFlight) when the process stops is carried to the next process's record as `unstarted` (lostOnStop), reported on the card, to the person and on the task log ("and it ended before running it"), until a turn starts. The no-turn deadline stays as the second guard (the enqueue-then-dequeue-with-no-turn shape without a crash).
 - Rejected: re-delivering after the restart. All three messages killed the process, so the content may be the trigger; an automatic resend could crash-loop.
 - Not done here, a separate question: why claude.exe dies on these messages. The died line carried no stderr, so there is nothing yet to work from.
+
+## Challenge loop iteration 1 (opus)
+- Fixed (BLOCKER): a resume with nothing to resume answers with one error `result` and no turn, which erased the carried report before any sweep saw it. A `result` now counts as a turn only after this process opened one (init, assistant or user); the report rides through that child and the fresh start.
+- Fixed (WARNING): a message written behind a turn was dropped from tracking at the result. It stays in flight at the boundary and must open its own turn by the deadline.
+- Fixed (WARNING): any turn cleared the report within a second, before the minute sweep showed or pushed it. It now ends only on a turn a LATER write opened, and not before REPORT_HOLD_MS (2 min).
+- Fixed (WARNING): the page said "about 5 minutes ago" for a crash seconds old; the floor is a minute.
+- Fixed (WARNING): the crash case is worded apart (`lost`): "stopped right after a message reached it ... the message itself may be what stops it, so try a shorter one". The deadline case keeps "took in ... never started on".
+- Fixed (NIT): the stall's words are singular for one message.
+- Accepted (NIT): idle Windows Claude cards now read their state file once more per poll (unstartedFor); stateFor already reads it, and the write retries once on a failed rename.
+- Mutations red: the result gate, the kept-behind message, the hold, the later-write rule (after a test fix: the wake-up now comes past the hold, so only that rule keeps the report), the lost flag, not re-saying a carried report.

@@ -109,8 +109,11 @@ test('#8951 review 1: a report ends only on a turn a LATER write opened, and is 
   r.pub.wrote();
   r.fire();
   assert.ok(r.last().unstarted, 'premise: reported');
+  r.clock.t += HOLD;                        // past the hold, so only the later-write rule can keep it
   r.pub.event(init); r.pub.event(result);   // a wake-up: a turn nobody wrote
+  r.fire();
   assert.ok(r.last().unstarted, 'a turn with no later write does not prove the lost message ran');
+  r.clock.t -= HOLD;                        // back, so the next steps test the hold itself
   r.pub.wrote();
   r.pub.event(init);                        // a later write opens a turn, seconds after the report
   assert.ok(r.last().unstarted, 'held: the minute sweep has not shown it yet');
