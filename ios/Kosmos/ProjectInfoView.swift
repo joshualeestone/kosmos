@@ -191,7 +191,7 @@ struct ProjectInfoView: View {
             // kosmos#8956: members, added and removed here; each Remove asks first, on its own button (Renet, #8955).
             Section {
                 ForEach(project.members, id: \.session) { m in
-                    RemoveMemberRow(member: m, busy: memberBusy != nil) { Task { await changeMember(session: m.session, name: m.name, add: false) } }
+                    RemoveMemberRow(member: m, busy: memberBusy != nil, removing: memberBusy == m.session) { Task { await changeMember(session: m.session, name: m.name, add: false) } }
                 }
                 Button { addingMember = true } label: {
                     HStack { Text(Board.projectAddMemberTitle).foregroundColor(Palette.primary); if memberBusy == "add" { Spacer(); SweepDots(label: "Loading", scales: false) } }
@@ -202,10 +202,13 @@ struct ProjectInfoView: View {
                 if let memberLine { Text(memberLine.text).font(.footnote).foregroundColor(memberLine.ok ? Palette.secondary : Palette.dangerWord) }
             } header: { label("Members") }
             outsideMembersSection
-            // kosmos#8956: archiving, asked first (the board's pj-one-archive).
-            Section {
-                ArchiveProjectRow(name: project.name, archived: project.archived, busy: archiving) { restore in Task { await archive(restore: restore) } }
-                if let archiveLine { Text(archiveLine.text).font(.footnote).foregroundColor(archiveLine.ok ? Palette.secondary : Palette.dangerWord) }
+            // kosmos#8956: archiving, asked first (the board's pj-one-archive). Review 2: not on an archived project (the phone
+            // opens none today, and restoring is the board's, as the question says).
+            if !project.archived {
+                Section {
+                    ArchiveProjectRow(name: project.name, busy: archiving) { Task { await archive() } }
+                    if let archiveLine { Text(archiveLine.text).font(.footnote).foregroundColor(archiveLine.ok ? Palette.secondary : Palette.dangerWord) }
+                }
             }
         }
         .listStyle(.insetGrouped)
@@ -260,13 +263,19 @@ struct ProjectInfoView: View {
         } footer: { Text(Board.projectStillOnBoard) }
     }
 
+    // kosmos#8956 review 2: a result line is set and spoken, as save() speaks its own (the tapped row may have just gone).
+    private func spoken(_ text: String, _ ok: Bool) -> (text: String, ok: Bool) {
+        UIAccessibility.post(notification: .announcement, argument: text)
+        return (text, ok)
+    }
+
     // kosmos#8956: add (POST) or remove (DELETE) one member, then read the projects again so every list shows it.
     // Review 1: one change at a time (a second tap is ignored); with no computer connected nothing is sent, the one case
     // that is certainly "nothing changed"; every answer, even "cannot tell", is followed by a re-read.
     private func changeMember(session: String, name: String, add: Bool) async {
         guard memberBusy == nil else { return }
         memberLine = nil
-        guard client.macURL != nil else { memberLine = (Board.projectMemberLine(.notSent, add: add, name: name), false); return }
+        guard client.macURL != nil else { memberLine = spoken(Board.projectMemberLine(.notSent, add: add, name: name), false); return }
         memberBusy = add ? "add" : session
         defer { memberBusy = nil }
         let id = project.id
@@ -274,25 +283,25 @@ struct ProjectInfoView: View {
         let result = Board.projectMemberResult(status: res?.1.statusCode ?? 0, body: res?.0)
         let ok: Bool
         switch result { case .done(.told), .done(.notTried): ok = true; default: ok = false }   // could_not is said as a problem
-        memberLine = (Board.projectMemberLine(result, add: add, name: name), ok)
+        memberLine = spoken(Board.projectMemberLine(result, add: add, name: name), ok)
         await reload()
     }
 
-    // kosmos#8956: archive (or, on an archived project, restore) with the board's own PUT; the archive is asked first
-    // by ArchiveProjectRow. Review 1: after an archive the project has left the list, so the room closes back to Projects.
-    private func archive(restore: Bool) async {
+    // kosmos#8956: archive with the board's own PUT, asked first by ArchiveProjectRow. Review 1: after an archive the project
+    // has left the list, so the room closes back to Projects.
+    private func archive() async {
         guard !archiving else { return }
         archiveLine = nil
-        guard client.macURL != nil else { archiveLine = (Board.projectArchiveLine(.notSent, restore: restore), false); return }
+        guard client.macURL != nil else { archiveLine = spoken(Board.projectArchiveLine(.notSent), false); return }
         archiving = true
         defer { archiving = false }
         let id = project.id
-        let body = restore ? Board.projectRestoreBody() : Board.projectArchiveBody()
+        let body = Board.projectArchiveBody()
         let res = await client.throughMac { Board.projectChangeRequest(mac: $0, project: id, body: body) }
         let result = Board.projectArchiveResult(status: res?.1.statusCode ?? 0, body: res?.0)
-        archiveLine = (Board.projectArchiveLine(result, restore: restore), result == .done)
+        archiveLine = spoken(Board.projectArchiveLine(result), result == .done)
         await reload()
-        if result == .done && !restore { onArchived() }
+        if result == .done { onArchived() }
     }
 
     private func save(_ change: Board.ProjectChange) async {
@@ -407,6 +416,7 @@ struct ProjectInfoView: View {
 private struct RemoveMemberRow: View {
     let member: Board.ProjectMember
     let busy: Bool
+    var removing = false   // review 2: this row's own change is running
     let remove: () -> Void
     @State private var asking = false
 
@@ -415,7 +425,7 @@ private struct RemoveMemberRow: View {
             HStack {
                 Text(member.name).foregroundColor(Palette.primary)
                 Spacer()
-                Text("Remove").foregroundColor(Palette.dangerWord)
+                if removing { SweepDots(label: "Loading", scales: false) } else { Text("Remove").foregroundColor(Palette.dangerWord) }
             }
             .frame(minHeight: 44).contentShape(Rectangle())
         }
@@ -430,27 +440,26 @@ private struct RemoveMemberRow: View {
     }
 }
 
-// kosmos#8956: Archive project, which asks first. Review 1: on an archived project (opened from Archived projects) it is
-// Restore, as the board's own button is there, and a restore needs no question (it undoes nothing).
+// kosmos#8956: Archive project, which asks first. Review 2: archive only; restoring is on the computer's board, as the
+// question says (the phone opens no archived project today).
 private struct ArchiveProjectRow: View {
     let name: String
-    let archived: Bool
     let busy: Bool
-    let act: (_ restore: Bool) -> Void
+    let archive: () -> Void
     @State private var asking = false
 
     var body: some View {
-        Button { if archived { act(true) } else { asking = true } } label: {
+        Button { asking = true } label: {
             HStack {
-                Text(archived ? Board.projectRestoreTitle : Board.projectArchiveTitle).foregroundColor(archived ? Palette.primary : Palette.dangerWord)
+                Text(Board.projectArchiveTitle).foregroundColor(Palette.dangerWord)
                 if busy { Spacer(); SweepDots(label: "Loading", scales: false) }
             }
             .frame(minHeight: 44).contentShape(Rectangle())
         }
         .disabled(busy)
-        .accessibilityIdentifier(archived ? "project-restore" : "project-archive")
+        .accessibilityIdentifier("project-archive")
         .confirmationDialog(Board.projectArchiveAsk(name), isPresented: $asking, titleVisibility: .visible) {
-            Button(Board.projectArchiveTitle, role: .destructive) { act(false) }
+            Button(Board.projectArchiveTitle, role: .destructive, action: archive)
             Button("Cancel", role: .cancel) {}
         }
     }

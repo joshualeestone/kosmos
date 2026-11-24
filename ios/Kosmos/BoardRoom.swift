@@ -1451,7 +1451,7 @@ extension Board {
     static func projectArchiveBody() -> [String: Any] { ["archived": true] }
     static let projectArchiveTitle = "Archive project"
     static func projectArchiveAsk(_ name: String) -> String {
-        "Archive \(name)? It leaves your project list and its agents stop being told about it. You can restore it from Archived projects on your computer's board."
+        "Archive \(name)? It leaves your projects list and stops counting. Everything stays, and you can restore it from Archived projects on your computer's board."   // review 2: the board's own archive hint
     }
     static let projectArchivedLine = "Archived."
 
@@ -1521,8 +1521,7 @@ extension Board {
         switch r {
         case .done(let t):
             switch (add, t) {
-            case (true, .told): return "Added \(name)."
-            case (true, .notTried): return "Added \(name). It reads the change the next time it looks."
+            case (true, .told), (true, .notTried): return "Added \(name)."   // review 2: the board says nothing more for an add
             case (true, .couldNot(let why)):
                 return "Added \(name), but we could not update them, so they may not know about this project yet." + (why.map { " " + sentence($0) } ?? "")
             case (false, .couldNot(let why)):
@@ -1536,8 +1535,7 @@ extension Board {
     }
     static let projectNotConnected = "Your computer is not connected, so nothing changed."
 
-    /* Review 1: the archive (and, on an archived project, the restore: the board's button is the Restore control there)
-       reads its answer by the same rules as a member change, worded for itself. */
+    /* Review 1: the archive reads its answer by the same rules as a member change, worded for itself. */
     enum ProjectArchiveResult: Equatable { case done, refused(String), cannotTell, notSent }
     static func projectArchiveResult(status: Int, body: Data?) -> ProjectArchiveResult {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -1546,16 +1544,14 @@ extension Board {
         if let e = obj?["error"] as? String, !e.isEmpty { return .refused(sentence(e)) }
         return status >= 500 ? .cannotTell : .refused("We could not change that project.")
     }
-    static func projectArchiveLine(_ r: ProjectArchiveResult, restore: Bool) -> String {
+    static func projectArchiveLine(_ r: ProjectArchiveResult) -> String {
         switch r {
-        case .done: return restore ? "Restored." : projectArchivedLine
+        case .done: return projectArchivedLine
         case .refused(let why): return why
         case .cannotTell: return "We could not tell whether that changed. Look again in a moment."
         case .notSent: return projectNotConnected
         }
     }
-    static func projectRestoreBody() -> [String: Any] { ["archived": false] }
-    static let projectRestoreTitle = "Restore project"
 }
 
 // #8625: posted by Settings when an Unblock was taken, so the rooms stop keeping that person's hidden messages out.

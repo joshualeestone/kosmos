@@ -24,3 +24,11 @@ Finished when: from project info, adding a member, removing one and archiving th
 - Fixed (NIT): the add sheet's empty line says which empty it is; one pick only; a second change while one runs is ignored; the projectAddable comment no longer names a filter that is not there; the session is ASCII percent-encoded (iOS 16's URL refuses non-ASCII), with the force unwrap explained.
 - Fixed (NIT): the UI test asserts the archive question's own words (a button count could not fail) and that the general board rows are gone from About and Settings.
 - Evidence: room 942/942; simulator SDK build succeeded; the 13 node tests that read ios/ pass. UI run still queued.
+
+## Challenge loop iteration 2 (sonnet)
+- Fixed (WARNING): Restore was unreachable (the phone opens no archived project: ProjectsView's ArchivedRow is plain text) and untested. Removed: the archive row is archive only and hidden on an archived project; restoring stays on the computer's board, as the question says. Decided: opening archived projects on the phone is its own change, not this card's.
+- Fixed (WARNING): the archive question said its agents stop being told, which the server does not do (archive turns the project off; members and their instruction blocks stay). Now the board's own hint: "It leaves your projects list and stops counting. Everything stays, and you can restore it ..." (pinned to web/index.html).
+- Fixed (WARNING): the member and archive result lines are now spoken (UIAccessibility announcement), as save() speaks its own.
+- Fixed (NIT): the row being removed shows its own progress; an add says only "Added <name>." when told or not tried (the board says nothing more).
+- Noted (NIT): closing on archive (RoomView's dismissRoom from the info page) is not reachable in the sample board (no computer admitted, PigeonPete's note); it is a device check, with the posting paths.
+- Evidence: room 943/943; simulator SDK build succeeded; the 13 node tests that read ios/ pass.

@@ -2076,7 +2076,7 @@ check(Board.projectMemberResult(status: 404, body: Data(#"{"error":"there is no 
 check(Board.projectMemberResult(status: 400, body: nil) == .refused("We could not change that project."), "a refusal with no reason")
 check(Board.projectMemberResult(status: 0, body: nil) == .cannotTell, "review 1: sent and no answer is cannot tell (the reply can be lost after it acted)")
 check(Board.projectMemberLine(.done(.told), add: true, name: "Rex") == "Added Rex.", "added, told")
-check(Board.projectMemberLine(.done(.notTried), add: true, name: "Rex") == "Added Rex. It reads the change the next time it looks.", "added, not tried")
+check(Board.projectMemberLine(.done(.notTried), add: true, name: "Rex") == "Added Rex.", "review 2: added, not tried: the board says nothing more")
 check(Board.projectMemberLine(.done(.couldNot("this agent has no folder")), add: true, name: "Rex").hasPrefix("Added Rex, but we could not update them"), "added, could not update them: said as a problem")
 check(Board.projectMemberLine(.done(.told), add: false, name: "Rex") == "Rex is off this project and still on your computer.", "removed: the board's own words")
 check(Board.projectMemberLine(.done(.couldNot("this agent has no folder")), add: false, name: "Rex") == "Rex is off this project. We could not update them, so this project may still be named in what they were told. This agent has no folder.", "review 1: removed but not updated, the board's own words and why")
@@ -2087,8 +2087,9 @@ check(Board.projectArchiveResult(status: 200, body: Data(#"{"project":{}}"#.utf8
 check(Board.projectArchiveResult(status: 200, body: Data("x".utf8)) == .cannotTell && Board.projectArchiveResult(status: 0, body: nil) == .cannotTell
       && Board.projectArchiveResult(status: 503, body: nil) == .cannotTell, "review 1: an unreadable 200, no answer and a bare 5xx are cannot tell")
 check(Board.projectArchiveResult(status: 400, body: Data(#"{"error":"that project is shared"}"#.utf8)) == .refused("That project is shared."), "a refusal")
-check(Board.projectArchiveLine(.done, restore: false) == "Archived." && Board.projectArchiveLine(.done, restore: true) == "Restored.", "archive and restore lines")
-check((Board.projectRestoreBody()["archived"] as? Bool) == false, "restore sends { archived: false }, as the board's button does on an archived project")
+check(Board.projectArchiveLine(.done) == "Archived." && Board.projectArchiveLine(.notSent) == "Your computer is not connected, so nothing changed.", "archive lines")
+check(Board.projectArchiveAsk("Launch").contains("Everything stays") && !Board.projectArchiveAsk("Launch").contains("stop being told"), "review 2: the board's own archive hint, no claim the agents are untold")
+check(boardPage.contains("'Everything stays, and you can restore it whenever you like.'"), "premise: the board's archive hint")
 let addAgents = Board.parseAgents(Data(#"{"agents":[{"sessionName":"rex","name":"Rex","state":"idle"},{"sessionName":"roo","name":"Roo","state":"idle"},{"sessionName":"guide","name":"Guide","state":"idle","isGuide":true},{"sessionName":"mia","name":"Mia","state":"working"}]}"#.utf8)) ?? []
 check(addAgents.count == 4, "premise: four agents read")
 check(Board.projectAddable(addAgents, members: [Board.ProjectMember(session: "roo", name: "Roo", hasAvatar: false, provider: nil)]).map(\.session) == ["rex", "mia"],
