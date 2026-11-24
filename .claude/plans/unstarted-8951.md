@@ -66,3 +66,9 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 - Fixed (NIT): messages the deadline merges into an old report get a fresh hold.
 - Accepted (NIT): the sweep-order test checks the source text only (noted in iteration 3).
 - Mutations red: endReport's needsWrite, not carrying a run report, the merge's fresh hold, the ack waiting on a showing report.
+
+## Challenge loop iteration 6 (sonnet, a full state table of the report lifecycle)
+- Fixed (WARNING): a write into a BUSY agent (behind a turn nobody wrote) counted as "the later write" at once, so the running turn's next event ended a carried report while the resent message only waited. It now counts when its own turn starts: at the result boundary it is taken at, or when the running turn's open calls all return and it joins that turn.
+- Accepted (NIT): a deadline report merged into a carried one keeps needsWrite, so a late start of the merged message does not end it; another write's turn does. Conservative (it keeps saying "not started" a little long), and the carried messages in that report did not run.
+- Every other cell of the table was traced and found sound (listed in the reviewer's report).
+- Mutation red: counting a busy write at once. The round 3 restart test now ends the new process's own turn before the resend, as a real stream does.
