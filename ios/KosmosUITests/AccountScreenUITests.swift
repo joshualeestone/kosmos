@@ -103,35 +103,39 @@ final class AccountScreenUITests: XCTestCase {
         // A List builds its rows only near the screen, so scroll until Add shows (it is below the fold).
         reveal(app, add)
         XCTAssertTrue(add.exists, "no Add a passkey")
-        XCTAssertTrue(app.buttons["Remove iPhone"].exists && app.buttons["Remove MacBook"].exists, "a passkey is listed without Remove")
+        let removeRow = app.buttons["account-passkey-remove-sample-1"]
+        XCTAssertTrue(removeRow.exists && app.buttons["account-passkey-remove-sample-2"].exists, "a passkey is listed without Remove")
+        XCTAssertTrue(removeRow.label.hasPrefix("Remove iPhone, added "), "Remove does not say which passkey, dated: \(removeRow.label)")
         XCTAssertTrue(app.staticTexts["Not used yet."].exists || app.staticTexts.containing(NSPredicate(format: "label ENDSWITH 'Not used yet.'")).count == 1,
                       "the never-used passkey does not say so")
         shot(app, "account-passkeys")
 
-        app.buttons["Remove iPhone"].tap()
-        XCTAssertTrue(app.staticTexts["Press it again to remove iPhone."].waitForExistence(timeout: 5), "Remove does not ask first, in the page's words")
+        removeRow.tap()
+        let question = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Remove iPhone, added ' AND label ENDSWITH 'It stays in your Passwords app until you delete it there.'")).firstMatch
+        XCTAssertTrue(question.waitForExistence(timeout: 5), "Remove does not ask first, naming the passkey and the Passwords app")
         shot(app, "account-passkey-remove")
         closeDialog(app)
         // Review 1: the dialog's own button is also "Remove iPhone", so what proves it closed is its question gone, and
         // what proves nothing was removed is no "Passkey removed." (a sample run removes nothing either way).
-        XCTAssertTrue(app.staticTexts["Press it again to remove iPhone."].waitForNonExistence(timeout: 5), "the remove dialog did not close")
+        XCTAssertTrue(question.waitForNonExistence(timeout: 5), "the remove dialog did not close")
         XCTAssertFalse(app.staticTexts["Passkey removed."].exists, "closing the dialog removed the passkey")
         reveal(app, add)
 
         add.tap()
         XCTAssertTrue(app.staticTexts["Passkey added."].waitForExistence(timeout: 5), "Add does not say the passkey was added")
 
-        let notMe = app.buttons["Not me: sign out everywhere"]
+        let notMe = app.buttons["account-not-me-np-1"]
         reveal(app, notMe)
         XCTAssertTrue(notMe.exists, "the new place has no Not me")
+        XCTAssertTrue(notMe.label.hasPrefix("Not me: sign out everywhere, for the sign-in "), "Not me does not say which sign-in: \(notMe.label)")
         XCTAssertTrue(app.staticTexts["Safari on a Mac"].exists, "the new place is not listed")
         shot(app, "account-new-places")
         notMe.tap()
-        XCTAssertTrue(app.staticTexts["Press it again to sign your account out everywhere, this sign-in included."].waitForExistence(timeout: 5),
-                      "Not me does not ask first, in the page's words")
+        XCTAssertTrue(app.staticTexts["This signs your account out everywhere, this iPhone included."].waitForExistence(timeout: 5),
+                      "Not me does not ask first")
         shot(app, "account-not-me")
         closeDialog(app)
-        XCTAssertTrue(app.staticTexts["Press it again to sign your account out everywhere, this sign-in included."].waitForNonExistence(timeout: 5),
+        XCTAssertTrue(app.staticTexts["This signs your account out everywhere, this iPhone included."].waitForNonExistence(timeout: 5),
                       "the Not me dialog did not close")
         XCTAssertTrue(app.navigationBars["Kosmos+ account"].exists, "closing the dialog left the account screen")
     }

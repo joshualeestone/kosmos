@@ -134,14 +134,14 @@ struct AccountView: View {
             Button("Remove \(p.name)", role: .destructive) { let asked = removingFor; Task { await removePasskey(p, for: asked) } }
             Button("Cancel", role: .cancel) {}
         } message: { p in
-            Text(AccountSecurity.removeAsk(name: p.name))
+            Text(AccountSecurity.removeQuestion(p, day: Self.day))
         }
         .confirmationDialog("Not me?", isPresented: Binding(get: { notMeFor != nil }, set: { if !$0 { notMeFor = nil } }),
                             titleVisibility: .visible, presenting: notMeFor) { p in
             Button("Sign out everywhere", role: .destructive) { let asked = notMeAskedFor; Task { await notMe(p, for: asked) } }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text(AccountSecurity.notMeAsk)
+            Text(AccountSecurity.notMeQuestion)
         }
         .onDisappear { maker.cancel() }
     }
@@ -371,7 +371,9 @@ struct AccountView: View {
                             Button("Remove") { passkeyNote = nil; passkeyDone = nil; removingFor = sample ? "sample" : currentSession(); removing = p }
                                 .buttonStyle(.borderless).foregroundColor(Palette.dangerWord)
                                 .disabled(passkeyBusy || busy != nil)
-                                .accessibilityLabel("Remove " + p.name)
+                                // Review 3: the date tells two of one name apart, as the page's labels do.
+                                .accessibilityLabel("Remove " + p.name + (p.createdAt.map { ", added " + Self.day($0) } ?? ""))
+                                .accessibilityIdentifier("account-passkey-remove-" + p.credentialID)
                         }
                         .frame(minHeight: 44)
                         .accessibilityElement(children: .contain)
@@ -404,6 +406,8 @@ struct AccountView: View {
                             Button(AccountSecurity.notMeButton, role: .destructive) { notMeNote = nil; notMeAskedFor = currentSession(); notMeFor = p }
                                 .buttonStyle(.borderless).foregroundColor(Palette.dangerWord)
                                 .disabled(notMeBusy || busy != nil)
+                                .accessibilityLabel(AccountSecurity.notMeButton + (p.at.map { ", for the sign-in " + Self.when($0) } ?? ""))
+                                .accessibilityIdentifier("account-not-me-" + p.id)
                         }
                     }
                     .padding(.vertical, 4)
@@ -429,7 +433,7 @@ struct AccountView: View {
     private var signOutSection: some View {
         Section {
             Button(busy == .signOut ? "Signing out" : (offerLocalOnly != nil ? "Try signing out again" : "Sign out")) { Task { await signOut() } }
-                .disabled(busy != nil)
+                .disabled(busy != nil || notMeBusy)
                 .accessibilityIdentifier("account-sign-out")
             if let session = offerLocalOnly {
                 Button("Sign out on this iPhone only", role: .destructive) { askLocalOnly = true }
@@ -471,8 +475,8 @@ struct AccountView: View {
             }
             .accessibilityIdentifier("account-more")
         } footer: {
-            Text(passkeys == .off ? "Your plan and billing, passkeys and adding a computer are on your Kosmos+ account page."
-                 : "Your plan and billing and adding a computer are on your Kosmos+ account page.")
+            // Review 3: passkeys are here when Kosmos+ has them, and off on the page too when it does not.
+            Text("Your plan and billing and adding a computer are on your Kosmos+ account page.")
                 .font(.footnote).foregroundColor(Palette.secondary)
         }
     }
@@ -776,6 +780,8 @@ struct AccountView: View {
         guard !passkeyBusy, let session = sample ? "sample" : currentSession() else { return }
         passkeyNote = nil; passkeyDone = nil
         if sample { passkeyDone = AccountSecurity.added; return }
+        // Review 3: known before begin from the list shown, so no fresh sign-in is asked for an Add this iPhone cannot do.
+        if #available(iOS 17.4, *) {} else if case .loaded(let rows) = passkeys, !rows.isEmpty { passkeyNote = AccountSecurity.addNeedsNewer; return }
         passkeyBusy = true; passkeyFor = session
         defer { if passkeyFor == session { passkeyBusy = false; passkeyFor = nil } }
         /* Review 2: a challenge is held from the moment begin answers, with the time begin answered (its true age), and is
@@ -799,7 +805,8 @@ struct AccountView: View {
         }
         if let refusal = AccountSecurity.rpRefusal(reg, coordinator: coordinator) { passkeyNote = refusal; return }
         if #available(iOS 17.4, *) {} else if !reg.exclude.isEmpty { passkeyNote = AccountSecurity.addNeedsNewer; return }
-        switch await maker.make(reg) {
+        let age = heldAdd.map { Date().timeIntervalSince($0.at) } ?? 0
+        switch await maker.make(reg, closeAfter: AccountSecurity.sheetSeconds(ageSeconds: age)) {
         case .cancelled:
             // The challenge stays held for the next press of this sign-in (it is live for five minutes).
             if currentSession() == session { passkeyNote = AccountSecurity.addCancelled }
