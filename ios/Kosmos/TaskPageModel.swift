@@ -327,7 +327,7 @@ final class TaskPageModel: ObservableObject {
             case .unreadable: self.receiptFailed = (key, self.now()); self.receiptAsked = nil
             }
             if self.receipt != shown { self.receipt = shown }
-            if shown == nil { self.hideUndo() } else { self.undoAsked = nil; self.syncUndo(key) }
+            if shown == nil { self.hideUndo() } else { self.syncUndo(key) }
         }
     }
 
@@ -381,6 +381,13 @@ final class TaskPageModel: ObservableObject {
         if undoPlan != nil { undoPlan = nil }
     }
 
+    // The list opens: no read of the plan lands under it and takes the person's choices away (the board shows the link again
+    // only once its read is in). Another close's receipt still reads its own.
+    func openUndo() {
+        clearUndoSay()
+        stopUndoRead()
+        undoAsked = page?.receiptKey
+    }
     // The list was left without an undo (the board's Cancel): the plan is read again.
     func leaveUndo() {
         clearUndoSay()
@@ -393,35 +400,32 @@ final class TaskPageModel: ObservableObject {
         if undoRefused { undoRefused = false }
     }
 
-    // "Undo the chosen files". Nothing is sent for no files, while one is on its way, or with nothing offered. The line
-    // that says what was done takes the offer's place; a refusal keeps the list with the Mac's words. Then the activity is
-    // read, after a refusal too: an undo whose answer was lost shows there.
-    func undo(_ paths: [String], names: [String: String]) async {
-        guard !undoing, current, let page, page.closed, undoPlan != nil else { return }
+    // "Undo the chosen files" of `list`, the plan the person chose from. Nothing is sent for no files, while one is on its
+    // way, or when what is offered is not that list any more. The line that says what was done takes the offer's place; a
+    // refusal keeps the list with its words. Then the activity is read, after a refusal too: an undo whose answer was lost
+    // shows there.
+    func undo(_ paths: [String], of list: Board.UndoPlan, names: [String: String]) async {
+        guard !undoing, current, undoPlan == list else { return }
         clearUndoSay()
         guard !paths.isEmpty else { undoSay = Board.undoChoose; return }
-        stopUndoRead()   // one from a list just left would take this one's place
         undoing = true
         let mine = undoReads
-        // Not read again by a tick before this answers, nor after it: the line that says what was done stays.
-        undoAsked = page.receiptKey
         let (project, number) = (self.project, self.number)
         let answer = await send { Board.taskUndoApply(mac: $0, project: project, number: number, paths: paths) }
         guard current else { return }
         undoing = false
         // Put back meanwhile: there is no receipt for this to stand under.
         if mine == undoReads {
-            let result = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0, failed: Board.undoFailed, unreached: Board.undoFailed)
-            if case .refused(let why) = result {
+            switch Board.undoResult(status: answer?.1.statusCode ?? 0, body: answer?.0) {
+            case .refused(let why):
                 undoSay = why
                 undoRefused = true
-            } else if let line = Board.undoDoneLine(answer?.0) {
+            case .done(let line):
                 undoDone = line
                 undoPlan = nil
-            } else {
-                undoSay = Board.undoFailed
-                undoRefused = true
             }
+            // Closed again while it was out, maybe: this close is taken as asked, so the next read does not wipe the words.
+            undoAsked = self.page?.receiptKey
         }
         await readActivity(names: names)
     }
