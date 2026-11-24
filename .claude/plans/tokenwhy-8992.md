@@ -72,3 +72,13 @@ run again and check lookup), the safe side. The real-tool test pins the wording 
   is slow or busy here, try when less busy.
 - The real-tool control never echoes what it read; a test that the "no credential" wording needs exit 1 too; test
   names carry no review-round labels. Mutations checked: readable, cannot-run, third place.
+
+## Round 6 (sonnet) fixes
+- A filed token whose file cannot be read from here shows in lookup as FILE NOT READABLE / BLOCKED - nothing can read:
+  that is 'unreadable' (a sandbox or mode question), never 'misfiled' and never /add-secret.
+- secretsReadable checks only what the tool treats as a credential (skips its README, *.example, dotfiles, backups,
+  folders and dangling links) and only EACCES/EPERM count; comment says mode only (macOS privacy can still refuse).
+- 'unread' adds: if it fails every time, run /agent-refresh (an old copy can fail this way).
+- Deliberate, recorded: a copy that answers (a non-timeout failure at the first place it is found) is that place's
+  answer; only a copy that cannot start, or lacks `value`, falls through to the next place.
+- The locked-folder test skips (t.skip) when run as a user who reads anything. Mutations checked.

@@ -46,6 +46,7 @@ test('a read that TIMED OUT on a filed target says run again, never file it', as
   assert.equal(r.why, 'unread');
   assert.match(r.because, /reading it failed or timed out/);
   assert.match(r.because, /Run the pull again; do not file it again\. If it keeps failing, the secrets map is slow or busy on this computer/);
+  assert.match(r.because, /if it fails every time, run \/agent-refresh/);
   assert.doesNotMatch(r.because, /not filed|File it with/);
 });
 
@@ -151,7 +152,31 @@ test('a target the map does not have says not filed (the old message, still righ
   if (was === undefined) delete process.env.SECRETS_DIR; else process.env.SECRETS_DIR = was;
 });
 
-test('"no credential mapped" with a secrets file this process cannot read is unreadable, never "file it"', async () => {
+test('a filed token whose file cannot be read from here (lookup: FILE NOT READABLE, BLOCKED) is unreadable, never "fix the filing"', async () => {
+  map({ value: { status: 1, stdout: '', stderr: 'secrets-map: not readable\n' }, lookup: ok(`cred:     /x/.config/secrets/blob\nformat:   bare-token   ** FILE NOT READABLE - check its mode/owner **\nconsume:  BLOCKED - nothing can read this file as the current user.\n`) });
+  assert.deepEqual(fp.tokenReading(), { why: 'unreadable' });
+  const r = await fp.pull(path.join(SB, 'd10'));
+  assert.doesNotMatch(r.because, /add-secret|File it with|Fix the filing/);
+});
+
+test('the readable check skips what the tool skips: a dangling link, its README, a backup, a folder', (t) => {
+  const dir = path.join(SB, 'odd-secrets');
+  fs.mkdirSync(dir, { mode: 0o700 });
+  fs.symlinkSync(path.join(SB, 'gone-target'), path.join(dir, 'old.key'));
+  fs.mkdirSync(path.join(dir, 'sub'), { mode: 0o000 });
+  for (const n of ['README.md', 'x.bak', '.hidden']) { fs.writeFileSync(path.join(dir, n), 'x'); fs.chmodSync(path.join(dir, n), 0o000); }
+  const was = process.env.SECRETS_DIR;
+  try {
+    process.env.SECRETS_DIR = dir;
+    map({ value: { status: 1, stdout: '', stderr: MISSING }, lookup: { status: 1, stdout: '', stderr: MISSING } });
+    assert.deepEqual(fp.tokenReading(), { why: 'missing' }, 'none of those is a credential, so a missing token is still told to be filed');
+  } finally {
+    fs.chmodSync(path.join(dir, 'sub'), 0o700);
+    if (was === undefined) delete process.env.SECRETS_DIR; else process.env.SECRETS_DIR = was;
+  }
+});
+
+test('"no credential mapped" with a secrets file this process cannot read is unreadable, never "file it"', async (t) => {
   const dir = path.join(SB, 'locked-secrets');
   fs.mkdirSync(dir, { mode: 0o700 });
   const f = path.join(dir, 'blob');
@@ -161,7 +186,7 @@ test('"no credential mapped" with a secrets file this process cannot read is unr
   try {
     let readable = true;
     try { fs.accessSync(f, fs.constants.R_OK); } catch { readable = false; }
-    if (readable) return;   // root reads anything: nothing to show here
+    if (readable) { t.skip('running as a user that reads any file (root): nothing to show here'); return; }
     process.env.SECRETS_DIR = dir;
     map({ value: { status: 1, stdout: '', stderr: MISSING }, lookup: { status: 1, stdout: '', stderr: MISSING } });
     assert.deepEqual(fp.tokenReading(), { why: 'unreadable' });

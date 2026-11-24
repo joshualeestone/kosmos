@@ -143,6 +143,8 @@ function tokenReading() {
          failure is passing ('unread'). Any other consume line (BLOCKED, an env, a path, an undeterminable shape) is a
          filing `value` refuses every time ('misfiled'). */
       const report = String(seen.stdout || '');
+      // A file this process cannot read is a sandbox or mode question, never a filing to redo with /add-secret.
+      if (/FILE NOT READABLE|^consume:\s*BLOCKED - nothing can read/m.test(report)) return { why: 'unreadable' };
       const creds = (report.match(/^cred:/gm) || []).length;
       const byValue = new RegExp('^consume:\\s*secrets-map\\.sh value ' + FEEDBACK_TOKEN_TARGET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*$', 'm');
       return { why: creds === 1 && byValue.test(report) ? 'unread' : 'misfiled' };
@@ -156,17 +158,27 @@ function tokenReading() {
   }
   return { why: fallback || 'no-tool' };
 }
-/* Can this process read the secrets folder and every file in it? Metadata only (a listing and an access check, never a
-   read of a file's content). A folder that does not exist is readable in this sense: nothing is filed there. */
+/* Can this process read the secrets folder and every credential file in it? By mode only (a listing and an access
+   check, never a file's content; macOS privacy refusals can still deny a read this passes). Only what secrets-map.sh
+   itself treats as a credential counts: its own README, *.example, dotfiles and backups (*.bak, *.old, *.orig, *~) are
+   skipped, and so are folders and a link whose target is gone (no permission problem, nothing to read). Only a refusal
+   (EACCES, EPERM) makes it unreadable. A folder that does not exist is readable in this sense: nothing is filed. */
+const NOT_A_CRED = /^(README\.md|\..*|.*\.example|.*\.bak|.*\.old|.*\.orig|.*~)$/;
 function secretsReadable() {
   let home = '';
   try { home = os.homedir() || ''; } catch { home = ''; }
   const dir = process.env.SECRETS_DIR || (home ? path.join(home, '.config', 'secrets') : '');
   if (!dir) return true;
+  const refused = (e) => Boolean(e && (e.code === 'EACCES' || e.code === 'EPERM'));
   let names;
-  try { names = fs.readdirSync(dir); } catch (e) { return Boolean(e && e.code === 'ENOENT'); }
+  try { names = fs.readdirSync(dir); } catch (e) { return !refused(e); }
   for (const n of names) {
-    try { fs.accessSync(path.join(dir, n), fs.constants.R_OK); } catch { return false; }
+    if (NOT_A_CRED.test(n)) continue;
+    const f = path.join(dir, n);
+    let st;
+    try { st = fs.statSync(f); } catch (e) { if (refused(e)) return false; continue; }   // a dangling link: skipped
+    if (!st.isFile()) continue;
+    try { fs.accessSync(f, fs.constants.R_OK); } catch (e) { if (refused(e)) return false; }
   }
   return true;
 }
@@ -177,7 +189,7 @@ function token() { return tokenReading().token || null; }
 // What a pull says when it has no token, by why (tokenReading). Only 'missing' says to file it.
 function noTokenBecause(why) {
   const t = 'secrets-map target "' + FEEDBACK_TOKEN_TARGET + '"';
-  if (why === 'unread') return 'the collected-feedback token is filed (' + t + ') but reading it failed or timed out just now. Run the pull again; do not file it again. If it keeps failing, the secrets map is slow or busy on this computer: try again when it is less busy.';
+  if (why === 'unread') return 'the collected-feedback token is filed (' + t + ') but reading it failed or timed out just now. Run the pull again; do not file it again. If it keeps failing, the secrets map is slow or busy on this computer, so try again when it is less busy; if it fails every time, run /agent-refresh (an old secrets-map.sh can fail this way).';
   if (why === 'unreadable') return 'the secrets map could not read its folder, or a file in it, from here (as from inside a sandbox), so whether the collected-feedback token is filed (' + t + ') is unknown. Run the pull where the secrets folder can be read; do not file it again.';
   if (why === 'cannot-run') return 'secrets-map.sh could not be started here (not executable, or refused, as from inside a sandbox), so the collected-feedback token (' + t + ') cannot be read. Run the pull where it can run; do not file the token again.';
   if (why === 'misfiled') return 'the collected-feedback token is filed (' + t + ') but the secrets map will not read it as filed: `secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '` shows why (a BLOCKED line, a shape other than a bare token, or more than one credential for it). Fix the filing with /add-secret, or the file\'s mode if it says not readable; running the pull again will not help.';
