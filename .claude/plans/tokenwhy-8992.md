@@ -90,3 +90,8 @@ steps): retry (failed or busy read, or no answer; file only if lookup says missi
 (a missing target cannot be told from a hidden one: `secrets-map.sh audit` lists the unreadable files, fix their modes),
 tool (not-found / old / cannot-start, said in one message). The unused token() export is gone. No test reads the real
 secrets folder (SECRETS_DIR defaults to a temp path in the test file). Mutations checked on each branch.
+
+## Round 8 (sonnet, final within the cap): no blocker, no warning
+Applied two nits: the retry message also names an empty filed token file; install/kosmos's comment on the pull no
+longer says "not filed" is its only answer. Left, with reason: the Windows CLI's tool message names /agent-refresh,
+which is fleet-only, but before #8992 it said "file it", which was as unusable there; not a regression.

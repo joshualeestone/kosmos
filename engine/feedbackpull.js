@@ -185,7 +185,7 @@ function noTokenBecause(read) {
   const t = 'secrets-map target "' + FEEDBACK_TOKEN_TARGET + '"';
   const look = '`secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '`';
   const why = read && read.why;
-  if (why === 'retry') return 'the collected-feedback token could not be read just now (' + t + '). Run the pull again; do not file it. If it keeps failing, ' + look + ' shows whether it is filed: file it only if that says it is missing, and if it shows it filed, the secrets map is slow or busy here, or old (run /agent-refresh).';
+  if (why === 'retry') return 'the collected-feedback token could not be read just now (' + t + '). Run the pull again; do not file it. If it keeps failing, ' + look + ' shows whether it is filed: file it only if that says it is missing, and if it shows it filed, the secrets map is slow or busy here, or old (run /agent-refresh), or the filed token file is empty.';
   if (why === 'misfiled') return 'the collected-feedback token is filed (' + t + ') but the secrets map cannot give it as filed: ' + look + ' shows why (a file this user cannot read, a shape other than a bare token, or more than one credential for it). Fix the file\'s mode or owner, or the filing with /add-secret; running the pull again will not help.';
   if (why === 'unreadable') return 'this process cannot read the secrets folder, or a file in it, so whether the collected-feedback token is filed (' + t + ') cannot be told. `secrets-map.sh audit` lists the files it cannot read: fix their mode or owner, or run the pull where the folder can be read. Do not file it until then.';
   if (why === 'tool') {
