@@ -625,7 +625,7 @@ test('kosmos#8999: accounts sharing one projects folder through a link are read 
   fs.writeFileSync(path.join(d, 's1.jsonl'), row('10:05', 7) + '\n');
   const shared = path.join(SB, '.claude-two');
   fs.mkdirSync(shared, { recursive: true });
-  try { fs.symlinkSync(path.join(SB, '.claude', 'projects'), path.join(shared, 'projects')); }
+  try { fs.symlinkSync(path.join(SB, '.claude', 'projects'), path.join(shared, 'projects'), 'junction'); }
   catch (e) { t.skip('this machine cannot make links: ' + e.code); return; }
   const own = path.join(SB, '.claude-three', 'projects', path.basename(d));
   fs.mkdirSync(own, { recursive: true });
@@ -646,4 +646,16 @@ test('kosmos#8999: accounts sharing one projects folder through a link are read 
     for (const v of Object.keys(was)) if (was[v] === undefined) delete process.env[v]; else process.env[v] = was[v];
     fs.unlinkSync(path.join(shared, 'projects'));
   }
+});
+
+test('kosmos#8999: a transcript folder that lists but cannot be resolved is still read', async (t) => {
+  const project = 'p' + (++pn);
+  const moe = worker('moe');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'moe' }, { at: '12:00', kind: 'closed' }]);
+  fs.writeFileSync(path.join(claudeDir(moe), 's1.jsonl'), assistant('10:05', { id: 'moe1', usage: use(0, 7) }) + '\n');
+  let asked = 0;
+  t.mock.method(fs.promises, 'realpath', async () => { asked += 1; const e = new Error('EISDIR: illegal operation on a directory, realpath'); e.code = 'EISDIR'; throw e; });
+  const r = await receipt.forTask(project, { number: 1, closedAt: T('12:00') }, { now: ms('12:01') });
+  assert.ok(asked > 0, 'control: the folders are resolved through the call this replaces');
+  assert.deepEqual([r.agents[0].transcriptsWithWork, r.agents[0].models['claude-sonnet-5-5'].output_tokens], [1, 7]);
 });

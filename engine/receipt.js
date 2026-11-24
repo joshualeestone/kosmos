@@ -41,7 +41,9 @@ const COMMAND_TOOLS = new Set(['Bash']);
 /* Bumped when the receipt's shape or counting changes. A kept receipt of an older version is worked out again unless
    keptStillRight says it is still right as it was.
    2: Codex and Gemini CLI agents are read (slice 2).
-   3: the pull requests a Claude agent worked on while it held the task (`prs`, kosmos#6842). */
+   3: the pull requests a Claude agent worked on while it held the task (`prs`, kosmos#6842).
+   Not bumped for kosmos#8999 (a folder several accounts link to is read once): only rows with no id were counted more than
+   once, and working a kept receipt out again could lose work whose transcripts have since been pruned. */
 const VERSION = 3;
 /* kosmos#6842: Claude Code writes a `pr-link` row (prRepository, prNumber, prUrl) when a session acts on a pull request
    (opens, comments on or merges it), then repeats it on that session's later turns. A PR is listed when some session's
@@ -203,11 +205,13 @@ async function claudeWork(dir, holds) {
   const found = [];
   /* kosmos#8999: accounts often share one `projects` folder through a link, so one folder is listed once per account: each
      real folder is read once (read again for every account, a first receipt took several times as long). Only here, not
-     in transcriptDirs: engine/agentevents.js compares those names as they are written. */
+     in transcriptDirs: engine/agentevents.js compares those names. */
   const readDirs = new Set();
   for (const d of transcriptDirs(dir)) {
-    let real;
-    try { real = await fsp.realpath(d); } catch { continue; }   // no such folder under this account: nothing to read
+    /* A folder that cannot be resolved (missing, or a Windows volume where it fails though it can be listed) is taken as
+       spelled: a missing one lists nothing, and one that lists is never dropped. */
+    let real = d;
+    try { real = await fsp.realpath(d); } catch { /* as spelled */ }
     if (readDirs.has(real)) continue;
     readDirs.add(real);
     found.push(...await transcriptsIn(d));
