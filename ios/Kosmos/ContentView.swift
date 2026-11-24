@@ -9,6 +9,7 @@ struct ContentView: View {
     @ObservedObject var pushManager: PushNotificationManager
     // Starts unlocked when the gate is off, so default behavior is unchanged.
     @State private var isUnlocked = !KosmosConfig.requireBiometricUnlock
+    @State private var firstAgentBusy = false   // kosmos#8954: the empty state's read is under way (repeat taps ignored)
     // Set only when the app has actually gone to the background, so returning to
     // the foreground re-prompts after a real background cycle - not after a
     // transient .inactive (Control Center, a call, or the Face ID prompt itself).
@@ -559,16 +560,34 @@ struct ContentView: View {
     }
 
     /* kosmos#8954: the empty Agents tab's "Make an agent". The native New Agent when this phone can post to its computer
-       and that computer has an AI account to make an agent on (NewAgentPicker.emptyStateGoesNative); else the board's
-       form, whose first-run setup a person not yet set up needs (kosmos#8783). The accounts are read on the tap, so the
-       answer is the computer's now; a read that fails or does not answer keeps the board path. */
+       and that computer is set up (NewAgentPicker.emptyStateGoesNative: first-run done and an AI account); else the
+       board's form, whose first-run setup a person not yet set up needs (kosmos#8783). Review 1: both are read on the
+       tap, together, for at most 5 s (NewAgentView gives the accounts read the same); a read that fails, does not answer
+       in time, or comes back after the computer, the account or the lock changed opens nothing native, and a second
+       tap while one is reading is ignored (the button says it is working). */
     private func makeFirstAgent() {
+        guard !firstAgentBusy else { return }
         guard board.macURL != nil else { openCreate(.agent); return }
+        firstAgentBusy = true
+        let epoch = board.chatEpoch
         Task { @MainActor in
-            let got = await board.throughMac { NewAgentPicker.accountsRequest(mac: $0) }
-            let rows = got.flatMap { (200...299).contains($0.1.statusCode) ? NewAgentPicker.parseAccounts($0.0) : nil }
-            if NewAgentPicker.emptyStateGoesNative(connected: board.macURL != nil, accounts: rows) { newAgentOpen = true }
-            else { openCreate(.agent) }
+            let native: Bool = await withTaskGroup(of: Bool?.self) { g in
+                g.addTask { @MainActor in
+                    async let fr = board.throughMac { NewAgentPicker.firstRunRequest(mac: $0) }
+                    async let ac = board.throughMac { NewAgentPicker.accountsRequest(mac: $0) }
+                    let ok = { (x: (Data, HTTPURLResponse)?) -> Data? in x.flatMap { (200...299).contains($0.1.statusCode) ? $0.0 : nil } }
+                    let done = ok(await fr).flatMap(NewAgentPicker.parseFirstRunDone)
+                    let rows = ok(await ac).flatMap(NewAgentPicker.parseAccounts)
+                    return NewAgentPicker.emptyStateGoesNative(connected: board.macURL != nil, firstRunDone: done, accounts: rows)
+                }
+                g.addTask { try? await Task.sleep(nanoseconds: 5_000_000_000); return nil }
+                let first = await g.next() ?? nil
+                g.cancelAll()
+                return first ?? false
+            }
+            firstAgentBusy = false
+            guard NewAgentPicker.tapAnswerStands(epochAtTap: epoch, epochNow: board.chatEpoch, unlocked: isUnlocked) else { return }
+            if native { newAgentOpen = true } else { openCreate(.agent) }
         }
     }
 
@@ -580,7 +599,7 @@ struct ContentView: View {
         if which == .agents {
             AgentsView(client: board, push: pushManager, agentRequest: $agentRequest, openChat: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            }, openBoard: { showBoardToday() }, createOnBoard: { makeFirstAgent() }, create: {
+            }, openBoard: { showBoardToday() }, createOnBoard: { makeFirstAgent() }, creatingFirst: firstAgentBusy, create: {
                 // kosmos#7488: the native New Agent flow posts to the computer this phone is connected to; before that
                 // computer has let the phone in there is none, so the board page is used, as New project does.
                 if board.macURL != nil { newAgentOpen = true } else { createOnBoardAsked = .agent }

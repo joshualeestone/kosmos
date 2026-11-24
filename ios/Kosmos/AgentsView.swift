@@ -17,6 +17,7 @@ struct AgentsView: View {
        setup. kosmos#8954: one whose connected computer already has an AI account gets the native New Agent, as + gives
        (ContentView.makeFirstAgent decides). */
     var createOnBoard: () -> Void = {}
+    var creatingFirst = false   // kosmos#8954 review 1: the button is reading the computer, so it says so and takes no second tap
     // kosmos#7266: the + at the top right, the board's own new-agent form (ContentView.openCreate).
     var create: () -> Void = {}
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -399,8 +400,12 @@ struct AgentsView: View {
                (connecting a model) is the board's own setup, so this offers the way in instead of sending them to
                Settings to find it (a customer's first setup, 11-19). One tap, never an automatic jump. */
             Text("It takes a few steps, and you can stop at any point.").font(.subheadline).foregroundColor(Palette.secondary)
-            Button { createOnBoard() } label: { Text("Make an agent").foregroundColor(Palette.card) }
+            // kosmos#8954: while the computer is read, the app's one wait, the working dots (the sweep suite allows no system spinner).
+            Button { createOnBoard() } label: {
+                if creatingFirst { WorkingDots(color: Palette.card).accessibilityLabel("Checking your computer") } else { Text("Make an agent").foregroundColor(Palette.card) }
+            }
                 .buttonStyle(.borderedProminent)
+                .disabled(creatingFirst)
                 .padding(.top, 6)
                 .accessibilityIdentifier("agents-empty-setup")
             OpensOnBoardNote()   // kosmos#8957: it is the board's own setup

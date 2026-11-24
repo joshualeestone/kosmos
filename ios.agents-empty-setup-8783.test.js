@@ -23,14 +23,17 @@ function noAgentsView() {
 test('kosmos#8783: the empty Agents tab offers "Make an agent", which opens the BOARD\'s New agent form', () => {
   const view = noAgentsView();
   assert.match(view, /accessibilityIdentifier\("agents-empty"\)/, 'CONTROL: this is the empty state');
-  assert.match(view, /Button \{ createOnBoard\(\) \} label: \{ Text\("Make an agent"\)/, 'no button that makes an agent');
+  assert.match(view, /Button \{ createOnBoard\(\) \} label: \{\s*if creatingFirst \{ WorkingDots\(color: Palette\.card\)[^}]*\} else \{ Text\("Make an agent"\)/, 'no button that makes an agent');
+  assert.match(view, /\.disabled\(creatingFirst\)/, 'kosmos#8954 review 1: a second tap while the computer is read is not ignored');
   const content = fs.readFileSync(path.join(__dirname, 'ios', 'Kosmos', 'ContentView.swift'), 'utf8');
   // kosmos#8954 (Mona Lisa, 11-23): native only when the computer is connected AND has an AI account; otherwise the board's
   // form and its first-run setup, as this card wants for a person not yet set up.
   assert.match(content, /createOnBoard: \{ makeFirstAgent\(\) \}/, 'the empty-state button does not go through makeFirstAgent');
   assert.match(content, /guard board\.macURL != nil else \{ openCreate\(\.agent\); return \}/, 'not connected must open the board form');
-  assert.match(content, /if NewAgentPicker\.emptyStateGoesNative\(connected: board\.macURL != nil, accounts: rows\) \{ newAgentOpen = true \}\s*else \{ openCreate\(\.agent\) \}/,
-    'native only when the rule says so, the board form otherwise');
+  assert.match(content, /return NewAgentPicker\.emptyStateGoesNative\(connected: board\.macURL != nil, firstRunDone: done, accounts: rows\)/,
+    'native only when the rule says so (first-run done and an account)');
+  assert.match(content, /guard NewAgentPicker\.tapAnswerStands\(epochAtTap: epoch, epochNow: board\.chatEpoch, unlocked: isUnlocked\) else \{ return \}\s*if native \{ newAgentOpen = true \} else \{ openCreate\(\.agent\) \}/,
+    'review 1: a late answer must not open anything after a switch or the lock');
   assert.match(view, /accessibilityIdentifier\("agents-empty-setup"\)/, 'the button has no identifier for a UI test');
   assert.match(view, /Text\("It takes a few steps, and you can stop at any point\."\)/, 'Mona Lisa\'s line under the heading (11-19)');
 });

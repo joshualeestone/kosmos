@@ -2190,20 +2190,31 @@ do {
     check(Board.blockRefusal(status: 503, Data(#"{"error":"the block list could not be saved"}"#.utf8))?.contains("Try again") == true, "CONTROL: a fault does")
 }
 
-// kosmos#8954: the empty Agents tab's "Make an agent" goes native only when the phone can post to its computer AND that
-// computer has an AI account to make an agent on; otherwise the board's form and its first-run setup (kosmos#8783).
+// kosmos#8954: the empty Agents tab's "Make an agent" goes native only when the phone can post to its computer, the
+// board's first-run is done, AND it has an AI account to make an agent on; otherwise the board's form and its first-run
+// setup (kosmos#8783). Review 1: first-run is the board's own test, and a late answer must not stand.
 section("the empty Agents tab: native New Agent or the board's setup")
 do {
     typealias P = NewAgentPicker
     let one = P.parseAccounts(Data(#"{"accounts":[{"dir":"/a","provider":"anthropic","isDefault":true,"connection":{"badge":"ok","state":"ready"}}]}"#.utf8))
     let none = P.parseAccounts(Data(#"{"accounts":[]}"#.utf8))
     let signedOut = P.parseAccounts(Data(#"{"accounts":[{"dir":"/a","provider":"anthropic","connection":{"badge":"signed_out","state":"none"}}]}"#.utf8))
-    check(one?.count == 1 && none?.count == 0 && signedOut?.count == 1, "the fixtures parse as the board's rows")
-    check(P.emptyStateGoesNative(connected: true, accounts: one), "a connected computer with an account goes native")
-    check(!P.emptyStateGoesNative(connected: false, accounts: one), "CONTROL: not connected, the board's form")
-    check(!P.emptyStateGoesNative(connected: true, accounts: none), "no AI account yet: the board's first-run setup (kosmos#8783)")
-    check(!P.emptyStateGoesNative(connected: true, accounts: signedOut), "only a signed-out account: the board's setup")
-    check(!P.emptyStateGoesNative(connected: true, accounts: nil), "accounts not read: the board path, never a guess")
+    let refused = P.parseAccounts(Data(#"{"accounts":[{"dir":"/o","provider":"openai","offerable":false}]}"#.utf8))
+    check(one?.count == 1 && none?.count == 0 && signedOut?.count == 1 && refused?.count == 1, "the fixtures parse as the board's rows")
+    check(P.emptyStateGoesNative(connected: true, firstRunDone: true, accounts: one), "connected, set up, with an account: native")
+    check(!P.emptyStateGoesNative(connected: false, firstRunDone: true, accounts: one), "CONTROL: not connected, the board's form")
+    check(!P.emptyStateGoesNative(connected: true, firstRunDone: false, accounts: one), "review 1: first-run not done, the board's first-run (kosmos#8783), even with an account")
+    check(!P.emptyStateGoesNative(connected: true, firstRunDone: nil, accounts: one), "first-run not read: the board path")
+    check(!P.emptyStateGoesNative(connected: true, firstRunDone: true, accounts: none), "no AI account: the board's form")
+    check(!P.emptyStateGoesNative(connected: true, firstRunDone: true, accounts: signedOut), "only a signed-out account: the board's form")
+    check(!P.emptyStateGoesNative(connected: true, firstRunDone: true, accounts: refused), "review 1: only a row the board marks not offerable: the board's form")
+    check(!P.emptyStateGoesNative(connected: true, firstRunDone: true, accounts: nil), "accounts not read: the board path, never a guess")
+    check(P.parseFirstRunDone(Data(#"{"done":true,"steps":[]}"#.utf8)) == true && P.parseFirstRunDone(Data(#"{"done":false}"#.utf8)) == false,
+          "first-run's done is read")
+    check(P.parseFirstRunDone(Data(#"{"steps":[]}"#.utf8)) == nil && P.parseFirstRunDone(Data("not json".utf8)) == nil, "CONTROL: no done, or no JSON, is not read")
+    check(P.tapAnswerStands(epochAtTap: 3, epochNow: 3, unlocked: true), "the same computer and account, unlocked: the answer stands")
+    check(!P.tapAnswerStands(epochAtTap: 3, epochNow: 4, unlocked: true), "review 1: a switch or sign-out while reading: it does not")
+    check(!P.tapAnswerStands(epochAtTap: 3, epochNow: 3, unlocked: false), "review 1: locked while reading: nothing opens over the lock")
 }
 
 print("")

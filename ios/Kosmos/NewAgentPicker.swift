@@ -132,12 +132,27 @@ enum NewAgentPicker {
         return a.state != "none"
     }
     /* kosmos#8954: the empty Agents tab's "Make an agent" opens the native New Agent only when the phone can post to the
-       computer (`connected`, board.macURL set) AND that computer reports at least one AI account it could make an agent
-       on (offerable, as the provider menu counts them). Otherwise the board's own form, whose first-run setup a person
-       not yet set up needs (kosmos#8783). Accounts not read (nil) are the board path too, never a guess. */
-    static func emptyStateGoesNative(connected: Bool, accounts: [Account]?) -> Bool {
-        guard connected, let rows = accounts else { return false }
-        return rows.contains(where: offerable)
+       computer (`connected`, board.macURL set), the board's own first-run is done (GET /api/first-run `done`, what the
+       board's first-run screen itself reads; review 1: counting accounts is not how the board decides), AND it has an AI
+       account it could make an agent on (usable as the provider menu counts it: offerable, not "none", and the row's
+       own offerable). Otherwise the board's form, whose first-run setup a person not yet set up needs (kosmos#8783).
+       Anything not read (nil) is the board path, never a guess. */
+    static func emptyStateGoesNative(connected: Bool, firstRunDone: Bool?, accounts: [Account]?) -> Bool {
+        guard connected, firstRunDone == true, let rows = accounts else { return false }
+        return rows.contains { offerable($0) && !($0.hasConnection && $0.state == "none") && $0.offerable }
+    }
+    /* kosmos#8954 review 1: /api/first-run's `done`, or nil when the answer is not that shape. */
+    static func parseFirstRunDone(_ data: Data) -> Bool? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return obj["done"] as? Bool
+    }
+    // Review 5: each route whole on its own request line, as server.ios-routes-6838.test.js reads them.
+    static func firstRunRequest(mac: URL) -> URLRequest { asJSON(URLRequest(url: URL(string: "/api/first-run", relativeTo: mac)!.absoluteURL)) }
+    /* kosmos#8954 review 1: a read made on the tap stands only if nothing changed while it ran: the same computer and
+       account (the board's chatEpoch, which a switch or sign-out moves) and the app still unlocked, so a late answer can
+       never open a sheet over the lock or on a computer the decision was not made for. */
+    static func tapAnswerStands(epochAtTap: Int, epochNow: Int, unlocked: Bool) -> Bool {
+        unlocked && epochAtTap == epochNow
     }
     // acctUnknownLive: a live check that could not be read.
     static func unknownLive(_ a: Account) -> Bool {

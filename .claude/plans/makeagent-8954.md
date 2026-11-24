@@ -26,3 +26,17 @@ in Mona's TestFlight pass, which she offered.
 
 Weakest premise: that "has an offerable account" is what "set up" means for the board's first-run. A computer with
 an account but no other setup would now get the native form instead of the board's setup.
+
+## Round 1 (opus, blind): three should-fix and a nit, all taken
+- "Set up" was the wrong test: the board decides first-run by GET /api/first-run `done`, not by counting accounts, so
+  a Mac that already has a Claude account but never finished first-run would have skipped its setup (the #8783 case).
+  The rule is now: connected AND first-run done AND an account usable as the provider menu counts it (offerable, not
+  "none", and the row's own offerable: the nit). First-run not read is the board path.
+- A late answer could open the sheet over the lock, or for another computer or account: it now stands only if the
+  board's chatEpoch is unchanged and the app is unlocked (NewAgentPicker.tapAnswerStands, pure, tested).
+- Repeat taps and a silent wait: a second tap while reading is ignored, the button shows the working dots (the sweep
+  suite allows no system spinner) and is disabled, and both reads together get at most 5 s (as NewAgentView's), after
+  which the board's form opens.
+- Tests: the room suite's section now has 14 checks (first-run done, false and unread; a row the board marks not
+  offerable; the first-run parser and its CONTROL; the late-answer gate both ways). The #8783 pin follows the button
+  and the new wiring. All 13 iOS logic suites pass, 64/64 node iOS-source tests, the app builds.
