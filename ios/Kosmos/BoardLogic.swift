@@ -1990,11 +1990,11 @@ enum Board {
     }
 
     // kosmos#8966: a MIME type without its parameters ("text/html; charset=utf-8" is "text/html"), lowercased, so a file is
-    // judged the same whether or not its sender named a charset. Everything before the first ";", even when that is
-    // nothing (";text/html" has no type).
+    // judged the same whether or not its sender named a charset. A malformed type that starts with ";" reads as what
+    // follows it, as fileAnswerAccepted always read it: ";text/html" is then a page to both readers, the safe side for each
+    // (WebFileView draws it locked; a fetched answer typed so is refused).
     static func bareType(_ type: String) -> String {
-        (type.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? "")
-            .trimmingCharacters(in: .whitespaces).lowercased()
+        (type.split(separator: ";", maxSplits: 1).first.map(String.init) ?? "").trimmingCharacters(in: .whitespaces).lowercased()
     }
 
     // kosmos#8966: whether a web view's navigation error is one it was meant to have: a navigation the delegate cancelled
