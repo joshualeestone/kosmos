@@ -55,3 +55,5 @@ The decision is one shared firstAgentDecision() in ContentView, used by the tap 
 - Told Mona Lisa: the contract, and the "on your computer" pin (her note's words sit in ShellViews.swift, so wrapping
   the call keeps it green; she OKs narrowing it if not).
 - Pins for the clear and the re-check; removing the clear turns the pin red. All 13 iOS suites, 64/64 node, build OK.
+
+## Rebased onto #8975 (Mona Lisa's #8957, merged 04:09): her OpensOnBoardNote under Make an agent is wrapped as `if firstAgentGoesNative == false`, so it shows only when the tap goes to the board, never while reading (nil) and never when native (true). The #8783 "on your computer" pin stays green untouched (her words sit in ShellViews.swift); a new pin holds the wrap.

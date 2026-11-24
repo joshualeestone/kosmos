@@ -414,7 +414,9 @@ struct AgentsView: View {
                 .disabled(creatingFirst)
                 .padding(.top, 6)
                 .accessibilityIdentifier("agents-empty-setup")
-            OpensOnBoardNote()   // kosmos#8957: it is the board's own setup
+            // kosmos#8957, wrapped by kosmos#8954 (agreed with Mona Lisa): only when the tap goes to the board, never while the
+            // answer is still being read (nil) and never when the tap opens the native New Agent (true).
+            if firstAgentGoesNative == false { OpensOnBoardNote() }
         }
         .multilineTextAlignment(.center)
         .padding()
