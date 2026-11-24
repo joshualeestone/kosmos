@@ -17,7 +17,8 @@ fresh sign-in sheet (ContentView.swift:317), so that path is covered too.
 
 ## Files
 - SignInLogic.swift: Step `.setupPhone`, `.setupTextConfirm`; `enrolBody(phone:)`; `Enrolled.sms(sentTo:)`;
-  `phoneWords`, `textedWords`; `webForTexts` removed (no caller).
+  `phoneWords`, `afterTextEnrol`, `setupCodeRefused`; `webForTexts` removed (no caller). The code line reuses
+  `secondWords(kind: "sms")`.
 - SignInClient.swift: `enrol(token:phone:)`.
 - SignInView.swift: model `phone`, `useTexts`, `useAuthenticator`, `sendText`, `changeNumber`; `confirmSetup` takes
   either confirm step; the two screens; sample screens setupphone, setuptext, setuptexterror.

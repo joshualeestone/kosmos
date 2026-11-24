@@ -13,7 +13,10 @@ final class SignInModel: ObservableObject {
     // .denied(asking: false), the Mac's own no; .denied(asking: true) still waits on a fresh Allow (SignIn.Step), so it is
     // not a refusal yet.
     @Published var step: SignIn.Step = .email {
-        didSet { if step == .denied(asking: false), oldValue != .denied(asking: false) { failures += 1 } }
+        didSet {
+            if step == .denied(asking: false), oldValue != .denied(asking: false) { failures += 1 }
+            if step == .email { phone = "" }   // kosmos#8959: a number typed for one account is not offered to the next
+        }
     }
     @Published var email = ""
     /// kosmos#8791/#8795 (Mona Lisa, 11-19): a fresh sign-in for the account already signed in. Its address is shown and
@@ -231,15 +234,9 @@ final class SignInModel: ObservableObject {
             do {
                 let enrolled = try await client.enrol(token: token, phone: number)
                 guard mine == attempt else { return }
-                switch enrolled {
-                case .sms(let sentTo): code = ""; step = .setupTextConfirm(token: token, sentTo: sentTo)
-                case .totp: error = "That did not work. Try again."   // not asked for: a text was
-                case .refused(let sentence):
-                    // As the authenticator: a setup Kosmos+ says to start again goes back to the email. Any other
-                    // refusal (no country code, texts not available here, too many) stays, with its sentence.
-                    if SignIn.startsOver(sentence) { step = .email }
-                    error = sentence
-                }
+                let next = SignIn.afterTextEnrol(enrolled, token: token)
+                if let to = next.step { code = ""; step = to }
+                error = next.error
             } catch { if mine == attempt { fail(error) } }
         }
     }
@@ -270,8 +267,8 @@ final class SignInModel: ObservableObject {
                 if case .refused(let message, false) = answer {
                     // Kosmos+ says to start again (the setup expired): back to the email, with its sentence.
                     if SignIn.startsOver(message) { code = ""; step = .email }
-                    if case .setupTextConfirm = step { error = message ?? "That code is not right or has expired."; return }
-                    error = message ?? "That code is not what the app shows right now."
+                    if case .setupTextConfirm = step { error = message ?? SignIn.setupCodeRefused(texted: true); return }
+                    error = message ?? SignIn.setupCodeRefused(texted: false)
                     return
                 }
                 take(answer, email: email)
@@ -465,7 +462,7 @@ final class SignInModel: ObservableObject {
         switch sample {
         case "code": step = .code(email: email)
         case "second": step = .second(email: email, kind: "totp", challenge: "c", sentTo: nil)
-        case "sms": step = .second(email: email, kind: "sms", challenge: "c", sentTo: "+1 *** *** 0123")
+        case "sms": step = .second(email: email, kind: "sms", challenge: "c", sentTo: "\u{2022}\u{2022}\u{2022} 0123")
         case "allow": step = .allow(matchCode: "K7Q2", hasComputer: true)
         case "nomac": step = .allow(matchCode: nil, hasComputer: false)
         case "denied": step = .denied(asking: true)
@@ -480,7 +477,7 @@ final class SignInModel: ObservableObject {
         // kosmos#7046: setting up a required second step.
         case "setup": step = .setup(token: "t", sms: true)
         case "setupphone": step = .setupPhone(token: "t"); phone = "+1 214 555 0123"
-        case "setuptext": step = .setupTextConfirm(token: "t", sentTo: "+1 *** *** 0123")
+        case "setuptext": step = .setupTextConfirm(token: "t", sentTo: "\u{2022}\u{2022}\u{2022} 0123")
         case "setuptexterror": step = .setupPhone(token: "t"); phone = "214 555"; error = "The number needs the country code, like +12145551234."
         case "setupconfirm": step = .setupConfirm(token: "t", otpauth: "otpauth://totp/Kosmos:ada%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Kosmos", secret: "JBSWY3DPEHPK3PXP")
         // kosmos#7045: the code step with the company's own sign-in offered beside it, and a company refusal.
@@ -658,7 +655,7 @@ struct SignInView: View {
             line(SignIn.phoneWords)
             TextField("Mobile number", text: $model.phone)
                 .textContentType(.telephoneNumber).keyboardType(.phonePad)
-                .focused($focused).onSubmit(model.sendText).field()
+                .focused($focused).field()   // the phone pad has no return key: "Text me a code" sends
                 .onChange(of: model.phone) { _ in model.error = nil }
                 .accessibilityIdentifier("signin-phone")
             errorLine
@@ -669,7 +666,7 @@ struct SignInView: View {
             }
         case .setupTextConfirm(_, let sentTo):
             title("Type the code")
-            line(SignIn.textedWords(sentTo: sentTo))
+            line(SignIn.secondWords(kind: "sms", sentTo: sentTo))
             codeField(submit: model.confirmSetup)
             errorLine
             primary("Confirm", action: model.confirmSetup)

@@ -532,15 +532,15 @@ enum SignIn {
     static func enrolBody(phone: String) -> [String: Any] { ["kind": "sms", "phone": phone.trimmingCharacters(in: .whitespacesAndNewlines)] }
     static func confirmBody(code: String) -> [String: Any] { ["code": code] }
 
-    /// enrol's answer for an authenticator: the otpauth link and the secret (kosmos-relay second.rs EnrolResp), or the
-    /// coordinator's own sentence. Only an otpauth://totp/ link is taken.
+    /// enrol's answer (kosmos-relay second.rs EnrolResp): for an authenticator the otpauth link and the secret (only an
+    /// otpauth://totp/ link is taken), for texts where the code went, or the coordinator's own sentence.
     enum Enrolled: Equatable { case totp(otpauth: String, secret: String), sms(sentTo: String), refused(String) }
 
     static func enrolled(status: Int, json: Any?) -> Enrolled {
         let body = json as? [String: Any] ?? [:]
         guard (200..<300).contains(status) else { return .refused(refusal(body["error"]) ?? "That did not work. Try again.") }
         // kosmos#8959: a text was sent. Only the masked tail comes back; with none, the screen still says "your phone".
-        if body["kind"] as? String == "sms" { return .sms(sentTo: (body["sent_to"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "your phone") }
+        if body["kind"] as? String == "sms" { return .sms(sentTo: cleanMessage(body["sent_to"]) ?? "your phone") }
         guard body["kind"] as? String == "totp", let link = body["otpauth"] as? String, link.hasPrefix("otpauth://totp/"),
               let secret = body["secret"] as? String, !secret.isEmpty else { return .refused("That did not work. Try again.") }
         return .totp(otpauth: link, secret: secret)
@@ -558,8 +558,22 @@ enum SignIn {
     /// kosmos#8959: the text-message setup, said on the phone itself (it used to continue on the web sign-in page).
     /// The sample number stays whole on one line (non-breaking spaces), and no hyphenated word can break at its hyphen.
     static let phoneWords = "Type your mobile number with its country code, like +1\u{00A0}214\u{00A0}555\u{00A0}1234. We text a code to it."
-    static func textedWords(sentTo: String) -> String {
-        "Type the six-digit code we texted to \(sentTo.replacingOccurrences(of: " ", with: "\u{00A0}")). It is good for ten minutes."
+
+    /// kosmos#8959: where an answer to "Text me a code" leads. A text sent: the code screen. A refusal that says start
+    /// again (SignIn.startsOver): back to the email, with its sentence. Any other refusal (no country code, texts not
+    /// available here, too many): the number screen stays, with its sentence. An authenticator's answer was not asked
+    /// for, so it is refused rather than shown. `step` nil means stay on the number screen.
+    static func afterTextEnrol(_ enrolled: Enrolled, token: String) -> (step: Step?, error: String?) {
+        switch enrolled {
+        case .sms(let sentTo): return (.setupTextConfirm(token: token, sentTo: sentTo), nil)
+        case .totp: return (nil, "That did not work. Try again.")
+        case .refused(let sentence): return (startsOver(sentence) ? .email : nil, sentence)
+        }
+    }
+
+    /// The line under the code field when Kosmos+ refuses a setup code and sends no sentence of its own.
+    static func setupCodeRefused(texted: Bool) -> String {
+        texted ? "That code is not right or has expired." : "That code is not what the app shows right now."
     }
 
     /// A refusal no new code can fix: Kosmos+ says to start again (the enrol-only token expired, nothing is being set
