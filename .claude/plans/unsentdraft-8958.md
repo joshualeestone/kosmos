@@ -12,11 +12,13 @@ Slice B (the task page's board-only actions) is a separate later PR.
   draftDismissFailed). draftDismissRequest: POST /api/agent/<name>/unsent-draft/dismiss {id}. draftDismissed: gone on
   2xx or 404 (already dismissed), as dmDraftDismiss. usingDraft: words after what is typed, on a new line (trailing
   whitespace of the typed text dropped), as dmDraftUse. withoutDraft: the row out at once.
-- BoardClient.dismissDraft: the request, or the Debug sample chats in memory.
+- BoardClient.dismissDraft: the request, or the Debug sample chats in memory. KOSMOS_SAMPLE_DRAFT=1 (Debug, off by
+  default) adds a draft to Dana's sample chat for the design shots.
 - ChatView: a draft row with an id draws UnsentDraftRow (band, quote, two 44 pt buttons) instead of the way-through
   link; Dismiss is off while its request is out; on gone, the row goes, a read in the air is dropped (as after a
   delete) and a read goes; on a refusal, the composer line says the board's sentence. A draft row with no usable id
-  keeps the link to the board.
+  keeps the link to the board. Review 1: the 44 pt frame and hit shape sit on each button's label (an outer frame on a
+  bordered button left a smaller target); the busy mark is cleared before the epoch check, as reactTo.
 
 ## Rejected
 - Copying the board's "longer than one message" note: the phone's message box has no length limit to exceed.
@@ -31,5 +33,9 @@ Slice B (the task page's board-only actions) is a separate later PR.
 - swiftc -typecheck of every ios/Kosmos source for the simulator at iOS 16 and 17: clean.
 
 ## Weakest premise
-The view is not seen running here: no simulator screenshot or UI test of the row yet (CI builds it; the sample chats
-have no draft row to show it on). The layout follows WayThroughRow's card, which is reasoned, not looked at.
+The view is not seen running here: no simulator screenshot or UI test of the row yet (CI builds it). KOSMOS_SAMPLE_DRAFT=1
+puts one in Dana's sample chat for design shots, which are still to be taken. The layout follows WayThroughRow's card,
+which is reasoned, not looked at.
+Known and left: "Put in the message box" inside the kosmos#7348 refill window, on a draft whose words equal the message
+just sent, is cleared by the refill guard (the press then does nothing). It needs that exact coincidence within the
+window; changing the refill guard for it risks the case it exists for.

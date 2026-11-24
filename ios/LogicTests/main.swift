@@ -1180,8 +1180,11 @@ do {
     check(dismiss?.httpMethod == "POST" && dismiss?.url?.path == "/api/agent/dana/unsent-draft/dismiss"
           && (dismiss?.httpBody).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] } == ["id": "0123456789ab"],
           "Dismiss posts the draft's id to the Mac's route")
-    check(Board.draftDismissRequest(mac: URL(string: "http://mac.local:7777")!, session: "dana", id: "../x") == nil,
-          "no request for an id the Mac would refuse")
+    check(Board.draftDismissRequest(mac: URL(string: "http://mac.local:7777")!, session: "dana", id: "../x") == nil
+          && Board.draftDismissRequest(mac: URL(string: "http://mac.local:7777")!, session: "dana", id: "0123456789ab\n") == nil,
+          "no request for an id the Mac would refuse (a trailing newline included)")
+    check(Board.draftDismissRequest(mac: URL(string: "http://mac.local:7777")!, session: "../x", id: "0123456789ab") == nil,
+          "no request for a name that is not an agent's")
     check(Board.draftDismissed(status: 200) && Board.draftDismissed(status: 404), "dismissed, or already dismissed: gone either way")
     check(!Board.draftDismissed(status: 500) && !Board.draftDismissed(status: 403) && !Board.draftDismissed(status: 0),
           "a refusal or no answer: it stays")
