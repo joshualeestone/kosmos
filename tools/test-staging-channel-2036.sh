@@ -135,14 +135,15 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sm" 2>&1
 
 # kosmos#8960: --force must name the hand check it rests on. Each refusal happens before anything is written; the
 # CONTROL is the same gate-2 promote with a named check, which promotes and prints the check beside the forced gate.
-S8960a="$(make_site)"; bash "$PUBLISH" "$S8960a" >/dev/null 2>&1
-out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force 2>&1)"; rc=$?
+# each case gets its own site, so a case that wrongly promotes cannot change what the next one sees
+new8960() { local s; s="$(make_site)"; bash "$PUBLISH" "$s" >/dev/null 2>&1; printf '%s' "$s"; }
+S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "--force needs --hand-check" && has "$out" "Nothing was written" && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 --force with no --hand-check refuses before writing" || bad "promote 8960 no-hand-check (rc=$rc, out=$out)"
-out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "  looked   at it  " 2>&1)"; rc=$?
+S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "  looked   at it  " 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "--force needs --hand-check" && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 a hand check under 20 characters (spaces squeezed) refuses" || bad "promote 8960 short hand-check (rc=$rc, out=$out)"
-out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --hand-check "$HC8960" 2>&1)"; rc=$?
+S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "--hand-check goes with --force" && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 --hand-check without --force refuses" || bad "promote 8960 hand-check alone (rc=$rc, out=$out)"
-out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check="$HC8960" 2>&1)"; rc=$?
+S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check="$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ -f "$S8960a/dist/latest.json" ] && has "$out" "the hand check named for this --force: $HC8960" && pass "promote: #8960 CONTROL --force with a named check (= form) promotes and prints the check" || bad "promote 8960 control (rc=$rc, out=$out)"
 
 # THE load-bearing guarantee: --force overrides ONLY the experience gate, NEVER the
