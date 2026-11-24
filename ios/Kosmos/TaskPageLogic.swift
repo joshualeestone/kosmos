@@ -227,7 +227,8 @@ extension Board.TaskPage {
         return "Added by " + fixed.lowercased() + parts.words.dropFirst(fixed.count)
     }
 
-    // The due date as words: "Due Oct 30" (the Due section's spoken label).
+    // The due date as words: "Due Oct 30"; for a date this phone cannot read as a day, "Due " and the date as kept (the
+    // Due section says that one with it).
     func dueLine(calendar: Calendar = .current) -> String? {
         guard let due = dueDate else { return nil }
         let p = DateFormatter()
@@ -625,16 +626,34 @@ extension Board {
     }
     static func dueString(_ d: Date, calendar: Calendar = .current) -> String { dueFormatter(calendar).string(from: d) }
 
+    // The Due section's picker: a date being chosen is kept only while it differs from the one the Mac holds, so a
+    // draft that came back to the stored day, or that the stored day moved to, is dropped rather than left to show
+    // later as a change nobody is making.
+    static func keptDraft(_ draft: String?, stored: String?) -> String? {
+        guard let draft, dueDay(draft) != nil, draft != stored else { return nil }
+        return draft
+    }
+    // What the section shows: a date being chosen (Set and Cancel), a stored date (Clear), a stored date this phone cannot
+    // read (said as kept, with Clear), or none (Set a due date).
+    enum DueControls: Equatable { case choosing(String), stored(String), unreadable(String), none }
+    static func dueControls(stored: String?, draft: String?) -> DueControls {
+        if let d = keptDraft(draft, stored: stored) { return .choosing(d) }
+        if let s = stored { return dueDay(s) != nil ? .stored(s) : .unreadable(s) }
+        return .none
+    }
+
     enum TaskEdit: Equatable { case nothing, needsTitle, send([String: String?]) }
     // The board's Save: both trimmed; a title is needed; only what differs from what the form opened with is sent, and
     // an emptied detail goes as null (cleared). Line ends compared as a textarea gives them back.
     static func taskEdit(title: String, detail: String, openedTitle: String, openedDetail: String?) -> TaskEdit {
         // A title is one line, as the board's text input: a line break in it is a space.
-        let t = boardLineEnds(title).replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        func oneLine(_ s: String) -> String { boardLineEnds(s).replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines) }
+        let t = oneLine(title)
         let d = detail.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return .needsTitle }
         var body: [String: String?] = [:]
-        if t != openedTitle.trimmingCharacters(in: .whitespacesAndNewlines) { body["sentence"] = t }
+        // Compared one line too, so a stored title with a line break is not sent back as changed by a Save that changed nothing.
+        if t != oneLine(openedTitle) { body["sentence"] = t }
         let was = boardLineEnds(openedDetail ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if d != was { body["detail"] = d.isEmpty ? .some(nil) : .some(d) }
         return body.isEmpty ? .nothing : .send(body)

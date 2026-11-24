@@ -21,13 +21,12 @@ struct TaskPageView: View {
     @State private var openSub: Int?
     // kosmos#8958 slice B1: the message being typed, and the edit form with the words it opened with.
     @State private var sayText = ""
-    @FocusState private var sayFocused: Bool
     @State private var editing: (title: String, detail: String?)?
     @State private var editTitle = ""
     @State private var editDetail = ""
     // The Due section's picker: the date being chosen, saved only by Set (the board's date field saves once, on change,
     // when a date is committed, never on each day tapped).
-    @State private var dueDraft: Date?
+    @State private var dueDraft: String?
 
     init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
         self.client = client
@@ -313,8 +312,14 @@ struct TaskPageView: View {
                     Button("Save") {
                         guard let opened = editing else { return }
                         let (t, d) = (editTitle, editDetail)
+                        let before = model.editRefusal
                         Task {
                             if await model.saveText(title: t, detail: d, openedTitle: opened.title, openedDetail: opened.detail, names: names) { editing = nil }
+                            // An empty title refused again never leaves the line (it is set in the same turn), so it would
+                            // not be heard again: say it. A refusal from the Mac clears the line first and is heard anyway.
+                            else if let why = model.editRefusal, why == Board.taskEditNeedsTitle, why == before {
+                                UIAccessibility.post(notification: .announcement, argument: why)
+                            }
                         }
                     }
                     .disabled(model.editSaving)
@@ -327,25 +332,32 @@ struct TaskPageView: View {
 
     // kosmos#8958 slice B1: the board's Due row (saveTaskDue). The picker chooses a date; Set saves it, Cancel puts it
     // back; Clear clears a stored date. With no date, Set a due date opens the picker on a week from today, unsaved.
+    // Which of these shows is Board.dueControls (tested in LogicTests/taskpage).
     private func dueBlock(_ p: Board.TaskPage) -> some View {
-        let stored = p.dueDate.flatMap { Board.dueDay($0) }
-        return VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
             sectionTitle("Due")
-            if let shown = dueDraft ?? stored {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 12) { duePicker(shown); dueButtons(p, stored: stored) }
-                    VStack(alignment: .leading, spacing: 6) { duePicker(shown); HStack(spacing: 12) { dueButtons(p, stored: stored) } }
+            switch Board.dueControls(stored: p.dueDate, draft: dueDraft) {
+            case .choosing(let d):
+                dueRow(p, shown: d) {
+                    dueAction("Set", label: "Set the due date", strong: true) {
+                        Task { await model.setDue(d, names: names); if model.dueRefusal == nil { dueDraft = nil } }
+                    }
+                    dueAction("Cancel", label: "Cancel the new due date") { model.clearDueRefusal(); dueDraft = nil }
                 }
-            } else if let raw = p.dueDate {
+            case .stored(let s):
+                dueRow(p, shown: s) {
+                    dueAction("Clear", label: "Clear the due date") { dueDraft = nil; Task { await model.setDue(nil, names: names) } }
+                }
+            case .unreadable:
                 // A stored date this phone cannot read as a day: said as the Mac keeps it, and it can still be cleared.
                 HStack(spacing: 12) {
-                    Text("Due " + raw).font(.footnote).foregroundColor(Palette.primary)
+                    Text(p.dueLine() ?? "").font(.footnote).foregroundColor(Palette.primary)
                     dueAction("Clear", label: "Clear the due date") { Task { await model.setDue(nil, names: names) } }
                 }
-            } else {
+            case .none:
                 Button {
                     model.touched()
-                    dueDraft = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
+                    dueDraft = Board.dueString(Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date())
                 } label: {
                     Text("Set a due date").font(.footnote).foregroundColor(Palette.link)
                         .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
@@ -357,25 +369,26 @@ struct TaskPageView: View {
                     .onAppear { UIAccessibility.post(notification: .announcement, argument: why) }
             }
         }
+        // The stored day moved (another device): a draft it now equals is dropped.
+        .onChange(of: p.dueDate) { stored in dueDraft = Board.keptDraft(dueDraft, stored: stored) }
     }
 
-    private func duePicker(_ shown: Date) -> some View {
-        DatePicker("Due date", selection: Binding(get: { shown }, set: { model.touched(); dueDraft = $0 }), displayedComponents: .date)
+    // The picker and its buttons side by side, one above the other where they do not fit.
+    private func dueRow<B: View>(_ p: Board.TaskPage, shown: String, @ViewBuilder buttons: () -> B) -> some View {
+        let b = buttons()
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) { duePicker(p, shown: shown); b }
+            VStack(alignment: .leading, spacing: 6) { duePicker(p, shown: shown); HStack(spacing: 12) { b } }
+        }
+    }
+
+    private func duePicker(_ p: Board.TaskPage, shown: String) -> some View {
+        DatePicker("Due date", selection: Binding(get: { Board.dueDay(shown) ?? Date() }, set: { d in
+            model.touched()
+            dueDraft = Board.keptDraft(Board.dueString(d), stored: p.dueDate)
+        }), displayedComponents: .date)
             .labelsHidden()
             .disabled(model.dueSaving)
-    }
-
-    // Set and Cancel while a date is being chosen that is not the stored one; Clear for a stored date otherwise.
-    @ViewBuilder private func dueButtons(_ p: Board.TaskPage, stored: Date?) -> some View {
-        if let draft = dueDraft, stored.map({ Board.dueString($0) }) != Board.dueString(draft) {
-            dueAction("Set", label: "Set the due date", strong: true) {
-                let s = Board.dueString(draft)
-                Task { await model.setDue(s, names: names); if model.dueRefusal == nil { dueDraft = nil } }
-            }
-            dueAction("Cancel", label: "Cancel") { model.clearDueRefusal(); dueDraft = nil }
-        } else if stored != nil {
-            dueAction("Clear", label: "Clear the due date") { dueDraft = nil; Task { await model.setDue(nil, names: names) } }
-        }
     }
 
     private func dueAction(_ words: String, label: String, strong: Bool = false, _ run: @escaping () -> Void) -> some View {
@@ -395,7 +408,6 @@ struct TaskPageView: View {
             HStack(alignment: .bottom, spacing: 8) {
                 TextField(Board.taskSayPlaceholder, text: $sayText, axis: .vertical)
                     .lineLimit(1...5)
-                    .focused($sayFocused)
                     .padding(.horizontal, 10).padding(.vertical, 8)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
                     .accessibilityLabel(Board.taskSayLabel)
