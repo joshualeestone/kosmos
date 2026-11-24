@@ -27,6 +27,11 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
   - `agent_dead` (that pane's `#{pane_dead}` is 1; with no pane id, every pane's must be exactly 1) and
     `record_dead_pane` (that pane's exit).
   - The wait loop: a dead session is recorded and killed (then the usual sleep), so a missing hook cannot hold it.
+    It is the real safety net: `remain-on-exit` is on before the hook is set, and a hook tmux later drops would leave
+    the pane kept with nothing to end it but this (the WAIT arm).
+  - When the agent's pane is dead, the whole session ends, including a pane a person split off and left running. That
+    is the crash path today too (startup's "every pane is a shell: it crashed"), and before this change such a split
+    pane kept a crashed agent's session alive, so the supervisor waited on it and the agent never came back.
   - Startup: an ours-session whose panes are all dead is recorded and replaced, never adopted.
 - engine/macrestart.js: `restartedFor(name)`: the died file, plus the LAST start in the run file, within 5 minutes after
   the death (a later start is a launch of its own). An exit with code 0 shows nothing: Claude closed on purpose
@@ -39,7 +44,10 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
 - The dead pane's screen on the card: an interactive Claude's last screen is the conversation (private).
 - The hook alone: a hook that does not run would leave a dead pane holding the agent forever.
 
-## Weakest premise
+## Weakest premises
+The 5-minute window: a person's own stop and start within 5 minutes of a crash reads as that crash's restart. It fails
+toward showing the line, never hiding a real one.
+
 That the finished-answer row is a reliable clearer. A Stop report lost while the board was down leaves the line up
 until the next turn's Stop. It fails toward showing a restart a little too long, never toward hiding one.
 
