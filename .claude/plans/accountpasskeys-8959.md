@@ -11,6 +11,8 @@ loadNewPlaces/renderNewPlaces/notMe) and its words. Routes measured in passkey.r
 - [x] `ios/LogicTests/run-accountsecurity.sh` + `accountsecurity/main.swift`, 79 checks; words compared with origin/main's
       page; five mutants each caught by its own check.
 - [x] CI step in `.github/workflows/ios.yml`.
+- [x] `ios/Kosmos/PasskeyMaker.swift`: Apple's registration sheet (user verification required, attestation none,
+      excludedCredentials on iOS 17.4+; answers made / cancelled / alreadyHere / failed). Typechecks against the iOS SDK.
 
 ## Next (waits for B1a, branch accountnative-8959: the screen it goes on)
 - [ ] Rebase onto main once B1a is in.
