@@ -1687,14 +1687,25 @@ do {
     // kosmos#8953: what the locked web view draws. A page as it is; an SVG only as a picture (base64 inside an <img>, so no
     // markup of the file is ever parsed as a document); a web archive's own page; nothing for text or an unreadable kind.
     let pageBytes = Data("<h1>Hi</h1><a href=\"http://x/\">x</a>".utf8)
-    check(Board.inertPage(pageBytes, kind: .page) == pageBytes, "a page is drawn as it is (touches are what is taken away)")
+    let strip = { (h: String) in String(decoding: Board.withoutLinks(Data(h.utf8)), as: UTF8.self) }
+    check(strip("<a href=x>go</a><AREA href=y><Form action=z><input></form><link rel=preconnect href=w><a\nhref=v>v</a>")
+          == "<x-a href=x>go</x-a><x-AREA href=y><x-Form action=z><input></x-form><x-link rel=preconnect href=w><x-a\nhref=v>v</x-a>",
+          "links, image map areas, forms and <link> are renamed, in any case and with any white space, closing tags too")
+    check(strip("<abbr>A</abbr><aside>B</aside><label>C</label><linkage>D</linkage><formula>E</formula> 1 <a> 2")
+          == "<abbr>A</abbr><aside>B</aside><label>C</label><linkage>D</linkage><formula>E</formula> 1 <x-a> 2",
+          "CONTROL: tags that only start with those names are left alone")
+    check(strip("<a") == "<x-a" && strip("<") == "<" && strip("") == "" && strip("a < b") == "a < b", "a page cut short ends cleanly")
+    check(Board.inertPage(pageBytes, kind: .page) == Board.withoutLinks(pageBytes), "a page is drawn with its links taken out")
     let svgBytes = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"><a href=\"http://x/\"><rect width=\"1\" height=\"1\"/></a></svg>".utf8)
     let drawnSvg = Board.inertPage(svgBytes, kind: .svg).map { String(decoding: $0, as: UTF8.self) } ?? ""
     check(drawnSvg.contains("<img alt=\"\" src=\"data:image/svg+xml;base64," + svgBytes.base64EncodedString() + "\">") && !drawnSvg.contains("<svg"),
           "an SVG is drawn only as a picture of itself")
     let archive = try! PropertyListSerialization.data(fromPropertyList: ["WebMainResource": ["WebResourceData": pageBytes, "WebResourceMIMEType": "text/html"]],
                                                       format: .binary, options: 0)
-    check(Board.inertPage(archive, kind: .archive) == pageBytes, "a web archive is drawn as its own page")
+    check(Board.inertPage(archive, kind: .archive) == Board.withoutLinks(pageBytes), "a web archive is drawn as its own page, links taken out")
+    let latin = try! PropertyListSerialization.data(fromPropertyList: ["WebMainResource": ["WebResourceData": Data([0x63, 0x61, 0x66, 0xE9]),
+                                                    "WebResourceTextEncodingName": "ISO-8859-1"]], format: .binary, options: 0)
+    check(Board.inertPage(latin, kind: .archive) == Data("caf\u{E9}".utf8), "an archive saved in another encoding is drawn as UTF-8")
     check(Board.inertPage(Data("not a plist".utf8), kind: .archive) == nil && Board.inertPage(pageBytes, kind: .text) == nil
           && Board.inertPage(pageBytes, kind: .unreadable) == nil, "nothing is drawn for a broken archive, text or an unreadable kind")
     // kosmos#8953: a page is taken only when the Mac served it as a download, which a sign-in page never is.

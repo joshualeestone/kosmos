@@ -1991,7 +1991,7 @@ enum Board {
 
     // A file Quick Look would draw as a web page or a markup document, which can load from elsewhere. Judged by its name
     // as well as its type: the Mac keeps whatever type the sender gave (engine/attachments.js), and Quick Look picks
-    // its viewer by the extension. Such a file is opened on the board, never here.
+    // its viewer by the extension. Such a file is shown by WebFileView, never by Quick Look (kosmos#8953).
     // Judged on the name the file is saved under (savedName), since that is what Quick Look sees: "page.html." is saved
     // as "page.html" (#7016 review 3).
     static func isWebDocument(name: String, type: String) -> Bool {
@@ -2024,11 +2024,12 @@ enum Board {
         }
     }
 
-    // kosmos#8953: what WebFileView's web view draws for a file: a page as it is, an SVG as a picture (which can neither
-    // load nor link), a web archive's own page. nil when there is nothing to draw.
+    // kosmos#8953: what WebFileView's web view draws for a file: a page with its links and forms taken out (withoutLinks),
+    // an SVG as a picture (which can neither load nor link), a web archive's own page, as UTF-8. nil when there is nothing
+    // to draw.
     static func inertPage(_ data: Data, kind: WebFileKind) -> Data? {
         switch kind {
-        case .page: return data
+        case .page: return withoutLinks(data)
         case .svg:
             let wrapper = "<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">"
                 + "<style>html,body{margin:0}img{display:block;max-width:100%;height:auto;margin:16px auto}</style>"
@@ -2037,9 +2038,45 @@ enum Board {
         case .archive:
             guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
                   let main = plist["WebMainResource"] as? [String: Any], let html = main["WebResourceData"] as? Data else { return nil }
-            return html
+            // Drawn as UTF-8, so a page saved in another encoding is converted first (an unknown one is drawn as it is).
+            let named = (main["WebResourceTextEncodingName"] as? String)?.lowercased() ?? "utf-8"
+            let cf = CFStringConvertIANACharSetNameToEncoding(named as CFString)
+            if named != "utf-8", cf != kCFStringEncodingInvalidId,
+               let text = String(data: html, encoding: String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(cf))) {
+                return withoutLinks(Data(text.utf8))
+            }
+            return withoutLinks(html)
         case .text, .unreadable: return nil
         }
+    }
+
+    // kosmos#8953: a page's links, image maps, forms and <link> elements renamed (<a> becomes <x-a>), so the page has
+    // nothing that navigates, submits or preconnects, whatever reaches it: a finger, VoiceOver's activate or a keyboard.
+    // Their text stays. A tag is matched as "<" or "</", the name in any case, then white space, "/" or ">", so <abbr>,
+    // <aside> and <label> are left alone. One forward pass over the bytes.
+    static func withoutLinks(_ data: Data) -> Data {
+        let names: [[UInt8]] = ["a", "area", "form", "link"].map { Array($0.utf8) }
+        let bytes = [UInt8](data)
+        var out = [UInt8]()
+        out.reserveCapacity(bytes.count + 64)
+        var i = 0
+        while i < bytes.count {
+            out.append(bytes[i])
+            guard bytes[i] == UInt8(ascii: "<") else { i += 1; continue }
+            var j = i + 1
+            if j < bytes.count, bytes[j] == UInt8(ascii: "/") { out.append(bytes[j]); j += 1 }
+            for name in names {
+                let end = j + name.count
+                guard end <= bytes.count, zip(bytes[j..<end], name).allSatisfy({ $0 | 0x20 == $1 }) else { continue }
+                let next = end < bytes.count ? bytes[end] : UInt8(ascii: ">")
+                if [9, 10, 12, 13, 32].contains(next) || next == UInt8(ascii: "/") || next == UInt8(ascii: ">") {
+                    out.append(contentsOf: Array("x-".utf8))
+                    break
+                }
+            }
+            i = j
+        }
+        return Data(out)
     }
 
     // kosmos#8953: whether a fetched answer is the file asked for. A page or markup file is taken only when the Mac served
