@@ -23,12 +23,15 @@ options as the real prompt does, so the board and the phone get the same buttons
    permissionAnswerable is untouched (the #6054 gate).
    Consequence: a cut-off box (the only real case for the line) now reads as a permission prompt. server.js keys its 409
    wording ("typing its number") and its uncut question compare on claudePermissionPrompt, so those should follow it,
-   in line with #6054 review 3 (a permission prompt is answered only by a press). Not tested through the server. Tested:
-   such a box is still not permissionAnswerable and gets no permissionCard.
+   in line with #6054 review 3 (a permission prompt is answered only by a press). Tested: such a box is still not
+   permissionAnswerable and gets no permissionCard, and through the real routes (server.permscroll-8952.test.js) gets
+   nothing to press. The 409 wording and the question compare themselves are not tested.
 2. ios BoardLogic.swift: Board.askingNow(row, in:, waiting:) (the newest question/permission row, nothing from the person
    after it, while the agent waits on an answer: Board.waitsOnAnswer, state needs_you/question/approval; review 1: needing
    the person for a crash loop or a failed restart is not an open question; a person's reply ends a question, never a
-   permission, review 4) and Board.askedLine(way, now:). ChatView: a question/permission WayThroughRow has no action and
+   permission, review 4; a reply that did not go ends nothing, review 5). Board.askedWay (review 5): a permission the
+   Mac cannot offer buttons for reaches the phone as a plain question row, so while the agent waits on its permission
+   prompt (awaitingApproval) the newest question row is worded, and kept asked, as a permission. and Board.askedLine(way, now:). ChatView: a question/permission WayThroughRow has no action and
    says the askedLine; files and unsent words keep their link. WayThroughRow's action is optional.
 
 ## Decided

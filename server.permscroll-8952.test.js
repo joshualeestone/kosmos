@@ -94,8 +94,13 @@ test('#8952: a cut-off box with the scroll line offers nothing to press, on the 
     assert.equal('permission' in r.json, false, 'permission offered: ' + JSON.stringify(r.json.permission));
     const thread = await getThread();
     assert.equal(thread.asked, null, 'an identity to press with was served for a box whose top scrolled away');
-    const p = await post({ text: '1', chose: 'Yes', asked: 'Bash command' });
-    assert.notEqual(p.status, 200, 'a Yes was accepted: ' + JSON.stringify(p.json));
+    // With the screen's REAL identity, so the refusal is the #6054 gate (a box whose top scrolled away), not a mismatch.
+    const asked = chat.questionAbove(chat.questionIn(CUT, 'claude').text);
+    assert.ok(asked, 'premise: the cut box has an identity to press with');
+    const p = await post({ text: '1', chose: 'Yes', asked });
+    assert.equal(p.status, 409, 'a Yes was accepted: ' + JSON.stringify(p.json));
+    assert.match(String(p.json && (p.json.error || p.json.because || JSON.stringify(p.json))), /could not tell which request/,
+      'refused for another reason: ' + JSON.stringify(p.json));
     assert.deepEqual(calls.keys(), [], 'a key reached the pane');
   });
 });

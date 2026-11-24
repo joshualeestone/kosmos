@@ -2435,13 +2435,20 @@ enum Board {
 
     // kosmos#8952: a question or permission row with no buttons opens nothing: the board draws none for it either (the same
     // choices), only the window's text. It says where to answer only while it is the newest such row and the agent is
-    // waiting on an answer (waitsOnAnswer). A question is also past once the person wrote after it; a permission is not,
-    // since typed words do not answer one (#6054).
-    static func askingNow(_ row: ChatRow, in rows: [ChatRow], waiting: Bool) -> Bool {
-        guard waiting, row.wayThrough == .question || row.wayThrough == .permission,
+    // waiting on an answer (waitsOnAnswer). A question is also past once a reply from the person went after it; a
+    // permission is not, since typed words do not answer one (#6054).
+    static func askingNow(_ row: ChatRow, in rows: [ChatRow], waiting: Bool, approval: Bool) -> Bool {
+        guard waiting, let way = row.wayThrough, way == .question || way == .permission,
               let at = rows.lastIndex(where: { $0.wayThrough == .question || $0.wayThrough == .permission }),
               rows[at].id == row.id else { return false }
-        return row.wayThrough == .permission || !rows[(at + 1)...].contains { $0.who == .person }
+        return askedWay(way, approval: approval) == .permission
+            || !rows[(at + 1)...].contains { $0.who == .person && $0.notSent == nil }
+    }
+    // Review 5: a permission the Mac cannot offer buttons for reaches the phone as a plain question row (the board adds
+    // `permission` only where it is pressable), so while the agent waits on its permission prompt (awaitingApproval)
+    // the asked row is a permission.
+    static func askedWay(_ way: ChatRow.WayThrough, approval: Bool) -> ChatRow.WayThrough {
+        way == .question && approval ? .permission : way
     }
     // The agent's state is a wait on the person (needs_you, question, approval), and it is neither crash looping nor failed
     // to restart.

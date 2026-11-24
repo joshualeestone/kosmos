@@ -1872,8 +1872,9 @@ struct ChatView: View {
                             .task(id: previewTaskKey(row)) { if let p = row.preview { await client.loadPreviewImage(p) } }
                     }
                     // kosmos#8952: a question or permission opens nothing (the board has no buttons for it either).
-                    let now = Board.askingNow(row, in: thread?.rows ?? [], waiting: Board.waitsOnAnswer(shown))
-                    let asked = Board.askedLine(way, now: now)
+                    let now = Board.askingNow(row, in: thread?.rows ?? [], waiting: Board.waitsOnAnswer(shown),
+                                              approval: shown.awaitingApproval)
+                    let asked = Board.askedLine(now ? Board.askedWay(way, approval: shown.awaitingApproval) : way, now: now)
                     WayThroughRow(text: wayText(way, asked: asked), action: asked == nil ? openOnBoard : nil)
                 }
                 .padding(.top, 10)

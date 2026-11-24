@@ -6326,18 +6326,27 @@ do {
         Board.ChatRow(id: id, atRaw: nil, at: nil, text: id, who: .agent, wayThrough: way)
     }
     let rows = [row("q1", .question), row("a", nil), row("p1", .permission), row("f", .attachment), row("p2", .permission), row("b", nil)]
-    check(Board.askingNow(rows[4], in: rows, waiting: true), "the newest permission row is the one being asked while the agent needs you")
-    check(!Board.askingNow(rows[2], in: rows, waiting: true) && !Board.askingNow(rows[0], in: rows, waiting: true),
+    check(Board.askingNow(rows[4], in: rows, waiting: true, approval: false), "the newest permission row is the one being asked while the agent needs you")
+    check(!Board.askingNow(rows[2], in: rows, waiting: true, approval: false) && !Board.askingNow(rows[0], in: rows, waiting: true, approval: false),
           "an older question or permission is past, even while the agent needs you")
-    check(!Board.askingNow(rows[4], in: rows, waiting: false), "CONTROL: nothing is being asked when the agent is not waiting on an answer")
-    check(!Board.askingNow(rows[3], in: rows, waiting: true), "a file row is never a question")
+    check(!Board.askingNow(rows[4], in: rows, waiting: false, approval: false), "CONTROL: nothing is being asked when the agent is not waiting on an answer")
+    check(!Board.askingNow(rows[3], in: rows, waiting: true, approval: false), "a file row is never a question")
     let reply = Board.ChatRow(id: "y", atRaw: nil, at: nil, text: "yes", who: .person, wayThrough: nil)
     let typedAfter = rows + [reply]
-    check(Board.askingNow(typedAfter[4], in: typedAfter, waiting: true),
+    check(Board.askingNow(typedAfter[4], in: typedAfter, waiting: true, approval: false),
           "a permission is still asked after the person typed: typed words do not answer one")
     let asked = [row("p0", .permission), row("q2", .question)]
-    check(Board.askingNow(asked[1], in: asked, waiting: true), "premise: the newest question is asked")
-    check(!Board.askingNow(asked[1], in: asked + [reply], waiting: true), "a question the person replied to is past")
+    check(Board.askingNow(asked[1], in: asked, waiting: true, approval: false), "premise: the newest question is asked")
+    check(!Board.askingNow(asked[1], in: asked + [reply], waiting: true, approval: false), "a question the person replied to is past")
+    var unsent = reply; unsent.notSent = Board.failedWords
+    check(Board.askingNow(asked[1], in: asked + [unsent], waiting: true, approval: false),
+          "a reply that did not go does not end the question")
+    // Review 5: the case this was built for. A permission with no buttons arrives as a plain question row.
+    check(Board.askingNow(asked[1], in: asked + [reply], waiting: true, approval: true),
+          "a question row while the agent waits on its permission prompt stays asked after the person types")
+    check(Board.askedWay(.question, approval: true) == .permission && Board.askedWay(.question, approval: false) == .question
+          && Board.askedWay(.attachment, approval: true) == .attachment,
+          "a question row is worded as a permission only while the agent waits on its permission prompt")
     let agent = { (s: String, stuck: Bool) in
         Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, needsYou: true, crashLooping: stuck)
     }
