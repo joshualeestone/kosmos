@@ -145,7 +145,9 @@ test('only a "Bash command" box with the safety reason AND the timed line is the
   assert.equal(status.claudeSelfExpiringPrompt(SELF_EXPIRING.replace(' Bash command\n', ' Edit file\n')), false, 'another kind of prompt with a timer waits for a person');
   assert.equal(status.claudeSelfExpiringPrompt(SELF_EXPIRING.replace(/Dangerous rm operation not ruled out[^\n]*/, 'Some other reason')), false, 'a timer with no safety reason');
   assert.equal(status.claudeSelfExpiringPrompt(SELF_EXPIRING.replace(/will automatically block this request in 1:59/, 'will block')), false, 'a reason with no timer');
-  assert.equal(status.claudeSelfExpiringPrompt(SELF_EXPIRING.replace('⚠ Claude Code', '⚠\uFE0F Claude Code')), true, 'the mark with its variation selector');
+  const selector = SELF_EXPIRING.replace('⚠ Claude Code', '⚠\uFE0F Claude Code');
+  assert.notEqual(selector, SELF_EXPIRING, 'premise: the mark was found and changed');
+  assert.equal(status.claudeSelfExpiringPrompt(selector), true, 'the mark with its variation selector');
   assert.equal(status.claudeSelfExpiringPrompt(SELF_EXPIRING.replace(/⚠ Claude Code will automatically block this request in 1:59/, 'a note says it will automatically block this request in 1:59')), false,
     'the words below the box, but not as Claude Code\'s own timed line (its mark and its countdown, anchored)');
 });
@@ -163,7 +165,11 @@ test('a message typed while the safety check is up is held with words that match
 });
 
 test('a report for another request while the safety check is up (another tool, another command) is kept and pushes', async () => {
-  for (const text of ['asking permission to use Edit', 'asking permission to use Bash: npm publish', 'asking permission to use mcp__deploy__run: go']) {
+  const boxCmd = status.selfExpiringCommand(SELF_EXPIRING);
+  assert.ok(boxCmd, 'premise: the box command reads');
+  for (const text of ['asking permission to use Edit', 'asking permission to use Bash: npm publish', 'asking permission to use mcp__deploy__run: go',
+    // Round 3: a command that starts like the boxed one, or extends it, is another request.
+    'asking permission to use Bash: cd /tmp/work', 'asking permission to use Bash: c', 'asking permission to use Bash: ' + boxCmd + ' && npm publish --access public']) {
     await withAgent(SELF_EXPIRING, async (pushes) => {
       await report({ state: 'needs_you', text, auto: true });
       assert.equal(selfreport.read(WHO).state, 'needs_you', text);
@@ -175,6 +181,32 @@ test('a report for another request while the safety check is up (another tool, a
     await report({ state: 'needs_you', text: HOOK_TEXT.replace(' && ', '   &&\n  '), auto: true });
     assert.equal(selfreport.read(WHO).state, 'working');
     assert.deepEqual(pushes, []);
+  });
+});
+
+test('a long multi-line command (a heredoc), cut at the hook\'s 200 bytes, is still read as the safety check it is', async () => {
+  // Built from the real capture: the box draws the whole heredoc, one line per row; the hook sends its first 200 bytes.
+  const heredoc = "cd /tmp/work && python3 - <<'EOF'\nimport os, glob\nfor name in glob.glob('*.tmp'):\n    print('removing', name)\n    os.remove(name)\n"
+    + "paths = [p for p in os.listdir('.') if p.startswith('scratch-')]\nfor p in paths:\n    os.remove(p)\nprint('done with', len(paths), 'scratch files')\nEOF";
+  const boxLine = ' cd /tmp/work && for f in ${(f)"$(ls)"}; do rm -rf "$f"; done\n';
+  assert.ok(SELF_EXPIRING.includes(boxLine), 'premise: the capture\'s box line');
+  // The box's own line is the last one (the same command is also echoed above the box, where it is not the box).
+  const at = SELF_EXPIRING.lastIndexOf(boxLine);
+  const screen = SELF_EXPIRING.slice(0, at) + heredoc.split('\n').map((l) => ' ' + l).join('\n') + '\n' + SELF_EXPIRING.slice(at + boxLine.length);
+  assert.ok(status.selfExpiringCommand(screen).startsWith("cd /tmp/work && python3 - <<'EOF' import os"), 'premise: the box now holds the heredoc');
+  assert.ok(Buffer.byteLength(heredoc) > 200, 'premise: longer than the hook keeps');
+  assert.ok(status.claudeSelfExpiringPrompt(screen), 'premise: still the safety prompt');
+  const cut = Buffer.from(heredoc).subarray(0, 200).toString('utf8');   // what the hook's `head -c 200` sends
+  await withAgent(screen, async (pushes) => {
+    await report({ state: 'needs_you', text: 'asking permission to use Bash: ' + cut, auto: true });
+    assert.equal(selfreport.read(WHO).state, 'working');
+    assert.deepEqual(pushes, []);
+  });
+  // CONTROL: the same first 30 characters alone (not cut by the hook) are another request, kept.
+  await withAgent(screen, async (pushes) => {
+    await report({ state: 'needs_you', text: 'asking permission to use Bash: ' + heredoc.slice(0, 30), auto: true });
+    assert.equal(selfreport.read(WHO).state, 'needs_you');
+    assert.equal(pushes.length, 1);
   });
 });
 

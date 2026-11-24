@@ -51,3 +51,14 @@ push again (the old behaviour), never the reverse; the fixture pins the wording 
 - Residual, recorded: a pane frozen on the safety prompt (hung Claude Code) reads as working with the line, not as a
   wait; the stale-report nudge still sees the open prompt. A narrow-pane wrap is joined by viewport's -J; a split
   reason line fails to the old push (safe side).
+
+## Round 3 (opus) fixes
+- The command tie was two-way and down to one character (a queued real prompt whose command started like, or extended,
+  the boxed one was silenced). Now: the same command, or the box's command starting with the hook's copy only when that
+  copy hit the hook's 200-byte cap (and is 40+ characters). Tests: a short prefix, the box command plus more: kept, pushed;
+  a 200-byte-cut heredoc built from the real capture: read as the safety check. Mutations checked (exact-only, two-way).
+- The hold sentence says what happened, not what to do (automatic senders read it too). A premise added to the U+FE0F test.
+- UNMEASURED, recorded: Josh's exact shape (cd <dir> && python3 - <<'EOF' ...). On 2.1.331 a similar heredoc ran with no
+  prompt at all, so the exact trigger was not reproduced; the long-command path is tested from the real capture instead.
+- Residuals (all fail to the old push, never silence): no jq on the machine (the hook's sed fallback mangles quotes); a
+  UTF-8 character cut at byte 200; a word wider than the pane broken inside the box.

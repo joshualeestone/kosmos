@@ -2325,8 +2325,9 @@ const CLAUDE_WAITING_SENTENCE = 'it is waiting for an answer on its screen, and 
   + 'highlighted option, so we did not type anything; answer it in its window first';
 /* #5754: Claude's permission prompt. Measured on 2.1.296: the paste is ignored and the Enter approves the highlighted
    option (usually Yes), so a typed line would approve a command or an edit nobody chose. */
-const CLAUDE_SELF_EXPIRING_SENTENCE = 'Claude Code is declining a command on its screen by itself, and a message typed now would answer it, so '
-  + 'nothing was sent; send this again in a couple of minutes';   // kosmos#9001
+// kosmos#9001: read by a person and by automatic senders alike (it is a menu hold), so it says what happened, not what to do.
+const CLAUDE_SELF_EXPIRING_SENTENCE = 'Claude Code is declining a command on its screen by itself (it takes about two minutes), and a message '
+  + 'typed now would answer it, so nothing was sent';
 const CLAUDE_PERMISSION_SENTENCE = 'it is asking for permission on its screen, and a message typed now would answer that '
   + '(usually Yes), so we did not type anything; answer it in its window first';
 /* #6054: the ending for a screen the agent page answers with buttons (status.claudeAnswerableMenu reads it), in place of

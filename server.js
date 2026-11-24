@@ -20209,8 +20209,8 @@ const server = http.createServer(async (req, res) => {
            waits for nobody, and the decline is always right. Recorded as the plain line it is, working, so it never becomes
            a needs_you: no phone push and no "Needs permission". The screen is read now: the hook fires with the prompt
            already drawn (measured on 2.1.331). Any doubt (no screen, another runner, a read that fails) keeps the report. */
-        /* Round 2: and only when the report is about THAT prompt: a Bash request whose command (the hook keeps its first 200
-           characters) is the start of the command in the box, compared with spacing folded. A report for anything else
+        /* Round 2: and only when the report is about THAT prompt: a Bash request whose command is the command in the box
+           (or, when the hook cut it at its 200 bytes, the box's command starts with it), compared with spacing folded. A report for anything else
            (another tool's real wait while the safety check is up) is kept. */
         const asked = /^asking permission to use Bash: ([\s\S]+)$/.exec(String(body.text || ''));
         if (body.auto === true && body.state === 'needs_you' && asked && String(sender.card.runner || 'claude') === 'claude') {
@@ -20218,7 +20218,11 @@ const server = http.createServer(async (req, res) => {
             const seen = chat.viewport(who, roster);
             const boxed = seen && typeof seen.text === 'string' ? require('./engine/status').selfExpiringCommand(seen.text) : null;
             const sent = asked[1].replace(/\s+/g, ' ').trim();
-            if (boxed && sent && boxed.startsWith(sent.slice(0, Math.min(sent.length, boxed.length)))) {
+            /* Round 3: the same command, or (only when the hook's copy was cut at its 200-byte cap) the box's command
+               starting with it. Never the reverse, and never a short prefix: a queued real prompt whose command merely
+               starts like this one, or extends it, is kept. */
+            const capped = Buffer.byteLength(asked[1], 'utf8') >= 190;
+            if (boxed && sent && (boxed === sent || (capped && sent.length >= 40 && boxed.startsWith(sent)))) {
               body.state = 'working';
               body.text = require('./engine/status').SELF_EXPIRING_DECLINE;
             }
