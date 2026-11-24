@@ -19,6 +19,9 @@ once #8985 merges.
 - A sheet from the link (the list can be long, and it is a choice to make in one place), the board's words and defaults,
   no extra confirmation: the board has none, and each file's current version is saved first.
 - Rejected: an inline list in the page (a long list of toggles between the receipt and the message box).
+- The phone says more than the board in two places: no answer (a phone put away mid-undo) is "could not tell", and a 200
+  that did nothing and says why is a refusal, not "Undone: 0 files.".
+- The list cannot be left while its undo is out (up to 120 s; the board's Cancel can): the answer has nowhere else to show.
 - Weakest premise: that a person wants to change files on the computer from the phone. It is off unless Settings' undo
   switch is on, so it shows only to someone who turned it on.
 

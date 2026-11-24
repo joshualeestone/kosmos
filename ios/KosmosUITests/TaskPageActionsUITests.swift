@@ -196,7 +196,9 @@ final class TaskPageActionsUITests: XCTestCase {
             go.tap()
             let said = app.staticTexts["Undone: 3 files. The versions from before the undo are saved in /Users/sam/Kosmos/undo-saved/2026-11-24."]
             XCTAssertTrue(said.waitForExistence(timeout: 15), "what was undone is not said")
-            XCTAssertFalse(go.exists, "the list is still open")
+            // Waited for: the list slides away after the words are there.
+            expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: go)
+            waitForExpectations(timeout: 10)
             XCTAssertFalse(offer.exists, "the offer is still there after the undo")
             shot(app, "undone, \(dark ? "dark" : "light")")
             app.terminate()
