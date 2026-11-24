@@ -2740,7 +2740,7 @@
       "icon": "chat",
       "rank": 140,
       "notesOnly": true,
-      "line": "kosmos msg --status says whether a message was answered, read with no answer, or not yet delivered."
+      "line": "kosmos msg --status says whether a message was answered, read with no answer, not read yet, or never delivered."
     }
   ],
   "lastProdWin": "0.8.20"
