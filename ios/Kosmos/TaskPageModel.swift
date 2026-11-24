@@ -777,6 +777,7 @@ final class TaskPageModel: ObservableObject {
             await readActivity(names: names)
             guard current else { return false }
             done(isGone ? Board.holdTaskGone : Board.holdTakenOff, of: .some(nil))
+            holdSayAtForm = false   // by the button: the form goes with the hold, and a line that moved would be said twice
             return false
         }
         let (project, number) = (self.project, self.number)

@@ -1541,7 +1541,7 @@ func b8ModelTests() async {
         let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
         mac.projects = off
         let ok = await save(m)
-        check(!ok && posted(mac) == 0 && m.holdSay == "This was taken off hold, so nothing changed." && !m.holdRefused, "taken off meanwhile: nothing sent, and said")
+        check(!ok && posted(mac) == 0 && m.holdSay == "This was taken off hold, so nothing changed." && !m.holdRefused && !m.holdSayAtForm, "taken off meanwhile: nothing sent, and said")
         check(mac.asked == [list, list, act] && m.page?.onHold == false && !m.holding && !m.holdFormSaving, "and the page shows it off")
         await m.read()
         check(m.holdSay == Board.holdTakenOff, "a read of it off leaves that line")
