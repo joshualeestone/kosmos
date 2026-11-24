@@ -37,6 +37,11 @@ pause known without the room is said even when the room cannot be read. Both CLI
 Review 4: the payload says WHY quiet is expected (`expected`: paused, archived, test, starter or parked; null when
 it is not), not one `paused` flag meaning five things, and the line names that reason. Parked is honoured when the
 room cannot be read, as a pause is. The "Review N" comment labels follow this repo's convention.
+Review 5: a time up to 5 minutes ahead is clock skew and read as now (beyond that it is dropped). The starter project
+counts as expected quiet only while it holds no task. A reason or kind an older CLI does not know is said neutrally
+("Kosmos expects this project to be quiet", "something on the project"); a missing threshold is 14 days; a
+non-numeric age is left out. Every printed sentence is pinned. A pause an agent set counts the same as the person's:
+decided, since either way the room was told who paused it.
 KNOWN LIMITS, stated not fixed:
 - The one quiet notice is itself a post, so it restarts the clock: a project dead for months reads "a post, 3 days ago"
   and gets one notice every 14 days. Telling notices from work would need a marked post kind; the room shows both.

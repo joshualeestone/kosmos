@@ -77,7 +77,7 @@ test('the line says what it was, when, and when quiet stops being normal', () =>
   assert.match(v.activityLine({ ...base, expected: 'starter' }), / It is the starter project Kosmos made, so quiet is expected\.$/);
   assert.match(v.activityLine({ unknown: true, expected: 'paused' }), /could not read the project's room just now\. The project is paused/);
   assert.match(v.activityLine({ unknown: true, expected: 'parked' }), /could not read the project's room just now\. Every unfinished task/);
-  assert.match(v.activityLine({ ...base, expected: 'nonsense' }), /Quiet is normal until 14 days\.$/, 'an unknown reason is not invented');
+  assert.match(v.activityLine({ ...base, expected: 'nonsense' }), / Kosmos expects this project to be quiet\.$/, 'an unknown reason is said plainly, not invented');
   assert.equal(v.activityLine({ ...base, ageDays: 30, expected: 'parked' }),
     'Last activity: a post in its room, 30 days ago (2026-11-21). Every unfinished task is on hold or built and waiting, so quiet is expected.');
   assert.equal(v.activityLine({ ...base, kind: 'made', ageDays: 0 }),
@@ -173,4 +173,44 @@ test('the reason named is the project\'s own: archived over paused, test, starte
   const plain = act({ id: 'p', createdAt: made }, old);
   assert.equal(plain.expected, null);
   assert.equal(plain.quiet, true);
+});
+
+test('a post a few minutes ahead (clock skew) counts as now, so a busy project is never called quiet', () => {
+  const a = act({ id: 'p', createdAt: made, tasks: [] }, { room: NOW + 500 });
+  assert.equal(a.kind, 'post');
+  assert.equal(a.ageDays, 0);
+  assert.equal(a.quiet, false);
+});
+
+test('the starter project with a task in it is watched like any project', () => {
+  const projects = require('./projects');
+  const starter = { id: 'p', createdAt: made, name: projects.WELCOME_NAME, made: { via: 'kosmos' } };
+  const old = { room: NOW - 40 * DAY };
+  assert.equal(act({ ...starter, tasks: [] }, old).expected, 'starter');
+  const worked = act({ ...starter, tasks: [{ number: 1, sentence: 'real work' }] }, old);
+  assert.equal(worked.expected, null);
+  assert.equal(worked.quiet, true);
+});
+
+test('an older CLI facing a newer board says nothing false', () => {
+  const base = { at: '2026-11-21T10:00:00.000Z', kind: 'post', ageDays: 30, quietDays: 14, quiet: false, unknown: false };
+  assert.equal(v.activityLine({ ...base, expected: 'dormant' }),
+    'Last activity: a post in its room, 30 days ago (2026-11-21). Kosmos expects this project to be quiet.');
+  assert.equal(v.activityLine({ ...base, kind: 'file', expected: null }),
+    'Last activity: something on the project, 30 days ago (2026-11-21). Quiet is normal until 14 days.');
+});
+
+test('a malformed payload never prints "0 days" or reads as fresh', () => {
+  const base = { at: '2026-11-21T10:00:00.000Z', kind: 'post', unknown: false, expected: null };
+  assert.equal(v.activityLine({ ...base, ageDays: 20, quiet: true, quietDays: 0 }),
+    'Last activity: a post in its room, 20 days ago (2026-11-21). That is past the 14 days Kosmos counts as normal quiet. If you are on the project, read its room: if nobody has said so there, post it there once.');
+  assert.equal(v.activityLine({ ...base, ageDays: 'x', quiet: false }), 'Last activity: a post in its room (2026-11-21). Quiet is normal until 14 days.');
+});
+
+test('every other sentence, word for word', () => {
+  assert.equal(v.activityLine({ unknown: false, at: null }), 'Last activity: none Kosmos can date.');
+  assert.equal(v.activityLine({ unknown: true }),
+    'Last activity: Kosmos could not read the project\'s room just now, so it cannot say how long the project has been quiet.');
+  assert.equal(v.activityLine({ at: '2026-11-23T10:00:00.000Z', kind: 'task', ageDays: 1, quietDays: 14, quiet: false, unknown: false, expected: null }),
+    'Last activity: work on a task, 1 day ago (2026-11-23). Quiet is normal until 14 days.');
 });
