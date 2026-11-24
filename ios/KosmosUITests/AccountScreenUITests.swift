@@ -111,7 +111,7 @@ final class AccountScreenUITests: XCTestCase {
         app.buttons["Remove iPhone"].tap()
         XCTAssertTrue(app.staticTexts["Press it again to remove iPhone."].waitForExistence(timeout: 5), "Remove does not ask first, in the page's words")
         shot(app, "account-passkey-remove")
-        app.buttons["Cancel"].tap()
+        closeDialog(app)
         XCTAssertTrue(app.buttons["Remove iPhone"].waitForExistence(timeout: 5), "Cancel removed the passkey")
 
         add.tap()
@@ -126,8 +126,18 @@ final class AccountScreenUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Press it again to sign your account out everywhere, this sign-in included."].waitForExistence(timeout: 5),
                       "Not me does not ask first, in the page's words")
         shot(app, "account-not-me")
-        app.buttons["Cancel"].tap()
+        closeDialog(app)
         XCTAssertTrue(app.navigationBars["Kosmos+ account"].exists, "Cancel left the account screen")
+    }
+
+    /// Closes a confirmation dialog without choosing. On a phone with a newer iOS the dialog is a popover with no Cancel
+    /// button (it closes by a tap outside), so its dismiss region is tapped when there is no Cancel.
+    private func closeDialog(_ app: XCUIApplication) {
+        let cancel = app.buttons["Cancel"]
+        if cancel.exists { cancel.tap(); return }
+        let outside = app.otherElements["PopoverDismissRegion"]
+        if outside.exists { outside.tap(); return }
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).tap()
     }
 
     /// Scrolls until `element` exists and can be tapped (rows below the fold are not built until they come near).
