@@ -15,8 +15,9 @@ struct AccountView: View {
     // (PushNotificationManager.currentSession, kosmos#7042 review round 8).
     let currentSession: () -> String?
     // kosmos#8959 slice B1b: setting up a second step hands back a fresh session for this account (old, fresh); the app
-    // keeps it (PushNotificationManager.sessionRenewed), because Kosmos+ refuses the old one from then on.
-    let renewed: (String, String) -> Void
+    // keeps it (PushNotificationManager.sessionRenewed), because Kosmos+ refuses the old one from then on. Says whether
+    // it was kept.
+    let renewed: (String, String) -> Bool
     // Bumped on every sign-in change (PushNotificationManager.accountChanges): the list is read again for the new one.
     var accountGeneration = 0
     var sample = false
@@ -505,8 +506,9 @@ struct AccountView: View {
         switch SignIn.enrolled(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) {
         case .totp(let link, let secret): setup = .app(otpauth: link, secret: secret)
         case .sms: secondNote = "That did not work. Try again."
-        // As sendText: a refusal that says to start over (a step set up elsewhere, the sign-in ended) re-reads the section.
-        case .refused(let why) where SignIn.startsOver(why): await settleUncertainSetup(why, closing: true)
+        // A refusal that says to start over (the sign-in ended), or a 401 (enrol refuses one when the account already has a
+        // step, set up elsewhere since this screen read it: second.rs enrol), re-reads the section rather than offering again.
+        case .refused(let why) where SignIn.startsOver(why) || status == 401: await settleUncertainSetup(why, closing: true)
         case .refused(let why): secondNote = why
         }
     }
@@ -533,8 +535,9 @@ struct AccountView: View {
                 secondTicket += 1
                 if case .known(let s) = second { second = .known(.init(enrolled: s.enrolled, smsAvailable: false)) }
                 secondNote = why
-            } else if SignIn.startsOver(why) {
-                // As slice A's afterTextEnrol: a refusal no new number can fix (the sign-in ended, the setup expired).
+            } else if SignIn.startsOver(why) || status == 401 {
+                // As slice A's afterTextEnrol: a refusal no new number can fix (the sign-in ended, the setup expired, or a
+                // step set up elsewhere since this screen read it, which enrol refuses with a 401).
                 await settleUncertainSetup(why, closing: true)
             } else { setupNote = why }
         }
@@ -560,10 +563,11 @@ struct AccountView: View {
         switch AccountSecond.confirmed(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) {
         case .on(let kind, let fresh):
             // First, before anything else asks Kosmos+: the old session is refused from now on.
-            if let fresh { renewed(session, fresh) }
+            let kept = fresh.map { renewed(session, $0) } ?? true
             closeSetup(force: true)
             second = .known(.init(enrolled: kind, smsAvailable: { if case .known(let s) = second { return s.smsAvailable }; return false }()))
-            secondNote = nil
+            // Not kept (the keychain refused it, or the sign-in changed meanwhile): this iPhone's session is now refused.
+            secondNote = kept ? nil : AccountSecond.signInAgainWords(kind: kind)
         case .onSignInAgain(let kind):
             closeSetup(force: true)
             second = .known(.init(enrolled: kind, smsAvailable: false))

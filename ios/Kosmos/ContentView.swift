@@ -620,9 +620,12 @@ struct ContentView: View {
                 pushManager.signedOutInSettings()
                 web.forget(token)
             }, currentSession: { pushManager.currentSession }, renewed: { old, fresh in
-                // kosmos#8959 slice B1b: the same account's fresh session (a second step was just set up). Kept, then
-                // the web view drops the old one, which Kosmos+ now refuses, and starts its page with the fresh one.
-                if pushManager.sessionRenewed(from: old, to: fresh, moving: board.sessionRenewed) { web.forget(old) }
+                // kosmos#8959 slice B1b: the same account's fresh session (a second step was just set up). Kept, then the
+                // web view drops the old one, which Kosmos+ now refuses. Answers whether the keychain holds the fresh one,
+                // since the web page and the Agents tab read the keychain.
+                guard pushManager.sessionRenewed(from: old, to: fresh, moving: board.sessionRenewed) else { return false }
+                web.forget(old)
+                return SessionKeychain.live.load() == fresh
             }, accountGeneration: pushManager.accountChanges,
             youName: youName, youPicture: youPicture)
         } else {
