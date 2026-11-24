@@ -106,7 +106,8 @@ enum Account {
     // MARK: - Requests
 
     private static func post(_ path: String, coordinator: URL, session: String, body: [String: Any] = [:]) -> URLRequest {
-        var r = URLRequest(url: URL(string: path, relativeTo: coordinator)!.absoluteURL)
+        // The coordinator's own routes, built as PushBridgeLogic builds them (server.ios-routes-6838 reads this form).
+        var r = URLRequest(url: coordinator.appendingPathComponent(String(path.dropFirst())))
         r.httpMethod = "POST"
         r.timeoutInterval = 15
         r.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")

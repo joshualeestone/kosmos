@@ -59,7 +59,7 @@ struct AccountView: View {
         .navigationTitle("Kosmos+ account")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .refreshable { await read() }
+        .dotsRefresh { await read() }
         .task { await read() }
         .onChange(of: accountGeneration) { _ in
             // A sheet, a choice or a note belonged to the sign-in that just changed.
@@ -83,7 +83,7 @@ struct AccountView: View {
         Section {
             switch load {
             case .reading:
-                HStack { ProgressView(); Text("Reading your computers").foregroundColor(Palette.secondary) }
+                HStack { SweepDots(label: "Reading your computers", scales: false); Text("Reading your computers").foregroundColor(Palette.secondary) }
             case .failed(let why):
                 Text(why).foregroundColor(Palette.secondary)
             case .loaded(let rows):
