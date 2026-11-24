@@ -29,7 +29,7 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
     back off. A path or name with a single quote, a # (run-shell reads # as a format), a ; or a \ gets no hook (a % is literal there, measured).
     The HASH arm pins it.
   - `agent_dead` (that pane's `#{pane_dead}` is 1, or the pane is nowhere on this server: its own hook closed it; a pane
-    alive in another session is alive; with no pane id, every pane's must be exactly 1 in a session that is ours) and
+    alive in another session is alive, and absence is looked at twice, a second apart; with no pane id, every pane's must be exactly 1 in a session that is ours) and
     `record_dead_pane` (that pane's exit; a dead pane with no exit yet gets one more look).
   - The wait loop: a dead session is recorded and killed (then the usual sleep), so a missing hook cannot hold it.
     With the supervisor gone and the hook gone, the dead pane is kept until launchd starts the supervisor again,
@@ -46,7 +46,7 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
   last run and within 5 minutes after the death (measured in whole seconds, so the relaunch can share the death's
   second). A later launch of any kind takes the line with it, so a cleared line cannot come back. A death within a minute after a "kosmos <epoch>" stamp in the run file (a
   restart, switch or change Kosmos made itself, crashloop.noteDeliberate), with no start between, is Kosmos's own and
-  shows nothing (a switch whose new process crashed is still said). A death before this boot is a shutdown's. An exit with code 0 shows nothing: Claude closed on purpose
+  shows nothing (a switch whose new process crashed is still said). A death more than five seconds before this boot is a shutdown's. An exit with code 0 shows nothing: Claude closed on purpose
   (a person typing /exit), not a crash to explain. Cleared by a turn end (the report hook's Stop, as
   `selfreport.history` marks it: `turn: 'end'`) at or after that start. A turn that ended in an API error reports
   StopFailure instead, so it does not clear the line, as on Windows. Words from `win32streamstate.restartWhy`.

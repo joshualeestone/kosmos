@@ -289,11 +289,13 @@ agent_pane_id() {
 # answer of "1" is dead: an empty, unreadable or unexpected answer is not, since reading a live agent as dead would end
 # it.
 agent_dead() {
-  local _p _l _s _where
+  local _p _l _s _where _look
   _p="$(agent_pane_id)"
   if [ -n "$_p" ]; then
     # Its own session first, then anywhere (a person can move a pane into another session, where it is alive): a pane
-    # nowhere is gone, the hook's kill-pane (or a person's) having ended it.
+    # nowhere is gone, the hook's kill-pane (or a person's) having ended it. Twice, a second apart, since absence is the
+    # one answer here that ends an agent (tmux can be mid-move).
+    for _look in 1 2; do
     for _where in here all; do
       if [ "$_where" = here ]; then _s="$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_id} #{pane_dead}' 2>/dev/null)" || return 1
       else _s="$("$TMUX_BIN" list-panes -a -F '#{pane_id} #{pane_dead}' 2>/dev/null)" || return 1; fi
@@ -303,6 +305,8 @@ agent_dead() {
       done <<EOF
 $_s
 EOF
+    done
+    [ "$_look" = 2 ] || sleep 1
     done
     return 0
   fi
@@ -316,6 +320,12 @@ end_dead_session() {
   _p="$(agent_pane_id)"
   [ -n "$_p" ] && "$TMUX_BIN" kill-pane -t "$_p" 2>/dev/null
   "$TMUX_BIN" kill-session -t "$TARGET" 2>/dev/null
+}
+# The agent has stopped: record how (looking again once for a pane tmux has not finished reporting), then end what is
+# left of its session.
+end_dead_agent() {
+  record_dead_pane || { sleep 1; record_dead_pane || true; }
+  end_dead_session
 }
 # Every pane of this session is dead (see agent_dead).
 session_all_dead() {
@@ -405,8 +415,7 @@ while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
     # record) still names its last command, so the allowlist below would read a dead Claude as alive and watch it
     # forever. A session whose agent pane is dead crashed: its exit is recorded and it is replaced.
     if agent_dead; then
-      record_dead_pane || { sleep 1; record_dead_pane || true; }
-      end_dead_session
+      end_dead_agent
       break
     fi
     panes=$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_current_command}' 2>/dev/null)
@@ -933,7 +942,8 @@ if [ -z "$adopt" ]; then
     # kill-pane already ended) is a tmux error with no client, which opens over the pane of whoever attaches next, in
     # view-mode, and a pane in view-mode hears no Enter. The supervisor ends what a person's other panes leave.
     "$TMUX_BIN" set-hook -p -t "$_p" pane-died "run-shell $_q ; kill-pane -t '$_p'" 2>/dev/null \
-      || "$TMUX_BIN" set-option -pu -t "$_p" remain-on-exit 2>/dev/null   # back to what it was (a person's own setting)
+      || { "$TMUX_BIN" set-option -pu -t "$_p" remain-on-exit 2>/dev/null   # back to what it was (a person's own setting)
+           "$TMUX_BIN" set-option -u -t "$_sid" @kosmos_agent_pane 2>/dev/null; }
     return 0
   }
 
@@ -1903,8 +1913,7 @@ while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
   # kosmos#8988: the pane-died hook ends a dead agent's session at once; if it did not run, this does, so a kept pane
   # can never hold the agent stopped.
   if agent_dead; then
-    record_dead_pane || { sleep 1; record_dead_pane || true; }
-    end_dead_session   # then the usual wait, so a refused kill cannot spin
+    end_dead_agent   # then the usual wait, so a refused kill cannot spin
   fi
   sleep 10
 done
