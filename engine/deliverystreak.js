@@ -163,20 +163,30 @@ function turnStuckOf(name, turn, { now = Date.now() } = {}) {
 /* kosmos#8951: the card's deliveryStall for messages a Windows Claude agent took in and never started on ({ since, count }
    from win32streamstate.unstartedFor): a 'turn' stall, since the messages did arrive and wait (so never "no message has
    reached it" and never relabelled a sign-out), marked `unstarted` so its words say what happened. No hour to wait: the
-   publisher already waited START_DEADLINE_MS for a turn that never opened. Null for anything else. Never throws. */
+   publisher already decided (the process ended with them, `lost`; or no turn opened within START_DEADLINE_MS). Null for
+   anything else. Never throws. */
 function unstartedOf(name, u) {
   try {
     if (!u || typeof u.since !== 'string' || !Number.isFinite(Date.parse(u.since))) return null;
     const count = Number.isInteger(u.count) && u.count > 0 ? u.count : 1;
-    return { since: new Date(Date.parse(u.since)).toISOString(), count, lastWhy: 'turn', unstarted: true, step: null,
-      words: UNSTARTED_WORDS, next: unstartedNext(count) };
+    const lost = u.lost === true;
+    return { since: new Date(Date.parse(u.since)).toISOString(), count, lastWhy: 'turn', unstarted: true, ...(lost ? { lost: true } : {}),
+      step: null, words: unstartedWords(count, lost), next: unstartedNext(count, lost) };
   } catch { return null; }
 }
-const UNSTARTED_WORDS = 'It took in the messages but never started on them';
-/* A message written again starts a turn (the 11-23 agent ran the next one normally), so sending again is the way out; a
-   restart only if that does not start either. */
-function unstartedNext(count) {
-  return 'Send ' + (count === 1 ? 'it' : 'them') + ' again, and restart it if ' + (count === 1 ? 'that does' : 'they do') + ' not start either';
+/* Review 1: singular for one message, and the two cases worded apart. */
+function unstartedWords(count, lost) {
+  const them = count === 1 ? 'it' : 'them';
+  return lost ? 'It stopped right after ' + (count === 1 ? 'a message' : 'its messages') + ' reached it, before running ' + them
+    : 'It took in ' + (count === 1 ? 'a message' : 'its messages') + ' but never started on ' + them;
+}
+/* A message written again starts a turn (the 11-23 agent ran the next one normally), so sending again is the way out.
+   Review 1 W4: when the process stopped on them, the message itself may be what stops it (all three did on 11-23), so the
+   words say so rather than send the person round the same crash. */
+function unstartedNext(count, lost) {
+  const them = count === 1 ? 'it' : 'them';
+  if (lost) return 'Send ' + them + ' again; if it stops again, the message itself may be what stops it, so try a shorter one';
+  return 'Send ' + them + ' again, and restart it if ' + (count === 1 ? 'that does' : 'they do') + ' not start either';
 }
 /* The way out, worded for how many wait (review 1: "them" for one message). */
 function turnNextWords(count) { return turnNext(count); }
@@ -296,7 +306,9 @@ function stallLine(s) {
 /* kosmos#7368: the board log's line for one step that never ends, said once per stuck step. */
 function turnLine(name, s) {
   if (s && s.unstarted === true) {   // kosmos#8951
-    return 'turn-unstarted: ' + name + ' took in ' + s.count + ' message' + (s.count === 1 ? '' : 's') + ' from ' + s.since + ' and never started a turn.\n';
+    const n = s.count + ' message' + (s.count === 1 ? '' : 's');
+    return 'turn-unstarted: ' + name + (s.lost === true ? ' stopped right after ' + n + ' from ' + s.since + ' reached it, before running ' + (s.count === 1 ? 'it' : 'them') + '.\n'
+      : ' took in ' + n + ' from ' + s.since + ' and never started a turn.\n');
   }
   return 'turn-stuck: ' + name + ' has been on one step since ' + s.since + (s.step ? ' (' + s.step + ')' : '')
     + ', with ' + s.count + ' message' + (s.count === 1 ? '' : 's') + ' waiting behind it.\n';

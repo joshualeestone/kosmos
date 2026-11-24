@@ -23573,13 +23573,17 @@ function stateReason(a, opts) {
      which would wrongly name a step. */
   if (a && a.deliveryStall && a.deliveryStall.lastWhy === 'turn' && a.deliveryStall.unstarted === true && typeof a.deliveryStall.since === 'string') {
     const since = Date.parse(a.deliveryStall.since);
-    const mins = Number.isFinite(since) ? Math.max(5, Math.round((Date.now() - since) / 60000)) : 5;
-    const when = mins >= 120 ? 'about ' + Math.round(mins / 60) + ' hours' : 'about ' + mins + ' minutes';
+    /* Review 1 W3: shown from the moment the agent stopped on them (seconds after the write), so the floor is a minute. */
+    const mins = Number.isFinite(since) ? Math.max(1, Math.round((Date.now() - since) / 60000)) : 1;
+    const when = mins >= 120 ? 'about ' + Math.round(mins / 60) + ' hours' : mins === 1 ? 'about a minute' : 'about ' + mins + ' minutes';
     const who = (typeof a.name === 'string' && a.name) ? a.name : 'This agent';
     const n = Number.isInteger(a.deliveryStall.count) && a.deliveryStall.count > 0 ? a.deliveryStall.count : 1;
     const what = n === 1 ? 'a message' : n + ' messages';
-    const next = typeof a.deliveryStall.next === 'string' && a.deliveryStall.next ? a.deliveryStall.next : 'Send them again, and restart it if they do not start either';
-    return who + ' took in ' + what + ' ' + when + ' ago but never started on ' + (n === 1 ? 'it' : 'them') + '. ' + next + '.';
+    const them = n === 1 ? 'it' : 'them';
+    const next = typeof a.deliveryStall.next === 'string' && a.deliveryStall.next ? a.deliveryStall.next : 'Send ' + them + ' again';
+    /* Review 1 W4: the process ended with them (lost), or no turn opened. */
+    if (a.deliveryStall.lost === true) return who + ' stopped right after ' + what + ' reached it, ' + when + ' ago, and never ran ' + them + '. ' + next + '.';
+    return who + ' took in ' + what + ' ' + when + ' ago but never started on ' + them + '. ' + next + '.';
   }
   /* kosmos#7368 (Mona Lisa's design): a Windows agent on one step for over an hour with messages waiting behind it. The
      messages did arrive, so this is not "no message has reached it": it names the step and how many wait. */
