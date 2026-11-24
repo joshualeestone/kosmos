@@ -58,7 +58,8 @@ function iso(ms) { return new Date(ms).toISOString(); }
  *   rows:      the message log rows (messages.readLog()), oldest first
  *   history:   (sessionName) -> selfreport.history rows (with `turn` marks) or null
  *   sessionOf: (name) -> the recipient's session name (the roster's card), or the name itself
- *   asker:     optional; when given, only the sender or the recipient may read the status
+ *   asker:     when given, only the sender or the recipient may read the status. Optional only for the pure tests:
+ *              the route always passes it, and any new caller serving an agent must too.
  */
 function status(id, o) {
   const key = String(id == null ? '' : id).trim();
@@ -80,6 +81,7 @@ function status(id, o) {
     return { found: false, because: 'there is no direct message ' + key + ' sent by you or to you' };
   }
   if (!msg) return { found: false, because: 'there is no direct message ' + key + ' on this board' };
+  const name = String(msg.to).replace(/["\\]/g, '');   // for the because sentences: never a quote or backslash
   const base = { found: true, id: key, from: msg.from, to: msg.to, at: msg.at,
     ...(msg.replyExpected === false ? { replyExpected: false } : {}),
     ...(msg.unsubmitted === true ? { unsubmitted: true } : {}) };
@@ -124,10 +126,10 @@ function status(id, o) {
   try { session = (o && typeof o.sessionOf === 'function' && o.sessionOf(msg.to)) || msg.to; } catch { session = msg.to; }
   let hist = null;
   try { hist = o && typeof o.history === 'function' ? o.history(session) : null; } catch { hist = null; }
-  if (!Array.isArray(hist)) return { ...base, status: STATUS.UNKNOWN, because: 'there is no report history for ' + msg.to };
+  if (!Array.isArray(hist)) return { ...base, status: STATUS.UNKNOWN, because: 'there is no report history for ' + name };
   // A history cut after the send cannot say what happened between the send and its first row.
   if (hist.truncated === true && (!hist.length || hist[0].at > sentAt)) {
-    return { ...base, status: STATUS.UNKNOWN, because: 'the report history kept for ' + msg.to + ' does not reach back to this message' };
+    return { ...base, status: STATUS.UNKNOWN, because: 'the report history kept for ' + name + ' does not reach back to this message' };
   }
 
   /* A start counts only when the agent was between turns (the mark before it is an end, a session mark, or none in
@@ -171,15 +173,15 @@ function status(id, o) {
     }
   }
   if (waiting || waitStood) {
-    return { ...base, status: STATUS.UNKNOWN, because: msg.to + ' had a question or a block of its own standing, and while one stands its turn reports are not recorded' };
+    return { ...base, status: STATUS.UNKNOWN, because: name + ' had a question or a block of its own standing, and while one stands its turn reports are not recorded' };
   }
   if (started !== null) return { ...base, status: STATUS.READING, turnStartedAt: iso(started) };
   if (maybeEnd !== null) return { ...base, status: STATUS.MAYBE_READ, turnEndedAt: iso(maybeEnd) };
   if (before === 'start') return { ...base, status: STATUS.IN_TURN };
   /* No turn mark anywhere in what is kept: the hook sends none (another provider, or none installed), so "between
      turns" was never seen and "not read yet" would be a guess. */
-  if (!sawMark) return { ...base, status: STATUS.UNKNOWN, because: 'no turn reports from the report hook of ' + msg.to + ' are recorded' };
-  if (before === 'cut') return { ...base, status: STATUS.UNKNOWN, because: 'the report history kept for ' + msg.to + ' does not show whether it was in a turn when your message arrived' };
+  if (!sawMark) return { ...base, status: STATUS.UNKNOWN, because: 'no turn reports from the report hook of ' + name + ' are recorded' };
+  if (before === 'cut') return { ...base, status: STATUS.UNKNOWN, because: 'the report history kept for ' + name + ' does not show whether it was in a turn when your message arrived' };
   return { ...base, status: STATUS.NOT_YET };
 }
 
