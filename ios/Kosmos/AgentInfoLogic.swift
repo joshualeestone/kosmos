@@ -624,3 +624,195 @@ extension Board {
             + "Its conversation does not come across: \(toWord) cannot read \(fromWord)\u{2019}s history. " + notes
     }
 }
+
+// MARK: Restart and remove (kosmos#8955: the board's Restart and Remove this agent, on the phone)
+//
+// The same routes, the same rules and the same words as the board's agent page (web/index.html): a restart is
+// POST /api/agent/<n>/restart (rst-go), and it took only when the answer says outcome "restarted" (restartTook), never
+// on the status alone; after it took, the phone waits until the agent is seen down and then up again
+// (restartReadyWait) and says hello to wake it (sendWakeHello), claiming the hello only when it was placed. A removal is
+// planned with GET /api/agent/<n>/removal (loadRemoval) and done with DELETE (rm-go), and its words are the engine's
+// (question, reassurance, loses, keeps, hint, because), never written here. The board keeps two things the phone does
+// not offer: "Write a handoff, then restart", and "Remove from my board anyway" for an agent Kosmos cannot tie to its
+// session (untied); the phone says where they are.
+extension Board {
+    // restartCost, word for word: "nothing to lose" only when the agent said so recently (state clear, an empty list).
+    static func restartCost(_ shown: String, _ rec: Commitments?) -> (small: String, list: [String]) {
+        let list = rec?.items ?? []
+        let state = rec?.state ?? "unknown"
+        if state == "holding" && !list.isEmpty {
+            return ("\(shown) is part way through \(list.count == 1 ? "one thing" : "\(list.count) things"). Restarting ends them, and they will not be picked up again.", list)
+        }
+        if state == "clear" && list.isEmpty { return ("\(shown) is not part way through anything.", []) }
+        let because = rec?.because.flatMap { $0.isEmpty ? nil : $0 } ?? "we have not heard from them"
+        return ("We cannot tell what \(shown) is part way through, because \(because). Restarting ends anything they had in flight.", list)
+    }
+    // The fresh-start button (freshStartLabel) and the dialog's title and two answers (openRestartModal, rst-keep).
+    static func restartLabel(_ shown: String) -> String { "Restart: stop and start \(shown.isEmpty ? "it" : shown)" }
+    static func restartTitle(_ shown: String) -> String { "Restart \(shown)?" }
+    static func restartGo(_ shown: String) -> String { "Restart \(shown)" }
+    static let restartKeep = "Leave it running"
+
+    static func restartRequest(mac: URL, session: String) -> URLRequest? {
+        guard isAgentSession(session) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/restart", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = Data("{}".utf8)   // a plain Restart: no cause, no job offer (the board's other callers send those)
+        return r
+    }
+    // restartTook and restartFailureLine. ok is true only for a restart that took; the sentence is then nil, as the
+    // board writes nothing until the wake is settled.
+    static func restartResult(status: Int, body: Data?) -> (ok: Bool, sentence: String?) {
+        guard status != 0 else { return (false, "We could not reach Kosmos to restart them.") }
+        let out = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if (200..<300).contains(status), (out?["outcome"] as? String) == "restarted" { return (true, nil) }
+        if status == 401 || status == 403, out?["outcome"] == nil { return (false, phoneShutOut) }
+        let said = (out?["because"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? (out?["error"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "We could not restart them."
+        let steps = (out?["steps"] as? [[String: Any]]) ?? []
+        let failed = steps.filter { ($0["ok"] as? Bool) != true }.compactMap { $0["label"] as? String }
+        let done = steps.filter { ($0["ok"] as? Bool) == true }.compactMap { $0["label"] as? String }
+        return (false, sentence(said)
+            + (failed.isEmpty ? "" : " What failed: " + failed.joined(separator: ", ") + ".")
+            + (done.isEmpty ? "" : " What worked: " + done.joined(separator: ", ") + "."))
+    }
+
+    // restartReadyWait: 30 seconds, a look every 2, and ready only after the agent was seen not ready at least once (a
+    // first look can still show the session about to die). Ready is restartedAndReady: seen, and not restarting.
+    static let restartReadyWindow: TimeInterval = 30
+    static let restartReadyPoll: TimeInterval = 2
+    static func restartedAndReady(_ a: Agent?) -> Bool { a.map { $0.boardSeesIt && $0.state != "restarting" } ?? false }
+    // One look's verdict, given what earlier looks saw: .ready, .keepWaiting (sawUnready updated).
+    static func readyStep(_ a: Agent?, sawUnready: inout Bool) -> Bool {
+        if restartedAndReady(a) { return sawUnready }
+        sawUnready = true
+        return false
+    }
+
+    // The wake hello (sendWakeHello): automatic, so it is held while a shared quota is out.
+    static func wakeHelloRequest(mac: URL, session: String) -> URLRequest? {
+        guard isAgentSession(session) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/thread", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = try? JSONSerialization.data(withJSONObject: ["text": "hello", "automatic": true])
+        return r
+    }
+    static let restartWaking = "Restarted. Waking them\u{2026}"
+    static let restartSaidHello = "Restarted, and said hello to wake them. Say hello when you want to talk to them."
+    static let restartManual = "Restarted. You will need to say \u{2018}hello\u{2019} to wake them."
+    // The line after the wake: said hello only when the delivery was placed; a held one says why (wakeHeldLine).
+    static func wakeLine(status: Int, body: Data?) -> String {
+        guard (200..<300).contains(status),
+              let d = (body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["delivery"] as? [String: Any]
+        else { return restartManual }
+        if (d["state"] as? String) == "placed" { return restartSaidHello }
+        guard (d["held"] as? Bool) == true else { return restartManual }
+        return wakeHeldLine(restartManual, d)
+    }
+    // wakeHeldLine's reasons, word for word. The board names a reset time where it has one (quotaResetWords); the phone
+    // keeps the untimed form of the same sentence, which the board itself shows when it has no time.
+    static func wakeHeldLine(_ manual: String, _ d: [String: Any]) -> String {
+        switch d["heldBy"] as? String {
+        case "cap": return manual + " The Gemini subscription agents on this computer are at the limit you set for working at once, so Kosmos sent nothing."
+        case "menu": return manual + " It is waiting for an answer on its screen, so Kosmos sent nothing; answer it in its window first."
+        case "input": return manual + " Its input box holds text that has not been sent, so Kosmos sent nothing; send or clear that in its window first."
+        case "limit": return manual + " It is out of usage, so Kosmos sent nothing."
+        default: break
+        }
+        if (d["heldFor"] as? String) == "signin" { return manual + " It is signed out, so Kosmos sent nothing. Sign it in again first." }
+        return manual + " This computer\u{2019}s shared Google quota is out, so Kosmos sent nothing."
+    }
+
+    // MARK: Remove
+
+    struct RemovalAsk: Equatable {
+        var question: String
+        var reassurance: String
+        var label: String
+        var hint: String
+        var loses: [String]
+        var keeps: [String]
+    }
+    enum RemovalPlan: Equatable {
+        case can(RemovalAsk)
+        // Refused, in the engine's words; untied is the one refusal the board can override (clear the card only).
+        case cannot(because: String, untied: Bool)
+        // No answer about this agent (no reply, a 5xx, a body that does not parse): never read as a fact about it.
+        case unreached
+    }
+    static let removalUnreached = "We could not reach your computer just now, so we cannot tell you whether this agent can be removed. It will come back on its own."
+    static let removalUntiedOnBoard = "To clear its card off your board without stopping that session, use your computer\u{2019}s board."
+
+    static func removalPlanRequest(mac: URL, session: String) -> URLRequest? {
+        guard isAgentSession(session) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/removal", relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+    // loadRemoval: a thrown fetch, a 5xx or an unparsed body is unreached; ok is a plan; anything else is a refusal.
+    static func removalPlan(status: Int, body: Data?, session: String) -> RemovalPlan {
+        guard status != 0, status < 500,
+              let o = body.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) else { return .unreached }
+        if status == 401 || status == 403, o["ok"] == nil { return .unreached }
+        if (o["ok"] as? Bool) == true {
+            let label = (o["label"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? session
+            return .can(RemovalAsk(question: (o["question"] as? String) ?? "",
+                                   reassurance: (o["reassurance"] as? String) ?? "",
+                                   label: label,
+                                   hint: (o["hint"] as? String) ?? "",
+                                   loses: (o["loses"] as? [String]) ?? [],
+                                   keeps: (o["keeps"] as? [String]) ?? []))
+        }
+        let because = (o["because"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "We cannot remove this agent right now."
+        return .cannot(because: sentence(because), untied: (o["untied"] as? Bool) == true)
+    }
+    // The dialog's answers name the agent as the engine's heading does (openRemoveModal).
+    static func removeGo(_ ask: RemovalAsk) -> String { "Remove \(ask.label)" }
+    static func removeKeep(_ ask: RemovalAsk) -> String { "Leave \(ask.label) running" }
+    // The engine's reassurance, then its Loses and Keeps lists (rm-cols), shown only when both have something.
+    static func removeMessage(_ ask: RemovalAsk) -> String {
+        guard !ask.loses.isEmpty, !ask.keeps.isEmpty else { return ask.reassurance }
+        return ask.reassurance + "\n\nLoses: " + ask.loses.joined(separator: "; ") + "\nKeeps: " + ask.keeps.joined(separator: "; ")
+    }
+
+    static func removeRequest(mac: URL, session: String) -> URLRequest? {
+        guard isAgentSession(session) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/removal", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "DELETE"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        return r
+    }
+    enum RemoveDone: Equatable {
+        case removed
+        // Partly done: the one answer a person must not walk away from (it may still be running).
+        case partial(String)
+        case refused(String)
+    }
+    static func removeResult(status: Int, body: Data?) -> RemoveDone {
+        guard status != 0 else { return .refused("We could not reach Kosmos, so nothing was removed.") }
+        let o = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let outcome = o?["outcome"] as? String
+        // rm-go: `error` as well as `because`, since a thrown removal says it may be half done.
+        let said = (o?["because"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (o?["error"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        if !(200..<300).contains(status) || o == nil || outcome == "refused" {
+            if (status == 401 || status == 403), outcome == nil, said == nil { return .refused(phoneShutOut) }
+            return .refused(sentence(said ?? "we could not remove it, and we cannot tell you why"))
+        }
+        if outcome == "partial" { return .partial(sentence(said ?? "It was only partly removed.")) }
+        return .removed
+    }
+    // Only what happened: putting it back is not on offer for an agent with no startup job (engine/remove.js plan), and
+    // the phone does not know which kind it removed.
+    static func removedLine(_ label: String) -> String { "Removed. \(label) has left your board." }
+}
+
+extension Board {
+    // kosmos#8955: the agent page's board row, now that Restart and Remove are on the phone: what is left there, and that
+    // it opens a web page (Josh 11-23, #8952: a tap that drops into the board should say so).
+    static let boardOnlyFooter = "Opens your computer\u{2019}s board, a web page. It has the rest: the AI providers this page does not offer, and restarting with a handoff written first."
+}
