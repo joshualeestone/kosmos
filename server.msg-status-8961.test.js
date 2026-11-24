@@ -183,6 +183,9 @@ test('#8961 the bash CLI prints the board\'s sentence', { skip: process.platform
   const sentOut = await cli(['mara', 'hello from the cli']);
   assert.equal(sentOut.code, 0, sentOut.text);
   assert.match(sentOut.text, /Placed with mara\.\s+Its id is m\d+: kosmos msg --status m\d+ says later/);
+  const eq = await cli(['--status=' + id]);
+  assert.equal(eq.code, 0, eq.text);
+  assert.match(eq.text, /mara started a turn after your message arrived/);
   const late = await cli(['--no-reply', '--status', id]);
   assert.equal(late.code, 2, late.text);
   assert.match(late.text, /--status is its own command/);
@@ -208,6 +211,8 @@ test('#8961 the Windows CLI prints the board\'s sentence', async () => {
   const sentOut = await winRun(['msg', 'mara', 'hello from windows']);
   assert.equal(sentOut.code, 0, sentOut.err);
   assert.match(sentOut.out, /Placed with mara\.\nIts id is m\d+: kosmos msg --status m\d+ says later/);
+  const eq = await winRun(['msg', '--status=' + id]);
+  assert.equal(eq.code, 0, eq.err);
   const late = await winRun(['msg', '--stdin', '--status', id]);
   assert.equal(late.code, 2, late.out + late.err);
   assert.match(late.err, /--status is its own command/);

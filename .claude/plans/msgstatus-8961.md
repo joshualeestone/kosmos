@@ -84,8 +84,19 @@ the answer unknown unless a whole turn was still seen.
 - Deferred: a per-caller rate limit. Each call parses the message log, as every /api/msg send already does (mintId),
   and the wide history read now happens only for a message older than the short tail.
 
+## Review changes (iteration 7)
+- Any recorded automatic working or idle ends a standing wait (the guard refuses them while one stands, and the
+  hook's idle is what clears a provider block). Iteration 3's rule had kept a cleared provider block standing forever.
+- A held reply's answeredAt is when it was typed.
+- The asker is matched exactly against the sender's session name.
+- The id line also follows a held or unconfirmed send; `--status=<id>` is accepted first.
+- The route answers a sentence for anything thrown, never an internal message.
+- Deferred: a JSON escape in a board `because` would be cut by the bash sed. The sentences this module writes are
+  ASCII with no quote (tested); the caller refusals are the board's existing sentences, which bash reads the same way
+  on every other verb.
+
 ## Tests
-- engine/msgstatus-8961.test.js (33, pure; failing control: dropping the between-turns rule fails one)
+- engine/msgstatus-8961.test.js (34, pure; failing control: dropping the between-turns rule fails one)
 - server.msg-status-8961.test.js (7: real server, the bash CLI and the Windows CLI main(), an enforcing board;
   control: removing the bash dispatch fails one)
 - pinned lists updated: server.agent-token-sender-570.test.js, tools/windows-tests.js HOST_BRANCH_EXCLUDED
