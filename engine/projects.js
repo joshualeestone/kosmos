@@ -4471,13 +4471,18 @@ async function speakOfMembershipAsync(sessionName, project, kind, roster) {
   }
 }
 
-function syncAgent(sessionName, roster) {
+function syncAgent(sessionName, roster, { byOther = false } = {}) {
   const key = String(sessionName || '');
   const mine = readAll().filter((p) => (p.agents || []).includes(key));
   const verdict = tellAgent(key, mine, roster);
   /* kosmos#5320: an agent reads this file only when its session starts. A write that changed the block's standing rules
-     (rulesChanged) owes it a re-read line; a task or membership change owes none. Never fails the write. */
-  if (verdict && verdict.rulesChanged === true && verdict.state === TOLD.TOLD) {
+     (rulesChanged) owes it a re-read line; a task or membership change owes none, because the agent's own close made it.
+     kosmos#8989: unless someone else made it (`byOther`: the person on the screen, or another agent, such as a manager
+     closing a task this agent holds). Then the agent did not see it happen, and kept working from the copy it read at
+     its start, still holding the closed task; so any change to the block owes it the re-read. Never fails the write. */
+  const owed = verdict && verdict.state === TOLD.TOLD
+    && (verdict.rulesChanged === true || (byOther === true && verdict.changed === true));
+  if (owed) {
     let ok = false;
     try { ok = require('./instructionreread').oweNow(key, 'projects'); } catch { ok = false; }
     if (!ok) process.stderr.write(`Kosmos updated ${key}'s projects section but could not record that it is owed a re-read; it reads the section at its next start\n`);

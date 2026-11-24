@@ -931,6 +931,41 @@ test('#5320: only a change to the block\'s standing rules owes the running agent
   assert.equal(owed(), undefined, 'a removed block owed a re-read of a section that is gone');
 });
 
+test('#8989: a task closed by someone else owes its holder a re-read; its own close still does not', () => {
+  reset();
+  const ir = require('./instructionreread');
+  const clear = () => { try { fs.rmSync(ir.file()); } catch { /* absent is fine */ } };
+  const owed = () => (ir.readOwed().mara || {}).sections;
+  agent('mara', '# Mara\n\nYou are the executive assistant.\n');
+  const p = projects.create({ name: 'Henderson lease', folder: folder('henderson-8989'), agents: ['mara'] });
+  const setTasks = (tasks) => { const all = projects.readAll(); all.find((x) => x.id === p.id).tasks = tasks; projects.writeAll(all); };
+  projects.syncAgent('mara', ROSTER);
+  const two = [{ number: 1, sentence: 'draft the renewal letter', who: 'mara' }, { number: 2, sentence: 'file the lease', who: 'mara' }];
+  setTasks(two);
+  projects.syncAgent('mara', ROSTER);
+  // CONTROL (the arm the change must not move): the holder's own close changes the task lines and owes nothing.
+  setTasks([two[0], { ...two[1], closedAt: new Date().toISOString() }]);
+  clear();
+  const own = projects.syncAgent('mara', ROSTER, { byOther: false });
+  assert.equal(own.changed, true, 'fixture: closing the task must change the block');
+  assert.equal(owed(), undefined, 'the agent closing its own task owed a re-read');
+  // The other arm: a manager (or the person) closes the task the agent holds. The block changes the same way, and the
+  // agent, which did not see it, is owed a re-read of its projects section.
+  setTasks(two);
+  projects.syncAgent('mara', ROSTER);
+  setTasks([{ ...two[0], closedAt: new Date().toISOString() }, two[1]]);
+  clear();
+  const other = projects.syncAgent('mara', ROSTER, { byOther: true });
+  assert.equal(other.changed, true, 'fixture: closing the task must change the block');
+  assert.equal(other.rulesChanged, false, 'fixture: no standing rule moved, so only byOther can owe it');
+  assert.deepEqual(owed(), ['projects'], 'a task closed by someone else was not owed as a re-read');
+  // A write that changes nothing owes nothing, whoever asked for it.
+  clear();
+  const same = projects.syncAgent('mara', ROSTER, { byOther: true });
+  assert.notEqual(same.changed, true, 'fixture: the second write must be unchanged');
+  assert.equal(owed(), undefined, 'an unchanged write owed a re-read');
+});
+
 test('#5320: the tasks rules are owed only when both the old and the new block list a task', () => {
   reset();
   const ir = require('./instructionreread');
