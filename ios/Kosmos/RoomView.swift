@@ -74,7 +74,7 @@ struct RoomView: View {
     @State private var flashToken = 0
     @AccessibilityFocusState private var focusedPost: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    // kosmos#7062: each file card's state, and the file Quick Look shows (removed from the phone when it closes), as in
+    // kosmos#7062: each file card's state, and the file shown (removed from the phone when it closes), as in
     // the chat.
     @State private var fileStates: [String: FileCardState] = [:]
     @State private var previewURL: URL?
@@ -319,7 +319,7 @@ struct RoomView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             client.dropPreviewImages()
         }
-        // kosmos#7062: a post's file in the system's Quick Look; closed, it is removed from the phone (the chat's rule).
+        // kosmos#7062: a post's file, shown; closed, it is removed from the phone (the chat's rule).
         .filePreview($previewURL)   // kosmos#8953: Quick Look, or WebFileView for a web page
         .onChange(of: previewURL) { now in
             if let was = openedFile, was != now { client.closed(was); openedFile = now }
@@ -489,7 +489,7 @@ struct RoomView: View {
         replying = back.replyTo
     }
 
-    // kosmos#7062: a post's file, fetched from the computer and shown in Quick Look, exactly as the chat opens one
+    // kosmos#7062: a post's file, fetched from the computer and shown by filePreview, exactly as the chat opens one
     // (ChatView.openFile), one file at a time.
     private func openFile(_ f: Board.Attachment) {
         guard !fileStates.values.contains(.loading), previewURL == nil else { return }

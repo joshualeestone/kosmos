@@ -2081,7 +2081,16 @@ enum Board {
     // property list, which counts as XML) is nil, so it is offered to Share.
     static func shownText(_ data: Data, limit: Int) -> (text: String, cut: Bool)? {
         var head = data.prefix(limit)
-        if head.starts(with: [0xFE, 0xFF]) || head.starts(with: [0xFF, 0xFE]) { head = head.prefix(head.count & ~1) }
+        let big = head.starts(with: [0xFE, 0xFF])
+        if big || head.starts(with: [0xFF, 0xFE]) {
+            head = head.prefix(head.count & ~1)
+            // A cut between the two halves of a character above U+FFFF (an emoji) drops the first half too.
+            if head.count >= 4 {
+                let a = head[head.endIndex - 2], b = head[head.endIndex - 1]
+                let unit = big ? UInt16(a) << 8 | UInt16(b) : UInt16(b) << 8 | UInt16(a)
+                if (0xD800...0xDBFF).contains(unit) { head = head.dropLast(2) }
+            }
+        }
         guard let readable = asciiCompatible(head) else { return nil }
         return (String(decoding: readable, as: UTF8.self), data.count > limit)
     }

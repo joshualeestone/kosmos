@@ -55,9 +55,9 @@ struct WebFileView: View {
                 }
             }
         case .unreadable:
-            notShown("This page can't be shown on iPhone")
+            notShown("This file can't be shown on iPhone")
         case .tooLarge:
-            notShown("This page is too large to show on iPhone")
+            notShown("This file is too large to show on iPhone")
         }
     }
 
@@ -113,6 +113,7 @@ struct LockedWebView: UIViewRepresentable {
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
         config.mediaTypesRequiringUserActionForPlayback = .all
         let view = WKWebView(frame: .zero, configuration: config)
+        view.allowsLinkPreview = false
         view.navigationDelegate = context.coordinator
         view.accessibilityIdentifier = "webfile.page"
         Coordinator.untappable(view)
@@ -125,9 +126,11 @@ struct LockedWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate {
         private var started = false
         static let blockAll = #"[{"trigger":{"url-filter":".*"},"action":{"type":"block"}}]"#
+        static let ruleID = "kosmos-webfile-block-all"
 
         func load(into view: WKWebView, page: Data, failed: @escaping () -> Void) {
-            WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "kosmos-webfile-block-all",
+            // Compiled on every open, never looked up: a kept rule from an older blockAll would outlive a change to it.
+            WKContentRuleListStore.default().compileContentRuleList(forIdentifier: Self.ruleID,
                                                                      encodedContentRuleList: Self.blockAll) { [weak view] list, _ in
                 guard let view else { return }
                 guard let list else { failed(); return }

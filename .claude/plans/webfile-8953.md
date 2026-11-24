@@ -17,7 +17,8 @@ any text/html answer because the computer's sign-in gate can answer with its own
   - An SVG: drawn only as a picture (base64 in an <img>), which can neither load nor link.
   - XML: shown as text (the first 256 KB, read off the main thread once; a line says when it was cut). UTF-16 is cut to
     whole characters and converted; anything with zero bytes and no UTF-16 mark (a binary property list, which counts
-    as XML) is offered to Share (review round 6).
+    as XML) is offered to Share (review round 6). A cut inside an emoji (between its two halves) drops the first half,
+    so the rest still shows (review round 7).
   - A page larger than 8 MB (checked by its size before it is read): "This page is too large to show on iPhone".
   - A page whose bytes are not ASCII-compatible text (zero bytes with no UTF-16 mark; a UTF-16
     page is converted to UTF-8 first, so its links are found), nothing to draw (a damaged web archive) or a content rule
@@ -68,6 +69,11 @@ Touches off does not hide the page from the accessibility tree: WebFileUITests f
 (page.staticTexts["Launch page"]) with every view in the scroll view taking no touches, and that tree is what VoiceOver
 reads. VoiceOver itself was not run (a UI test cannot drive it); the page has no links, areas, forms, MathML or frames left
 for its activate to reach.
+
+## SVG drawn: how it is shown (review round 7)
+The UI test checks that the SVG's sheet opens with an image in it and attaches a screenshot ("svg-open"). A size check
+on the drawing cannot be written: the accessibility tree lists the SVG's own 10-point <image> element, not the drawn
+picture, so the screenshot is the evidence that it is drawn (it shows the chart at full width).
 
 ## Weakest premise
 That nothing else in WebKit opens a connection for a page drawn from bytes with touches off: preconnect for prefetch
