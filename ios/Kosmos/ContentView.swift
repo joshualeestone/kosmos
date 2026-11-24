@@ -296,6 +296,10 @@ struct ContentView: View {
         // kosmos#8954 review 3: closing the board page (where first-run may just have been finished) asks again, since the
         // empty state under the page does not appear anew.
         .onChange(of: todayBoard) { open in if !open && firstAgentNative != nil { checkFirstAgent() } }
+        // kosmos#8954 review 4: the computer let the phone in after the empty state appeared (the board can answer through
+        // the coordinator first), so the stored "board" answer is out of date. A drop goes through start(), which sends the
+        // empty state through the waiting ring, and its appear checks again.
+        .onChange(of: board.admissions) { _ in if firstAgentNative != nil { checkFirstAgent() } }
         .onChange(of: newProjectOpen) { open in
             if open { fresh.passes.clear() } else if fresh.place == .newProject, fresh.model != nil { fresh.end() }
         }

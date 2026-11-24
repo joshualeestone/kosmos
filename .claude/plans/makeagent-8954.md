@@ -57,3 +57,7 @@ The decision is one shared firstAgentDecision() in ContentView, used by the tap 
 - Pins for the clear and the re-check; removing the clear turns the pin red. All 13 iOS suites, 64/64 node, build OK.
 
 ## Rebased onto #8975 (Mona Lisa's #8957, merged 04:09): her OpensOnBoardNote under Make an agent is wrapped as `if firstAgentGoesNative == false`, so it shows only when the tap goes to the board, never while reading (nil) and never when native (true). The #8783 "on your computer" pin stays green untouched (her words sit in ShellViews.swift); a new pin holds the wrap.
+
+## Round 4 (sonnet, whole branch, after the rebase): one should-fix, taken
+- The note could go stale when the computer let the phone in after the empty state appeared (the board answers through the coordinator first): the stored "board" stayed while the tap went native. Now .onChange(of: board.admissions) checks again. A drop needs no handler: it goes through start(), which sends the empty state through the waiting ring, and its appear checks again. Pinned.
+- Nits: the dots label is not pinned (left); the plan's count is 15 checks in the room section (measured with grep: 14 after round 1, plus round 2's state-none case).

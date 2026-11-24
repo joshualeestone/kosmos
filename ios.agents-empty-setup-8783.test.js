@@ -44,6 +44,7 @@ test('kosmos#8783: the empty Agents tab offers "Make an agent", which opens the 
   assert.match(content, /onChange\(of: todayBoard\) \{ open in if !open && firstAgentNative != nil \{ checkFirstAgent\(\) \} \}/, 'closing the board page does not ask again');
   // kosmos#8957 wrapped by #8954: the note that the tap opens the board shows only when it does (false), never while reading.
   assert.match(view, /if firstAgentGoesNative == false \{ OpensOnBoardNote\(\) \}/, 'the board note shows when the tap opens the native New Agent');
+  assert.match(content, /onChange\(of: board\.admissions\) \{ _ in if firstAgentNative != nil \{ checkFirstAgent\(\) \} \}/, 'review 4: the phone being let in does not ask again');
   assert.match(view, /accessibilityIdentifier\("agents-empty-setup"\)/, 'the button has no identifier for a UI test');
   assert.match(view, /Text\("It takes a few steps, and you can stop at any point\."\)/, 'Mona Lisa\'s line under the heading (11-19)');
 });
