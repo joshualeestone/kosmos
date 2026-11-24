@@ -108,3 +108,7 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 - Fixed (WARNING): iteration 10's "start every ready message when a turn opens" contradicted this module's own measurement (each message is its own turn, never batched), so a second waiting message was marked started and dropped at the next result, and could be lost in silence. A turn now opens on the oldest ready message only; the comment says so. My weakest premise in iteration 10 was exactly that guess, and the measured header settled it.
 - Fixed (NIT): a message written after a carried report that joins a turn when its calls return set the flag after that event's reportRan had run, so a stop before the next event carried the report again. reportRan now runs again after the join.
 - Mutations red: oldest only, the join ending the report.
+
+## Challenge loop iteration 12 (sonnet)
+- Fixed (WARNING): a subagent's event (parent_tool_use_id) counted as a turn opening, so a background subagent's event after a result could disarm a waiting message's deadline and mark it started. Only the main agent's events open a turn now, as the join path already filtered.
+- Mutation red: the subagent filter.
