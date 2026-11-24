@@ -54,7 +54,7 @@ struct ProjectInfoView: View {
             switch part {
             case .about: about
             case .settings: settings
-            case .files: FilesView(client: client, owner: .project(project.id), openOnBoard: openOnBoard, titled: false)
+            case .files: FilesView(client: client, owner: .project(project.id), titled: false)
             }
         }
         .background(Palette.ground)

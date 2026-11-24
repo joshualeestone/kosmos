@@ -11,7 +11,6 @@ struct FilesView: View {
     let owner: Board.FilesOwner
     // The folder shown (agent only; "" is the top). A folder row pushes another FilesView one level down.
     var dir: String = ""
-    let openOnBoard: () -> Void
     // kosmos#7838: false when a page embeds this list under its own title (the project page's Files segment).
     var titled: Bool = true
 
@@ -27,11 +26,10 @@ struct FilesView: View {
     // in, so body sorts again itself if the order moved on without show(_:) (review 3).
     @State private var sortedPage: (sort: Board.FilesSort, page: Board.FilesPage)?
 
-    init(client: BoardClient, owner: Board.FilesOwner, dir: String = "", openOnBoard: @escaping () -> Void, titled: Bool = true) {
+    init(client: BoardClient, owner: Board.FilesOwner, dir: String = "", titled: Bool = true) {
         self.client = client
         self.owner = owner
         self.dir = dir
-        self.openOnBoard = openOnBoard
         self.titled = titled
         _sortSaved = AppStorage(wrappedValue: Board.filesSortDefault.rawValue, Board.filesSortKey(owner))
     }
@@ -72,12 +70,12 @@ struct FilesView: View {
                     Section {
                         ForEach(page.dirs) { d in
                             NavigationLink {
-                                FilesView(client: client, owner: owner, dir: d.name, openOnBoard: openOnBoard)
+                                FilesView(client: client, owner: owner, dir: d.name)
                             } label: {
                                 Label(d.shownName, systemImage: "folder").foregroundColor(Palette.primary)
                             }
                         }
-                        ForEach(page.files) { f in FilesRow(file: f, shownName: rowName(f), opening: opener.opening == f.name) { opener.open(f, owner: owner, client: client, openOnBoard: openOnBoard) } }
+                        ForEach(page.files) { f in FilesRow(file: f, shownName: rowName(f), opening: opener.opening == f.name) { opener.open(f, owner: owner, client: client) } }
                     } footer: {
                         // Only when it says something (review 5: an empty footer still takes space).
                         let count: String? = { if case .project = owner { return page.total == 1 ? "1 file" : "\(page.total) files" }; return nil }()
@@ -195,8 +193,7 @@ struct FilesRow: View {
             }
         }
         .accessibilityElement(children: .combine)
-        // Review 1: a page or markup file opens on the board instead, so the hint says where it opens.
-        .accessibilityHint(Board.isWebDocument(name: file.name, type: "") ? "Opens on your computer\u{2019}s board" : "Opens the file")
+        .accessibilityHint("Opens the file")
     }
 }
 
@@ -209,7 +206,6 @@ struct FilesSection: View {
     let session: String
     let state: Board.FilesSectionState
     @ObservedObject var opener: FileOpener
-    let openOnBoard: () -> Void
 
     var body: some View {
         switch state {
@@ -227,12 +223,12 @@ struct FilesSection: View {
             Section {
                 ForEach(files) { f in
                     FilesRow(file: f, shownName: f.shownName, opening: opener.opening == f.name) {
-                        opener.open(f, owner: .agent(session), client: client, openOnBoard: openOnBoard)
+                        opener.open(f, owner: .agent(session), client: client)
                     }
                 }
                 if let failed = opener.failed { Text(failed).foregroundColor(Palette.secondary) }
                 NavigationLink {
-                    FilesView(client: client, owner: .agent(session), openOnBoard: openOnBoard)
+                    FilesView(client: client, owner: .agent(session))
                 } label: {
                     Text(Board.filesAll).foregroundColor(Palette.primary)
                 }
@@ -268,9 +264,8 @@ final class FileOpener: ObservableObject {
     var openedFile: URL?
     var visible = false
 
-    func open(_ f: Board.ListedFile, owner: Board.FilesOwner, client: BoardClient, openOnBoard: () -> Void) {
+    func open(_ f: Board.ListedFile, owner: Board.FilesOwner, client: BoardClient) {
         guard opening == nil, previewURL == nil else { return }
-        if Board.isWebDocument(name: f.name, type: "") { openOnBoard(); return }
         if Board.filesTooBigToOpen(f) { say(Board.filesTooBig(owner)); return }   // review 2: never read whole into memory
         guard let a = Board.filesAttachment(owner: owner, file: f, id: UUID().uuidString) else { say(Board.filesDidNotOpen); return }
         failed = nil
@@ -316,7 +311,7 @@ private struct FilesQuickLook: ViewModifier {
         content
             .onAppear { opener.visible = true }
             .onDisappear { opener.visible = false }
-            .quickLookPreview($opener.previewURL)
+            .filePreview($opener.previewURL)   // kosmos#8953: Quick Look, or WebFileView for a web page
             .onChange(of: opener.previewURL) { opener.shown($0, client: client) }
             // Review 3: another account's file is never left showing, whether or not the screen is popped (the chat's reset).
             .onChange(of: client.chatEpoch) { _ in opener.reset(client: client) }

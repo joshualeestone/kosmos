@@ -244,8 +244,6 @@ struct FileCard: View {
     // accessibility sizes.
     private var lines: Int { typeSize.isAccessibilitySize ? 3 : typeSize >= .xLarge ? 2 : 1 }
 
-    // A page or markup file is opened on the computer's board, never here (Board.isWebDocument).
-    private var onBoard: Bool { Board.isWebDocument(name: file.name, type: file.type) }
 
     var body: some View {
         Button(action: open) {
@@ -273,7 +271,7 @@ struct FileCard: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(file.name + ", " + Board.attachmentMeta(file))
         .accessibilityValue(state == .loading ? "Opening" : state == .failed ? "Could not open it" : "")
-        .accessibilityHint(onBoard ? "Opens it on your computer's board." : state == .failed ? "Tries again." : "Opens the file.")
+        .accessibilityHint(state == .failed ? "Tries again." : "Opens the file.")
         .onChange(of: state) { now in
             if now == .failed { UIAccessibility.post(notification: .announcement, argument: "Could not open " + file.name + ".") }
         }
@@ -300,7 +298,7 @@ struct FileCard: View {
         case .failed:
             Text("Could not open it. Try again.").font(.caption).foregroundColor(Palette.dangerWord).lineLimit(lines)
         case .ready:
-            Text(onBoard ? "Opens on your computer's board" : Board.attachmentMeta(file)).font(.caption).foregroundColor(Palette.secondary).lineLimit(lines)
+            Text(Board.attachmentMeta(file)).font(.caption).foregroundColor(Palette.secondary).lineLimit(lines)
         }
     }
 }

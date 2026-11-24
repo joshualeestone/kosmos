@@ -1676,6 +1676,37 @@ do {
           "a page or markup document, by its name or its type, whatever type the sender gave")
     check(!web("plan.pdf", "application/pdf") && !web("notes.txt", "text/plain") && !web("photo.png", "image/png") && !web("deck.pptx", "")
           && !web("noext", "application/octet-stream"), "CONTROL: ordinary files are not")
+    // kosmos#8953: how a page or markup file is shown on the phone (WebFileView), never on the board.
+    let kind = { (n: String, t: String) in Board.webFileKind(name: n, type: t) }
+    check(kind("report.html", "") == .page && kind("a.HTM", "text/plain") == .page && kind("x.xhtml", "") == .page && kind("x.shtml", "") == .page
+          && kind("page", "text/html") == .page, "a page is drawn as a page, by its name or, with none, its type")
+    check(kind("pic.svg", "image/png") == .svg && kind("a.webarchive", "") == .archive && kind("data.xml", "text/html") == .text
+          && kind("saved.mht", "") == .unreadable && kind("saved.mhtml", "") == .unreadable && kind("pic.svgz", "") == .unreadable,
+          "an SVG and a web archive are drawn; XML is text; MHTML and a compressed SVG have no reader here")
+    check(kind("page.html.", "") == .page && kind("page.html\u{0}", "") == .page, "judged on the saved name, as isWebDocument is")
+    // kosmos#8953: what the locked web view draws. A page as it is; an SVG only as a picture (base64 inside an <img>, so no
+    // markup of the file is ever parsed as a document); a web archive's own page; nothing for text or an unreadable kind.
+    let pageBytes = Data("<h1>Hi</h1><a href=\"http://x/\">x</a>".utf8)
+    check(Board.inertPage(pageBytes, kind: .page) == pageBytes, "a page is drawn as it is (touches are what is taken away)")
+    let svgBytes = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"><a href=\"http://x/\"><rect width=\"1\" height=\"1\"/></a></svg>".utf8)
+    let drawnSvg = Board.inertPage(svgBytes, kind: .svg).map { String(decoding: $0, as: UTF8.self) } ?? ""
+    check(drawnSvg.contains("<img alt=\"\" src=\"data:image/svg+xml;base64," + svgBytes.base64EncodedString() + "\">") && !drawnSvg.contains("<svg"),
+          "an SVG is drawn only as a picture of itself")
+    let archive = try! PropertyListSerialization.data(fromPropertyList: ["WebMainResource": ["WebResourceData": pageBytes, "WebResourceMIMEType": "text/html"]],
+                                                      format: .binary, options: 0)
+    check(Board.inertPage(archive, kind: .archive) == pageBytes, "a web archive is drawn as its own page")
+    check(Board.inertPage(Data("not a plist".utf8), kind: .archive) == nil && Board.inertPage(pageBytes, kind: .text) == nil
+          && Board.inertPage(pageBytes, kind: .unreadable) == nil, "nothing is drawn for a broken archive, text or an unreadable kind")
+    // kosmos#8953: a page is taken only when the Mac served it as a download, which a sign-in page never is.
+    let took = { (w: Bool, t: String, d: String) in Board.fileAnswerAccepted(webDocument: w, contentType: t, disposition: d) }
+    check(took(true, "text/html", "attachment; filename*=UTF-8''Launch%20page.html") && took(true, "application/octet-stream", "Attachment; filename=\"a.svg\""),
+          "a page or markup file served as a download is taken, whatever its type")
+    check(!took(true, "text/html; charset=utf-8", "") && !took(true, "text/html", "inline") && !took(true, "image/svg+xml", "inline; filename=a.svg"),
+          "a page answer that is not a download (a sign-in page) is refused")
+    check(took(false, "application/pdf", "attachment") && took(false, "application/pdf", "") && took(false, "", ""),
+          "CONTROL: any other file is taken as before")
+    check(!took(false, "text/html", "attachment") && !took(false, "TEXT/HTML; charset=utf-8", "") && !took(false, "image/svg+xml", ""),
+          "any other file is still refused when the answer is a page, download or not")
     check(Board.fileSymbol(r.attachments[0]) == "doc.richtext" && Board.fileSymbol(r.attachments[1]) == "doc", "the symbol for a file with no picture")
     check(Board.savedName("../etc/passwd") == "-etc-passwd" && Board.savedName(".hidden") == "hidden" && Board.savedName("  ") == "file"
           && Board.savedName("a:b.pdf") == "a-b.pdf", "a saved name is never a path, never hidden, never empty")
@@ -2018,6 +2049,8 @@ final class FakeBoardWorld {
     // kosmos#7016 part 2: what a file route answers (nil: no answer), and the paths asked for.
     var attachmentAnswer: (Int, String, Data)? = (200, "application/pdf", Data("%PDF-1.4 sample".utf8))
     var attachmentAsks: [String] = []
+    // kosmos#8953: the Content-Disposition the attachment route answers with; nil sends none (as a sign-in page does).
+    var attachmentDisposition: String?
     var attachmentYields = 0
     // kosmos#7016 part 3: what the earlier-messages route answers, and the queries asked.
     var olderAnswer: (Int, String)? = (200, #"{"messages":[{"at":"2026-10-20T10:00:00Z","text":"first","from":"dana"}],"olderCount":0}"#)
@@ -2149,7 +2182,9 @@ final class FakeBoardWorld {
             if url.path.hasPrefix("/api/attachment/") {
                 attachmentAsks.append(url.path)
                 guard let (code, type, body) = attachmentAnswer else { return nil }
-                return (body, HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: ["Content-Type": type])!)
+                var fields = ["Content-Type": type]
+                if let d = attachmentDisposition { fields["Content-Disposition"] = d }
+                return (body, HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: fields)!)
             }
             if url.path.hasPrefix("/api/agent/") && url.path.hasSuffix("/avatar") {
                 if pictureAsPage {
@@ -3855,11 +3890,20 @@ section("native board loop: connecting")
         w.attachmentAnswer = (200, "text/html", Data("<html>sign in</html>".utf8))
         let page = await c.fetchFile(pdf)
         check(page == nil, "the gate's sign-in page in place of the file is no file")
-        // The Mac answering with an ordinary type, so only the refusal up front can stop it.
+        // kosmos#8953: a web page is fetched now, and taken only when the Mac served it as a download.
         w.attachmentAnswer = (200, "application/octet-stream", Data("<html>".utf8))
         let html = Board.Attachment(id: "444444444444444444444444", name: "page.html", type: "text/html", size: 1, kind: "other", url: "/api/attachment/444444444444444444444444", preview: nil)
         let htmlFile = await c.fetchFile(html)
-        check(htmlFile == nil, "a web page is never opened here, even one the agent sent as HTML")
+        check(htmlFile == nil, "a web page answered without a download disposition (a sign-in page could be one) is no file")
+        w.attachmentAnswer = (200, "text/html", Data("<html>sign in</html>".utf8))
+        let signInPage = await c.fetchFile(html)
+        check(signInPage == nil, "the gate's sign-in page in place of a web page is no file")
+        w.attachmentDisposition = "attachment; filename*=UTF-8''page.html"
+        w.attachmentAnswer = (200, "text/html", Data("<h1>Launch</h1>".utf8))
+        let served = await c.fetchFile(html)
+        check(served?.lastPathComponent == "page.html" && (served.flatMap { try? Data(contentsOf: $0) }) == Data("<h1>Launch</h1>".utf8),
+              "a web page the Mac served as a download is saved under its own name, for WebFileView")
+        w.attachmentDisposition = nil
         // The Mac's answer is itself markup, under an ordinary name and type.
         w.attachmentAnswer = (200, "image/svg+xml ; charset=utf-8", Data("<svg/>".utf8))
         let svgAnswer = await c.fetchFile(Board.Attachment(id: "aaaaaaaaaaaaaaaaaaaaaa01", name: "chart.png", type: "image/png", size: 1, kind: "image",
@@ -3870,7 +3914,11 @@ section("native board loop: connecting")
         let asksBefore = w.attachmentAsks.count
         w.attachmentAnswer = (200, "text/plain", Data("<html>".utf8))
         let disguisedFile = await c.fetchFile(disguised)
-        check(disguisedFile == nil && w.attachmentAsks.count == asksBefore, "a page sent under another type is not even fetched")
+        check(disguisedFile == nil && w.attachmentAsks.count == asksBefore + 1, "a page sent under another type is judged by its name: fetched, and refused when not a download")
+        w.attachmentDisposition = "attachment"
+        let disguisedServed = await c.fetchFile(disguised)
+        check(disguisedServed?.lastPathComponent == "report.html", "and taken, under its page name, when it is a download")
+        w.attachmentDisposition = nil
         // Quick Look closed: that file goes, and only its own folder.
         w.attachmentAnswer = (200, "application/pdf", Data("%PDF-1.4 sample".utf8))
         let opened = await c.fetchFile(pdf)!

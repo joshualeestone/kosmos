@@ -320,7 +320,7 @@ struct RoomView: View {
             client.dropPreviewImages()
         }
         // kosmos#7062: a post's file in the system's Quick Look; closed, it is removed from the phone (the chat's rule).
-        .quickLookPreview($previewURL)
+        .filePreview($previewURL)   // kosmos#8953: Quick Look, or WebFileView for a web page
         .onChange(of: previewURL) { now in
             if let was = openedFile, was != now { client.closed(was); openedFile = now }
         }
@@ -490,9 +490,8 @@ struct RoomView: View {
     }
 
     // kosmos#7062: a post's file, fetched from the computer and shown in Quick Look, exactly as the chat opens one
-    // (ChatView.openFile): a page or markup file opens on the board's room instead, and one file at a time.
+    // (ChatView.openFile), one file at a time.
     private func openFile(_ f: Board.Attachment) {
-        if Board.isWebDocument(name: f.name, type: f.type) { openBoardPage(); return }
         guard !fileStates.values.contains(.loading), previewURL == nil else { return }
         fileStates[f.id] = .loading
         let opened = client.chatEpoch
@@ -1894,8 +1893,6 @@ struct RoomBubble: View {
         case .loading: return "Opening \(f.name)"
         case .failed: return "Open \(f.name) again (it could not be opened)"
         default:
-            // A page or markup file opens on the board at once, even while another file loads (openFile checks it first).
-            if Board.isWebDocument(name: f.name, type: f.type) { return "Open \(f.name) on your computer's board" }
             return fileStates.values.contains(.loading) ? "Open \(f.name) (another file is opening)" : "Open \(f.name)"
         }
     }

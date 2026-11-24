@@ -222,7 +222,7 @@ struct AgentInfoView: View {
                 if filesLoaded { Text(Board.filesAgentEmpty).foregroundColor(Palette.secondary) } else { HStack { Spacer(); SweepDots(label: "Loading", scales: false); Spacer() } }
             } header: { label(Board.filesTitle) }
         } else {
-            FilesSection(client: client, session: agent.session, state: filesRead, opener: filesOpener, openOnBoard: openOnBoard)
+            FilesSection(client: client, session: agent.session, state: filesRead, opener: filesOpener)
         }
     }
 
