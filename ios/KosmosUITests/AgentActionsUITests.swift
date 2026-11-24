@@ -11,10 +11,13 @@ final class AgentActionsUITests: XCTestCase {
         let s = XCTAttachment(screenshot: app.screenshot()); s.name = name; s.lifetime = .keepAlways; add(s)
     }
 
-    // The popover's own outside region (UIKit names it PopoverDismissRegion), so the tap lands on no control behind it.
-    private func dismissPopover(_ app: XCUIApplication) {
+    // The harmless answer: its own button where the system draws one (an action sheet before iOS 26), else the
+    // popover's outside region (UIKit names it PopoverDismissRegion), so the tap lands on no control behind it.
+    private func leaveRunning(_ app: XCUIApplication, _ label: String) {
+        let keep = app.buttons[label]
+        if keep.exists { keep.tap(); return }
         let region = app.otherElements["PopoverDismissRegion"]
-        XCTAssertTrue(region.waitForExistence(timeout: 3), "the dialog is not a popover with an outside to tap")
+        XCTAssertTrue(region.waitForExistence(timeout: 3), "neither \(label) nor a popover outside to tap")
         region.tap()
     }
 
@@ -25,7 +28,15 @@ final class AgentActionsUITests: XCTestCase {
         app.launch()
         let restart = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Fresh start: Restart: stop and start '")).firstMatch
         // AI Settings opens at its top; the fresh start is below the fold, and the list builds only the rows on screen.
-        XCTAssertTrue(app.staticTexts["Runs on"].waitForExistence(timeout: 20), "AI Settings did not open")
+        // The sample opens the page itself a moment after the chat; when it has not, the chat's info button does.
+        if !app.staticTexts["Runs on"].waitForExistence(timeout: 10) {
+            let info = app.buttons["Dana\u{2019}s profile and AI settings"]
+            XCTAssertTrue(info.waitForExistence(timeout: 10), "the sample chat did not open")
+            info.tap()
+            let ai = app.buttons["AI Settings"]
+            if ai.waitForExistence(timeout: 5) { ai.tap() }
+        }
+        XCTAssertTrue(app.staticTexts["Runs on"].waitForExistence(timeout: 10), "AI Settings did not open")
         for _ in 0..<4 where !(restart.exists && restart.isHittable) { app.swipeUp() }
         XCTAssertTrue(restart.exists && restart.isHittable, "AI Settings has no Restart")
         // CONTROL: before the tap, no restart dialog is up, so the check after it can tell.
@@ -35,11 +46,12 @@ final class AgentActionsUITests: XCTestCase {
         restart.tap()
         XCTAssertTrue(restartTitle.waitForExistence(timeout: 5), "Restart did not ask first")
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'part way through'")).firstMatch.exists, "the dialog does not say what a restart ends")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'They come back with nothing in their memory'")).firstMatch.exists, "the dialog does not say a restart forgets")
         shot(app, "agent-restart-dialog")
         // iOS 26 and later draw this as a popover with no cancel button: a tap outside it is "Leave it running" (the
         // page's other dialogs, Compact and Clear, close the same way).
         XCTAssertTrue(app.buttons["Restart Dana"].exists, "the dialog's answer does not name the agent")
-        dismissPopover(app)
+        leaveRunning(app, "Leave it running")
         XCTAssertTrue(restartTitle.waitForNonExistence(timeout: 5), "Leave it running did not close the dialog")
 
         // Remove, at the foot of the page, below the fresh start.
@@ -58,7 +70,7 @@ final class AgentActionsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Loses: '")).firstMatch.exists, "the dialog does not say what it loses")
         shot(app, "agent-remove-dialog")
         XCTAssertTrue(app.buttons["Remove Dana"].exists, "the removal's answer does not name the agent")
-        dismissPopover(app)
+        leaveRunning(app, "Leave Dana running")
         XCTAssertTrue(question.waitForNonExistence(timeout: 5), "Leave it running did not close the removal dialog")
     }
 }

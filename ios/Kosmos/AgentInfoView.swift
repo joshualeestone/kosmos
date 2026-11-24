@@ -121,8 +121,7 @@ struct AgentInfoView: View {
             Button(Board.restartGo(live.name)) { Task { await restart() } }
             Button(Board.restartKeep, role: .cancel) {}
         } message: {
-            let cost = Board.restartCost(live.name, live.commitments)
-            Text(([cost.small] + cost.list.map { "\u{2022} " + $0 }).joined(separator: "\n"))
+            Text(Board.restartMessage(live.name, live.commitments))
         }
         // kosmos#8955: the board's removal dialog (openRemoveModal): the engine's question, reassurance, Loses and Keeps.
         .confirmationDialog(removeAsk?.question ?? "", isPresented: Binding(get: { removeAsk != nil }, set: { if !$0 { removeAsk = nil } }),
@@ -604,11 +603,13 @@ struct AgentInfoView: View {
         let mine = (AgentInfoView.restartTokens[session] ?? 0) + 1
         AgentInfoView.restartTokens[session] = mine
         let current = { AgentInfoView.restartTokens[session] == mine }
+        // A newer restart of this agent (from another page) owns the wait and its line; this page lets go of its hold.
+        let superseded = { restartBusy = false; restartLine = nil }
         restartBusy = true
         restartLine = nil
         let res = await client.throughMac { Board.restartRequest(mac: $0, session: session) }
         let said = Board.restartResult(status: res?.1.statusCode ?? 0, body: res?.0)
-        guard current() else { return }
+        guard current() else { superseded(); return }
         guard said.ok else {
             restartBusy = false
             restartLine = (said.sentence ?? "We could not restart them.", false)
@@ -625,9 +626,9 @@ struct AgentInfoView: View {
         let until = Date().addingTimeInterval(Board.restartReadyWindow)
         while Date() < until {
             try? await Task.sleep(nanoseconds: UInt64(Board.restartReadyPoll * 1_000_000_000))
-            guard current() else { return }
+            guard current() else { superseded(); return }
             let r = await client.throughMac { Board.statusRequest(mac: $0) }
-            guard current() else { return }
+            guard current() else { superseded(); return }
             let agents = r.flatMap { $0.1.statusCode == 200 ? Board.parseAgents($0.0) : nil } ?? []
             if Board.readyStep(agents.first { $0.session == session }, sawUnready: &sawUnready) { ready = true; break }
         }
@@ -636,7 +637,7 @@ struct AgentInfoView: View {
             let r = await client.throughMac { Board.wakeHelloRequest(mac: $0, session: session) }
             line = Board.wakeLine(status: r?.1.statusCode ?? 0, body: r?.0)
         }
-        guard current() else { return }
+        guard current() else { superseded(); return }
         restartBusy = false
         restartLine = (line, true)
         UIAccessibility.post(notification: .announcement, argument: line)
