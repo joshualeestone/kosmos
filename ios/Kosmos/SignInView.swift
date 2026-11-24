@@ -15,7 +15,7 @@ final class SignInModel: ObservableObject {
     @Published var step: SignIn.Step = .email {
         didSet {
             if step == .denied(asking: false), oldValue != .denied(asking: false) { failures += 1 }
-            if step == .email || step == .done { phone = "" }   // kosmos#8959: not kept past this sign-in
+            if step == .email || step == .done { phone = "" }   // kosmos#8959
         }
     }
     @Published var email = ""
@@ -239,7 +239,7 @@ final class SignInModel: ObservableObject {
                 error = next.error
             } catch {
                 guard mine == attempt else { return }
-                if case SignInClient.SignInError.unreachable = error { self.error = SignIn.textMayBeComing } else { fail(error) }
+                if case SignInClient.SignInError.timedOut = error { self.error = SignIn.textMayBeComing } else { fail(error) }
             }
         }
     }
@@ -665,7 +665,7 @@ struct SignInView: View {
             errorLine
             primary("Text me a code", action: model.sendText)
             VStack(spacing: 0) {
-                link("Use an authenticator app instead", action: model.useAuthenticator)
+                link("Use an authenticator app instead", action: model.useAuthenticator).disabled(model.busy)
                 if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
             }
         case .setupTextConfirm(_, let sentTo):
