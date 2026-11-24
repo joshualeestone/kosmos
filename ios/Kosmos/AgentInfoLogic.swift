@@ -768,9 +768,10 @@ extension Board {
     }
     // loadRemoval: a thrown fetch, a 5xx or an unparsed body is unreached; ok is a plan; anything else is a refusal.
     static func removalPlan(status: Int, body: Data?, session: String) -> RemovalPlan {
-        guard status != 0, status < 500,
-              let o = body.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) else { return .unreached }
-        if status == 401 || status == 403, o["ok"] == nil { return .cannot(because: phoneShutOut, untied: false) }
+        guard status != 0, status < 500 else { return .unreached }
+        let o = body.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        if status == 401 || status == 403, o?["ok"] == nil { return .cannot(because: phoneShutOut, untied: false) }
+        guard let o else { return .unreached }
         if (o["ok"] as? Bool) == true {
             let label = (o["label"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? session
             return .can(RemovalAsk(question: (o["question"] as? String) ?? "",
@@ -827,5 +828,5 @@ extension Board {
 extension Board {
     // kosmos#8955: the agent page's board row, now that Restart and Remove are on the phone: what is left there, and that
     // it opens a web page (Josh 11-23, #8952: a tap that drops into the board should say so).
-    static let boardOnlyFooter = "Opens your computer\u{2019}s board, a web page. It has the rest: the AI providers this page does not offer, restarting with a handoff written first, and taking off a card Kosmos cannot tie to its agent."
+    static let boardOnlyFooter = "Opens your computer\u{2019}s board, a web page. It has the rest: the AI providers this page does not offer, restarting with a handoff written first, setting up an agent that has no way to start on its own, and taking off a card Kosmos cannot tie to its agent."
 }
