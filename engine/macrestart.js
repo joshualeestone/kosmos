@@ -83,7 +83,8 @@ function restartedFor(sessionName, opts) {
     if (ours) return null;
     /* A shutdown ends every agent by signal, so a death before this boot is the machine's, not Claude's. (A logout with
        no reboot is not told apart: its deaths read as an ended process.) */
-    if (died.atMs < (Number.isFinite(o.bootMs) ? o.bootMs : Date.now() - os.uptime() * 1000)) return null;
+    const boot = Number.isFinite(o.bootMs) ? o.bootMs : Date.now() - os.uptime() * 1000;
+    if (died.atMs < boot - 5000) return null;   // whole seconds and a clock step, so a few seconds' slack
     let ended = finishedSince(sessionName, start, history);
     if (ended === null && !o.history) ended = finishedSince(sessionName, start, (n) => sr.history(n, sr.HISTORY_MAX_BYTES));
     if (ended === true && o.memo !== false) CLEARED.set(sessionName, start);
