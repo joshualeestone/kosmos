@@ -535,16 +535,19 @@ function activityOf(p, o) {
   if (Number.isFinite(room)) add(room, 'post');
   for (const t of Array.isArray(p.tasks) ? p.tasks : []) add(Date.parse(taskAt(p.id, t)), 'task');
   add(Date.parse(p.createdAt), 'made');
-  /* Review 3: a test project (#8236: its agents do only what they are asked) and the starter project Kosmos seeded
-     (#8832) are quiet by design, as a paused one is. */
-  let byDesign = false;
-  try { const pj = require('./projects'); byDesign = pj.isTestOnly(p) || pj.isStarter(p) || p.starter === true; } catch { byDesign = p.testOnly === true; }
-  const paused = p.paused === true || p.archived === true || byDesign;
+  /* Why quiet is expected here, when it is ('paused' | 'archived' | 'test' | 'starter' | 'parked'), else null. Review 3: a
+     test project (#8236: its agents do only what they are asked) and the starter project Kosmos seeded (#8832) are quiet
+     by design, as a paused one is. Review 4: the reason itself, not one flag for all of them, so the line names it. */
+  let isTest = p.testOnly === true;
+  let isStarter = p.starter === true;
+  try { const pj = require('./projects'); isTest = isTest || pj.isTestOnly(p); isStarter = isStarter || pj.isStarter(p); } catch { /* the payload's own flags */ }
+  const set = p.archived === true ? 'archived' : p.paused === true ? 'paused' : isTest ? 'test' : isStarter ? 'starter' : null;
   /* Review 1: a project whose every unfinished task is on hold, or built and waiting on a release or a check, is parked
      on purpose, and its quiet is expected too (#6341 removed that kind of flag). At least one such task, none in work. */
   let parked = false;
   try {
-    /* listGroup on the stored task (no projectPaused: a paused project is answered by `paused` above). Review 2: a hold
+    /* listGroup on the stored task, without projectPaused (a paused project's own reason wins above, so a task held only
+       by the pause never decides this). Review 2: a hold
        whose own reopening condition is met (its date passed, the task it waits for closed) is not parked: it should
        have reopened, and nothing clears the flag by itself. */
     const { listGroup, holdUntilState } = require('./tasks');
@@ -558,14 +561,15 @@ function activityOf(p, o) {
     };
     parked = left.length > 0 && left.every(waits);
   } catch { parked = false; }
-  const base = { quietDays: QUIET_DAYS, paused, parked };
+  const expected = set || (parked ? 'parked' : null);
+  const base = { quietDays: QUIET_DAYS, expected };
   if (room === undefined) return { at: null, kind: null, ageDays: null, quiet: false, unknown: true, ...base };
   if (!seen.length) return { at: null, kind: null, ageDays: null, quiet: false, unknown: false, ...base };
   // The newest wins; on a tie, a post or a task says more than the making.
   seen.sort((a, b) => b.ms - a.ms || (a.kind === 'made') - (b.kind === 'made'));
   const last = seen[0];
   const ageDays = Math.floor((now - last.ms) / 86400000);
-  return { at: new Date(last.ms).toISOString(), kind: last.kind, ageDays, quiet: !paused && !parked && ageDays >= QUIET_DAYS, unknown: false, ...base };
+  return { at: new Date(last.ms).toISOString(), kind: last.kind, ageDays, quiet: !expected && ageDays >= QUIET_DAYS, unknown: false, ...base };
 }
 
 /* #6994: how many records the project keeps and how many are stale, for `project show` (the rows themselves are read
@@ -735,8 +739,16 @@ function activityLine(a, id) {
   if (!a || typeof a !== 'object') return null;
   const n = (x) => Math.max(0, Math.floor(Number(x) || 0));
   const days = (d) => (d === 1 ? '1 day' : d + ' days');
-  // Review 3: a pause is known without the room, so it is said first.
-  if (a.unknown === true && a.paused === true) return 'Last activity: Kosmos could not read the project\'s room just now. The project is paused, archived, a test project or the starter project, so quiet is expected.';
+  /* Review 4: why quiet is expected, in words, named. Known without the room, so said even when it cannot be read. */
+  const EXPECTED = {
+    paused: 'The project is paused, so quiet is expected.',
+    archived: 'The project is archived, so quiet is expected.',
+    test: 'It is a test project, so quiet is expected.',
+    starter: 'It is the starter project Kosmos made, so quiet is expected.',
+    parked: 'Every unfinished task is on hold or built and waiting, so quiet is expected.',
+  };
+  const why = typeof a.expected === 'string' && Object.prototype.hasOwnProperty.call(EXPECTED, a.expected) ? EXPECTED[a.expected] : null;
+  if (a.unknown === true && why) return 'Last activity: Kosmos could not read the project\'s room just now. ' + why;
   if (a.unknown === true) return 'Last activity: Kosmos could not read the project\'s room just now, so it cannot say how long the project has been quiet.';
   if (!a.at) return 'Last activity: none Kosmos can date.';
   const what = a.kind === 'post' ? 'a post in its room' : a.kind === 'task' ? 'work on a task' : 'the project was made';
@@ -746,8 +758,7 @@ function activityLine(a, id) {
   const pad = (x) => String(x).padStart(2, '0');
   const local = Number.isFinite(ms) ? (() => { const d = new Date(ms); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); })() : '';
   const head = 'Last activity: ' + what + ', ' + when + (local ? ' (' + local + ')' : '') + '.';
-  if (a.paused === true) return head + ' The project is paused, archived, a test project or the starter project, so quiet is expected.';
-  if (a.parked === true) return head + ' Every unfinished task is on hold or built and waiting, so quiet is expected.';
+  if (why) return head + ' ' + why;
   /* Review 1: said in the room, so every member sees it was said (and the post restarts this clock): six members do not
      each tell the person, and a restarted agent does not tell them again. Review 2: with the command that shows whether
      someone already has, since `project show` prints no room. The post then counts as activity, so this verdict goes

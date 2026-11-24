@@ -34,6 +34,9 @@ said, the verdict goes quiet for every member. The injected task reader is guard
 Review 3: the quiet verdict starts "If you are on the project" (a non-member cannot read or post in the room, and the
 person may run show too). A test project (#8236) and the starter project (#8832) are quiet by design, like a pause. A
 pause known without the room is said even when the room cannot be read. Both CLIs' help lines name "last activity".
+Review 4: the payload says WHY quiet is expected (`expected`: paused, archived, test, starter or parked; null when
+it is not), not one `paused` flag meaning five things, and the line names that reason. Parked is honoured when the
+room cannot be read, as a pause is. The "Review N" comment labels follow this repo's convention.
 KNOWN LIMITS, stated not fixed:
 - The one quiet notice is itself a post, so it restarts the clock: a project dead for months reads "a post, 3 days ago"
   and gets one notice every 14 days. Telling notices from work would need a marked post kind; the room shows both.
