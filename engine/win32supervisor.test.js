@@ -1064,6 +1064,13 @@ test('#8967 an error result on stdout rides on the death; a successful reply nev
     c.die(1);
   });
   assert.equal(stale.because, undefined, 'an error turn followed by a good one does not ride on a later, unrelated death');
+
+  const newTurn = diedWith((c) => {
+    c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true }) + '\n'));
+    c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' }) + '\n'));
+    c.die(1);
+  });
+  assert.equal(newTurn.because, undefined, 'a crash mid-way through a NEW turn does not carry the last turn\'s error');
 });
 
 /* A child whose stdout behaves like a real pipe: open until 'end'. On Windows the last
@@ -1118,25 +1125,51 @@ test('#8967 a send while a dead child drains is a definite no, not an unsure', (
   h.stop();
 });
 
-test('#8967 a stdout that never ends holds the death for at most the drain time', async () => {
+test('#8967 a stdout that never ends holds the death for the drain time, then logs it', async () => {
   const kids = [];
   const events = [];
   const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
     liveReader: NOBODY_LIVE,
     throttleMs: 0, now: () => 0, setTimer: () => {},
+    stdoutDrainMs: 60,
     onEvent: (e) => events.push(Object.assign({ at: Date.now() }, e)),
     launch: () => { const c = pipedChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
   });
   const t0 = Date.now();
   kids[0].emit('exit', 7, null);
   assert.equal(events.filter((e) => e.action === 'died').length, 0, 'held while stdout is open');
-  /* Generous against a loaded box: the bound below is what the test is about (held,
-     then logged), not the exact 500 ms. */
-  await new Promise((r) => setTimeout(r, 3000));
+  await new Promise((r) => setTimeout(r, 1500));
   const died = events.filter((e) => e.action === 'died');
   assert.equal(died.length, 1, 'the death is still logged when a grandchild keeps the pipe open');
   assert.equal(died[0].code, 7);
-  assert.ok(died[0].at - t0 >= 450, 'logged after the drain wait, not at once');
+  assert.ok(died[0].at - t0 >= 50, 'logged after the drain wait, not at once');
+  assert.ok(died[0].at - t0 < 1000, 'and bounded by the drain time, not by stdout');
+  h.stop();
+});
+
+test('#8967 a line read while an exited child drains feeds the reason and publishes nothing', () => {
+  const kids = [];
+  const events = [];
+  const sink = streamSink();
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    stream: sink,
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = pipedChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  const c = kids[0];
+  c.emit('exit', 1, null);
+  const before = sink.calls.length;
+  /* A late init and a late "no conversation" result: before #8967 'exit' dropped both. */
+  c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'other' }) + '\n'));
+  c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['No conversation found with session ID s'] }) + '\n'));
+  assert.equal(sink.calls.slice(before).filter((x) => x[0] === 'event').length, 0, 'no state published for a dead child');
+  c.stdout.end();
+  const died = events.find((e) => e.action === 'died');
+  assert.equal(died.because, 'its last error on stdout: error_during_execution: No conversation found with session ID s');
+  assert.equal(died.sessionId, 's', 'no rekey to the late init\'s id');
+  assert.equal(events.some((e) => e.action === 'rekeyed' || e.action === 'resume-impossible'), false, 'the loop\'s own behaviour is unchanged');
   h.stop();
 });
 

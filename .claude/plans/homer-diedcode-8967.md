@@ -11,37 +11,45 @@ The task log read only `homer died`. Two reasons it could say nothing:
    fatal error (a usage or auth failure, a turn error) as a `result` event on stdout, which nothing kept.
 
 The replay on the box (three exact texts to a throwaway agent) did not reproduce, and there was no app-crash event for
-claude.exe, so the next occurrence has to explain itself. This change is diagnostic only: no behaviour of the loop
-changes (when it restarts, what it resumes, what it retires).
+claude.exe, so the next occurrence has to explain itself. This change is diagnostic: the loop's own behaviour (when it
+restarts, what it resumes, what it retires, what state it publishes) is unchanged. The one visible difference outside
+the log: a death is now written up to 500 ms later (the drain below), so the restart that follows it starts up to
+500 ms later too.
 
 ## Change (engine/win32supervisor.js)
 - `exit` passes `(code, signal)` to `gone`; the `died` event carries `signal` beside `code`.
-- `stdoutError(e, line)`: the last error `result` (is_error, or an `error...` subtype: subtype plus its text) or a
+- `stdoutError(e, line)`: the last error `result` (is_error, or an `error...` subtype: the subtype plus its text) or a
   line that is not a stream event ("not a stream event: ...": not JSON, or JSON that is not an object), clipped to 300
-  characters with whitespace collapsed. A successful result is the agent's own reply and is never kept, and it clears
-  an earlier error, so an old error turn never rides on an unrelated death. Kept per child even after it is replaced
-  (the record is the child's own).
-- The death waits for stdout to end (`end` or `close`), at most `STDOUT_DRAIN_MS` = 500 ms: measured on the box, a
-  child's last stdout line arrived AFTER `exit` in 40 of 40 runs (stderr before it, 40 of 40), so without the wait the
-  error that explains the death would almost never be on its line. The single-handler guard is set at once. Only a
-  stream that says it is still open (`readableEnded === false`) is waited on. The drain uses the real clock on purpose
-  (the injected timer is a no-op in tests, and a death must never wait on it forever), and it is spent inside
-  `HOST_GONE_GRACE_MS` (noted there). During the wait the loop still holds the dead child, but it is marked exited,
-  so a `send()` in that half second is a definite "not running", never an unsure.
-- An error result's text is read from `errors: string[]` (the shape `saysNothingToResume` already reads), joined with
-  ` | `; `result` is the fallback.
-
-## Follow-up, not here
-A final stdout line with no trailing newline is never emitted by `win32streamstate.lineReader` (no flush on `end`), so a
-CLI error printed without a newline just before exit is missed. That is a change to the shared reader, its own card.
+  characters with whitespace collapsed. The text comes from `errors: string[]` (the shape `saysNothingToResume` already
+  reads), joined with ` | `, and falls back to `result`. A successful result is the agent's own reply and is never
+  kept. A successful result or a new turn (`system/init`) clears an earlier error, so an old error never rides on an
+  unrelated death. The record is the child's own, kept even after the child is replaced.
 - The `died` reason joins `it said: <stderr tail>` and `its last error on stdout: <...>` with `; `.
 - `taskLogLine(at, name, e)` builds every task-log line; only a `died` line adds `(exit code N)` (with
   `= 0xXXXXXXXX` for a Windows code past 255 or below 0, an NTSTATUS) or `(signal S)`. A death with neither reads as
   before. Every other line is byte-identical to before.
+- The death waits for stdout to end (`end` or `close`), at most `STDOUT_DRAIN_MS` = 500 ms (option `stdoutDrainMs`
+  for tests): measured on the box, a child's last stdout line arrived AFTER `exit` in 40 of 40 runs (stderr before
+  it, 40 of 40), so without the wait the error that explains the death would almost never be on its line. The
+  single-handler guard is set at once. Only a stream that says it is still open (`readableEnded === false`) is waited
+  on. The drain uses the real clock on purpose (the injected timer is a no-op in tests, and a death must never wait on
+  it forever), and it is spent inside `HOST_GONE_GRACE_MS` (noted there).
+- While it drains, the dead child is marked exited: a line read then only feeds the death's reason and publishes
+  nothing (no state event, no rekey, no fresh-start detection), exactly as before #8967 when `exit` dropped such lines
+  at once; a `send()` to it is a definite "not running", never an unsure.
 
 ## Tests (engine/win32supervisor.test.js)
-Code and signal on the event; error result vs successful result vs non-JSON line on the reason; stdoutError and
-taskLogLine directly. All four new tests fail on main's supervisor and pass here (control run on the box).
+Eight `#8967` tests: code and signal on the event; error vs successful result vs non-event line on the reason, and an
+old error cleared by a success and by a new turn; the death waiting for stdout in the real-world order (exit first);
+the drain bound when stdout never ends; a late line publishing nothing; a send during the drain; stdoutError and
+taskLogLine directly. Each was run against the code before its fix and failed there (control runs on the box).
+
+## Follow-ups, not here
+- A final stdout line with no trailing newline is never emitted by `win32streamstate.lineReader` (no flush on `end`),
+  so a CLI error printed without a newline just before exit is missed. A change to the shared reader, its own card.
+- The #2726 "no conversation" detector (`saysNothingToResume`) reads only lines that arrive before `exit`; by the
+  measurement above its line usually arrives after, so it likely misses. Fixing it changes the loop's restart
+  behaviour, so it is its own card, not part of this diagnostic change.
 
 ## Not in scope
 Finding the cause of the three deaths (that needs the next occurrence with this logging, or a repro); the codex
