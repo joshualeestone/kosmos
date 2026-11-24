@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: accountnative-8959
-diff_hash: 35bc16583b594d9352ffc041081c334328c16e15d3a30e2bd041a543b86317f3
+diff_hash: 1d2c241e2c6cbe1fccc10f53740f3247a134c8f72eaacf38c2252a39bb651e29
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-24T10:46:15Z
+timestamp: 2026-11-24T11:00:23Z
 iterations: 8
 converged: false
 ---
@@ -32,6 +32,9 @@ converged: false
   TextSetupUITests:2 from slice A and AccountScreenUITests:1 were kept). Rechecked on the rebased head f5d60cbe02:
   ios/LogicTests run.sh 2222/2222, run-settings.sh 48/48, run-account.sh 55/55, and the ui-sample, ios-routes and
   board-parity node tests 57/57. The PR's CI is the full run on the merge.
+- Rebased once more at 05:00 CST: #8953 (merged as 9837fd3dd9) added WebFileUITests:1 to the same classes= line, so all three
+  entries are kept (TextSetupUITests:2, WebFileUITests:1, AccountScreenUITests:1); the ui-sample, ios-routes and board-parity
+  node tests and run-account.sh were rerun on the rebased head.
 - The commit shas below are from BEFORE the rebase, and none of them is on the branch any more. They are history, not
   pointers into it.
 
