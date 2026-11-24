@@ -204,7 +204,7 @@ async function claudeWork(dir, holds) {
   const prFirstInSession = new Map();   // "session\0owner/name#n" -> { repo, number, url, t }: that session's first row for it
   const found = [];
   /* kosmos#8999: accounts often share one `projects` folder through a link, so one folder is listed once per account: each
-     real folder is read once (read again for every account, a first receipt took several times as long). Only here, not
+     real folder is read once (read again for every account, each transcript would be read that many times). Only here, not
      in transcriptDirs: engine/agentevents.js compares those names. */
   const readDirs = new Set();
   for (const d of transcriptDirs(dir)) {
