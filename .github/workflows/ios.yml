@@ -84,6 +84,13 @@ jobs:
           ios/LogicTests/run-settings.sh | tee "$RUNNER_TEMP/settings.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/settings.log"
 
+      # kosmos#8959 slice B1a: the native Kosmos+ account screen, its own suite like Settings'.
+      - name: Account logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-account.sh | tee "$RUNNER_TEMP/account.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/account.log"
+
       # kosmos#7017: answering from the notification, its own suite like Settings'.
       - name: Notification action logic tests
         run: |

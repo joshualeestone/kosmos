@@ -614,6 +614,11 @@ struct ContentView: View {
                 // The board's own Settings, under Today (AppTabs.barTab: its Settings section lights Today).
                 showBoardPage()
                 web.pressBoardSection(.settings)
+            }, signedOut: { token in
+                // kosmos#8959 slice B1a: as the web account page's sign-out did, through the app's own path; the web
+                // view drops the session too, since its page keeps a copy (ContentView's forget, kosmos#7042).
+                pushManager.signedOutInSettings()
+                web.forget(token)
             }, youName: youName, youPicture: youPicture)
         } else {
             webBoard(which)
