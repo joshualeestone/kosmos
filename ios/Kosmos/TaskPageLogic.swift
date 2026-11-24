@@ -1266,6 +1266,11 @@ extension Board {
     static let subtasksCloseAll = "Close them and this task"
     static let subtasksCloseUnsure = "We could not finish closing them. The list below shows where it stopped."
 
+    static let subtasksCloseUnsureUnread = "We could not finish closing them, or read the list again to see where it stopped."
+    static let subtasksChanged = "The subtasks changed, so nothing was closed. Look at them again first."
+    static let subtasksCheckFailed = "Kosmos could not read this task just now, so nothing was closed."
+    static let subtasksClosed = "This task and its subtasks are closed."
+
     static func subtasksDoneLine(unrun: Bool) -> String { unrun ? "All subtasks closed." : "All subtasks done." }
     static func subtasksBuiltLine(unrun: Bool) -> String { (unrun ? "The rest are built." : "All subtasks are built.") + " Check each one first." }
     static func subtaskAddedLine(number: Int?) -> String { "Added task " + (number.map { String($0) + " " } ?? "") + "as a subtask." }

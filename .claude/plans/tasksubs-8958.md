@@ -22,4 +22,5 @@ The board's #3861 part 2 and #6501 natively. Stacked on taskundo-8958 (B5); reba
 
 ## Tests
 LogicTests: the words pinned to web/index.html, the model's order, stop and guards, the fixed parent kept when it is closed or
-the Tasks read is missing. A UI test: a subtask added on the sample Mac. Every guard mutated red.
+the Tasks read is missing. A UI test: Add subtask opens New Task with
+Project and Part of fixed (the sample Mac makes no tasks, so nothing is created there). Every guard mutated red.

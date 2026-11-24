@@ -81,21 +81,43 @@ enum NewTask {
     // A pick that is no longer offered (its task closed or went, the member left, under a re-read) falls back to
     // nobody and None, as the board's selects fall back to their first option (ntFillParents), never sent unseen.
     // parents nil is a Tasks read that failed: nothing is known about Part of, so its pick stays.
-    static func keepingOffered(_ d: Draft, members: [Board.ProjectMember], parents: [Board.TaskRow]?) -> Draft {
+    static func keepingOffered(_ d: Draft, members: [Board.ProjectMember], parents: [Board.TaskRow]?, under u: Under? = nil) -> Draft {
         var n = d
         if let who = d.who, !members.contains(where: { $0.session == who }) { n.who = nil }
-        if let parent = d.parent, let parents, !parents.contains(where: { $0.number == parent }) { n.parent = nil }
+        // Fixed by the page the sheet is for: a finished task is not in the open ones, and is still what this is part of.
+        if u == nil, let parent = d.parent, let parents, !parents.contains(where: { $0.number == parent }) { n.parent = nil }
         return n
     }
 
     // kosmos#8958 slice B6: "+ Add subtask": the sheet is for one task, whatever its state, so Project and Part of are fixed.
     // A draft kept from an earlier opening keeps its words and who.
-    struct Under: Equatable { let project: String; let number: Int; let sentence: String }
+    struct Under: Equatable { let project: String; let projectName: String; let number: Int; let sentence: String }
     static func under(_ d: Draft, _ u: Under?) -> Draft {
         guard let u else { return d }
         var n = aimed(d, at: u.project)
         n.parent = u.number
         return n
+    }
+    // The draft as the sheet opens: aimed at the task it is under, whatever is offered (an archived project is not), else
+    // settled.
+    static func opening(_ d: Draft, under u: Under?, picked: String?, offered: [Board.ProjectTreeRow]) -> Draft {
+        u == nil ? settled(d, picked: picked, offered: offered) : under(d, u)
+    }
+    // The drafts of "+ Add subtask", by task: the page that opened the sheet goes when the person looks in Tasks, as the
+    // "could not tell" line asks, and the words and the hold must not go with it. Another account or Mac forgets them all.
+    struct Kept: Equatable { var draft = Draft(); var held: Held? }
+    struct KeptDrafts {
+        private var epoch: Int?
+        private var kept: [String: Kept] = [:]
+        static func key(_ project: String, _ number: Int) -> String { project + "#" + String(number) }
+        mutating func get(_ project: String, _ number: Int, epoch e: Int) -> Kept {
+            if epoch != e { epoch = e; kept = [:] }
+            return kept[Self.key(project, number)] ?? Kept()
+        }
+        mutating func set(_ project: String, _ number: Int, epoch e: Int, _ k: Kept) {
+            if epoch != e { epoch = e; kept = [:] }
+            kept[Self.key(project, number)] = k == Kept() ? nil : k
+        }
     }
 
     // ntGoState: Create is held down until what needs doing, how you will know it is done, and a project exist.
@@ -121,13 +143,14 @@ enum NewTask {
     static let anyway = "Create it anyway"
 
     // After "could not tell", a Tasks read that came back: the open task in the project it was sent to, with the
-    // sentence it was sent with, that was not there when it was sent. Nil when the read cannot say (no list from before
+    // sentence and the Part of it was sent with, that was not there when it was sent. Nil when the read cannot say (no list from before
     // the send, so an older task with the same words could not be told apart).
     static func found(_ sent: Draft, in read: Board.TasksRead, before: Set<Int>?) -> Int? {
         guard let before, let project = sent.project else { return nil }
         let words = trimmed(sent.what)
         return read.tasks.first {
             $0.projectId == project && $0.state != "closed" && !before.contains($0.number) && trimmed($0.sentence) == words
+                && (sent.parent == nil || $0.parent == sent.parent)
         }?.number
     }
 

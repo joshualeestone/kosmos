@@ -204,8 +204,11 @@ final class TaskPageActionsUITests: XCTestCase {
         let partOf = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "#4 Pages 1 to 8")).firstMatch
         for _ in 0..<4 where !partOf.exists { app.swipeUp() }
         XCTAssertTrue(partOf.waitForExistence(timeout: 10), "Part of is not this task")
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Project")).firstMatch.exists, "Project can be picked")
         shot(app, "add subtask")
         app.buttons["Cancel"].tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.navigationBars["New task"])
+        waitForExpectations(timeout: 10)
         XCTAssertTrue(add.waitForExistence(timeout: 10), "Cancel did not come back to the task")
     }
 }
