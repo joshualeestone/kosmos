@@ -55,7 +55,9 @@ final class UnsentDraftUITests: XCTestCase {
         let filled = NSPredicate(format: "value CONTAINS %@", words)
         expectation(for: filled, evaluatedWith: box)
         waitForExpectations(timeout: 10)
-        XCTAssertTrue(bandText(app).exists, "putting the words in the box took the draft away")
+        // Waited for, and either part of the row will do: with the keyboard up the list may have moved the band away.
+        XCTAssertTrue(app.buttons["Dismiss"].waitForExistence(timeout: 10) || bandText(app).exists,
+                      "putting the words in the box took the draft away")
         shot(app, "draft put in the message box")
     }
 
