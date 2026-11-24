@@ -437,6 +437,8 @@ struct TaskPageView: View {
                     ForEach(Board.RepeatEvery.allCases, id: \.self) { Text($0.words).tag($0) }
                 }
                 .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityLabel("How often this task repeats")
                 .tint(Palette.link)
                 .frame(minHeight: 44)
                 .disabled(model.repeatSaving)
@@ -461,6 +463,8 @@ struct TaskPageView: View {
                                 ForEach(Board.repeatDays, id: \.key) { Text($0.words).tag($0.key) }
                             }
                             .pickerStyle(.menu)
+                            .labelsHidden()
+                            .accessibilityLabel("When: day of the week")
                             .tint(Palette.link)
                             .accessibilityIdentifier("taskpage.repeat.day")
                         }
@@ -522,7 +526,8 @@ struct TaskPageView: View {
         }
         // The stored rule moved (another device, an agent): a draft it now equals is dropped, and a daily edit's other
         // times follow it.
-        .onChange(of: p.repeatStored) { s in repeatDraft = Board.keptRepeatDraft(repeatDraft, stored: s) }
+        // The capture is the rule this body was drawn with, so it is the OLD rule when the change arrives.
+        .onChange(of: p.repeatStored) { [old = p.repeatStored] s in repeatDraft = Board.followStored(repeatDraft, old: old, new: s) }
     }
 
     // `busy` is the section's own save in flight (the due date's, unless another section names its own).
