@@ -643,16 +643,6 @@ enum Tasks {
         if !line.isEmpty { parts.append(line.replacingOccurrences(of: "\n", with: " ")) }
         return parts.map { $0.hasSuffix(".") ? String($0.dropLast()) : $0 }.joined(separator: ". ") + "."
     }
-
-    // The board reads ?project=&task= at boot (web/index.html).
-    // The one helper for a task's page on the board (BoardClient.taskURL): the native task page's info button opens it
-    // (kosmos#7074; Today's Check it and a Tasks row now open the native page).
-    static func taskPageURL(board: URL, project: String, number: Int) -> URL? {
-        guard var parts = URLComponents(url: board, resolvingAgainstBaseURL: false) else { return nil }
-        parts.path = "/"
-        parts.queryItems = [URLQueryItem(name: "project", value: project), URLQueryItem(name: "task", value: String(number))]
-        return parts.url
-    }
 }
 
 // kosmos#7838: the project page's open tasks (ProjectInfoView), here beside the Tasks tab's own rules (sortNewest, groups).

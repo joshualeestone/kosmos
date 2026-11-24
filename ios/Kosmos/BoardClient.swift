@@ -741,12 +741,6 @@ final class BoardClient: ObservableObject {
         }
     }
 
-    // The task's page in the board (?project=&task=, read at boot by web/index.html), on the Mac the list came from.
-    func taskURL(project: String, number: Int) -> URL? {   // kosmos#7074: the native task page's info button too
-        guard let mac = shownMac, let base = Board.macURL(address: mac.address, coordinator: coordinator) else { return nil }
-        return Tasks.taskPageURL(board: base, project: project, number: number)
-    }
-
     // The tapped agent's chat under Today (the same link a notification tap opens); also from a list shown as not
     // updating, which still names the Mac it came from.
     func chatURL(for agent: Board.Agent) -> URL? { chatURL(session: agent.session) }

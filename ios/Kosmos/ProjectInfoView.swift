@@ -12,7 +12,6 @@ struct ProjectInfoView: View {
     // A member's conversation, as the room builds it (RoomView), pushed on top of this page: Back returns here. Review 1:
     // closing this page and pushing the chat from the room in one update dropped the push (measured in the simulator).
     let chat: (Board.Agent) -> AnyView
-    let openPage: (URL) -> Void
     // Slice B: read the projects list again after a save, so the page (and the room) show what was saved.
     let reload: () async -> Void
     // Review 2: the project's row as the store holds it NOW. A save runs in a Task holding a copy of this view made at
@@ -79,7 +78,7 @@ struct ProjectInfoView: View {
         .toolbar(.hidden, for: .tabBar)
         .background(
             NavigationLink(isActive: Binding(get: { openTask != nil }, set: { if !$0 { openTask = nil } })) {
-                if let ref = openTask { TaskPageView(client: client, ref: ref, openPage: openPage) }
+                if let ref = openTask { TaskPageView(client: client, ref: ref) }
             } label: { EmptyView() }.hidden()
         )
         .background(
