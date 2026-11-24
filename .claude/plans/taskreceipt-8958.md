@@ -25,7 +25,15 @@ Stacked on B3b (taskreview-8958); rebased onto main once A, B1, B2, B3 and B3b m
   and closedUnrun; taskReceiptRequest, parseReceipt, and the words (abbreviated tokens, dollars, the JS toFixed rounding).
 - TaskPageModel.syncReceipt: asked when the key changes, after a tick's read and after a press; off the tick (a first
   read of long transcripts can take seconds); only the newest ask draws; a failed read is asked again after 30 s.
-- TaskPageView: the receipt between the activity and the message box; files open and close per agent.
+- TaskPageView: the receipt between the activity and the message box; files open and close per agent, and close when
+  another receipt is drawn (one read again and found the same keeps them, where the board closes them).
+- The request waits 120 s: the Mac answers only once the whole receipt is worked out (a round 1 finding; that a request's
+  own timeout overrides the session's 15 s was measured on macOS).
+
+## Left as they are (round 2)
+- Values the engine cannot send (a fractional pull request number, a file that is not text, true for a count) are dropped
+  or read as numbers where the page prints them. A negative amount is not rounded as the page would.
+- A pull request's spoken link is its short name; the board's also says it opens in the browser.
 
 ## Tests
 - engine/usageprice.test.js, engine/receipt-5153.test.js, server.receipt-5153.test.js; ios/LogicTests/taskpage;

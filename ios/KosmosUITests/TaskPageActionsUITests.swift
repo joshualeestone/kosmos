@@ -149,7 +149,7 @@ final class TaskPageActionsUITests: XCTestCase {
             files.tap()
             XCTAssertTrue(app.staticTexts["captions.md"].waitForExistence(timeout: 5), "the files did not open")
             XCTAssertTrue(app.staticTexts["In /Users/sam/Kosmos/Dana"].exists, "no folder under the files")
-            XCTAssertTrue(app.links["catalogue#12"].exists || app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Worked on pull request catalogue#12.")).firstMatch.exists, "no pull request line")
+            XCTAssertTrue(app.links["catalogue#12"].exists, "the pull request is not a link")
             XCTAssertTrue(app.staticTexts["A receipt is not available for Grok agents yet."].exists, "no line for an agent whose work is not read")
             shot(app, "receipt, \(dark ? "dark" : "light")")
             app.terminate()

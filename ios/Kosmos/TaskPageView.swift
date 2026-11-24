@@ -169,7 +169,8 @@ struct TaskPageView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         // A finished task has no Repeats section, and an unsaved choice does not come back if it is reopened.
         .onChange(of: p.closed) { closed in if closed { repeatDraft = nil; repeatDraftBase = nil; repeatBox = nil } }
-        // Every receipt drawn starts with its files closed, as the board's does (they are kept by an agent's place in it).
+        // Another receipt starts with its files closed, as the board's does: which are open is kept by the agent's place in
+        // the list, and another receipt can put another agent there. One read again and found the same keeps them.
         .onChange(of: model.receipt) { _ in if !receiptFilesOpen.isEmpty { receiptFilesOpen = [] } }
     }
 
