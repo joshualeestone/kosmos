@@ -49,12 +49,14 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
      itself to V a few minutes after staging serves V, and a gate run before then refuses (nothing
      answers while it installs) or cannot tell (the old release). So before the gates the promote
      looks at the board with the same reader (`staging-experience-check.sh --print-version`, which
-     mints no nonce) and waits while nothing answers or it runs a release older than V, up to
-     `KOSMOS_PROMOTE_BOARD_WAIT` seconds (default 1800; 0 turns it off), and no more than
-     `KOSMOS_PROMOTE_BOARD_SILENT_WAIT` (default 600) while nothing answers at all, since an install
-     takes minutes and a wrong port never answers. It does not wait for a board on V, on a later
-     release, one whose version cannot be compared with V, or one it cannot read. When the time runs out the gates run anyway
-     and hold or refuse as before (a HOLD then names `KOSMOS_PROMOTE_BOARD_WAIT=0` for the rerun); no gate is loosened. 0.8.19 was forced for lack of this wait.
+     mints no nonce) and waits while nothing answers, it answers only with a server error, or it
+     runs a release older than V. The wait lasts up to `KOSMOS_PROMOTE_BOARD_WAIT` seconds (default
+     1800; 0 turns it off), and no more than `KOSMOS_PROMOTE_BOARD_SILENT_WAIT` (default 600) while
+     nothing answers properly, since an install takes minutes and a wrong port never answers; so a
+     board that is down, or stuck on a server error, is refused about ten minutes later than before.
+     It does not wait for a board on V, on a later release, one whose version cannot be compared
+     with V, or one it cannot read. When the time runs out the gates run anyway and hold or refuse
+     as before (a HOLD then names `KOSMOS_PROMOTE_BOARD_WAIT=0` for the rerun); no gate is loosened.
    - **Agent spawn (#2129), `tools/staging-agent-online-check.sh`:** the board gate does NOT
      exercise agent spawn, and #2129 was exactly that gap -- spawned agents wedged at the Claude
      Code trust prompt while the board served fine, so the board gate alone would PASS a #2129
