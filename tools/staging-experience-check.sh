@@ -28,7 +28,7 @@
 #   bash tools/staging-experience-check.sh --print-version [port]
 #     (kosmos#8960) only print which version the board on [port] runs, read the same way the gate reads it
 #     (GET /api/version with the board token, off argv). No nonce is minted and nothing is redeemed. Exit 0
-#     printed it / 1 nothing answered on the port (a board installing or down) / 2 cannot tell (no enforcing
+#     printed it / 1 nothing answered on the port, or only a 5xx (a board installing, starting, or down) / 2 cannot tell (no enforcing
 #     board, or it answered without a version we could read). promote-channel.sh uses it to wait for its
 #     board to run the version being promoted before it runs this gate.
 #
@@ -137,8 +137,8 @@ if [ "$PRINT_VERSION" = 1 ]; then
   rm -f "$HF"; HF=""
   if [ -n "$BOARD_VERSION" ]; then printf '%s\n' "$BOARD_VERSION"; exit 0; fi
   say "cannot read which version the board on :$PORT runs ($VERSION_WHY)" >&2
-  # Only a request that went out and got no answer is "nothing answered"; no node, or no request made, is cannot-tell.
-  case "$VCODE" in 000) exit 1 ;; *) exit 2 ;; esac
+  # No answer, or a server error (a board still starting), is exit 1. No node, or no request made, is cannot-tell.
+  case "$VCODE" in 000|5??) exit 1 ;; *) exit 2 ;; esac
 fi
 
 # 1. Mint a single-use nonce, board token OFF argv via a mode-600 header file (#1979,

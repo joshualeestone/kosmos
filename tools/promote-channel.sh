@@ -508,11 +508,11 @@ version_older() {
 wait_for_board_on_v() {
   local want="$1" limit="${KOSMOS_PROMOTE_BOARD_WAIT:-1800}" step="${KOSMOS_PROMOTE_BOARD_WAIT_STEP:-30}" cmd port_words
   case "$limit" in ''|*[!0-9]*) echo "promote-channel: KOSMOS_PROMOTE_BOARD_WAIT must be a number of seconds, not '$limit' - refusing" >&2; return 1 ;; esac
+  port_words=":${PORT:-${KOSMOS_PORT:-16180}}"
+  if [ "$limit" = 0 ]; then echo "promote-channel: board wait off (KOSMOS_PROMOTE_BOARD_WAIT=0): the gates run now, whatever the board on $port_words runs."; return 0; fi
   local silent_limit="${KOSMOS_PROMOTE_BOARD_SILENT_WAIT:-600}"
   case "$silent_limit" in ''|*[!0-9]*) echo "promote-channel: KOSMOS_PROMOTE_BOARD_SILENT_WAIT must be a number of seconds, not '$silent_limit' - refusing" >&2; return 1 ;; esac
   case "$step" in ''|*[!0-9]*|0) echo "promote-channel: KOSMOS_PROMOTE_BOARD_WAIT_STEP must be a number of seconds above 0, not '$step' - refusing" >&2; return 1 ;; esac
-  port_words=":${PORT:-${KOSMOS_PORT:-16180}}"
-  if [ "$limit" = 0 ]; then echo "promote-channel: board wait off (KOSMOS_PROMOTE_BOARD_WAIT=0): the gates run now, whatever the board on $port_words runs."; return 0; fi
   if [ -n "${KOSMOS_PROMOTE_BOARD_VERSION_CMD:-}" ]; then cmd="$KOSMOS_PROMOTE_BOARD_VERSION_CMD"
   elif [ -n "${KOSMOS_PROMOTE_GATE_CMD:-}" ]; then
     echo "promote-channel: no board wait: KOSMOS_PROMOTE_GATE_CMD is set, so which board the gate checks is not known here."; return 0
@@ -531,9 +531,10 @@ wait_for_board_on_v() {
         *) echo "promote-channel: no board wait: the board on $port_words reports '$bv', which cannot be compared with $want; the gates say what that means."; return 0 ;;
       esac
     elif [ "$rc" = 1 ]; then
-      why="nothing answers on $port_words (a board installing an update, or down)"
+      why="nothing answers on $port_words, or only with a server error (a board installing an update or starting, or down)"
       [ -n "$silent_since" ] || silent_since=$SECONDS
       if [ $((SECONDS - silent_since)) -ge "$silent_limit" ]; then
+        BOARD_WAIT_RAN_OUT=1
         echo "promote-channel: stopped waiting: nothing has answered on $port_words for $((SECONDS - silent_since))s (KOSMOS_PROMOTE_BOARD_SILENT_WAIT=$silent_limit), longer than an install takes: a wrong port, or a board that is not running. Running the gates anyway." >&2
         return 0
       fi
@@ -541,6 +542,7 @@ wait_for_board_on_v() {
     fi
     waited=$((SECONDS - start))   # real time: a look itself can take 15 s or more
     if [ "$waited" -ge "$limit" ]; then
+      BOARD_WAIT_RAN_OUT=1
       echo "promote-channel: stopped waiting after ${waited}s: $why. Running the gates anyway; they hold or refuse as they would have." >&2
       return 0
     fi
@@ -613,6 +615,8 @@ if [ "$FAMILY" = mac ]; then
     [ "$_kl" = 0 ] || { echo "promote-channel: $MANIFEST is not signed by a key the served release key list names - refusing; installs with the recovery key check on would refuse this update (#6609)" >&2; exit 1; }
   fi
 
+  BOARD_WAIT_RAN_OUT=0; wait_for_board_on_v "$V" || exit 1   # kosmos#8960: see THE BOARD WAIT in the header
+
   # THE EXPERIENCE GATE (#2063). 0 = a fresh session can use the board -> promote; 1 = the
   # board is provably broken for a fresh session (#2023) -> refuse, never forceable; 2 =
   # cannot-tell here (no enforcing fresh board) -> HOLD, forceable only after a HAND check.
@@ -620,7 +624,6 @@ if [ "$FAMILY" = mac ]; then
   # Forward [port] to the gate as its arg1 (the gate reads arg1 -> KOSMOS_PORT -> 16180). Giving
   # the fresh staging board's real port here is what keeps a wrong-port HOLD from pushing an
   # operator toward --force. When no port is given the gate falls back to KOSMOS_PORT/16180.
-  wait_for_board_on_v "$V" || exit 1
   echo "promote-channel: running the experience gate: $GATE_CMD${PORT:+ (port $PORT)}"
   # #5084: the gate refuses to speak for $V from a board on another version (cannot-tell, exit 2).
   BOARD_OTHER=""
@@ -657,6 +660,7 @@ if [ "$FAMILY" = mac ]; then
         else
           echo "promote-channel: gate could not tell (exit 2) - its cannot-tell line above says why: no fresh enforcing board here, or a board that is not running $V (#5084). HOLDING. Run this on/against a fresh staging board on $V, or pass --force with --hand-check \"<what you checked>\" after verifying $V by hand." >&2
         fi
+        [ "$BOARD_WAIT_RAN_OUT" = 0 ] || echo "promote-channel: the board wait already ran out on this run; on a rerun (with --force, say) KOSMOS_PROMOTE_BOARD_WAIT=0 skips it." >&2
         exit 2
       fi ;;
     *) echo "promote-channel: gate returned an unexpected code ($GATE_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;
