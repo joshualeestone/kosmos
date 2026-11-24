@@ -141,14 +141,28 @@ check(NewTask.settled(NewTask.Draft(), picked: "zeta", offered: offered).project
 let keptLaunch = NewTask.Draft(project: "launch", what: "Proofread", who: nil, parent: nil)
 // kosmos#8958 slice B6: "+ Add subtask": Project and Part of are the task page's, whatever the draft or the offer says.
 do {
-    let u = NewTask.Under(project: "zeta", number: 7, sentence: "S")
+    let u = NewTask.Under(project: "zeta", projectName: "Zeta", number: 7, sentence: "S")
     var other = NewTask.Draft(project: "alpha", what: "w"); other.done = "d"; other.who = "ann"; other.parent = 3
     let moved = NewTask.under(other, u)
     check(moved.project == "zeta" && moved.parent == 7 && moved.who == nil && moved.what == "w" && moved.done == "d", "a draft for another project: aimed at this task, its words kept, who not")
     var kept = NewTask.Draft(project: "zeta", what: "w"); kept.who = "ann"; kept.parent = 7
     check(NewTask.under(kept, u) == kept, "this task's kept draft is unchanged, who and all")
     check(NewTask.under(other, nil) == other, "with no task, the draft as it was")
-    check(NewTask.keepingOffered(kept, members: [], parents: nil).parent == 7, "its Part of is kept when the Tasks list does not offer it (a finished task)")
+    check(NewTask.keepingOffered(kept, members: [], parents: [], under: u).parent == 7, "its Part of is kept when the open tasks do not have it (a finished task)")
+    check(NewTask.keepingOffered(kept, members: [], parents: []).parent == nil, "control: a plain sheet's Part of that is not offered goes")
+    var away = NewTask.Draft(project: "archived", what: "w"); away.who = "ann"; away.parent = 7
+    let a = NewTask.Under(project: "archived", projectName: "A", number: 7, sentence: "S")
+    check(NewTask.opening(away, under: a, picked: "archived", offered: offered) == away, "in a project the sheet does not offer, a kept draft is unchanged, who and all")
+    check(NewTask.opening(keptLaunch, under: nil, picked: nil, offered: offered) == keptLaunch, "with no task, as settled")
+    var keeps = NewTask.KeptDrafts()
+    let held = NewTask.Kept(draft: away, held: NewTask.Held(sent: away, before: [1]))
+    keeps.set("archived", 7, epoch: 1, held)
+    check(keeps.get("archived", 7, epoch: 1) == held, "a draft and its hold are kept for their task")
+    check(keeps.get("archived", 8, epoch: 1) == NewTask.Kept() && keeps.get("zeta", 7, epoch: 1) == NewTask.Kept(), "and for no other task or project")
+    check(keeps.get("archived", 7, epoch: 2) == NewTask.Kept() && keeps.get("archived", 7, epoch: 1) == NewTask.Kept(), "another account or Mac forgets them")
+    func row(_ n: Int, _ parent: Int?) -> Board.TaskRow { Board.TaskRow(projectId: "archived", projectName: "A", number: n, sentence: "w", state: "open", parent: parent) }
+    check(NewTask.found(away, in: Board.TasksRead(tasks: [row(9, 3), row(10, nil)], rosterUnknown: false), before: [1]) == nil, "the same words under another task, or none, are not this subtask")
+    check(NewTask.found(away, in: Board.TasksRead(tasks: [row(9, 3), row(11, 7)], rosterUnknown: false), before: [1]) == 11, "under this one, it is")
     check(NewTask.body(moved)["parent"] as? Int == 7, "and is sent")
 }
 check(NewTask.settled(keptLaunch, picked: nil, offered: offered) == keptLaunch, "All projects: a kept project still offered stays while words are typed")

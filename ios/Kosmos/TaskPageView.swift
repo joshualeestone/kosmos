@@ -42,11 +42,12 @@ struct TaskPageView: View {
     @State private var undoOpen = false
     @State private var undoList = Board.UndoPlan(files: [])
     @State private var undoChosen: Set<String> = []
-    // kosmos#8958 slice B6: the Add subtask sheet, its draft and held words (kept while the page is), and the line it leaves.
+    // kosmos#8958 slice B6: the Add subtask sheet, its draft and held words (kept past the page, subKept), and the line it leaves.
     @State private var adding: NewTaskStart?
     @State private var subDraft = NewTask.Draft()
     @State private var subHeld: NewTask.Held?
     @State private var subAdded: String?
+    private static var subKept = NewTask.KeptDrafts()
 
     init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
         self.client = client
@@ -97,10 +98,12 @@ struct TaskPageView: View {
             .onChange(of: model.undoPlan) { _ in undoOpen = false }
             // Another account or Mac: the list is about nothing, and an undo still out would hold it open.
             .onChange(of: client.chatEpoch) { _ in undoOpen = false; adding = nil; subDraft = NewTask.Draft(); subHeld = nil; subAdded = nil }
+            .onChange(of: subDraft) { _ in keepSub() }
+            .onChange(of: subHeld) { _ in keepSub() }
             .sheet(item: $adding) { start in
                 NewTaskView(client: client, tasks: client.tasksList, picked: start.picked, draft: $subDraft,
                             held: $subHeld, heldFound: subFound(in:), added: subLine,
-                            under: model.page.map { NewTask.Under(project: ref.project, number: ref.number, sentence: $0.sentence) })
+                            under: model.page.map { NewTask.Under(project: ref.project, projectName: $0.projectName, number: ref.number, sentence: $0.sentence) })
             }
             // The Tasks list read that shows a subtask held after "could not tell", as the Tasks tab's does.
             .onChange(of: client.tasksList) { read in if let read { subFound(in: read) } }
@@ -109,6 +112,14 @@ struct TaskPageView: View {
             .background(PresenceProbe { model.touched() })
             .onAppear {
                 visible = true
+                // Come back to from a subtask, or opened again: the last line is old, and a draft left here is picked up.
+                subAdded = nil
+                if adding == nil {
+                    let kept = Self.subKept.get(ref.project, ref.number, epoch: client.chatEpoch)
+                    if kept.draft != subDraft { subDraft = kept.draft }
+                    if kept.held != subHeld { subHeld = kept.held }
+                    if let read = client.tasksList { subFound(in: read) }
+                }
                 model.onScreen = true
                 model.appActive = scenePhase == .active
                 model.assistive = UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning
@@ -278,12 +289,17 @@ struct TaskPageView: View {
             } else if p.allSubtasksBuilt {
                 Text(Board.subtasksBuiltLine(unrun: p.subtasksUnrun)).font(.footnote).foregroundColor(Palette.secondary)
                 // kosmos#8958 slice B6: the board's tk-subs-closeall.
-                Button { model.touched(); Task { await model.closeWithSubtasks(names: names) } } label: {
+                Button { model.touched(); Task {
+                    // Said aloud: the button goes, and the one left reads Reopen.
+                    if await model.closeWithSubtasks(names: names) { UIAccessibility.post(notification: .announcement, argument: Board.subtasksClosed) }
+                } } label: {
                     Text(Board.subtasksCloseAll).font(.footnote).foregroundColor(Palette.link)
                         .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil)
+                .opacity(model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil ? 0.6 : 1)
+                .accessibilityValue(model.pressing ? "In progress" : "")
                 .accessibilityIdentifier("taskpage.closeall")
             }
             let act = p.act
@@ -361,6 +377,8 @@ struct TaskPageView: View {
                 model.touched()
                 subAdded = nil
                 adding = NewTaskStart(picked: ref.project)
+                // What was there before a create is read from this list, which the Projects tab does not keep fresh.
+                Task { await client.refreshTasks() }
             } label: {
                 Text(Board.subtaskAdd).font(.footnote).foregroundColor(Palette.link)
                     .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
@@ -369,6 +387,10 @@ struct TaskPageView: View {
             .accessibilityLabel("Add subtask")
             if let line = subAdded { Text(line).font(.footnote).foregroundColor(Palette.secondary) }
         }
+    }
+
+    private func keepSub() {
+        Self.subKept.set(ref.project, ref.number, epoch: client.chatEpoch, NewTask.Kept(draft: subDraft, held: subHeld))
     }
 
     // The line after a create, and the task read again so its list has the new one (the sheet says the line aloud).

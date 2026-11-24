@@ -85,9 +85,10 @@ struct NewTaskView: View {
     private func form(_ list: Board.ProjectList) -> some View {
         let offered = NewTask.projects(list)
         return ScrollViewReader { scroller in Form {
-            if let under, let p = list.projects.first(where: { $0.id == under.project }) {
-                // Fixed whatever the sheet offers elsewhere: a task page opens in an archived project too.
-                Section { LabeledContent("Project") { Text(offered.first { $0.project.id == p.id }.map { NewTask.projectWords($0, in: list) } ?? p.name) } }
+            if let under {
+                // Fixed whatever the sheet offers elsewhere: a task page opens in an archived project too. A project that is
+                // gone is refused by the Mac; another is never picked for it here.
+                Section { LabeledContent("Project") { Text(offered.first { $0.project.id == under.project }.map { NewTask.projectWords($0, in: list) } ?? under.projectName) } }
             } else if offered.isEmpty {
                 // Every project archived is not "no project": say which.
                 Section { Text(list.projects.isEmpty ? "Make a project on your computer first, then add tasks to it here."
@@ -118,7 +119,7 @@ struct NewTaskView: View {
             }
             Section {
                 if let under {
-                    LabeledContent("Part of") { Text("#\(under.number) \(under.sentence)").lineLimit(typeSize.isAccessibilitySize ? nil : 2) }
+                    LabeledContent("Part of") { Text(verbatim: "#\(under.number) \(under.sentence)").lineLimit(typeSize.isAccessibilitySize ? nil : 2) }
                 } else {
                     Picker("Part of", selection: $draft.parent) {
                         Text("None").tag(Int?.none)
@@ -249,7 +250,7 @@ struct NewTaskView: View {
 
     private func took(_ parsed: Board.ProjectList) {
         list = parsed
-        draft = NewTask.under(NewTask.settled(draft, picked: picked, offered: NewTask.projects(parsed)), under)
+        draft = NewTask.opening(draft, under: under, picked: picked, offered: NewTask.projects(parsed))
         dropUnoffered()
     }
 
@@ -283,7 +284,7 @@ struct NewTaskView: View {
     private func dropUnoffered() {
         guard let list else { return }
         draft = NewTask.keepingOffered(draft, members: NewTask.members(of: draft.project, in: list),
-                                       parents: under != nil ? nil : tasks.map { NewTask.parents(of: draft.project, in: $0) })
+                                       parents: tasks.map { NewTask.parents(of: draft.project, in: $0) }, under: under)
     }
 
     // Latched here, before the Task starts: a second tap in between would send a second create. The hold is lifted
@@ -299,7 +300,7 @@ struct NewTaskView: View {
         // sending is already set by startCreate().
         guard list != nil, NewTask.canCreate(draft) else { sending = false; return }
         message = nil
-        let sent = draft
+        let sent = NewTask.under(draft, under)
         // Another account or Mac while this is in the air closes the sheet; its answer is then not this one's to show.
         let epoch = client.chatEpoch
         let before = shownTasks.map { Set($0.tasks.filter { $0.projectId == sent.project }.map(\.number)) }
