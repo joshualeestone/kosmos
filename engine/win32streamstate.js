@@ -894,7 +894,7 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, needsWrite: false, reportRan: false, clearArmedFor: null, msgs: [], mainTurnOpen: false, turnOnReported: false };
+      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, needsWrite: false, reportRan: false, clearArmedFor: null, msgs: [], mainTurnOpen: false };
       /* kosmos#8951: messages the previous process took in and never ran are this agent's still: said on the new
          process's record, so its card says so, until a turn starts. */
       const lost = lostOnStop;
@@ -938,7 +938,6 @@ function publisher(name, opts) {
              next message normally); a reported one is credited only when no other is ready (a late start). */
           const first = current.msgs.find((x) => x.startedAt === null && x.ready === true && x.reported !== true)
             || current.msgs.find((x) => x.startedAt === null && x.ready === true);
-          current.turnOnReported = !!first && first.reported === true;   // review 17: whose turn this is, for the join
           if (first) startMsgs([first]);
         }
         reportRan();
@@ -961,11 +960,9 @@ function publisher(name, opts) {
         if (closed && current.open.size === 0) {
           current.queued = 0;
           /* kosmos#8951 review 10: the waiting messages join this turn now, each started on this moment's clock. */
-          /* Review 17: a reported message joins only a turn credited to a reported one; in a newer message's turn it was not
-             in the queue (that is why the turn went to the newer one). */
           /* Review 18: only messages written behind this open turn (not ready) join it; one written while no turn was open
              has its own turn next (measured: back-to-back writes run as two turns). */
-          startMsgs(current.msgs.filter((m) => m.startedAt === null && (m.reported === true ? current.turnOnReported === true : m.ready !== true)));
+          startMsgs(current.msgs.filter((m) => m.startedAt === null && m.ready !== true));   // review 19: a reported one is ready, so never joins
           reportRan();   // review 11: one written after a report may have just joined, so the report can end this event
         }
       }
@@ -975,7 +972,6 @@ function publisher(name, opts) {
            open a turn of their own by the deadline (review 1 W1). A result before any turn opened (B1) changes nothing. */
         if (current.opened === true) {
           current.mainTurnOpen = false;   // review 13
-          current.turnOnReported = false;
           current.msgs = current.msgs.filter((m) => m.startedAt === null);
           for (const m of current.msgs) m.ready = true;
           if (current.msgs.some((m) => m.reported !== true)) armStart();   // reported ones are already said
