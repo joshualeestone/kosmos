@@ -62,12 +62,13 @@ function handoffWords(h, restarted = true) {
     if (h.pickup === true) return ' It wrote a handoff first, and its new session is pointed at it.';
     return ' It wrote a handoff first, and its new session will be pointed at it once it is up.';
   }
-  if (h.asked) return ' It did not write its handoff in time, so its new session starts without one.';
+  if (h.asked) return restarted ? ' It did not write its handoff in time, so its new session starts without one.'
+    : ' It did not write its handoff in time.';   // review 3: no new session when it was not restarted
   return h.why ? ` It was not asked to write a handoff first: ${h.why}` : '';
 }
 function sentence(name, wrote, back, RESTARTED, handoff = null) {
   const ok = !!back && back.outcome === RESTARTED;
-  const picksUp = ok && !!handoff && handoff.saved === true;   // kosmos#9010: it will not look idle, it picks up
+  const picksUp = ok && !!handoff && handoff.saved === true && handoff.pickup !== false;   // kosmos#9010 (review 3: not after a failed pickup)
   /* #2338: lead with the human-chosen account name (the `.kosmos-name`
      sidecar an OpenAI row carries, #2095), the same value the picker shows,
      falling back to the email/label as before. */
@@ -120,7 +121,7 @@ function view(m) {
   return {
     id: m.id,
     done: m.done,
-    ...(m.stopped ? { stopped: true, ...(m.current && !m.done ? { waitingFor: m.current } : {}) } : {}),
+    ...(m.stopped ? { stopped: true, ...(m.current && !m.done ? { waitingFor: m.current, ...(m.waitingForHandoff ? { waitingForHandoff: true } : {}) } : {}) } : {}),
     agents: m.agents.map((a) => ({ name: a.name, outcome: a.outcome, ...(a.because ? { because: a.because } : {}),
       ...(a.account ? { account: a.account } : {}),
       // kosmos#9010: what happened to its handoff, for Settings and the automatic mover's own words.
@@ -312,7 +313,8 @@ function startSteps(body, deps, step) {
              the tail below puts it back on its old account rather than restarting it. */
           a.handoff = null;
           if (deps.handoffFirst) {   // only then: a move without it starts each restart at once, as before
-            a.handoff = await saveFirst(deps, a.name, () => m.stopped);
+            m.waitingForHandoff = true;   // review 3: a stop now puts it back, and is said so
+            try { a.handoff = await saveFirst(deps, a.name, () => m.stopped); } finally { m.waitingForHandoff = false; }
             if (m.stopped) {
               // Review 1: it stays held until the tail's put-back settles (contract 3b), and an agent that was asked is
               // told it was not restarted after all (the ask said the restart comes as soon as it writes).
@@ -353,11 +355,12 @@ function startSteps(body, deps, step) {
               // Either way the words are rewritten: "will be pointed" becomes "is pointed" or "could not point".
               try { rec.because = sentence(rec.name, rec.wrote, back, deps.RESTARTED, rec.handoff).because; } catch { /* keep the words */ }
             });
-          } else if (a.handoff && a.handoff.saved && !(back && back.outcome === deps.RESTARTED)) {
+          } else if (a.handoff && a.handoff.asked && !(back && back.outcome === deps.RESTARTED)) {
             /* Review 2: not RESTARTED is not proof the restart did not happen (a late answer, a partial one), so the line
                it gets is true either way. */
             const h = deps.handoffFirst;
-            if (h && typeof h.maybeRestarted === 'function') { try { Promise.resolve(h.maybeRestarted(a.name, a.handoff.path)).catch(() => {}); } catch { /* best effort */ } }
+            // Review 3: asked and not saved too (it was told the restart comes as soon as it writes); no path to name then.
+            if (h && typeof h.maybeRestarted === 'function') { try { Promise.resolve(h.maybeRestarted(a.name, a.handoff.saved ? a.handoff.path : null)).catch(() => {}); } catch { /* best effort */ } }
           }
         } finally { m.current = null; if (!a.keepHeld) { try { deps.release(a.name); } catch { /* the move must still end */ } } }
       }

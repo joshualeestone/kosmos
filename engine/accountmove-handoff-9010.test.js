@@ -144,6 +144,7 @@ test('a pickup that does not land is written back to the record', async () => {
   await out.done;
   await until(() => accountmove.read(out.body.id).agents[0].handoff.pickup === false);
   assert.match(accountmove.read(out.body.id).agents[0].because, /It wrote a handoff first, but we could not point its new session at it: tell it to read its handoff\.$/);
+  assert.doesNotMatch(accountmove.read(out.body.id).agents[0].because, /picks up from its handoff/, 'it says it picks up AND that it could not (review 3)');
 });
 
 test('a restart that did not answer RESTARTED after a saved handoff: no pickup, honest words, a line true either way', async () => {
@@ -181,4 +182,34 @@ test('an ask that never answers is bounded: the move goes on, not asked', async 
   const a = accountmove.read(out.body.id).agents[0];
   assert.equal(a.outcome, 'changed');
   assert.deepEqual(a.handoff, { asked: false, saved: false, why: 'we could not reach it.' });
+});
+
+test('asked, not saved in time, then not restarted: told a line true either way, without a path', async () => {
+  const d = deps({ handoff: (events) => ({
+    ask: async (n) => ({ asked: true, path: '/h/' + n, before: { exists: false } }),
+    isFresh: () => false,
+    pickup: async () => ({ ok: true }),
+    maybeRestarted: async (n, p) => { events.push(['maybeRestarted', n, p]); },
+    waitMs: 20, pollMs: 5,
+  }) });
+  d.restartAsync = async (name) => { d.events.push(['restart', name]); return { outcome: 'partial', because: 'its window could not be closed.', steps: [] }; };
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
+  await out.done; await tick();
+  assert.deepEqual(d.events, [['restart', 'al'], ['maybeRestarted', 'al', null]]);
+  assert.match(accountmove.read(out.body.id).agents[0].because, /It did not write its handoff in time\.$/);
+});
+
+test('a stop during the handoff wait is said as such (Settings does not wait for a restart that will not come)', async () => {
+  const d = deps({ handoff: () => ({
+    ask: async (n) => ({ asked: true, path: '/h/' + n, before: { exists: false } }),
+    isFresh: () => false, pickup: async () => ({ ok: true }), carryOn: async () => {}, waitMs: 5000, pollMs: 5,
+  }) });
+  d.readAccount = () => '/acct/old';
+  d.putBack = () => ({ outcome: 'changed' });
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
+  await tick(); await tick();
+  const said = accountmove.stop(out.body.id);
+  const body = said && said.body ? said.body : said;
+  assert.equal(body.waitingForHandoff, true, JSON.stringify(body));
+  await out.done;
 });

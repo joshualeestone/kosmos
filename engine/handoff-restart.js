@@ -116,7 +116,7 @@ function carryOnPrompt() {
    partial) may or may not have happened, so this line is true either way: it reaches the old session or the new one. */
 function maybeRestartedPrompt(path) {
   return 'Your restart for the account move may not have finished. If you are still in the same session as before, carry'
-    + ' on with your work. If you have just started, read your handoff at ' + path + ' first, then continue from where it says.';
+    + ' on with your work.' + (path ? ' If you have just started, read your handoff at ' + path + ' first, then continue from where it says.' : '');
 }
 
 module.exports = { handoffForRestartPrompt, pickupPrompt, handoffIsFresh, carryOnPrompt, maybeRestartedPrompt };

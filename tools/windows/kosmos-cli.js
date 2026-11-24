@@ -3366,7 +3366,8 @@ async function agentMove(ctx, args) {
      wait is bounded by time, not by tries (a read that times out costs 15 s). */
   if (outcome === 'pending' && !first.id) outcome = 'unknown';   // review 4: a pending answer with no move id cannot be followed
   const t0 = ctx.now();
-  while (outcome === 'pending' && first.id && ctx.now() - t0 < 300000) {
+  // kosmos#9010: plus the handoff the move asks for first (30 s to ask, 120 s to write), as the page waits.
+  while (outcome === 'pending' && first.id && ctx.now() - t0 < 450000) {
     await ctx.sleep(3000);
     const g = await ctx.call('GET', '/api/agents/account-moves/' + encodeURIComponent(first.id), undefined, { person: true });
     if (g.reached && g.status === 404) { outcome = 'forgotten'; break; }   // review 1: the board restarted and no longer knows the move

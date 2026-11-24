@@ -37,7 +37,7 @@ test('the move asks for a handoff by default, with every step the engine reads',
 
 test('an agent that is not running is not asked, with the reason', async () => {
   const d = server._accountMoveDepsForTest();
-  assert.deepEqual(await d.handoffFirst.ask('nobody-here'), { asked: false, why: 'it was not running.' });
+  assert.deepEqual(await d.handoffFirst.ask('nobody-here'), { asked: false, why: null }, 'not running: the move already says so');
   assert.equal(d.handoffFirst.isFresh('nobody-here', { exists: false }), false);
 });
 
@@ -157,4 +157,36 @@ test('a start unreadable at the ask cannot let the OLD session pass as new', asy
   sent.length = 0;
   assert.deepEqual(await d.pickup('mara', '/h/mara.md'), { ok: false }, 'the old, idle session took the pickup');
   assert.equal(sent.length, 0);
+});
+
+// Review 3: where no session start can be read (Windows reads it from tmux), the pickup waits as #3492's page does.
+test('no readable start (Windows): a gap after the ask, then idle, is the new session', async (t) => {
+  const sent = recordSends(t);
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  t.after(() => board.restore());
+  let state = 'idle';
+  const d = server._moveHandoffDepsForTest({ roster: () => (state === 'gone' ? [] : [{ sessionName: 'mara', isNamedOurs: true, state }]),
+    startedAt: async () => null, readyWaitMs: 2000, pollMs: 5, minGapMs: 1500 });
+  await d.ask('mara');
+  sent.length = 0;
+  state = 'gone';   // the old session went away
+  const p = d.pickup('mara', '/h/mara.md');
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(sent.length, 0, 'typed during the gap');
+  state = 'idle';   // the new one is up
+  assert.deepEqual(await p, { ok: true });
+  assert.equal(sent.length, 1);
+});
+
+test('no readable start and no gap seen: idle counts only after the minimum wait', async (t) => {
+  const sent = recordSends(t);
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  t.after(() => board.restore());
+  const d = server._moveHandoffDepsForTest({ roster: () => [{ sessionName: 'mara', isNamedOurs: true, state: 'idle' }],
+    startedAt: async () => null, readyWaitMs: 2000, pollMs: 5, minGapMs: 80 });
+  await d.ask('mara');
+  sent.length = 0;
+  const t0 = Date.now();
+  assert.deepEqual(await d.pickup('mara', '/h/mara.md'), { ok: true });
+  assert.ok(Date.now() - t0 >= 75, 'typed before the minimum wait, on a status that may not have caught up');
 });

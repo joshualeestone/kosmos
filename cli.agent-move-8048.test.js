@@ -253,7 +253,8 @@ test('kosmos#8048 review 2 Windows: a 503 is waited through; a move still pendin
   await withStub({ plan: CLEAN, progress: [200, { id: 'mv1', done: false, agents: [{ name: 'ada', outcome: 'pending' }] }] }, async (port) => {
     const r = await winRun(port, ['agent', 'move', 'ada', 'spare', '--yes']);
     assert.equal(r.code, 3, r.err);
-    assert.equal(r.slept.length, 100, 'the wait was not bounded by time (100 waits of 3 s is 300 s)');
+    // kosmos#9010: 450 s, the restart's 300 plus the handoff the move asks for first (150 waits of 3 s).
+    assert.equal(r.slept.length, 150, 'the wait was not bounded by time (150 waits of 3 s is 450 s)');
     assert.match(r.err, /still moving, and Kosmos stopped waiting/);
   });
 });
