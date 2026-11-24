@@ -436,17 +436,25 @@ const STDERR_TAIL_CHARS = 500;
 /** kosmos#8967: the most of one stdout error that rides on a `died` line. */
 const STDOUT_ERROR_CHARS = 300;
 
+/** kosmos#8967: the longest a death waits for the child's stdout to end, so its last
+    line (often the error that explains the death) is read before the line is written. */
+const STDOUT_DRAIN_MS = 500;
+
 /**
  * kosmos#8967: what a stdout line says about an error, or '' when it says nothing.
  * An error `result` (is_error, or an `error...` subtype) gives its subtype and its
- * text; a line that is not JSON gives itself, since stream-json output is JSON and
- * a plain line is the CLI talking. A successful result, or any other event, gives
+ * text; a line that is not a stream event (not JSON, or JSON that is not an object)
+ * gives itself, since stream-json output is all objects and anything else is the CLI
+ * talking. A successful result, or any other event, gives
  * nothing: its text is the agent's reply, which has no place on the task log.
  */
 function stdoutError(e, line) {
   const clip = (t) => String(t).replace(/\s+/g, ' ').trim().slice(0, STDOUT_ERROR_CHARS);
-  if (e === null || e === undefined) { const t = clip(line || ''); return t ? 'not JSON: ' + t : ''; }
-  if (typeof e !== 'object' || e.type !== 'result') return '';
+  if (e === null || e === undefined || typeof e !== 'object' || Array.isArray(e)) {
+    const t = clip(line || '');
+    return t ? 'not a stream event: ' + t : '';
+  }
+  if (e.type !== 'result') return '';
   const subtype = typeof e.subtype === 'string' ? e.subtype : '';
   if (e.is_error !== true && !subtype.startsWith('error')) return '';
   const text = typeof e.result === 'string' ? e.result : '';
@@ -686,16 +694,21 @@ function superviseStreaming(spec, opts) {
        a late line from a child already replaced says nothing about the new one. */
     const { lineReader, parseEvent } = require('./win32streamstate');
     /* kosmos#8967: the last error this child reported on stdout, kept short, so its
-       death can say why. Only an error `result` or a line that is not JSON at all
-       (stream-json output is all JSON, so a plain line is the CLI talking): never a
-       successful result, whose text is the agent's own reply. Best effort, like the
-       stderr tail below: a line that arrives after 'exit' is not in the death's line. */
+       death can say why. Only an error `result` or a line that is not a stream event
+       (stream-json output is all JSON objects, so anything else is the CLI talking):
+       never a successful result, whose text is the agent's own reply. A successful
+       result also CLEARS it, so an error turn hours before does not ride on an
+       unrelated death. The death waits for stdout to end (see `gone`). */
     let stdoutSaid = '';
     if (c.stdout && typeof c.stdout.on === 'function') {
       const feed = lineReader((line) => {
         const e = parseEvent(line);
         const err = stdoutError(e, line);
-        if (err) stdoutSaid = err;   // this child's own record, so kept even once it is replaced
+        if (err) stdoutSaid = err;
+        else if (e && typeof e === 'object' && e.type === 'result') stdoutSaid = '';
+        /* The record above is this child's own, so it is kept even once the child is
+           replaced (its death still needs it); what follows publishes, and only the
+           CURRENT child may. */
         if (child !== c) return;
         if (resumed && saysNothingToResume(e)) nothingToResume = true;
         followSessionId(e);   // before the state sink, so a rekey lands before the turn's events
@@ -714,9 +727,26 @@ function superviseStreaming(spec, opts) {
     /* ⚠️ ONE HANDLER, AND IT MUST NOT FIRE TWICE. 'exit' and 'close' both arrive;
        acting on both would double-count a death and burn the throttle budget. */
     let handled = false;
+    /* kosmos#8967: 'exit' can come BEFORE the child's last stdout line has been read
+       (measured on Windows: a child that prints its error `result` and exits at once
+       had the line arrive after 'exit' 40 times in 40; stderr arrived before it 40 in
+       40). So when stdout is a stream still open, the death waits for it to end, at
+       most STDOUT_DRAIN_MS: a grandchild holding the pipe open cannot hold up the
+       death or the restart past that. The single-handler guard is set at once, so a
+       second 'exit' or an 'error' during the wait still counts nothing twice. */
     const gone = (code, signal) => {
       if (handled) return;
       handled = true;
+      const out = c.stdout;
+      if (!out || out.readableEnded !== false || typeof out.once !== 'function') { finish(code, signal); return; }
+      let done = false;
+      const once = () => { if (done) return; done = true; finish(code, signal); };
+      out.once('end', once);
+      out.once('close', once);
+      const t = setTimeout(once, STDOUT_DRAIN_MS);
+      if (t && typeof t.unref === 'function') t.unref();
+    };
+    const finish = (code, signal) => {
       /* This run is over whether or not it was already replaced, so its token is
          retired unconditionally -- retire, never revoke, so the agent's other runs
          keep theirs. A clean stop ends the child through this same path. */

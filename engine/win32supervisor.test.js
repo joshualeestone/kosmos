@@ -1017,7 +1017,7 @@ test('#570 7c-5 stderr is drained, and a death carries its tail to the task log'
 function diedWith(feed) {
   const kids = [];
   const events = [];
-  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
     liveReader: NOBODY_LIVE,
     throttleMs: 0, now: () => 0, setTimer: () => {},
     onEvent: (e) => events.push(e),
@@ -1056,7 +1056,65 @@ test('#8967 an error result on stdout rides on the death; a successful reply nev
     c.stdout.emit('data', Buffer.from('Error: not logged in\n'));
     c.die(1);
   });
-  assert.equal(both.because, 'it said: boom; its last error on stdout: not JSON: Error: not logged in');
+  assert.equal(both.because, 'it said: boom; its last error on stdout: not a stream event: Error: not logged in');
+
+  const stale = diedWith((c) => {
+    c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true }) + '\n'));
+    c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'later turn fine' }) + '\n'));
+    c.die(1);
+  });
+  assert.equal(stale.because, undefined, 'an error turn followed by a good one does not ride on a later, unrelated death');
+});
+
+/* A child whose stdout behaves like a real pipe: open until 'end'. On Windows the last
+   stdout line came AFTER 'exit' in 40 of 40 runs, so this is the order that matters. */
+function pipedChild(pid) {
+  const c = streamingChild(pid);
+  c.stdout.readableEnded = false;
+  c.stdout.end = () => { c.stdout.readableEnded = true; c.stdout.emit('end'); };
+  return c;
+}
+
+test('#8967 the death waits for stdout to end, so an error printed just before exit is on the line', () => {
+  const kids = [];
+  const events = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = pipedChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  const c = kids[0];
+  c.emit('exit', 1, null);
+  assert.equal(events.filter((e) => e.action === 'died').length, 0, 'not yet: stdout is still open');
+  c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'limit' }) + '\n'));
+  c.emit('exit', 1, null);   // a second exit during the wait counts nothing
+  c.stdout.end();
+  const died = events.filter((e) => e.action === 'died');
+  assert.equal(died.length, 1);
+  assert.equal(died[0].code, 1);
+  assert.equal(died[0].because, 'its last error on stdout: error_during_execution: limit');
+  h.stop();
+});
+
+test('#8967 a stdout that never ends holds the death for at most the drain time', async () => {
+  const kids = [];
+  const events = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(Object.assign({ at: Date.now() }, e)),
+    launch: () => { const c = pipedChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  const t0 = Date.now();
+  kids[0].emit('exit', 7, null);
+  assert.equal(events.filter((e) => e.action === 'died').length, 0, 'held while stdout is open');
+  await new Promise((r) => setTimeout(r, 900));
+  const died = events.filter((e) => e.action === 'died');
+  assert.equal(died.length, 1, 'the death is still logged when a grandchild keeps the pipe open');
+  assert.equal(died[0].code, 7);
+  assert.ok(died[0].at - t0 >= 450 && died[0].at - t0 < 900, 'logged after the drain wait, not at once and not never');
+  h.stop();
 });
 
 test('#8967 stdoutError reads only errors, and clips them', () => {
@@ -1065,7 +1123,8 @@ test('#8967 stdoutError reads only errors, and clips them', () => {
   assert.equal(sup.stdoutError({ type: 'result', subtype: 'error_max_turns' }, ''), 'error_max_turns');
   assert.equal(sup.stdoutError({ type: 'result', is_error: true, result: 'x' }, ''), 'error: x');
   assert.equal(sup.stdoutError(null, '   '), '');
-  assert.equal(sup.stdoutError(null, 'y'.repeat(1000)).length, 'not JSON: '.length + 300);
+  assert.equal(sup.stdoutError(null, 'y'.repeat(1000)).length, 'not a stream event: '.length + 300);
+  assert.equal(sup.stdoutError(123, '123'), 'not a stream event: 123', 'JSON that is not an object is not an event either');
 });
 
 test('#8967 the task-log line: a died line carries its exit, every other line is as before', () => {

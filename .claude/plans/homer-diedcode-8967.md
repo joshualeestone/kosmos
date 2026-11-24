@@ -17,9 +17,16 @@ changes (when it restarts, what it resumes, what it retires).
 ## Change (engine/win32supervisor.js)
 - `exit` passes `(code, signal)` to `gone`; the `died` event carries `signal` beside `code`.
 - `stdoutError(e, line)`: the last error `result` (is_error, or an `error...` subtype: subtype plus its text) or a
-  non-JSON stdout line ("not JSON: ..."), clipped to 300 characters with whitespace collapsed. A successful result is
-  the agent's own reply and is never kept. Kept per child even after it is replaced (the record is the child's own).
-  Best effort, like the stderr tail: a line arriving after `exit` misses the death's line.
+  line that is not a stream event ("not a stream event: ...": not JSON, or JSON that is not an object), clipped to 300
+  characters with whitespace collapsed. A successful result is the agent's own reply and is never kept, and it clears
+  an earlier error, so an old error turn never rides on an unrelated death. Kept per child even after it is replaced
+  (the record is the child's own).
+- The death waits for stdout to end (`end` or `close`), at most `STDOUT_DRAIN_MS` = 500 ms: measured on the box, a
+  child's last stdout line arrived AFTER `exit` in 40 of 40 runs (stderr before it, 40 of 40), so without the wait the
+  error that explains the death would almost never be on its line. The single-handler guard is set at once. Only a
+  stream that says it is still open (`readableEnded === false`) is waited on. During the wait the loop still holds the
+  dead child, so a `send()` in that half second fails its write and is reported unsure, as for any write to a child
+  that just died.
 - The `died` reason joins `it said: <stderr tail>` and `its last error on stdout: <...>` with `; `.
 - `taskLogLine(at, name, e)` builds every task-log line; only a `died` line adds `(exit code N)` (with
   `= 0xXXXXXXXX` for a Windows code past 255 or below 0, an NTSTATUS) or `(signal S)`. A death with neither reads as
