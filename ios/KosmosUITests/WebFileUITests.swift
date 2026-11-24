@@ -1,0 +1,113 @@
+import Network
+import XCTest
+
+// kosmos#8953: a web page an agent sent opens on the phone, in WebFileView, never on the computer's board (the navy page
+// with a Close bar), and nothing in it reaches the network. The sample chat with Cleo carries "Launch page.html"
+// (KOSMOS_SAMPLE_WEBFILE=1); the sample's page names this test's own listener (KOSMOS_SAMPLE_WEBFILE_PROBE) in every way
+// a page can load something: a stylesheet, an @import, a font, a script, a picture and its srcset, a frame, a refresh and
+// a link. The listener counts every connection it gets; the page must cost it none.
+final class WebFileUITests: XCTestCase {
+    override func setUp() { super.setUp(); continueAfterFailure = false }
+
+    private func shot(_ app: XCUIApplication, _ name: String) {
+        let s = XCTAttachment(screenshot: app.screenshot()); s.name = name; s.lifetime = .keepAlways; add(s)
+    }
+
+    // A loopback listener that counts the connections it accepts. The simulator shares the Mac's loopback, so the app's
+    // requests to 127.0.0.1 reach it.
+    private final class Probe {
+        let listener: NWListener
+        private let lock = NSLock()
+        private var n = 0
+        private var seen: [String] = []
+        var count: Int { lock.lock(); defer { lock.unlock() }; return n }
+        var paths: [String] { lock.lock(); defer { lock.unlock() }; return seen }
+        init() throws {
+            let p = NWParameters.tcp
+            p.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: .any)
+            listener = try NWListener(using: p)
+            listener.newConnectionHandler = { [weak self] c in
+                guard let self else { return }
+                self.lock.lock(); self.n += 1; self.lock.unlock()
+                c.start(queue: .global())
+                // The request line names what was asked for, so a failure says which load got out.
+                c.receive(minimumIncompleteLength: 1, maximumLength: 512) { data, _, _, _ in
+                    let line = data.flatMap { String(data: $0, encoding: .utf8) }?.split(separator: "\r\n").first.map(String.init) ?? "(no request line)"
+                    self.lock.lock(); self.seen.append(line); self.lock.unlock()
+                    c.cancel()
+                }
+            }
+        }
+        func start() -> UInt16? {
+            let ready = DispatchSemaphore(value: 0)
+            listener.stateUpdateHandler = { if case .ready = $0 { ready.signal() } }
+            listener.start(queue: .global())
+            return ready.wait(timeout: .now() + 5) == .success ? listener.port?.rawValue : nil
+        }
+    }
+
+    func testAWebPageOpensOnThePhoneAndLoadsNothing() throws {
+        let probe = try Probe()
+        guard let port = probe.start() else { return XCTFail("the probe listener did not start") }
+        let address = "http://127.0.0.1:\(port)"
+        // CONTROL: the listener counts a real request, so a count of zero later means nothing came, not a deaf listener.
+        let done = expectation(description: "control request")
+        URLSession.shared.dataTask(with: URL(string: address + "/control")!) { _, _, _ in done.fulfill() }.resume()
+        wait(for: [done], timeout: 10)
+        sleep(1)   // the listener closes each connection unanswered, so URLSession retries; let that settle
+        let baseline = probe.count
+        XCTAssertGreaterThanOrEqual(baseline, 1, "the control request did not reach the listener")
+
+        let app = XCUIApplication()
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "cleo", "KOSMOS_SAMPLE_WEBFILE": "1",
+                                 "KOSMOS_SAMPLE_WEBFILE_PROBE": address]
+        app.launch()
+        let card = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Launch page.html")).firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "the web page's card is not in Cleo's chat")
+        XCTAssertFalse(card.label.contains("board"), "the card still says it opens on the board: \(card.label)")
+        shot(app, "chat-with-web-page")
+        card.tap()
+
+        let page = app.webViews["webfile.page"]
+        XCTAssertTrue(page.waitForExistence(timeout: 10), "the web page did not open on the phone")
+        XCTAssertTrue(page.staticTexts["Launch page"].waitForExistence(timeout: 10), "the page's own words are not drawn")
+        XCTAssertFalse(app.buttons["Close"].exists, "the board's navy page opened (its Close bar is on screen)")
+        XCTAssertTrue(app.buttons["Done"].exists && app.staticTexts["Pictures and styles this page loads from elsewhere are not shown."].exists,
+                      "the viewer's Done and its line about blocked loads are missing")
+        sleep(2)   // past the page's one-second refresh, which must not go anywhere
+        shot(app, "web-page-open")
+        XCTAssertEqual(probe.count, baseline, "loading the page reached the network: \(probe.count - baseline) connection(s)")
+        // Tapping a link had WebKit open a connection to its host before the navigation was refused; every link is
+        // inert, including two that try to take it back (an !important rule outside the layer, and an inline one).
+        for name in ["A link away", "A loud link", "An inline link"] {
+            let link = page.links[name].exists ? page.links[name] : page.staticTexts[name]
+            XCTAssertTrue(link.exists, "the page has no \(name)")
+            link.tap()
+            sleep(2)
+            XCTAssertEqual(probe.count, baseline, "tapping \(name) reached the network")
+        }
+        XCTAssertTrue(page.staticTexts["Launch page"].exists, "the page navigated away")
+        sleep(1)
+        XCTAssertEqual(probe.count, baseline, "the page reached the network: \(probe.count - baseline) connection(s); request lines seen in all: \(probe.paths)")
+
+        app.buttons["Done"].tap()
+        let gone = NSPredicate(format: "exists == false")
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation(for: gone, evaluatedWith: page)], timeout: 5), .completed, "Done did not close the page")
+        XCTAssertTrue(card.exists, "CONTROL: back in the chat after Done")
+
+        // An SVG is drawn as a picture: shown, and neither its image nor its link reaches the network.
+        let chart = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Chart.svg")).firstMatch
+        XCTAssertTrue(chart.waitForExistence(timeout: 5), "the SVG's card is not in Cleo's chat")
+        chart.tap()
+        let svg = app.webViews["webfile.page"]
+        XCTAssertTrue(svg.waitForExistence(timeout: 10), "the SVG did not open on the phone")
+        XCTAssertTrue(svg.images.firstMatch.waitForExistence(timeout: 10), "the SVG is not drawn")
+        sleep(1)
+        shot(app, "svg-open")
+        svg.images.firstMatch.tap()
+        sleep(2)
+        XCTAssertEqual(probe.count, baseline, "the SVG reached the network")
+        app.buttons["Done"].tap()
+        probe.listener.cancel()
+    }
+}

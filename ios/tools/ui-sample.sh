@@ -3,8 +3,9 @@
 # tray (AttachMenuUITests), the room title check (RoomTitleUITests), the keyboard (KeyboardSlideUITests), a long
 # room opening on its newest post (RoomOpensAtNewestUITests, #7654), the x on an add (StopAddingUITests, #7682) and the
 # keyboard in that long room (RoomKeyboardUITests, #7690), and the launch screen's hand-over to the Connecting wait
-# (LaunchHandoverUITests, #7945), a sent message settling without a step (SendMovesOnceUITests, #7348), and text-message
-# second-step setup on the phone, not the web page (TextSetupUITests, #8959).
+# (LaunchHandoverUITests, #7945), a sent message settling without a step (SendMovesOnceUITests, #7348), text-message
+# second-step setup on the phone, not the web page (TextSetupUITests, #8959), and a web page opening on the phone while
+# reaching nothing (WebFileUITests, #8953).
 # Run by the ios workflow's "ui tests (sample board)" job, with --uikit by its two "uikit list (sample board) 1/2" and "2/2" jobs (--shard, kosmos#8453), and by
 # hand. Prints PASS, or FAIL with the failing check's own words.
 #
@@ -55,7 +56,7 @@ done
 #   it sets no list by environment, so it runs in this lazy-arm run only).
 # kosmos#8959: TextSetupUITests, "Use text messages instead" opening the number screen (no web page) and back, and the
 #   texted-code and refused-number screens (2 checks).
-classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3 BlankRingUITests:5 SendMovesOnceUITests:3 EndPullUITests:6 NewChatListSwitchUITests:1 WarmReturnChatUITests:3 TextSetupUITests:2"
+classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3 BlankRingUITests:5 SendMovesOnceUITests:3 EndPullUITests:6 NewChatListSwitchUITests:1 WarmReturnChatUITests:3 TextSetupUITests:2 WebFileUITests:1"
 # kosmos#7609: AttachMenuUITests.testTheRowFitsAtTheLargestText skips itself in this run (TEST_RUNNER_KOSMOS_UI_SAMPLE) and is named as skipped.
 #   Alone on a Mac it runs: TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/AttachMenuUITests/testTheRowFitsAtTheLargestText
 # ChatOpensAtNewestUITests is left out of this run: its 260-message chat is too big for a CI runner to query (XCTest

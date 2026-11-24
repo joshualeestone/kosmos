@@ -344,7 +344,7 @@ struct ChatView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             client.dropPreviewImages()
         }
-        .quickLookPreview($previewURL)
+        .filePreview($previewURL)   // kosmos#8953: Quick Look, or WebFileView for a web page
         // Closed: the file it showed is removed from the phone (#7016 review 1).
         .onChange(of: previewURL) { now in
             if let was = openedFile, was != now { client.closed(was); openedFile = now }
@@ -2078,8 +2078,6 @@ struct ChatView: View {
     // One file at a time: a second tap while one is on its way does nothing, so a fetched file is never replaced
     // before it is shown (and removed when it closes).
     private func openFile(_ f: Board.Attachment) {
-        // A page or markup file goes to the board's chat, where the board opens it.
-        if Board.isWebDocument(name: f.name, type: f.type) { openOnBoard(); return }
         guard !fileStates.values.contains(.loading), previewURL == nil else { return }
         fileStates[f.id] = .loading
         let opened = epoch

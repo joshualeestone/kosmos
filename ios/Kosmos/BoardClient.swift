@@ -1363,8 +1363,7 @@ final class BoardClient: ObservableObject {
 
     // The file, fetched from the Mac and saved where Quick Look can open it; nil when it could not be fetched.
     func fetchFile(_ a: Board.Attachment) async -> URL? {
-        // A web page or markup document is never fetched to open here (Board.isWebDocument).
-        guard !Board.isWebDocument(name: a.name, type: a.type) else { return nil }
+        let webDocument = Board.isWebDocument(name: a.name, type: a.type)
         let epoch = chatEpoch
         #if DEBUG
         if let sample = sampleFile(a) { return sample }
@@ -1372,11 +1371,9 @@ final class BoardClient: ObservableObject {
         guard let held = admitted, let request = Board.attachmentRequest(mac: held.url, path: a.url),
               let (data, answer) = await env.send(request), epoch == chatEpoch,
               (200...299).contains(answer.statusCode) else { return nil }
-        // Never a page: the gate's sign-in page can stand in for the file, and a web page in Quick Look could load
-        // from elsewhere. An agent's own HTML file is opened on the board.
-        let answered = ((answer.value(forHTTPHeaderField: "Content-Type") ?? "").split(separator: ";").first.map(String.init) ?? "")
-            .trimmingCharacters(in: .whitespaces)
-        if answered.lowercased().hasPrefix("text/html") || Board.isWebDocument(name: "", type: answered) { return nil }
+        // The gate's sign-in page can stand in for the file (Board.fileAnswerAccepted).
+        guard Board.fileAnswerAccepted(webDocument: webDocument, contentType: answer.value(forHTTPHeaderField: "Content-Type") ?? "",
+                                       disposition: answer.value(forHTTPHeaderField: "Content-Disposition") ?? "") else { return nil }
         let folder = env.files.appendingPathComponent(a.id, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -1623,8 +1620,39 @@ final class BoardClient: ObservableObject {
         guard sampleThreads.values.contains(where: { $0.rows.contains { $0.attachments.contains(a) } }) else { return nil }
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FILE"] == "fail" { return nil }
         let folder = env.files.appendingPathComponent(a.id, isDirectory: true)
-        let file = folder.appendingPathComponent("sample-" + Board.savedName(a.name) + ".txt")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        // kosmos#8953: a web page is written as itself, naming the probe address (KOSMOS_SAMPLE_WEBFILE_PROBE) in every way a
+        // page can load something, so WebFileUITests can show that none of them reaches it.
+        if Board.isWebDocument(name: a.name, type: a.type) {
+            let file = folder.appendingPathComponent(Board.savedName(a.name, type: a.type))
+            let probe = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_WEBFILE_PROBE"] ?? "http://127.0.0.1:9"
+            if Board.webFileKind(name: a.name, type: a.type) == .svg {
+                let svg = """
+                <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="300" height="160" viewBox="0 0 300 160">
+                <image href="\(probe)/svg-image.png" width="10" height="10"/><a xlink:href="\(probe)/svg-link">
+                <rect x="20" y="40" width="60" height="100" fill="#3b82f6"/><rect x="120" y="20" width="60" height="120" fill="#22c55e"/>
+                <rect x="220" y="70" width="60" height="70" fill="#f59e0b"/></a></svg>
+                """
+                try? Data(svg.utf8).write(to: file)
+                return file
+            }
+            let page = """
+            <!doctype html><html><head><meta charset="utf-8">
+            <meta http-equiv="refresh" content="1;url=\(probe)/refresh">
+            <link rel="stylesheet" href="\(probe)/style.css">
+            <style>@import url("\(probe)/import.css"); @font-face { font-family: P; src: url("\(probe)/font.woff"); } body { font: 17px -apple-system; margin: 20px; }</style>
+            <script src="\(probe)/script.js"></script></head><body>
+            <h1>Launch page</h1><p>Sample page for the Debug build, standing in for \(a.name).</p>
+            <img src="\(probe)/img.png" srcset="\(probe)/img2x.png 2x" alt=""><iframe src="\(probe)/frame.html"></iframe>
+            <p><a id="away" href="\(probe)/link">A link away</a></p>
+            <style>@layer early { a { pointer-events: auto !important; } } a.loud { pointer-events: auto !important; }</style>
+            <p><a class="loud" href="\(probe)/loud-link">A loud link</a></p>
+            <p><a href="\(probe)/inline-link" style="pointer-events: auto !important">An inline link</a></p></body></html>
+            """
+            try? Data(page.utf8).write(to: file)
+            return file
+        }
+        let file = folder.appendingPathComponent("sample-" + Board.savedName(a.name) + ".txt")
         try? Data("A sample file (Debug build), standing in for \(a.name).".utf8).write(to: file)
         return file
     }
@@ -1709,7 +1737,11 @@ final class BoardClient: ObservableObject {
         }
         // Cleo's shows the way-through rows: older messages, a file, Kosmos's own line and a question.
         let cleo = #"{"messages":[{"at":"2026-10-22T16:10:00Z","text":"Here is the launch checklist we agreed.","from":"cleo","attachments":[{"id":"5a6d0c1e2f3a4b5c6d7e8f90","name":"Launch checklist.pdf","type":"application/pdf","size":2516582,"kind":"pdf","url":"/api/attachment/5a6d0c1e2f3a4b5c6d7e8f90","preview":"/api/attachment/5a6d0c1e2f3a4b5c6d7e8f90/preview"},{"id":"5a6d0c1e2f3a4b5c6d7e8f91","name":"Press release draft.docx","type":"application/vnd.openxmlformats-officedocument.wordprocessingml.document","size":48211,"kind":"other","url":"/api/attachment/5a6d0c1e2f3a4b5c6d7e8f91","preview":null}]},{"at":"2026-10-22T16:12:00Z","text":"Thanks, I will read it tonight.","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T14:00:00Z","text":"Cleo paused for today's limit. It picks up again at 4:00.","from":null,"kind":"kosmos"},{"at":"2026-10-23T14:05:00Z","text":"Should the launch email go out on Tuesday or Wednesday?","from":"cleo","kind":"question"}],"olderCount":12,"question":{"text":"Should the launch email go out on Tuesday or Wednesday?"},"asking":true,"asked":"Should the launch email go out on Tuesday or Wednesday?","presence":"on","options":[{"n":1,"label":"Tuesday"},{"n":2,"label":"Wednesday"},{"n":3,"label":"Tuesday, and do not ask again for launch emails","lasting":true}]}"#
-        if let t = Board.parseThread(Data(cleo.utf8)) { sampleThreads["cleo"] = t }
+        // kosmos#8953: KOSMOS_SAMPLE_WEBFILE=1 adds a web page to Cleo's first message, opened by WebFileView (WebFileUITests).
+        let cleoFiles = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_WEBFILE"] == "1"
+            ? cleo.replacingOccurrences(of: #""preview":null}]}"#, with: #""preview":null},{"id":"5a6d0c1e2f3a4b5c6d7e8f92","name":"Launch page.html","type":"text/html","size":2048,"kind":"other","url":"/api/attachment/5a6d0c1e2f3a4b5c6d7e8f92","preview":null},{"id":"5a6d0c1e2f3a4b5c6d7e8f93","name":"Chart.svg","type":"image/svg+xml","size":512,"kind":"other","url":"/api/attachment/5a6d0c1e2f3a4b5c6d7e8f93","preview":null}]}"#)
+            : cleo
+        if let t = Board.parseThread(Data(cleoFiles.utf8)) { sampleThreads["cleo"] = t }
         // Eli's shows a permission prompt (#7016): a command that deletes files, with a lasting choice under Show details.
         let eli = #"{"messages":[{"at":"2026-10-23T14:20:00Z","text":"The export folder still holds last week's files.","from":"eli"},{"at":null,"text":"Do you want to proceed?","from":"eli","kind":"question","permission":{"kind":"delete","title":"Bash command","says":"Clear last week's export before the new one","target":"rm -rf exports/2026-10-16","detail":"Bash command\n\n  rm -rf exports/2026-10-16\n  Clear last week's export before the new one","reason":"Commands that delete files always ask first.","allow":1,"deny":3}}],"olderCount":0,"question":{"text":"Do you want to proceed?"},"asking":true,"asked":"Do you want to proceed?","presence":"on","options":[{"n":1,"label":"Yes"},{"n":2,"label":"Yes, and don't ask again for rm commands in this folder","lasting":true},{"n":3,"label":"No, and tell Claude what to do differently"}]}"#
         if let t = Board.parseThread(Data(eli.utf8)) { sampleThreads["eli"] = t }

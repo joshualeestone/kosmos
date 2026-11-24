@@ -2002,6 +2002,57 @@ enum Board {
         return named || markup
     }
 
+    // kosmos#8953: how the phone shows a web page or markup file, now that it is opened here (WebFileView), never on the
+    // board. A page, an SVG and a web archive are drawn by a web view that loads nothing; XML is shown as text; MHTML and
+    // a compressed SVG have no reader on the phone, so they are offered to Share.
+    enum WebFileKind: Equatable { case page, svg, archive, text, unreadable }
+    static func webFileKind(name: String, type: String = "") -> WebFileKind {
+        let ext = (savedName(name, type: type) as NSString).pathExtension.lowercased()
+        switch ext {
+        case "html", "htm", "xhtml", "shtml": return .page
+        case "svg": return .svg
+        case "webarchive": return .archive
+        case "mht", "mhtml", "svgz": return .unreadable
+        case "xml": return .text
+        default:
+            // Named otherwise but typed as markup (isWebDocument's second test): by its type.
+            let t = UTType(mimeType: type.lowercased())
+            if t?.conforms(to: .svg) == true { return .svg }
+            if t?.conforms(to: .webArchive) == true { return .archive }
+            if t?.conforms(to: .html) == true { return .page }
+            return .text
+        }
+    }
+
+    // kosmos#8953: what WebFileView's web view draws for a file: a page as it is, an SVG as a picture (which can neither
+    // load nor link), a web archive's own page. nil when there is nothing to draw.
+    static func inertPage(_ data: Data, kind: WebFileKind) -> Data? {
+        switch kind {
+        case .page: return data
+        case .svg:
+            let wrapper = "<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">"
+                + "<style>html,body{margin:0}img{display:block;max-width:100%;height:auto;margin:16px auto}</style>"
+                + "<img alt=\"\" src=\"data:image/svg+xml;base64," + data.base64EncodedString() + "\">"
+            return Data(wrapper.utf8)
+        case .archive:
+            guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+                  let main = plist["WebMainResource"] as? [String: Any], let html = main["WebResourceData"] as? Data else { return nil }
+            return html
+        case .text, .unreadable: return nil
+        }
+    }
+
+    // kosmos#8953: whether a fetched answer is the file asked for. A page or markup file is taken only when the Mac served
+    // it as a download (`Content-Disposition: attachment`), which every file route of the board sends and a sign-in page
+    // never does; any other file is refused when the answer is a page, as before (the gate's sign-in page can stand in
+    // for it).
+    static func fileAnswerAccepted(webDocument: Bool, contentType: String, disposition: String) -> Bool {
+        let type = (contentType.split(separator: ";").first.map(String.init) ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+        let download = disposition.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("attachment")
+        if webDocument { return download }
+        return !(type.hasPrefix("text/html") || isWebDocument(name: "", type: type))
+    }
+
     // The picture on the card: only an image or a PDF with a preview from the Mac (pjAttachmentCard). An image's preview
     // is the whole image (the Mac's previewFile), so a large one draws the symbol instead of costing megabytes on
     // cellular for a 64 pt square; a PDF's is a drawn first page.
