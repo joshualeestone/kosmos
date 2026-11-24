@@ -108,5 +108,13 @@ check(ea.timeoutInterval == 15, "the app's keeps the usual wait")
 let cf = A.confirmRequest(coordinator: coord, session: "S1", code: "123456")
 check(cf.url?.path == "/v1/second/confirm" && ((try? JSONSerialization.jsonObject(with: cf.httpBody ?? Data())) as? [String: String]) == ["code": "123456"], "confirm sends the code")
 
+// Keeping a renewed session (PushNotificationManager.sessionRenewed's two decisions).
+check(A.renews(old: "S1", fresh: "S2", held: "S1"), "a fresh session replaces the one confirm was sent with")
+check(!A.renews(old: "S1", fresh: "S2", held: "S3"), "not when the sign-in changed meanwhile")
+check(!A.renews(old: "S1", fresh: "S2", held: nil), "not when signed out meanwhile")
+check(!A.renews(old: "S1", fresh: "", held: "S1") && !A.renews(old: "S1", fresh: "S1", held: "S1"), "not an empty or unchanged one")
+check(A.moves(fresh: "S2", keychainNow: "S2"), "the kept state moves once the keychain holds the fresh session")
+check(!A.moves(fresh: "S2", keychainNow: "S1") && !A.moves(fresh: "S2", keychainNow: nil), "not when the keychain refused it")
+
 print(failures == 0 ? "VERDICT: PASS \(total)/\(total)" : "VERDICT: FAIL \(total - failures)/\(total)")
 exit(failures == 0 ? 0 : 1)
