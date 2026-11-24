@@ -5,7 +5,7 @@
 **Finished looks like:** after a Windows Claude agent's process dies and the supervisor starts it again, its card
 reads "Restarted at <local time>: <plain reason>." until a turn on the new process ends without an error; a clean
 stop or a stop with no restart shows nothing; the reason comes from the exit code / signal and the last error result
-#8972 already reads (is_error, never the subtype).
+#8972 (the change for #8967) already reads (is_error, never the subtype).
 
 ## Change
 - engine/win32streamstate.js
@@ -27,7 +27,7 @@ stop or a stop with no restart shows nothing; the reason comes from the exit cod
   the loop is still running, and the death was not a resume finding no conversation (Kosmos's own restart failing).
 - engine/status.js: pane card field `restarted` (restartedOf: Windows Claude pane only, else null); paneless `restarted: null`.
 - web/index.html stateReason: "Restarted at <time>: <why>" (a weekday when not today, a date when 6 days or more ago) for
-  an idle or working card, after the crash-loop, stuck error, unsent and unstarted sentences, before #7368's step.
+  an idle or working card, after the crash-loop, stuck error, unsent and unstarted sentences, after #7368's step, #7212's no-message and #8286's long tool call (each says what to do).
 - docs/browser-checks/render-restarted-8979.js: the pill's hover and hidden text in Chromium and WebKit, desktop and
   phone, with a negative arm.
 - docs/browser-checks/fixtures/agent-card.json: `"restarted": null`.

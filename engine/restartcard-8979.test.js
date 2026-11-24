@@ -120,6 +120,12 @@ test('#8979 a restart no good turn ended is carried through the next process (a 
   r.pub.restarting({ code: 5 });
   r.pub.started(14, 's');
   assert.equal(r.last().restarted.why, 'Claude stopped unexpectedly (exit code 5).', 'a newer death replaces it');
+  /* An `error...` subtype with no is_error is not a good turn. */
+  r.pub.wrote();
+  r.pub.event({ type: 'system', subtype: 'init' });
+  r.pub.event({ type: 'assistant', message: { content: [{ type: 'text' }] } });
+  r.pub.event({ type: 'result', subtype: 'error_max_turns' });
+  assert.ok(r.last().restarted, 'an error subtype does not clear it');
   /* A deliberate stop (no restarting) carries nothing to a later start. */
   r.pub.stopped();
   r.pub.started(15, 's');
@@ -242,6 +248,14 @@ test('#8979 an earlier turn\'s limit or sign-in never names a later crash', () =
   const said = calls.filter((x) => x[0] === 'restarting');
   assert.equal(said.length, 1);
   assert.equal(ss.restartWhy(said[0][1]), 'Claude stopped unexpectedly (exit code 3221225477 = 0xC0000005).');
+  /* A local command's result (no model turn) does not end the limit's story. */
+  const local = run((c) => {
+    c.stdout.emit('data', line({ type: 'system', subtype: 'init' }));
+    c.stdout.emit('data', line(LIMITED));
+    c.stdout.emit('data', line({ type: 'result', subtype: 'success', is_error: false }));
+    c.emit('exit', 1, null);
+  }).calls.filter((x) => x[0] === 'restarting');
+  assert.equal(ss.restartWhy(local[0][1]), 'Claude reached its usage limit.');
   /* CONTROL: the same refusal in the dying turn does name it. */
   const same = run((c) => {
     c.stdout.emit('data', line({ type: 'system', subtype: 'init' }));
@@ -262,8 +276,11 @@ test('#8979 a resume that finds no conversation is not said as the reason', () =
   kids[0].emit('exit', 2, null);
   const f = pending; pending = null; f();
   assert.equal(kids.length, 2, 'precondition: restarted as a resume');
+  kids[1].stdout.readableEnded = false;
+  kids[1].stdout.end = () => { kids[1].stdout.readableEnded = true; kids[1].stdout.emit('end'); };
+  kids[1].emit('exit', 1, null);   // #8967: its error line arrives after exit
   kids[1].stdout.emit('data', line({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['No conversation found with session ID: s'] }));
-  kids[1].emit('exit', 1, null);
+  kids[1].stdout.end();
   h.stop();
   const said = stream.calls.filter((x) => x[0] === 'restarting');
   assert.equal(said.length, 2, JSON.stringify(said));
@@ -307,9 +324,13 @@ test('#8979 the page says "Restarted at <time>: <why>" on an idle or working car
   for (const state of ['idle', 'working']) {
     assert.equal(stateReason({ name: 'Homer', state, restarted }), 'Restarted at ' + clock + ': Claude is not signed in.');
   }
-  assert.notEqual(stateReason({ name: 'Homer', state: 'stopped', restarted }), 'Restarted at ' + clock + ': Claude is not signed in.');
+  assert.doesNotMatch(String(stateReason({ name: 'Homer', state: 'stopped', restarted })), /^Restarted/);
   const crash = stateReason({ name: 'Homer', state: 'idle', restarted, crashLoop: { looping: true, count: 3 } });
   assert.match(crash, /^Kosmos has restarted it 3 times/, 'the crash loop says more');
+  const quiet = stateReason({ name: 'Homer', state: 'idle', restarted, deliveryStall: { since: new Date(Date.now() - 40 * 60e3).toISOString(), words: 'Nothing it was sent reached it', next: 'Open it', count: 2, lastWhy: 'send' } });
+  assert.match(quiet, /^No message has reached Homer/, 'a message that never arrives says what to do, and wins');
+  const step = stateReason({ name: 'Homer', state: 'working', restarted, oneStep: { tool: 'Bash', since: new Date(Date.now() - 20 * 60e3).toISOString() } });
+  assert.match(step, /has been on one step/, 'a long tool call says what to do, and wins');
   const old = new Date(Date.now() - 3 * 86400e3);
   assert.match(stateReason({ name: 'Homer', state: 'idle', restarted: { at: old.toISOString(), why: 'x.' } }),
     new RegExp('^Restarted at ' + old.toLocaleDateString([], { weekday: 'short' }) + ' '), 'another day names the day');

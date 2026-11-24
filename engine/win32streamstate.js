@@ -1092,7 +1092,8 @@ function publisher(name, opts) {
       /* kosmos#8979: a turn on the restarted process that reached the model and ended without an error (the rule that
          clears the sign-in and the limit above) ends the restart's story. */
       let restartCleared = false;
-      if (current.restarted && e && e.type === 'result' && e.is_error !== true && !e.api_error && current.reachedModel === true) {
+      if (current.restarted && e && e.type === 'result' && e.is_error !== true && !e.api_error && current.reachedModel === true
+        && !(typeof e.subtype === 'string' && /^error/.test(e.subtype))) {   // an `error...` subtype is an error, as restartWhy reads it
         current.restarted = null;
         restartCleared = true;
       }
