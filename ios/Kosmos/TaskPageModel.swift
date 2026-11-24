@@ -32,6 +32,10 @@ final class TaskPageModel: ObservableObject {
         refusalSubtasks = nil
         refusalAwaits = false
     }
+    // kosmos#8958 slice B7: the part write in the air, and the line under the parts (who was told, or the Mac's refusal).
+    @Published private(set) var partWriting: Board.PartWrite?
+    @Published private(set) var partSay: String?
+    @Published private(set) var partRefused = false
     // kosmos#8958 slice B1: a message on its way, and the line under the box (who it did not reach, or the refusal).
     @Published private(set) var saying = false
     @Published private(set) var sayLine: String?
@@ -44,6 +48,8 @@ final class TaskPageModel: ObservableObject {
     @Published private(set) var holdSay: String?
     // holdSay is the Mac refusing the press (drawn as Mark as done's refusal is), not a line about the task (review 2).
     @Published private(set) var holdRefused = false
+    // kosmos#8958 slice B7: Choose who, under that line.
+    @Published private(set) var holdChoose = false
     // What the task read as when holdSay was the unhold's next sentence (Board.holdNextSig): the line goes once the task
     // reads otherwise, as the board's repaint takes it down (review 1).
     private var holdSaySig: String?
@@ -192,7 +198,7 @@ final class TaskPageModel: ObservableObject {
                 if refusal == Board.subtasksCloseUnsureUnread { refusal = Board.subtasksCloseUnsure }   // the list is read now
             }
             if let was = refusalSubtasks, was != p.subtasks { clearRefusal() }
-            if let sig = holdSaySig, Board.holdNextSig(p) != sig { holdSay = nil; holdSaySig = nil }
+            if let sig = holdSaySig, Board.holdNextSig(p) != sig { holdSay = nil; holdChoose = false; holdSaySig = nil }
             if let w = repeatSavedAs, p.closed || p.repeatStored.map(Board.repeatWire) != w { repeatSay = nil; repeatSavedAs = nil }
             // Nothing about Repeats outlives the task being finished (the board's tkPaintRepeat, review 2).
             if p.closed && repeatRefused { repeatSay = nil; repeatRefused = false }
@@ -204,7 +210,7 @@ final class TaskPageModel: ObservableObject {
             set(\.readFailed, false)
             syncReceipt()
         case .gone:
-            if holdSaySig != nil { holdSay = nil; holdSaySig = nil }
+            if holdSaySig != nil { holdSay = nil; holdChoose = false; holdSaySig = nil }
             hideUndo()
             set(\.gone, true)
             set(\.readFailed, false)
@@ -276,7 +282,7 @@ final class TaskPageModel: ObservableObject {
         // Not while a hold is out either (review 1): a close landing between a hold's check and its post would answer the
         // hold with the Mac's refusal for a closed task.
         // Nor while a Repeats or reviewer save is out (B3, B3b): its answer would be about a task this press is closing.
-        guard !pressing, !holding, !repeatSaving, reviewerSaving == nil, current, let page, page.act == shown else { return }
+        guard !pressing, !holding, !repeatSaving, reviewerSaving == nil, partWriting == nil, current, let page, page.act == shown else { return }
         pressing = true
         clearRefusal()
         let (project, number) = (self.project, self.number)
@@ -295,7 +301,7 @@ final class TaskPageModel: ObservableObject {
     // both are read again. True when all of them are closed: every close was answered so, or they read so (an answer lost).
     @discardableResult
     func closeWithSubtasks(names: [String: String]) async -> Bool {
-        guard !pressing, !holding, !repeatSaving, reviewerSaving == nil, current, let page, page.allSubtasksBuilt else { return false }
+        guard !pressing, !holding, !repeatSaving, reviewerSaving == nil, partWriting == nil, current, let page, page.allSubtasksBuilt else { return false }
         pressing = true
         closingSubtasks = true
         clearRefusal()
@@ -343,6 +349,49 @@ final class TaskPageModel: ObservableObject {
         if readOK { refusalSubtasks = self.page?.subtasks } else { refusalAwaits = true }
         return false
     }
+
+    // kosmos#8958 slice B7: the board's tkPartPost: one part write, then the task and activity read again and who was told
+    // said. Nothing is sent for a part that already reads so, or is not there. No answer is judged by the read after it.
+    // True when it was made.
+    @discardableResult
+    func writePart(_ write: Board.PartWrite, name: (String) -> String, names: [String: String]) async -> Bool {
+        guard partWriting == nil, !pressing, !holding, !repeatSaving, reviewerSaving == nil, current, let page else { return false }
+        if case .add(let said) = write { if said.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false } } else {
+            guard !Board.partWritten(write, before: page.parts, now: page.parts) else { return false }
+        }
+        partWriting = write
+        partSay = nil
+        partRefused = false
+        let before = page.parts
+        let (project, number) = (self.project, self.number)
+        let answer = await send { Board.partRequest(mac: $0, project: project, number: number, write) }
+        guard current else { return false }
+        let status = answer?.1.statusCode ?? 0
+        let ownRead = pageReads + 1
+        await read()
+        guard current else { return false }
+        let readOK = pageReadOK >= ownRead
+        await readActivity(names: names)
+        guard current else { return false }
+        partWriting = nil
+        if (200...299).contains(status) {
+            partSay = Board.heardLine(answer?.0, name: name)
+            return true
+        }
+        switch Board.unfinished(status: status, body: answer?.0, failed: Board.partFailed) {
+        case .refused(let why): partSay = why
+        case .unsure:
+            if readOK, let now = self.page?.parts, Board.partWritten(write, before: before, now: now) { return true }
+            partSay = Board.partUnsure
+        }
+        partRefused = true
+        return false
+    }
+
+    // Choosing with nobody on the project to choose.
+    func sayNoMembers(_ words: String) { guard partWriting == nil else { return }; partSay = words; partRefused = false }
+    // As the board's Choose who with no members: its line goes, and says where people come from instead.
+    func sayNoMembersOnHold() { holdSay = Board.holdChooseNobody; holdChoose = false; holdSaySig = nil }
 
     // The receipt's read in the air is given up: another is wanted, the task is open, or the page left the screen or the app
     // the front. A read cut short is no failure, and is asked for again on the next read of the task (the Mac goes on working
@@ -528,9 +577,10 @@ final class TaskPageModel: ObservableObject {
     }
 
     func toggleHold(wasOnHold: Bool, names: [String: String]) async {
-        guard !holding, !pressing, current, let page, !page.closed, page.onHold == wasOnHold else { return }
+        guard !holding, !pressing, partWriting == nil, current, let page, !page.closed, page.onHold == wasOnHold else { return }
         holding = true
         holdSay = nil
+        holdChoose = false
         holdSaySig = nil
         holdRefused = false
         if !wasOnHold {
@@ -574,7 +624,8 @@ final class TaskPageModel: ObservableObject {
         if let told = Board.holdAnswerTask(answer?.0, project: project, number: number), let shown = self.page,
            Board.holdNextSig(told, project: shown) == Board.holdNextSig(shown),
            let next = Board.holdNextLine(answer?.0, page: told) {
-            holdSay = next
+            holdSay = next.words
+            holdChoose = next.choose
             holdSaySig = Board.holdNextSig(shown)
         }
         holding = false
@@ -660,7 +711,7 @@ final class TaskPageModel: ObservableObject {
     // hold in flight does not stop it: the board's repeat and hold routes change different fields, and a held task can
     // still repeat. true when the Mac recorded it; then the task and activity are read.
     func saveRepeat(_ wire: Board.RepeatWire, names: [String: String]) async -> Bool {
-        guard !repeatSaving, reviewerSaving == nil, !pressing, current, let page, !page.closed, Board.repeatBody(wire) != nil,
+        guard !repeatSaving, reviewerSaving == nil, !pressing, partWriting == nil, current, let page, !page.closed, Board.repeatBody(wire) != nil,
               page.repeatStored.map(Board.repeatWire) != wire else { return false }
         repeatSaving = true
         repeatSay = nil
@@ -689,7 +740,7 @@ final class TaskPageModel: ObservableObject {
     // true when the Mac recorded it; then the task and activity are read.
     func saveReviewer(_ want: String, names: [String: String]) async -> Bool {
         // Compared with what the choice shows: after a save whose read failed that is the saved reviewer, not the page's.
-        guard reviewerSaving == nil, !repeatSaving, !pressing, current, let page, !page.closed, page.repeatRow != nil,
+        guard reviewerSaving == nil, !repeatSaving, !pressing, partWriting == nil, current, let page, !page.closed, page.repeatRow != nil,
               (reviewerShown ?? page.repeatReviewer) != want else { return false }
         reviewerSaving = want
         reviewerSay = nil

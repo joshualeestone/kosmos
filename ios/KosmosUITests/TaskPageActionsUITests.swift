@@ -214,4 +214,32 @@ final class TaskPageActionsUITests: XCTestCase {
         waitForExpectations(timeout: 10)
         XCTAssertTrue(add.waitForExistence(timeout: 10), "Cancel did not come back to the task")
     }
+    // kosmos#8958 slice B7: a part added, somebody put on it, and it marked done; each read back from the sample Mac.
+    func testAPartIsAddedGivenAndDone() throws {
+        let app = try openTask()
+        let field = app.textFields["Add a part to this task"]
+        for _ in 0..<8 where !(field.exists && field.isHittable) { app.swipeUp() }
+        XCTAssertTrue(field.exists && field.isHittable, "no Add a part")
+        field.tap()
+        field.typeText("Proofread")
+        app.buttons["Add this part"].tap()
+        let words = app.staticTexts["Proofread"]
+        XCTAssertTrue(words.waitForExistence(timeout: 15), "the part is not in the list")
+        let done = app.buttons["Done, Proofread"]
+        XCTAssertTrue(done.waitForExistence(timeout: 10), "no Done on the part")
+        for _ in 0..<4 where !done.isHittable { app.swipeUp() }
+        let menus = app.buttons.matching(NSPredicate(format: "label == %@", "Change who is on this part"))
+        XCTAssertEqual(menus.count, 2, "each part has its menu")
+        shot(app, "parts")
+        menus.element(boundBy: 1).tap()
+        let eli = app.buttons["Eli"]
+        XCTAssertTrue(eli.waitForExistence(timeout: 10), "no members to choose from")
+        shot(app, "who is on it")
+        eli.tap()
+        XCTAssertTrue(app.staticTexts["Told Eli."].waitForExistence(timeout: 15), "it does not say who was told")
+        done.tap()
+        XCTAssertTrue(app.buttons["Put back, Proofread"].waitForExistence(timeout: 15), "the part is not done")
+        XCTAssertEqual(menus.count, 1, "a done part can still be given")
+        shot(app, "part done")
+    }
 }

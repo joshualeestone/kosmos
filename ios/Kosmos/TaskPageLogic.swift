@@ -294,14 +294,14 @@ extension Board.TaskPage {
     }
 
     // One row per part: who (or Nobody yet), the part's own words when they differ from the task's, and the claim line.
-    struct PartLine: Equatable, Identifiable { let id: String; let who: String; let line: String?; let say: String?; let done: Bool }
+    struct PartLine: Equatable, Identifiable { let id: String; let who: String; let line: String?; let say: String?; let done: Bool; var session: String? = nil }
     func partLines(roster: [String: String]) -> [PartLine] {
         parts.map { part in
             PartLine(id: part.id,
                      who: part.who.map { name($0, roster: roster, holds: !closed && !part.closed) } ?? "Nobody yet",
                      line: part.sentence != sentence && !part.sentence.isEmpty ? part.sentence : nil,
                      say: part.id == sayPartId ? claimWords : nil,
-                     done: part.closed)
+                     done: part.closed, session: part.who)
         }
     }
 
@@ -743,11 +743,10 @@ extension Board {
     static let holdAlready = "This is already on hold, so nothing changed."
     static let holdFailed = "We could not change that task."
     static let holdUnreached = "We could not reach Kosmos to change that task."
-    // The board cuts this ask off the unhold route's sentence and puts a Choose who button under it; the phone has no
-    // picker for a task's parts yet, so the ask is cut and holdChooseOnBoard said in its place (review 1: the person is
-    // told where choosing happens, not left at "so it waits for a person.").
+    // The board cuts this ask off the unhold route's sentence and puts a Choose who button under it (slice B7: here too).
     static let holdAssignAsk = " To choose who, assign it now."
-    static let holdChooseOnBoard = " To choose who, open this task on your computer's board."
+    static let holdChoose = "Choose who"
+    static let holdChooseNobody = "Add an agent to this project first, then you can put them on it."
 
     // POST .../task/<n>/hold {onHold}.
     static func taskHoldRequest(mac: URL, project: String, number: Int, onHold: Bool) -> URLRequest? {
@@ -761,10 +760,10 @@ extension Board {
         return hold
     }
 
-    // What the unhold route says next (who gets the task now), or nil: a hold answers with none. Where the board would
-    // show Choose who (the route's closing ask, or a free part beside one somebody is on: its looseBesideHeld), the phone
-    // says to choose on the computer's board instead.
-    static func holdNextLine(_ body: Data?, page: TaskPage? = nil) -> String? {
+    // What the unhold route says next (who gets the task now), or nil: a hold answers with none. `choose` is where the
+    // board shows Choose who: the route's closing ask, or a free part beside one somebody is on (its looseBesideHeld).
+    struct HoldNext: Equatable { let words: String; let choose: Bool }
+    static func holdNextLine(_ body: Data?, page: TaskPage? = nil) -> HoldNext? {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         guard var next = obj?["next"] as? String, !next.isEmpty else { return nil }
         var ask = false
@@ -772,7 +771,7 @@ extension Board {
         let open = page?.parts.filter { !$0.closed } ?? []
         let looseBesideHeld = open.contains { $0.who != nil } && open.contains { $0.who == nil }
         if next.isEmpty { return nil }
-        return ask || looseBesideHeld ? next + holdChooseOnBoard : next
+        return HoldNext(words: next, choose: ask || looseBesideHeld)
     }
 
     // The board's tkHoldNextSig: what the next sentence was read from (open, held or closed, who is on each open part,
@@ -1287,8 +1286,81 @@ extension Board {
     enum CloseStop: Equatable { case refused(String), unsure }
     static func closeStop(status: Int, body: Data?) -> CloseStop? {
         if (200...299).contains(status) { return nil }
+        return unfinished(status: status, body: body, failed: "we could not close it")
+    }
+    static func unfinished(status: Int, body: Data?, failed: String) -> CloseStop {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         if let e = obj?["error"] as? String, !e.isEmpty, status != 0, status != 502, status != 504 { return .refused(e) }
-        return status == 0 || status >= 500 ? .unsure : .refused("we could not close it")
+        return status == 0 || status >= 500 ? .unsure : .refused(failed)
+    }
+}
+
+// MARK: The parts: who is on each, Done and Put back, adding one (kosmos#8958 slice B7: the board's tk-who)
+
+extension Board {
+    enum PartWrite: Equatable { case who(part: String, String?), close(part: String), reopen(part: String), add(String) }
+    static let partNobody = "Nobody yet"
+    static let partAdd = "Add a part"
+    static let partAddLabel = "Add a part to this task"
+    static let partAddMax = 200
+    static let partFailed = "we could not change that"
+    static let partUnsure = "We could not tell whether that went through. Look at the parts before you try again."
+    static let partNoMembers = "Add an agent to this project first, then you can put them on a part."
+    static func partActTitle(done: Bool) -> String { done ? "Put back" : "Done" }
+
+    // POST .../part/<id>/who {who} (null for nobody), .../part/<id>/close, .../part/<id>/reopen, or .../parts {sentence}.
+    // Nothing for an empty part, or a part with no number (the Mac's route takes digits only).
+    static func partRequest(mac: URL, project: String, number: Int, _ write: PartWrite) -> URLRequest? {
+        func route(_ part: String, _ verb: String) -> URL? {
+            guard !part.isEmpty, part.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+            switch verb {
+            case "who": return taskRoute(mac: mac, project: project, number: number, "part/\(part)/who")
+            case "close": return taskRoute(mac: mac, project: project, number: number, "part/\(part)/close")
+            default: return taskRoute(mac: mac, project: project, number: number, "part/\(part)/reopen")
+            }
+        }
+        switch write {
+        case .who(let part, let who): return taskPost(route(part, "who"), ["who": who.map { $0 as Any } ?? NSNull()])
+        case .close(let part): return taskPost(route(part, "close"), [:])
+        case .reopen(let part): return taskPost(route(part, "reopen"), [:])
+        case .add(let said):
+            let words = said.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !words.isEmpty else { return nil }
+            return taskPost(taskRoute(mac: mac, project: project, number: number, "parts"), ["sentence": words])
+        }
+    }
+
+    // Whether the parts read after a write nobody answered show it was made. `before` is the parts it was sent from.
+    static func partWritten(_ write: PartWrite, before: [TaskPart], now: [TaskPart]) -> Bool {
+        switch write {
+        case .who(let id, let who): return now.first { $0.id == id }.map { $0.who == who } ?? false
+        case .close(let id): return now.first { $0.id == id }?.closed == true
+        case .reopen(let id): return now.first { $0.id == id }?.closed == false
+        case .add(let said):
+            let words = said.trimmingCharacters(in: .whitespacesAndNewlines)
+            return now.contains { p in p.sentence == words && !before.contains { $0.id == p.id } }
+        }
+    }
+
+    // The board's heardSentence over spokenHeard: who was told, or why not; nil when nobody was to be.
+    static func heardLine(_ body: Data?, name: (String) -> String) -> String? {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        guard let heard = obj?["heard"] as? [String: Any], let who = heard["who"] as? String, !who.isEmpty else { return nil }
+        switch heard["state"] as? String {
+        case "placed": return "Told " + name(who) + "."
+        case "could_not": return "Could not tell " + name(who) + ": " + sentence(heard["because"] as? String)
+        case "unconfirmed": return "Could not confirm " + name(who) + " saw it: " + sentence(heard["because"] as? String)
+        default: return nil
+        }
+    }
+
+    // The menu on an open part: Nobody yet and the project's members in its order; whoever is on it and is not a member
+    // stays in it, so what it shows is what is stored.
+    struct PartOption: Equatable, Hashable { let value: String?; let words: String }
+    static func partOptions(_ p: TaskPage, session: String?, roster: [String: String]) -> [PartOption] {
+        var agents = p.memberOrder
+        if let s = session, !p.memberSessions.contains(s) { agents.append(s) }
+        return [PartOption(value: nil, words: partNobody)]
+            + agents.map { PartOption(value: $0, words: p.name($0, roster: roster) + (p.memberSessions.contains($0) ? "" : " (left the project)")) }
     }
 }
