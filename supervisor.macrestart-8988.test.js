@@ -36,6 +36,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
+const { killServerAt } = require('./test-support/tmux-kill');
 const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs the supervisor (bin/agent-supervisor.sh) and a real tmux through /bin/bash');
 
 const REPO = __dirname;
@@ -120,7 +121,7 @@ function fixture(tag = '', { lang = 'en_US.UTF-8', slowKill = false } = {}) {
     return JSON.parse(r.stdout);
   };
   const cleanup = () => {
-    tx('kill-server');
+    try { killServerAt(REAL_TMUX, sock, { env, stdio: 'ignore' }); } catch { /* no server, or already gone */ }
     for (const c of kids) if (c.exitCode === null && c.signalCode === null) c.kill('SIGKILL');
     try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
   };

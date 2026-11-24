@@ -57,7 +57,8 @@ const cp = require('node:child_process');
 // Files without "win32" in their name that still speak about Windows behaviour. The engine ones
 // are named bare; root ones carry no prefix. Every test file that branches on a win32 HOST must
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
-const ALSO = ['storecheck-8863.test.js',   // kosmos#8863: the start check and last good copies, after a Windows crash report
+const ALSO = ['macrestart-8988.test.js',   // kosmos#8988: the Mac card's restart reader is plain file reading; only the arm that runs a bash function skips
+  'storecheck-8863.test.js',   // kosmos#8863: the start check and last good copies, after a Windows crash report
   'instructionreread-noticeid-8912.test.js',   // kosmos#8912: the numbered changes-file entries; only the FIFO arm skips (Windows has no mkfifo)
   'attachments-stream-6734.test.js',   // #6734: the store's stream lifecycle (rename/remove after close)
   'tunnelcommand-8378.test.js',   // #8378: a .js connector stand-in really starts through node on Windows
@@ -148,6 +149,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'supervisor.macrestart-8988.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs the supervisor (bin/agent-supervisor.sh) and a real tmux through /bin/bash',
   'server.msg-status-8961.test.js': 'its only win32 branch skips the bash CLI arm, which runs install/kosmos (the Mac and Linux CLI, a bash script) with bash against the board; the route and Windows CLI arms are platform-free but have not been run on Windows, so the file is not listed to run there until they are',
   'server.builtwaiting-8934.test.js': 'its only win32 branch skips the Mac CLI arms: they run install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line from a Kosmos home made with symlinks, which Windows cannot do; its Windows arms drive the Windows CLI through main() with a fake fetch, which needs no Windows host (kosmos#8934)',
   'engine/storecheck-looked-8865.test.js': 'its win32 branch skips the one arm that locks a file and a folder with chmod: Windows does not enforce POSIX file modes, so the locked and unlistable cases cannot be made there; the dismissed and restored arms run everywhere (kosmos#8865)',
