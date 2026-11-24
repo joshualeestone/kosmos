@@ -256,7 +256,8 @@ enum Account {
     static func standingNote(_ data: Data?) -> StandingNote? {
         guard let data, let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let words = obj["standing_note"] as? String, !words.isEmpty else { return nil }
-        return StandingNote(words: words, calm: truthy(obj["standing_note_calm"]))
+        // Review 6: the page's !!standing_note_calm, so a string counts as JavaScript does.
+        return StandingNote(words: words, calm: !standingFalsy(obj["standing_note_calm"]))
     }
 
     // What one /v1/account/me answer does to what is shown (review 3). A 2xx with the account's JSON replaces it; a 401
@@ -278,7 +279,7 @@ enum Account {
         switch v {
         case nil, is NSNull: return true
         case let s as String: return s.isEmpty
-        case let n as NSNumber: return n.doubleValue == 0 || n.doubleValue.isNaN
+        case let n as NSNumber: return n.doubleValue == 0
         default: return false
         }
     }

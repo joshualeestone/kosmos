@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 // (slice B1c) are AccountSecurityLogic.swift, with Apple's passkey sheet in PasskeyMaker.swift.
 struct AccountView: View {
     let coordinator: URL
-    // The account's web page, for what is not here yet (the Kosmos+ address; slice B3).
+    // The account's web page, for what is not here yet (the Kosmos+ address and choosing one; slice B3).
     let openPage: (URL) -> Void
     // This iPhone signs out (the app's own path, PushNotificationManager), with the session that was ended.
     let signedOut: (String) -> Void
@@ -510,9 +510,10 @@ struct AccountView: View {
             }
             .accessibilityIdentifier("account-more")
         } footer: {
-            // Slice B2: only what that page still offers inside the app. It hides billing, the cloud machine and adding a
-            // computer there (CAN_BUY_HERE), so this footer names none of them.
-            Text("Your Kosmos+ address, and choosing one if you have none yet, are on your Kosmos+ account page.")
+            // Slice B2: the page hides billing, the cloud machine and adding a computer inside the app (CAN_BUY_HERE), so
+            // this names none of them. Review 6: it names nothing at all, because what the page shows depends on the account
+            // (the address line only with no computer, the address offer only with no name).
+            Text("Anything not on this screen is on your Kosmos+ account page.")
                 .font(.footnote).foregroundColor(Palette.secondary)
         }
     }

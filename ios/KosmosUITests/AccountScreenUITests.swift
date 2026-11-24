@@ -42,8 +42,8 @@ final class AccountScreenUITests: XCTestCase {
         XCTAssertTrue(app.buttons["account-more"].exists, "no way to the rest of the account")
         // kosmos#8959 slice B2: the footer says only what the in-app page still offers, and nothing on the phone sells.
         // Review 4: the footer may be built a moment after its row, so wait for it.
-        XCTAssertTrue(app.staticTexts["Your Kosmos+ address, and choosing one if you have none yet, are on your Kosmos+ account page."].waitForExistence(timeout: 3),
-                      "the More on Kosmos+ footer does not say what that page offers in the app")
+        XCTAssertTrue(app.staticTexts["Anything not on this screen is on your Kosmos+ account page."].waitForExistence(timeout: 3),
+                      "the More on Kosmos+ footer is not the one that names nothing")
         noSelling(app, "sign out and More on Kosmos+")
         shot(app, "account-sign-out")
         // The plan line sits at the top: scroll back up to it. Review 4: full swipes, up to 25 (a pull to refresh at the
