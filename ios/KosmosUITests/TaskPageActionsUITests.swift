@@ -75,7 +75,8 @@ final class TaskPageActionsUITests: XCTestCase {
         edit.tap()
         let save = app.buttons["Save title and detail"]
         XCTAssertTrue(save.waitForExistence(timeout: 10), "the edit form did not open")
-        let title = app.descendants(matching: .any).matching(NSPredicate(format: "value CONTAINS %@", "Pages 1 to 8")).firstMatch
+        // The form's own field, not the page's title behind the sheet.
+        let title = app.textFields.matching(NSPredicate(format: "value CONTAINS %@", "Pages 1 to 8")).firstMatch
         XCTAssertTrue(title.exists, "the form did not open with the task's title")
         shot(app, "edit form")
         title.tap()

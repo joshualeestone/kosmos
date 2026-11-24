@@ -592,22 +592,19 @@ extension Board {
     static func taskMessageRequest(mac: URL, project: String, number: Int, text: String) -> URLRequest? {
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else { return nil }
-        let say = taskPost(taskRoute(mac: mac, project: project, number: number, "message"), ["text": words])
-        return say
+        return taskPost(taskRoute(mac: mac, project: project, number: number, "message"), ["text": words])
     }
 
     // POST .../task/<n>/due {dueDate}: a calendar date (YYYY-MM-DD), or nil to clear it.
     static func taskDueRequest(mac: URL, project: String, number: Int, due: String?) -> URLRequest? {
         if let due, dueDay(due) == nil { return nil }
-        let due = taskPost(taskRoute(mac: mac, project: project, number: number, "due"), ["dueDate": due.map { $0 as Any } ?? NSNull()])
-        return due
+        return taskPost(taskRoute(mac: mac, project: project, number: number, "due"), ["dueDate": due.map { $0 as Any } ?? NSNull()])
     }
 
     // POST .../task/<n>/text with only what changed (the board's form): nil when nothing did.
     static func taskTextRequest(mac: URL, project: String, number: Int, body: [String: Any]) -> URLRequest? {
         guard !body.isEmpty else { return nil }
-        let edit = taskPost(taskRoute(mac: mac, project: project, number: number, "text"), body)
-        return edit
+        return taskPost(taskRoute(mac: mac, project: project, number: number, "text"), body)
     }
 
     // The day a due date names, read in the person's own calendar (the Mac keeps the date alone, no time zone).
@@ -673,7 +670,8 @@ extension Board {
     }
 
     // #5842 on the board: who a message on the task did NOT reach, one line per agent (its worst outcome when listed
-    // twice), in the page's own sentences. nil when every assignee got it, or the answer had no list.
+    // twice), in the page's own sentences. nil when every assignee got it, or the answer had no list (the board says
+    // nothing then either).
     static func taskSaidLine(_ body: Data?, name: (String) -> String) -> String? {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         guard let all = obj?["delivered"] as? [Any] else { return nil }
