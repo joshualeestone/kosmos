@@ -166,7 +166,8 @@ function status(id, o) {
     const prev = last;
     last = mark;
     if (!(row.at >= sentAt)) { before = mark; continue; }
-    if (mark === 'session') return { ...base, status: STATUS.SESSION_ENDED, sessionAt: iso(row.at) };
+    // A session's stop or restart ends the answer; a turn that had started after the message arrived is named with it.
+    if (mark === 'session') return { ...base, status: STATUS.SESSION_ENDED, sessionAt: iso(row.at), ...(started !== null ? { turnStartedAt: iso(started) } : {}) };
     if (mark === 'start') { if (started === null && (prev === null || prev === 'end' || prev === 'session')) started = row.at; continue; }
     if (mark === 'end') {
       if (started !== null) return { ...base, status: STATUS.READ_NO_ANSWER, turnStartedAt: iso(started), turnEndedAt: iso(row.at) };
@@ -211,6 +212,7 @@ function sentence(s) {
     case STATUS.NOT_YET:
       return who + ' has not started or finished a turn since your message arrived, so it has not read it yet.' + fyi;
     case STATUS.SESSION_ENDED:
+      if (s.turnStartedAt) return who + ' started a turn after your message arrived (' + s.turnStartedAt + '), then its session stopped or restarted at ' + s.sessionAt + ' before it sent you anything by command.';
       return 'The session of ' + who + ' stopped or restarted at ' + s.sessionAt + ' before it answered; your message may not have been read.';
     case STATUS.NOT_DELIVERED:
       if (s.delivery === 'dropped') return 'Message ' + s.id + ' was never typed to ' + who + ': Kosmos kept it, then dropped it' + (s.droppedAt ? ' at ' + s.droppedAt : '') + ', and told you then.';

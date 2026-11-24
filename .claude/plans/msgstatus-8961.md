@@ -78,8 +78,14 @@ the answer unknown unless a whole turn was still seen.
 - Deferred: a held-delivered row with a failed state. The sweep writes that row only for a typed message
   (engine/limitqueue.js flushOnce, onDelivered after placed or unconfirmed); a failed try stays queued and is retried.
 
+## Review changes (iteration 6)
+- A session that stops after a turn started after delivery names that turn in its sentence.
+- The route's two early refusals carry `sentence`, the field both CLIs print, so the board's reason reaches the caller.
+- Deferred: a per-caller rate limit. Each call parses the message log, as every /api/msg send already does (mintId),
+  and the wide history read now happens only for a message older than the short tail.
+
 ## Tests
-- engine/msgstatus-8961.test.js (32, pure; failing control: dropping the between-turns rule fails one)
+- engine/msgstatus-8961.test.js (33, pure; failing control: dropping the between-turns rule fails one)
 - server.msg-status-8961.test.js (7: real server, the bash CLI and the Windows CLI main(), an enforcing board;
   control: removing the bash dispatch fails one)
 - pinned lists updated: server.agent-token-sender-570.test.js, tools/windows-tests.js HOST_BRANCH_EXCLUDED
