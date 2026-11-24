@@ -139,6 +139,18 @@ check(archivedAway.who == nil && archivedAway.parent == nil, "who and Part of, p
 check(NewTask.settled(NewTask.Draft(project: "gone"), picked: "zeta", offered: offered).project == "zeta", "a project gone: the Tasks tab's pick")
 check(NewTask.settled(NewTask.Draft(), picked: "zeta", offered: offered).project == "zeta", "no project yet: the Tasks tab's pick")
 let keptLaunch = NewTask.Draft(project: "launch", what: "Proofread", who: nil, parent: nil)
+// kosmos#8958 slice B6: "+ Add subtask": Project and Part of are the task page's, whatever the draft or the offer says.
+do {
+    let u = NewTask.Under(project: "zeta", number: 7, sentence: "S")
+    var other = NewTask.Draft(project: "alpha", what: "w"); other.done = "d"; other.who = "ann"; other.parent = 3
+    let moved = NewTask.under(other, u)
+    check(moved.project == "zeta" && moved.parent == 7 && moved.who == nil && moved.what == "w" && moved.done == "d", "a draft for another project: aimed at this task, its words kept, who not")
+    var kept = NewTask.Draft(project: "zeta", what: "w"); kept.who = "ann"; kept.parent = 7
+    check(NewTask.under(kept, u) == kept, "this task's kept draft is unchanged, who and all")
+    check(NewTask.under(other, nil) == other, "with no task, the draft as it was")
+    check(NewTask.keepingOffered(kept, members: [], parents: nil).parent == 7, "its Part of is kept when the Tasks list does not offer it (a finished task)")
+    check(NewTask.body(moved)["parent"] as? Int == 7, "and is sent")
+}
 check(NewTask.settled(keptLaunch, picked: nil, offered: offered) == keptLaunch, "All projects: a kept project still offered stays while words are typed")
 check(NewTask.settled(keptLaunch, picked: "zeta", offered: offered) == NewTask.Draft(project: "zeta"), "a project picked in Tasks: the sheet is for it, and a draft for another starts clean (ntAimAt)")
 check(NewTask.settled(keptLaunch, picked: "launch", offered: offered) == keptLaunch, "a project picked in Tasks that is the draft's own: the draft stays")

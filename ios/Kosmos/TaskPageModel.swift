@@ -271,6 +271,33 @@ final class TaskPageModel: ObservableObject {
         pressing = false
     }
 
+    // kosmos#8958 slice B6: the board's "Close them and this task": each built subtask in number order, then this task, through
+    // the route Mark as done uses. The first refusal, or no answer, stops it there. Nothing is sent unless every subtask is
+    // still done or built, as the line said, nor while another press is out. Then both are read again.
+    func closeWithSubtasks(names: [String: String]) async {
+        guard !pressing, !holding, !repeatSaving, reviewerSaving == nil, current, let page, page.allSubtasksBuilt else { return }
+        pressing = true
+        refusal = nil
+        let (project, number) = (self.project, self.number)
+        let built = page.subtasks.filter { $0.status == "Built" }.map(\.number)
+        var stopped: String?
+        for (closed, n) in (built + [number]).enumerated() {
+            let answer = await send { Board.taskActRequest(mac: $0, project: project, number: n, act: .close) }
+            guard current else { return }
+            if let stop = Board.closeStop(status: answer?.1.statusCode ?? 0, body: answer?.0) {
+                if case .refused(let why) = stop { stopped = Board.subtasksStopped(at: closed < built.count ? n : nil, why: why, closed: closed) }
+                else { stopped = Board.subtasksCloseUnsure }
+                break
+            }
+        }
+        await read()
+        await readActivity(names: names)
+        guard current else { return }
+        // Not over a read that found this task closed after all (an answer that was lost).
+        if self.page?.closed != true { refusal = stopped }
+        pressing = false
+    }
+
     // The receipt's read in the air is given up: another is wanted, the task is open, or the page left the screen or the app
     // the front. A read cut short is no failure, and is asked for again on the next read of the task (the Mac goes on working
     // it out meanwhile, and shares it).

@@ -88,6 +88,16 @@ enum NewTask {
         return n
     }
 
+    // kosmos#8958 slice B6: "+ Add subtask": the sheet is for one task, whatever its state, so Project and Part of are fixed.
+    // A draft kept from an earlier opening keeps its words and who.
+    struct Under: Equatable { let project: String; let number: Int; let sentence: String }
+    static func under(_ d: Draft, _ u: Under?) -> Draft {
+        guard let u else { return d }
+        var n = aimed(d, at: u.project)
+        n.parent = u.number
+        return n
+    }
+
     // ntGoState: Create is held down until what needs doing, how you will know it is done, and a project exist.
     static func canCreate(_ d: Draft) -> Bool {
         d.project != nil && !trimmed(d.what).isEmpty && !trimmed(d.done).isEmpty

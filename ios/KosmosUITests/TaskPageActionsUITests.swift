@@ -201,4 +201,22 @@ final class TaskPageActionsUITests: XCTestCase {
         XCTAssertFalse(offer.exists, "the offer is still there after the undo")
         shot(app, "undone")
     }
+    // kosmos#8958 slice B6: Add subtask opens the native New Task sheet for this task, its Project and Part of fixed and shown;
+    // Cancel leaves the page as it was.
+    func testAddSubtaskIsForThisTask() throws {
+        let app = try openTask()
+        let add = app.buttons["Add subtask"]
+        for _ in 0..<8 where !(add.exists && add.isHittable) { app.swipeUp() }
+        XCTAssertTrue(add.exists && add.isHittable, "no Add subtask")
+        add.tap()
+        XCTAssertTrue(app.navigationBars["New task"].waitForExistence(timeout: 10), "New task did not open")
+        let create = app.buttons["Create"]
+        XCTAssertTrue(create.waitForExistence(timeout: 10) && !create.isEnabled, "Create is on with nothing typed")
+        let partOf = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "#4 Pages 1 to 8")).firstMatch
+        for _ in 0..<4 where !partOf.exists { app.swipeUp() }
+        XCTAssertTrue(partOf.waitForExistence(timeout: 10), "Part of is not this task")
+        shot(app, "add subtask")
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(add.waitForExistence(timeout: 10), "Cancel did not come back to the task")
+    }
 }

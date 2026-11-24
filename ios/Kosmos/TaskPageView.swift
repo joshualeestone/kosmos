@@ -4,9 +4,9 @@ import SwiftUI
 // what TaskPageLogic.swift says and does what TaskPageModel.swift does: the board's task page (web/index.html,
 // paintTaskPage) for reading, and its human verbs: Mark as done / Reopen, and (kosmos#8958 slice B1) a message on the
 // task, its due date, and editing its title or detail, (slice B2) Put on hold / Take off hold, and (slice B3) how often
-// it repeats, and (B3b) who is told when a run is missed; (B4) a closed task's receipt; and (B5) undoing its file changes. What this page
-// does not do yet (the hold form, parts, Add subtask, Close them and this task) is on the board's page, one tap away by
-// the info button.
+// it repeats, and (B3b) who is told when a run is missed; (B4) a closed task's receipt; (B5) undoing its file changes; and
+// (B6) its subtasks. What this page does not do yet (the hold form and parts) is on the board's page, one tap away by the
+// info button.
 struct TaskPageRef: Hashable {
     let project: String
     let number: Int
@@ -42,6 +42,11 @@ struct TaskPageView: View {
     @State private var undoOpen = false
     @State private var undoList = Board.UndoPlan(files: [])
     @State private var undoChosen: Set<String> = []
+    // kosmos#8958 slice B6: the Add subtask sheet, its draft and held words (kept while the page is), and the line it leaves.
+    @State private var adding: NewTaskStart?
+    @State private var subDraft = NewTask.Draft()
+    @State private var subHeld: NewTask.Held?
+    @State private var subAdded: String?
 
     init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
         self.client = client
@@ -91,7 +96,14 @@ struct TaskPageView: View {
             // Undone, put back, or read again as something else: the list that was open is about nothing any more.
             .onChange(of: model.undoPlan) { _ in undoOpen = false }
             // Another account or Mac: the list is about nothing, and an undo still out would hold it open.
-            .onChange(of: client.chatEpoch) { _ in undoOpen = false }
+            .onChange(of: client.chatEpoch) { _ in undoOpen = false; adding = nil; subDraft = NewTask.Draft(); subHeld = nil; subAdded = nil }
+            .sheet(item: $adding) { start in
+                NewTaskView(client: client, tasks: client.tasksList, picked: start.picked, draft: $subDraft,
+                            held: $subHeld, heldFound: subFound(in:), added: subLine,
+                            under: model.page.map { NewTask.Under(project: ref.project, number: ref.number, sentence: $0.sentence) })
+            }
+            // The Tasks list read that shows a subtask held after "could not tell", as the Tasks tab's does.
+            .onChange(of: client.tasksList) { read in if let read { subFound(in: read) } }
             // The person in front of it (the board's tkPresent): on screen, the app in front, and a touch (or a key press
             // that reaches the window) in the last two minutes (PresenceProbe); opening the page or coming back counts.
             .background(PresenceProbe { model.touched() })
@@ -262,9 +274,17 @@ struct TaskPageView: View {
                 }
             }
             if p.allSubtasksDone {
-                Text("All subtasks done.").font(.footnote).foregroundColor(Palette.secondary)
+                Text(Board.subtasksDoneLine(unrun: p.subtasksUnrun)).font(.footnote).foregroundColor(Palette.secondary)
             } else if p.allSubtasksBuilt {
-                Text("All subtasks are built. Check each one first.").font(.footnote).foregroundColor(Palette.secondary)
+                Text(Board.subtasksBuiltLine(unrun: p.subtasksUnrun)).font(.footnote).foregroundColor(Palette.secondary)
+                // kosmos#8958 slice B6: the board's tk-subs-closeall.
+                Button { model.touched(); Task { await model.closeWithSubtasks(names: names) } } label: {
+                    Text(Board.subtasksCloseAll).font(.footnote).foregroundColor(Palette.link)
+                        .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil)
+                .accessibilityIdentifier("taskpage.closeall")
             }
             let act = p.act
             Button { model.touched(); Task { await model.press(act, names: names) } } label: {
@@ -316,7 +336,7 @@ struct TaskPageView: View {
         VStack(alignment: .leading, spacing: 4) {
             sectionTitle("Subtasks")
             if p.subtasks.isEmpty {
-                Text("None yet.").font(.footnote).foregroundColor(Palette.secondary)
+                Text(Board.subtasksNone).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
             }
             ForEach(p.subtasks) { s in
                 Button { openSub = s.number } label: {
@@ -336,7 +356,38 @@ struct TaskPageView: View {
                 .accessibilityAddTraits(.isButton)
                 .accessibilityHint("Opens task \(s.number).")
             }
+            // kosmos#8958 slice B6: the board's tk-subadd, on a finished task too.
+            Button {
+                model.touched()
+                subAdded = nil
+                adding = NewTaskStart(picked: ref.project)
+            } label: {
+                Text(Board.subtaskAdd).font(.footnote).foregroundColor(Palette.link)
+                    .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Add subtask")
+            if let line = subAdded { Text(line).font(.footnote).foregroundColor(Palette.secondary) }
         }
+    }
+
+    // The line after a create, and the task read again so its list has the new one (the sheet says the line aloud).
+    private func subLine(_ line: String) {
+        subAdded = line
+        Task { await model.read(); await model.readActivity(names: names); await client.refreshTasks() }
+    }
+
+    // A subtask that got "could not tell" is in a Tasks read: it was made (TasksTab.heldFound).
+    private func subFound(in read: Board.TasksRead) {
+        guard let h = subHeld, let number = NewTask.found(h.sent, in: read, before: h.before) else { return }
+        if NewTask.heldBack(subDraft, by: h) {
+            adding = nil
+            subDraft = NewTask.Draft()
+        }
+        subHeld = nil
+        let line = Board.subtaskAddedLine(number: number)
+        subLine(line)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { UIAccessibility.post(notification: .announcement, argument: line) }
     }
 
     // kosmos#8958 slice B1: the board's tk-editform. Save sends only what changed from the words the form opened with;
