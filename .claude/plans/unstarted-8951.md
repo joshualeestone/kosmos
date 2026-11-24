@@ -50,3 +50,10 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 - Fixed (NIT): the board log says an unstarted report again when it grows (count and lost in its key).
 - Fixed (NIT): the CLI line is counted and says the stopped case apart, as the page does.
 - Mutations red: the lost window, the log key, the ack on clear, the CLI wording. The sweep's one call to unstartedGone is not itself tested; the function is.
+
+## Challenge loop iteration 4 (sonnet)
+- Fixed (WARNING): a card restarting, stopped or missing for a sweep (the Restart its own advice names) read as "cleared", so unstartedGone acked the push away while the report came back. Now it counts a clear only for a card on the board, reading idle or working, with no turn stall (a stuck step's push is still worth waiting on).
+- Fixed (WARNING): `lost` was doing two jobs (wording, and "needs a later write"), and a carried report that was not lost could be ended by the new process's own start. `needsWrite` is now its own flag, set for any report carried from a stopped process; `lost` is wording only.
+- Fixed (NIT): a fresh loss added to an old report inherited its expired hold; it now gets a fresh one.
+- Fixed (NIT): tests for each, plus a check that the sweep calls unstartedGone before acksDue, a few lines apart.
+- Mutations red: needsWrite, the fresh hold, the clear trigger.
