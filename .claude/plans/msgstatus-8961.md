@@ -15,7 +15,7 @@ recipient's words are never relayed.
   reading, maybe_read (a turn already running at delivery ended), not_yet, session_ended, not_delivered, unknown.
 - engine/selfreport.js history(): rows carry `turn: 'start'|'end'` for the report hook's own turn sentences.
 - server.js POST /api/msg/status: caller named as on /api/msg (agent token, else pane; refused on an enforcing board
-  with neither credential). Only the sender or recipient is answered; ids and times only, never the text. In
+  with neither credential). Only the sender is answered; ids and times only, never the text. In
   AGENT_TOKEN_ROUTES so a token-only agent can ask.
 - install/kosmos and tools/windows/kosmos-cli.js: `kosmos msg --status <id>`, printing the board's sentence.
 
@@ -68,8 +68,18 @@ the answer unknown unless a whole turn was still seen.
 - Deferred: an uncited reply keeps status answered. `cites: false` is its own field, and the sentence says it may be
   about something else; no script reads the status today.
 
+## Review changes (iteration 5)
+- Only the sender is answered (every sentence is written to the sender); the recipient gets the same refusal as anyone.
+- The 4 MB read (deferred in iteration 4) is now bounded: the route reads the short tail and widens only when it is
+  cut after the send. Reopened because the summary-overdue read is a sweep, not something a caller sets off.
+- A held reply counts from its held-delivered time.
+- `--status` after another flag is refused in words, in both CLIs.
+- The bash id line anchors on the delivery object.
+- Deferred: a held-delivered row with a failed state. The sweep writes that row only for a typed message
+  (engine/limitqueue.js flushOnce, onDelivered after placed or unconfirmed); a failed try stays queued and is retried.
+
 ## Tests
-- engine/msgstatus-8961.test.js (31, pure; failing control: dropping the between-turns rule fails one)
+- engine/msgstatus-8961.test.js (32, pure; failing control: dropping the between-turns rule fails one)
 - server.msg-status-8961.test.js (7: real server, the bash CLI and the Windows CLI main(), an enforcing board;
   control: removing the bash dispatch fails one)
 - pinned lists updated: server.agent-token-sender-570.test.js, tools/windows-tests.js HOST_BRANCH_EXCLUDED

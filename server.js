@@ -20875,7 +20875,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* kosmos#8961: `kosmos msg --status <id>`: what happened to a direct message (engine/msgstatus.js). The caller is
-     named as on /api/msg (its agent token, else its pane), and only the message's sender or recipient is answered. On
+     named as on /api/msg (its agent token, else its pane), and only the message's sender is answered. On
      an enforcing board a request with neither an agent token nor the board token is refused, as /api/report is: a
      pane id is enumerable. A read: it writes nothing and types nothing. */
   if (pathname === '/api/msg/status' && req.method === 'POST') {
@@ -20899,9 +20899,13 @@ const server = http.createServer(async (req, res) => {
         out = msgstatus.status(body.id, {
           rows: messages.readLog(),
           asker: caller.card.sessionName,
-          /* The longest tail history() reads: a busy agent's heartbeats fill the short one in well under an hour. A
-             synchronous read of up to 4 MB per call, open to any agent with a token, as the summary-overdue read is. */
-          history: (session) => selfreport.history(session, selfreport.HISTORY_MAX_BYTES),
+          /* The short tail first; the longest one (4 MB, read synchronously) only when the short one is cut after the
+             send, since a busy agent's heartbeats fill the short one in well under an hour. */
+          history: (session, sentAt) => {
+            const short = selfreport.history(session);
+            if (!short || short.truncated !== true || (short.length && short[0].at <= sentAt)) return short;
+            return selfreport.history(session, selfreport.HISTORY_MAX_BYTES);
+          },
           sessionOf: (name) => { const card = chat.resolveCard(roster, name); return (card && card.sessionName) || name; },
         });
       } catch { out = { found: false, because: 'we could not read the message record' }; }

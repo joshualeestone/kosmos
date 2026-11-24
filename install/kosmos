@@ -2913,7 +2913,7 @@ _msg_status() {
 # no answer, or not read yet). Silent when the answer carries no id (an older board).
 _say_msg_id() {
   local _mid
-  _mid=$(printf '%s' "${1:-}" | sed -n 's/.*"id":"\(m[123456789][0123456789]*\)".*/\1/p')
+  _mid=$(printf '%s' "${1:-}" | sed -n 's/.*"delivery":{[^}]*"id":"\(m[123456789][0123456789]*\)".*/\1/p')
   [ -n "$_mid" ] && say "Its id is $_mid: kosmos msg --status $_mid says later whether they answered or read it."
   return 0
 }
@@ -2935,6 +2935,7 @@ cmd_msg() {
       --no-reply) no_reply=1; shift ;;
       --in-reply-to) in_reply_to="${2:-}"; shift 2 2>/dev/null || { say "Usage: --in-reply-to needs a message id, like m12"; exit 2; }; case "$in_reply_to" in ''|--*) say "Usage: --in-reply-to needs a message id, like m12"; exit 2 ;; esac ;;
       --in-reply-to=*) in_reply_to="${1#--in-reply-to=}"; case "$in_reply_to" in ''|--*) say "Usage: --in-reply-to needs a message id, like m12"; exit 2 ;; esac; shift ;;
+      --status|--status=*) say "--status is its own command, with nothing before it: kosmos msg --status <message id>"; exit 2 ;;   # kosmos#8961
       *) break ;;
     esac
   done
