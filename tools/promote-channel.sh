@@ -156,7 +156,7 @@ esac
 # that verification. On 0.8.19 (11-23) a wrapper script forced on its own whenever a gate held, and the log claimed a hand
 # check nobody had done. Checked here, before anything is read or written, so no wrapper can skip it.
 if [ "$FORCE" = 1 ]; then
-  _hc="$(printf '%s' "$HAND_CHECK" | tr -s '[:space:]' ' ' | tr -d '[:cntrl:]' | sed 's/^ //; s/ $//')"
+  _hc="$(printf '%s' "$HAND_CHECK" | tr '[:space:]' ' ' | tr -d '[:cntrl:]' | tr -s ' ' | sed 's/^ //; s/ $//')"
   [ "${#_hc}" -ge 20 ] || { echo "promote-channel: --force needs --hand-check \"<what you checked on this build, and how>\" (20 or more characters): --force promotes past a gate that could not tell, on a hand check, so name the check you did. Nothing was written." >&2; exit 1; }
   HAND_CHECK="$_hc"
 else
@@ -886,8 +886,8 @@ if [ "$FAMILY" != win ] && [ "${PLUS_UNVERIFIED:-0}" = 1 ]; then
   PLUS_LOG="${PLUS_LOG_DIR:+$PLUS_LOG_DIR/promote-plus-unverified.log}"
   PLUS_HOST="$(hostname -s 2>/dev/null)"; [ -n "$PLUS_HOST" ] || PLUS_HOST=unknown
   if [ -n "$PLUS_LOG" ] && mkdir -p "$PLUS_LOG_DIR" 2>/dev/null \
-     && { printf '%s\thost=%s\tversion=%s\tsha256=%s\tforce=%s\tfirst Kosmos+ sign-in NOT verified; promoted per #3940 (Josh 2026-09-26)\treason=%s\n' \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PLUS_HOST" "$(printf '%s' "$V" | tr '\t\n' '  ')" "$(printf '%s' "$SHA" | tr '\t\n' '  ')" "$FORCE" "$PLUS_REASON" >> "$PLUS_LOG"; } 2>/dev/null; then
+     && { printf '%s\thost=%s\tversion=%s\tsha256=%s\tforce=%s\tfirst Kosmos+ sign-in NOT verified; promoted per #3940 (Josh 2026-09-26)\treason=%s\thand_check=%s\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PLUS_HOST" "$(printf '%s' "$V" | tr '\t\n' '  ')" "$(printf '%s' "$SHA" | tr '\t\n' '  ')" "$FORCE" "$PLUS_REASON" "${HAND_CHECK:-none}" >> "$PLUS_LOG"; } 2>/dev/null; then
     echo "promote-channel: recorded in $PLUS_LOG (on this machine, $PLUS_HOST)" >&2
   else
     echo "promote-channel: WARNING could not append to ${PLUS_LOG:-the unverified-promote log (no HOME and no KOSMOS_PLUS_VERIFY_DIR)}; the promote happened and this output is the only record." >&2

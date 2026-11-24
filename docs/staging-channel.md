@@ -86,7 +86,8 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    board-reachability gate passing, and (c) the agent-spawn gate passing. Either gate: exit 1
    (provably broken) refuses and is **not** `--force`able; exit 2 (cannot-tell -- e.g. the dev box,
    a provider not signed in, or a board not running the version being promoted) **HOLDS**,
-   `--force`able only after a hand check. After a forced cannot-tell from the board gate, the agent
+   `--force`able only after a hand check, named with `--hand-check "<what you checked>"` (20 or more
+   characters; it is printed beside every gate `--force` passes, kosmos#8960). After a forced cannot-tell from the board gate, the agent
    gate's result is printed with a note that it is not a check of that version (same board). The agent gate's
    exit 3 (Claude online, OpenAI/Codex arm failed) also HOLDS but is `--force`able and prints
    which arm failed -- a routed decision (ship the Claude fix + gating now and chase the codex

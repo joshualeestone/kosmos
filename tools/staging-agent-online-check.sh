@@ -671,7 +671,7 @@ else
     0) say "PASS: both a Claude and an OpenAI agent came ONLINE and answered a first message. The #2129 agent-spawn class is not present in this build."; exit 0 ;;
     1) say "PARTIAL: the CLAUDE arm is ONLINE (the #2129 fix works), but the OpenAI/Codex arm FAILED to come online."
        say "  This may be a SEPARATE codex-spawn issue that #2129 does not fix - NOT a reason to auto-hold the whole promote."
-       say "  Surface to the operator with WHICH arm failed; the Claude fix + OpenAI gating are shippable. Promote is a routed decision (--force after a ruling)."
+       say "  Surface to the operator with WHICH arm failed; the Claude fix + OpenAI gating are shippable. Promote is a routed decision (--force --hand-check \"<the ruling and what you checked>\" after a ruling)."
        exit 3 ;;
     *) say "CANNOT-TELL: the CLAUDE arm is ONLINE but the OpenAI arm could not be determined (board/create error, shape mismatch). HOLD."
        exit 2 ;;
