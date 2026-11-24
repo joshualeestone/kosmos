@@ -5,8 +5,8 @@ import SwiftUI
 // paintTaskPage) for reading, and its human verbs: Mark as done / Reopen, and (kosmos#8958 slice B1) a message on the
 // task, its due date, and editing its title or detail, (slice B2) Put on hold / Take off hold, and (slice B3) how often
 // it repeats, and (B3b) who is told when a run is missed; (B4) a closed task's receipt; (B5) undoing its file changes; and
-// (B6) its subtasks; and (B7) who is on each part, Done and Put back, and adding one; and (B8) what a hold waits for and
-// why. What this page does not do yet (when it is done, and what it waits to wake on) is on the board's page, one tap away by the info button.
+// (B6) its subtasks; (B7) who is on each part, Done and Put back, and adding one; (B8) what a hold waits for and why; and (B9)
+// when it is done and what it waits to wake on. That is all the board's page has, so there is no way out to it from here.
 struct TaskPageRef: Hashable {
     let project: String
     let number: Int
@@ -15,7 +15,6 @@ struct TaskPageRef: Hashable {
 struct TaskPageView: View {
     @ObservedObject var client: BoardClient
     let ref: TaskPageRef
-    let openPage: (URL) -> Void
     @StateObject private var model: TaskPageModel
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -56,10 +55,9 @@ struct TaskPageView: View {
     @State private var holdDraft: Board.HoldChoice?
     @State private var holdBase: Board.HoldChoice?
 
-    init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
+    init(client: BoardClient, ref: TaskPageRef) {
         self.client = client
         self.ref = ref
-        self.openPage = openPage
         #if DEBUG
         var send: TaskPageModel.Send = { [weak client] build in await client?.throughMac(build) }
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { send = Self.sampleSend }
@@ -84,17 +82,6 @@ struct TaskPageView: View {
             .navigationTitle("Task \(ref.number)")
             .navigationBarTitleDisplayMode(.inline)
             .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    // Not for a task the computer no longer has: its board page would be gone too.
-                    if !model.gone {
-                    Button { if let url = client.taskURL(project: ref.project, number: ref.number) { openPage(url) } } label: {
-                        Image(systemName: "info.circle")
-                    }
-                    .accessibilityLabel("Open this task on your computer's board")
-                    }
-                }
-            }
             .background(subLink)
             .sheet(isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) { editSheet }
             .sheet(isPresented: Binding(get: { undoOpen }, set: { if !$0 { undoOpen = false; model.leaveUndo() } }), onDismiss: {
@@ -207,6 +194,7 @@ struct TaskPageView: View {
     private func pageBody(_ p: Board.TaskPage) -> some View {
         VStack(alignment: .leading, spacing: 20) {
             header(p)
+            if !p.checks.isEmpty || !p.movedHere.isEmpty { checksBlock(p) }
             doneBlock(p)
             if let hold = p.hold { holdBlock(p, hold) }
             dueBlock(p)
@@ -272,6 +260,43 @@ struct TaskPageView: View {
             }
             .font(.footnote).foregroundColor(Palette.secondary)
         }
+    }
+
+    // kosmos#8958 slice B9: the board's tk-donewhen-row: each check with what an agent says about it, and the checks of other
+    // tasks that moved here. Written by agents and only read here, as on the board.
+    private func checksBlock(_ p: Board.TaskPage) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !p.checks.isEmpty {
+                sectionTitle(Board.checksTitle)
+                ForEach(Array(p.checks.enumerated()), id: \.offset) { i, c in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("\(i + 1).").font(.body).foregroundColor(Palette.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: c.words).font(.body).foregroundColor(Palette.primary).fixedSize(horizontal: false, vertical: true)
+                            Text(verbatim: p.checkSays(c, roster: roster)).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+                            if let n = c.movedTo { taskLink("Moved to task \(n)", n) }
+                        }
+                    }
+                }
+            }
+            if !p.movedHere.isEmpty {
+                sectionTitle(Board.movedHereTitle)
+                ForEach(Array(p.movedHere.enumerated()), id: \.offset) { _, m in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(verbatim: m.words).font(.body).foregroundColor(Palette.primary).fixedSize(horizontal: false, vertical: true)
+                        taskLink("Check \(m.check) of task \(m.from), reported not met there", m.from)
+                    }
+                }
+            }
+        }
+    }
+    private func taskLink(_ words: String, _ n: Int) -> some View {
+        Button { openSub = n } label: {
+            Text(words).font(.footnote).foregroundColor(Palette.link).fixedSize(horizontal: false, vertical: true)
+                .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens task \(n).")
     }
 
     // The one act the person owns, with what it does not do said above it, and the Mac's refusal under it.
@@ -959,8 +984,13 @@ struct TaskPageView: View {
                     .foregroundColor(Tasks.repeatMissed(row).isEmpty ? Palette.secondary : Palette.dangerWord)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("taskpage.repeat.line")
-                reviewerRow(p)
             }
+            // kosmos#8958 slice B9: the board's tk-wake-line, here as there.
+            if let wake = p.wakeLine {
+                Text(wake).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("taskpage.wake")
+            }
+            if p.repeatRow != nil { reviewerRow(p) }
         }
         // The stored rule moved (another device, an agent): a draft it now equals is dropped, and a daily edit's other
         // times follow it.
@@ -1342,7 +1372,7 @@ struct TaskPageView: View {
         if path.hasSuffix("/projects") {
             body = #"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","paused":false,"agents":[{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"tasks":["#
                 + #"{"number":3,"sentence":"Print-ready catalogue","addedBy":"operator","addedVia":"screen","createdAt":""# + iso(4000) + #"",\#(closed(3, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":null,"sentence":"Print-ready catalogue"}]},"#
-                + #"{"number":4,"sentence":"# + Self.jsonString(titleNow[4] ?? "Pages 1 to 8") + #","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","# + (dueNow[4].map { $0.isEmpty ? "" : #""dueDate":"# + Self.jsonString($0) + "," } ?? #""dueDate":"2026-10-30","#) + (repeatNow[4].map { #""repeat":"# + $0.rule + #","repeatWords":"# + Self.jsonString($0.words) + "," } ?? "") + #""builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(holdNow)\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":["# + partsNow + #"],"claim":{"claimed":true,"about":"dana"}},"#
+                + #"{"number":4,"sentence":"# + Self.jsonString(titleNow[4] ?? "Pages 1 to 8") + #","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","# + (dueNow[4].map { $0.isEmpty ? "" : #""dueDate":"# + Self.jsonString($0) + "," } ?? #""dueDate":"2026-10-30","#) + (repeatNow[4].map { #""repeat":"# + $0.rule + #","repeatWords":"# + Self.jsonString($0.words) + "," } ?? "") + #""builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check","doneWhen":["Every caption matches the price sheet","The proofs are signed off"],"doneWhenResults":[{"met":true,"how":"checked all eight pages","by":"dana"},{"met":false,"how":"eli has the proofs","by":"dana","movedTo":8}],"wakeWords":"waits for PR #12 in acme/catalogue to merge",\#(holdNow)\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":["# + partsNow + #"],"claim":{"claimed":true,"about":"dana"}},"#
                 + #"{"number":8,"sentence":"Pages 9 to 12","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2800) + #"",\#(closed(8, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 9 to 12"}]}"#
                 + #"]}]}"#
         } else if path.contains("/part"), path.hasSuffix("/who"),
@@ -1385,6 +1415,6 @@ struct TaskPageView: View {
         NavigationLink(isActive: subOpen, destination: subDestination, label: { EmptyView() }).hidden()
     }
     @ViewBuilder private func subDestination() -> some View {
-        if let n = openSub { TaskPageView(client: client, ref: TaskPageRef(project: ref.project, number: n), openPage: openPage) }
+        if let n = openSub { TaskPageView(client: client, ref: TaskPageRef(project: ref.project, number: n)) }
     }
 }

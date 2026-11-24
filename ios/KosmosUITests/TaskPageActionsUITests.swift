@@ -214,6 +214,27 @@ final class TaskPageActionsUITests: XCTestCase {
         waitForExpectations(timeout: 10)
         XCTAssertTrue(add.waitForExistence(timeout: 10), "Cancel did not come back to the task")
     }
+    // kosmos#8958 slice B9: the checks with what an agent says of each, the task one moved to (opened, and what moved to it said
+    // there), and the wake line; and nothing on the page opens the board.
+    func testDoneWhenAndTheWakeLine() throws {
+        let app = try openTask()
+        let first = app.staticTexts["Every caption matches the price sheet"]
+        for _ in 0..<6 where !(first.exists && first.isHittable) { app.swipeUp() }
+        XCTAssertTrue(first.exists && app.staticTexts["Dana says met: checked all eight pages"].exists, "the first check, and what Dana says")
+        XCTAssertTrue(app.staticTexts["Dana says not met: eli has the proofs"].exists, "the second")
+        XCTAssertFalse(app.buttons["Open this task on your computer's board"].exists, "the page still opens the board")
+        shot(app, "done when")
+        let wake = app.staticTexts["Waits for PR #12 in acme/catalogue to merge."]
+        for _ in 0..<6 where !(wake.exists && wake.isHittable) { app.swipeUp() }
+        XCTAssertTrue(wake.exists, "no wake line")
+        shot(app, "wake line")
+        let moved = app.buttons["Moved to task 8"]
+        for _ in 0..<8 where !(moved.exists && moved.isHittable) { app.swipeDown() }
+        moved.tap()
+        XCTAssertTrue(app.navigationBars["Task 8"].waitForExistence(timeout: 15), "the task it moved to did not open")
+        XCTAssertTrue(app.buttons["Check 2 of task 4, reported not met there"].waitForExistence(timeout: 10), "what moved here is not said there")
+        shot(app, "moved here")
+    }
     // kosmos#8958 slice B8: put on hold, then what it waits for and why are set here and read back from the sample Mac.
     func testAHoldSaysWhatItWaitsForAndWhy() throws {
         let app = try openTask()

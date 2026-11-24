@@ -299,11 +299,9 @@ let otherProject = Tasks.nest([row(5, "working", project: "a"), row(6, "working"
 check(otherProject.map(\.depth) == [0, 0], "a parent number in another project is not this one's parent")
 check(Board.parseTasks(Data(#"{"tasks":[{"projectId":"p","number":2,"state":"working","parent":1,"parentSentence":"Big one"}]}"#.utf8))?.tasks.first.map { ($0.parent, $0.parentSentence) }.map { $0.0 == 1 && $0.1 == "Big one" } == true, "parent and its sentence are read")
 
-section("a row, spoken and opened")
+section("a row, spoken")
 check(Tasks.spoken(built, line: "Marked built by Rex 2 hours ago", projectShown: true) == "Task 1. Launch. Marked built by Rex 2 hours ago.", "one element: title, project, line")
 check(Tasks.spoken(ask, line: "a\nb", projectShown: false) == "Task 1. a b.", "a two-line row reads as one, with no project when the header names it")
-let url = Tasks.taskPageURL(board: URL(string: "https://studio.kosmosplus.com")!, project: "book a", number: 7)
-check(url?.absoluteString == "https://studio.kosmosplus.com/?project=book%20a&task=7", "the board's task page, by ?project=&task=")
 
 section("kosmos#7797 item 1: a question no task carries")
 let askJSON = #"{"rosterUnreadable":false,"tasks":[{"projectId":"p1","projectName":"Launch","number":1,"sentence":"Pick","state":"decision","waitingOn":[{"who":"ada","reason":"question"}]}],"askingWithoutTask":[{"who":"max","projectId":"p1","projectName":"Launch","projectPath":["Book A"],"waitingSince":""# + iso(180) + #""},{"who":"zoe","projectId":null,"waitingSince":null}]}"#

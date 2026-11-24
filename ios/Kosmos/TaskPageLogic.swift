@@ -94,6 +94,12 @@ extension Board {
         var closedUnrun = false
         // kosmos#8958 slice B8: the hold as it is kept, on a held, open task (nil on any other).
         var hold: TaskHold? = nil
+        // kosmos#8958 slice B9: the checks that say when it is done, and those of other tasks that say they moved here; what it
+        // waits for (kosmos task wake), or woke on; and how it was closed, in the board's words.
+        var checks: [TaskCheck] = []
+        var movedHere: [MovedCheck] = []
+        var wakeLine: String? = nil
+        var closedHow: String? = nil
     }
 
     enum TaskPageRead: Equatable {
@@ -180,6 +186,14 @@ extension Board {
         page.memberOrder = memberOrder
         if closed { page.receiptKey = closedAt ?? rawParts.compactMap { text($0["closedAt"]) }.max() ?? "" }
         page.closedUnrun = t["closedUnrun"] as? Bool == true
+        page.checks = checkResults(t)
+        page.movedHere = tasks.flatMap { x -> [MovedCheck] in
+            guard let n = integer(x["number"]), n != number else { return [] }
+            return checkResults(x).enumerated().compactMap { i, c in c.movedTo == number ? MovedCheck(from: n, check: i + 1, words: c.words) : nil }
+        }.sorted { ($0.from, $0.check) < ($1.from, $1.check) }
+        if !closed { page.wakeLine = wakeSentence(t) }
+        // Not of one whose commit the Mac's last check found missing (kosmos#8555).
+        if closed, t["landedCheck"] as? String != "missing" { page.closedHow = closedHowWords(t["closedHow"]) }
         if page.onHold && !closed { page.hold = taskHold(t, number: number, tasks: tasks, closed: isClosed) }
         return .page(page)
     }
@@ -199,6 +213,7 @@ extension Board.TaskPage {
     // tkStateWord, and the built words after it.
     var stateWord: String {
         if closed, let r = replacedBy { return "Replaced by task \(r)" }
+        if closed && closedUnrun { return Board.closedNotRun }
         if partsTotal > 1 { return "\(partsDone) of \(partsTotal) parts done" }
         return closed ? "Done" : "Open"
     }
@@ -215,6 +230,7 @@ extension Board.TaskPage {
             let who = builtByPerson ? "you" : builtBy.map { name($0, roster: roster) } ?? ""
             line += ", marked built" + (who.isEmpty ? "" : " by " + who) + Tasks.builtWaitsWords(builtWaitingOn) + (builtNote.map { ": " + $0 } ?? "")
         }
+        if let closedHow { line += ", " + closedHow }
         if !replaces.isEmpty {
             line += (line.last.map { ".!?".contains($0) } == true ? " " : ". ") + "Replaces " + replaces.map { "task \($0)" }.joined(separator: ", ")
         }
@@ -1032,6 +1048,71 @@ extension Board.TaskPage {
         f.timeZone = calendar.timeZone
         f.setLocalizedDateFormatFromTemplate("EEEdMMMjmm")
         return f.string(from: at)
+    }
+}
+
+// MARK: When it is done, and what it waits for (kosmos#8958 slice B9: the board's tk-donewhen-row and tk-wake-line)
+
+extension Board {
+    // One check, and what an agent said about it (tkCheckResults): nil while nobody has.
+    struct TaskCheck: Equatable {
+        let words: String
+        var met: Bool? = nil
+        var how = ""
+        var by: String? = nil
+        var movedTo: Int? = nil
+    }
+    // A check of another task, reported not met there because its part moved to this one (kosmos#8668).
+    struct MovedCheck: Equatable { let from: Int; let check: Int; let words: String }
+    static let checksTitle = "Done when"
+    static let movedHereTitle = "Moved here from other tasks"
+    static let checkUnreported = "Not reported yet"
+    static let closedNotRun = "Closed, not run"
+
+    static func checkResults(_ t: [String: Any]) -> [TaskCheck] {
+        let stored = t["doneWhenResults"] as? [Any] ?? []
+        return (t["doneWhen"] as? [Any] ?? []).enumerated().map { i, raw in
+            var c = TaskCheck(words: raw as? String ?? "\(raw)")
+            guard i < stored.count, let r = stored[i] as? [String: Any], let met = r["met"] as? Bool, let how = r["how"] as? String else { return c }
+            c.met = met
+            c.how = how
+            c.by = (r["by"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            if !met, let n = integer(r["movedTo"]), n > 0 { c.movedTo = n }
+            return c
+        }
+    }
+    // tskWakeSentence, from the board's words (engine/taskwake.js fieldsOf); nil for none.
+    static func wakeSentence(_ t: [String: Any]) -> String? {
+        func text(_ v: Any?) -> String? { (v as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        let nobody = t["wakeNobody"] as? Bool == true
+        if let words = text(t["wakeWords"])?.trimmingCharacters(in: .whitespacesAndNewlines), let first = words.first {
+            return first.uppercased() + words.dropFirst() + (words.last.map { ".!?".contains($0) } == true ? "" : ".")
+                + (text(t["wakeProblem"]).map { " Not checked just now: " + $0 + "." } ?? "")
+                + (nobody ? " Nobody holds this task, so nobody will be told until someone does." : "")
+        }
+        if let met = text(t["wakeMetWords"]) {
+            return "Woke: " + met + "." + (nobody ? " Nobody holds this task, so nobody has been told."
+                : text(t["wakeToldAt"]) == nil ? " Its holder is still to be told."
+                : t["wakeReached"] as? Bool == true ? " Its holder was told." : " Its holder could not be reached.")
+        }
+        return nil
+    }
+    // tkClosedHowWords, of the engine's own word (kosmos#8552).
+    static func closedHowWords(_ how: Any?) -> String? {
+        switch how as? String {
+        case "change": return "with a change"
+        case "note": return "on a note"
+        case "unbuilt": return "without being marked built"
+        default: return nil
+        }
+    }
+}
+
+extension Board.TaskPage {
+    // What an agent says about a check, and the task its part moved to (the page links that one).
+    func checkSays(_ c: Board.TaskCheck, roster: [String: String]) -> String {
+        guard let met = c.met else { return Board.checkUnreported }
+        return (c.by.map { name($0, roster: roster) } ?? "An agent") + " says " + (met ? "met" : "not met") + ": " + c.how
     }
 }
 

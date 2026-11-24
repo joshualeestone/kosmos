@@ -74,7 +74,7 @@ struct TodayView: View {
         NavigationLink(isActive: taskOpen, destination: taskDestination, label: { EmptyView() }).hidden()
     }
     @ViewBuilder private func taskDestination() -> some View {
-        if let ref = openTask { TaskPageView(client: client, ref: ref, openPage: openPage) }
+        if let ref = openTask { TaskPageView(client: client, ref: ref) }
     }
     private func openOnBoard(_ agent: Board.Agent) {
         if let url = client.chatURL(for: agent) { openPage(url) }

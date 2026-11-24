@@ -1497,6 +1497,44 @@ do {
 }
 await b8ModelTests()
 
+section("#8958 slice B9: when it is done, and what it waits to wake on")
+do {
+    let pageURL = here.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("web/index.html")
+    let html = (try? String(contentsOf: pageURL, encoding: .utf8)) ?? ""
+    for words in ["function tkCheckResults", "'Done when' : 'Moved here from other tasks'", "'Not reported yet'", "'An agent') + ' says ' + (r.met ? 'met' : 'not met') + ': '", "'Moved to '", "', reported not met there: '",
+                  "return 'Closed, not run';", "how === 'change' ? 'with a change' : how === 'note' ? 'on a note' : how === 'unbuilt' ? 'without being marked built'",
+                  "' Not checked just now: '", "' Nobody holds this task, so nobody will be told until someone does.'", "'Woke: '", "' Nobody holds this task, so nobody has been told.'", "' Its holder is still to be told.'",
+                  "' Its holder was told.'", "' Its holder could not be reached.'"] { check(html.contains(words), "the board says: \(words)") }
+    check([Board.checksTitle, Board.movedHereTitle, Board.checkUnreported, Board.closedNotRun] == ["Done when", "Moved here from other tasks", "Not reported yet", "Closed, not run"], "and so does the phone")
+    func one(_ own: String, others: String = "") -> Board.TaskPage? { synthetic(#"{"number":1,"sentence":"S"\#(own)}\#(others)"#) }
+    let four = one(#","doneWhen":["A","B","C","D","E"],"doneWhenResults":[{"met":true,"how":"seen","by":"dana"},{"met":false,"how":"later.","by":"gus","movedTo":3},null,{"met":true,"how":"x","movedTo":3},{"met":false,"how":"y","by":""}]"#)
+    check(four?.checks.map(\.words) == ["A", "B", "C", "D", "E"] && four?.checks.map(\.movedTo) == [nil, 3, nil, nil, nil], "each check in order; only one not met can have moved")
+    check(four?.checks.map { four!.checkSays($0, roster: roster) } == ["Dana says met: seen", "Gus says not met: later.", "Not reported yet", "An agent says met: x", "An agent says not met: y"], "and what is said of it, by whom")
+    check(one(#","doneWhen":["A","B"],"doneWhenResults":[{"met":"yes","how":"x"},{"met":true}]"#)?.checks.map(\.met) == [nil, nil] && one(#","doneWhen":["A","B"],"doneWhenResults":[]"#)?.checks.map(\.met) == [nil, nil], "a result it cannot read is not reported")
+    check(one(#","doneWhen":["A"],"doneWhenResults":[{"met":false,"how":"x","movedTo":0}]"#)?.checks.first?.movedTo == nil, "nor is a task number that cannot be one")
+    check(one("")?.checks == [] && one(#","doneWhen":[]"#)?.checks == [] && one(#","doneWhenResults":[{"met":true,"how":"x"}]"#)?.checks == [], "no checks: none")
+    let moved = one("", others: #",{"number":9,"doneWhen":["N1","N2"],"doneWhenResults":[null,{"met":false,"how":"x","movedTo":1}]},{"number":4,"doneWhen":["F1","F2","F3"],"doneWhenResults":[{"met":false,"how":"x","movedTo":1},{"met":false,"how":"x","movedTo":2},{"met":false,"how":"x","movedTo":1}]}"#)
+    check(moved?.movedHere == [Board.MovedCheck(from: 4, check: 1, words: "F1"), Board.MovedCheck(from: 4, check: 3, words: "F3"), Board.MovedCheck(from: 9, check: 2, words: "N2")], "those moved here, by task and check")
+    check(one(#","doneWhen":["A"],"doneWhenResults":[{"met":false,"how":"x","movedTo":1}]"#)?.movedHere == [], "never its own")
+    // The wake line.
+    func wake(_ own: String) -> String? { one(own)?.wakeLine }
+    check(wake(#","wakeWords":"waits for PR #1 in a/b to merge""#) == "Waits for PR #1 in a/b to merge.", "what it waits for, as a sentence")
+    check(wake(#","wakeWords":" waits until Friday. ","wakeProblem":"GitHub did not answer","wakeNobody":true"#) == "Waits until Friday. Not checked just now: GitHub did not answer. Nobody holds this task, so nobody will be told until someone does.", "why it was not checked, and that nobody holds it")
+    check(wake("") == nil && wake(#","wakeWords":"""#) == nil && wake(#","wakeNobody":true"#) == nil, "none: nothing")
+    let woke = #","wakeMetWords":"PR #1 in a/b: it was merged""#
+    check(wake(woke + #","wakeToldAt":"2026-11-24T15:00:00.000Z","wakeReached":true"#) == "Woke: PR #1 in a/b: it was merged. Its holder was told.", "it woke, and its holder was told")
+    check(wake(woke + #","wakeToldAt":"2026-11-24T15:00:00.000Z""#)?.hasSuffix(" Its holder could not be reached.") == true && wake(woke)?.hasSuffix(" Its holder is still to be told.") == true
+          && wake(woke + #","wakeNobody":true,"wakeToldAt":"2026-11-24T15:00:00.000Z""#)?.hasSuffix(" Nobody holds this task, so nobody has been told.") == true, "or not, or not yet, or there is nobody")
+    check(wake(#","wakeWords":"waits for x","progress":{"closed":true}"#) == nil, "a finished task says none")
+    // How it was closed.
+    let shut = #","closedAt":"2026-11-24T15:00:00.000Z""#
+    check(one(shut + #","closedHow":"change""#)?.stateLine(roster: [:]) == "Done, with a change" && one(shut + #","closedHow":"note""#)?.stateLine(roster: [:]) == "Done, on a note" && one(shut + #","closedHow":"unbuilt""#)?.stateLine(roster: [:]) == "Done, without being marked built", "how it was closed")
+    check(one(shut + #","closedHow":"odd""#)?.stateLine(roster: [:]) == "Done" && one(shut + #","closedHow":"change","landedCheck":"missing""#)?.stateLine(roster: [:]) == "Done" && one(shut + #","closedHow":"change","landedCheck":"landed""#)?.stateLine(roster: [:]) == "Done, with a change", "not a word it cannot read, nor of a commit found missing")
+    check(one(#","closedHow":"change""#)?.stateLine(roster: [:]) == "Open", "an open task was not closed any way")
+    check(one(shut + #","closedUnrun":true"#)?.stateLine(roster: [:]) == "Closed, not run" && one(#","closedUnrun":true"#)?.stateLine(roster: [:]) == "Open" && one(shut + #","closedUnrun":true,"replacedBy":3"#)?.stateLine(roster: [:]) == "Replaced by task 3", "closed, not run; replaced before it")
+    check(one(shut + #","closedUnrun":true,"progress":{"done":2,"total":2,"closed":true}"#)?.stateLine(roster: [:]) == "Closed, not run", "and before the parts' count")
+}
+
 @MainActor
 func b8ModelTests() async {
     var clock = Tasks.parseISO("2026-11-24T18:00:30.000Z")!
