@@ -190,3 +190,19 @@ test('no readable start and no gap seen: idle counts only after the minimum wait
   assert.deepEqual(await d.pickup('mara', '/h/mara.md'), { ok: true });
   assert.ok(Date.now() - t0 >= 75, 'typed before the minimum wait, on a status that may not have caught up');
 });
+
+test('at the deadline a new session that cannot take a turn (out of usage) is not typed to', async (t) => {
+  const sent = recordSends(t);
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  t.after(() => board.restore());
+  let state = 'idle';
+  let start = Date.now() - 60 * 60 * 1000;
+  const d = server._moveHandoffDepsForTest({ roster: () => [{ sessionName: 'mara', isNamedOurs: true, state }],
+    startedAt: async () => start, readyWaitMs: 40, pollMs: 5 });
+  await d.ask('mara');
+  sent.length = 0;
+  start = Date.now();
+  state = 'rate_limited';
+  assert.deepEqual(await d.pickup('mara', '/h/mara.md'), { ok: false });
+  assert.equal(sent.length, 0);
+});

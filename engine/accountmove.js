@@ -58,9 +58,10 @@ function handoffWords(h, restarted = true) {
   if (h.saved) {
     if (!restarted) return ' It wrote a handoff first; when it starts again, tell it to read its handoff.';   // review 1: no new session yet
     if (h.pickup === false) return ' It wrote a handoff first, but we could not point its new session at it: tell it to read its handoff.';
-    // Review 2: said before the pickup answers, so it says what will happen; the record is rewritten if it fails.
+    // Review 2/4: before the pickup answers, the sentence's own "picks up from its handoff once its new session is up"
+    // says what will happen; the record is rewritten when it answers.
     if (h.pickup === true) return ' It wrote a handoff first, and its new session is pointed at it.';
-    return ' It wrote a handoff first, and its new session will be pointed at it once it is up.';
+    return ' It wrote a handoff first.';
   }
   if (h.asked) return restarted ? ' It did not write its handoff in time, so its new session starts without one.'
     : ' It did not write its handoff in time.';   // review 3: no new session when it was not restarted
@@ -159,8 +160,17 @@ async function saveFirst(deps, name, stopped) {
   const askMs = Number.isFinite(h.askMs) ? h.askMs : 30000;
   let askTimer = null;
   const slow = new Promise((resolve) => { askTimer = setTimeout(() => resolve({ asked: false, why: 'we could not reach it.' }), askMs); if (askTimer && typeof askTimer.unref === 'function') askTimer.unref(); });
-  try { asked = await Promise.race([Promise.resolve(h.ask(name)), slow]); } catch { asked = { asked: false, why: 'we could not reach it.' }; }
+  let real;
+  try { real = Promise.resolve(h.ask(name)); } catch (err) { real = Promise.reject(err); }
+  try { asked = await Promise.race([real, slow]); } catch { asked = { asked: false, why: 'we could not reach it.' }; }
   finally { clearTimeout(askTimer); }
+  /* Review 4: an ask that answers after its bound may still have been typed, into this session or the next one, telling
+     it the restart comes as soon as it writes. It gets the line that is true either way. */
+  if (asked && asked.why === 'we could not reach it.' && asked.asked !== true) {
+    real.then((late) => {
+      if (late && late.asked === true && typeof h.maybeRestarted === 'function') { try { Promise.resolve(h.maybeRestarted(name, null)).catch(() => {}); } catch { /* best effort */ } }
+    }, () => {});
+  }
   if (!asked || asked.asked !== true) return { asked: false, saved: false, why: (asked && asked.why) || 'we could not reach it.' };
   const waitMs = Number.isFinite(h.waitMs) ? h.waitMs : HANDOFF_WAIT_MS;
   const pollMs = Number.isFinite(h.pollMs) ? h.pollMs : HANDOFF_POLL_MS;

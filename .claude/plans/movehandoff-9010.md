@@ -54,6 +54,14 @@ reaches fewer agents (about 25 busy ones); the automatic mover moves one per tic
 - NOT changed: the pickup's { cap: false } (a Gemini working-at-once cap is a person's; an automatic move skips it as
   #3492's pickup does): noted.
 
+## Review 4 (sonnet): no BLOCKER
+- At the deadline a busy new session is typed to, but never one that cannot take a turn (out of usage, signed out).
+- An ask that answers after its 30 s bound may still have been typed: it gets the line true either way.
+- The shell CLI's fallback for a bad wait value is 450 too; both CLIs' loop comments name the handoff.
+- Before the pickup answers, the handoff clause says only "It wrote a handoff first" (the sentence already says it
+  picks up once its session is up).
+- KNOWN: on Windows a status still showing the old session busy then idle passes as the gap #3492's wait looks for.
+
 ## Rejected
 - Asking an agent that is out of usage: it cannot take a turn to write anything, and the usage mover moves exactly such
   agents. It is moved at once, and the move says why no handoff was asked for.

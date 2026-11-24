@@ -3362,7 +3362,8 @@ async function agentMove(ctx, args) {
   let a = (Array.isArray(first.agents) ? first.agents : [])[0] || {};
   let outcome = a.outcome || (first.outcome === 'refused' ? 'refused' : '');
   let because = a.because || first.because || first.error || '';
-  /* Each agent restarts in turn; a restart can take minutes (remove.restartAsync caps itself at 300 s). Review 2: the
+  /* Each agent restarts in turn; a restart can take minutes (remove.restartAsync caps itself at 300 s), after the handoff
+     the move asks for first (kosmos#9010: up to 30 s to ask and 120 s to write). Review 2: the
      wait is bounded by time, not by tries (a read that times out costs 15 s). */
   if (outcome === 'pending' && !first.id) outcome = 'unknown';   // review 4: a pending answer with no move id cannot be followed
   const t0 = ctx.now();
