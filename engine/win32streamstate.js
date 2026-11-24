@@ -106,6 +106,9 @@ const REPORT_HOLD_MS = 2 * 60 * 1000;
 const LOST_WINDOW_MS = 10 * 1000;
 /* kosmos#8951: the most message records kept per process (a turn's result removes the ones it ran); far past any real queue. */
 const MSGS_MAX = 500;
+/* kosmos#8951 review 13: a write whose callback comes this soon after a main turn opened on no message is that turn's
+   opener (the bytes reached the agent before the callback said so). */
+const OPEN_RACE_MS = 1000;
 
 function stateDir() { return path.join(store.ROOT, 'win32-state'); }
 /* Same key the rest of the store uses, so this agent's state, pipe, token and
@@ -746,6 +749,9 @@ function publisher(name, opts) {
        message starting late. One carried from a process that stopped (`needsWrite`, lost or not: review 4) needs a later
        write: the process that took it in is gone, so no turn here can be it. */
     if (current.needsWrite === true && current.wroteAfterReport !== true) return;   // review 4: carried, whether lost or not
+    /* Review 13: a report the deadline made on this process ends once its messages have started (a late start), not on
+       any turn: a wake-up or a newer message is not them. */
+    if (current.needsWrite !== true && current.msgs.some((m) => m.reported === true && m.startedAt === null)) return;
     /* Review 5: from here the messages are known to have run. Marked now, so a stop during the hold does not carry a report
        whose messages ran, and a new report on this process starts clean. */
     current.reportRan = true;
@@ -765,9 +771,19 @@ function publisher(name, opts) {
       if (m.afterReport === true && current.unstarted) current.wroteAfterReport = true;
     }
   }
+  /* kosmos#8951 review 13: over the cap, drop what is finished first (started, or already reported), the oldest of
+     those; only then the oldest record. */
+  function trimMsgs() {
+    while (current.msgs.length > MSGS_MAX) {
+      const i = current.msgs.findIndex((m) => m.startedAt !== null || m.reported === true);
+      current.msgs.splice(i >= 0 ? i : 0, 1);
+    }
+  }
   /* Review 5: every field of a report goes together, so none is left behind to change how the next report ends. */
   function endReport() {
     current.unstarted = null;
+    /* Review 13: messages this report covered that never started leave with it, so they cannot hold a later report open. */
+    current.msgs = current.msgs.filter((m) => !(m.reported === true && m.startedAt === null));
     current.reportAt = null;
     current.wroteAfterReport = false;
     current.needsWrite = false;
@@ -832,8 +848,12 @@ function publisher(name, opts) {
     const prev = current.unstarted;
     /* Review 10: the messages not started are the report now, and leave the list, so a later stop never counts them
        again and none of them can count as a later write. */
-    const waiting = current.msgs.filter((m) => m.startedAt === null);
-    current.msgs = current.msgs.filter((m) => m.startedAt !== null);
+    /* Review 13: kept in the list, marked reported, so a late start is matched to them and not credited to a newer
+       message; never counted again at a stop (they are in the report). */
+    const waiting = current.msgs.filter((m) => m.startedAt === null && m.reported !== true);
+    for (const m of waiting) m.reported = true;
+    current.mainTurnOpen = false;   // it reads idle now: the next main event opens a turn
+    current.emptyOpenAt = null;
     const fresh = Math.max(1, waiting.length);
     const count = (prev && Number.isInteger(prev.count) ? prev.count : 0) + fresh;
     const since = [prev && prev.since, waiting.length ? waiting[0].since : null, due.at].filter((x) => typeof x === 'string').sort()[0];
@@ -861,7 +881,7 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, needsWrite: false, reportRan: false, clearArmedFor: null, msgs: [] };
+      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, needsWrite: false, reportRan: false, clearArmedFor: null, msgs: [], mainTurnOpen: false, emptyOpenAt: null };
       /* kosmos#8951: messages the previous process took in and never ran are this agent's still: said on the new
          process's record, so its card says so, until a turn starts. */
       const lost = lostOnStop;
@@ -895,12 +915,15 @@ function publisher(name, opts) {
       if (opens) current.opened = true;
       if (opens || (e && e.type === 'result' && current.opened === true)) {
         current.startDue = null;
-        /* Review 10, 11: a turn that opens while no message is under way opens on the OLDEST message ready for one (written
-           into an idle agent, or left waiting when the last turn ended): measured above, each message is its own turn, never
-           batched. The rest start at their own turn, or join this one when its calls return. A wake-up opens on none. */
-        if (opens && !current.msgs.some((m) => m.startedAt !== null)) {
-          const first = current.msgs.find((x) => x.startedAt === null && x.ready === true);
-          if (first) startMsgs([first]);
+        /* Review 10, 11, 13: the first main-agent event since the last result opens a turn, on the OLDEST message ready for
+           one (written while no main turn was open, or left waiting when the last turn ended) or already reported (a late
+           start of a reported message is that message's, not a newer one's). Measured above, each message is its own turn,
+           never batched. The rest start at their own turn, or join this one when its calls return. A wake-up opens on none,
+           and its time is kept for a write whose callback comes just after (review 13). */
+        if (opens && !current.mainTurnOpen) {
+          current.mainTurnOpen = true;
+          const first = current.msgs.find((x) => x.startedAt === null && (x.ready === true || x.reported === true));
+          if (first) { startMsgs([first]); current.emptyOpenAt = null; } else current.emptyOpenAt = nowMs();
         }
         reportRan();
       }
@@ -931,9 +954,11 @@ function publisher(name, opts) {
         /* kosmos#8951 review 10: the messages this turn ran are done; any still waiting are taken at this boundary and must
            open a turn of their own by the deadline (review 1 W1). A result before any turn opened (B1) changes nothing. */
         if (current.opened === true) {
+          current.mainTurnOpen = false;   // review 13
+          current.emptyOpenAt = null;
           current.msgs = current.msgs.filter((m) => m.startedAt === null);
           for (const m of current.msgs) m.ready = true;
-          if (current.msgs.length) armStart();
+          if (current.msgs.some((m) => m.reported !== true)) armStart();   // reported ones are already said
         }
       }
       /* kosmos#7368 (review 1): ANY event while busy is activity, so the step clock is the last sign of life, not the
@@ -994,17 +1019,23 @@ function publisher(name, opts) {
       /* kosmos#8951 review 10: each message is its own record: when it was written, whether it may open the next turn
          (written into an idle agent; one written behind a turn waits for its boundary), when it started, and whether it was
          written after a report (only such a message starting can end a carried report: reviews 1 and 6). */
-      current.msgs.push({ since: new Date(nowMs()).toISOString(), ready: current.state !== BUSY, startedAt: null, afterReport: !!current.unstarted });
-      if (current.msgs.length > MSGS_MAX) current.msgs.splice(0, current.msgs.length - MSGS_MAX);
+      /* Review 13: whether a MAIN turn is open decides it, not the busy state (a background subagent's event sets busy with
+         no main turn open). And a turn that opened on no message a moment before this write's callback is this message's:
+         the write reached the agent before the callback said so. */
+      const open = current.mainTurnOpen === true;
+      const opener = open && Number.isFinite(current.emptyOpenAt) && nowMs() - current.emptyOpenAt <= OPEN_RACE_MS
+        && !current.msgs.some((m) => m.startedAt !== null);
+      const m = { since: new Date(nowMs()).toISOString(), ready: !open, startedAt: null, afterReport: !!current.unstarted };
+      current.msgs.push(m);
+      if (current.msgs.length > MSGS_MAX) trimMsgs();
+      if (opener) { startMsgs([m]); current.emptyOpenAt = null; }
       current.lastWriteAt = nowMs();   // review 3: whether a death soon after is this message's doing
       /* kosmos#7368: written into a busy agent, it waits for the agent's next boundary; into an idle one, it starts the turn. */
-      if (current.state === BUSY) current.queued = (current.queued || 0) + 1;
-      else {
-        setState(BUSY);
-        /* kosmos#8951: into an idle agent it must start a turn; if no sign of one arrives by the deadline, it is reported
-           rather than left reading busy. */
-        armStart();
-      }
+      if (current.state === BUSY) { if (!opener) current.queued = (current.queued || 0) + 1; }
+      else setState(BUSY);
+      /* kosmos#8951: with no main turn open it must start one; if no sign of one arrives by the deadline, it is reported
+         rather than left reading busy. */
+      if (!open && !current.startDue) armStart();   // the first unstarted write's deadline covers those behind it
       current.reachedModel = false;
       current.authRefused = false;   // #7369
       flush();
@@ -1016,13 +1047,14 @@ function publisher(name, opts) {
          anything written since. */
       /* Review 5: a report whose messages are known to have run (still on its hold) is not carried: they ran. */
       const carried = was && was.unstarted && was.reportRan !== true ? was.unstarted : null;
-      if (was && (carried || was.msgs.length)) {
+      if (was && (carried || was.msgs.some((m) => m.reported !== true))) {
         /* Reviews 7 to 10: each message on its own clock. One that started (opened or joined a turn) within LOST_WINDOW_MS
            of this stop died with the process, and is what stopped it (the 11-23 order, turn first or not, is not known);
            one that started earlier ran as far as it got and is not counted; one not started never ran. */
         const now = nowMs();
-        const died = was.msgs.filter((m) => m.startedAt !== null && now - m.startedAt <= LOST_WINDOW_MS);
-        const notRun = was.msgs.filter((m) => m.startedAt === null);
+        /* Review 13: reported ones are in the carried report already, so they are not counted here. */
+        const died = was.msgs.filter((m) => m.reported !== true && m.startedAt !== null && now - m.startedAt <= LOST_WINDOW_MS);
+        const notRun = was.msgs.filter((m) => m.reported !== true && m.startedAt === null);
         const mine = died.concat(notRun);
         const t = died.length ? died : null;
         const w = notRun.length ? notRun : null;
@@ -1060,4 +1092,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { startedAt, STEP_CLOCK_MS, START_DEADLINE_MS, LOST_WINDOW_MS, REPORT_HOLD_MS, unstartedFor, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
+module.exports = { startedAt, STEP_CLOCK_MS, START_DEADLINE_MS, LOST_WINDOW_MS, REPORT_HOLD_MS, MSGS_MAX, unstartedFor, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
