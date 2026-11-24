@@ -615,3 +615,33 @@ test('#7367: stamps unknown at entry and the file repaired DURING the read is ca
   try { await receipt.forTask(project, task, { now: settled }); } finally { taskchat.read = realRead; fs.writeFileSync(pf, '[]'); }
   assert.equal(fs.existsSync(kept), false, 'unknown at entry: not kept');
 });
+
+test('kosmos#8999: accounts sharing one projects folder through a link are read once; an account with its own folder is still read', async () => {
+  const project = 'p' + (++pn);
+  const lin = worker('lin');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'lin' }, { at: '12:00', kind: 'closed' }]);
+  const d = claudeDir(lin);
+  const row = (at, o) => JSON.stringify({ type: 'assistant', timestamp: T(at), message: { model: 'claude-sonnet-5-5', role: 'assistant', usage: use(0, o), content: [] } });   // no message id: nothing else would stop a second count
+  fs.writeFileSync(path.join(d, 's1.jsonl'), row('10:05', 7) + '\n');
+  const shared = path.join(SB, '.claude-two');
+  fs.mkdirSync(shared, { recursive: true });
+  fs.symlinkSync(path.join(SB, '.claude', 'projects'), path.join(shared, 'projects'));
+  const own = path.join(SB, '.claude-three', 'projects', path.basename(d));
+  fs.mkdirSync(own, { recursive: true });
+  fs.writeFileSync(path.join(own, 's2.jsonl'), row('10:06', 30) + '\n');
+  const was = {};
+  for (const v of ['AGENT_WORKFORCE_CONFIG_ROOT', 'CLAUDE_CONFIG_DIR', 'HOME']) was[v] = process.env[v];
+  /* The real rule, every .claude and .claude-* folder of the home, with the home inside this file's own sandbox. */
+  process.env.HOME = SB;
+  delete process.env.AGENT_WORKFORCE_CONFIG_ROOT;
+  delete process.env.CLAUDE_CONFIG_DIR;
+  try {
+    const under = receipt.transcriptDirs(lin).filter((x) => fs.existsSync(x));
+    assert.equal(under.length, 3, 'control: three account folders hold the agent\'s transcripts, two of them one folder: ' + under.join(', '));
+    const r = await receipt.forTask(project, { number: 1, closedAt: T('12:00') }, { now: ms('12:01') });
+    assert.deepEqual([r.agents[0].models['claude-sonnet-5-5'].output_tokens, r.agents[0].transcriptsRead, r.agents[0].transcriptsWithWork], [37, 2, 2]);
+  } finally {
+    for (const v of Object.keys(was)) if (was[v] === undefined) delete process.env[v]; else process.env[v] = was[v];
+    fs.unlinkSync(path.join(shared, 'projects'));
+  }
+});
