@@ -562,10 +562,11 @@ struct TaskPageView: View {
     // in its session), once per missed run. Saved on change, as the board's; while it is out, the choice sent shows.
     private func reviewerRow(_ p: Board.TaskPage) -> some View {
         let options = Board.reviewerOptions(p, roster: roster)
-        let shown = model.reviewerSaving ?? p.repeatReviewer
+        let shown = model.reviewerSaving ?? model.reviewerShown ?? p.repeatReviewer
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Text("If missed, tell").font(.footnote).foregroundColor(Palette.secondary)
+                // Hidden from VoiceOver: the menu's own label says it, so it is not read twice.
+                Text("If missed, tell").font(.footnote).foregroundColor(Palette.secondary).accessibilityHidden(true)
                 Picker("Who is told if a run is missed", selection: Binding(get: { shown }, set: { want in
                     model.touched()
                     Task { await model.saveReviewer(want, names: names) }

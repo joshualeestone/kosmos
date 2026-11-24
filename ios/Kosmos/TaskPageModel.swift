@@ -47,6 +47,11 @@ final class TaskPageModel: ObservableObject {
     @Published private(set) var reviewerSay: String?
     @Published private(set) var reviewerRefused = false
     private var reviewerSavedAs: String?
+    // A reviewer the Mac recorded when the read after it failed: shown until a read of the page succeeds, so the choice
+    // does not jump back to the old reviewer under "Saved." (as the Repeats controls keep what was saved).
+    @Published private(set) var reviewerShown: String?
+    // Successful page reads, counted, so a save can tell whether its own read landed.
+    private var pageReadsOK = 0
     // The title and detail being saved, and the line for the last save (the board's tk-msg for the form).
     // Like `pressing`, saying, dueSaving and editSaving stay set when the epoch moves mid-request: the page is then about
     // nothing.
@@ -137,6 +142,9 @@ final class TaskPageModel: ObservableObject {
         guard !Task.isCancelled, current, mine == pageShown else { return }
         switch parsed {
         case .page(let p):
+            pageReadsOK += 1
+            // Only when set: assigning a published value redraws the page, and a quiet tick must redraw nothing.
+            if reviewerShown != nil { reviewerShown = nil }
             // A refusal is about the press it answered: once the task reads otherwise (another device did it), it goes.
             if refusal != nil, let was = page, was.act != p.act { refusal = nil }
             if p != page { page = p }
@@ -426,7 +434,9 @@ final class TaskPageModel: ObservableObject {
             reviewerSaving = nil
             return false
         }
+        let readsBefore = pageReadsOK
         await read()
+        if pageReadsOK == readsBefore { reviewerShown = want }
         await readActivity(names: names)
         guard current else { return false }
         reviewerSay = Board.repeatSaved

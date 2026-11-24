@@ -20,3 +20,12 @@ Stacked on B3 (taskrepeat-8958); rebased onto main once B1, B2 and B3 merge.
   are read and "Saved." said, retired when the stored reviewer reads as something else or the task finishes.
 - TaskPageView: the "If missed, tell" menu under the repeat line; the choice shown is the stored one, or the one
   being saved while it is out.
+
+## Review decisions
+- A reviewer the Mac recorded when the read after it failed stays shown (reviewerShown) until a read of the page
+  succeeds, as the Repeats controls keep what was saved; the board instead repaints from its stale read.
+- The visible "If missed, tell" is hidden from VoiceOver; the menu's label says it.
+
+## Tests
+- ios/LogicTests/taskpage: B3b section and b3bModelTests, 311/311 with B3's. Every guard and the shown-after-a-failed-read
+  line go red when removed.

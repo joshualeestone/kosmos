@@ -1144,6 +1144,17 @@ do {
     }
     let rule: [String: Any] = ["every": "hour"]
     check(page(3)?.repeatReviewer == "none" && page(3)?.memberOrder == ["dana", "eli"], "no reviewer reads as none; members in the project's order")
+    do {
+        var doc = (try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any]) ?? [:]
+        var projs = doc["projects"] as? [[String: Any]] ?? []
+        var agents = projs.first?["agents"] as? [[String: Any]] ?? []
+        if let first = agents.first { agents.append(first) }
+        if !projs.isEmpty { projs[0]["agents"] = agents }
+        doc["projects"] = projs
+        if let d = try? JSONSerialization.data(withJSONObject: doc), case .page(let twice) = Board.parseTaskPage(d, project: "springcatalogue", number: 3) {
+            check(twice.memberOrder == ["dana", "eli"], "an agent listed twice is one choice")
+        } else { check(false, "a page with an agent listed twice") }
+    }
     check(pageWith(["repeat": rule, "repeatReviewerPerson": true])?.repeatReviewer == "me", "the person as reviewer reads as me")
     check(pageWith(["repeat": rule, "repeatReviewer": "eli"])?.repeatReviewer == "eli", "an agent as reviewer reads as its session")
     if let pg = pageWith(["repeat": rule, "repeatReviewer": "eli"]) {
@@ -1302,11 +1313,38 @@ func b3bModelTests() async {
     mac.projects = (200, with(["repeat": rule, "repeatReviewer": "eli"]))
     await m.read()
     check(m.reviewerSay == nil, "Saved. goes once the reviewer is changed elsewhere")
+    // Recorded, but the read after it failed: the choice keeps showing what was saved until a read succeeds.
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    mac.projects = (500, Data())
+    let unread = await m.saveReviewer("dana", names: nm)
+    check(unread && m.reviewerSay == Board.repeatSaved && m.reviewerShown == "dana" && m.page?.repeatReviewer == "eli",
+          "a save whose read failed: Saved., and the choice shows what was saved, not the old reviewer")
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "dana"]))
+    await m.read()
+    check(m.reviewerShown == nil && m.page?.repeatReviewer == "dana" && m.reviewerSay == Board.repeatSaved, "the next read that lands shows the page, and Saved. stays")
+    mac.projects = (200, with(["repeat": NSNull()]))
+    await m.read()
+    check(m.reviewerSay == nil, "Saved. goes when the task stops repeating")
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "dana"]))
+    await m.read()
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "eli"]))
+    _ = await m.saveReviewer("eli", names: nm)
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "eli"], closed: true))
+    await m.read()
+    check(m.reviewerSay == nil, "Saved. goes when the task is finished")
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "eli"]))
+    await m.read()
+    mac.actAnswers = [nil]
+    let unreached = await m.saveReviewer("me", names: nm)
+    check(!unreached && m.reviewerSay == Board.reviewerUnreached && m.reviewerRefused, "no answer: the could-not-reach words")
     mac.onSend = nil
     mac.actAnswers = [(403, #"{"error":"only the person can name themselves as the reviewer"}"#)]
     let refused = await m.saveReviewer("me", names: nm)
     check(!refused && m.reviewerSay == "only the person can name themselves as the reviewer" && m.reviewerRefused && m.reviewerSaving == nil,
           "a refusal is the Mac's own sentence, marked as a refusal")
+    await m.read()
+    check(m.reviewerRefused && m.reviewerSay != nil, "a refusal stays through a read that still shows the task repeating")
     mac.projects = (200, with(["repeat": NSNull()]))
     await m.read()
     check(m.reviewerSay == nil && !m.reviewerRefused, "a refusal goes when the task stops repeating")
