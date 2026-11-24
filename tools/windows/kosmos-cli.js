@@ -540,6 +540,10 @@ function keepPipedCopy(ctx, text, maybe) {   // maybe (#4934): a first try may h
 
 /* kosmos#8961, as install/kosmos _msg_status: `kosmos msg --status <id>` reads what happened to a direct message (answered
    by command, read with no answer, still in its turn, or not read yet). A read: nothing is sent, so no retry is needed. */
+/* kosmos#8961, as install/kosmos _say_msg_id: after a send, its id and the command that says later what happened to it. */
+function sayMsgId(ctx, d) {
+  if (d && typeof d.id === 'string' && /^m[1-9][0-9]{0,15}$/.test(d.id)) ctx.out('Its id is ' + d.id + ': kosmos msg --status ' + d.id + ' says later whether they answered or read it.');
+}
 const MSG_STATUS_USAGE = '   or: kosmos msg --status <id>  (whether a message you sent was answered, or read with no answer, or not read yet)';
 async function verbMsgStatus(ctx, args) {
   const id = args.length === 1 ? String(args[0]) : '';
@@ -550,6 +554,7 @@ async function verbMsgStatus(ctx, args) {
   const j = r.json || {};
   if (j.found === true) { ctx.out(typeof j.sentence === 'string' && j.sentence ? j.sentence : 'Kosmos answered, but not in a shape this command can read.'); return 0; }
   ctx.err(typeof j.sentence === 'string' && j.sentence ? j.sentence : 'Kosmos could not read that message.');
+  tokenRefusedHint(ctx, r);   // as install/kosmos: a refused token answers found:false with the board's because
   return 1;
 }
 
@@ -639,9 +644,11 @@ async function verbMsg(ctx, args) {
   if (d.state === 'placed' || d.state === 'queued') {
     if (d.queued === true || d.state === 'queued') {
       ctx.out('Queued with ' + to + (d.duplicate === true ? ' (it had arrived the first time; it was not sent twice).' : ' (they are mid-task, so they will not read this until it finishes).'));
+      if (d.duplicate !== true) sayMsgId(ctx, d);
       return 0;
     }
     ctx.out('Placed with ' + to + (d.duplicate === true ? ' (it had arrived the first time; it was not sent twice).' : '.'));
+    if (d.duplicate !== true) sayMsgId(ctx, d);
     return 0;
   }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Not confirmed: ' + (clause(d.because) || 'the text may already be in their composer') + '. Do not re-send; check with them.');

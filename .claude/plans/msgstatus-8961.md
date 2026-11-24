@@ -50,8 +50,18 @@ the answer unknown unless a whole turn was still seen.
 - Deferred: the Windows exclusion has no follow-up card, as none of its sibling rows do; the reason in the row says
   what would change it (the arms run on Windows).
 
+## Review changes (iteration 3)
+- A turn running at delivery that ends no longer stops the scan: a whole turn after it still reads as read.
+- An automatic blocked (a provider stop) is a standing wait, since its hook rows are refused too.
+- A reply citing another message, or sent before a held message was typed, is not its answer.
+- After a placed or queued send both CLIs print the id and the --status command (a new line; "Placed with X." is unchanged).
+- Both CLIs give the token hint on a not-found answer; bash anchors the error match on `{"error":`.
+- The send-time residual (the row's time is when the send began) is stated in engine/msgstatus.js.
+- Deferred: bash prints a not-found sentence on stdout, Windows on stderr. That is each CLI's existing convention for
+  refusals (say vs ctx.err), not something this verb should change alone.
+
 ## Tests
-- engine/msgstatus-8961.test.js (16, pure; failing control: dropping the between-turns rule fails one)
-- server.msg-status-8961.test.js (5, real server + bash CLI + Windows CLI main(); control: removing the bash
-  dispatch fails one)
+- engine/msgstatus-8961.test.js (31, pure; failing control: dropping the between-turns rule fails one)
+- server.msg-status-8961.test.js (7: real server, the bash CLI and the Windows CLI main(), an enforcing board;
+  control: removing the bash dispatch fails one)
 - pinned lists updated: server.agent-token-sender-570.test.js, tools/windows-tests.js HOST_BRANCH_EXCLUDED

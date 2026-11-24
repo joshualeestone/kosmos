@@ -20,6 +20,10 @@
  * turn that STARTED after delivery counts as "read". A turn already running that ended later is reported as exactly
  * that ("may have read it"), never rounded up to read.
  *
+ * ⚠️ A residual, not handled: the row's time is taken when the send BEGINS (engine/messages.js sendWithDelivery), and
+ * typing into the pane can take a moment after it. A turn the recipient started for another reason inside that
+ * moment counts as one that started after the message arrived. No later delivery time is recorded to narrow it.
+ *
  * Pure apart from the two readers, which the caller passes in (the route passes the real ones, the tests stubs).
  */
 
@@ -109,7 +113,9 @@ function status(id, o) {
   const back = rows.filter((r) => r && r.kind === 'message' && typeof r.to === 'string' && r.id !== key
     && canon(r.from) === to && canon(r.to) === from
     && (r.state === 'placed' || r.state === 'unconfirmed' || (r.state === 'held' && typedLater(r)))
-    && Number.isFinite(Date.parse(r.at || '')) && Date.parse(r.at) >= Date.parse(msg.at));
+    // One that cites another message is about that one; one from before a held message was typed cannot be about it.
+    && (!r.in_reply_to || r.in_reply_to === key)
+    && Number.isFinite(Date.parse(r.at || '')) && Date.parse(r.at) >= sentAt);
   const cited = back.find((r) => r.in_reply_to === key);
   const answer = cited || back[0];
   if (answer) return { ...base, status: STATUS.ANSWERED, answer: answer.id, answeredAt: answer.at, cites: Boolean(cited) };
@@ -140,10 +146,13 @@ function status(id, o) {
   let waitStood = false;
   let waiting = false;
   let sawMark = false;
+  let maybeEnd = null;
   for (const row of hist) {
     if (!row) continue;
     if (row.at >= sentAt && waiting) waitStood = true;   // standing when this row came, so possibly at the send
-    if (row.state === 'needs_you' || row.state === 'blocked') waiting = row.by !== 'auto';
+    /* An automatic blocked (a provider stop) is a wait too: selfreport.record refuses the hook's working rows over it,
+       as over the agent's own. The hook's permission ask (an automatic needs_you) is not: its rows still land. */
+    if (row.state === 'needs_you' || row.state === 'blocked') waiting = row.by !== 'auto' || row.state === 'blocked';
     // The agent's or a person's other report ends it, and so does a session's start or stop (a new session's hook rows are recorded).
     else if (row.state === 'stopped' || row.state === 'started' || row.by !== 'auto') waiting = false;
     if (row.at >= sentAt && waiting) waitStood = true;
@@ -157,14 +166,15 @@ function status(id, o) {
     if (mark === 'start') { if (started === null && (prev === null || prev === 'end' || prev === 'session')) started = row.at; continue; }
     if (mark === 'end') {
       if (started !== null) return { ...base, status: STATUS.READ_NO_ANSWER, turnStartedAt: iso(started), turnEndedAt: iso(row.at) };
-      if (waitStood) break;
-      return { ...base, status: STATUS.MAYBE_READ, turnEndedAt: iso(row.at) };
+      // A turn already running at delivery ended: keep looking, since a whole turn after it is a firmer answer.
+      if (maybeEnd === null) maybeEnd = row.at;
     }
   }
   if (waiting || waitStood) {
     return { ...base, status: STATUS.UNKNOWN, because: msg.to + ' had a question or a block of its own standing, and while one stands its turn reports are not recorded' };
   }
   if (started !== null) return { ...base, status: STATUS.READING, turnStartedAt: iso(started) };
+  if (maybeEnd !== null) return { ...base, status: STATUS.MAYBE_READ, turnEndedAt: iso(maybeEnd) };
   if (before === 'start') return { ...base, status: STATUS.IN_TURN };
   /* No turn mark anywhere in what is kept: the hook sends none (another provider, or none installed), so "between
      turns" was never seen and "not read yet" would be a guess. */
@@ -197,7 +207,7 @@ function sentence(s) {
     case STATUS.NOT_YET:
       return who + ' has not started or finished a turn since your message arrived, so it has not read it yet.' + fyi;
     case STATUS.SESSION_ENDED:
-      return who + '’s session stopped or restarted at ' + s.sessionAt + ' before it answered; your message may not have been read.';
+      return 'The session of ' + who + ' stopped or restarted at ' + s.sessionAt + ' before it answered; your message may not have been read.';
     case STATUS.NOT_DELIVERED:
       if (s.delivery === 'dropped') return 'Message ' + s.id + ' was never typed to ' + who + ': Kosmos kept it, then dropped it' + (s.droppedAt ? ' at ' + s.droppedAt : '') + ', and told you then.';
       return 'Message ' + s.id + ' has not been typed to ' + who + ' (its record reads ' + (s.delivery || 'unknown') + ').';
