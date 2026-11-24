@@ -90,7 +90,8 @@ test('#5711: the real pool builds a window the cut accepts, without the held con
   const chosen = tool.choose(pool, 5);
   // Live data: as many as are pending, at most 5 (a promote can leave fewer).
   // Zero pending is legal (a promote can show the last one), so only a non-empty choice is checked by the window.
-  assert.equal(chosen.length, Math.min(5, pool.items.filter((i) => i.status === 'pending').length));
+  // A notes-only item is pending but never chosen for the window (#7411), so it does not count here.
+  assert.equal(chosen.length, Math.min(5, pool.items.filter((i) => i.status === 'pending' && i.notesOnly !== true).length));
   if (chosen.length) assert.deepEqual(whatsnew.problems({ version: '0.7.36', highlights: chosen }, '0.7.36'), []);
   // Live data only: the held item sits at rank 99, so this cannot catch a broken held FILTER (the first test, a held
   // item at rank 0, does); it catches the pool itself un-holding conversation mode.
