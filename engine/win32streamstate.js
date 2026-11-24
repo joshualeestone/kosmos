@@ -887,7 +887,10 @@ function publisher(name, opts) {
         /* Review 7: the message this turn opened on is under way, not yet run: if the process ends before the turn's
            result, soon after the write, it is what stopped it (the 11-23 order is not known: a turn may have opened in the
            ~50 ms before each death). Kept until the result. */
-        if (current.inFlight && !current.turnMsg) current.turnMsg = { since: current.inFlight.since, count: Math.max(1, current.inFlight.count - (current.queued || 0)) };
+        /* Review 8: only a turn a written message opened (more in flight than waiting behind it; a wake-up opens on none),
+           timed from when it opened, so a later write just before a Restart does not make a long-run turn look lost. */
+        const opener = current.inFlight && !current.turnMsg ? current.inFlight.count - (current.queued || 0) : 0;
+        if (opener > 0) current.turnMsg = { since: current.inFlight.since, count: opener, at: nowMs() };
         current.inFlight = (current.queued || 0) > 0 && current.inFlight ? { since: current.inFlight.since, count: current.queued } : null;
       }
       const next = stateAfterEvent(e);
@@ -1010,8 +1013,7 @@ function publisher(name, opts) {
       if (was && (carried || was.inFlight || was.turnMsg)) {
         /* Review 7: a turn still open when the process ends soon after the write is lost with it, as a message not yet
            taken is. Later than that (a Restart mid-turn), the open turn ran as far as it got and is not counted. */
-        const soon = Number.isFinite(was.lastWriteAt) && nowMs() - was.lastWriteAt <= LOST_WINDOW_MS;
-        const t = soon && was.turnMsg ? was.turnMsg : null;
+        const t = was.turnMsg && Number.isFinite(was.turnMsg.at) && nowMs() - was.turnMsg.at <= LOST_WINDOW_MS ? was.turnMsg : null;   // review 8: its own clock
         const w = was.inFlight;
         const b = t || w ? { since: [t && t.since, w && w.since].filter((x) => typeof x === 'string').sort()[0], count: ((t && t.count) || 0) + ((w && w.count) || 0) } : null;
         const a = carried;
