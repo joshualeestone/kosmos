@@ -160,6 +160,24 @@ function turnStuckOf(name, turn, { now = Date.now() } = {}) {
     return { since: new Date(since).toISOString(), count, lastWhy: 'turn', step, words: WHY_WORDS.turn, next: turnNext(count) };
   } catch { return null; }
 }
+/* kosmos#8951: the card's deliveryStall for messages a Windows Claude agent took in and never started on ({ since, count }
+   from win32streamstate.unstartedFor): a 'turn' stall, since the messages did arrive and wait (so never "no message has
+   reached it" and never relabelled a sign-out), marked `unstarted` so its words say what happened. No hour to wait: the
+   publisher already waited START_DEADLINE_MS for a turn that never opened. Null for anything else. Never throws. */
+function unstartedOf(name, u) {
+  try {
+    if (!u || typeof u.since !== 'string' || !Number.isFinite(Date.parse(u.since))) return null;
+    const count = Number.isInteger(u.count) && u.count > 0 ? u.count : 1;
+    return { since: new Date(Date.parse(u.since)).toISOString(), count, lastWhy: 'turn', unstarted: true, step: null,
+      words: UNSTARTED_WORDS, next: unstartedNext(count) };
+  } catch { return null; }
+}
+const UNSTARTED_WORDS = 'It took in the messages but never started on them';
+/* A message written again starts a turn (the 11-23 agent ran the next one normally), so sending again is the way out; a
+   restart only if that does not start either. */
+function unstartedNext(count) {
+  return 'Send ' + (count === 1 ? 'it' : 'them') + ' again, and restart it if ' + (count === 1 ? 'that does' : 'they do') + ' not start either';
+}
 /* The way out, worded for how many wait (review 1: "them" for one message). */
 function turnNextWords(count) { return turnNext(count); }
 function turnNext(count) {
@@ -277,6 +295,9 @@ function stallLine(s) {
 
 /* kosmos#7368: the board log's line for one step that never ends, said once per stuck step. */
 function turnLine(name, s) {
+  if (s && s.unstarted === true) {   // kosmos#8951
+    return 'turn-unstarted: ' + name + ' took in ' + s.count + ' message' + (s.count === 1 ? '' : 's') + ' from ' + s.since + ' and never started a turn.\n';
+  }
   return 'turn-stuck: ' + name + ' has been on one step since ' + s.since + (s.step ? ' (' + s.step + ')' : '')
     + ', with ' + s.count + ' message' + (s.count === 1 ? '' : 's') + ' waiting behind it.\n';
 }
@@ -506,4 +527,4 @@ function acksDue(ends, now = Date.now()) {
   return out;
 }
 
-module.exports = { sweptForTests, takeBack, failCount, endsToSay, acksDue, endedLine, spanWords, stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+module.exports = { sweptForTests, takeBack, failCount, endsToSay, acksDue, endedLine, spanWords, stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, unstartedOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };

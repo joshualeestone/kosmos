@@ -313,6 +313,8 @@ function main(argv, deps) {
        task log, where a missing card state can be traced back to it. */
     stream: require('./win32streamstate').publisher(spec.name, {
       onProblem: (why) => say(new Date().toISOString() + ' ' + spec.name + ' state-unrecorded -- ' + why),
+      /* kosmos#8951: a message it took in and never started on, on the task log as the card says it. */
+      onUnstarted: (u) => say(new Date().toISOString() + ' ' + spec.name + ' message-unstarted -- ' + u.count + ' message' + (u.count === 1 ? '' : 's') + ' taken in since ' + u.since + (u.lost ? ', and it ended before running ' + (u.count === 1 ? 'it' : 'them') : ', no turn started')),
       /* kosmos#6570: a Claude agent's account usage, from its own stream (Claude Code runs no status line headless).
          Claude only: another runner's configDir is its own provider's home, never a Claude account. */
       usageDir: () => usageDirFor(spec),   // asked at each reading: a folder made after this start is still found

@@ -85,7 +85,8 @@ function rosterRow(a, lastReport) {
   const since = (f) => (f && typeof f.since === 'string' ? f.since : null);
   if (a.state === 'idle' && since(a.unsentInput)) row.unsentSince = a.unsentInput.since;
   const stall = a.deliveryStall;
-  if (since(stall) && stall.lastWhy === 'turn') row.oneStepSince = stall.since;
+  if (since(stall) && stall.lastWhy === 'turn' && stall.unstarted === true) row.notStartedSince = stall.since;   // kosmos#8951
+  else if (since(stall) && stall.lastWhy === 'turn') row.oneStepSince = stall.since;
   else if (since(stall) && typeof stall.words === 'string') row.noMessageSince = stall.since;
   if (a.crashLoop && a.crashLoop.looping === true) row.restartsLately = Number(a.crashLoop.count) || 3;
   /* kosmos#8304: #8286's long tool call (a working Claude agent on one call for minutes, from its transcript), as the page
@@ -108,6 +109,7 @@ function stateLines(a) {
   };
   const lines = [];
   if (a.unsentSince) lines.push('  text unsent in its input box since ' + when(a.unsentSince));
+  if (a.notStartedSince) lines.push('  took in messages from ' + when(a.notStartedSince) + ' and never started on them: send them again');   // kosmos#8951
   if (a.oneStepSince) lines.push('  no activity on its current step since ' + when(a.oneStepSince) + ', with messages waiting behind it');
   if (a.noMessageSince) lines.push('  no message seen to reach it since ' + when(a.noMessageSince));
   if (a.longStepSince) lines.push('  on one step since ' + when(a.longStepSince) + (typeof a.longStepTool === 'string' && PLAIN_TOOL.test(a.longStepTool) ? ': ' + a.longStepTool : ''));
