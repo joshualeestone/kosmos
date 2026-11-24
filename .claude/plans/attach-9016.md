@@ -19,10 +19,16 @@ A file that arrived whole looks and works exactly as before.
 - web/index.html attachUpload: header `x-attachment-size`, the file's own size as the browser read it.
 - server.js PUT attachment: reads the header (plain decimal digits; anything else is ignored; over the cap refused at once) and
   passes it to saveStream as `fileSize`.
+- engine/chat.js keptAttachment: keeps `incomplete` when a message is saved (a direct conversation picks fields by name; review 1
+  found the mark dropped there), and the page's upload answers it at once: the chip says it and the status line offers to remove
+  and send again.
+- engine/replyfile.js attach: an agent's own cut zip-based file is refused with words, and nothing is kept.
 - engine/attachments.js: saveStream refuses a body whose counted size differs from `fileSize`, with
-  "that file did not arrive whole; please send it again (64 KB of 112 KB arrived)"; nothing is stored.
-  `incompleteZip(file)`: a file starting as a zip with no end record, or one whose directory lies outside the file, is
-  incomplete (zip64, and any read that fails, are not judged). finish() records `incomplete: true`; rowField carries it;
+  "that file did not arrive whole; please send it again (N of M bytes arrived)" (and, when longer, how many arrived and how
+  many the file has); nothing is stored.
+  `incompleteZip(file)`: a file starting as a zip is incomplete when no end record in its tail is its own: its comment must
+  fit before the end, and its directory must lie before it, starting as a directory does (an inner zip's record in a cut file
+  says a place that is not one). zip64, and any read that fails, are not judged. finish() records `incomplete: true`; rowField carries it;
   the agent's note says so; the page's file card says "incomplete upload, please send again" (.att-bad).
 
 ## Rejected
