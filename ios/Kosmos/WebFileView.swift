@@ -125,10 +125,12 @@ struct LockedWebView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         private var started = false
+        private var failed: () -> Void = {}
         static let blockAll = #"[{"trigger":{"url-filter":".*"},"action":{"type":"block"}}]"#
         static let ruleID = "kosmos-webfile-block-all"
 
         func load(into view: WKWebView, page: Data, failed: @escaping () -> Void) {
+            self.failed = failed
             // Compiled on every open, never looked up: a kept rule from an older blockAll would outlive a change to it.
             WKContentRuleListStore.default().compileContentRuleList(forIdentifier: Self.ruleID,
                                                                      encodedContentRuleList: Self.blockAll) { [weak view] list, _ in
@@ -148,6 +150,16 @@ struct LockedWebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { Self.untappable(webView) }
+
+        // kosmos#8966: the page itself failing to draw shows the can't-show card, not a blank page. A navigation this
+        // delegate cancelled also ends here (NSURLErrorCancelled, or WebKit's 102 "frame load interrupted"), and is not one.
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failIfReal(error) }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failIfReal(error) }
+        private func failIfReal(_ error: Error) {
+            let e = error as NSError
+            if e.code == NSURLErrorCancelled || (e.domain == "WebKitErrorDomain" && e.code == 102) { return }
+            failed()
+        }
 
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                      decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
