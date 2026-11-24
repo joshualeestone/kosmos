@@ -25,3 +25,19 @@ made. Measured after the merge as ios.yml queued-to-started and job-minutes per 
 That the upload of ~93 MB and three downloads cost less than two builds on GitHub's runners, and that the runner
 image's Xcode is the same in uibuild and the UI jobs (else they fall back to building: slower, never red). The first runs
 measure both.
+
+## Round 1 (opus) fixes
+- BLOCKER: products travel as one tar (an artifact drops file modes; the app and test runner executables need +x).
+  Measured: all 11 executables keep +x through tar -c / tar -x of the real products (97 MB).
+- BLOCKER: the failure notes find the app in $appdir (the shared products, or the run's own build), not only in a
+  build folder the shared run never makes.
+- One artifact name per run with overwrite: true, so "Re-run failed jobs" on a UI job finds its run's products; the
+  download continues on error and the UI job then builds the app itself (3-day retention for re-runs).
+- --build-only refuses a folder that is neither empty nor a products folder it made (it replaces the folder whole).
+- Tests: both xcodebuild lines must carry the same test arguments and variables (with a control); the failure notes'
+  lookup; the tar steps; the refusal leaves the folder untouched. Mutations checked.
+- Throughput, recorded honestly: a run still peaks at four macOS runners (the logic build plus three UI jobs, after
+  uibuild); the saving is job-minutes (two builds), and the UI jobs now start after uibuild. Measure after merge: job-
+  minutes per run, and queued-to-UI-start, not only queued-to-first-job.
+- My slip, recorded: I edited ui-sample.sh while a local run was executing it; bash resumed at a shifted offset and died
+  ("line 223: fi", rc=2) while its wrapper reported exit 0. Killed by recorded pid and re-run on the final script.

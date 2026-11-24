@@ -139,6 +139,10 @@ if [ "${UI_SAMPLE_PRINT_CLASSES:-}" = 1 ]; then printf '%s\n' $classes; exit 0; 
 # test job makes. The products folder is replaced whole, so a half-written earlier one is never used.
 if [ -n "$build_only" ]; then
   [ -z "$products$shard" ] && [ "$uikit" = 0 ] || { echo "ui-sample: --build-only takes no other option" >&2; exit 2; }
+  # It replaces the folder whole, so only an empty one or a products folder this script made (it holds xcode-version).
+  if [ -e "$build_only" ] && [ -n "$(ls -A "$build_only" 2>/dev/null)" ] && [ ! -f "$build_only/xcode-version" ]; then
+    echo "ui-sample: $build_only is not empty and is not a products folder, so nothing was built into it" >&2; exit 2
+  fi
   bwork="$(mktemp -d)"
   blog="$bwork/build.log"
   if ( cd "$here/.." && xcodebuild build-for-testing -project Kosmos.xcodeproj -scheme Kosmos -configuration Debug \
@@ -218,6 +222,9 @@ else
       -retry-tests-on-failure -test-iterations 2 $only $skip $allow -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
 fi
 rc=$?
+# kosmos#8993: where the tested app is, for the failure notes below (they read its bundle id): the shared products, or
+# the folder this run built into.
+if [ -n "$run_file" ]; then appdir="$(dirname "$run_file")"; else appdir="$work/dd/Build/Products"; fi
 # kosmos#7609: a failed test gets one more try, because this job runs on GitHub's slower runners and waits run out there. So a test
 # counts once, by its last result, and one that failed then passed is FLAKY: named below, a warning on the run, and countable across runs.
 tally="$("$here/ui-sample-tally.sh" "$log")"
@@ -283,7 +290,7 @@ room_drag="RoomKeyboardUITests testRoomReadHigherUpAfterADragStaysWhereItWas"
 # kosmos#8221 slice 4: and the long chat's grow check, red on CI's UIKit arm only.
 dm_grow="KeyboardSlideUITests testNewestStaysJustAboveTheBoxAsItGrowsAndShrinks"
 if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check|$room_newest|$room_drag|$dm_grow)\]' failed" "$log"; then
-  app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
+  app="$(find "$appdir" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
   bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
   if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
@@ -301,7 +308,7 @@ if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check|$room_newest
 fi
 # kosmos#7767: a rebuild check's failure says what the check saw when it stopped waiting.
 if grep -q -E "^Test Case '-\[KosmosUITests\.KeyboardSlideUITests testRebuilt[A-Za-z]*\]' failed" "$log"; then
-  app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
+  app="$(find "$appdir" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
   bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
   if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
@@ -317,7 +324,7 @@ fi
 # A page that landed and was asked for again by itself (the top still reported showing) and a page that never came read
 # the same on screen, so the lines that tell them apart: each ask, each way out of it, each restart, and the top edge.
 if grep -q -E "^Test Case '-\[KosmosUITests\.(EarlierDroppedUITests|EarlierPagesUITests|EarlierDoubleAskUITests|EarlierDeleteShiftUITests) [A-Za-z0-9_]+\]' failed" "$log"; then
-  app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
+  app="$(find "$appdir" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
   bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
   if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then

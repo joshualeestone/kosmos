@@ -251,12 +251,6 @@ jobs:
           ios/tools/test-archive-config.sh | tee "$RUNNER_TEMP/archive-config.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/archive-config.log"
 
-  # kosmos#7609: the UI tests that need no account (sample agents, a Debug build) on a fresh simulator, so a change that
-  # breaks the + panel, the room title, the keyboard keeping the newest message above the box (in a DM and in a long room,
-  # #7690), or a long room opening on its newest post (#7654) goes red here instead of only when someone runs the UI
-  # tests by hand. Its own job, beside the build, so neither waits on the other.
-  # The runner's simulator is usually an older iOS than the one the tests were written on, which is a check in itself
-  # (#7609 item 1). ui-sample.sh passes only when every expected test ran (a filter matching nothing also exits 0).
   # kosmos#8993: the app the three UI jobs test, built once per run. Each of them built the same Debug app itself, about 12
   # of a 40 minute job (measured on run 45384659475: 28.4 min of tests in a 40.5 min test action), on a macOS queue that
   # held runs for up to 114 minutes on 2026-11-24. They now test these products (ui-sample.sh --products), and a job whose
@@ -274,15 +268,26 @@ jobs:
           set -o pipefail
           ios/tools/ui-sample.sh --build-only "$RUNNER_TEMP/ui-products" | tee "$RUNNER_TEMP/ui-build.log"
           grep -q '^PASS  ui-sample build:' "$RUNNER_TEMP/ui-build.log"
+          # One tar: an artifact drops file modes (the app's and the test runner's executables would lose +x) and links.
+          tar -C "$RUNNER_TEMP/ui-products" -cf "$RUNNER_TEMP/ui-products.tar" .
 
-      # A short life: only this run's UI jobs read it. Sample-board Debug app and test runner; no account, no secrets.
+      # Only this run's UI jobs read it. One name per run (artifacts belong to their run), overwritten by "Re-run all jobs",
+      # so "Re-run failed jobs" on a UI job finds the products its run built. Kept 3 days for such a re-run; past that the
+      # UI job builds the app itself (see its download step). Sample-board Debug app and test runner: no account, no secrets.
       - uses: actions/upload-artifact@v4
         with:
-          name: ui-products-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/ui-products
-          retention-days: 1
+          name: ui-products
+          path: ${{ runner.temp }}/ui-products.tar
+          retention-days: 3
+          overwrite: true
           if-no-files-found: error
 
+  # kosmos#7609: the UI tests that need no account (sample agents, a Debug build) on a fresh simulator, so a change that
+  # breaks the + panel, the room title, the keyboard keeping the newest message above the box (in a DM and in a long room,
+  # #7690), or a long room opening on its newest post (#7654) goes red here instead of only when someone runs the UI
+  # tests by hand. Beside the logic build, which it does not wait for; it waits for uibuild's products (kosmos#8993).
+  # The runner's simulator is usually an older iOS than the one the tests were written on, which is a check in itself
+  # (#7609 item 1). ui-sample.sh passes only when every expected test ran (a filter matching nothing also exits 0).
   ui:
     name: ui tests (sample board)
     needs: uibuild
@@ -291,10 +296,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # kosmos#8993: the run's shared build. If it cannot be had (expired, say), ui-sample.sh builds the app itself.
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
-          name: ui-products-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/ui-products
+          name: ui-products
+          path: ${{ runner.temp }}/ui-products-tar
+      - name: Unpack the shared build
+        run: |
+          mkdir -p "$RUNNER_TEMP/ui-products"
+          if [ -f "$RUNNER_TEMP/ui-products-tar/ui-products.tar" ]; then
+            tar -C "$RUNNER_TEMP/ui-products" -xf "$RUNNER_TEMP/ui-products-tar/ui-products.tar"
+          else
+            echo "no shared build for this run, so this job builds the app itself"
+          fi
 
       - name: UI tests (sample board)
         run: |
@@ -323,7 +338,7 @@ jobs:
   # outlier at 29); slice 16 adds four checks of about 1.5 to 2 minutes each, and its first run was cancelled at 60 with
   # the per-test limit never reached (no test hung).
   # kosmos#8453: in two halves (ui-sample.sh --shard), as one job took 75 of its 80 minutes on PR #8447 and a slow runner
-  # would have timed it out, a red no PR caused. Each half builds the app on its own runner and runs about half the checks
+  # would have timed it out, a red no PR caused. Each half ran about half the checks (and, until #8993, built the app itself)
   # (measured per class: about 27 and 26 minutes of checks, before #8443's longer page delay; with the build, an estimated
   # 45 to 55 minutes each). The limit stays 75 until a run measures the halves: a job stopped at its limit is cancelled, not
   # failed, so its result bundle is never uploaded and its TIMED OUT lines never print, and one hung test costs up to 14
@@ -340,10 +355,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # kosmos#8993: the run's shared build. If it cannot be had (expired, say), ui-sample.sh builds the app itself.
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
-          name: ui-products-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/ui-products
+          name: ui-products
+          path: ${{ runner.temp }}/ui-products-tar
+      - name: Unpack the shared build
+        run: |
+          mkdir -p "$RUNNER_TEMP/ui-products"
+          if [ -f "$RUNNER_TEMP/ui-products-tar/ui-products.tar" ]; then
+            tar -C "$RUNNER_TEMP/ui-products" -xf "$RUNNER_TEMP/ui-products-tar/ui-products.tar"
+          else
+            echo "no shared build for this run, so this job builds the app itself"
+          fi
 
       - name: UI tests on the UIKit list (sample board)
         run: |
