@@ -50,8 +50,10 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
      answers while it installs) or cannot tell (the old release). So before the gates the promote
      looks at the board with the same reader (`staging-experience-check.sh --print-version`, which
      mints no nonce) and waits while nothing answers or it runs a release older than V, up to
-     `KOSMOS_PROMOTE_BOARD_WAIT` seconds (default 1800; 0 turns it off). It does not wait for a board
-     on V, on a later release, or one it cannot read. When the time runs out the gates run anyway
+     `KOSMOS_PROMOTE_BOARD_WAIT` seconds (default 1800; 0 turns it off), and no more than
+     `KOSMOS_PROMOTE_BOARD_SILENT_WAIT` (default 600) while nothing answers at all, since an install
+     takes minutes and a wrong port never answers. It does not wait for a board on V, on a later
+     release, or one it cannot read. When the time runs out the gates run anyway
      and hold or refuse as before; no gate is loosened. 0.8.19 was forced for lack of this wait.
    - **Agent spawn (#2129), `tools/staging-agent-online-check.sh`:** the board gate does NOT
      exercise agent spawn, and #2129 was exactly that gap -- spawned agents wedged at the Claude
