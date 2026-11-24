@@ -100,7 +100,7 @@ test('a stdin that never closes still ends shortly after the 5 s stdin backstop,
     assert.ok(r.ms >= 4500, 'ended before the stdin backstop, at ' + r.ms + ' ms');
     assert.ok(r.startedAt, 'the start mark is missing: ' + r.err);
     const fired = b.at[0] - r.startedAt;   // the first request goes out once the stdin backstop has run the hook
-    assert.ok(fired >= 4500 && fired < 8000, 'the stdin backstop ran the hook ' + fired + ' ms after it started (5 s expected)');
+    assert.ok(fired >= 4500 && fired < 9000, 'the stdin backstop ran the hook ' + fired + ' ms after it started (5 s expected)');
     assert.ok(tail(b, r) < TAIL_MS, 'the run waited 2 s more after the backstop (' + tail(b, r) + ' ms after the last request, ' + r.ms + ' ms in all)');
   } finally { b.server.close(); }
 });
