@@ -10,7 +10,8 @@ the board first. That stopgap lives on one disk. This moves it into tools/promot
 - tools/staging-experience-check.sh: the #5084 version reader becomes one function, read_board_version, and
   a --print-version mode prints only the version (exit 0 / 1 nothing answered / 2 cannot tell). No nonce.
 - tools/promote-channel.sh: wait_for_board_on_v before the experience gate, bounded by
-  KOSMOS_PROMOTE_BOARD_WAIT (default 1800 s, 0 off), step KOSMOS_PROMOTE_BOARD_WAIT_STEP (30 s). Waits only
+  KOSMOS_PROMOTE_BOARD_WAIT (default 1800 s, 0 off) and, while nothing answers, KOSMOS_PROMOTE_BOARD_SILENT_WAIT
+  (default 600 s), step KOSMOS_PROMOTE_BOARD_WAIT_STEP (30 s). Waits only
   while nothing answers or the board runs an older release. No wait when the gate command is overridden
   and no reader is named (tests, and any board not known).
 - No gate is loosened: exit 1 still refuses after the wait.
@@ -24,5 +25,6 @@ That a board on the staging channel is the board the gate checks. When it is a p
 wait times out (30 min) and the gates hold as before; KOSMOS_PROMOTE_BOARD_WAIT=0 skips it.
 
 ## Tests
-test-staging-channel-2036.sh (board wait cases, a mutant per rule) and test-staging-experience-check.sh
-(--print-version cases with a nonce-log control).
+test-staging-channel-2036.sh (board wait cases) and test-staging-experience-check.sh (--print-version cases
+with a nonce-log control). Each rule was also mutated BY HAND (backup copy, mutate, run, restore) to see the
+tests go red; those mutants are not committed, and the PR body lists them with their results.

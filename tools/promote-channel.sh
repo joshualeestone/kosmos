@@ -94,6 +94,8 @@
 #   KOSMOS_PROMOTE_LINUX_CHECK_CMD   the Linux check-runs lookup (default: bash <repo>/tools/linux-check-runs.sh)
 #   KOSMOS_PROMOTE_BOARD_WAIT   seconds to wait for the gate's board to run V before the Mac gates (default 1800; 0 = no wait)
 #   KOSMOS_PROMOTE_BOARD_WAIT_STEP   seconds between looks (default 30)
+#   KOSMOS_PROMOTE_BOARD_SILENT_WAIT   the longest the wait goes on while NOTHING answers (default 600): an install
+#             takes a few minutes, a wrong port or a stopped board never answers, and the gate refuses that at once
 #   KOSMOS_PROMOTE_BOARD_VERSION_CMD  prints the version the board runs (default: bash <repo>/tools/staging-experience-check.sh
 #             --print-version). When KOSMOS_PROMOTE_GATE_CMD is set and this is not, there is no wait: the board is not known.
 #
@@ -506,6 +508,8 @@ version_older() {
 wait_for_board_on_v() {
   local want="$1" limit="${KOSMOS_PROMOTE_BOARD_WAIT:-1800}" step="${KOSMOS_PROMOTE_BOARD_WAIT_STEP:-30}" cmd port_words
   case "$limit" in ''|*[!0-9]*) echo "promote-channel: KOSMOS_PROMOTE_BOARD_WAIT must be a number of seconds, not '$limit' - refusing" >&2; return 1 ;; esac
+  local silent_limit="${KOSMOS_PROMOTE_BOARD_SILENT_WAIT:-600}"
+  case "$silent_limit" in ''|*[!0-9]*) echo "promote-channel: KOSMOS_PROMOTE_BOARD_SILENT_WAIT must be a number of seconds, not '$silent_limit' - refusing" >&2; return 1 ;; esac
   case "$step" in ''|*[!0-9]*|0) echo "promote-channel: KOSMOS_PROMOTE_BOARD_WAIT_STEP must be a number of seconds above 0, not '$step' - refusing" >&2; return 1 ;; esac
   port_words=":${PORT:-${KOSMOS_PORT:-16180}}"
   if [ "$limit" = 0 ]; then echo "promote-channel: board wait off (KOSMOS_PROMOTE_BOARD_WAIT=0): the gates run now, whatever the board on $port_words runs."; return 0; fi
@@ -513,10 +517,11 @@ wait_for_board_on_v() {
   elif [ -n "${KOSMOS_PROMOTE_GATE_CMD:-}" ]; then
     echo "promote-channel: no board wait: KOSMOS_PROMOTE_GATE_CMD is set, so which board the gate checks is not known here."; return 0
   else cmd="bash $(cd "$(dirname "$0")/.." && pwd)/tools/staging-experience-check.sh --print-version"; fi
-  local start=$SECONDS waited=0 bv rc why last_why="" last_said=-1
+  local start=$SECONDS waited=0 bv rc why last_why="" last_said=-1 silent_since=""
   while :; do
     rc=0; bv="$($cmd ${PORT:+"$PORT"} 2>/dev/null)" || rc=$?
     bv="$(printf '%s' "$bv" | head -1 | tr -d '[:space:]')"
+    [ "$rc" = 1 ] || silent_since=""
     if [ "$rc" = 0 ] && [ -n "$bv" ]; then
       if [ "$bv" = "$want" ]; then echo "promote-channel: the board on $port_words runs $want: the gates check $want itself."; return 0; fi
       local o=0; version_older "$bv" "$want" || o=$?
@@ -525,7 +530,13 @@ wait_for_board_on_v() {
         1) echo "promote-channel: no board wait: the board on $port_words runs $bv, later than $want, and will not run $want again; the gates say what that means."; return 0 ;;
         *) echo "promote-channel: no board wait: the board on $port_words reports '$bv', which cannot be compared with $want; the gates say what that means."; return 0 ;;
       esac
-    elif [ "$rc" = 1 ]; then why="nothing answers on $port_words (a board installing an update, or down)"
+    elif [ "$rc" = 1 ]; then
+      why="nothing answers on $port_words (a board installing an update, or down)"
+      [ -n "$silent_since" ] || silent_since=$SECONDS
+      if [ $((SECONDS - silent_since)) -ge "$silent_limit" ]; then
+        echo "promote-channel: stopped waiting: nothing has answered on $port_words for $((SECONDS - silent_since))s (KOSMOS_PROMOTE_BOARD_SILENT_WAIT=$silent_limit), longer than an install takes: a wrong port, or a board that is not running. Running the gates anyway." >&2
+        return 0
+      fi
     else echo "promote-channel: no board wait: cannot read which version the board on $port_words runs (version reader exit $rc); the gates say why."; return 0
     fi
     waited=$((SECONDS - start))   # real time: a look itself can take 15 s or more
