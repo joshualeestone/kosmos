@@ -225,12 +225,13 @@ S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" bash "$HERE/promote-
 [ "$rc" = 2 ] && untouched "$S" && pass "named: a cannot-tell experience gate holds (exit 2), nothing written" || bad "named hold (rc=$rc, out=$out)"
 has "$out" "Run this against a board on 9.9.8, or verify 9.9.8 by hand and pass --force with --sha" && pass "named: the HOLD says to use a board on V, or --force with --sha" || bad "named HOLD sentence (out=$out)"
 S="$(newsite)"; s98="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")"
-out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" 16999 --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
+HC8960='checked this build by hand on a board running it (test)'   # kosmos#8960: --force needs --hand-check
+out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" 16999 --version 9.9.8 --sha "${s98:0:12}" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && pass "named: CONTROL --force (with --sha) after a hand check promotes past cannot-tell" || bad "named hold --force (rc=$rc, out=$out)"
 has "$out" "run the check it could not on a board that runs 9.9.8: not the board the gate checked (:16999), which could not be tied to 9.9.8" && pass "named: after a forced cannot-tell it sends the check to a board on 9.9.8 (here: a board it could not read)" || bad "named post-force advice (out=$out)"
-refused "--force without --sha" "$(newsite)" "--version with --force needs --sha" --version 9.9.8 --force
+refused "--force without --sha" "$(newsite)" "--version with --force needs --sha" --version 9.9.8 --force --hand-check "$HC8960"
 # CONTROL: the default promote's post-force advice, with a port, names the port once (it used to print it twice).
-S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" 16999 --force 2>&1)"; rc=$?
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" 16999 --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && has "$out" "once the board the gate checked (:16999) reports 9.9.9, run the check it could not" && pass "default: CONTROL the post-force advice names the board's port once" || bad "default post-force advice (rc=$rc, out=$out)"
 # A re-cut of V while the gates run replaces its bytes in dist/: refused before anything is written.
 RECUT="$T/stub-recut-gate.sh"
@@ -248,29 +249,29 @@ grep -qF 'say "cannot-tell: the board on :$PORT runs $BOARD_VERSION, not $KOSMOS
 # ...and prints it on stdout, which is all the named promote captures (its stderr is left alone).
 grep -q '^say() { printf .%s\\n. "\$\*"; }$' "$HERE/staging-experience-check.sh" && pass "pin: the gate's say() writes to stdout" || bad "pin: the gate's say() is no longer a plain stdout printf"
 S="$(newsite)"; s98="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")"
-out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD_OTHER" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
+out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD_OTHER" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && has "$out" "on a board running 9.9.9, not 9.9.8, so it says nothing about 9.9.8" && has "$out" "not the board the gate checked (KOSMOS_PORT, else :16180), which runs 9.9.9" \
   && pass "named: an agent-spawn FAIL on a board READ as another version is cannot-tell, which a hand check of V can --force" || bad "named agent fail on another version (rc=$rc, out=$out)"
 # PARTIAL (exit 3) is downgraded the same way on a board READ as another version, and stands on an unread one.
 APART="$T/stub-agent-partial.sh"; printf '#!/usr/bin/env bash\nexit 3\n' > "$APART"; chmod +x "$APART"
-S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD_OTHER" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $APART" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD_OTHER" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $APART" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && has "$out" "answered 3 on a board running 9.9.9, not 9.9.8" && pass "named: an agent-spawn PARTIAL on a board READ as another version is cannot-tell too" || bad "named agent partial on another version (rc=$rc, out=$out)"
-S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $APART" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $APART" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && has "$out" "agent-spawn gate PARTIAL (exit 3, Claude online / OpenAI-Codex arm failed) and --force was given" && ! has "$out" "says nothing about" && pass "named: CONTROL a PARTIAL on a board of unread version stands as PARTIAL" || bad "named agent partial unread (rc=$rc, out=$out)"
 # A board whose version the gate could NOT read may be V itself: there an agent FAIL still refuses, as in default mode.
-S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && untouched "$S" && has "$out" "agent-spawn gate FAILED (exit 1)" && ! has "$out" "says nothing about" && pass "named: an agent FAIL on a board of unread version still refuses (it may be V)" || bad "named agent fail unread version (rc=$rc, out=$out)"
-S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --force 2>&1)"; rc=$?
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && untouched "$S" && has "$out" "agent-spawn gate FAILED (exit 1)" && pass "default: CONTROL the same agent FAIL still refuses the default promote" || bad "default agent fail (rc=$rc, out=$out)"
 S="$(newsite)"; out="$(KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 [ "$rc" = 1 ] && untouched "$S" && has "$out" "agent-spawn gate FAILED (exit 1)" && pass "named: CONTROL with the board shown to run V, an agent FAIL refuses" || bad "named agent fail on V's board (rc=$rc, out=$out)"
 
 # Every HOLD that offers --force names --sha in named mode (here the tunnel gate's), and not in default mode.
 S="$(newsite)"; out="$(KOSMOS_PROMOTE_TUNNEL_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
-[ "$rc" = 2 ] && untouched "$S" && has "$out" "pass --force with --sha <8+ characters of 9.9.8's sha256> only after verifying remote access by hand" \
+[ "$rc" = 2 ] && untouched "$S" && has "$out" "pass --force with --sha <8+ characters of 9.9.8's sha256> and --hand-check \"<what you checked>\" only after verifying remote access by hand" \
   && pass "named: the tunnel HOLD offers --force with --sha" || bad "named tunnel HOLD wording (rc=$rc, out=$out)"
 S="$(newsite)"; out="$(KOSMOS_PROMOTE_TUNNEL_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" 2>&1)"; rc=$?
-[ "$rc" = 2 ] && has "$out" "pass --force only after verifying remote access by hand" && pass "default: CONTROL the tunnel HOLD wording is unchanged" || bad "default tunnel HOLD wording (rc=$rc, out=$out)"
+[ "$rc" = 2 ] && has "$out" "pass --force with --hand-check \"<what you checked>\" only after verifying remote access by hand" && pass "default: CONTROL the tunnel HOLD wording is unchanged" || bad "default tunnel HOLD wording (rc=$rc, out=$out)"
 
 # ---- a version older than prod's is a rollback, and needs --allow-older ----
 S="$(newsite)"; out="$(bash "$HERE/promote-channel.sh" "$S" 2>&1)"   # prod now serves 9.9.9

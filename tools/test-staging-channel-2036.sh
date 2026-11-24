@@ -113,14 +113,15 @@ cmp -s "$Sp/dist/kosmos-arm64.tar.gz" "$Sp/dist/$ART" && pass "promote: the alia
 Sb="$(make_site)"; bash "$PUBLISH" "$Sb" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=1 bash "$PROMOTE" "$Sb" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ ! -f "$Sb/dist/latest.json" ] && pass "promote: gate 1 (broken) -> refuse, prod pointer untouched" || bad "promote gate1 (rc=$rc, latest exists: $([ -f "$Sb/dist/latest.json" ] && echo y||echo n))"
-out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=1 bash "$PROMOTE" "$Sb" --force 2>&1)"; rc=$?
+HC8960='checked this build by hand on a board running it (test)'   # kosmos#8960: --force needs --hand-check
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=1 bash "$PROMOTE" "$Sb" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "does not override" && [ ! -f "$Sb/dist/latest.json" ] && pass "promote: --force does NOT override a provably-broken board (exit 1)" || bad "promote gate1 --force (rc=$rc, out=$out)"
 
 # gate 2 -> HOLD by default; gate 2 + --force -> promote with a warning
 Sh="$(make_site)"; bash "$PUBLISH" "$Sh" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$Sh" 2>&1)"; rc=$?
 [ "$rc" = 2 ] && [ ! -f "$Sh/dist/latest.json" ] && pass "promote: gate 2 (cannot-tell) -> HOLD (exit 2), prod pointer untouched" || bad "promote gate2 hold (rc=$rc)"
-out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$Sh" --force 2>&1)"; rc=$?
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$Sh" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && has "$out" "NOT automatically verified" && [ -f "$Sh/dist/latest.json" ] && pass "promote: gate 2 + --force -> promote with a hand-verified warning" || bad "promote gate2 --force (rc=$rc, out=$out)"
 has "$out" "run the check it could not: KOSMOS_GATE_EXPECT_VERSION=$V bash $(cd "$(dirname "$PROMOTE")/.." && pwd)/tools/staging-experience-check.sh" && pass "#5084: a forced cannot-tell prints the exact re-run for after the deploy" || bad "#5084: forced cannot-tell, no re-run line (out=$out)"
 has "$out" "this agent-spawn pass is not a check of $V" && pass "#5084: after a forced cannot-tell, the agent-spawn pass says it is not a check of $V" || bad "#5084: forced cannot-tell, agent pass not qualified (out=$out)"
@@ -132,6 +133,18 @@ node -e 'const f=process.argv[1],fs=require("node:fs");const j=JSON.parse(fs.rea
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sm" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "does not describe the bytes on disk" && [ ! -f "$Sm/dist/latest.json" ] && pass "promote: refuses when the staging sha != the served bytes (same-bytes invariant, before the gate)" || bad "promote sha-mismatch (rc=$rc, out=$out)"
 
+# kosmos#8960: --force must name the hand check it rests on. Each refusal happens before anything is written; the
+# CONTROL is the same gate-2 promote with a named check, which promotes and prints the check beside the forced gate.
+S8960a="$(make_site)"; bash "$PUBLISH" "$S8960a" >/dev/null 2>&1
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "--force needs --hand-check" && has "$out" "Nothing was written" && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 --force with no --hand-check refuses before writing" || bad "promote 8960 no-hand-check (rc=$rc, out=$out)"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "  looked   at it  " 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "--force needs --hand-check" && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 a hand check under 20 characters (spaces squeezed) refuses" || bad "promote 8960 short hand-check (rc=$rc, out=$out)"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --hand-check "$HC8960" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "--hand-check goes with --force" && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 --hand-check without --force refuses" || bad "promote 8960 hand-check alone (rc=$rc, out=$out)"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check="$HC8960" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ -f "$S8960a/dist/latest.json" ] && has "$out" "the hand check named for this --force: $HC8960" && pass "promote: #8960 CONTROL --force with a named check (= form) promotes and prints the check" || bad "promote 8960 control (rc=$rc, out=$out)"
+
 # THE load-bearing guarantee: --force overrides ONLY the experience gate, NEVER the
 # same-bytes invariant. Prove it decisively -- a byte-refusal (wrong pointer sha) with
 # --force AND a PASSING gate (GATE_RC_WANT=0) must still refuse, because the byte-refusal
@@ -139,7 +152,7 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sm" 2>&1
 # turn this red (it is the one thing a reviewer asked to be pinned, this being a prod path).
 Smf="$(make_site)"; bash "$PUBLISH" "$Smf" >/dev/null 2>&1
 node -e 'const f=process.argv[1],fs=require("node:fs");const j=JSON.parse(fs.readFileSync(f,"utf8"));j.sha256="deadbeef";fs.writeFileSync(f,JSON.stringify(j)+"\n")' "$Smf/dist/latest-staging.json"
-out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Smf" --force 2>&1)"; rc=$?
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Smf" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "does not describe the bytes on disk" && [ ! -f "$Smf/dist/latest.json" ] && pass "promote: --force does NOT override the same-bytes invariant (byte-refusal precedes the gate)" || bad "promote sha-mismatch --force (rc=$rc, out=$out)"
 
 # same-bytes invariant: promote runs its OWN verify-in-place, so an artifact tampered AFTER
@@ -213,12 +226,12 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=0 bash "$PR
 St1="$(make_site)"; bash "$PUBLISH" "$St1" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=1 bash "$PROMOTE" "$St1" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "tunnel handshake gate FAILED" && [ ! -f "$St1/dist/latest.json" ] && pass "promote: tunnel gate 1 (remote access broken) -> refuse, no promote" || bad "promote tunnel-gate-1 (rc=$rc, out=$out)"
-out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=1 bash "$PROMOTE" "$St1" --force 2>&1)"; rc=$?
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=1 bash "$PROMOTE" "$St1" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ ! -f "$St1/dist/latest.json" ] && pass "promote: tunnel gate 1 is NOT forceable" || bad "promote tunnel-gate-1-force (rc=$rc, out=$out)"
 St2="$(make_site)"; bash "$PUBLISH" "$St2" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=2 bash "$PROMOTE" "$St2" 2>&1)"; rc=$?
 [ "$rc" = 2 ] && [ ! -f "$St2/dist/latest.json" ] && pass "promote: tunnel gate 2 (cannot-tell) -> HOLD, no promote" || bad "promote tunnel-gate-2 (rc=$rc, out=$out)"
-out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=2 bash "$PROMOTE" "$St2" --force 2>&1)"; rc=$?
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=2 bash "$PROMOTE" "$St2" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ -f "$St2/dist/latest.json" ] && pass "promote: tunnel gate 2 + --force -> promote on hand check" || bad "promote tunnel-gate-2-force (rc=$rc, out=$out)"
 # The CONTROL: the build prod serves now. St0 had no prod pointer, so no control and a NOTE.
 St0out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=0 bash "$PROMOTE" "$(St=$(make_site); bash "$PUBLISH" "$St" >/dev/null 2>&1; echo "$St")" 2>&1)"
@@ -239,14 +252,14 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=1 bash "$PRO
 [ "$rc" = 1 ] && has "$out" "agent-spawn gate FAILED" && [ ! -f "$Sa1/dist/latest.json" ] && pass "promote: experience-ok but agent gate 1 (#2129) -> refuse, no promote" || bad "promote agent-gate-1 (rc=$rc, out=$out)"
 
 # --force does NOT override a provably-broken agent gate (1), same as the experience gate.
-out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=1 bash "$PROMOTE" "$Sa1" --force 2>&1)"; rc=$?
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=1 bash "$PROMOTE" "$Sa1" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ ! -f "$Sa1/dist/latest.json" ] && pass "promote: agent gate 1 is NOT forceable" || bad "promote agent-gate-1-force (rc=$rc, out=$out)"
 
 # agent gate cannot-tell (2) -> HOLD (exit 2), no promote; --force promotes on a hand check.
 Sa2="$(make_site)"; bash "$PUBLISH" "$Sa2" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=2 bash "$PROMOTE" "$Sa2" 2>&1)"; rc=$?
 [ "$rc" = 2 ] && [ ! -f "$Sa2/dist/latest.json" ] && pass "promote: agent gate 2 (cannot-tell) -> HOLD, no promote" || bad "promote agent-gate-2 (rc=$rc, out=$out)"
-out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=2 bash "$PROMOTE" "$Sa2" --force 2>&1)"; rc=$?
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=2 bash "$PROMOTE" "$Sa2" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ -f "$Sa2/dist/latest.json" ] && pass "promote: agent gate 2 + --force -> promote on hand check" || bad "promote agent-gate-2-force (rc=$rc, out=$out)"
 
 # BOTH gates pass -> promote (the ordinary path, asserted explicitly with the agent gate present).
@@ -269,11 +282,11 @@ out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" Q
 [ "$rc" = 2 ] && has "$out" "did not finish with a verdict" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queue stopped the gate (END rc=75) -> cannot-tell HOLD (2)" || bad "promote queued-gate-75 (rc=$rc, out=$out)"
 # Inside a turn that already holds the machine, the queue exec's the gate and prints no END line: its exit IS the gate's.
 QINH="$T/stub-queue-inherited.sh"; printf '#!/usr/bin/env bash\necho "QUEUED-HEAVY 12:00:00 $1 runs now, inside the turn that already holds the box (it claims and releases nothing)"\nexit "${QRC:-0}"\n' > "$QINH"
-out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QINH" QRC=1 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" --force 2>&1)"; rc=$?
+out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QINH" QRC=1 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: gate run inside an inherited turn exits 1 -> refuse even with --force" || bad "promote queued-inherited-1 (rc=$rc, out=$out)"
 out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=143 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" 2>&1)"; rc=$?
 [ "$rc" = 2 ] && has "$out" "did not finish with a verdict" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queued gate killed (END rc=143) -> cannot-tell HOLD (2), not a refusal" || bad "promote queued-gate-143 (rc=$rc, out=$out)"
-out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=1 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" --force 2>&1)"; rc=$?
+out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=1 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queued gate END rc=1 -> refuse even with --force" || bad "promote queued-gate-1 (rc=$rc, out=$out)"
 # kosmos#6922: a gate that ran in the queue and answered PARTIAL (END rc=3) is PARTIAL, as unqueued: held, forceable.
 out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=3 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" 2>&1)"; rc=$?
@@ -299,7 +312,7 @@ left="$(ls "$QT" 2>/dev/null | grep -c '^promote-agentgate\.')"
 Sa3="$(make_site)"; bash "$PUBLISH" "$Sa3" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=3 bash "$PROMOTE" "$Sa3" 2>&1)"; rc=$?
 [ "$rc" = 3 ] && has "$out" "PARTIAL" && [ ! -f "$Sa3/dist/latest.json" ] && pass "promote: agent gate 3 (Claude ok, OpenAI failed) -> HOLD/surface, no promote" || bad "promote agent-gate-3 (rc=$rc, out=$out)"
-out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=3 bash "$PROMOTE" "$Sa3" --force 2>&1)"; rc=$?
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=3 bash "$PROMOTE" "$Sa3" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ -f "$Sa3/dist/latest.json" ] && pass "promote: agent gate 3 + --force -> promote (Claude fix ships, codex chased separately)" || bad "promote agent-gate-3-force (rc=$rc, out=$out)"
 
 # the [port] is forwarded to the SECOND (agent) gate too, not only the experience gate.
@@ -312,7 +325,7 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=0 bash "$PRO
 Sp1="$(make_site)"; bash "$PUBLISH" "$Sp1" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=1 bash "$PROMOTE" "$Sp1" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "first Kosmos+ sign-in gate FAILED" && [ ! -f "$Sp1/dist/latest.json" ] && pass "promote: plus gate 1 -> refuse, no promote" || bad "promote plus-gate-1 (rc=$rc, out=$out)"
-out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=1 bash "$PROMOTE" "$Sp1" --force 2>&1)"; rc=$?
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=1 bash "$PROMOTE" "$Sp1" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ ! -f "$Sp1/dist/latest.json" ] && pass "promote: plus gate 1 is NOT forceable" || bad "promote plus-gate-1-force (rc=$rc, out=$out)"
 # no record (2) -> WARN and promote, WITHOUT --force (#3940, Josh 2026-09-26), and one line in the log.
 Sp2="$(make_site)"; bash "$PUBLISH" "$Sp2" >/dev/null 2>&1
@@ -326,7 +339,7 @@ SHA_T="$(sed -n 's/.*"sha256": *"\([^"]*\)".*/\1/p' "$Sp2/dist/latest-staging.js
   && grep -q 'first Kosmos+ sign-in NOT verified' "$PLUS_LOG_T" && grep -q 'reason=plus-gate-version:9.9.9' "$PLUS_LOG_T" \
   && pass "promote: plus gate 2 (no record) -> WARN, promote, one log line" || bad "promote plus-gate-2 (rc=$rc, log=$(cat "$PLUS_LOG_T" 2>/dev/null), out=$out)"
 # --force changes nothing for a missing record: still a warning, a promote, and one MORE log line.
-out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash "$PROMOTE" "$Sp2" --force 2>&1)"; rc=$?
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash "$PROMOTE" "$Sp2" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ -f "$Sp2/dist/latest.json" ] && [ "$(grep -c 'version=9.9.9' "$PLUS_LOG_T")" = 2 ] \
   && pass "promote: plus gate 2 + --force -> promote, logged again" || bad "promote plus-gate-2-force (rc=$rc, out=$out)"
 # A log that cannot be written never stops the promote; the output says so instead.
