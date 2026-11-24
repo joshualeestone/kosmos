@@ -2,7 +2,7 @@
 
 /**
  * kosmos#8961: POST /api/msg/status, through the real server: a message sent with POST /api/msg, then the recipient's
- * report hook rows (selfreport.record, auto), then the status. Only the sender or the recipient is answered, and the
+ * report hook rows (selfreport.record, auto), then the status. Only the sender is answered, and the
  * answer carries no message text. Then the bash CLI (`kosmos msg --status`) and the Windows CLI read the same route.
  *
  * Senders are named by their agent tokens (the header form `kosmos msg` uses); the roster comes through
@@ -107,11 +107,11 @@ test('#8961 a turn after delivery that ends with nothing sent back: read with no
   assert.equal(r.json.status, 'read_no_answer', JSON.stringify(r.json));
   assert.match(r.json.sentence, /mara started a turn after your message arrived .* without sending you anything by command/);
   assert.doesNotMatch(JSON.stringify(r.json), /secret plan/, 'the status carried the message text');
-  // The recipient may ask too; a third agent may not.
-  assert.equal((await post('/api/msg/status', 'mara', { id })).json.status, 'read_no_answer');
+  // Only the sender is answered: the recipient and a third agent get the same refusal.
+  assert.equal((await post('/api/msg/status', 'mara', { id })).json.found, false);
   const out = await post('/api/msg/status', 'kai', { id });
   assert.equal(out.json.found, false);
-  assert.match(out.json.sentence, /there is no direct message m\d+ sent by you or to you/);
+  assert.match(out.json.sentence, /there is no direct message m\d+ sent by you$/);
 });
 
 test('#8961 history() marks only the hook\'s own turn sentences', async () => {
@@ -175,6 +175,9 @@ test('#8961 the bash CLI prints the board\'s sentence', { skip: process.platform
   const sentOut = await cli(['mara', 'hello from the cli']);
   assert.equal(sentOut.code, 0, sentOut.text);
   assert.match(sentOut.text, /Placed with mara\.\s+Its id is m\d+: kosmos msg --status m\d+ says later/);
+  const late = await cli(['--no-reply', '--status', id]);
+  assert.equal(late.code, 2, late.text);
+  assert.match(late.text, /--status is its own command/);
   const missing = await cli(['--status', 'm99999']);
   assert.equal(missing.code, 1, missing.text);
   assert.match(missing.text, /there is no direct message m99999/);
@@ -197,6 +200,9 @@ test('#8961 the Windows CLI prints the board\'s sentence', async () => {
   const sentOut = await winRun(['msg', 'mara', 'hello from windows']);
   assert.equal(sentOut.code, 0, sentOut.err);
   assert.match(sentOut.out, /Placed with mara\.\nIts id is m\d+: kosmos msg --status m\d+ says later/);
+  const late = await winRun(['msg', '--stdin', '--status', id]);
+  assert.equal(late.code, 2, late.out + late.err);
+  assert.match(late.err, /--status is its own command/);
   const bad = await winRun(['msg', '--status', 'bad']);
   assert.equal(bad.code, 2, bad.out + bad.err);
   assert.match(bad.err, /Usage: kosmos msg --status <message id>/);

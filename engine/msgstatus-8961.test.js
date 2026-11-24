@@ -89,7 +89,7 @@ test('a held message typed later counts from when it was typed; a dropped one sa
 test('names compare as the roster resolves them, not as typed', () => {
   const sessionOf = (n) => ({ mara: 'mara', leo: 'leo' })[String(n).toLowerCase()] || n;
   const rows = [sent({ to: 'Mara' }), { kind: 'message', id: 'm11', from: 'mara', to: 'Leo', at: at(3), state: 'placed', in_reply_to: 'm10' }];
-  const s = status('m10', { rows, history: () => [], sessionOf, asker: 'mara' });
+  const s = status('m10', { rows, history: () => [], sessionOf, asker: 'LEO' });
   assert.equal(s.status, STATUS.ANSWERED, JSON.stringify(s));
 });
 
@@ -113,6 +113,14 @@ test('a held reply counts as an answer only once it was typed', () => {
   assert.equal(run([sent(), reply], [end(-60), start(2), end(5)]).status, STATUS.READ_NO_ANSWER);
   const typed = { kind: 'held-delivered', of: 'm11', from: 'mara', to: 'leo', at: at(9), state: 'placed' };
   assert.equal(run([sent(), reply, typed], [end(-60), start(2), end(5)]).status, STATUS.ANSWERED);
+});
+
+test('a held reply counts from when it was typed, not from when it was sent', () => {
+  const held = sent({ state: 'held' });
+  const typed = { kind: 'held-delivered', of: 'm10', from: 'leo', to: 'mara', at: at(20), state: 'placed' };
+  const reply = { kind: 'message', id: 'm11', from: 'mara', to: 'leo', at: at(10), state: 'held' };   // sent before m10 was typed
+  const replyTyped = { kind: 'held-delivered', of: 'm11', from: 'mara', to: 'leo', at: at(30), state: 'placed' };   // typed after
+  assert.equal(run([held, typed, reply, replyTyped], [end(-60)]).status, STATUS.ANSWERED);
 });
 
 test('a session restart ends a standing wait: the new session\'s turns count', () => {
@@ -224,16 +232,20 @@ test('a bad id, a missing id, a room post and an outsider are refused', () => {
   assert.equal(status('m10', { rows: [post] }).found, false);
   const out = run([sent()], [], { asker: 'kai' });
   assert.equal(out.found, false);
-  assert.match(out.because, /sent by you or to you/);
+  assert.match(out.because, /no direct message m10 sent by you$/);
   // The same refusal for a missing id, so an outsider cannot tell the two apart.
   assert.equal(status('m99', { rows: [sent()], asker: 'kai' }).because, out.because.replace('m10', 'm99'));
-  assert.equal(run([sent()], [end(-60)], { asker: 'mara' }).status, STATUS.NOT_YET);
+  assert.equal(run([sent()], [end(-60)], { asker: 'leo' }).status, STATUS.NOT_YET);
+  // The recipient is refused too: every sentence is written to the sender.
+  assert.equal(run([sent()], [end(-60)], { asker: 'mara' }).found, false);
 });
 
 test('the history is read under the recipient\'s session name', () => {
   let asked = null;
-  status('m10', { rows: [sent()], history: (n) => { asked = n; return []; }, sessionOf: () => 'mara-session' });
+  let since = null;
+  status('m10', { rows: [sent()], history: (n, t) => { asked = n; since = t; return []; }, sessionOf: (n) => (n === 'mara' ? 'mara-session' : n) });
   assert.equal(asked, 'mara-session');
+  assert.equal(since, T0, 'the send time is passed, so the reader can widen its tail only when needed');
 });
 
 test('a --no-reply message says no answer was asked for', () => {

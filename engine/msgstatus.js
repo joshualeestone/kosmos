@@ -56,9 +56,9 @@ function iso(ms) { return new Date(ms).toISOString(); }
 /**
  * status(id, { rows, history, sessionOf }) -> { found, ... }
  *   rows:      the message log rows (messages.readLog()), oldest first
- *   history:   (sessionName) -> selfreport.history rows (with `turn` marks) or null
+ *   history:   (sessionName, sentAt ms) -> selfreport.history rows (with `turn` marks) or null
  *   sessionOf: (name) -> the recipient's session name (the roster's card), or the name itself
- *   asker:     when given, only the sender or the recipient may read the status. Optional only for the pure tests:
+ *   asker:     when given, only the sender may read the status. Optional only for the pure tests:
  *              the route always passes it, and any new caller serving an agent must too.
  */
 function status(id, o) {
@@ -75,10 +75,10 @@ function status(id, o) {
   // A direct message only: a room post has many readers and its own answered/unanswered tracking (#4612).
   const msg = rows.find((r) => r && r.kind === 'message' && r.id === key && typeof r.to === 'string');
   const asked = o && typeof o.asker === 'string';
-  /* With an asker, one refusal for "no such message" and "not yours", so an agent cannot tell another pair's
-     message id from a missing one. */
-  if (asked && (!msg || (canon(o.asker) !== canon(msg.from) && canon(o.asker) !== canon(msg.to)))) {
-    return { found: false, because: 'there is no direct message ' + key + ' sent by you or to you' };
+  /* With an asker, only the sender is answered (every sentence is written to the sender), and with one refusal for
+     "no such message" and "not yours", so an agent cannot tell another message's id from a missing one. */
+  if (asked && (!msg || canon(o.asker) !== canon(msg.from))) {
+    return { found: false, because: 'there is no direct message ' + key + ' sent by you' };
   }
   if (!msg) return { found: false, because: 'there is no direct message ' + key + ' on this board' };
   const name = String(msg.to).replace(/["\\]/g, '');   // for the because sentences: never a quote or backslash
@@ -110,14 +110,15 @@ function status(id, o) {
      says so (`cites: false`). */
   const to = canon(msg.to);
   const from = canon(msg.from);
-  // A held reply counts only once the sweep typed it (its held-delivered row): kept, it has not reached the sender.
-  const typedLater = (r) => rows.some((d) => d && d.kind === 'held-delivered' && d.of === r.id && (d.state === 'placed' || d.state === 'unconfirmed'));
+  // A held reply counts only once the sweep typed it (its held-delivered row), and from then: kept, it had not reached the sender.
+  const typedAtOf = (r) => { const d = rows.find((x) => x && x.kind === 'held-delivered' && x.of === r.id && (x.state === 'placed' || x.state === 'unconfirmed')); return d ? d.at : null; };
+  const replyAt = (r) => Date.parse((r.state === 'held' ? typedAtOf(r) : r.at) || '');
   const back = rows.filter((r) => r && r.kind === 'message' && typeof r.to === 'string' && r.id !== key
     && canon(r.from) === to && canon(r.to) === from
-    && (r.state === 'placed' || r.state === 'unconfirmed' || (r.state === 'held' && typedLater(r)))
+    && (r.state === 'placed' || r.state === 'unconfirmed' || r.state === 'held')
     // One that cites another message is about that one; one from before a held message was typed cannot be about it.
     && (!r.in_reply_to || r.in_reply_to === key)
-    && Number.isFinite(Date.parse(r.at || '')) && Date.parse(r.at) >= sentAt);
+    && Number.isFinite(replyAt(r)) && replyAt(r) >= sentAt);
   const cited = back.find((r) => r.in_reply_to === key);
   const answer = cited || back[0];
   if (answer) return { ...base, status: STATUS.ANSWERED, answer: answer.id, answeredAt: answer.at, cites: Boolean(cited) };
@@ -125,7 +126,8 @@ function status(id, o) {
   let session = msg.to;
   try { session = (o && typeof o.sessionOf === 'function' && o.sessionOf(msg.to)) || msg.to; } catch { session = msg.to; }
   let hist = null;
-  try { hist = o && typeof o.history === 'function' ? o.history(session) : null; } catch { hist = null; }
+  // The send time goes with it, so a reader can start with a short tail and widen only when it does not reach back.
+  try { hist = o && typeof o.history === 'function' ? o.history(session, sentAt) : null; } catch { hist = null; }
   if (!Array.isArray(hist)) return { ...base, status: STATUS.UNKNOWN, because: 'there is no report history for ' + name };
   // A history cut after the send cannot say what happened between the send and its first row.
   if (hist.truncated === true && (!hist.length || hist[0].at > sentAt)) {

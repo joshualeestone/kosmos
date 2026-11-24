@@ -538,13 +538,13 @@ function keepPipedCopy(ctx, text, maybe) {   // maybe (#4934): a first try may h
   }
 }
 
-/* kosmos#8961, as install/kosmos _msg_status: `kosmos msg --status <id>` reads what happened to a direct message (answered
-   by command, read with no answer, still in its turn, or not read yet). A read: nothing is sent, so no retry is needed. */
 /* kosmos#8961, as install/kosmos _say_msg_id: after a send, its id and the command that says later what happened to it. */
 function sayMsgId(ctx, d) {
   if (d && typeof d.id === 'string' && /^m[1-9][0-9]{0,15}$/.test(d.id)) ctx.out('Its id is ' + d.id + ': kosmos msg --status ' + d.id + ' says later whether they answered or read it.');
 }
 const MSG_STATUS_USAGE = '   or: kosmos msg --status <id>  (whether a message you sent was answered, or read with no answer, or not read yet)';
+/* kosmos#8961, as install/kosmos _msg_status: `kosmos msg --status <id>` reads what happened to a direct message (answered
+   by command, read with no answer, still in its turn, or not read yet). A read: nothing is sent, so no retry is needed. */
 async function verbMsgStatus(ctx, args) {
   const id = args.length === 1 ? String(args[0]) : '';
   if (!/^m[1-9][0-9]{0,15}$/.test(id)) { ctx.err('Usage: kosmos msg --status <message id>, like: kosmos msg --status m12'); return 2; }
@@ -570,6 +570,7 @@ async function verbMsg(ctx, args) {
   for (;;) {
     if (args[0] === '--stdin') { fromStdin = true; args.shift(); continue; }
     if (args[0] === '--no-reply') { noReply = true; args.shift(); continue; }
+    if (args[0] === '--status' || (typeof args[0] === 'string' && args[0].startsWith('--status='))) { ctx.err('--status is its own command, with nothing before it: kosmos msg --status <message id>'); return 2; }   // kosmos#8961, as install/kosmos
     if (args[0] === '--in-reply-to') {
       args.shift();
       inReplyTo = args.shift() || '';
