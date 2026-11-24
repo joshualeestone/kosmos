@@ -2679,7 +2679,7 @@
     {
       "since": "0.8.18",
       "status": "pending",
-      "title": "Spreadsheets reach your agent row by row",
+      "title": "Clearer spreadsheets for your agent",
       "line": "Spreadsheets you attach reach your agent row by row, with each value named by its column.",
       "icon": "list",
       "rank": 12.9
@@ -2699,7 +2699,7 @@
       "icon": "list",
       "rank": 147,
       "notesOnly": true,
-      "line": "A mistyped kosmos command suggests the right one, and an agent can read its feedback report for an earlier day."
+      "line": "A mistyped kosmos command suggests the right one, and an agent can look back at an earlier day before writing its feedback."
     }
   ],
   "lastProdWin": "0.8.17"

@@ -7,9 +7,9 @@ Built with `node tools/whats-new-pool.js build 0.8.19` (online) on origin/main a
 - Picked the top five pending highlights.
 
 ## Pool additions
-- **Spreadsheets reach your agent row by row** (#8940, all platforms, rank 12.9, `since: 0.8.18`): Ice Cream Kitty's wording. It rode 0.8.18 but missed that list (decided 13:18, recorded on #8940). The xlsx path in engine/attachtext.js is plain JavaScript; the one darwin gate there is the PDF reader (PDFKit), so the line is untagged.
+- **Clearer spreadsheets for your agent** (#8940, all platforms, rank 12.9, `since: 0.8.18`): Ice Cream Kitty's line; the title is Mona Lisa's copy read (m6237), so the title and line do not repeat each other. It rode 0.8.18 but missed that list (decided 13:18, recorded on #8940). The xlsx path in engine/attachtext.js is plain JavaScript; the one darwin gate there is the PDF reader (PDFKit), so the line is untagged.
 - **Signing in again keeps your invitation** (#8947, all platforms, rank 13.0): Mona Lisa's wording. "who it is for" is the sheet's label, which the return note keeps; the optional email is never kept (the plan for #8947 says so), and the line does not claim it.
-- **Agents trip over the command line less** (#8949, notesOnly): PigeonPete's line, shortened to fit 140 characters: did-you-mean on a mistyped command, and feedback day for an earlier day. Agent-facing, so notes only.
+- **Agents trip over the command line less** (#8949, notesOnly): PigeonPete's wording (m6236): "A mistyped kosmos command suggests the right one, and an agent can look back at an earlier day before writing its feedback." My first shortening said an agent could "read its feedback report" for an earlier day, which is not what feedback day does (it shows that day's work so the agent can write the report). Agent-facing, so notes only.
 
 ## Not added
 - #8843 (#8841, Settings names the reason when readings or moves are off by the start environment): it shows only for an operator who set an environment brake, not for a person using Settings. No line.
@@ -17,7 +17,7 @@ Built with `node tools/whats-new-pool.js build 0.8.19` (online) on origin/main a
 
 ## The list (5)
 - windows: Browsers Kosmos opens keep its keys out (since 0.8.03)
-- all: Spreadsheets reach your agent row by row (since 0.8.18)
+- all: Clearer spreadsheets for your agent (since 0.8.18)
 - all: Signing in again keeps your invitation (since 0.8.19)
 - all: A task says how many subtasks are on hold (since 0.7.95)
 - mac: Agent browsers left running are closed (since 0.8.18)
