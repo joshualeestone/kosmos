@@ -2063,8 +2063,9 @@ check(boardPage.contains("'/api/project/' + encodeURIComponent(PJ_CURRENT) + '/a
       && boardPage.contains("'/agent/' + encodeURIComponent(btn.dataset.drop), { method: 'DELETE' }"), "premise: the board adds and drops with those")
 check(Board.projectMemberRequest(mac: URL(string: "http://127.0.0.1:16180")!, project: "../x", session: "a", add: true) == nil, "CONTROL: not a project id, no request")
 check(Board.projectMemberRequest(mac: URL(string: "http://127.0.0.1:16180")!, project: "p", session: "", add: true) == nil, "no session, no request")
-check(Board.projectMemberRequest(mac: URL(string: "http://127.0.0.1:16180")!, project: "p", session: "a/b", add: true)?.url?.path == "/api/project/p/agent/a%2Fb"
-      || Board.projectMemberRequest(mac: URL(string: "http://127.0.0.1:16180")!, project: "p", session: "a/b", add: true)?.url?.absoluteString.hasSuffix("/agent/a%2Fb") == true, "a slash in a session cannot reach another route")
+check(Board.projectMemberRequest(mac: URL(string: "http://127.0.0.1:16180")!, project: "p", session: "a/b", add: true) == nil
+      && Board.projectMemberRequest(mac: URL(string: "http://127.0.0.1:16180")!, project: "p", session: "a/b", add: false) == nil, "review 3: a session the room would not send (isAgentSession) is never sent, either way")
+check(Board.projectMemberRequest(mac: URL(string: "http://127.0.0.1:16180")!, project: "springcatalogue", session: "mona-lisa", add: true)?.url == Board.addMemberRequest(mac: URL(string: "http://127.0.0.1:16180")!, project: "springcatalogue", agent: "mona-lisa")?.url, "review 3: adding is the room's own request")
 check(Board.projectMemberResult(status: 200, body: Data(#"{"project":{},"told":{"state":"told"}}"#.utf8)) == .done(.told), "done, and the agent was told")
 check(Board.projectMemberResult(status: 200, body: Data(#"{"project":{},"told":{"state":"could_not","because":"this agent has no folder"}}"#.utf8)) == .done(.couldNot("this agent has no folder")), "review 1: could_not is its own case, with why")
 check(Board.projectMemberResult(status: 200, body: Data(#"{"project":{},"told":{"state":"not_tried"}}"#.utf8)) == .done(.notTried), "not_tried")
@@ -2075,8 +2076,8 @@ check(Board.projectMemberResult(status: 500, body: Data(#"{"error":"we cannot re
 check(Board.projectMemberResult(status: 404, body: Data(#"{"error":"there is no project by that name"}"#.utf8)) == .refused("There is no project by that name."), "a refusal, as a sentence")
 check(Board.projectMemberResult(status: 400, body: nil) == .refused("We could not change that project."), "a refusal with no reason")
 check(Board.projectMemberResult(status: 0, body: nil) == .cannotTell, "review 1: sent and no answer is cannot tell (the reply can be lost after it acted)")
-check(Board.projectMemberLine(.done(.told), add: true, name: "Rex") == "Added Rex.", "added, told")
-check(Board.projectMemberLine(.done(.notTried), add: true, name: "Rex") == "Added Rex.", "review 2: added, not tried: the board says nothing more")
+check(Board.projectMemberLine(.done(.told), add: true, name: "Rex") == "Added Rex to this project.", "review 3: added, told: the room's own line")
+check(Board.projectMemberLine(.done(.notTried), add: true, name: "Rex") == "Added Rex to this project.", "review 2: added, not tried: nothing more")
 check(Board.projectMemberLine(.done(.couldNot("this agent has no folder")), add: true, name: "Rex").hasPrefix("Added Rex, but we could not update them"), "added, could not update them: said as a problem")
 check(Board.projectMemberLine(.done(.told), add: false, name: "Rex") == "Rex is off this project and still on your computer.", "removed: the board's own words")
 check(Board.projectMemberLine(.done(.couldNot("this agent has no folder")), add: false, name: "Rex") == "Rex is off this project. We could not update them, so this project may still be named in what they were told. This agent has no folder.", "review 1: removed but not updated, the board's own words and why")

@@ -32,3 +32,10 @@ Finished when: from project info, adding a member, removing one and archiving th
 - Fixed (NIT): the row being removed shows its own progress; an add says only "Added <name>." when told or not tried (the board says nothing more).
 - Noted (NIT): closing on archive (RoomView's dismissRoom from the info page) is not reachable in the sample board (no computer admitted, PigeonPete's note); it is a device check, with the posting paths.
 - Evidence: room 943/943; simulator SDK build succeeded; the 13 node tests that read ios/ pass.
+
+## Challenge loop iteration 3 (opus)
+- Fixed (WARNING): a lost answer to an archive that happened left the page on an archived project with its line hidden with the section. The re-read decides too: archived on the re-read counts as archived ("Archived.", and close).
+- Fixed (WARNING, reasoned from SwiftUI, not measured): a slow archive landing after Back could call the old room's dismiss, which drives the same link binding and could close another room. It closes only while this info page is still on screen (onScreen, set by onAppear/onDisappear).
+- Fixed (NIT): adding uses the room's own addMemberRequest (one validator, isAgentSession, for both paths); removing has a DELETE twin with the same checks; the add line is the room's ("Added X to this project."). The archive question names the board's list as "Archived". The busy state is an enum (no marker string a session could equal). VoiceOver hears "Removing" on the row.
+- Fixed (NIT): the UI test drops its web-view checks (the sample board admits no computer, so they could not fail) and asserts About's labelled hand-off is present before asserting the old row is absent.
+- Evidence: room 944/944; simulator SDK build succeeded; the 13 node tests that read ios/ pass. UI run still queued (1 ahead).

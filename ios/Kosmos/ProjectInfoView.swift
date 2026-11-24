@@ -48,7 +48,11 @@ struct ProjectInfoView: View {
     @State private var tasksTried = false
     // kosmos#8956: adding and removing members, and archiving, natively.
     @State private var addingMember = false
-    @State private var memberBusy: String?   // "add", or the session being removed
+    // Review 3: what is changing (never a marker string that a session could equal).
+    private enum MemberChange: Equatable { case adding, removing(String) }
+    @State private var memberBusy: MemberChange?
+    // Review 3: whether this page is still on screen, so a slow archive that lands after Back never closes another room.
+    @State private var onScreen = false
     @State private var memberLine: (text: String, ok: Bool)?
     @State private var archiving = false
     @State private var archiveLine: (text: String, ok: Bool)?
@@ -69,6 +73,8 @@ struct ProjectInfoView: View {
         .background(Palette.ground)
         .navigationBarTitleDisplayMode(.inline)
         .kosmosSolidTopBar()
+        .onAppear { onScreen = true }   // review 3: see onScreen
+        .onDisappear { onScreen = false }
         .navigationTitle(project.name)
         .toolbar(.hidden, for: .tabBar)
         .background(
@@ -191,10 +197,10 @@ struct ProjectInfoView: View {
             // kosmos#8956: members, added and removed here; each Remove asks first, on its own button (Renet, #8955).
             Section {
                 ForEach(project.members, id: \.session) { m in
-                    RemoveMemberRow(member: m, busy: memberBusy != nil, removing: memberBusy == m.session) { Task { await changeMember(session: m.session, name: m.name, add: false) } }
+                    RemoveMemberRow(member: m, busy: memberBusy != nil, removing: memberBusy == .removing(m.session)) { Task { await changeMember(session: m.session, name: m.name, add: false) } }
                 }
                 Button { addingMember = true } label: {
-                    HStack { Text(Board.projectAddMemberTitle).foregroundColor(Palette.primary); if memberBusy == "add" { Spacer(); SweepDots(label: "Loading", scales: false) } }
+                    HStack { Text(Board.projectAddMemberTitle).foregroundColor(Palette.primary); if memberBusy == .adding { Spacer(); SweepDots(label: "Loading", scales: false) } }
                         .frame(minHeight: 44).contentShape(Rectangle())
                 }
                 .disabled(memberBusy != nil)
@@ -276,7 +282,7 @@ struct ProjectInfoView: View {
         guard memberBusy == nil else { return }
         memberLine = nil
         guard client.macURL != nil else { memberLine = spoken(Board.projectMemberLine(.notSent, add: add, name: name), false); return }
-        memberBusy = add ? "add" : session
+        memberBusy = add ? .adding : .removing(session)
         defer { memberBusy = nil }
         let id = project.id
         let res = await client.throughMac { Board.projectMemberRequest(mac: $0, project: id, session: session, add: add) }
@@ -299,9 +305,11 @@ struct ProjectInfoView: View {
         let body = Board.projectArchiveBody()
         let res = await client.throughMac { Board.projectChangeRequest(mac: $0, project: id, body: body) }
         let result = Board.projectArchiveResult(status: res?.1.statusCode ?? 0, body: res?.0)
-        archiveLine = spoken(Board.projectArchiveLine(result), result == .done)
         await reload()
-        if result == .done { onArchived() }
+        // Review 3: what the re-read shows decides it too: a lost answer to an archive that happened is still an archive.
+        let archivedNow = result == .done || live()?.archived == true
+        archiveLine = spoken(Board.projectArchiveLine(archivedNow ? .done : result), archivedNow)
+        if archivedNow && onScreen { onArchived() }
     }
 
     private func save(_ change: Board.ProjectChange) async {
@@ -432,6 +440,7 @@ private struct RemoveMemberRow: View {
         .buttonStyle(.plain)
         .disabled(busy)
         .accessibilityLabel(Board.projectRemoveMemberTitle + ": " + member.name)
+        .accessibilityValue(removing ? "Removing" : "")   // review 3: the dots alone are not heard
         .accessibilityIdentifier("project-remove-member")
         .confirmationDialog(Board.projectRemoveAsk(member.name), isPresented: $asking, titleVisibility: .visible) {
             Button(Board.projectRemoveMemberTitle, role: .destructive, action: remove)
