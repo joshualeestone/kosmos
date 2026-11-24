@@ -58,7 +58,10 @@ done
 #   texted-code and refused-number screens (2 checks).
 # kosmos#8959 slice B1a: AccountScreenUITests, Settings' account row opening the native account screen, its rows and the
 #   Retire sheet (1 check; no chat list, so this lazy-arm run only). Slice B1b: the second step offered, set up and on (1 more).
-classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3 BlankRingUITests:5 SendMovesOnceUITests:3 EndPullUITests:6 NewChatListSwitchUITests:1 WarmReturnChatUITests:3 TextSetupUITests:2 WebFileUITests:1 AccountScreenUITests:2"
+#   Retire sheet (1 check; no chat list, so this lazy-arm run only).
+# kosmos#8958: UnsentDraftUITests, an unsent draft drawn in the chat with Put in the message box and Dismiss, never the
+#   board (3 checks).
+classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3 BlankRingUITests:5 SendMovesOnceUITests:3 EndPullUITests:6 NewChatListSwitchUITests:1 WarmReturnChatUITests:3 TextSetupUITests:2 WebFileUITests:1 AccountScreenUITests:2 UnsentDraftUITests:3"
 # kosmos#7609: AttachMenuUITests.testTheRowFitsAtTheLargestText skips itself in this run (TEST_RUNNER_KOSMOS_UI_SAMPLE) and is named as skipped.
 #   Alone on a Mac it runs: TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/AttachMenuUITests/testTheRowFitsAtTheLargestText
 # ChatOpensAtNewestUITests is left out of this run: its 260-message chat is too big for a CI runner to query (XCTest
@@ -99,7 +102,8 @@ if [ "$uikit" = 1 ]; then
   #   EarlierDoubleAskUITests (2), a page landing is not asked for again before the list says where the top is; one control.
   # kosmos#8221 slice 17: EarlierDeleteShiftUITests (2), after a delete the next page is asked from the window as it is (no
   #   message drawn twice); one control.
-  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:12 ChatGapUITests:3 A11yFocusUITests:14 A11yActionsUITests:3 EarlierDroppedUITests:4 EarlierDoubleAskUITests:2 EarlierDeleteShiftUITests:2"
+  # kosmos#8958: UnsentDraftUITests (3), the unsent draft's row on the UIKit list too.
+  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:12 ChatGapUITests:3 A11yFocusUITests:14 A11yActionsUITests:3 EarlierDroppedUITests:4 EarlierDoubleAskUITests:2 EarlierDeleteShiftUITests:2 UnsentDraftUITests:3"
   for t in testRebuiltListShowsTheNewestMessage testRebuiltShortChatShowsTheNewestMessage testRebuiltAfterTheKeyboardWentDown; do
     skip="$skip -skip-testing:KosmosUITests/KeyboardSlideUITests/$t"
   done

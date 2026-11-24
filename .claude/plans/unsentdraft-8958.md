@@ -34,11 +34,15 @@ Slice B (the task page's board-only actions) is a separate later PR.
   -taskpage, -tasks).
 - Mutants: dropping the kind == kosmos guard reds "only Kosmos's own row"; dropping 404 from draftDismissed reds
   "gone either way".
+- KosmosUITests/UnsentDraftUITests (3, on both lists through ios/tools/ui-sample.sh, so CI's "ui tests (sample board)"
+  and both "uikit list" jobs run it): the row drawn with its words and both actions and no board link (shots in light and
+  dark); Put in the message box fills the box and the draft stays; Dismiss takes it away and it stays gone past a read.
+  The card's "verified in the simulator with a screenshot per screen". Not run on this Mac (busy); CI runs it.
 - swiftc -typecheck of every ios/Kosmos source for the simulator at iOS 16 and 17: clean.
 
 ## Weakest premise
-The view is not seen running here: no simulator screenshot or UI test of the row yet (CI builds it). KOSMOS_SAMPLE_DRAFT=1
-puts one in Dana's sample chat for design shots, which are still to be taken. The layout follows WayThroughRow's card,
+The view is not seen running on this Mac: UnsentDraftUITests runs it in CI's simulator jobs and attaches the shots.
+Until that run is read, the layout is reasoned, not looked at. The layout follows WayThroughRow's card,
 which is reasoned, not looked at.
 Known and left: "Put in the message box" inside the kosmos#7348 refill window, on a draft whose words equal the message
 just sent, is cleared by the refill guard (the press then does nothing). It needs that exact coincidence within the
