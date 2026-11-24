@@ -229,3 +229,15 @@ test('a starter project holding only finished tasks is watched too (work was put
     tasks: [{ number: 1, sentence: 'done', closedAt: iso(NOW - 30 * DAY) }] };
   assert.equal(act(starter, { room: NOW - 40 * DAY }).expected, null);
 });
+
+test('the last branches, pinned: no readable date, a future task time, a made project gone quiet, the tie-break', () => {
+  assert.equal(v.activityLine({ at: 'not a date', kind: 'post', ageDays: 3, quietDays: 14, quiet: false, unknown: false, expected: null }),
+    'Last activity: a post in its room, 3 days ago. Quiet is normal until 14 days.');
+  const future = act({ id: 'p', createdAt: made, tasks: [{ number: 1 }] }, { room: NOW - 20 * DAY, tasks: { 1: iso(NOW + 3 * DAY) } });
+  assert.equal(future.kind, 'task');
+  assert.equal(future.quiet, false);
+  assert.equal(v.activityLine({ at: '2026-09-25T10:00:00.000Z', kind: 'made', ageDays: 60, quietDays: 14, quiet: true, unknown: false, expected: null }, 'lease'),
+    'Last activity: the project was made, 60 days ago (2026-09-25). That is past the 14 days Kosmos counts as normal quiet. If you are on the project, read kosmos room lease: if nobody has told your person there in the last 14 days that it is quiet, post that there once.');
+  // A post at the very moment the project was made says more than the making.
+  assert.equal(act({ id: 'p', createdAt: iso(NOW - DAY), tasks: [] }, { room: NOW - DAY }).kind, 'post');
+});

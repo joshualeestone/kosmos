@@ -48,10 +48,11 @@ Weakest premise: that 14 days is the right default. It is a judgement, not a mea
 1 opus: room-directed words, parked, local date, real-store test, CLAUDE.md row. 2 sonnet: expired holds, guarded
 reader, `kosmos room <id>` named. 3 opus: members only, test and starter projects, help lines, known limits. 4 sonnet:
 `expected` names the reason. 5 opus: unknown reasons and kinds said neutrally, defaults, starter only without tasks.
-6 sonnet: future times read as now. 7 opus: the second-notice rule made one, stale text removed.
+6 sonnet: future times read as now. 7 opus: the second-notice rule made one, stale text removed. 8 sonnet: no
+BLOCKER or WARNING; the last four branches pinned. Stopped at the round-8 cap, converged: false, no BLOCKER open.
 
 ## Tests
-engine/projectview.activity-8996.test.js (20): newest wins with its kind; the 14-day line; each expected reason with a
+engine/projectview.activity-8996.test.js (21): newest wins with its kind; the 14-day line; each expected reason with a
 control; their order; an expired hold is not parked; the starter with a task (open or finished) is watched; an
 unreadable room is unknown; a future post reads as now, a future making is left out; an older CLI facing a newer board;
 malformed fields; every sentence word for word; the line's place in project show; overviewOf carries it; the real
