@@ -14,11 +14,16 @@ loadNewPlaces/renderNewPlaces/notMe) and its words. Routes measured in passkey.r
 - [x] `ios/Kosmos/PasskeyMaker.swift`: Apple's registration sheet (user verification required, attestation none,
       excludedCredentials on iOS 17.4+; answers made / cancelled / alreadyHere / failed). Typechecks against the iOS SDK.
 
-## Next (waits for B1a, branch accountnative-8959: the screen it goes on)
-- [ ] Rebase onto main once B1a is in.
-- [ ] AccountView sections. Add uses ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: rpID)
-      .createCredentialRegistrationRequest(challenge:name:userID:), excludedCredentials from `exclude` (iOS 17.4+;
-      older: InvalidState from finish is told as addHave). Remove and Not me ask twice, as the page (a confirmation
-      dialog on the phone). Not me's success goes the app's sign-out way.
-- [ ] Check the app's associated domains cover the rp_id the relay sends (native passkey sign-in already uses it).
-- [ ] KosmosUITests: light and dark shots. Challenge loop (8-round cap), full validation, PR "Addresses #8959 (slice B1c)".
+- [x] Stacked on B1b (accountsecond-8959, PR #8994) at 10:05; rebase --onto origin/main once #8994 merges.
+- [x] AccountView: Passkeys section (404 hides it; Remove asks first in a confirmation dialog with the page's words;
+      Add = begin, PasskeyMaker, finish named "iPhone"; step-up and Kosmos+'s own refusals shown) and "Sign-ins from new
+      places" (shown only with a row; Not me asks first; success signs this iPhone out the app's own way).
+      Request builders in AccountSecurity, checked: 88/88 (KOSMOS_RELAY = an origin/main copy of the page); a mutant Not
+      me body is caught. "More on Kosmos+" footer drops "passkeys" when the section shows.
+- [x] AccountScreenUITests.testPasskeysAndNewPlaces; ui-sample.sh AccountScreenUITests:3.
+
+## Next
+- [ ] UI light+dark (queued 10:08), read the shots.
+- [ ] Rebase onto main after #8994; challenge loop (8-round cap), full validation, proof, PR "Addresses #8959 (slice B1c)".
+- [ ] Associated domains: webcredentials:login.kosmosplus.com covers Kosmos+'s own rp_id; a self-hosted Kosmos+ with
+      another rp_id gets Apple's refusal, told as "That passkey could not be added." (documented residual).
