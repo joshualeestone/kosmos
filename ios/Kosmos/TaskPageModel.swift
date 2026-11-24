@@ -30,6 +30,8 @@ final class TaskPageModel: ObservableObject {
     // kosmos#8958 slice B2: Put on hold / Take off hold in the air, and the line under it (the board's tk-hold-msg).
     @Published private(set) var holding = false
     @Published private(set) var holdSay: String?
+    // holdSay is the Mac refusing the press (drawn as Mark as done's refusal is), not a line about the task (review 2).
+    @Published private(set) var holdRefused = false
     // What the task read as when holdSay was the unhold's next sentence (Board.holdNextSig): the line goes once the task
     // reads otherwise, as the board's repaint takes it down (review 1).
     private var holdSaySig: String?
@@ -233,6 +235,7 @@ final class TaskPageModel: ObservableObject {
         holding = true
         holdSay = nil
         holdSaySig = nil
+        holdRefused = false
         if !wasOnHold {
             // Putting on hold sets exactly what it sends, so it would replace an agent's hold (its until and why) not
             // yet shown: the task is read fresh first, and nothing is sent if it is already on hold, gone or unread.
@@ -262,13 +265,18 @@ final class TaskPageModel: ObservableObject {
         if case .refused(let why) = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0,
                                                           failed: Board.holdFailed, unreached: Board.holdUnreached) {
             holdSay = why
+            holdRefused = true
             holding = false
             return
         }
         await read()
         await readActivity(names: names)
         guard current else { return }
-        if let shown = self.page, let next = Board.holdNextLine(answer?.0, page: shown) {
+        // As the board's tkHoldSayNext: the sentence is about the task in the answer, and is said only while the page
+        // still shows that task as it was (a hand-out landing before the read, or a read that failed, says nothing).
+        if let told = Board.holdAnswerTask(answer?.0, project: project, number: number), let shown = self.page,
+           Board.holdNextSig(told, project: shown) == Board.holdNextSig(shown),
+           let next = Board.holdNextLine(answer?.0, page: told) {
             holdSay = next
             holdSaySig = Board.holdNextSig(shown)
         }

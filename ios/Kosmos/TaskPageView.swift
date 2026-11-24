@@ -224,7 +224,7 @@ struct TaskPageView: View {
                 .opacity(model.holding || model.pressing ? 0.6 : 1)
                 .accessibilityValue(model.holding ? "In progress" : "")
                 if let say = model.holdSay {
-                    Text(say).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(say).font(.footnote).foregroundColor(model.holdRefused ? Palette.dangerWord : Palette.secondary).fixedSize(horizontal: false, vertical: true)
                         .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
                 }
             }
