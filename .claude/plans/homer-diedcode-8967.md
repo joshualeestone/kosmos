@@ -19,12 +19,12 @@ the log: a death is now written up to 500 ms later (the drain below), so the res
 ## Change (engine/win32supervisor.js)
 - `exit` passes `(code, signal)` to `gone`; the `died` event carries `signal` beside `code`.
 - `stdoutError(e, line)`: the last error `result` (is_error, or an `error...` subtype: the subtype plus its text) or a
-  line that is not a stream event ("not a stream event: ...": not JSON, or JSON that is not an object), clipped to 300
+  line that is not a stream event ("a line that was not an event: ...": not JSON, or JSON that is not an object; labelled as such, not called an error), clipped to 300
   characters with whitespace collapsed. The text comes from `errors: string[]` (the shape `saysNothingToResume` already
   reads), joined with ` | `, and falls back to `result`. A successful result is the agent's own reply and is never
   kept. A successful result or a new turn (`system/init`) clears an earlier error, so an old error never rides on an
   unrelated death. The record is the child's own, kept even after the child is replaced.
-- The `died` reason joins `it said: <stderr tail>` and `its last error on stdout: <...>` with `; `.
+- The `died` reason joins `it said: <stderr tail>` and `its stdout said: <...>` with `; `.
 - `taskLogLine(at, name, e)` builds every task-log line; only a `died` line adds `(exit code N)` (with
   `= 0xXXXXXXXX` for a Windows code past 255 or below 0, an NTSTATUS) or `(signal S)`. A death with neither reads as
   before. Every other line is byte-identical to before.
@@ -42,9 +42,9 @@ the log: a death is now written up to 500 ms later (the drain below), so the res
   dropped. Only the reason gathering, the `died` line and the restart decision wait.
 
 ## Tests (engine/win32supervisor.test.js)
-Ten `#8967` tests: code and signal on the event; error vs successful result vs non-event line on the reason, and an
+Twelve `#8967` tests: code and signal on the event; error vs successful result vs non-event line on the reason, and an
 old error cleared by a success and by a new turn; the death waiting for stdout in the real-world order (exit first);
-the drain bound when stdout never ends, and no wait for a stdout already destroyed; process state settled at exit (stopped at once, a late flush not counted); a late line publishing nothing; a send during the drain; stdoutError and
+the drain bound when stdout never ends, a death released by close alone, and no wait for a stdout already destroyed or closed; process state settled at exit (stopped at once, a late flush not counted); a late line publishing nothing; a send during the drain; stdoutError and
 taskLogLine directly. Each was run against the code before its fix and failed there (control runs on the box).
 
 ## Follow-ups, not here

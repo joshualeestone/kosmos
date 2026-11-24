@@ -441,18 +441,21 @@ const STDOUT_ERROR_CHARS = 300;
 const STDOUT_DRAIN_MS = 500;
 
 /**
- * kosmos#8967: what a stdout line says about an error, or '' when it says nothing.
+ * kosmos#8967: what a stdout line has to say about a death, or '' when it says nothing.
  * An error `result` (is_error, or an `error...` subtype) gives its subtype and its
- * text; a line that is not a stream event (not JSON, or JSON that is not an object)
- * gives itself, since stream-json output is all objects and anything else is the CLI
- * talking. A successful result, or any other event, gives
- * nothing: its text is the agent's reply, which has no place on the task log.
+ * text. A line that is not a stream event (not JSON, or JSON that is not an object:
+ * a number, an array, or a literal `null`, which parseEvent returns as null just like
+ * unparseable text) gives itself, labelled as such and NOT called an error: stream-json
+ * output is all objects, so it is the CLI talking, but not necessarily about a failure.
+ * A successful result, or any other event, gives nothing: its text is the agent's
+ * reply, which has no place on the task log. Clipped on whole characters, so a cut
+ * never leaves half of a surrogate pair on the log.
  */
 function stdoutError(e, line) {
-  const clip = (t) => String(t).replace(/\s+/g, ' ').trim().slice(0, STDOUT_ERROR_CHARS);
+  const clip = (t) => Array.from(String(t).replace(/\s+/g, ' ').trim()).slice(0, STDOUT_ERROR_CHARS).join('');
   if (e === null || e === undefined || typeof e !== 'object' || Array.isArray(e)) {
     const t = clip(line || '');
-    return t ? 'not a stream event: ' + t : '';
+    return t ? 'a line that was not an event: ' + t : '';
   }
   if (e.type !== 'result') return '';
   const subtype = typeof e.subtype === 'string' ? e.subtype : '';
@@ -770,14 +773,20 @@ function superviseStreaming(spec, opts) {
         return;
       }
       let done = false;
-      const once = () => { if (done) return; done = true; finish(code, signal, wasCurrent); };
+      let drainTimer = null;
+      const once = () => {
+        if (done) return;
+        done = true;
+        if (drainTimer !== null) clearTimeout(drainTimer);   // a stream that ended does not hold the loop the full wait
+        finish(code, signal, wasCurrent);
+      };
       out.once('end', once);
       out.once('close', once);
       /* The real clock on purpose, as for the registration timer: the injected
          `timer` is a no-op in the tests, and a death must never wait on it forever.
          Not unref'd: it is bounded, and an unref'd one could let the process leave
          before the line this exists to write. */
-      setTimeout(once, stdoutDrainMs);
+      drainTimer = setTimeout(once, stdoutDrainMs);
     };
     const finish = (code, signal, wasCurrent) => {
       const said = stderrTail.replace(/\s+/g, ' ').trim();
@@ -785,7 +794,7 @@ function superviseStreaming(spec, opts) {
          event on STDOUT, not on stderr, so a death after one used to read as silent. */
       const reasons = [];
       if (said) reasons.push('it said: ' + said);
-      if (stdoutSaid) reasons.push('its last error on stdout: ' + stdoutSaid);
+      if (stdoutSaid) reasons.push('its stdout said: ' + stdoutSaid);
       onEvent({ action: 'died', code: code === undefined ? null : code, signal: signal || null, sessionId: handle.sessionId,
         because: reasons.length ? reasons.join('; ') : undefined });
       /* A stopped loop decides no next start: `stop()` clears `child` before the
@@ -793,7 +802,7 @@ function superviseStreaming(spec, opts) {
       if (nothingToResume && wasCurrent) startFreshAfter(handle.sessionId);
       if (running) schedule();
     };
-    c.on('exit', (code, signal) => gone(code, signal));
+    c.on('exit', gone);
     c.on('error', () => gone(null));
   }
 
