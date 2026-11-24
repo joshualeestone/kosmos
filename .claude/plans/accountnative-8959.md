@@ -23,9 +23,15 @@ The delete-account row stays on the web page (slice C).
 - ios/LogicTests/run-account.sh: 47 checks (parse, words word for word, requests, retire/sign-out answers),
   in iOS CI. Negative control: a copy with the 120 s edge at 60 s fails "the two-minute edge".
 - ios/KosmosUITests/AccountScreenUITests: sample run, Settings row opens the screen, rows and words,
-  Retire sheet with Kosmos+'s sentence, sign-out buttons; light and dark shots.
+  Retire sheet with Kosmos+'s sentence, sign-out buttons. In CI through ios/tools/ui-sample.sh (lazy-arm list).
+  The test itself takes one appearance; dark shots come from a second run after `xcrun simctl ui <udid>
+  appearance dark` (XCUIDevice appearance does not switch the iOS 27 simulator).
 
 ## Known gaps, decided
+- The web page's per-row "Open" link (kosmos#6850) is not ported: the app opens computers from its own
+  switcher, and the web page stays one row away (More on Kosmos+).
+- Every answer is dropped when the sign-in changed while it was out (a sign-out answer would otherwise end
+  the newer sign-in here); a change re-reads the list (accountGeneration).
 - The forget route is meant for the sign-in page; a tightened web_request would break native sign-out
   (fails safe: the screen offers sign-out on this iPhone only).
 - accountChangeWhy reads "... ended the sign-in (by you, or by itself)" for a deliberate press; shared

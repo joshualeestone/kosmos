@@ -619,7 +619,8 @@ struct ContentView: View {
                 // view drops the session too, since its page keeps a copy (ContentView's forget, kosmos#7042).
                 pushManager.signedOutInSettings()
                 web.forget(token)
-            }, youName: youName, youPicture: youPicture)
+            }, currentSession: { pushManager.currentSession }, accountGeneration: pushManager.accountChanges,
+            youName: youName, youPicture: youPicture)
         } else {
             webBoard(which)
         }
@@ -788,8 +789,10 @@ final class BoardWeb: ObservableObject {
 
     /// A dropped session also lives in the page's own memory (its `session`, its Allow watch, which can open the Mac
     /// signed in as it), which no script reaches, so the hidden web view starts a fresh document on the sign-in page,
-    /// whose start removes it (review round 8). Only ever from the native sign-in, which covers the screen, so no page
-    /// the person is using is lost.
+    /// whose start removes it (review round 8). Called after a sign-out only: from the native sign-in (backing out), and
+    /// from Settings' account screen (kosmos#8959 slice B1a). The page is reloaded either way. Its loss is not felt because
+    /// nobody is signed in to use it. Recorded gap: in a store-shots build (KOSMOS_STORE_SHOTS) the native sign-in does not
+    /// come up after a Settings sign-out, so the reloaded page shows.
     func forget(_ token: String) {
         forgotten.append(token)
         sessionChanged()

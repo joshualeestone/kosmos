@@ -14,6 +14,9 @@ struct SettingsView: View {
     // kosmos#8959 slice B1a: the account screen signed this iPhone out (already ended on Kosmos+, or the person chose
     // this iPhone only), with the session it held.
     var signedOut: (String) -> Void = { _ in }
+    // The session signed in now, and a count bumped on every sign-in change (AccountView reads both).
+    var currentSession: () -> String? = { SessionKeychain.live.load() }
+    var accountGeneration = 0
     // kosmos#7266 slice B: the person on the shown computer, for the page's top (BoardClient.youName / youPicture).
     var youName: String? = nil
     var youPicture: Data? = nil
@@ -249,7 +252,8 @@ struct SettingsView: View {
         Section {
             // kosmos#8959 slice B1a: native, where the web page used to open.
             NavigationLink {
-                AccountView(coordinator: coordinator, openPage: openPage, signedOut: signedOut, sample: Self.sample)
+                AccountView(coordinator: coordinator, openPage: openPage, signedOut: signedOut, currentSession: currentSession,
+                            accountGeneration: accountGeneration, sample: Self.sample)
             } label: {
                 Text("Your Kosmos+ account").foregroundColor(Palette.primary)
             }
