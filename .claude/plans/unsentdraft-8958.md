@@ -18,7 +18,9 @@ Slice B (the task page's board-only actions) is a separate later PR.
   link; Dismiss is off while its request is out; on gone, the row goes, a read in the air is dropped (as after a
   delete) and a read goes; on a refusal, the composer line says the board's sentence. A draft row with no usable id
   keeps the link to the board. Put in the message box says the board's "longer than one message" sentence at once when
-  the box then exceeds Board.maxMessage (review 3: a draft can be up to 64 KB, engine/unsentdrafts.js). Review 1: the 44 pt frame and hit shape sit on each button's label (an outer frame on a
+  the box then exceeds Board.maxMessage (review 3: a draft can be up to 64 KB, engine/unsentdrafts.js), by length only
+  (overOneMessage; an empty box is never "too long"), and as the chat's `blocked` note so the next edit clears it
+  (review 4). Review 1: the 44 pt frame and hit shape sit on each button's label (an outer frame on a
   bordered button left a smaller target); the busy mark is cleared before the epoch check, as reactTo.
 
 ## Rejected
@@ -27,7 +29,7 @@ Slice B (the task page's board-only actions) is a separate later PR.
 ## Tests
 - LogicTests (run.sh): id parsed / refused shapes / not on a non-draft / not on an agent's row; the request's method,
   path and body; no request for a bad id; 200 and 404 gone, 500 / 403 / no answer stays; usingDraft into an empty and
-  a typed box; a draft over maxMessage does not fit; withoutDraft keeps the other rows. All 13 runners in ios/LogicTests
+  a typed box; over one message at maxMessage + 1, not at maxMessage, never when empty; withoutDraft keeps the other rows. All 13 runners in ios/LogicTests
   pass (run.sh, run-actions, -agentinfo, -composer, -files, -newtask, -orb, -pullrefresh, -room, -settings, -sweep,
   -taskpage, -tasks).
 - Mutants: dropping the kind == kosmos guard reds "only Kosmos's own row"; dropping 404 from draftDismissed reds
