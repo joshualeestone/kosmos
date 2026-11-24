@@ -8,7 +8,9 @@
  * the top rule and title off screen. chat.permissionAnswerable refuses such a box (#6054 review 3: a cut box could share
  * its visible tail with another command's), so slice (c) offers only its No.
  *
- * WHAT THIS DOES. While such a cut prompt is up on a Claude agent's window that nobody is viewing, the window is made
+ * WHAT THIS DOES. While such a cut prompt is up on a Claude agent's window that nobody is viewing, and the agent's own
+ * report hook says it waits on a permission (selfreport's by:'auto' needs_you, what the phone's notice keys on: an agent
+ * with no report hook, or a wait read only off its screen, is never grown), the window is made
  * taller by exactly the hidden rows (plus FIT_MARGIN), up to MAX_ROWS. Claude Code redraws the WHOLE box at that height,
  * and the next read of the screen takes the ordinary whole-box path (permissionCard, the request fingerprint, the press
  * route's re-look), unchanged. When the prompt is gone the window goes back to the size it had.
@@ -35,20 +37,22 @@
  * MEMORY, kept by the caller between ticks (newMemory):
  *   by agent (the store key of its session name, store.safeKey):
  *     settled   key -> report time. Nothing more to do for that report: its box read whole, or growing cannot help, or
- *               the agent is not one this sweep grows. Read again only when a new report comes.
+ *               the agent is not one this sweep grows. Dropped when a new report comes, or when it stops waiting.
  *     unsure    key -> { at, reads }. Looked at but no box with its hint yet (the hook can report before the box is
  *               drawn), or not on the (20 s old) roster yet. Settled after UNSURE_READS reads AND UNSURE_MS.
  *     watching  key -> window id. Its window has a viewer: no roster read while it still has one.
  *   by window id (#{window_id}, one window even when a session group lists it twice):
  *     grown     id -> { at, req, hidden, misses, stuck, unread }, for a window carrying our mark:
- *                 at      the report it was grown for (null when not known: grown before a board restart)
+ *                 at      the report it was last grown (or grown again) for; null when not known (a board restart)
  *                 req     the request id of its box, learned the first time it reads whole
  *                 hidden  the hint at the last grow, while the box has not yet read whole
  *                 misses  consecutive reads with no prompt on screen (MISSES puts it back)
  *                 stuck   consecutive grown reads of the same box whose hint did not shrink (STUCK puts it back)
  *                 unread  consecutive unreadable reads (UNREADABLE_TICKS puts it back)
  *               Deleted when the window is put back or no longer exists.
- *     failedUntil id -> time. A tmux step failed: left alone until then, logged once.
+ *     failedUntil id -> time. A tmux step failed: left alone until then, logged once. Not for a viewed window's
+ *               restore, tried every tick.
+ *   listed, oursSeen: whether tmux was listed yet, and whether that listing held a mark of ours (the idle gate).
  *   by report file: reports, the cache permissionWaits keeps (file stamp -> reading).
  *
  * NOT DONE: a box taller than MAX_ROWS stays cut and slice (c)'s No stays. A window with more than one pane is left alone.
@@ -182,7 +186,8 @@ function plan({ cards, windows, waiting = new Map(), skip = new Set(), reportOf 
     const card = cardAt.get(`${w.session}\u0000${w.window}`);
     const restore = { act: 'restore', id: w.id, session: w.session, window: w.window, size: w.mark.size || DEFAULT_SIZE };
     if (card && isBusy(card)) continue;   // a press is reading this screen: leave it for the next tick
-    if (restoreOnly || !w.mark.size || w.attached > 0 || !growable(card)) { acts.push(restore); continue; }
+    if (w.attached > 0) { acts.push({ ...restore, viewed: true }); continue; }   // never left tall under a viewer (no back-off)
+    if (restoreOnly || !w.mark.size || !growable(card)) { acts.push(restore); continue; }
     const g = { ...blankGrown(), ...(grown.get(w.id) || {}) };
     const name = card.sessionName;
     const text = read(card);
@@ -311,7 +316,8 @@ function keyOf(name) {
 }
 
 function newMemory() {
-  return { settled: new Map(), unsure: new Map(), watching: new Map(), grown: new Map(), failedUntil: new Map(), reports: new Map() };
+  return { settled: new Map(), unsure: new Map(), watching: new Map(), grown: new Map(), failedUntil: new Map(), reports: new Map(),
+    listed: false, oursSeen: false };
 }
 
 /* One tick. `roster()` returns the board's roster (called at most once, and only on a tick that could act); `tmux`,
@@ -320,11 +326,16 @@ function newMemory() {
 function sweepOnce({ roster, tmux = chat.tmuxCall, screenOf, busy = chat.paneKeysBusy, waits = permissionWaits,
   world = require('./launchidentity').currentWorldId(), memory = newMemory(), now = Date.now(), restoreOnly = false, log } = {}) {
   world = require('./launchidentity').worldIdForHeader(world);   // only characters a mark reads back
+  const byKey = restoreOnly ? new Map() : waits(memory.reports);
+  /* tmux is asked only when there could be something to do: a report standing, a mark of ours seen last time, or the
+     first tick (marks a previous run left). An idle board spawns nothing. */
+  if (memory.listed && byKey.size === 0 && !memory.oursSeen) return [];
   const listed = tmux(LIST_ARGS);
   if (!listed || !listed.ran || listed.status !== 0) return [];
+  memory.listed = true;
   const rows = parseWindows(listed.out);
   const ours = rows.some((w) => w.mark && w.mark.world === world);
-  const byKey = restoreOnly ? new Map() : waits(memory.reports);
+  memory.oursSeen = ours;
 
   // Forget what a new report (or none) has made stale.
   for (const [k, at] of memory.settled) if (byKey.get(k) !== at) memory.settled.delete(k);
@@ -374,11 +385,11 @@ function sweepOnce({ roster, tmux = chat.tmuxCall, screenOf, busy = chat.paneKey
 
   const done = [];
   for (const a of out.acts) {
-    const until = memory.failedUntil.get(a.id);
+    const until = a.viewed ? 0 : memory.failedUntil.get(a.id);   // a viewer's restore is tried every tick
     if (until && now < until) continue;
     const took = run(a, tmux, world);
     if (took && a.act === 'restore') memory.grown.delete(a.id);
-    if (took && a.act === 'grow') memory.grown.set(a.id, { ...blankGrown(), at: reportOf(a.name), hidden: a.hidden });
+    if (took && a.act === 'grow') { memory.grown.set(a.id, { ...blankGrown(), at: reportOf(a.name), hidden: a.hidden }); memory.oursSeen = true; }
     if (!took && a.act === 'grow' && waiting.has(a.name)) countUnsure(waiting.get(a.name));   // a window tmux will not resize
     if (took) memory.failedUntil.delete(a.id); else memory.failedUntil.set(a.id, now + RETRY_AFTER_MS);
     if (typeof log === 'function' && (took || !until)) {

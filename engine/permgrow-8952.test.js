@@ -56,6 +56,13 @@ test('premises, on the real captures', () => {
   assert.equal(status.classify(P, WHOLE.replace(/\s+$/, '') + '\n'.repeat(26)).state, status.STATE.UNKNOWN, 'control: padding does break it');
 });
 
+test('round 8: a line shaped like the hint inside the command (above the question) leaves a whole box answerable', () => {
+  const lines = WHOLE.split('\n');
+  const at = lines.findIndex((l) => /│ \S+30/.test(l));
+  const inCommand = [...lines.slice(0, at + 1), ' ↑ 3 more lines', ...lines.slice(at + 1)].join('\n');
+  assert.equal(chat.permissionAnswerable(inCommand), true, 'the scan starts at the question');
+});
+
 test('a stale top in scrollback above a cut box never reads as whole (the box shows its own hint)', () => {
   const head = WHOLE.split('\n');
   const at = head.findIndex((l) => /│ \S+45/.test(l));
@@ -113,7 +120,7 @@ test('a grown window: kept while its box is up (whole), whatever the report says
 test('a grown window goes back: another box, a viewer, no agent, not ours to grow, a bad mark, or the brake', () => {
   const p = (o) => planOf({ windows: [grownWin()], screenOf: () => WHOLE, ...o }).acts;
   assert.deepEqual(p({ screenOf: () => other(WHOLE) }), [RESTORE], 'another box: put back, grown again only if it needs it');
-  assert.deepEqual(p({ windows: [grownWin({ attached: 1 })] }), [RESTORE]);
+  assert.deepEqual(p({ windows: [grownWin({ attached: 1 })] }), [{ ...RESTORE, viewed: true }], 'a viewer: put back, with no back-off');
   assert.deepEqual(p({ cards: [] }), [RESTORE]);
   assert.deepEqual(p({ cards: [card({ isNamedOurs: false })] }), [RESTORE]);
   assert.deepEqual(p({ windows: [grownWin({ mark: { world: WORLD, size: null }, markRaw: `junk@${WORLD}` })] }), [{ ...RESTORE, size: pg.DEFAULT_SIZE }],
@@ -236,8 +243,34 @@ test('the roster is read only on a tick that could act', () => {
   assert.equal(built, 1, 'settled under the same report: no roster, no screen read');
   sweep({ roster, memory, tmux: listing(ROW).fn, screenOf: () => WHOLE, waits: () => new Map([['ada', 't2']]) });
   assert.equal(built, 2, 'a new report is read again');
-  sweep({ roster, memory, tmux: listing(GROWN_ROW).fn, screenOf: () => IDLE, waits: () => new Map() });
-  assert.equal(built, 3, 'a grown window of ours is always looked at');
+  const m2 = pg.newMemory();
+  let built2 = 0;
+  const roster2 = () => { built2 += 1; return [card()]; };
+  assert.deepEqual(sweep({ roster: roster2, memory: m2, tmux: listing(ROW).fn }).map((a) => a.act), ['grow']);
+  const after = listing(GROWN_ROW);
+  for (let i = 0; i < pg.MISSES; i += 1) sweep({ roster: roster2, memory: m2, tmux: after.fn, screenOf: () => IDLE, waits: () => new Map() });
+  assert.equal(built2, 1 + pg.MISSES, 'round 8: a window grown this run is looked at after its report ends');
+  assert.equal(m2.grown.size, 0, 'and put back');
+});
+
+test('round 8: an idle board asks tmux nothing after its first listing; a mark left by an earlier run is found on the first', () => {
+  const memory = pg.newMemory();
+  const t = listing(ROW);
+  for (let i = 0; i < 4; i += 1) sweep({ roster: () => [card()], memory, tmux: t.fn, waits: () => new Map() });
+  assert.deepEqual(t.calls, ['list-windows'], 'listed once, then nothing to ask');
+  const left = listing(GROWN_ROW);
+  const back = sweep({ roster: () => [card()], memory: pg.newMemory(), tmux: left.fn, waits: () => new Map(), screenOf: () => IDLE });
+  assert.deepEqual(left.calls[0], 'list-windows', 'a fresh board lists on its first tick');
+  assert.deepEqual(back, [], 'one read with no prompt: kept (MISSES)');
+});
+
+test('round 8: a viewer\'s restore that fails is tried again on the next tick, not after RETRY_AFTER_MS', () => {
+  const memory = pg.newMemory();
+  let fail = true;
+  const t = listing(`@1\t${S}\t0\t1\t1\t\t0\t80\t78\t80x24@${WORLD}\n`, (a) => fail && a[0] === 'resize-window');
+  assert.deepEqual(sweep({ roster: () => [card()], memory, now: 0, tmux: t.fn }).map((a) => a.took), [false]);
+  fail = false;
+  assert.deepEqual(sweep({ roster: () => [card()], memory, now: 3000, tmux: t.fn }).map((a) => [a.act, a.took]), [['restore', true]]);
 });
 
 test('a viewed agent costs no roster read while its window still has a viewer; a removed agent\'s report a few', () => {

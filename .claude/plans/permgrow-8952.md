@@ -107,3 +107,14 @@ last 25 lines; the prompt sits at the bottom). Checked in review.
   (which needs req unset), kept as a guard for a whole box with no card.
 - Real run after the rewrite (grouped second session): grow 78, keep, whole card, needs_you; first no-prompt read keeps,
   second restores.
+
+## Round 8 (sonnet, final within the cap of 8) fixes
+- A viewer's restore is never backed off: tried every tick, so a person who attaches is never left panned to the top.
+- tmux is listed only when a report stands, a mark of ours was seen, or on the first tick: an idle board spawns nothing.
+  Found while testing it: a window grown this run must count as ours seen, or the gate would skip its restore after the
+  report ends (fixed, tested).
+- Header made true: only agents whose report hook reports the wait are grown; grown.at is the last grow's report;
+  settled drops when the agent stops waiting; listed/oursSeen documented.
+- Tests: a hint-shaped line inside the command leaves a whole box answerable; a viewer's failed restore retried next tick;
+  idle board lists once. Mutations checked (viewer back-off, oursSeen after grow, idle gate).
+- These fixes came after the last review round. They are small, each mutation-checked, and the full suite runs next.
