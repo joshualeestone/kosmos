@@ -73,13 +73,15 @@
 # instead the artifact is re-verified right before the first write.
 #
 # Usage:
-#   tools/promote-channel.sh <site-checkout> [port] [--force] [--skip-linux-check]
+#   tools/promote-channel.sh <site-checkout> [port] [--force --hand-check "<what you checked>"] [--skip-linux-check]
 #     [port]  the port the experience gate should probe (the fresh staging board's port,
 #             which is per-account and usually NOT 16180). Also settable via KOSMOS_PORT.
 #             Give the port so a wrong-port HOLD does not push you toward --force, which
 #             bypasses the gate entirely.
+#     --hand-check "<text>"  required with --force (kosmos#8960), 20 or more characters: the check of THIS build you
+#             did by hand, which the forced promote rests on. It is printed beside every gate --force passes.
 #   tools/promote-channel.sh <site-checkout> [port] --version <V> [--sha <sha256 prefix>] [--commit <site sha>]
-#                            [--allow-older] [--force] [--skip-linux-check]
+#                            [--allow-older] [--force --hand-check "<text>"] [--skip-linux-check]
 #             promote V from its own staging commit, whatever staging names now (see above)
 #   tools/promote-channel.sh <site-checkout> --family win --approved-version <V> \
 #       --approved-sha <sha256> --approval-ref <Slack message ts or permalink>
@@ -100,14 +102,14 @@
 #   (the Windows gate has no command override: it is always tools/win-staging-verified.sh)
 set -uo pipefail
 
-SITE=""; FORCE=0; SKIP_LINUX_CHECK=0; PORT=""; FAMILY="mac"; APPROVED_VERSION=""; APPROVED_SHA=""; APPROVAL_REF=""; NAMED_VERSION=""; NAMED_SHA=""; NAMED_PICK=""; ALLOW_OLDER=0
+SITE=""; FORCE=0; SKIP_LINUX_CHECK=0; PORT=""; FAMILY="mac"; APPROVED_VERSION=""; APPROVED_SHA=""; APPROVAL_REF=""; NAMED_VERSION=""; NAMED_SHA=""; NAMED_PICK=""; ALLOW_OLDER=0; HAND_CHECK=""
 while [ $# -gt 0 ]; do
   a="$1"; shift
   case "$a" in
     --force) FORCE=1 ;;
     --allow-older) ALLOW_OLDER=1 ;;
     --skip-linux-check) SKIP_LINUX_CHECK=1 ;;
-    --family|--approved-version|--approved-sha|--approval-ref|--version|--sha|--commit)
+    --family|--approved-version|--approved-sha|--approval-ref|--version|--sha|--commit|--hand-check)
       [ $# -gt 0 ] || { echo "promote-channel: $a needs a value" >&2; exit 1; }
       case "$a" in
         --family) FAMILY="$1" ;;
@@ -117,6 +119,7 @@ while [ $# -gt 0 ]; do
         --version) NAMED_VERSION="$1" ;;
         --sha) NAMED_SHA="$1" ;;
         --commit) NAMED_PICK="$1" ;;
+        --hand-check) HAND_CHECK="$1" ;;
       esac
       shift ;;
     --family=*) FAMILY="${a#--family=}" ;;
@@ -126,6 +129,7 @@ while [ $# -gt 0 ]; do
     --version=*) NAMED_VERSION="${a#--version=}" ;;
     --sha=*) NAMED_SHA="${a#--sha=}" ;;
     --commit=*) NAMED_PICK="${a#--commit=}" ;;
+    --hand-check=*) HAND_CHECK="${a#--hand-check=}" ;;
     -*) echo "promote-channel: unknown option $a" >&2; exit 1 ;;
     *)
       if [ -z "$SITE" ]; then SITE="$a"
@@ -147,6 +151,16 @@ case "$FAMILY" in
   linux) echo "promote-channel: the Linux family is not promoted on its own: a Mac promote moves latest-linux.json with latest.json, to the same version (kosmos#7281 lockstep). Run it without --family." >&2; exit 1 ;;
   *) echo "promote-channel: --family must be 'mac' or 'win' (got '$FAMILY')" >&2; exit 1 ;;
 esac
+# kosmos#8960: --force promotes past a gate that could not tell "on the strength of a HAND verification", so it must name
+# that verification. On 0.8.19 (11-23) a wrapper script forced on its own whenever a gate held, and the log claimed a hand
+# check nobody had done. Checked here, before anything is read or written, so no wrapper can skip it.
+if [ "$FORCE" = 1 ]; then
+  _hc="$(printf '%s' "$HAND_CHECK" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//')"
+  [ "${#_hc}" -ge 20 ] || { echo "promote-channel: --force needs --hand-check \"<what you checked on this build, and how>\" (20 or more characters): --force promotes past a gate that could not tell, on a hand check, so name the check you did. Nothing was written." >&2; exit 1; }
+  HAND_CHECK="$_hc"
+else
+  [ -z "$HAND_CHECK" ] || { echo "promote-channel: --hand-check goes with --force (it names the hand check a forced promote rests on)" >&2; exit 1; }
+fi
 # kosmos#7281 slice C2: the marker tools/lib/release-linux.sh reads (grep -x) to allow a PROD Linux cut. It says this
 # script moves the Linux pointer with the Mac one (promote_linux_* below). Keep it exactly as written, on its own line.
 PROMOTE_MOVES_LINUX=1
@@ -201,7 +215,7 @@ SETUP_SRC="$SITE/setup-staging"
 SETUP_HAND="cp setup-staging setup && cp setup-staging.sha256 setup.sha256"
 SNAP_LABEL="$STAGING"
 PTR_WORDS="the staging pointer"; PTR_SUBJ="staging"; PTR_SHA_WORDS="staging pointer"   # named mode names its commit instead
-FORCE_WORDS="--force"   # named mode needs --sha with it, and says so wherever it offers --force
+FORCE_WORDS="--force with --hand-check \"<what you checked>\""   # named mode also needs --sha, and says so wherever it offers --force
 SETUP_MISMATCH_HINT="(A later staging cut replaced it, or the checkout is stale.)"
 SETUP_HAND_HINT="setup-staging, copy setup-staging (+ .sha256) onto setup (+ .sha256) by hand"
 if [ -n "$NAMED_VERSION" ]; then
@@ -302,7 +316,7 @@ if [ -n "$NAMED_VERSION" ]; then
   rm -f "$NAMED_DIR/candidate.json"
   SNAP_LABEL="the $STAGING_NAME committed in ${NAMED_COMMIT:0:10}"
   PTR_WORDS="the pointer committed in ${NAMED_COMMIT:0:10}"; PTR_SUBJ="$PTR_WORDS"; PTR_SHA_WORDS="$PTR_WORDS"
-  FORCE_WORDS="--force with --sha <8+ characters of $NAMED_VERSION's sha256>"
+  FORCE_WORDS="--force with --sha <8+ characters of $NAMED_VERSION's sha256> and --hand-check \"<what you checked>\""
   SETUP_MISMATCH_HINT="(The installer committed beside $SNAP_LABEL is not the one it names.)"
   SETUP_SRC="$NAMED_DIR/setup-staging"
   for _f in setup-staging setup-staging.sha256; do
@@ -537,6 +551,7 @@ if [ "$FAMILY" = mac ]; then
     2)
       if [ "$FORCE" = 1 ]; then
         echo "promote-channel: gate could not run here (exit 2, cannot-tell) and --force was given - promoting on the strength of a HAND verification. NOTE: the experience was NOT automatically verified." >&2
+        echo "promote-channel: the hand check named for this --force: $HAND_CHECK" >&2
         # #5084 (Baron's review): on a fleet board the gate HOLDS for every promote, so the #2023 check runs only if
         # someone runs it after the deploy. Say exactly how.
         # (${X:+a}${X:-b} is not an if/else: with X set, :- adds X itself. The port words are chosen first.)
@@ -550,9 +565,9 @@ if [ "$FAMILY" = mac ]; then
         fi
       else
         if [ -n "$NAMED_VERSION" ]; then
-          echo "promote-channel: gate could not tell (exit 2) - its cannot-tell line above says why: no fresh enforcing board here, or a board that is not running $V (#5084; with --version, usually a board that has moved on to a later staging build). HOLDING. Run this against a board on $V, or verify $V by hand and pass --force with --sha <8+ characters of its sha256>." >&2
+          echo "promote-channel: gate could not tell (exit 2) - its cannot-tell line above says why: no fresh enforcing board here, or a board that is not running $V (#5084; with --version, usually a board that has moved on to a later staging build). HOLDING. Run this against a board on $V, or verify $V by hand and pass --force with --sha <8+ characters of its sha256> and --hand-check \"<what you checked>\"." >&2
         else
-          echo "promote-channel: gate could not tell (exit 2) - its cannot-tell line above says why: no fresh enforcing board here, or a board that is not running $V (#5084). HOLDING. Run this on/against a fresh staging board on $V, or pass --force after verifying $V by hand." >&2
+          echo "promote-channel: gate could not tell (exit 2) - its cannot-tell line above says why: no fresh enforcing board here, or a board that is not running $V (#5084). HOLDING. Run this on/against a fresh staging board on $V, or pass --force with --hand-check \"<what you checked>\" after verifying $V by hand." >&2
         fi
         exit 2
       fi ;;
@@ -625,6 +640,7 @@ if [ "$FAMILY" = mac ]; then
     2)
       if [ "$FORCE" = 1 ]; then
         echo "promote-channel: agent-spawn gate could not run here (exit 2, cannot-tell) and --force was given - promoting on the strength of a HAND verification. NOTE: agent spawn was NOT automatically verified." >&2
+        echo "promote-channel: the hand check named for this --force: $HAND_CHECK" >&2
       else
         echo "promote-channel: agent-spawn gate could not run here (exit 2, cannot-tell) - no enforcing board, a provider not signed in, or an agent that did not answer in time (the gate says which above). HOLDING. Fix what it names and run again, or pass $FORCE_WORDS after verifying by hand." >&2
         exit 2
@@ -707,6 +723,7 @@ if [ "$FAMILY" = mac ]; then
     2)
       if [ "$FORCE" = 1 ]; then
         echo "promote-channel: tunnel handshake gate could not run here (exit 2, cannot-tell) and --force was given - promoting on the strength of a HAND verification. NOTE: remote access was NOT automatically verified." >&2
+        echo "promote-channel: the hand check named for this --force: $HAND_CHECK" >&2
       else
         echo "promote-channel: tunnel handshake gate could not tell (exit 2; its CANNOT TELL line above says why) - the coordinator or relay is down or mid-deploy, the served build's connector fails too, no gate identity is enrolled here (kosmos-relay deploy/release-gate.md), or another connector holds the gate identity. HOLDING. Fix that and run again; pass $FORCE_WORDS only after verifying remote access by hand." >&2
         exit 2
