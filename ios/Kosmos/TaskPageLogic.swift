@@ -1165,6 +1165,9 @@ extension Board {
     static let undoGo = "Undo the chosen files"
     static let undoChoose = "Choose at least one file."
     static let undoFailed = "We could not undo that just now."
+    // The phone's own: no answer, or not the Mac's, says nothing about whether the files were undone (a phone put away
+    // mid-undo loses the answer; the board has only undoFailed).
+    static let undoUnsure = "Kosmos could not tell whether the files were undone. Cancel, then look at the task's activity."
     static let undoLeft = "left as it is"
     static let undoWhy = [
         "restore": "goes back to how it was before this task",
@@ -1221,8 +1224,19 @@ extension Board {
         return files.isEmpty ? .off : .plan(UndoPlan(files: files))
     }
 
-    // tkUndoDoneLine: what was done, what was not, and where the saved versions are. nil when the answer names no files
-    // done (not the Mac's answer to this), where the board would read it as none.
+    enum UndoResult: Equatable { case done(String), refused(String) }
+    // The Mac's answer to an undo. Its own words when it refused; one that did nothing and says why (the task was put back,
+    // or its records could not be read: a 200 all the same) is a refusal too, where the board says "Undone: 0 files.".
+    static func undoResult(status: Int, body: Data?) -> UndoResult {
+        if case .refused(let why) = taskWriteResult(status: status, body: body, failed: undoFailed, unreached: undoUnsure) { return .refused(why) }
+        guard let line = undoDoneLine(body) else { return .refused(undoUnsure) }
+        let out = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        if (out["done"] as? [Any] ?? []).isEmpty, out["because"] is String { return .refused(undoFailed) }
+        return .done(line)
+    }
+
+    // tkUndoDoneLine: what was done, what was not, and where the saved versions are. nil when the answer names no list of
+    // files done (not the Mac's answer to this), where the board would read it as none.
     static func undoDoneLine(_ body: Data?) -> String? {
         guard let out = body.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
               let done = out["done"] as? [Any] else { return nil }

@@ -68,7 +68,6 @@ const WHOLE = [
   { r: { retries: {}, agents: [] }, replacedBy: 5 },
   { r: { retries: {}, agents: [] }, notRun: true },
 ];
-/* Around every unit's edge, and exact ties (12.5, 0.125), where toFixed and printf round apart. */
 /* kosmos#8958 slice B5: the undo list, one file for every action and reason, then the shapes around them. */
 const UNDO_ROOT = '/Users/sam/Kosmos/undo-saved';
 function undoPlans(why) {
@@ -95,6 +94,7 @@ function sentence(re) {
   return found[0];
 }
 
+/* Around every unit's edge, and exact ties (12.5, 0.125), where toFixed and printf round apart. */
 const ABBR = [0, 1, 999, 1000, 1499, 1500, 2500, 12500, 999499, 999500, 999999, 1e6, 1250000, 1350000, 99949999, 999949999, 999950000, 1e9, 1250000000, 9949999999, 9950000000, 9999999999, 1e10, 10500000000, 12500000000, 150e9];
 const USD = [0, 0.004, 0.005, 0.125, 0.375, 1.005, 2.5, 9.994, 9.995, 9.999, 10, 10.5, 11.5, 12.49, 999.4, 999.5, 1000, 1000.5, 176332.49, 999999.5, 1e6, 2500000, 3500000, 1e9, 1125000000, 2.5e9];
 

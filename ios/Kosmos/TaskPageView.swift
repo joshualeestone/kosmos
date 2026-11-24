@@ -37,10 +37,10 @@ struct TaskPageView: View {
     @State private var repeatBox: String?
     // kosmos#8958 slice B4: the receipt's agents whose file list is open.
     @State private var receiptFilesOpen: Set<Int> = []
-    // kosmos#8958 slice B5: whether the undo list is open, its files as it opened, and those chosen. The files stay while the
-    // sheet slides away, so it never empties in view.
+    // kosmos#8958 slice B5: whether the undo list is open, the plan as it opened, and the files chosen in it. The plan stays
+    // while the sheet slides away, so it never empties in view.
     @State private var undoOpen = false
-    @State private var undoFiles: [Board.UndoFile] = []
+    @State private var undoList = Board.UndoPlan(files: [])
     @State private var undoChosen: Set<String> = []
 
     init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
@@ -84,7 +84,10 @@ struct TaskPageView: View {
             }
             .background(subLink)
             .sheet(isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) { editSheet }
-            .sheet(isPresented: Binding(get: { undoOpen }, set: { if !$0 { undoOpen = false; model.leaveUndo() } })) { undoSheet }
+            .sheet(isPresented: Binding(get: { undoOpen }, set: { if !$0 { undoOpen = false; model.leaveUndo() } }), onDismiss: {
+                // Said once the list has gone: an announcement under a closing sheet is cut off by the screen change.
+                if let done = model.undoDone { UIAccessibility.post(notification: .announcement, argument: done) }
+            }) { undoSheet }
             // Undone, put back, or read again as something else: the list that was open is about nothing any more.
             .onChange(of: model.undoPlan) { _ in undoOpen = false }
             // The person in front of it (the board's tkPresent): on screen, the app in front, and a touch (or a key press
@@ -698,13 +701,12 @@ struct TaskPageView: View {
             ForEach(r.agents) { receiptAgent($0, name: p.name($0.who, roster: roster)) }
             if let done = model.undoDone {
                 Text(done).font(.footnote).foregroundColor(Palette.primary).fixedSize(horizontal: false, vertical: true)
-                    .onAppear { UIAccessibility.post(notification: .announcement, argument: done) }
             } else if let plan = model.undoPlan {
                 Button {
                     model.touched()
-                    model.clearUndoSay()
+                    model.openUndo()
                     undoChosen = Set(plan.files.filter(\.chosen).map(\.path))
-                    undoFiles = plan.files
+                    undoList = plan
                     undoOpen = true
                 } label: {
                     Text(Board.undoOpen).font(.footnote).foregroundColor(Palette.link)
@@ -722,7 +724,7 @@ struct TaskPageView: View {
         NavigationView {
             Form {
                 Section {
-                    ForEach(undoFiles) { f in
+                    ForEach(undoList.files) { f in
                         Toggle(isOn: Binding(get: { undoChosen.contains(f.path) }, set: { on in
                             model.touched()
                             model.clearUndoSay()
@@ -744,10 +746,11 @@ struct TaskPageView: View {
                 Section {
                     Button {
                         model.touched()
-                        let paths = undoFiles.filter { $0.choosable && undoChosen.contains($0.path) }.map(\.path)
+                        let list = undoList
+                        let paths = list.files.filter { $0.choosable && undoChosen.contains($0.path) }.map(\.path)
                         let before = model.undoSay
                         Task {
-                            await model.undo(paths, names: names)
+                            await model.undo(paths, of: list, names: names)
                             // Nothing chosen twice running sets the same line in one turn, so it would not be heard again.
                             if paths.isEmpty, before == Board.undoChoose {
                                 UIAccessibility.post(notification: .announcement, argument: Board.undoChoose)
@@ -841,11 +844,11 @@ struct TaskPageView: View {
     private static var sampleTitle: [Int: String] = [:]
     // A due date set or cleared on a sample task (POST .../due), served back by the next read ("" for cleared).
     private static var sampleDue: [Int: String] = [:]
+    // kosmos#8958 slice B5: the files undone on a sample task (POST .../undo), said in its activity; nothing is undone before.
+    private static var sampleUndone: [Int: Int] = [:]
     // kosmos#8958 slice B3: a sample task's repeat rule and words for it in the board's shape (POST .../repeat; only the
     // hourly words and task 4's starting words are written as the board's describe says them), served back by
     // the next read. Task 4 starts on twice a day, the case where the controls keep a second time.
-    // kosmos#8958 slice B5: the files undone on a sample task (POST .../undo), said in its activity; nothing is undone before.
-    private static var sampleUndone: [Int: Int] = [:]
     private static var sampleRepeat: [Int: (rule: String, words: String)] = [4: (#"{"every":"day","at":["09:00","17:00"]}"#, "every day at 9am and 5pm")]
     private static func sampleRule(_ body: [String: Any]) -> (rule: String, words: String)? {
         let at = body["at"] as? String ?? ""
