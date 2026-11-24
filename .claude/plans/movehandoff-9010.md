@@ -62,6 +62,17 @@ reaches fewer agents (about 25 busy ones); the automatic mover moves one per tic
   picks up once its session is up).
 - KNOWN: on Windows a status still showing the old session busy then idle passes as the gap #3492's wait looks for.
 
+## Review 5 (opus): no BLOCKER
+- The ask's time comes out of the 2-minute budget, and the move does not restart while the ask is still on its way:
+  a delivery cannot be cancelled, and one typed after the restart would ask the new session (which could overwrite a
+  good handoff). Only a delivery slower than the whole budget can still land late.
+- A pickup that did not land (gave up, or could not be typed) is written in the agent's chat for the person
+  (pickupMissedNote), as the automatic mover keeps its own notice: by then the page and CLIs stopped watching.
+- Settings names agents not asked, with Kosmos's reason. "Settled" also needs the agent's card not to read working.
+- The page and both CLIs wait 510 s per agent (the restart's 330 s backstop plus the handoff and a look).
+- KNOWN: the ask's own turn end lets held room posts be typed into the old session just before its restart, as any
+  restart after a turn end does (#3492's too).
+
 ## Rejected
 - Asking an agent that is out of usage: it cannot take a turn to write anything, and the usage mover moves exactly such
   agents. It is moved at once, and the move says why no handoff was asked for.

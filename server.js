@@ -3652,6 +3652,12 @@ function moveHandoffDeps(o = {}) {
   const rosterNow = o.roster || (() => safeRoster());
   const before = new Map();   // name -> { start: its session's start when it was asked, at: when it was asked }
   const clean = (n) => create.cleanName(n) || n;
+  /* Review 5: a pickup that did not land is said where the person reads this agent (its chat, as the automatic mover's
+     own notice is kept), since by then the move's page and the CLI have stopped watching. */
+  const told = (name) => {
+    try { (o.tell || ((n, text) => keepAgentReply(n, text, undefined, { kosmos: true })))(name, handoffRestart.pickupMissedNote()); }
+    catch { /* best effort */ }
+  };
   const cannotTurn = (card) => !!card && (card.state === 'rate_limited' || card.state === 'auth_failed'
     || (card.state === 'blocked' && card.limitReported === true));
   return {
@@ -3677,10 +3683,14 @@ function moveHandoffDeps(o = {}) {
       if (!delivery || delivery.state === chat.DELIVERY.COULD_NOT) return { asked: false, why: 'the request did not reach it.' };
       return { asked: true, path: snap.path, before: { exists: snap.exists, mtimeMs: snap.mtimeMs } };
     },
-    // The fresh file's modification time (the engine waits for it to settle), else false.
+    /* The fresh file's modification time (the engine waits for it to settle), else false. Review 5: not while the agent's
+       card reads working: a handoff written in two edits has a whole turn between them, longer than one look. */
     isFresh: (rawName, was) => {
-      const session = sessionOf(clean(rawName));
+      const name = clean(rawName);
+      const session = sessionOf(name);
       if (!session) return false;
+      const card = chat.resolveCard(rosterNow(), name);
+      if (card && card.state === 'working') return false;
       const now = handoffFileSnap(session);
       return handoffRestart.handoffIsFresh(was, now) && Number.isFinite(now.mtimeMs) ? now.mtimeMs : false;
     },
@@ -3714,14 +3724,16 @@ function moveHandoffDeps(o = {}) {
           : (sawGap || Date.now() - t0 >= minGapMs);
         if (newUp && idle) break;
         // Review 4: at the deadline a busy new session is typed to, but never one that cannot take a turn.
-        if (Date.now() >= until) { if (newUp && card && !cannotTurn(card)) break; return { ok: false }; }
+        if (Date.now() >= until) { if (newUp && card && !cannotTurn(card)) break; told(name); return { ok: false }; }
         await new Promise((r) => { const t = setTimeout(r, pollMs); if (t && typeof t.unref === 'function') t.unref(); });
       }
       // The restart's own pickup line (the moved note rides it, #5400), through the shared-quota gate as #3492's does.
       let delivery;
       try { delivery = await chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(path), rosterNow(), undefined, undefined, { cap: false }); }
-      catch { return { ok: false }; }
-      return { ok: !!delivery && delivery.state !== chat.DELIVERY.COULD_NOT };
+      catch { delivery = null; }
+      const ok = !!delivery && delivery.state !== chat.DELIVERY.COULD_NOT;
+      if (!ok) told(name);
+      return { ok };
     },
     carryOn: (rawName) => chat.deliverAsync(clean(rawName), handoffRestart.carryOnPrompt(), rosterNow(), undefined, undefined, { movedNote: false }),
     maybeRestarted: (rawName, p) => chat.deliverAsync(clean(rawName), handoffRestart.maybeRestartedPrompt(p), rosterNow(), undefined, undefined, { movedNote: false }),

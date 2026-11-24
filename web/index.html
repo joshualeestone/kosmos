@@ -31255,7 +31255,7 @@ async function moveAccountAgents(fromDir, toDir, names, onProgress, stoppedAtCli
     const finished = (m) => m.agents.filter((a) => a && a.outcome !== 'pending').length;
     if (onProgress) onProgress(finished(last), names.length);
     /* Long enough for every restart to take its full wait, and a bound, so a stuck read still ends in a sentence. */
-    const until = Date.now() + 15e3 + names.length * 465e3;   // past the board's own 330 s per agent cap, plus kosmos#9010's 120 s handoff wait (engine/accountmove.js)
+    const until = Date.now() + 15e3 + names.length * 510e3;   // past the board's own 330 s per agent cap, plus kosmos#9010's handoff (up to 120 s, and one look)
     let misreads = 0;
     while (!last.done && Date.now() < until && misreads < 5) {
       await new Promise((r) => setTimeout(r, 1000));
@@ -31269,10 +31269,16 @@ async function moveAccountAgents(fromDir, toDir, names, onProgress, stoppedAtCli
   }
   const told = new Map(((last && last.agents) || []).map((a) => [a.name, a]));
   const noHandoff = [];   // kosmos#9010
+  const notAsked = new Map();   // kosmos#9010 review 5: why -> names
   for (const n of (last ? names : [])) {
     const a = told.get(n);
     if (!a || a.outcome === 'pending') { silent.push(nameOf(n)); continue; }
-    if (a.outcome === 'changed') { moved++; if (a.handoff && a.handoff.asked && !a.handoff.saved) noHandoff.push(nameOf(n)); }   // kosmos#9010
+    if (a.outcome === 'changed') {
+      moved++;
+      // kosmos#9010: asked and not written in time; or not asked at all, with Kosmos's reason (review 5).
+      if (a.handoff && a.handoff.asked && !a.handoff.saved) noHandoff.push(nameOf(n));
+      else if (a.handoff && !a.handoff.asked && a.handoff.why) add(notAsked, a.handoff.why, nameOf(n));
+    }
     /* Stopped, saved, and not started, as the note said: only when the card said stopped AND the engine's own sentence
        says so. A partial for any other reason (a stale card, a window it could not close) keeps the engine's words. */
     else if (a.outcome === 'partial' && wasStopped.has(n) && /is not running, so there is nothing to restart/.test(String(a.because || ''))) movedStopped.push(nameOf(n));
@@ -31283,6 +31289,7 @@ async function moveAccountAgents(fromDir, toDir, names, onProgress, stoppedAtCli
   if (moved) parts.push('Moved ' + moved + (moved === 1 ? ' agent. It restarts on the new account.' : ' agents. They restart on the new account.'));
   // kosmos#9010: asked for a handoff before its restart and did not write it in time, so it starts without one.
   if (noHandoff.length) parts.push('No handoff written in time (' + noHandoff.join(', ') + '): ' + (noHandoff.length === 1 ? 'it starts' : 'they start') + ' without one.');
+  for (const [why, who] of notAsked) parts.push('Not asked for a handoff (' + who.join(', ') + '): ' + why);
   if (movedStopped.length) parts.push('Moved ' + movedStopped.join(', ') + ' (stopped). ' + (movedStopped.length === 1 ? 'It is' : 'They are') + ' not running now.');
   for (const [why, who] of restarting) parts.push('Not restarted yet (' + who.join(', ') + ')' + (why ? ': ' + end(why) : '.'));   // the engine's sentence says what was saved and why
   /* #6231: the engine says a stopped agent's sentence for any number of agents ("They stay on ..."); one agent reads

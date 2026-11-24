@@ -118,11 +118,15 @@ test('the pickup waits for the NEW session to be up and idle, then types the pic
   assert.ok(sent[0][2].includes('Read your handoff at /h/mara.md'));
 });
 
-test('a pickup whose new session never comes up gives up, and says it did not land', async (t) => {
+test('a pickup whose new session never comes up gives up, says it did not land, and writes that for the person', async (t) => {
   const sent = recordSends(t);
-  const d = server._moveHandoffDepsForTest({ roster: () => [], startedAt: async () => null, readyWaitMs: 40, pollMs: 5 });
+  const notes = [];
+  const d = server._moveHandoffDepsForTest({ roster: () => [], startedAt: async () => null, readyWaitMs: 40, pollMs: 5,
+    tell: (n, text) => notes.push([n, text]) });
   assert.deepEqual(await d.pickup('mara', '/h/mara.md'), { ok: false });
   assert.equal(sent.length, 0);
+  assert.equal(notes.length, 1, 'the person is not told the pickup did not land');
+  assert.match(notes[0][1], /could not point its new\s+session at it\. Ask it to read its handoff/);
 });
 
 test('a new session busy from the start is typed to at the deadline; no new session at all is not', async (t) => {
@@ -205,4 +209,19 @@ test('at the deadline a new session that cannot take a turn (out of usage) is no
   state = 'rate_limited';
   assert.deepEqual(await d.pickup('mara', '/h/mara.md'), { ok: false });
   assert.equal(sent.length, 0);
+});
+
+test('a handoff is not taken as settled while the agent still reads working', async (t) => {
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  t.after(() => board.restore());
+  recordSends(t);
+  let state = 'idle';
+  const d = server._moveHandoffDepsForTest({ roster: () => [{ sessionName: 'mara', isNamedOurs: true, state }], startedAt: async () => 1 });
+  const got = await d.ask('mara');
+  fs.mkdirSync(path.dirname(got.path), { recursive: true });
+  fs.writeFileSync(got.path, '# half\n');
+  state = 'working';
+  assert.equal(d.isFresh('mara', got.before), false, 'counted while its turn was still writing it');
+  state = 'idle';
+  assert.ok(Number.isFinite(d.isFresh('mara', got.before)));
 });
