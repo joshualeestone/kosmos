@@ -457,7 +457,10 @@ function stdoutError(e, line) {
   if (e.type !== 'result') return '';
   const subtype = typeof e.subtype === 'string' ? e.subtype : '';
   if (e.is_error !== true && !subtype.startsWith('error')) return '';
-  const text = typeof e.result === 'string' ? e.result : '';
+  /* An error result carries its message in `errors: string[]` (the shape
+     saysNothingToResume reads); `result` is the fallback some results use. */
+  const listed = Array.isArray(e.errors) ? e.errors.filter((m) => typeof m === 'string' && m.trim()) : [];
+  const text = listed.length ? listed.join(' | ') : (typeof e.result === 'string' ? e.result : '');
   return clip((subtype || 'error') + (text ? ': ' + text : ''));
 }
 
@@ -482,7 +485,9 @@ function taskLogLine(at, name, e) {
 
 /** How long the supervisor gives its agent to leave, once its host is gone, before
     exiting anyway. Closing stdin was measured ending the agent in ~800ms, so this
-    is room enough without leaving a stopped agent up for long. */
+    is room enough without leaving a stopped agent up for long. ⚠️ The death's
+    stdout drain (STDOUT_DRAIN_MS, kosmos#8967) is spent inside this same budget:
+    shrink this below their sum and the last `died` line can be cut off. */
 const HOST_GONE_GRACE_MS = 2000;
 
 /**
@@ -581,6 +586,9 @@ function superviseStreaming(spec, opts) {
 
   let running = true;
   let child = null;
+  /* kosmos#8967: children that have exited but are still held while their stdout
+     drains. A send to one is a definite no, never an unsure: it cannot arrive. */
+  const exited = new WeakSet();
   let lastStart = 0;
   const handle = { sessionId: s.resumeSessionId || null };
 
@@ -737,12 +745,15 @@ function superviseStreaming(spec, opts) {
     const gone = (code, signal) => {
       if (handled) return;
       handled = true;
+      exited.add(c);   // held only to drain from here on: send() says it is not running
       const out = c.stdout;
       if (!out || out.readableEnded !== false || typeof out.once !== 'function') { finish(code, signal); return; }
       let done = false;
       const once = () => { if (done) return; done = true; finish(code, signal); };
       out.once('end', once);
       out.once('close', once);
+      /* The real clock on purpose, as for the registration timer: the injected
+         `timer` is a no-op in the tests, and a death must never wait on it forever. */
       const t = setTimeout(once, STDOUT_DRAIN_MS);
       if (t && typeof t.unref === 'function') t.unref();
     };
@@ -948,7 +959,7 @@ function superviseStreaming(spec, opts) {
    */
   handle.send = function send(text, done) {
     const answer = (r) => { if (typeof done === 'function') { try { done(r); } catch { /* the caller's problem, not ours */ } } return r; };
-    if (!child || !child.stdin || child.stdin.destroyed) {
+    if (!child || !child.stdin || child.stdin.destroyed || exited.has(child)) {
       return answer({ ok: false, because: 'it is not running just now, so we did not type anything' });
     }
     /* 🔑 `done` IS CALLED WHEN THE BYTES HAVE FLUSHED, NOT WHEN THEY WERE HANDED
