@@ -42,7 +42,7 @@ const s = http.createServer((q, r) => {
   const u = new URL(q.url, 'http://x'); const ok = q.headers['x-kosmos-board-token'] === tok;
   const cookie = /kosmos_board=1/.test(q.headers.cookie || '');
   const j = (c, o) => { r.writeHead(c, { 'content-type': 'application/json' }); r.end(JSON.stringify(o)); };
-  if (q.method === 'POST' && u.pathname === '/api/board-nonce') return ok ? j(200, { nonce: 'abcdef12' }) : j(403, {});
+  if (q.method === 'POST' && u.pathname === '/api/board-nonce') { if (process.argv[5]) require('node:fs').appendFileSync(process.argv[5], 'nonce\n'); return ok ? j(200, { nonce: 'abcdef12' }) : j(403, {}); }
   if (q.method === 'GET' && u.pathname === '/api/version') return ok ? (ver ? j(200, { running: ver }) : j(404, {})) : j(403, {});
   // Round 1 of #5084: POST /api/update/check can START an install on a real board; the gate must never send it.
   if (u.pathname === '/api/update/check') { require('node:fs').appendFileSync(process.argv[4], q.method + ' /api/update/check\n'); return j(200, { running: ver }); }
@@ -78,6 +78,43 @@ r="$(fake_gate 0.7.18 "")"
 [ "$(printf '%s' "$r" | head -1)" = 0 ] && case "$r" in *"USABLE on 0.7.18:"*) true;; *) false;; esac \
   && pass "#5084: with no expected version the gate passes as before and names what it checked" || bad "#5084 no expectation: $r"
 [ ! -s "$FAKE/forbidden" ] && pass "#5084: the gate never sent POST /api/update/check (it can start an install)" || bad "#5084: the gate sent $(cat "$FAKE/forbidden")"
+
+# kosmos#8960: --print-version, the reader promote-channel's board wait uses. Same request as the gate's #5084 read,
+# and nothing else: no nonce is minted. Exit 0 printed / 1 nothing answered / 2 cannot tell.
+fake_print() {   # $1 board version ("" = 404 on the route); prints rc, then stdout, then "--", then stderr
+  node "$FAKE/board.js" feedfacefeedface "$1" "$FAKE/forbidden" "$FAKE/nonces" > "$FAKE/port" 2>/dev/null & local pid=$!
+  local i=0; while [ ! -s "$FAKE/port" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+  local port; port="$(head -1 "$FAKE/port")"
+  if [ -z "$port" ]; then kill "$pid" 2>/dev/null; printf '99
+the fake board did not start
+'; return; fi
+  local out rc
+  out="$(KOSMOS_STORE_ROOT="$FAKE" bash "$CHECK" --print-version "$port" 2>"$FAKE/err")"; rc=$?
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; rm -f "$FAKE/port"
+  printf '%s\n%s\n--\n%s\n' "$rc" "$out" "$(cat "$FAKE/err")"
+}
+r="$(fake_print 0.8.20)"
+[ "$r" = "$(printf '0\n0.8.20\n--\n')" ] && pass "#8960: --print-version prints only the version the board runs (exit 0)" || bad "#8960 --print-version on 0.8.20: $r"
+r="$(fake_print "")"
+[ "$(printf '%s' "$r" | head -1)" = 2 ] && [ -z "$(printf '%s' "$r" | sed -n 2p)" ] && [ "$(printf '%s' "$r" | sed -n 3p)" = "--" ] && case "$r" in *"HTTP 404, a board older than this route"*) true;; *) false;; esac \
+  && pass "#8960: --print-version on a board that cannot say is cannot-tell (exit 2), nothing on stdout" || bad "#8960 --print-version unreadable: $r"
+[ ! -s "$FAKE/nonces" ] && pass "#8960: --print-version mints no nonce" || bad "#8960: --print-version minted $(wc -l < "$FAKE/nonces") nonce(s)"
+# Control for the line above: the same fake, the same nonce log, the full gate. It must record a mint, or the log
+# could never have caught one.
+node "$FAKE/board.js" feedfacefeedface 0.8.20 "$FAKE/forbidden" "$FAKE/nonces-control" > "$FAKE/port" 2>/dev/null & cpid=$!
+i=0; while [ ! -s "$FAKE/port" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+cport="$(head -1 "$FAKE/port")"
+[ -n "$cport" ] && KOSMOS_STORE_ROOT="$FAKE" bash "$CHECK" "$cport" >/dev/null 2>&1
+kill "$cpid" 2>/dev/null; wait "$cpid" 2>/dev/null; rm -f "$FAKE/port"
+[ -n "$cport" ] && [ -s "$FAKE/nonces-control" ] && pass "#8960 control: the nonce log records the full gate's mint" || bad "#8960 control: the nonce log recorded nothing for the full gate (port=$cport)"
+[ ! -s "$FAKE/forbidden" ] && pass "#8960: --print-version never sent POST /api/update/check" || bad "#8960: --print-version sent $(cat "$FAKE/forbidden")"
+NOBOARD="$(mktemp -d "${TMPDIR:-/tmp}/staging-exp-test.XXXXXXXX")"; printf 'deadbeefdeadbeef\n' > "$NOBOARD/board.token"
+out="$(KOSMOS_STORE_ROOT="$NOBOARD" bash "$CHECK" --print-version 19998 2>/dev/null)"; rc=$?
+[ "$rc" = 1 ] && [ -z "$out" ] && pass "#8960: --print-version with nothing on the port exits 1 (installing or down), nothing on stdout" || bad "#8960 --print-version no board: rc=$rc out=$out"
+rm -f "$NOBOARD/board.token"
+out="$(KOSMOS_STORE_ROOT="$NOBOARD" bash "$CHECK" --print-version 19998 2>/dev/null)"; rc=$?
+[ "$rc" = 2 ] && pass "#8960: --print-version with no board.token is cannot-tell (exit 2)" || bad "#8960 --print-version no token: rc=$rc"
+rm -rf "$NOBOARD"
 rm -rf "${FAKE:?}"
 
 # The exit-0 USABLE path is also exercised above against the #5084 fake board (the four requests the gate

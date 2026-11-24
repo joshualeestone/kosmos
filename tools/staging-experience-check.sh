@@ -25,6 +25,12 @@
 # does not consume a real user's one-time self-heal. See the SEEDED_BEFORE note below.
 #
 #   bash tools/staging-experience-check.sh [port]
+#   bash tools/staging-experience-check.sh --print-version [port]
+#     (kosmos#8960) only print which version the board on [port] runs, read the same way the gate reads it
+#     (GET /api/version with the board token, off argv). No nonce is minted and nothing is redeemed. Exit 0
+#     printed it / 1 nothing answered on the port (a board installing or down) / 2 cannot tell (no enforcing
+#     board, or it answered without a version we could read). promote-channel.sh uses it to wait for its
+#     board to run the version being promoted before it runs this gate.
 #
 # Exit 0 usable (a 2xx on the sensitive route) / 1 broken (403 = #2023, or any other
 # non-2xx = board erroring/unreachable) / 2 cannot-tell (no enforcing board here).
@@ -33,6 +39,8 @@ set -uo pipefail
 # 16180 is a LAST-RESORT fallback, not an assumption: the board's port is derived
 # per-account, so the intended caller passes it (arg 1) or exports KOSMOS_PORT. A wrong
 # port only alarms (exit 1, the safe direction), never false-passes.
+PRINT_VERSION=0
+if [ "${1:-}" = --print-version ]; then PRINT_VERSION=1; shift; fi
 PORT="${1:-${KOSMOS_PORT:-16180}}"
 URL="http://127.0.0.1:${PORT}"
 say() { printf '%s\n' "$*"; }
@@ -99,20 +107,10 @@ trap cleanup EXIT INT TERM
 SEEDED_BEFORE=0
 [ -f "$ROOT/.reauth-seeded" ] && SEEDED_BEFORE=1
 
-# 1. Mint a single-use nonce, board token OFF argv via a mode-600 header file (#1979,
-#    the same shape setup.sh's open uses so `ps` never exposes the durable token).
-HF="$(mktemp "${TMPDIR:-/tmp}/staging-exp-auth.XXXXXXXX")" || { say "mktemp failed - cannot tell"; exit 2; }
-chmod 600 "$HF" 2>/dev/null || true
-printf 'x-kosmos-board-token: %s\n' "$TOKEN" > "$HF"
-NONCE="$(curl -sS -m 15 -H @"$HF" -X POST "$URL/api/board-nonce" 2>/dev/null | sed -n 's/.*"nonce":"\([0-9a-f]*\)".*/\1/p' | head -1)"
-# #5084: WHICH release this board runs, read from the board itself through GET /api/version (read-only: a
-# constant, no update check). A pass describes THIS version, so an operator never reads "a fresh session can use
-# 0.7.19" off a board still on 0.7.18 (it happened on the 0.7.19 promote). NEVER POST /api/update/check for this:
-# it can start an install (round 1 of #5084, measured). A board too old to have the route reads as "cannot read",
-# which is the truth: it cannot speak for the candidate, which has the route. Same off-argv token header, parsed
-# with node (not a sed over the line).
-BOARD_VERSION=""; VERSION_WHY=""
-if [ -n "$NONCE" ]; then
+# #5084 reader, one copy (kosmos#8960: --print-version uses it too, so promote-channel's wait cannot drift from
+# what the gate reads). Needs HF (the token header file); sets BOARD_VERSION, VERSION_WHY and VCODE.
+read_board_version() {
+  BOARD_VERSION=""; VERSION_WHY=""; VCODE=""
   VNODE="${NODE:-}"; [ -n "$VNODE" ] && [ -x "$VNODE" ] || VNODE="$(command -v node 2>/dev/null || true)"
   if [ -z "$VNODE" ]; then
     VERSION_WHY="no node on this machine to read its answer"
@@ -128,6 +126,35 @@ if [ -n "$NONCE" ]; then
     esac
     [ "$VCODE" = 200 ] && BOARD_VERSION="$(printf '%s' "$VBODY" | "$VNODE" -e 'let b="";process.stdin.on("data",(d)=>{b+=d}).on("end",()=>{try{const v=JSON.parse(b).running;if(typeof v==="string"&&/^[0-9][0-9A-Za-z.+-]*$/.test(v))process.stdout.write(v)}catch{}})' 2>/dev/null || true)"
   fi
+}
+
+if [ "$PRINT_VERSION" = 1 ]; then
+  SEEDED_BEFORE=1   # nothing is redeemed here, so the EXIT trap must never remove a #2030 marker
+  HF="$(mktemp "${TMPDIR:-/tmp}/staging-exp-auth.XXXXXXXX")" || { say "mktemp failed - cannot tell"; exit 2; }
+  chmod 600 "$HF" 2>/dev/null || true
+  printf 'x-kosmos-board-token: %s\n' "$TOKEN" > "$HF"
+  read_board_version
+  rm -f "$HF"; HF=""
+  if [ -n "$BOARD_VERSION" ]; then printf '%s\n' "$BOARD_VERSION"; exit 0; fi
+  say "cannot read which version the board on :$PORT runs ($VERSION_WHY)" >&2
+  case "$VCODE" in 000|"") exit 1 ;; *) exit 2 ;; esac
+fi
+
+# 1. Mint a single-use nonce, board token OFF argv via a mode-600 header file (#1979,
+#    the same shape setup.sh's open uses so `ps` never exposes the durable token).
+HF="$(mktemp "${TMPDIR:-/tmp}/staging-exp-auth.XXXXXXXX")" || { say "mktemp failed - cannot tell"; exit 2; }
+chmod 600 "$HF" 2>/dev/null || true
+printf 'x-kosmos-board-token: %s\n' "$TOKEN" > "$HF"
+NONCE="$(curl -sS -m 15 -H @"$HF" -X POST "$URL/api/board-nonce" 2>/dev/null | sed -n 's/.*"nonce":"\([0-9a-f]*\)".*/\1/p' | head -1)"
+# #5084: WHICH release this board runs, read from the board itself through GET /api/version (read-only: a
+# constant, no update check). A pass describes THIS version, so an operator never reads "a fresh session can use
+# 0.7.19" off a board still on 0.7.18 (it happened on the 0.7.19 promote). NEVER POST /api/update/check for this:
+# it can start an install (round 1 of #5084, measured). A board too old to have the route reads as "cannot read",
+# which is the truth: it cannot speak for the candidate, which has the route. Same off-argv token header, parsed
+# with node (not a sed over the line).
+BOARD_VERSION=""; VERSION_WHY=""
+if [ -n "$NONCE" ]; then
+  read_board_version
 fi
 rm -f "$HF"; HF=""   # cleared so the EXIT trap's rm is exact, not a no-op on a stale path
 if [ -z "$NONCE" ]; then
