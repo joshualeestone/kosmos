@@ -49,6 +49,7 @@ const pdfpages = require('./pdfpages');   // kosmos#8637
 const MAX_BYTES = 100 * 1024 * 1024;
 /** The cap the way a person reads it ("100 MB"), for every sentence that names it. */
 const MAX_WORDS = Math.round(MAX_BYTES / (1024 * 1024)) + ' MB';
+const NOT_WHOLE = 'that file did not arrive whole; please send it again';
 const TOO_LARGE = 'that file is larger than ' + MAX_WORDS + ', which is the most a conversation can carry';
 const TEXT_SNIPPET = 2000;
 const ROOT = path.join(store.ROOT, 'attachments');
@@ -117,6 +118,35 @@ const PART = '.upload.part';
 const PAGES_FILE = '.pdf-pages';
 function pageFile(page) { return '.pdf-page-' + page + '.png'; }
 
+/* kosmos#9016: whether a zip-based file is cut short. A zip ends with its directory (the End Of Central Directory record,
+   at most 65,557 bytes from the end: 22 bytes and a comment of up to 65,535), and the directory's own offset and size must
+   lie inside the file. A file that does not start as a zip, or that says its directory is in the zip64 form (the 32-bit
+   figures are all ones), is not judged here. Any read that fails says nothing: the file is as it was. */
+const ZIP_HEAD = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+const ZIP_EMPTY = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
+const ZIP_END = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
+const ZIP_TAIL = 22 + 0xffff;
+function incompleteZip(file) {
+  let fd = null;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    const head = Buffer.alloc(4);
+    if (size < 4 || fs.readSync(fd, head, 0, 4, 0) !== 4) return false;
+    if (!head.equals(ZIP_HEAD) && !head.equals(ZIP_EMPTY)) return false;
+    const n = Math.min(size, ZIP_TAIL);
+    const tail = Buffer.alloc(n);
+    let got = 0;
+    while (got < n) { const k = fs.readSync(fd, tail, got, n - got, size - n + got); if (k === 0) return false; got += k; }
+    const at = tail.lastIndexOf(ZIP_END);
+    if (at < 0 || at + 22 > n) return true;
+    const dirSize = tail.readUInt32LE(at + 12);
+    const dirAt = tail.readUInt32LE(at + 16);
+    if (dirSize === 0xffffffff || dirAt === 0xffffffff) return false;
+    return dirAt + dirSize > size - n + at;
+  } catch { return false; } finally { if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ } }
+}
+
 /** A new attachment's folder, made, with its paths: { id, dir, name, file, part }. */
 function slot(scope, owner, name) {
   const id = newId();
@@ -132,10 +162,14 @@ function slot(scope, owner, name) {
 function finish(s, scope, owner, { type, size, by }) {
   // Review 25: a Windows scanner often opens a file just written; the repo's retrying rename rides that out.
   require('./win32swap').renameWithRetry(s.part, s.file);
+  /* kosmos#9016: a zip-based file (xlsx, docx, pptx, epub and the like) whose end is missing is not whole, whatever
+     cut it. It is kept, so nothing the person sent is lost, and marked, so it is never taken as whole. */
+  const incomplete = incompleteZip(s.file);
   const record = {
     id: s.id, name: s.name, type: String(type || 'application/octet-stream').split(';')[0].trim().slice(0, 100) || 'application/octet-stream',
     size, kind: kindOf(type, s.name), at: new Date().toISOString(), scope, owner: String(owner),
     ...(by === 'agent' ? { by: 'agent' } : {}),   // #6726: a file the agent attached to its reply, counted against its daily total
+    ...(incomplete ? { incomplete: true } : {}),   // kosmos#9016
   };
   fs.writeFileSync(path.join(s.dir, 'record.json'), JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });   // review 12: as the file
   return { ...record, dir: s.dir, file: s.file };
@@ -229,7 +263,7 @@ function saveFilled(scope, owner, { name, type, by }, fill) {
  * with nothing left behind. Resolves to the record; rejects with a sentence (err.tooLarge set for the cap). The
  * caller owns `source` after a rejection: it is paused, not destroyed, so an answer can still be written first.
  */
-function saveStream(scope, owner, { name, type, by }, source) {
+function saveStream(scope, owner, { name, type, by, fileSize }, source) {
   return new Promise((resolve, reject) => {
     let s;
     try { s = slot(scope, owner, name); } catch (err) { reject(err); return; }
@@ -263,6 +297,8 @@ function saveStream(scope, owner, { name, type, by }, source) {
       if (settled) return;
       detach();
       if (!size) { fail(new Error('there is nothing in that file')); return; }
+      // kosmos#9016: the size the sender's own file has, when it said one.
+      if (Number.isInteger(fileSize) && fileSize >= 0 && size !== fileSize) { fail(new Error(NOT_WHOLE + ' (' + sizeWords(size) + ' of ' + sizeWords(fileSize) + ' arrived)')); return; }
       /* Renamed into place only once the descriptor is closed: every byte is on disk and nothing is left open. */
       out.once('close', () => {
         if (settled) return;
@@ -323,7 +359,8 @@ function rowField(rec) {
   let preview = null;
   if ((rec.kind === 'image' || rec.kind === 'pdf') && !tooBigToPreview(rec)) preview = '/api/attachment/' + rec.id + '/preview';
   else if (rec.kind === 'text') preview = textHead(rec.file);
-  return { id: rec.id, name: rec.name, type: rec.type, size: rec.size, kind: rec.kind, url: '/api/attachment/' + rec.id, preview };
+  return { id: rec.id, name: rec.name, type: rec.type, size: rec.size, kind: rec.kind, url: '/api/attachment/' + rec.id, preview,
+    ...(rec.incomplete === true ? { incomplete: true } : {}) };   // kosmos#9016: the page says it beside the file
 }
 
 /* #6734: a text file's first TEXT_SNIPPET characters, read from its first bytes only (a 100 MB log is not read whole
@@ -580,8 +617,10 @@ function factsOf(r) {
     files), on the send path. */
 function wireNote(recs) {
   const list = Array.isArray(recs) ? recs : (recs ? [recs] : []);
-  return list.filter(Boolean).map((r) => ' [attached file: ' + r.file + ' (' + factsOf(r) + ')' + asText(r) + ']').join('');
+  return list.filter(Boolean).map((r) => ' [attached file: ' + r.file + ' (' + factsOf(r) + ')' + asText(r) + notWhole(r) + ']').join('');
 }
+/* kosmos#9016: an agent is told a file is not whole, so it asks for it again instead of working from part of it. */
+function notWhole(r) { return r && r.incomplete === true ? '; INCOMPLETE: its end is missing. Ask for it to be sent again and do not rely on what it holds' : ''; }
 /* #6098: an office file (xlsx, docx, pdf) also names its text rendering, written beside it on upload
    (engine/attachtext.js), so an agent of any model family reads it with the same command as a text file:
       [attached file: /…/sales.xlsx (application/vnd…, 18 KB); as text: /…/text.txt]
@@ -621,4 +660,4 @@ function rowFields(recs) {
   return { attachment: list[0], attachments: list };
 }
 
-module.exports = { MAX_BYTES, MAX_WORDS, TOO_LARGE, PART, ORPHAN_AGE_MS, MAX_THUMBNAIL_BYTES, sweepOrphans, discardStored, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, saveFilled, saveStream, read, rowField, rowFields, resolveForMessage, preview, previewFile, wireNote, imageFacts, signatureType, sizeWords, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js
+module.exports = { MAX_BYTES, MAX_WORDS, TOO_LARGE, NOT_WHOLE, incompleteZip, PART, ORPHAN_AGE_MS, MAX_THUMBNAIL_BYTES, sweepOrphans, discardStored, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, saveFilled, saveStream, read, rowField, rowFields, resolveForMessage, preview, previewFile, wireNote, imageFacts, signatureType, sizeWords, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js

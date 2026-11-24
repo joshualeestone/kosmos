@@ -1,0 +1,183 @@
+'use strict';
+/*
+ * kosmos#9016: a file that did not arrive whole is never taken as whole.
+ *
+ *   - Boundary: 65,535 / 65,536 / 65,537 bytes and 1 MiB reach the store byte-identical (by sha256), however the body
+ *     is sent (declared length, chunked, paused after the first 64 KiB).
+ *   - Size: the sender may say the size of its own file (x-attachment-size). A body that arrives short or long of it is
+ *     refused in words, with nothing stored; no header, or one that is not a plain number, checks nothing.
+ *   - Zip: a zip-based file (an xlsx) whose end is missing is kept, marked `incomplete`, and said so: beside the file
+ *     on the page, and to the agent it is handed to. A whole one, and a file that is not a zip, are not marked.
+ *
+ *   node --test server.attachment-whole-9016.test.js
+ */
+require('./test-support/tmpscope');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const http = require('node:http');
+const crypto = require('node:crypto');
+const zlib = require('node:zlib');
+const { test } = require('node:test');
+const assert = require('node:assert');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-attach-whole-'));
+process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-attach-whole-home-'));
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-attach-whole-proj-'));
+process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-attach-whole-work-'));
+process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-attach-whole-launch-'));
+
+const { start, server } = require('./server');
+const attachments = require('./engine/attachments');
+const projects = require('./engine/projects');
+const store = require('./engine/store');
+
+let project = null;
+test.before(async () => { await start(0); project = projects.create({ name: 'Whole Check' }); });
+test.after(() => { try { server.closeAllConnections(); server.close(); } catch { /* best effort */ } });
+
+const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
+const stored = () => { try { return fs.readdirSync(path.join(attachments.ROOT, 'project', store.safeKey(project.id))); } catch { return []; } };
+function put(headers, write) {
+  return new Promise((resolve, reject) => {
+    const r = http.request({ port: server.address().port, path: '/api/project/' + project.id + '/attachment', method: 'PUT', headers }, (x) => {
+      const c = [];
+      x.on('data', (d) => c.push(d));
+      x.on('end', () => resolve({ status: x.statusCode, body: Buffer.concat(c).toString() }));
+    });
+    r.on('error', reject);
+    write(r);
+  });
+}
+const download = (id) => new Promise((resolve, reject) => {
+  http.get({ port: server.address().port, path: '/api/attachment/' + id }, (x) => {
+    const c = []; x.on('data', (d) => c.push(d)); x.on('end', () => resolve(Buffer.concat(c)));
+  }).on('error', reject);
+});
+const headers = (name, extra) => ({ 'content-type': 'application/octet-stream', 'x-attachment-name': encodeURIComponent(name), ...extra });
+const send = (buf, headerSize) => (r) => r.end(buf);
+
+/** A real zip of one stored entry, so truncation is of a real one. */
+function zipOf(name, data) {
+  const crc = crc32(data);
+  const local = Buffer.alloc(30 + name.length);
+  local.write('PK\x03\x04', 0, 'binary'); local.writeUInt16LE(20, 4); local.writeUInt32LE(crc, 14); local.writeUInt32LE(data.length, 18); local.writeUInt32LE(data.length, 22); local.writeUInt16LE(name.length, 26); local.write(name, 30);
+  const body = Buffer.concat([local, data]);
+  const central = Buffer.alloc(46 + name.length);
+  central.write('PK\x01\x02', 0, 'binary'); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6); central.writeUInt32LE(crc, 16); central.writeUInt32LE(data.length, 20); central.writeUInt32LE(data.length, 24); central.writeUInt16LE(name.length, 28); central.write(name, 46);
+  const end = Buffer.alloc(22);
+  end.write('PK\x05\x06', 0, 'binary'); end.writeUInt16LE(1, 8); end.writeUInt16LE(1, 10); end.writeUInt32LE(central.length, 12); end.writeUInt32LE(body.length, 16);
+  return Buffer.concat([body, central, end]);
+}
+function crc32(buf) { let c, t = -1; for (const b of buf) { c = (t ^ b) & 255; for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1; t = (t >>> 8) ^ c; } return (t ^ -1) >>> 0; }
+
+const SIZES = [65535, 65536, 65537, 1024 * 1024];
+const WAYS = {
+  declared: (b, r) => r.end(b),
+  chunked: (b, r) => r.end(b),
+  paused: (b, r) => { r.write(b.subarray(0, 65536)); setTimeout(() => r.end(b.subarray(65536)), 150); },
+};
+for (const [way, write] of Object.entries(WAYS)) for (const n of SIZES) {
+  test('#9016 boundary: ' + n + ' bytes sent ' + way + ' are stored byte-identical', async () => {
+    const buf = crypto.randomBytes(n);
+    const h = way === 'declared' || way === 'paused' ? { 'content-length': String(n) } : { 'transfer-encoding': 'chunked' };
+    const a = await put(headers('b-' + n + '.bin', { ...h, 'x-attachment-size': String(n) }), (r) => write(buf, r));
+    assert.equal(a.status, 200, a.body);
+    const att = JSON.parse(a.body).attachment;
+    assert.equal(att.size, n);
+    assert.equal(sha(await download(att.id)), sha(buf), 'byte-identical');
+  });
+}
+
+test('#9016 size: a body short of, or long past, the sender\'s own file is refused in words and nothing is stored', async () => {
+  for (const [said, sent] of [[200000, 65536], [65536, 200000], [200000, 199999]]) {
+    const before = stored().length;
+    const r = await put(headers('cut.xlsx', { 'transfer-encoding': 'chunked', 'x-attachment-size': String(said) }), (q) => q.end(crypto.randomBytes(sent)));
+    assert.equal(r.status, 400, said + ' vs ' + sent + ': ' + r.body);
+    const said_ = JSON.parse(r.body).error;
+    assert.match(said_, /^that file did not arrive whole; please send it again \(/, said_);
+    await new Promise((res) => setTimeout(res, 100));
+    assert.equal(stored().length, before, 'nothing kept (' + said + ' vs ' + sent + ')');
+  }
+});
+
+test('#9016 size: with no header, or one that is not a plain number, nothing is checked', async () => {
+  for (const extra of [{}, { 'x-attachment-size': 'lots' }, { 'x-attachment-size': '-1' }, { 'x-attachment-size': '1.5' }]) {
+    const r = await put(headers('plain.bin', { 'content-length': '10', ...extra }), (q) => q.end(Buffer.alloc(10, 1)));
+    assert.equal(r.status, 200, JSON.stringify(extra) + ' ' + r.body);
+  }
+  const over = await put(headers('huge.bin', { 'content-length': '10', 'x-attachment-size': '99999999999' }), (q) => q.end(Buffer.alloc(10, 1)));
+  assert.equal(over.status, 400, 'a file that says it is over the cap is refused: ' + over.body);
+  assert.match(over.body, /larger than/);
+});
+
+test('#9016 zip: an xlsx with its end missing is kept and marked, whatever the cut; a whole one is not', async () => {
+  const whole = zipOf('xl/workbook.xml', crypto.randomBytes(200000));
+  assert.equal((await put(headers('whole.xlsx', { 'content-length': String(whole.length) }), (r) => r.end(whole))).status, 200);
+  for (const cut of [65536, 4096, whole.length - 5, whole.length - 60]) {
+    const part = whole.subarray(0, cut);
+    const r = await put(headers('cut-' + cut + '.xlsx', { 'content-length': String(part.length) }), (q) => q.end(part));
+    assert.equal(r.status, 200, r.body);
+    const a = JSON.parse(r.body).attachment;
+    assert.equal(a.incomplete, true, 'a zip of ' + cut + ' bytes of ' + whole.length + ' is marked');
+    const rec = attachments.read(a.id);
+    assert.equal(rec.incomplete, true);
+    assert.match(attachments.wireNote([rec]), /INCOMPLETE: its end is missing\. Ask for it to be sent again/);
+  }
+  const fine = JSON.parse((await put(headers('whole.xlsx', { 'content-length': String(whole.length) }), (r) => r.end(whole))).body).attachment;
+  assert.equal(fine.incomplete, undefined, 'CONTROL: a whole zip says nothing');
+  assert.doesNotMatch(attachments.wireNote([attachments.read(fine.id)]), /INCOMPLETE/);
+  const plain = JSON.parse((await put(headers('notes.bin', { 'content-length': '9' }), (r) => r.end('not a zip'))).body).attachment;
+  assert.equal(plain.incomplete, undefined, 'CONTROL: a file that is not a zip is not judged');
+});
+
+test('#9016 zip: what is and is not judged', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-zip-9016-'));
+  const at = (name, buf) => { const p = path.join(d, name); fs.writeFileSync(p, buf); return p; };
+  const whole = zipOf('a.txt', Buffer.from('hello'));
+  assert.equal(attachments.incompleteZip(at('whole.zip', whole)), false);
+  assert.equal(attachments.incompleteZip(at('empty.zip', Buffer.from([0x50, 0x4b, 0x05, 0x06, ...new Array(18).fill(0)]))), false, 'an empty zip is whole');
+  assert.equal(attachments.incompleteZip(at('head-only.zip', whole.subarray(0, 30))), true);
+  const dirBad = Buffer.from(whole);
+  dirBad.writeUInt32LE(whole.length, dirBad.length - 6 /* the directory offset of the end record */);
+  assert.equal(attachments.incompleteZip(at('dirbad.zip', dirBad)), true, 'a directory past the end of the file');
+  const zip64 = Buffer.from(whole);
+  zip64.writeUInt32LE(0xffffffff, zip64.length - 6);
+  assert.equal(attachments.incompleteZip(at('zip64.zip', zip64)), false, 'the zip64 form is not judged');
+  assert.equal(attachments.incompleteZip(at('tiny.zip', Buffer.from('PK'))), false);
+  assert.equal(attachments.incompleteZip(at('text.txt', Buffer.from('PK is a word'))), false);
+  assert.equal(attachments.incompleteZip(path.join(d, 'none.zip')), false, 'a file that cannot be read is as it was');
+});
+
+test('#9016 the agent-side copy keeps a file at the boundary whole (engine/replyfile.js readOwn)', () => {
+  const replyfile = require('./engine/replyfile');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-copy-9016-'));
+  for (const n of SIZES) {
+    const src = path.join(d, 'src-' + n);
+    const buf = crypto.randomBytes(n);
+    fs.writeFileSync(src, buf);
+    const real = fs.realpathSync(src);
+    const out = fs.openSync(path.join(d, 'out-' + n), 'w');
+    const got = replyfile.readOwn(real, fs.statSync(real, { bigint: true }), real, out);
+    fs.closeSync(out);
+    assert.equal(got.ok, true, JSON.stringify(got));
+    assert.equal(got.size, n);
+    assert.equal(sha(fs.readFileSync(path.join(d, 'out-' + n))), sha(buf));
+  }
+});
+
+test('#9016 the page says it beside the file, and sends the file\'s own size', () => {
+  const page = require('./test-support/page');
+  const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const SCRIPT = page.scriptOf(html);
+  const fn = new Function('esc', 'pjFileWord', 'pjSize', 'PV_ATTS', page.lift(SCRIPT, 'pjAttachmentCard') + '\nreturn pjAttachmentCard;')(
+    (s) => String(s), () => 'Excel spreadsheet', () => '64 KB', new Map());
+  const url = '/api/attachment/' + 'a'.repeat(24);
+  assert.match(fn({ url, name: 'book.xlsx', kind: 'other', size: 65536, incomplete: true }), /incomplete upload, please send again/);
+  assert.doesNotMatch(fn({ url, name: 'book.xlsx', kind: 'other', size: 65536 }), /incomplete/, 'CONTROL');
+  assert.match(SCRIPT, /'x-attachment-size': String\(file\.size\)/, 'the page sends the size the browser read');
+});
