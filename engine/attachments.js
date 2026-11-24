@@ -129,9 +129,13 @@ const ZIP_END = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
 const ZIP_CENTRAL = Buffer.from([0x50, 0x4b, 0x01, 0x02]);
 /* The last 1 MiB: an end record may sit before data somebody appended after it, and a comment adds up to 65,535 bytes. */
 const ZIP_TAIL = 1024 * 1024;
+/* One volume of a split archive (archive.z01, archive.zip.001) starts as a zip and has no end of its own: not judged. */
+const SPLIT_VOLUME = /\.(z\d{2,3}|zip\.\d{2,4})$/i;
 function incompleteZip(file) {
+  if (SPLIT_VOLUME.test(String(file))) return false;
   let fd = null;
-  const centralAt = (off) => { const b = Buffer.alloc(4); return fs.readSync(fd, b, 0, 4, off) === 4 && b.equals(ZIP_CENTRAL); };
+  const four = Buffer.alloc(4);
+  const centralAt = (off) => fs.readSync(fd, four, 0, 4, off) === 4 && four.equals(ZIP_CENTRAL);
   try {
     fd = fs.openSync(file, 'r');
     const size = fs.fstatSync(fd).size;
@@ -152,11 +156,14 @@ function incompleteZip(file) {
       const entries = tail.readUInt16LE(at + 10);
       const dirSize = tail.readUInt32LE(at + 12);
       const dirAt = tail.readUInt32LE(at + 16);
-      if (dirSize === 0xffffffff || dirAt === 0xffffffff || entries === 0xffff) return false;   // the zip64 form is not judged
       const absolute = size - n + at;
-      if (absolute + 22 + commentLen > size || dirAt + dirSize > absolute) continue;
-      /* No entries is a whole archive only when the file IS that: otherwise the record is an inner one, or noise. */
-      if (entries === 0 ? emptyZip : centralAt(dirAt)) return false;
+      if (absolute + 22 + commentLen > size) continue;
+      if (dirSize === 0xffffffff || dirAt === 0xffffffff || entries === 0xffff) return false;   // the zip64 form is not judged
+      if (dirAt + dirSize > absolute) continue;
+      /* No entries is a whole archive only when the file IS that: otherwise the record is an inner one, or noise. Otherwise it is
+         the file's own when its directory ends where the record begins (an encrypted directory does not start as one), or
+         starts as a directory at the place it says. */
+      if (entries === 0 ? emptyZip : (dirAt + dirSize === absolute || centralAt(dirAt))) return false;
     }
     return true;
   } catch { return false; } finally { if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ } }
@@ -274,7 +281,8 @@ function saveFilled(scope, owner, { name, type, by }, fill) {
 
 /**
  * #6734: store an upload as it arrives, never holding it whole. `source` is a readable (the request); its bytes go
- * to the part file and are counted on the way, so a body past MAX_BYTES is refused the moment it crosses the cap,
+ * to the part file and are counted on the way (and, when `fileSize` says the sender's own file size, compared with it at the
+ * end: short or long is refused in words, kosmos#9016), so a body past MAX_BYTES is refused the moment it crosses the cap,
  * with nothing left behind. Resolves to the record; rejects with a sentence (err.tooLarge set for the cap). The
  * caller owns `source` after a rejection: it is paused, not destroyed, so an answer can still be written first.
  */
@@ -639,7 +647,7 @@ function wireNote(recs) {
   return list.filter(Boolean).map((r) => ' [attached file: ' + r.file + ' (' + factsOf(r) + ')' + asText(r) + notWhole(r) + ']').join('');
 }
 /* kosmos#9016: an agent is told a file is not whole, so it asks for it again instead of working from part of it. */
-function notWhole(r) { return r && r.incomplete === true ? '; INCOMPLETE: its end is missing. Ask for it to be sent again and do not rely on what it holds' : ''; }
+function notWhole(r) { return r && r.incomplete === true ? '; INCOMPLETE: its ending could not be found, so it may be cut short. Ask for it to be sent again before relying on it' : ''; }
 /* #6098: an office file (xlsx, docx, pdf) also names its text rendering, written beside it on upload
    (engine/attachtext.js), so an agent of any model family reads it with the same command as a text file:
       [attached file: /…/sales.xlsx (application/vnd…, 18 KB); as text: /…/text.txt]

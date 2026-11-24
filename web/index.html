@@ -8001,7 +8001,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .att-txt { display: flex; flex-direction: column; gap: 2px; padding: 9px 12px; min-width: 0; }
 .att-name { font: 600 .9375rem var(--font-ui); color: var(--k-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .att-meta { font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
-.att-bad { font: 600 var(--text-caption) var(--font-ui); color: var(--warn-ink); }   /* kosmos#9016 */
+.att-bad { font: 600 var(--text-caption) var(--font-ui); color: var(--warn-ink); }
+.attach-chip .att-bad { flex: 0 1 auto; white-space: normal; }   /* kosmos#9016 */
 
 /* #4930: the full-page preview of a file a message carries. Very dark, the file fitted to the screen, X top right.
    #8122 (Josh 11-06: "maybe we put the download button right below it ... so it's not hidden off in the corner like it
@@ -85683,11 +85684,11 @@ async function attachUpload(file, where) {
          two minutes with 502 (504 from a proxy is the same case); for a large file that is said as the network failure is. */
       msg.textContent = res.status === 408
         ? 'We could not finish adding ' + file.name + ': it took too long to arrive. Try again on a faster connection.'
-        : (body && body.error) ? body.error
+        : (body && body.error) ? String(body.error).replace(/^that file did not arrive whole/, file.name + ' did not arrive whole')   // kosmos#9016: which one, in a pick of several
         : ((res.status === 502 || res.status === 504) && file.size > ATTACH_SLOW_BYTES)
           ? 'We could not reach Kosmos to add ' + file.name + '. If your connection is slow, a file this large can take longer than Kosmos waits for one.'
           : 'We could not add that file (status ' + res.status + ').';
-      return;
+      return 'refused';
     }
     /* ATTACHED, NOT SENT (Josh, 2026-08-23 1:59 PM). The file waits on a chip
        beside the composer until Send or Post, so the words and every file go
@@ -85696,7 +85697,8 @@ async function attachUpload(file, where) {
        with it. What is it for?" */
     const cut = body.attachment.incomplete === true;   // kosmos#9016: its end is missing; said now, while it can still be taken off and sent again
     attachAdd(where, { id: body.attachment.id, name: body.attachment.name, ...(cut ? { incomplete: true } : {}) });
-    msg.textContent = cut ? file.name + ' did not arrive whole: its end is missing. Remove it and send it again.' : '';
+    msg.textContent = cut ? file.name + ' may be cut short: its ending could not be found. Remove it and send it again.' : '';
+    if (cut) { if (input) input.focus(); if (where.after) where.after(); return 'cut'; }   // kosmos#9016: said, and kept so a pick of several does not wipe it
     if (input) input.focus();
     if (where.after) where.after();
   } catch {
@@ -85771,10 +85773,14 @@ function attachClear(where, target) {
 /** Several files at once (a multi-pick or a multi-drop), in order, one upload
     each, stopping at the first refusal so the sentence is about that file. */
 async function attachUploadAll(files, where) {
+  const cut = [];
   for (const f of files) {
     if (attachList(where).length >= ATTACH_MAX) { document.getElementById(where.msgId).textContent = 'A message can carry ' + ATTACH_MAX + ' files; send these first.'; return; }
-    await attachUpload(f, where);
+    const how = await attachUpload(f, where);
+    if (how === 'refused') return;   // the sentence is about that file (kosmos#9016: it was wiped by the next one)
+    if (how === 'cut') cut.push(f.name);
   }
+  if (cut.length) document.getElementById(where.msgId).textContent = (cut.length === 1 ? cut[0] : cut.length + ' files (' + cut.join(', ') + ')') + ' may be cut short: the ending could not be found. Remove and send again.';
 }
 for (const where of [ATTACH_ROOM, ATTACH_AGENT]) {
   const box = document.getElementById(where.chipsId);
