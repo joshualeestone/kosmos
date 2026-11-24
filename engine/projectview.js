@@ -531,7 +531,10 @@ function activityOf(p, o) {
   const readTask = opts.lastActivityOf || ((id, t) => require('./tasks').lastActivityOf(id, t));
   const taskAt = (id, t) => { try { return readTask(id, t); } catch { return null; } };   // review 2: guarded, injected or not
   const seen = [];
-  const add = (ms, kind) => { if (Number.isFinite(ms) && ms <= now) seen.push({ ms, kind }); };   // a future time proves nothing
+  /* A time far in the future proves nothing and is dropped. Review 5: one a few minutes ahead is clock skew (an outside
+     post, a clock stepped back), and is read as now, so a project that just had a post is never called quiet. */
+  const SKEW_MS = 5 * 60000;
+  const add = (ms, kind) => { if (Number.isFinite(ms) && ms <= now + SKEW_MS) seen.push({ ms: Math.min(ms, now), kind }); };
   if (Number.isFinite(room)) add(room, 'post');
   for (const t of Array.isArray(p.tasks) ? p.tasks : []) add(Date.parse(taskAt(p.id, t)), 'task');
   add(Date.parse(p.createdAt), 'made');
@@ -541,7 +544,10 @@ function activityOf(p, o) {
   let isTest = p.testOnly === true;
   let isStarter = p.starter === true;
   try { const pj = require('./projects'); isTest = isTest || pj.isTestOnly(p); isStarter = isStarter || pj.isStarter(p); } catch { /* the payload's own flags */ }
-  const set = p.archived === true ? 'archived' : p.paused === true ? 'paused' : isTest ? 'test' : isStarter ? 'starter' : null;
+  /* Review 5: the starter project only while it holds no task. Work the person put there (a task) is watched like any
+     project's (the Assigner's isStarterGoal draws the same line for a goal the person wrote). */
+  const hasTasks = Array.isArray(p.tasks) && p.tasks.some(Boolean);
+  const set = p.archived === true ? 'archived' : p.paused === true ? 'paused' : isTest ? 'test' : (isStarter && !hasTasks) ? 'starter' : null;
   /* Review 1: a project whose every unfinished task is on hold, or built and waiting on a release or a check, is parked
      on purpose, and its quiet is expected too (#6341 removed that kind of flag). At least one such task, none in work. */
   let parked = false;
@@ -739,6 +745,7 @@ function activityLine(a, id) {
   if (!a || typeof a !== 'object') return null;
   const n = (x) => Math.max(0, Math.floor(Number(x) || 0));
   const days = (d) => (d === 1 ? '1 day' : d + ' days');
+  const quietDays = n(a.quietDays) || QUIET_DAYS;   // review 5: a missing or zero threshold is the default, never "0 days"
   /* Review 4: why quiet is expected, in words, named. Known without the room, so said even when it cannot be read. */
   const EXPECTED = {
     paused: 'The project is paused, so quiet is expected.',
@@ -747,17 +754,24 @@ function activityLine(a, id) {
     starter: 'It is the starter project Kosmos made, so quiet is expected.',
     parked: 'Every unfinished task is on hold or built and waiting, so quiet is expected.',
   };
-  const why = typeof a.expected === 'string' && Object.prototype.hasOwnProperty.call(EXPECTED, a.expected) ? EXPECTED[a.expected] : null;
+  /* Review 5: a reason this CLI does not know (a newer board's) still means quiet is expected: said plainly, never left
+     to contradict the board's own verdict. */
+  const why = typeof a.expected === 'string' && a.expected
+    ? (Object.prototype.hasOwnProperty.call(EXPECTED, a.expected) ? EXPECTED[a.expected] : 'Kosmos expects this project to be quiet.')
+    : null;
   if (a.unknown === true && why) return 'Last activity: Kosmos could not read the project\'s room just now. ' + why;
   if (a.unknown === true) return 'Last activity: Kosmos could not read the project\'s room just now, so it cannot say how long the project has been quiet.';
   if (!a.at) return 'Last activity: none Kosmos can date.';
-  const what = a.kind === 'post' ? 'a post in its room' : a.kind === 'task' ? 'work on a task' : 'the project was made';
-  const when = n(a.ageDays) === 0 ? 'within the last day' : days(n(a.ageDays)) + ' ago';
+  // Review 5: a kind this CLI does not know (a newer board's) is said neutrally, never as the making.
+  const what = a.kind === 'post' ? 'a post in its room' : a.kind === 'task' ? 'work on a task' : a.kind === 'made' ? 'the project was made' : 'something on the project';
+  // Review 5: an age that is not a number is left out, never read as fresh.
+  const age = Number.isFinite(Number(a.ageDays)) && a.ageDays !== null && a.ageDays !== '' ? n(a.ageDays) : null;
+  const when = age === null ? '' : age === 0 ? ', within the last day' : ', ' + days(age) + ' ago';
   /* Review 1: the date in this computer's own time zone (the CLI prints it), so it matches the person's calendar. */
   const ms = Date.parse(a.at);
   const pad = (x) => String(x).padStart(2, '0');
   const local = Number.isFinite(ms) ? (() => { const d = new Date(ms); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); })() : '';
-  const head = 'Last activity: ' + what + ', ' + when + (local ? ' (' + local + ')' : '') + '.';
+  const head = 'Last activity: ' + what + when + (local ? ' (' + local + ')' : '') + '.';
   if (why) return head + ' ' + why;
   /* Review 1: said in the room, so every member sees it was said (and the post restarts this clock): six members do not
      each tell the person, and a restarted agent does not tell them again. Review 2: with the command that shows whether
@@ -765,10 +779,10 @@ function activityLine(a, id) {
      quiet for every member: once said, it is said. */
   const room = typeof id === 'string' && id ? 'kosmos room ' + one(id) : 'its room';
   // Review 3: only a member can read or post in the room, and the person may run this too.
-  if (a.quiet === true) return head + ' That is past the ' + days(n(a.quietDays)) + ' Kosmos counts as normal quiet. If you are on'
+  if (a.quiet === true) return head + ' That is past the ' + days(quietDays) + ' Kosmos counts as normal quiet. If you are on'
     + ' the project, read ' + room + ': if nobody has said so there, post it there once.';
-  if (a.kind === 'made') return head + ' Nothing has been posted or moved since it was made; quiet is normal until ' + days(n(a.quietDays)) + '.';
-  return head + ' Quiet is normal until ' + days(n(a.quietDays)) + '.';
+  if (a.kind === 'made') return head + ' Nothing has been posted or moved since it was made; quiet is normal until ' + days(quietDays) + '.';
+  return head + ' Quiet is normal until ' + days(quietDays) + '.';
 }
 
 /** `kosmos project show <id>`, as lines of text. */
