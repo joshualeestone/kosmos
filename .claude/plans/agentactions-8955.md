@@ -10,7 +10,11 @@ the board row says only what is still there, and that it is a web page.
   - Restart: POST /api/agent/<n>/restart (rst-go). Took only on outcome "restarted" (restartTook); otherwise the
     engine's because or error plus both step lists (restartFailureLine).
   - The dialog: "Restart <name>?", the cost line from restartCost on /api/status commitments (an earned clear only
-    when state clear and an empty list; a malformed record is unknown), "Restart <name>", "Leave it running".
+    when state clear and an empty list; a malformed record is unknown), then rst-cost's line true of every restart
+    (they come back with nothing in their memory), "Restart <name>", "Leave it running". A restart superseded by a
+    newer one from another page lets go of this page's hold.
+  - The removal plan is read on open and on a pull to refresh (the board reads it on open only); a 401 or 403 says
+    the phone was not let in.
   - After it took: restartReadyWait (30 s, every 2 s, its own /api/status read, ready only after seeing it not ready,
     ready = boardCanSeeIt and not restarting; one token per agent, outliving the page, as RESTART_HELLO_SEQ), then
     the automatic hello to /thread; "said hello" only when the delivery was placed, a held hello says why
@@ -31,7 +35,7 @@ the board row says only what is still there, and that it is a web page.
 - Commitments live on Board.Agent (BoardLogic.swift), since every LogicTests runner compiles that file.
 
 ## Tests
-- ios/LogicTests/run-agentinfo.sh: 280 (89 new), with guards that the board's page still holds each mirrored
+- ios/LogicTests/run-agentinfo.sh: 284 (93 new), with guards that the board's page still holds each mirrored
   sentence and rule. Mutants: any 200 counted as restarted; ready without seeing the gap; the limit check before sign-in: each red.
 - Every LogicTests runner green on the final tree.
 - App build for the iOS Simulator.

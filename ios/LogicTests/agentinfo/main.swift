@@ -292,6 +292,9 @@ check(Board.restartCost("Cleo", Board.parseCommitments(["state": "clear", "commi
 check(Board.restartCost("Cleo", Board.parseCommitments(["state": "clear", "commitments": "none"])).small.hasPrefix("We cannot tell what Cleo is part way through"), "CONTROL: clear on a malformed list is not believed")
 check(Board.restartCost("Cleo", nil).small == "We cannot tell what Cleo is part way through, because we have not heard from them. Restarting ends anything they had in flight.", "no record: unknown, the board's fallback reason")
 check(Board.restartCost("Cleo", Board.parseCommitments(["state": "unknown", "commitments": ["Old"], "because": "it last said so 40 minutes ago"])) == ("We cannot tell what Cleo is part way through, because it last said so 40 minutes ago. Restarting ends anything they had in flight.", ["Old"]), "stale: the engine's reason, and the old list still shown")
+check(Board.restartMessage("Cleo", Board.parseCommitments(["state": "holding", "commitments": ["One"]])) == "Cleo is part way through one thing. Restarting ends them, and they will not be picked up again.\n\u{2022} One\n\n" + Board.restartForgets, "the dialog: the cost, its list, then the line true of every restart")
+check(boardPage.contains(">" + Board.restartForgets + "</p>"), "the board's rst-cost still says it")
+check(Board.restartLabel("   ") == "Restart: stop and start it" && Board.restartLabel(" Cleo ") == "Restart: stop and start Cleo", "a blank name reads it, as the board trims")
 let agentRow = Board.parseAgents(j(#"{"agents":[{"sessionName":"cleo","name":"Cleo","state":"idle","isAgentSession":true,"isNamedOurs":true,"commitments":{"state":"clear","commitments":[]}}]}"#))?.first
 check(agentRow?.commitments == Board.Commitments(state: "clear", items: [], because: nil), "/api/status carries it onto the agent")
 for w in ["is part way through ", ". Restarting ends them, and they will not be picked up again.", " is not part way through anything.", "'We cannot tell what ' + shown + ' is part way through, because '", "'. Restarting ends anything they had in flight.'", "|| 'we have not heard from them'", "'Restart: stop and start ' + (n || 'it')", "('Restart ' + shown + '?')", "go.textContent = 'Restart ' + shown;", ">Leave it running</button>"] {
@@ -353,7 +356,7 @@ check(Board.removalPlan(status: 400, body: j(#"{"ok":false,"because":"we cannot 
 check(Board.removalPlan(status: 400, body: j(#"{"ok":false}"#), session: "cleo") == .cannot(because: "We cannot remove this agent right now.", untied: false), "a refusal with no reason: the board's fallback")
 check(Board.removalPlan(status: 500, body: j(#"{"error":"we could not work out whether this agent can be removed"}"#), session: "cleo") == .unreached, "a 5xx is not a fact about the agent")
 check(Board.removalPlan(status: 200, body: j("<html>"), session: "cleo") == .unreached && Board.removalPlan(status: 0, body: nil, session: "cleo") == .unreached, "unparsed or no answer: unreached")
-check(Board.removalPlan(status: 403, body: j(#"{"error":"sign in"}"#), session: "cleo") == .unreached, "the phone not let in: unreached, never a refusal")
+check(Board.removalPlan(status: 403, body: j(#"{"error":"sign in"}"#), session: "cleo") == .cannot(because: Board.phoneShutOut, untied: false), "the phone not let in: the phone's sentence, never the gate's")
 check(Board.removalPlanRequest(mac: mac, session: "cleo")?.url?.path == "/api/agent/cleo/removal" && Board.removalPlanRequest(mac: mac, session: "cleo")?.httpMethod == "GET", "GET .../removal")
 let del = Board.removeRequest(mac: mac, session: "cleo")
 check(del?.httpMethod == "DELETE" && del?.url?.path == "/api/agent/cleo/removal" && del?.url?.query == nil, "DELETE .../removal, never ?force")
@@ -374,6 +377,7 @@ let removeJs = (try? String(contentsOf: repo.appendingPathComponent("engine/remo
 check(removeJs.contains("so Kosmos cannot start it again for you"), "the engine still has the jobless arm that makes that promise false")
 let infoView = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AgentInfoView.swift"), encoding: .utf8)) ?? ""
 check(!infoView.contains("restart it, or remove it."), "the board row no longer promises restart and remove")
+check(infoView.components(separatedBy: "guard current() else { superseded(); return }").count - 1 == 4 && !infoView.contains("guard current() else { return }"), "every way out of a superseded restart lets go of this page's hold")
 check(infoView.components(separatedBy: ".disabled(switching || actionsHeld)").count - 1 == 3 && infoView.contains(".disabled(switching || openaiModelsLoading || actionsHeld)")
       && infoView.components(separatedBy: ".disabled(saving || details == nil || actionsHeld)").count - 1 == 2 && infoView.contains(".disabled(saving || actionsHeld ||")
       && infoView.components(separatedBy: ".disabled(freshBusy || switching || actionsHeld)").count - 1 == 4, "a restart or removal under way holds every other control on the page")

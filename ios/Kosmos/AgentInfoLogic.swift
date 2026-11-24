@@ -648,7 +648,16 @@ extension Board {
         return ("We cannot tell what \(shown) is part way through, because \(because). Restarting ends anything they had in flight.", list)
     }
     // The fresh-start button (freshStartLabel) and the dialog's title and two answers (openRestartModal, rst-keep).
-    static func restartLabel(_ shown: String) -> String { "Restart: stop and start \(shown.isEmpty ? "it" : shown)" }
+    static func restartLabel(_ shown: String) -> String {
+        let n = shown.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "Restart: stop and start \(n.isEmpty ? "it" : n)"
+    }
+    // The dialog's static line (rst-cost), true of every restart, after the per-agent cost.
+    static let restartForgets = "They come back with nothing in their memory, and anything they were part way through ends, including anything they agreed to and have not done yet. Their instructions and their files are untouched."
+    static func restartMessage(_ shown: String, _ rec: Commitments?) -> String {
+        let cost = restartCost(shown, rec)
+        return ([cost.small] + cost.list.map { "\u{2022} " + $0 } + ["", restartForgets]).joined(separator: "\n")
+    }
     static func restartTitle(_ shown: String) -> String { "Restart \(shown)?" }
     static func restartGo(_ shown: String) -> String { "Restart \(shown)" }
     static let restartKeep = "Leave it running"
@@ -662,8 +671,7 @@ extension Board {
         r.httpBody = Data("{}".utf8)   // a plain Restart: no cause, no job offer (the board's other callers send those)
         return r
     }
-    // restartTook and restartFailureLine. ok is true only for a restart that took; the sentence is then nil, as the
-    // board writes nothing until the wake is settled.
+    // restartTook and restartFailureLine. ok is true only for a restart that took.
     static func restartResult(status: Int, body: Data?) -> (ok: Bool, sentence: String?) {
         guard status != 0 else { return (false, "We could not reach Kosmos to restart them.") }
         let out = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -762,7 +770,7 @@ extension Board {
     static func removalPlan(status: Int, body: Data?, session: String) -> RemovalPlan {
         guard status != 0, status < 500,
               let o = body.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) else { return .unreached }
-        if status == 401 || status == 403, o["ok"] == nil { return .unreached }
+        if status == 401 || status == 403, o["ok"] == nil { return .cannot(because: phoneShutOut, untied: false) }
         if (o["ok"] as? Bool) == true {
             let label = (o["label"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? session
             return .can(RemovalAsk(question: (o["question"] as? String) ?? "",
