@@ -18,6 +18,9 @@ struct ProjectInfoView: View {
     // Review 2: the project's row as the store holds it NOW. A save runs in a Task holding a copy of this view made at
     // the tap, so after its re-read `project` is still the old row; anything decided after the await reads this.
     let live: () -> Board.ProjectRow?
+    // kosmos#8956: after an archive the project has left the list, so the room and this page close back to Projects, as the
+    // board returns to its list (PJ_CURRENT = null).
+    var onArchived: () -> Void = {}
 
     @State private var part: Board.ProjectPart = .about
     @State private var openTask: TaskPageRef?
@@ -201,14 +204,14 @@ struct ProjectInfoView: View {
             outsideMembersSection
             // kosmos#8956: archiving, asked first (the board's pj-one-archive).
             Section {
-                ArchiveProjectRow(name: project.name, busy: archiving) { Task { await archive() } }
+                ArchiveProjectRow(name: project.name, archived: project.archived, busy: archiving) { restore in Task { await archive(restore: restore) } }
                 if let archiveLine { Text(archiveLine.text).font(.footnote).foregroundColor(archiveLine.ok ? Palette.secondary : Palette.dangerWord) }
             }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .sheet(isPresented: $addingMember) {
-            AddMemberSheet(agents: Board.projectAddable(client.agents, members: project.members)) { a in
+            AddMemberSheet(agents: Board.projectAddable(client.agents, members: project.members), anyAgents: client.agents.contains { !$0.isGuide }) { a in
                 addingMember = false
                 Task { await changeMember(session: a.session, name: a.name, add: true) }
             }
@@ -258,32 +261,38 @@ struct ProjectInfoView: View {
     }
 
     // kosmos#8956: add (POST) or remove (DELETE) one member, then read the projects again so every list shows it.
+    // Review 1: one change at a time (a second tap is ignored); with no computer connected nothing is sent, the one case
+    // that is certainly "nothing changed"; every answer, even "cannot tell", is followed by a re-read.
     private func changeMember(session: String, name: String, add: Bool) async {
-        memberBusy = add ? "add" : session
+        guard memberBusy == nil else { return }
         memberLine = nil
+        guard client.macURL != nil else { memberLine = (Board.projectMemberLine(.notSent, add: add, name: name), false); return }
+        memberBusy = add ? "add" : session
         defer { memberBusy = nil }
         let id = project.id
         let res = await client.throughMac { Board.projectMemberRequest(mac: $0, project: id, session: session, add: add) }
         let result = Board.projectMemberResult(status: res?.1.statusCode ?? 0, body: res?.0)
         let ok: Bool
-        switch result { case .done: ok = true; default: ok = false }
+        switch result { case .done(.told), .done(.notTried): ok = true; default: ok = false }   // could_not is said as a problem
         memberLine = (Board.projectMemberLine(result, add: add, name: name), ok)
-        if result != .noAnswer { await reload() }   // done, refused or cannot tell: the list says what is true now
+        await reload()
     }
 
-    // kosmos#8956: archive with the board's own PUT; asked first by ArchiveProjectRow.
-    private func archive() async {
-        archiving = true
+    // kosmos#8956: archive (or, on an archived project, restore) with the board's own PUT; the archive is asked first
+    // by ArchiveProjectRow. Review 1: after an archive the project has left the list, so the room closes back to Projects.
+    private func archive(restore: Bool) async {
+        guard !archiving else { return }
         archiveLine = nil
+        guard client.macURL != nil else { archiveLine = (Board.projectArchiveLine(.notSent, restore: restore), false); return }
+        archiving = true
         defer { archiving = false }
         let id = project.id
-        let body = Board.projectArchiveBody()
+        let body = restore ? Board.projectRestoreBody() : Board.projectArchiveBody()
         let res = await client.throughMac { Board.projectChangeRequest(mac: $0, project: id, body: body) }
-        let saved = Board.projectSaveResult(status: res?.1.statusCode ?? 0, body: res?.0)
-        let ok: Bool
-        if case .saved = saved { ok = true } else { ok = false }
-        archiveLine = (Board.projectArchiveLine(saved), ok)
-        if ok { await reload() }
+        let result = Board.projectArchiveResult(status: res?.1.statusCode ?? 0, body: res?.0)
+        archiveLine = (Board.projectArchiveLine(result, restore: restore), result == .done)
+        await reload()
+        if result == .done && !restore { onArchived() }
     }
 
     private func save(_ change: Board.ProjectChange) async {
@@ -421,47 +430,54 @@ private struct RemoveMemberRow: View {
     }
 }
 
-// kosmos#8956: Archive project, which asks first.
+// kosmos#8956: Archive project, which asks first. Review 1: on an archived project (opened from Archived projects) it is
+// Restore, as the board's own button is there, and a restore needs no question (it undoes nothing).
 private struct ArchiveProjectRow: View {
     let name: String
+    let archived: Bool
     let busy: Bool
-    let archive: () -> Void
+    let act: (_ restore: Bool) -> Void
     @State private var asking = false
 
     var body: some View {
-        Button { asking = true } label: {
+        Button { if archived { act(true) } else { asking = true } } label: {
             HStack {
-                Text(Board.projectArchiveTitle).foregroundColor(Palette.dangerWord)
+                Text(archived ? Board.projectRestoreTitle : Board.projectArchiveTitle).foregroundColor(archived ? Palette.primary : Palette.dangerWord)
                 if busy { Spacer(); SweepDots(label: "Loading", scales: false) }
             }
             .frame(minHeight: 44).contentShape(Rectangle())
         }
         .disabled(busy)
-        .accessibilityIdentifier("project-archive")
+        .accessibilityIdentifier(archived ? "project-restore" : "project-archive")
         .confirmationDialog(Board.projectArchiveAsk(name), isPresented: $asking, titleVisibility: .visible) {
-            Button(Board.projectArchiveTitle, role: .destructive, action: archive)
+            Button(Board.projectArchiveTitle, role: .destructive) { act(false) }
             Button("Cancel", role: .cancel) {}
         }
     }
 }
 
-// kosmos#8956: the agents that can be added (Board.projectAddable), one tap each; Cancel closes it.
+// kosmos#8956: the agents that can be added (Board.projectAddable), one tap; Cancel closes it. Review 1: one pick only (a
+// second quick tap is ignored), and the empty line says which empty it is (no agents read yet, or every one on it).
 private struct AddMemberSheet: View {
     let agents: [Board.Agent]
+    let anyAgents: Bool
     let pick: (Board.Agent) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var picked = false
 
     var body: some View {
         NavigationView {
             List {
                 if agents.isEmpty {
-                    Text("Every one of your agents is on this project already.").foregroundColor(Palette.secondary)
+                    Text(anyAgents ? "Every one of your agents is on this project already." : "Your agents are not showing yet. Close this and try again in a moment.")
+                        .foregroundColor(Palette.secondary)
                 }
                 ForEach(agents, id: \.session) { a in
-                    Button { pick(a) } label: {
+                    Button { guard !picked else { return }; picked = true; pick(a) } label: {
                         Text(a.name).foregroundColor(Palette.primary).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .disabled(picked)
                 }
             }
             .listStyle(.insetGrouped)
