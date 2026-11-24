@@ -616,7 +616,7 @@ test('#7367: stamps unknown at entry and the file repaired DURING the read is ca
   assert.equal(fs.existsSync(kept), false, 'unknown at entry: not kept');
 });
 
-test('kosmos#8999: accounts sharing one projects folder through a link are read once; an account with its own folder is still read', async () => {
+test('kosmos#8999: accounts sharing one projects folder through a link are read once; an account with its own folder is still read', async (t) => {
   const project = 'p' + (++pn);
   const lin = worker('lin');
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'lin' }, { at: '12:00', kind: 'closed' }]);
@@ -625,14 +625,16 @@ test('kosmos#8999: accounts sharing one projects folder through a link are read 
   fs.writeFileSync(path.join(d, 's1.jsonl'), row('10:05', 7) + '\n');
   const shared = path.join(SB, '.claude-two');
   fs.mkdirSync(shared, { recursive: true });
-  fs.symlinkSync(path.join(SB, '.claude', 'projects'), path.join(shared, 'projects'));
+  try { fs.symlinkSync(path.join(SB, '.claude', 'projects'), path.join(shared, 'projects')); }
+  catch (e) { t.skip('this machine cannot make links: ' + e.code); return; }
   const own = path.join(SB, '.claude-three', 'projects', path.basename(d));
   fs.mkdirSync(own, { recursive: true });
   fs.writeFileSync(path.join(own, 's2.jsonl'), row('10:06', 30) + '\n');
   const was = {};
-  for (const v of ['AGENT_WORKFORCE_CONFIG_ROOT', 'CLAUDE_CONFIG_DIR', 'HOME']) was[v] = process.env[v];
+  for (const v of ['AGENT_WORKFORCE_CONFIG_ROOT', 'CLAUDE_CONFIG_DIR', 'HOME', 'USERPROFILE']) was[v] = process.env[v];
   /* The real rule, every .claude and .claude-* folder of the home, with the home inside this file's own sandbox. */
   process.env.HOME = SB;
+  process.env.USERPROFILE = SB;   // what a Windows home is read from
   delete process.env.AGENT_WORKFORCE_CONFIG_ROOT;
   delete process.env.CLAUDE_CONFIG_DIR;
   try {
