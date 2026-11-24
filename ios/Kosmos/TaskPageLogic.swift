@@ -1298,31 +1298,37 @@ extension Board {
 // MARK: The parts: who is on each, Done and Put back, adding one (kosmos#8958 slice B7: the board's tk-who)
 
 extension Board {
-    enum PartWrite: Equatable { case who(part: String, String?), close(part: String), reopen(part: String), add(String) }
+    // `was` is who the menu showed on it when it was opened.
+    enum PartWrite: Equatable { case who(part: String, String?, was: String?), close(part: String), reopen(part: String), add(String) }
     static let partNobody = "Nobody yet"
     static let partAdd = "Add a part"
     static let partAddLabel = "Add a part to this task"
     static let partAddMax = 200
     static let partFailed = "we could not change that"
     static let partUnsure = "We could not tell whether that went through. Look at the parts before you try again."
+    static let partChanged = "That part changed, so nothing was sent. Look at it again first."
+    // The Mac answers a who write after it has tried to tell the agent, which can take longer than the app's other calls wait.
+    static let partWhoTimeout: TimeInterval = 45
+    static func partUntold(_ name: String) -> String { name + " is on it. We could not tell whether it was told." }
     static let partNoMembers = "Add an agent to this project first, then you can put them on a part."
     static func partActTitle(done: Bool) -> String { done ? "Put back" : "Done" }
 
     // POST .../part/<id>/who {who} (null for nobody), .../part/<id>/close, .../part/<id>/reopen, or .../parts {sentence}.
     // Nothing for an empty part, or a part with no number (the Mac's route takes digits only).
     static func partRequest(mac: URL, project: String, number: Int, _ write: PartWrite) -> URLRequest? {
-        func route(_ part: String, _ verb: String) -> URL? {
-            guard !part.isEmpty, part.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
-            switch verb {
-            case "who": return taskRoute(mac: mac, project: project, number: number, "part/\(part)/who")
-            case "close": return taskRoute(mac: mac, project: project, number: number, "part/\(part)/close")
-            default: return taskRoute(mac: mac, project: project, number: number, "part/\(part)/reopen")
-            }
-        }
+        func digits(_ part: String) -> Bool { !part.isEmpty && part.allSatisfy { $0.isASCII && $0.isNumber } }
         switch write {
-        case .who(let part, let who): return taskPost(route(part, "who"), ["who": who.map { $0 as Any } ?? NSNull()])
-        case .close(let part): return taskPost(route(part, "close"), [:])
-        case .reopen(let part): return taskPost(route(part, "reopen"), [:])
+        case .who(let part, let who, _):
+            guard digits(part) else { return nil }
+            var r = taskPost(taskRoute(mac: mac, project: project, number: number, "part/\(part)/who"), ["who": who.map { $0 as Any } ?? NSNull()])
+            r?.timeoutInterval = partWhoTimeout
+            return r
+        case .close(let part):
+            guard digits(part) else { return nil }
+            return taskPost(taskRoute(mac: mac, project: project, number: number, "part/\(part)/close"), [:])
+        case .reopen(let part):
+            guard digits(part) else { return nil }
+            return taskPost(taskRoute(mac: mac, project: project, number: number, "part/\(part)/reopen"), [:])
         case .add(let said):
             let words = said.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !words.isEmpty else { return nil }
@@ -1333,7 +1339,7 @@ extension Board {
     // Whether the parts read after a write nobody answered show it was made. `before` is the parts it was sent from.
     static func partWritten(_ write: PartWrite, before: [TaskPart], now: [TaskPart]) -> Bool {
         switch write {
-        case .who(let id, let who): return now.first { $0.id == id }.map { $0.who == who } ?? false
+        case .who(let id, let who, _): return now.first { $0.id == id }.map { $0.who == who } ?? false
         case .close(let id): return now.first { $0.id == id }?.closed == true
         case .reopen(let id): return now.first { $0.id == id }?.closed == false
         case .add(let said):
@@ -1341,6 +1347,17 @@ extension Board {
             return now.contains { p in p.sentence == words && !before.contains { $0.id == p.id } }
         }
     }
+
+    // A menu is open while the page reads on: who is on the part is set only on an open task's open part that is still with
+    // whoever the menu showed, so an agent is never told about finished work, nor a part taken off somebody unseen.
+    static func partChoosable(_ write: PartWrite, on p: TaskPage) -> Bool {
+        guard case .who(let id, _, let was) = write else { return true }
+        return !p.closed && p.parts.contains { $0.id == id && !$0.closed && $0.who == was }
+    }
+
+    // What a line about the parts was said of: it goes when a later read differs.
+    struct PartSig: Equatable { let closed: Bool; let parts: [TaskPart]; let members: [String] }
+    static func partSig(_ p: TaskPage) -> PartSig { PartSig(closed: p.closed, parts: p.parts, members: p.memberOrder) }
 
     // The board's heardSentence over spokenHeard: who was told, or why not; nil when nobody was to be.
     static func heardLine(_ body: Data?, name: (String) -> String) -> String? {

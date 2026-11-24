@@ -36,6 +36,10 @@ final class TaskPageModel: ObservableObject {
     @Published private(set) var partWriting: Board.PartWrite?
     @Published private(set) var partSay: String?
     @Published private(set) var partRefused = false
+    @Published private(set) var partAtHold = false
+    private var partSig: Board.PartSig?
+    private var partSigAwaits = false
+    private var partUnsureOf: (Board.PartWrite, [Board.TaskPart])?
     // kosmos#8958 slice B1: a message on its way, and the line under the box (who it did not reach, or the refusal).
     @Published private(set) var saying = false
     @Published private(set) var sayLine: String?
@@ -198,6 +202,7 @@ final class TaskPageModel: ObservableObject {
                 if refusal == Board.subtasksCloseUnsureUnread { refusal = Board.subtasksCloseUnsure }   // the list is read now
             }
             if let was = refusalSubtasks, was != p.subtasks { clearRefusal() }
+            keepPartLine(p)
             if let sig = holdSaySig, Board.holdNextSig(p) != sig { holdSay = nil; holdChoose = false; holdSaySig = nil }
             if let w = repeatSavedAs, p.closed || p.repeatStored.map(Board.repeatWire) != w { repeatSay = nil; repeatSavedAs = nil }
             // Nothing about Repeats outlives the task being finished (the board's tkPaintRepeat, review 2).
@@ -285,6 +290,7 @@ final class TaskPageModel: ObservableObject {
         guard !pressing, !holding, !repeatSaving, reviewerSaving == nil, partWriting == nil, current, let page, page.act == shown else { return }
         pressing = true
         clearRefusal()
+        clearPart()
         let (project, number) = (self.project, self.number)
         let answer = await send { Board.taskActRequest(mac: $0, project: project, number: number, act: shown) }
         guard current else { return }
@@ -305,6 +311,7 @@ final class TaskPageModel: ObservableObject {
         pressing = true
         closingSubtasks = true
         clearRefusal()
+        clearPart()
         let (project, number) = (self.project, self.number)
         let built = page.subtasks.filter { $0.status == "Built" }.map(\.number)
         enum Stop { case unsent(String), refused(at: Int?, why: String, closed: Int), unsure }
@@ -351,22 +358,31 @@ final class TaskPageModel: ObservableObject {
     }
 
     // kosmos#8958 slice B7: the board's tkPartPost: one part write, then the task and activity read again and who was told
-    // said. Nothing is sent for a part that already reads so, or is not there. No answer is judged by the read after it.
-    // True when it was made.
+    // said. Nothing is sent for a part that already reads so, or is not there. Who is on a part is read fresh first
+    // (partChoosable). No answer is judged by the read after it. `atHold` says the line by Choose who. True when it was made.
     @discardableResult
-    func writePart(_ write: Board.PartWrite, name: (String) -> String, names: [String: String]) async -> Bool {
+    func writePart(_ write: Board.PartWrite, atHold: Bool = false, name: (Board.TaskPage, String) -> String, names: [String: String]) async -> Bool {
         guard partWriting == nil, !pressing, !holding, !repeatSaving, reviewerSaving == nil, current, let page else { return false }
         if case .add(let said) = write { if said.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false } } else {
             guard !Board.partWritten(write, before: page.parts, now: page.parts) else { return false }
         }
         partWriting = write
-        partSay = nil
-        partRefused = false
+        clearPart()
+        partAtHold = atHold
         let before = page.parts
         let (project, number) = (self.project, self.number)
-        let answer = await send { Board.partRequest(mac: $0, project: project, number: number, write) }
-        guard current else { return false }
-        let status = answer?.1.statusCode ?? 0
+        var answer: (Data, HTTPURLResponse)?
+        var unsent: String?
+        if case .who = write {
+            let fresh = await freshRead()
+            guard current else { return false }
+            if case .some(.page(let p)) = fresh { if !Board.partChoosable(write, on: p) { unsent = Board.partChanged } }
+            else { unsent = fresh == nil ? Board.holdCheckFailed : Board.holdTaskGone }
+        }
+        if unsent == nil {
+            answer = await send { Board.partRequest(mac: $0, project: project, number: number, write) }
+            guard current else { return false }
+        }
         let ownRead = pageReads + 1
         await read()
         guard current else { return false }
@@ -374,22 +390,58 @@ final class TaskPageModel: ObservableObject {
         await readActivity(names: names)
         guard current else { return false }
         partWriting = nil
-        if (200...299).contains(status) {
-            partSay = Board.heardLine(answer?.0, name: name)
-            return true
+        func told(_ session: String) -> String { self.page.map { name($0, session) } ?? session }
+        var made = false
+        let status = answer?.1.statusCode ?? 0
+        if let unsent {
+            partSay = unsent
+            partRefused = true
+        } else if (200...299).contains(status) {
+            partSay = Board.heardLine(answer?.0, name: told)
+            made = true
+        } else {
+            switch Board.unfinished(status: status, body: answer?.0, failed: Board.partFailed) {
+            case .refused(let why): partSay = why; partRefused = true
+            case .unsure:
+                made = self.page.map { Board.partWritten(write, before: before, now: $0.parts) } ?? false
+                if made {
+                    if case .who(_, let who?, _) = write { partSay = Board.partUntold(told(who)) }
+                } else {
+                    partSay = Board.partUnsure; partRefused = true
+                    if !readOK { partUnsureOf = (write, before) }
+                }
+            }
         }
-        switch Board.unfinished(status: status, body: answer?.0, failed: Board.partFailed) {
-        case .refused(let why): partSay = why
-        case .unsure:
-            if readOK, let now = self.page?.parts, Board.partWritten(write, before: before, now: now) { return true }
-            partSay = Board.partUnsure
+        if partSay != nil { if readOK { partSig = self.page.map(Board.partSig) } else { partSigAwaits = true } }
+        return made
+    }
+    private func clearPart() {
+        if partSay != nil { partSay = nil }
+        if partRefused { partRefused = false }
+        if partAtHold { partAtHold = false }
+        partSig = nil
+        partSigAwaits = false
+        partUnsureOf = nil
+    }
+    // Said of the task as read; after a write whose own read failed, the next that works is what it is kept against (the
+    // write itself would be the change), unless it settles what could not be told.
+    private func keepPartLine(_ p: Board.TaskPage) {
+        if partSigAwaits {
+            partSigAwaits = false
+            partSig = Board.partSig(p)
+            if let (write, before) = partUnsureOf, Board.partWritten(write, before: before, now: p.parts) { clearPart() }
+            partUnsureOf = nil
         }
-        partRefused = true
-        return false
+        if let was = partSig, was != Board.partSig(p) { clearPart() }
     }
 
-    // Choosing with nobody on the project to choose.
-    func sayNoMembers(_ words: String) { guard partWriting == nil else { return }; partSay = words; partRefused = false }
+    // Choosing with nobody on the project to choose: goes when somebody is.
+    func sayNoMembers() {
+        guard partWriting == nil, let page else { return }
+        clearPart()
+        partSay = Board.partNoMembers
+        partSig = Board.partSig(page)
+    }
     // As the board's Choose who with no members: its line goes, and says where people come from instead.
     func sayNoMembersOnHold() { holdSay = Board.holdChooseNobody; holdChoose = false; holdSaySig = nil }
 
@@ -579,6 +631,7 @@ final class TaskPageModel: ObservableObject {
     func toggleHold(wasOnHold: Bool, names: [String: String]) async {
         guard !holding, !pressing, partWriting == nil, current, let page, !page.closed, page.onHold == wasOnHold else { return }
         holding = true
+        clearPart()
         holdSay = nil
         holdChoose = false
         holdSaySig = nil

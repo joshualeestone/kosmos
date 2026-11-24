@@ -283,9 +283,11 @@ struct TaskPageView: View {
                 .accessibilityValue(model.holding ? "In progress" : "")
                 if let say = model.holdSay {
                     Text(say).font(.footnote).foregroundColor(model.holdRefused ? Palette.dangerWord : Palette.secondary).fixedSize(horizontal: false, vertical: true)
+                        .id("hold:" + say)
                         .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
                 }
                 if model.holdSay != nil, model.holdChoose { chooseWho(p) }
+                if model.partAtHold { partLine }
             }
             if p.allSubtasksDone {
                 Text(Board.subtasksDoneLine(unrun: p.subtasksUnrun)).font(.footnote).foregroundColor(Palette.secondary)
@@ -346,20 +348,29 @@ struct TaskPageView: View {
                 Text(why).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
             }
             addPart
-            if let say = model.partSay {
-                Text(say).font(.footnote).foregroundColor(model.partRefused ? Palette.dangerWord : Palette.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .id("part:" + say)
-                    .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
-            }
+            if !model.partAtHold { partLine }
+        }
+    }
+
+    // What the last part write said, by the control it was made with.
+    @ViewBuilder private var partLine: some View {
+        if let say = model.partSay {
+            Text(say).font(.footnote).foregroundColor(model.partRefused ? Palette.dangerWord : Palette.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .id("part:" + say)
+                .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
         }
     }
 
     // Any press or save that another must not run beside.
     private var busy: Bool { model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil || model.partWriting != nil }
 
-    private func write(_ w: Board.PartWrite, _ p: Board.TaskPage) async -> Bool {
-        await model.writePart(w, name: { p.name($0, roster: roster) }, names: names)
+    private func write(_ w: Board.PartWrite, atHold: Bool = false) async -> Bool {
+        await model.writePart(w, atHold: atHold, name: { $0.name($1, roster: roster) }, names: names)
+    }
+    private func choosing(_ part: String) -> Bool {
+        if case .who(let id, _, _) = model.partWriting { return id == part }
+        return false
     }
 
     // kosmos#8958 slice B7: one part. On an open task an open part's name is the menu of who is on it (the board's
@@ -369,25 +380,35 @@ struct TaskPageView: View {
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 if part.done || p.closed {
-                    Text(part.who).font(.body.weight(.semibold)).foregroundColor(Palette.primary)
+                    Text(part.who).font(.body.weight(.semibold)).strikethrough(part.done).foregroundColor(part.done ? Palette.secondary : Palette.primary)
+                        .accessibilityLabel(part.who + (part.done ? ", done" : ""))
                 } else if p.memberOrder.isEmpty {
                     // Nobody to pick, and where they come from (the board's line).
-                    Button { model.touched(); model.sayNoMembers(Board.partNoMembers) } label: { partName(part.who) }
+                    Button {
+                        model.touched()
+                        // The line already there is not drawn again, so it is said again.
+                        if model.partSay == Board.partNoMembers { UIAccessibility.post(notification: .announcement, argument: Board.partNoMembers) }
+                        model.sayNoMembers()
+                    } label: { partName(part.who, busy: false) }
                         .buttonStyle(.plain)
-                        .accessibilityHint("Says how to put somebody on this part.")
-                } else {
-                    whoMenu(p, part: part.id, session: part.session) { partName(part.who) }
                         .accessibilityLabel("Change who is on this part")
                         .accessibilityValue(part.who)
+                        .accessibilityInputLabels([part.who, "Change who is on this part"])
+                } else {
+                    whoMenu(p, part: part.id, session: part.session) { partName(part.who, busy: choosing(part.id)) }
+                        .accessibilityLabel("Change who is on this part")
+                        .accessibilityValue(part.who + (choosing(part.id) ? ", in progress" : ""))
                         .accessibilityInputLabels([part.who, "Change who is on this part"])
                         .accessibilityIdentifier("taskpage.part.who")
                 }
                 if let line = part.line { Text(line).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true) }
                 if let say = part.say { Text(say).font(.footnote.italic()).foregroundColor(Palette.secondary) }
             }
+            // One thing to VoiceOver where there is nothing in it to press.
+            .accessibilityElement(children: part.done || p.closed ? .combine : .contain)
             Spacer(minLength: 8)
             let act: Board.PartWrite = part.done ? .reopen(part: part.id) : .close(part: part.id)
-            Button { model.touched(); Task { _ = await write(act, p) } } label: {
+            Button { model.touched(); Task { _ = await write(act) } } label: {
                 HStack(spacing: 8) {
                     if model.partWriting == act { SweepDots(scales: false) }
                     Text(Board.partActTitle(done: part.done)).font(.footnote).foregroundColor(Palette.link)
@@ -402,21 +423,22 @@ struct TaskPageView: View {
         }
     }
 
-    private func partName(_ words: String) -> some View {
+    private func partName(_ words: String, busy: Bool) -> some View {
         HStack(spacing: 4) {
+            if busy { SweepDots(scales: false) }
             Text(words).font(.body.weight(.semibold)).foregroundColor(Palette.link)
-            Image(systemName: "chevron.up.chevron.down").font(.footnote).foregroundColor(Palette.link)
+            Image(systemName: "chevron.up.chevron.down").font(.footnote).foregroundColor(Palette.link).accessibilityHidden(true)
         }
         .frame(minHeight: 44).contentShape(Rectangle())
     }
 
     // Saved on choosing, as the board's; leaving without choosing sends nothing.
-    private func whoMenu<L: View>(_ p: Board.TaskPage, part: String, session: String?, @ViewBuilder label: () -> L) -> some View {
+    private func whoMenu<L: View>(_ p: Board.TaskPage, part: String, session: String?, atHold: Bool = false, @ViewBuilder label: () -> L) -> some View {
         Menu {
             ForEach(Board.partOptions(p, session: session, roster: roster), id: \.self) { o in
                 Button {
                     model.touched()
-                    Task { _ = await write(.who(part: part, o.value), p) }
+                    Task { _ = await write(.who(part: part, o.value, was: session), atHold: atHold) }
                 } label: {
                     if o.value == session { Label(o.words, systemImage: "checkmark") } else { Text(o.words) }
                 }
@@ -428,12 +450,19 @@ struct TaskPageView: View {
 
     // The board's Choose who, under the line after Take off hold: for the first open part nobody is on.
     @ViewBuilder private func chooseWho(_ p: Board.TaskPage) -> some View {
-        let label = Text(Board.holdChoose).font(.footnote.weight(.semibold)).foregroundColor(Palette.link)
-            .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+        let free = p.parts.first { !$0.closed && $0.who == nil }
+        let out = free.map { choosing($0.id) } ?? false
+        let label = HStack(spacing: 8) {
+            if out { SweepDots(scales: false) }
+            Text(Board.holdChoose).font(.footnote.weight(.semibold)).foregroundColor(Palette.link)
+        }
+        .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
         if p.memberOrder.isEmpty {
             Button { model.touched(); model.sayNoMembersOnHold() } label: { label }.buttonStyle(.plain)
-        } else if let free = p.parts.first(where: { !$0.closed && $0.who == nil }) {
-            whoMenu(p, part: free.id, session: nil) { label }.accessibilityIdentifier("taskpage.hold.choose")
+        } else if let free {
+            whoMenu(p, part: free.id, session: nil, atHold: true) { label }
+                .accessibilityValue(out ? "In progress" : "")
+                .accessibilityIdentifier("taskpage.hold.choose")
         }
     }
 
@@ -466,10 +495,9 @@ struct TaskPageView: View {
 
     // Words typed while it was on its way are the next part's.
     private func add() {
-        guard let p = model.page else { return }
         model.touched()
         let words = newPart
-        Task { if await write(.add(words), p), newPart == words { newPart = "" } }
+        Task { if await write(.add(words)), newPart == words { newPart = "" } }
     }
 
     private func subtasksBlock(_ p: Board.TaskPage) -> some View {
