@@ -270,8 +270,8 @@ final class TaskPageModel: ObservableObject {
             editSaving = false
             return false
         }
-        // Locked until the page is read again, as the board's form stays locked through its reload: a second Save in
-        // between would send the same change again.
+        // Locked until the page is read again (the phone's own choice: the board unlocks before its reload), so a second
+        // Save in between cannot send the same change again.
         await read()
         await readActivity(names: names)
         guard current else { return false }

@@ -17,8 +17,11 @@ final class TaskPageActionsUITests: XCTestCase {
         let tasks = app.tabBars.buttons["Tasks"]
         XCTAssertTrue(tasks.waitForExistence(timeout: 30), "no Tasks tab")
         tasks.tap()
+        // Its group (Built but waiting) sits below the tiles and four groups, so on a small phone it is scrolled to.
         let row = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Pages 1 to 8")).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 20), "no sample task 4 on Tasks")
+        XCTAssertTrue(app.staticTexts.firstMatch.waitForExistence(timeout: 20), "the Tasks list did not draw")
+        for _ in 0..<8 where !(row.exists && row.isHittable) { app.swipeUp() }
+        XCTAssertTrue(row.exists && row.isHittable, "no sample task 4 on Tasks")
         row.tap()
         XCTAssertTrue(app.navigationBars["Task 4"].waitForExistence(timeout: 20), "task 4's page did not open")
         // The page drawn (the task read), not only its bar, before anything swipes or looks.
@@ -61,7 +64,8 @@ final class TaskPageActionsUITests: XCTestCase {
         let empty = NSPredicate(format: "NOT (value CONTAINS %@)", "Check the captions")
         expectation(for: empty, evaluatedWith: say)
         waitForExpectations(timeout: 10)
-        let inActivity = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Check the captions")).firstMatch
+        // Any element: an activity row is one combined accessibility element, whatever type XCTest reports it as.
+        let inActivity = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Check the captions")).firstMatch
         for _ in 0..<4 where !inActivity.exists { app.swipeDown() }
         XCTAssertTrue(inActivity.waitForExistence(timeout: 15), "the message is not in the task's activity")
         shot(app, "message sent")
