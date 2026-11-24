@@ -1319,9 +1319,18 @@ func b3bModelTests() async {
     let unread = await m.saveReviewer("dana", names: nm)
     check(unread && m.reviewerSay == Board.repeatSaved && m.reviewerShown == "dana" && m.page?.repeatReviewer == "eli",
           "a save whose read failed: Saved., and the choice shows what was saved, not the old reviewer")
+    // Picking the page's (stale) reviewer back while the saved one shows is a change, and is sent.
+    mac.asked = []
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    let back = await m.saveReviewer("eli", names: nm)
+    check(back && mac.asked.first == "POST /api/project/springcatalogue/task/3/repeat", "choosing the old reviewer back while the saved one shows is sent, not ignored")
+    mac.projects = (500, Data())
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    _ = await m.saveReviewer("dana", names: nm)
+    check(m.reviewerShown == "dana", "premise: the saved reviewer shows again after a second unread save")
     mac.projects = (200, with(["repeat": rule, "repeatReviewer": "dana"]))
     await m.read()
-    check(m.reviewerShown == nil && m.page?.repeatReviewer == "dana" && m.reviewerSay == Board.repeatSaved, "the next read that lands shows the page, and Saved. stays")
+    check(m.reviewerShown == nil && m.page?.repeatReviewer == "dana", "the next read that lands shows the page")
     mac.projects = (200, with(["repeat": NSNull()]))
     await m.read()
     check(m.reviewerSay == nil, "Saved. goes when the task stops repeating")

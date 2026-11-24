@@ -50,8 +50,10 @@ final class TaskPageModel: ObservableObject {
     // A reviewer the Mac recorded when the read after it failed: shown until a read of the page succeeds, so the choice
     // does not jump back to the old reviewer under "Saved." (as the Repeats controls keep what was saved).
     @Published private(set) var reviewerShown: String?
-    // Successful page reads, counted, so a save can tell whether its own read landed.
-    private var pageReadsOK = 0
+    // The number of the newest page read that succeeded (reads are numbered by pageReads), so a save can tell whether a
+    // read that started after it was recorded has landed: a tick read started before it, landing with the old page, does
+    // not count.
+    private var pageReadOK = 0
     // The title and detail being saved, and the line for the last save (the board's tk-msg for the form).
     // Like `pressing`, saying, dueSaving and editSaving stay set when the epoch moves mid-request: the page is then about
     // nothing.
@@ -142,7 +144,7 @@ final class TaskPageModel: ObservableObject {
         guard !Task.isCancelled, current, mine == pageShown else { return }
         switch parsed {
         case .page(let p):
-            pageReadsOK += 1
+            pageReadOK = max(pageReadOK, mine)
             // Only when set: assigning a published value redraws the page, and a quiet tick must redraw nothing.
             if reviewerShown != nil { reviewerShown = nil }
             // A refusal is about the press it answered: once the task reads otherwise (another device did it), it goes.
@@ -418,8 +420,9 @@ final class TaskPageModel: ObservableObject {
     // is on its way, while a Repeats save or Mark as done is out, or on a task that is finished or does not repeat.
     // true when the Mac recorded it; then the task and activity are read.
     func saveReviewer(_ want: String, names: [String: String]) async -> Bool {
+        // Compared with what the choice shows: after a save whose read failed that is the saved reviewer, not the page's.
         guard reviewerSaving == nil, !repeatSaving, !pressing, current, let page, !page.closed, page.repeatRow != nil,
-              page.repeatReviewer != want else { return false }
+              (reviewerShown ?? page.repeatReviewer) != want else { return false }
         reviewerSaving = want
         reviewerSay = nil
         reviewerSavedAs = nil
@@ -434,9 +437,9 @@ final class TaskPageModel: ObservableObject {
             reviewerSaving = nil
             return false
         }
-        let readsBefore = pageReadsOK
+        let ownRead = pageReads + 1   // the number read() gives the read below
         await read()
-        if pageReadsOK == readsBefore { reviewerShown = want }
+        if pageReadOK < ownRead { reviewerShown = want }
         await readActivity(names: names)
         guard current else { return false }
         reviewerSay = Board.repeatSaved
