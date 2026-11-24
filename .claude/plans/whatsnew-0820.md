@@ -7,7 +7,7 @@ Built with `node tools/whats-new-pool.js build 0.8.20` (online) on origin/main a
 - Picked the top five pending highlights.
 
 ## Pool addition
-- **A message an agent never ran is reported** (#8951, windows, rank 12.95), Angel's wording (m6299): "On Windows, if an agent takes in your message but stops or never starts on it, its card says so and you get a notice to send it again." My first line said "instead of looking idle or busy", which over-claims: the card keeps its state and gains a sentence, and on 11-23 it was idle, not busy. The person is also told by the needs-you notice the other stalls send. Windows only: the Mac does not take this path (its agents are tmux sessions, where an unsent line is already caught; the plan for #8951 says so). It covers both arms of #8951, the start deadline and a message in flight when the process stopped.
+- **A message an agent never ran is reported** (#8951, windows, rank 12.95): "On Windows, if a Claude agent takes in your message but stops or never starts on it, its card says so and tells you to send it again." Started from Angel's wording (m6299), narrowed by review round 1: engine/status.js:1895 reports only for a Windows pane whose runner is Claude (Codex, Grok and Antigravity agents get nothing), and the needs-you notice is not guaranteed (it needs a phone, is rate-limited, and does not say "send it again"; the card sentence does). My first line's "instead of looking idle or busy" was also wrong: the card keeps its state and gains a sentence. #8951 merged at 9231f56ccc and its follow-ups, after the v0819 bump 1b52b66d0e, so since 0.8.20.
 
 ## Not added
 - #8960 and #8965: release tooling and a test, nothing a person sees.
@@ -27,4 +27,4 @@ Per platform: Windows 4, Mac 4, Linux 3. The four older lines are the next pendi
 - An offline build of the committed pool is byte-identical to `web/whats-new.json`.
 
 ## Weakest premise
-That the line holds on a Windows run: it rests on Angel's read of his own card sentence and notice, not on a Windows box I ran.
+That the line holds on a Windows run: it rests on reading engine/status.js and the card sentence in web/index.html, and on Angel's read, not on a Windows box I ran.

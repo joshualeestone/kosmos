@@ -2710,7 +2710,7 @@
       "since": "0.8.20",
       "status": "pending",
       "title": "A message an agent never ran is reported",
-      "line": "On Windows, if an agent takes in your message but stops or never starts on it, its card says so and you get a notice to send it again.",
+      "line": "On Windows, if a Claude agent takes in your message but stops or never starts on it, its card says so and tells you to send it again.",
       "icon": "chat",
       "rank": 12.95,
       "platforms": [
