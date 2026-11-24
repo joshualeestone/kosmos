@@ -529,6 +529,8 @@ enum SignIn {
     static func enrolBody() -> [String: Any] { ["kind": "totp"] }
     /// kosmos#8959: text messages, with the number as typed. Kosmos+ reads the digits and the country code, and says why
     /// when it cannot use the number (second.rs normalize_phone), so the phone does not judge it first.
+    /// Seconds to wait for Kosmos+ to answer a text enrol (SignInClient.enrol).
+    static let textSendTimeout: TimeInterval = 45
     static func enrolBody(phone: String) -> [String: Any] { ["kind": "sms", "phone": phone.trimmingCharacters(in: .whitespacesAndNewlines)] }
     static func confirmBody(code: String) -> [String: Any] { ["code": code] }
 

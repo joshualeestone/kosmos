@@ -15,7 +15,7 @@ final class SignInModel: ObservableObject {
     @Published var step: SignIn.Step = .email {
         didSet {
             if step == .denied(asking: false), oldValue != .denied(asking: false) { failures += 1 }
-            if step == .email || step == .done { phone = "" }   // kosmos#8959
+            if step == .email || step == .done { phone = "" }   // kosmos#8959: not kept past this sign-in
         }
     }
     @Published var email = ""
@@ -225,7 +225,7 @@ final class SignInModel: ObservableObject {
 
     func sendText() {
         guard !busy, case .setupPhone(let token) = step, let client else { return }
-        guard phone.contains(where: \.isNumber) else { error = "Type your mobile number first."; return }
+        guard phone.contains(where: { $0.isASCII && $0.isNumber }) else { error = "Type your mobile number first."; return }
         let number = phone
         attempt += 1; let mine = attempt
         busy = true; error = nil
