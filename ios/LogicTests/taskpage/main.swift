@@ -1080,10 +1080,15 @@ do {
           && Board.repeatShown(savedPast, box: nil) == savedPast && Board.repeatShown(C(every: .hour), box: "20:00") == C(every: .hour),
           "a box the list does not hold, none, or a rule that is not daily: shown as stored")
     check(Board.repeatShown(savedPast, box: "20:00").map(Board.repeatWire) == Board.repeatWire(savedPast), "showing the box there changes nothing that would be sent")
+    var weeklyThenDaily = C(every: .week, at: "09:00", others: ["17:00"], on: "fri")
+    weeklyThenDaily = Board.followStored(weeklyThenDaily, old: stored, new: agentChanged) ?? weeklyThenDaily
+    weeklyThenDaily.every = .day
+    check(Board.repeatWire(weeklyThenDaily) == .day("09:00,20:00"),
+          "a weekly draft over a daily rule changed elsewhere, switched back to daily, sends the new rule's other time, not the removed one")
     let never = C(every: .never), hourly = C(every: .hour)
     check(Board.followStored(never, old: never, new: stored) == nil,
           "a draft put back on the old rule follows a rule changed elsewhere (never left showing Never over a daily rule)")
-    check(Board.followStored(hourly, old: never, new: stored) == hourly, "a real edit stands when the rule changes elsewhere")
+    check(Board.followStored(hourly, old: never, new: stored).map(Board.repeatWire) == .hour, "a real edit stands when the rule changes elsewhere")
     check(Board.followStored(moved, old: stored, new: agentChanged).map(Board.repeatWire) == .day("10:00,20:00"),
           "an edited daily time stands and takes the new rule's other times")
     check(Board.followStored(nil, old: never, new: stored) == nil && Board.followStored(hourly, old: never, new: hourly) == nil,
@@ -1184,6 +1189,13 @@ func b3ModelTests() async {
     let refused = await m.saveRepeat(.minutes("5"), names: nm)
     check(!refused && m.repeatSay == "every so many minutes takes a number from 15 to 720" && m.repeatRefused && !m.repeatSaving,
           "a refusal is the Mac's own sentence, marked as a refusal")
+    mac.projects = (200, withRule(["every": "hour"], closed: true))
+    await m.read()
+    check(m.repeatSay == nil && !m.repeatRefused, "a refusal goes when the task is finished")
+    mac.projects = (200, withRule(["every": "hour"]))
+    await m.read()
+    mac.actAnswers = [(400, #"{"error":"every so many minutes takes a number from 15 to 720"}"#)]
+    _ = await m.saveRepeat(.minutes("5"), names: nm)
     m.clearRepeatSay()
     check(m.repeatSay == nil && !m.repeatRefused, "a new choice retires the last answer")
     mac.actAnswers = [nil]

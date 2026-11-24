@@ -164,7 +164,7 @@ struct TaskPageView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         // A finished task has no Repeats section, and an unsaved choice does not come back if it is reopened.
-        .onChange(of: p.closed) { closed in if closed { repeatDraft = nil } }
+        .onChange(of: p.closed) { closed in if closed { repeatDraft = nil; repeatDraftBase = nil; repeatBox = nil } }
     }
 
     private func header(_ p: Board.TaskPage) -> some View {
@@ -500,10 +500,12 @@ struct TaskPageView: View {
                             // keep showing what was saved rather than the rule from before it.
                             // The box's time is kept before the save's reads, which change the stored rule mid-save, so the
                             // box never shows the sorted first time in between (the board's tkRepeatSaved runs before its
-                            // reload). A refused save changes no stored rule, so it shows nothing different.
+                            // reload). A save that was not recorded forgets it again.
                             repeatBox = shown.every == .day ? shown.at : nil
                             if await model.saveRepeat(wire, names: names) {
                                 repeatDraft = Board.keptRepeatDraft(repeatDraft, stored: model.page?.repeatStored)
+                            } else {
+                                repeatBox = nil
                             }
                         }
                     } label: {
@@ -524,6 +526,7 @@ struct TaskPageView: View {
                 }
                 if let need = wire.flatMap(Board.repeatNeeds) {
                     Text(need).font(.footnote).foregroundColor(Palette.secondary)
+                        .onAppear { UIAccessibility.post(notification: .announcement, argument: need) }
                 } else if let say = model.repeatSay {
                     Text(say).font(.footnote).foregroundColor(model.repeatRefused ? Palette.dangerWord : Palette.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -632,7 +635,7 @@ struct TaskPageView: View {
     // A due date set or cleared on a sample task (POST .../due), served back by the next read ("" for cleared).
     private static var sampleDue: [Int: String] = [:]
     // kosmos#8958 slice B3: a sample task's repeat rule and words for it in the board's shape (POST .../repeat; only the
-    // hourly words match the board's describe exactly, and only those are asserted), served back by
+    // hourly words and task 4's starting words are written as the board's describe says them), served back by
     // the next read. Task 4 starts on twice a day, the case where the controls keep a second time.
     private static var sampleRepeat: [Int: (rule: String, words: String)] = [4: (#"{"every":"day","at":["09:00","17:00"]}"#, "every day at 9am and 5pm")]
     private static func sampleRule(_ body: [String: Any]) -> (rule: String, words: String)? {
