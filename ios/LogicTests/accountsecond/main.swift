@@ -36,6 +36,7 @@ if let page = try? String(contentsOfFile: relay + "/coordinator/src/signin.html"
         check(page.contains(words), "\(name) is the page's own words")
     }
     check(page.contains("From now on, signing in asks for the email code and then a code "), "onWords starts as the page's")
+    check(page.contains(#"(kind === "sms" ? "texted to your phone." : "from your authenticator app.")"#), "and ends as the page's, for each kind")
     check(!page.contains("CONTROL: words no page has"), "CONTROL: the page check can fail")
 } else {
     print("NOTE: kosmos-relay's signin.html not found, so the words were not compared with the page")
@@ -69,6 +70,9 @@ check(A.confirmed(status: 401, json: ["error": "that code is not what the app sh
       == .refused("That code is not what the app shows right now; wait for the next one and try again."), "a wrong app code stays, with its sentence")
 check(A.confirmed(status: 401, json: ["error": "that code is not the one we texted"]) == .refused("That code is not the one we texted."), "a wrong texted code stays")
 check(A.confirmed(status: 401, json: nil) == .refused(A.codeRefused), "a 401 with no sentence is not read as signed out")
+check(A.confirmed(status: 401, json: ["error": "missing bearer token"]) == .signedOut("Missing bearer token."), "a 401 about the session, not the code, is signed out")
+check(A.confirmed(status: 403, json: ["error": "this device was refused on your account", "code": "session_refused"]) == .startOver("This device was refused on your account."), "a refused device starts over: no code fixes it")
+check(A.confirmed(status: 400, json: ["error": "that code has expired"]) == .refused("That code has expired."), "a 400 that does not say start again stays")
 check(A.confirmed(status: 400, json: nil) == .refused(A.codeRefused), "the page's line with none")
 // CONTROLS: a 401 whose sentence ends the sign-in is signed out; a 400 that says start again closes the setup.
 check(A.confirmed(status: 401, json: ["error": "this account signed out everywhere since; sign in again"]) == .signedOut("This account signed out everywhere since; sign in again."), "signed out everywhere is signed out")
