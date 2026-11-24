@@ -758,6 +758,12 @@ func b1ModelTests() async {
     mac.actAnswers = [(400, #"{"error":"that is not a real date"}"#)]
     await m.setDue("2026-11-29", names: nm)
     check(m.dueRefusal == "that is not a real date", "a refused date is said")
+    mac.actAnswers = [nil]
+    let unanswered = await m.setDue("2026-11-28", names: nm)
+    check(!unanswered && m.dueRefusal == Board.taskDueUnreached, "no answer: the could-not-reach words, and not recorded")
+    mac.asked = []
+    let badDay = await m.setDue("2026-02-30", names: nm)
+    check(!badDay && m.dueRefusal == Board.taskDueFailed && mac.asked.isEmpty, "a date that is not a day is refused here, never sent")
 
     mac.asked = []
     let nothing = await m.saveText(title: "Pages 9 to 12", detail: "", openedTitle: "Pages 9 to 12", openedDetail: nil, names: nm)

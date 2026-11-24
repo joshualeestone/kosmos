@@ -227,8 +227,7 @@ extension Board.TaskPage {
         return "Added by " + fixed.lowercased() + parts.words.dropFirst(fixed.count)
     }
 
-    // The due date as words: "Due Oct 30"; for a date this phone cannot read as a day, "Due " and the date as kept (the
-    // Due section says that one with it).
+    // The due date as words: "Due Oct 30".
     func dueLine(calendar: Calendar = .current) -> String? {
         guard let due = dueDate else { return nil }
         let p = DateFormatter()
@@ -643,13 +642,13 @@ extension Board {
     // The board's Save: both trimmed; a title is needed; only what differs from what the form opened with is sent, and
     // an emptied detail goes as null (cleared). Line ends compared as a textarea gives them back.
     static func taskEdit(title: String, detail: String, openedTitle: String, openedDetail: String?) -> TaskEdit {
-        // A title is one line, as the board's text input: a line break in it is a space.
+        // A title is one line: a line break in it is a space. (The board's text input drops a stored line break instead,
+        // and so sends such a title back as changed; the phone compares both sides one line, below, and does not.)
         func oneLine(_ s: String) -> String { boardLineEnds(s).replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines) }
         let t = oneLine(title)
         let d = detail.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return .needsTitle }
         var body: [String: String?] = [:]
-        // Compared one line too, so a stored title with a line break is not sent back as changed by a Save that changed nothing.
         if t != oneLine(openedTitle) { body["sentence"] = t }
         let was = boardLineEnds(openedDetail ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if d != was { body["detail"] = d.isEmpty ? .some(nil) : .some(d) }

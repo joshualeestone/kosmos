@@ -67,7 +67,8 @@ final class TaskPageActionsUITests: XCTestCase {
         shot(app, "message sent")
     }
 
-    // Edit title or detail opens the form with the task's words; Save closes it.
+    // Edit title or detail opens the form with the task's words; Save closes it and the page shows the new title (the
+    // sample Mac records it), so a Save that sent nothing cannot pass.
     func testEditOpensAndSaves() throws {
         let app = try openTask()
         let edit = app.buttons["Edit title or detail"]
@@ -84,5 +85,6 @@ final class TaskPageActionsUITests: XCTestCase {
         save.tap()
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: save)
         waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.staticTexts["Pages 1 to 8 and the cover"].waitForExistence(timeout: 15), "the page does not show the saved title")
     }
 }

@@ -28,12 +28,16 @@ Hold, repeat, the receipt and undo are B2 to B5. The info button stays (parts an
   without the time, as its other held lines.
 
 ## Tests
-- run-taskpage.sh: 54 new checks (187 in all) (requests, bodies, the null clear, bad dates refused, taskEdit cases, the write
+- run-taskpage.sh: 56 new checks (189 in all) (requests, bodies, the null clear, bad dates refused, taskEdit cases, the write
   results, every said-line branch, and the model's three actions through the fake Mac). All 13 LogicTests runners pass.
 - Mutant: dropping "Your message stays on the task." reds 3 checks. (Sending a nil due as Any is equivalent: Foundation
   writes it as null, and the test reads the wire.)
+- Review 5: one date picker for every state (only the buttons change), so choosing a day does not rebuild it; the
+  sample Mac records an edited title and the UI test checks the page shows it; a bad date is refused on the phone; an
+  empty title refused while a line shows is announced.
 - Review 3: a due draft lives only while it differs from the stored day (Board.keptDraft, Board.dueControls, tested),
-  so a stored date moving under it never shows a stale change; the stored title is compared one line too; the message
+  so a stored date moving under it never shows a stale change; the stored title is compared one line too (the board drops a stored line break and so sends such a title back as
+  changed; the phone does not); the message
   box stays multi-line (a phone's Return is a line break in the chat's box too), a deliberate difference from the
   board's one-line field, which sends on Enter.
 - Review 2: the date picker only chooses; Set saves and Cancel puts it back, in both states (the board's field saves
