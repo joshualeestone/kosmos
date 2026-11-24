@@ -9,6 +9,9 @@ struct ContentView: View {
     @ObservedObject var pushManager: PushNotificationManager
     // Starts unlocked when the gate is off, so default behavior is unchanged.
     @State private var isUnlocked = !KosmosConfig.requireBiometricUnlock
+    @State private var firstAgentNative: Bool?   // kosmos#8954: which way Make an agent goes, for its note (nil: not read)
+    @State private var firstAgentGen = 0   // kosmos#8954 review 3: only the newest check may store its answer
+    @State private var firstAgentBusy = false   // kosmos#8954: the empty state's read is under way (repeat taps ignored)
     // Set only when the app has actually gone to the background, so returning to
     // the foreground re-prompts after a real background cycle - not after a
     // transient .inactive (Control Center, a call, or the Face ID prompt itself).
@@ -285,7 +288,21 @@ struct ContentView: View {
         // kosmos#7488: another computer: the sheet's roles, managers and projects were the last one's.
         // kosmos#8791 slice 4: New Project now closes on another account or computer too (as New Agent, #7488), except
         // through its own fresh sign-in's change.
-        .onChange(of: board.chatEpoch) { _ in if !fresh.passes.spendEpoch() { newAgentOpen = false; newProjectOpen = false } }
+        .onChange(of: board.chatEpoch) { _ in
+            // kosmos#8954 review 3: another computer or account: the old answer about Make an agent is not this one's.
+            // Review 5: an admission can move the epoch in the same update, so a screen that had an answer asks again.
+            let had = firstAgentNative != nil
+            firstAgentNative = nil; firstAgentGen += 1
+            if had { checkFirstAgent() }
+            if !fresh.passes.spendEpoch() { newAgentOpen = false; newProjectOpen = false }
+        }
+        // kosmos#8954 review 3: closing the board page (where first-run may just have been finished) asks again, since the
+        // empty state under the page does not appear anew.
+        .onChange(of: todayBoard) { open in if !open && firstAgentNative != nil { checkFirstAgent() } }
+        // kosmos#8954 review 4: the computer let the phone in after the empty state appeared (the board can answer through
+        // the coordinator first), so the stored "board" answer is out of date. A drop goes through start(), which sends the
+        // empty state through the waiting ring, and its appear checks again.
+        .onChange(of: board.admissions) { _ in if firstAgentNative != nil { checkFirstAgent() } }
         .onChange(of: newProjectOpen) { open in
             if open { fresh.passes.clear() } else if fresh.place == .newProject, fresh.model != nil { fresh.end() }
         }
@@ -558,6 +575,57 @@ struct ContentView: View {
         .accessibilityAddTraits(.isModal)
     }
 
+    /* kosmos#8954: the empty Agents tab's "Make an agent". The native New Agent when this phone can post to its computer
+       and that computer is set up (NewAgentPicker.emptyStateGoesNative: first-run done and an AI account); else the
+       board's form, whose first-run setup a person not yet set up needs (kosmos#8783). Review 1: both are read on the
+       tap, together, for at most 5 s (NewAgentView gives the accounts read the same); a read that fails, does not answer
+       in time, or comes back after the computer, the account or the lock changed opens nothing native, and a second
+       tap while one is reading is ignored (the button says it is working). */
+    /* kosmos#8954: the one decision, for the tap and for the note beside the button (Mona Lisa's #8957): first-run and the
+       accounts, read together, for at most 5 s; nil when not connected is false, and a read that fails or is late is
+       false (the board path). */
+    private func firstAgentDecision() async -> Bool {
+        guard board.macURL != nil else { return false }
+        return await withTaskGroup(of: Bool?.self) { g in
+            g.addTask { @MainActor in
+                async let fr = board.throughMac { NewAgentPicker.firstRunRequest(mac: $0) }
+                async let ac = board.throughMac { NewAgentPicker.accountsRequest(mac: $0) }
+                let ok = { (x: (Data, HTTPURLResponse)?) -> Data? in x.flatMap { (200...299).contains($0.1.statusCode) ? $0.0 : nil } }
+                let done = ok(await fr).flatMap(NewAgentPicker.parseFirstRunDone)
+                let rows = ok(await ac).flatMap(NewAgentPicker.parseAccounts)
+                return NewAgentPicker.emptyStateGoesNative(connected: board.macURL != nil, firstRunDone: done, accounts: rows)
+            }
+            g.addTask { try? await Task.sleep(nanoseconds: 5_000_000_000); return nil }
+            let first = await g.next() ?? nil
+            g.cancelAll()
+            return first ?? false
+        }
+    }
+    private func makeFirstAgent() {
+        guard !firstAgentBusy else { return }
+        guard board.macURL != nil else { openCreate(.agent); return }
+        firstAgentBusy = true
+        let epoch = board.chatEpoch
+        Task { @MainActor in
+            let native = await firstAgentDecision()
+            firstAgentBusy = false
+            guard NewAgentPicker.tapAnswerStands(epochAtTap: epoch, epochNow: board.chatEpoch, unlocked: isUnlocked) else { return }
+            firstAgentGen += 1; firstAgentNative = native   // the newest answer; an older check still reading cannot replace it
+            // Review 5: a session that ended during the read leaves nothing to post to, so the native form needs it still there.
+            if native && board.macURL != nil { newAgentOpen = true } else { openCreate(.agent) }
+        }
+    }
+    /* kosmos#8954: when the empty state appears, which way the button goes, for its note; kept only for the computer and
+       account it was read for. */
+    private func checkFirstAgent() {
+        firstAgentGen += 1
+        let gen = firstAgentGen, epoch = board.chatEpoch
+        Task { @MainActor in
+            let native = await firstAgentDecision()
+            if gen == firstAgentGen && board.chatEpoch == epoch { firstAgentNative = native }
+        }
+    }
+
     // Agents, Projects (kosmos#7032), Tasks (kosmos#7031) and Settings are native, and Today when nothing was sent
     // under it (kosmos#7030); the rest show the board.
     @ViewBuilder private func tabPage(_ which: Tab) -> some View {
@@ -566,7 +634,8 @@ struct ContentView: View {
         if which == .agents {
             AgentsView(client: board, push: pushManager, agentRequest: $agentRequest, openChat: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            }, openBoard: { showBoardToday() }, createOnBoard: { openCreate(.agent) }, create: {
+            }, openBoard: { showBoardToday() }, createOnBoard: { makeFirstAgent() }, creatingFirst: firstAgentBusy, firstAgentGoesNative: firstAgentNative,
+               checkFirstAgent: { checkFirstAgent() }, create: {
                 // kosmos#7488: the native New Agent flow posts to the computer this phone is connected to; before that
                 // computer has let the phone in there is none, so the board page is used, as New project does.
                 if board.macURL != nil { newAgentOpen = true } else { createOnBoardAsked = .agent }

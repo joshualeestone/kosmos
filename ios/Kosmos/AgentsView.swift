@@ -13,9 +13,16 @@ struct AgentsView: View {
     @Binding var agentRequest: PushBridge.AgentTarget?
     let openChat: (URL) -> Void
     let openBoard: () -> Void
-    /* kosmos#8783 (Mona Lisa, 11-19): the empty state's one button opens the BOARD's New agent form, never the native
-       sheet: a person not yet set up then meets the board's first-run setup, and one who is lands on the form. */
+    /* kosmos#8783 (Mona Lisa, 11-19): the empty state's one button. A person not yet set up meets the board's first-run
+       setup. kosmos#8954: one whose connected computer already has an AI account gets the native New Agent, as + gives
+       (ContentView.makeFirstAgent decides). */
     var createOnBoard: () -> Void = {}
+    var creatingFirst = false   // kosmos#8954 review 1: the button is reading the computer, so it says so and takes no second tap
+    /* kosmos#8954 (with Mona Lisa's #8957): whether "Make an agent" would open the native New Agent, from the same rule the
+       tap uses, read when the empty state appears; nil until known. A note that says the tap opens the board shows only
+       when this is false (review 3: never while it is nil, which is "still reading"). */
+    var firstAgentGoesNative: Bool? = nil
+    var checkFirstAgent: () -> Void = {}
     // kosmos#7266: the + at the top right, the board's own new-agent form (ContentView.openCreate).
     var create: () -> Void = {}
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -394,15 +401,22 @@ struct AgentsView: View {
         VStack(spacing: 6) {
             Text("No agents yet").font(.headline).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("agents-empty")   // kosmos#7559: the board answered, with no agents
+                .onAppear { checkFirstAgent() }   // kosmos#8954: learn which way the button goes, for the note beside it
             /* kosmos#8783: a cloud-only customer has no computer of their own to "make one on", and the first step
                (connecting a model) is the board's own setup, so this offers the way in instead of sending them to
                Settings to find it (a customer's first setup, 11-19). One tap, never an automatic jump. */
             Text("It takes a few steps, and you can stop at any point.").font(.subheadline).foregroundColor(Palette.secondary)
-            Button { createOnBoard() } label: { Text("Make an agent").foregroundColor(Palette.card) }
+            // kosmos#8954: while the computer is read, the app's one wait, the working dots (the sweep suite allows no system spinner).
+            Button { createOnBoard() } label: {
+                if creatingFirst { WorkingDots(color: Palette.card).accessibilityLabel("Checking your computer") } else { Text("Make an agent").foregroundColor(Palette.card) }
+            }
                 .buttonStyle(.borderedProminent)
+                .disabled(creatingFirst)
                 .padding(.top, 6)
                 .accessibilityIdentifier("agents-empty-setup")
-            OpensOnBoardNote()   // kosmos#8957: it is the board's own setup
+            // kosmos#8957, wrapped by kosmos#8954 (agreed with Mona Lisa): only when the tap goes to the board, never while the
+            // answer is still being read (nil) and never when the tap opens the native New Agent (true).
+            if firstAgentGoesNative == false { OpensOnBoardNote() }
         }
         .multilineTextAlignment(.center)
         .padding()

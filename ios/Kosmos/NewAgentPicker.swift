@@ -131,6 +131,31 @@ enum NewAgentPicker {
         if let b = a.badge { return b != "rejected" && b != "signed_out" }
         return a.state != "none"
     }
+    /* kosmos#8954: the empty Agents tab's "Make an agent" opens the native New Agent only when the phone can post to the
+       computer (`connected`, board.macURL set), the board's own first-run is done (GET /api/first-run `done`, what the
+       board's first-run screen itself reads; review 1: counting accounts is not how the board decides), AND it has an AI
+       account it could make an agent on (usable as the provider menu counts it: offerable, not "none", and the row's
+       own offerable). Otherwise the board's form, whose first-run setup a person not yet set up needs (kosmos#8783).
+       Anything not read (nil) is the board path, never a guess. */
+    static func emptyStateGoesNative(connected: Bool, firstRunDone: Bool?, accounts: [Account]?) -> Bool {
+        guard connected, firstRunDone == true, let rows = accounts else { return false }
+        return rows.contains(where: usable)
+    }
+    /* kosmos#8954 review 1: /api/first-run's `done`, or nil when the answer is not that shape. */
+    static func parseFirstRunDone(_ data: Data) -> Bool? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return obj["done"] as? Bool
+    }
+    // Review 5: each route whole on its own request line, as server.ios-routes-6838.test.js reads them.
+    static func firstRunRequest(mac: URL) -> URLRequest { asJSON(URLRequest(url: URL(string: "/api/first-run", relativeTo: mac)!.absoluteURL)) }
+    /* kosmos#8954 review 1: a read made on the tap stands only if nothing changed while it ran: the same computer and
+       account (the board's chatEpoch, which a switch or sign-out moves) and the app still unlocked, so a late answer can
+       never open a sheet over the lock or on a computer the decision was not made for. */
+    static func tapAnswerStands(epochAtTap: Int, epochNow: Int, unlocked: Bool) -> Bool {
+        unlocked && epochAtTap == epochNow
+    }
+    /* An account the create and switch lists can both use (the provider menu's "usable", kosmos#8954 review 2: one copy). */
+    static func usable(_ a: Account) -> Bool { offerable(a) && !(a.hasConnection && a.state == "none") && a.offerable }
     // acctUnknownLive: a live check that could not be read.
     static func unknownLive(_ a: Account) -> Bool {
         guard a.hasConnection else { return false }
@@ -247,7 +272,7 @@ enum NewAgentPicker {
                 if p == .deepseek && ready.compat != true { return Option(provider: p, enabled: false, off: Words.comingSoon) }
                 // "Usable" is both rules: the create list's and the switch list's.
                 let has = acc.known && acc.rows.contains {
-                    $0.provider == p && offerable($0) && !($0.hasConnection && $0.state == "none") && $0.offerable
+                    $0.provider == p && usable($0)
                 }
                 if has { return Option(provider: p, enabled: true, off: nil) }
                 return Option(provider: p, enabled: false, off: acc.known ? Words.connect : acc.failed ? Words.couldNotCheck : Words.checking)
