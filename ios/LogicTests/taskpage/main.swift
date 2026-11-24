@@ -1558,6 +1558,16 @@ func b4ModelTests() async {
         await tick()
         check(asksReceipt(mac) == before + 2 && m.receipt?.agents.count == 1, "\(what): asked again after 30 s, and drawn")
     }
+    // A failure that fails again redraws nothing (there is still nothing to draw).
+    mac.projects = with(closedAt: nil); await tick()
+    mac.projects = with(closedAt: at1); mac.receipt = (500, Data()); await tick()
+    let failedOnce = asksReceipt(mac)
+    clock.addTimeInterval(31); m.touched()
+    redraws = 0
+    let watchFailed = m.objectWillChange.sink { redraws += 1 }
+    await tick()
+    watchFailed.cancel()
+    check(asksReceipt(mac) == failedOnce + 1 && redraws == 0, "a read that fails again redraws nothing")
     // A failure for one close does not hold back another's.
     mac.projects = with(closedAt: nil); await tick()
     mac.projects = with(closedAt: at1); mac.receipt = (500, Data()); await tick()
@@ -1625,9 +1635,14 @@ func b4ModelTests() async {
     late.release(at: 0)
     await beforeSwitch?.value
     check(l.receipt == nil, "an answer landing after the Mac was switched draws nothing")
-    let askedBefore = asksReceipt(late)
-    l.syncReceipt()
-    check(asksReceipt(late) == askedBefore, "and nothing more is asked")
+    let gone = FakeMac()
+    let g = TaskPageModel(project: "springcatalogue", number: 3, send: { await gone.asyncSend($0) }, sleep: { _ in }, epoch: { gone.epoch })
+    gone.projects = with(closedAt: at1)
+    await g.read()
+    gone.epoch += 1
+    g.syncReceipt()
+    await g.receiptReading?.value
+    check(g.page != nil && asksReceipt(gone) == 0, "after a switch, no receipt is asked for")
 
     // A tick does not wait for the receipt: the page is read again while the receipt is still out.
     let slow = FakeMac()
