@@ -154,6 +154,12 @@ S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash 
 S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "$(printf ' \001%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25)" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 spaces and control characters alone are not a hand check" || bad "promote 8960 control-only (rc=$rc, out=$out)"
 
+# a value that is another option is refused, whatever its length; and the floor counts bytes in every locale
+S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check --allow-older-than-twenty-characters 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "not another option" && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 --hand-check followed by an option refuses" || bad "promote 8960 option as check (rc=$rc, out=$out)"
+S8960a="$(new8960)"; out="$(LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "$(printf 'caf\303\251 board ok \377\376 checked')" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ -f "$S8960a/dist/latest.json" ] && ! has "$out" "Illegal byte" && pass "promote: #8960 a check with invalid UTF-8 under a UTF-8 locale is read, not cut short" || bad "promote 8960 utf8 (rc=$rc, out=$out)"
+
 # THE load-bearing guarantee: --force overrides ONLY the experience gate, NEVER the
 # same-bytes invariant. Prove it decisively -- a byte-refusal (wrong pointer sha) with
 # --force AND a PASSING gate (GATE_RC_WANT=0) must still refuse, because the byte-refusal
