@@ -42,3 +42,12 @@ push again (the old behaviour), never the reverse; the fixture pins the wording 
 - Deferred, with reason: install/kosmos-report-hook.sh's header says PermissionRequest fires before the box renders;
   measured the other way on 2.1.331, but older versions may still do that, and editing an installed hook's bytes can
   trip deploy guards. If the hook arrives first, the report stays needs_you and pushes (the old behaviour, safe side).
+
+## Round 2 (sonnet) fixes
+- The report is tied to THE prompt on screen: only "asking permission to use Bash: <cmd>" whose command (spacing folded)
+  is the start of the command in the safety prompt's box (status.selfExpiringCommand) is rewritten; another tool's or
+  another command's real wait, while the safety check is up, is kept and pushes. Mutation checked.
+- The warning mark may carry U+FE0F.
+- Residual, recorded: a pane frozen on the safety prompt (hung Claude Code) reads as working with the line, not as a
+  wait; the stale-report nudge still sees the open prompt. A narrow-pane wrap is joined by viewport's -J; a split
+  reason line fails to the old push (safe side).

@@ -2785,7 +2785,7 @@ const APPROVAL_WAITING = 'it is waiting for your approval';
 const SELF_EXPIRING_DECLINE = 'Claude Code is declining a shell command it could not read safely, by itself; nothing for you to do';
 /* The timed line as Claude Code draws it, whole: its warning mark, its own words and a M:SS countdown. Anchored, so a
    command or a file that merely quotes these words (an agent grepping this very code) is never taken for it. */
-const CLAUDE_SELF_EXPIRING = /^\s*⚠\s*Claude Code will automatically block this request in \d{1,2}:\d{2}\b/;
+const CLAUDE_SELF_EXPIRING = /^\s*⚠\uFE0F?\s*Claude Code will automatically block this request in \d{1,2}:\d{2}\b/;
 // The safety reason Claude Code gives above it (2.1.331: "Dangerous rm operation not ruled out — the shell may read this
 // command differently than it was parsed"; the report on #9001: "can't rule out a dangerous removal").
 const CLAUDE_SAFETY_REASON = /\b(not ruled out|rule out|the shell (may|will) read)\b/i;
@@ -2795,23 +2795,35 @@ const PERMISSION_DASHED_RULE = /^\s*╌{8,}\s*$/;
  *  command is) the safety reason and the timed line. Anything less (another kind of prompt with a timer, a command
  *  quoting the words) is not it, and is treated as a prompt that waits for a person, as before. */
 function claudeSelfExpiringPrompt(text) {
+  return selfExpiringCommand(text) !== null;
+}
+/** The command in a self-declining safety prompt's box, its lines joined and runs of space folded (so a wrapped or
+ *  gutter-drawn command compares as one line); null when the screen is not that prompt (claudeSelfExpiringPrompt). The
+ *  report route ties a hook's report to THIS prompt by it, never to whatever else may be on screen. */
+function selfExpiringCommand(text) {
   const pp = claudePermissionPrompt(text);
-  if (!pp) return false;
+  if (!pp) return null;
   const lines = String(text == null ? '' : text).split('\n');
   let close = -1;
   for (let i = pp.at - 1; i >= 0; i -= 1) if (PERMISSION_DASHED_RULE.test(lines[i])) { close = i; break; }
-  if (close < 0) return false;
+  if (close < 0) return null;
   let timed = false; let reason = false;
   for (let i = close + 1; i < pp.at; i += 1) {
     if (CLAUDE_SELF_EXPIRING.test(lines[i])) timed = true;
     if (CLAUDE_SAFETY_REASON.test(lines[i])) reason = true;
   }
-  if (!timed || !reason) return false;
+  if (!timed || !reason) return null;
+  let open = -1;
+  for (let i = close - 1; i >= 0; i -= 1) if (PERMISSION_DASHED_RULE.test(lines[i])) { open = i; break; }
   for (let i = close - 1; i >= 0; i -= 1) {
-    if (/^\s*─{8,}\s*$/.test(lines[i])) return /^\s*Bash command\b/.test(lines[i + 1] || '');
-    if (/^\s*[⏺⎿✻]/.test(lines[i])) return false;
+    if (/^\s*─{8,}\s*$/.test(lines[i])) {
+      if (!/^\s*Bash command\b/.test(lines[i + 1] || '') || open <= i) return null;
+      const cmd = lines.slice(open + 1, close).map((l) => l.replace(/^\s*│\s?/, '')).join(' ').replace(/\s+/g, ' ').trim();
+      return cmd || null;
+    }
+    if (/^\s*[⏺⎿✻]/.test(lines[i])) return null;
   }
-  return false;
+  return null;
 }
 /* #6091: is this card waiting on its permission prompt? Read from the SCREEN, before the report is reconciled in: the
    PermissionRequest hook (kosmos-report-hook.js) reports the same moment as needs_you by 'auto' with its own words
@@ -10872,7 +10884,7 @@ module.exports = { panesWithCommands /* kosmos#8719 */, boardTmux /* kosmos#8719
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  ASKING_GENERIC, APPROVAL_WAITING, SELF_EXPIRING_DECLINE /* kosmos#9001 */, claudeSelfExpiringPrompt /* kosmos#9001 */, awaitingApprovalOf, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudePermissionPrompt, claudeAnswerableMenu, claudeSafeguardsMenuUp,
+  ASKING_GENERIC, APPROVAL_WAITING, SELF_EXPIRING_DECLINE /* kosmos#9001 */, claudeSelfExpiringPrompt /* kosmos#9001 */, selfExpiringCommand /* kosmos#9001 */, awaitingApprovalOf, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudePermissionPrompt, claudeAnswerableMenu, claudeSafeguardsMenuUp,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,

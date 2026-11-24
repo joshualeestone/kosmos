@@ -145,6 +145,7 @@ test('only a "Bash command" box with the safety reason AND the timed line is the
   assert.equal(status.claudeSelfExpiringPrompt(SELF_EXPIRING.replace(' Bash command\n', ' Edit file\n')), false, 'another kind of prompt with a timer waits for a person');
   assert.equal(status.claudeSelfExpiringPrompt(SELF_EXPIRING.replace(/Dangerous rm operation not ruled out[^\n]*/, 'Some other reason')), false, 'a timer with no safety reason');
   assert.equal(status.claudeSelfExpiringPrompt(SELF_EXPIRING.replace(/will automatically block this request in 1:59/, 'will block')), false, 'a reason with no timer');
+  assert.equal(status.claudeSelfExpiringPrompt(SELF_EXPIRING.replace('⚠ Claude Code', '⚠\uFE0F Claude Code')), true, 'the mark with its variation selector');
   assert.equal(status.claudeSelfExpiringPrompt(SELF_EXPIRING.replace(/⚠ Claude Code will automatically block this request in 1:59/, 'a note says it will automatically block this request in 1:59')), false,
     'the words below the box, but not as Claude Code\'s own timed line (its mark and its countdown, anchored)');
 });
@@ -158,6 +159,22 @@ test('a message typed while the safety check is up is held with words that match
       assert.match(String(v.because), /declining a command on its screen by itself/);
       assert.doesNotMatch(String(v.because), /answer it in its window/);
     } finally { roster.restore(); }
+  });
+});
+
+test('a report for another request while the safety check is up (another tool, another command) is kept and pushes', async () => {
+  for (const text of ['asking permission to use Edit', 'asking permission to use Bash: npm publish', 'asking permission to use mcp__deploy__run: go']) {
+    await withAgent(SELF_EXPIRING, async (pushes) => {
+      await report({ state: 'needs_you', text, auto: true });
+      assert.equal(selfreport.read(WHO).state, 'needs_you', text);
+      assert.equal(pushes.length, 1, text);
+    });
+  }
+  // CONTROL: the same report for the command in the box, its spacing different, is read as the safety check.
+  await withAgent(SELF_EXPIRING, async (pushes) => {
+    await report({ state: 'needs_you', text: HOOK_TEXT.replace(' && ', '   &&\n  '), auto: true });
+    assert.equal(selfreport.read(WHO).state, 'working');
+    assert.deepEqual(pushes, []);
   });
 });
 

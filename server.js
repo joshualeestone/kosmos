@@ -20209,11 +20209,16 @@ const server = http.createServer(async (req, res) => {
            waits for nobody, and the decline is always right. Recorded as the plain line it is, working, so it never becomes
            a needs_you: no phone push and no "Needs permission". The screen is read now: the hook fires with the prompt
            already drawn (measured on 2.1.331). Any doubt (no screen, another runner, a read that fails) keeps the report. */
-        if (body.auto === true && body.state === 'needs_you' && /^asking permission to use /.test(String(body.text || ''))
-            && String(sender.card.runner || 'claude') === 'claude') {
+        /* Round 2: and only when the report is about THAT prompt: a Bash request whose command (the hook keeps its first 200
+           characters) is the start of the command in the box, compared with spacing folded. A report for anything else
+           (another tool's real wait while the safety check is up) is kept. */
+        const asked = /^asking permission to use Bash: ([\s\S]+)$/.exec(String(body.text || ''));
+        if (body.auto === true && body.state === 'needs_you' && asked && String(sender.card.runner || 'claude') === 'claude') {
           try {
             const seen = chat.viewport(who, roster);
-            if (seen && typeof seen.text === 'string' && require('./engine/status').claudeSelfExpiringPrompt(seen.text)) {
+            const boxed = seen && typeof seen.text === 'string' ? require('./engine/status').selfExpiringCommand(seen.text) : null;
+            const sent = asked[1].replace(/\s+/g, ' ').trim();
+            if (boxed && sent && boxed.startsWith(sent.slice(0, Math.min(sent.length, boxed.length)))) {
               body.state = 'working';
               body.text = require('./engine/status').SELF_EXPIRING_DECLINE;
             }
