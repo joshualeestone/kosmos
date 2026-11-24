@@ -533,10 +533,7 @@ struct AccountView: View {
                 secondNote = why
             } else if SignIn.startsOver(why) {
                 // As slice A's afterTextEnrol: a refusal no new number can fix (the sign-in ended, the setup expired).
-                closeSetup(force: true)
-                secondNote = why
-                await readSecond()
-                if secondNote == nil { secondNote = why }
+                await settleUncertainSetup(why, closing: true)
             } else { setupNote = why }
         }
     }
@@ -555,7 +552,7 @@ struct AccountView: View {
         guard currentSession() == session else { await readSecond(); return }
         // No answer: Kosmos+ may have turned the step on all the same, and then refuses this session from now on. The
         // section is read again, so it says so rather than offering a step that is on.
-        guard let status else { setupNote = Account.reach; await readSecond(); return }
+        guard let status else { setupNote = Account.reach; await settleUncertainSetup(Account.reach, closing: false); return }
         // A read that started before this answer must not overwrite what the answer shows.
         secondTicket += 1
         switch AccountSecond.confirmed(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) {
@@ -572,16 +569,27 @@ struct AccountView: View {
         case .refused(let why):
             setupNote = why == AccountSecond.codeRefused ? SignIn.setupCodeRefused(texted: texted) : why
         case .startOver(let why):
-            closeSetup(force: true)
-            secondNote = why
-            // Nothing staged any more may mean an earlier confirm went through: the section is read again.
-            await readSecond()
-            // The re-read found this session refused (an earlier confirm did go through): its sentence says why, and
-            // "start again" no longer fits. Otherwise the sentence stays.
-            if case .unreadable = second { secondNote = nil } else if secondNote == nil { secondNote = why }
+            // Nothing staged any more may mean an earlier confirm went through.
+            await settleUncertainSetup(why, closing: true)
         case .signedOut(let why):
             closeSetup(force: true)
             secondNote = why
+        }
+    }
+
+    /// After an answer that leaves the setup uncertain (none came, or Kosmos+ said to start again): the section is read
+    /// again, and the setup closes when the step turned out to be on or this session is refused, so the sheet never
+    /// sits over a section that says otherwise. `why` stays on screen unless the re-read's own sentence replaces it.
+    @MainActor private func settleUncertainSetup(_ why: String, closing: Bool) async {
+        if closing { closeSetup(force: true); secondNote = why }
+        await readSecond()
+        switch second {
+        case .unreadable:
+            closeSetup(force: true); secondNote = nil
+        case .known(let s) where s.enrolled != nil:
+            closeSetup(force: true); secondNote = nil
+        default:
+            if closing, secondNote == nil { secondNote = why }
         }
     }
 

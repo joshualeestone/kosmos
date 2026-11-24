@@ -366,11 +366,25 @@ final class BoardClient: ObservableObject {
     /// kosmos#8959 slice B1b: the Kosmos+ session was renewed for the SAME account (a second step set up on the account
     /// screen; PushNotificationManager.sessionRenewed calls this before it stores the fresh one). Everything kept under
     /// the old session moves to the fresh one, so start() does not read the change as another account and forget the
-    /// kept Mac session, the shown list and the open chat. Only what was kept under `old` moves.
+    /// kept Mac session, the shown list and the open chat. Only what was kept under `old` moves. The listed agents' kept
+    /// threads (files named by the owner) are renamed with it. Not moved: AgentsView's record of the chat last open
+    /// (keptChatOwner), so the next launch opens the list rather than that chat.
     func sessionRenewed(from old: String, to fresh: String) {
         guard !fresh.isEmpty, old != fresh else { return }
         let before = Board.owner(of: old), after = Board.owner(of: fresh)
-        if let held = admitted, held.session == old { renewing = true; admitted = (held.mac, held.url, fresh); renewing = false }
+        if chatsOwner == before, let mac = admitted?.url.absoluteString {
+            for agent in agents {
+                guard let from = threadFile(agent.session, owner: before, mac: mac),
+                      let to = threadFile(agent.session, owner: after, mac: mac),
+                      FileManager.default.fileExists(atPath: from.path) else { continue }
+                try? FileManager.default.moveItem(at: from, to: to)
+            }
+        }
+        if let held = admitted, held.session == old {
+            renewing = true
+            defer { renewing = false }
+            admitted = (held.mac, held.url, fresh)
+        }
         if shownOwner == before { shownOwner = after }
         if chatsOwner == before { chatsOwner = after }
         if let moved = Board.rekeyed(macStore.load(), from: old, to: fresh) { _ = macStore.save(moved) }
