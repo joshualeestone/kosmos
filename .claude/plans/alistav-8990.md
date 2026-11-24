@@ -21,9 +21,13 @@ Added in review (round 2):
 - The grid card's SVG image, the three list-row imgs and the room's working line (busyRow + busyKey) carry
   `?v=<avatarVer>`, as the org chart and room members already do (#2698's rule). Without it a changed picture left the
   markup identical and the memos kept the OLD picture.
-- A failed avatar in the grid or list is retried by the failed element alone (`retry=N` on its URL) after 5, 10, 20 and
-  40 s, then left. Rebuilding every poll used to retry by accident. Round 3: a first version cleared the container's
-  memo on error, which let ONE broken picture bring the every-poll rebuild back for everyone; replaced.
+- A failed avatar in the grid, list or My Agents is retried by the failed element alone (`retry=N` on its URL) after 5 s,
+  then 10, 20, 40 and every 60 s while it keeps failing. Rebuilding every poll used to retry by accident. Round 3: a
+  first version cleared the container's memo on error, which let ONE broken picture bring the every-poll rebuild back
+  for everyone; replaced. Round 5: a version that gave up after four tries (75 s) left a picture broken through a
+  partial outage (status answering, avatars not) until its card changed; two reviewers raised it, so it now never gives
+  up, at one request a minute per broken picture. An error for a URL already waiting to be retried is not counted (the
+  #8790 listener re-sets a failed picture once, which fires a second error).
 - Browser checks that waited for an idle poll to rebuild cards or rows (teamcreate-4557, working-pulse-3956,
   federation-invite-4649, ownseal-4658) now force the rebuild (forget the memo, repaint) and assert it happened;
   star-6719's list-repaint arms could pass without keepStarFocus and now assert the star was replaced.
