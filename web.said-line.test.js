@@ -57,11 +57,8 @@ test('a reported needs_you no longer puts the quoted question on the shared task
      waiting box, NOT via the quoted stateReason arm that #6118 removed. The grid/list cards
      already took the fall-through (they passed noQuote:true), so this changes only the dead
      no-opts library path, not what the person sees. */
-  /* kosmos#8991: a reported needs_you now says, in fixed words, that it asked a question; the question itself still
-     never comes back here. */
-  const got = taskLineOf({ state: 'needs_you', stateReported: true, stateReportedBy: 'agent', because: 'Which domain should the relay use?' });
-  assert.ok(!/relay|domain/i.test(got), 'the reported question must not come back on the task line: ' + got);
-  assert.equal(got, 'It has asked you a question and is waiting for your answer. Open it to answer.');
+  const got = taskLineOf({ state: 'needs_you', stateReported: true, because: 'Which domain should the relay use?' });
+  assert.equal(got, '', 'the reported question must not come back on the task line');
 });
 
 test('#209 still holds for reporters: the frozen pane title never leaks back through the reported arm', () => {

@@ -23455,7 +23455,12 @@ function taskLine(a, opts) {
    * original and asked for the by-construction check above before relying on
    * "never"). `rate_limited` (and, since #874, `auth_failed`) still speak
    * their own honest reason, which is not the title at all.
+   *
+   * kosmos#8991: and needs_you keeps its task line empty everywhere (the header shows the badge and nothing beside
+   * it). Its fixed waiting-on-you sentence is the pill's hover and hidden text, which read stateReason through pillSay,
+   * not this.
    */
+  if (a && a.state === 'needs_you') return '';
   return stateReason(a, opts);
 }
 
@@ -47671,7 +47676,7 @@ function paintDetailState(card) {
      self-reported text Josh flagged, and
      dropping them would silently undo those prior rulings.
      (#2833 still holds: needs_you hides its quote here, and the Talk waiting box carries it. kosmos#8991's fixed
-     waiting-on-you sentence is hidden here with it: the line below is hidden for needs_you; it is the pill's words.)
+     waiting-on-you sentence is not put here either: taskLine returns '' for needs_you; it is the pill's words.)
      taskLine / stateReason share ONE derivation with the grid/list cards, so the bubble and the
      cards can never disagree about what drops beside it.
      🔑 The mechanism is the SAME derivation the grid/list cards already use: taskLine. Since #6118

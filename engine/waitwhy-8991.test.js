@@ -71,3 +71,16 @@ test('#8991 a sentence that says more still wins, and other states are untouched
   /* #6716: the tile itself still carries no sentence. */
   assert.equal(stateReason({ state: 'needs_you', stateReportedBy: 'agent' }, { card: true }), '');
 });
+
+test('#8991 the sentence is the pill\'s words only: every task line (tile, list row, the agent\'s page) stays empty', () => {
+  const lifted = (name) => page.lift(SCRIPT, name);
+  const taskLine = new Function(lifted('stateReason') + '\n' + lifted('taskLine') + '\nreturn taskLine;')();
+  const pillSay = new Function(lifted('stateReason') + '\n' + lifted('rulesBehindLine') + '\n' + lifted('pillSay') + '\nreturn pillSay;')();
+  for (const [a, words] of [[{ state: 'needs_you', stateReportedBy: 'agent' }, QUESTION], [{ state: 'needs_you', awaitingApproval: true }, PERMISSION], [{ state: 'needs_you', task: 'Project 821226pmtest m54' }, OTHER]]) {
+    assert.equal(pillSay(a), words, 'the pill says it: ' + JSON.stringify(a));
+    assert.equal(taskLine(a), '', 'the agent\'s page line stays empty (#209): ' + JSON.stringify(a));
+    assert.equal(taskLine(a, { card: true }), '', 'the tile stays empty (#6716): ' + JSON.stringify(a));
+  }
+  /* CONTROL: a state with a reason of its own still has it on the task line. */
+  assert.match(taskLine({ state: 'auth_failed', stateConfidence: 'scraped' }), /sign-in/i);
+});

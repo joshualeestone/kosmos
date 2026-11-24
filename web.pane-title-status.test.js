@@ -61,13 +61,11 @@ test('#209: needs_you no longer borrows the title as its qualifier', () => {
   // about"); the same fossil evidence retired it, with Mona Lisa's agreement.
   // It misled worst here, because a person deciding whether to answer read it
   // as what the agent is stuck on.
-  /* kosmos#8991: needs_you now speaks a fixed sentence of its own (what it waits on the person for), on the pill's
-     hover and the agent's page, never on the tile. What this test guards is the TITLE: it must not be that sentence. */
-  const said = taskLineOf({ state: 'needs_you', task: FROZEN });
-  assert.ok(!said.includes(FROZEN), 'needs_you showed the frozen title as the thing it needs you about: ' + said);
-  assert.equal(said, 'It is waiting for you. Open it to see what it needs.', 'its own fixed words, nothing borrowed');
-  const tile = new Function('a', `${page.lift(SCRIPT, 'stateReason')}\n${page.lift(SCRIPT, 'taskLine')}\nreturn taskLine(a, { card: true });`);
-  assert.equal(tile({ state: 'needs_you', task: FROZEN }), '', '#6716: the tile carries no sentence');
+  assert.equal(
+    taskLineOf({ state: 'needs_you', task: FROZEN }),
+    '',
+    'needs_you showed the frozen title as the thing it needs you about',
+  );
 });
 
 test('rate_limited still speaks its own reason, and never the title', () => {

@@ -27,14 +27,16 @@ this branch):
   never show; the sentences that say more still lead; no other state borrows these words; the tile stays empty.
 - docs/browser-checks/render-waitwhy-8991.js (+ gated.txt, README row): the real card() in Chromium and WebKit at
   1100 and 390 px: hover and hidden text per kind, the agent's words absent, nothing drawn on the tile; idle, working and usage-limited controls.
-- web.pane-title-status.test.js and web.said-line.test.js: two checks asserted taskLine(needs_you) === ''. Their purpose
-  is that the frozen pane title (#209) and the agent's quoted question (#6118) never show; both now assert that
-  directly, plus the exact fixed sentence and, for #209, an empty tile.
+- web/index.html taskLine: returns '' for needs_you, so the agent's page line (#d-task) stays empty as well as hidden,
+  and the older pins that taskLine(needs_you) is '' (web.pane-title-status #209, web.said-line #6118, server.test.js's
+  detail badge) hold unchanged. The pill reads stateReason through pillSay, not taskLine. (First cut rewrote two of those
+  pins; the first final validation then failed the third, server.test.js, and the fix moved here instead.)
 
 ## Where it shows, and where not
 - Pill hover and screen reader text on the card and the list row (pillSay -> stateReason).
 - Not on the tile (taskLine with card: true returns '').
-- Not on the agent's own page: paintDetail hides #d-task for needs_you, where the question itself is shown.
+- Not on the agent's own page: taskLine returns '' for needs_you, so #d-task stays empty and hidden (server.test.js's
+  #209 pin; the first final validation caught that it was hidden but filled).
 
 ## Rejected
 - The agent's own `because` in the sentence: Josh's #986/#3043/#3271 rulings keep the agent's words off these surfaces.
