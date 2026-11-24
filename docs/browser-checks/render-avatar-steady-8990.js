@@ -16,7 +16,8 @@
  *   3. A NEW PICTURE IS DRAWN (run before arm 2): an uploaded avatar replaces the avatar element in the grid and the
  *      rail. The avatar URLs carry the picture's version (?v=), so a new picture is a change of markup (#2698's rule).
  *   4. A FAILED PICTURE IS ASKED FOR AGAIN, BY ITSELF: with alpha's avatar answering 500, the failed elements ask again
- *      (their URLs carry retry=N, so nothing else can be counted), and beta's picture is not fetched meanwhile.
+ *      (their URLs carry retry=N, so nothing else can be counted): retry=1 and retry=2 within 18 s and no retry=3 (the
+ *      delays between tries are 5, 10, 20 and 40 s), and beta's avatar nodes are not replaced meanwhile.
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-avatar-steady-8990.js
  * Self-contained: a throwaway board (sandboxed data, fake tmux) on a free port, killed at the end.
@@ -155,24 +156,36 @@ const say = (n, cond, note) => {
     say('a new picture is drawn in the rail (its avatar element is replaced)', !!(pic && pic.alist), JSON.stringify(pic));
 
     // Arm 4: a picture that FAILS to load is asked for again by the failed element itself. Every alpha avatar GET now
-    // answers 500, and a new picture changes the markup, so the grid's and the rail's alpha avatars load it and fail.
-    // Only the page's retry puts retry=N on the URL, so those requests are counted and nothing else can be. Beta's
-    // picture must not be fetched meanwhile: a retry that rebuilt the container would fetch it.
-    const asked = { retries: 0, beta: 0 };
-    const onReq = (r) => {
-      const u = r.url();
-      if (/\/api\/agent\/alpha\/avatar\?[^#]*retry=\d+/.test(u)) asked.retries++;
-      if (/\/api\/agent\/beta\/avatar(\?|$)/.test(u)) asked.beta++;
-    };
+    // answers 500, and a new picture changes alpha's markup, so the grid and the rail are rebuilt once (beta's picture
+    // with them, legitimately) and alpha's new avatars load and fail. Only the page's retry puts retry=N on the URL, so
+    // those requests are counted and nothing else can be. After that one rebuild has painted, beta's avatar nodes are
+    // captured: a retry that rebuilt the container would replace them.
+    const retried = [];
+    const onReq = (r) => { const m = /\/api\/agent\/alpha\/avatar\?[^#]*retry=(\d+)/.exec(r.url()); if (m) retried.push({ n: Number(m[1]), t: Date.now() }); };
     await p.route('**/api/agent/alpha/avatar*', (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 500, body: '' }) : r.continue()));
     p.on('request', onReq);
+    await p.evaluate(() => { window.__preAlpha = [...document.querySelectorAll('#grid image, #alist img')].filter((n) => /\/api\/agent\/alpha\/avatar/.test(n.getAttribute('src') || n.getAttribute('href') || '')); });
     const put2 = await p.evaluate(async (bytes) => (await fetch('/api/agent/alpha/avatar', { method: 'PUT', headers: { 'content-type': 'image/png' },
       body: new Uint8Array(bytes) })).status, [...solidPng(200, 200, 20)]);
-    await p.waitForTimeout(18000);   // retries at about 5 and 15 s after the failure
+    // Wait for the rebuild that the new version causes (alpha's avatar URL changes), then capture beta's nodes.
+    let rebuiltFor = false;
+    for (let i = 0; i < 30 && !rebuiltFor; i++) {
+      await p.waitForTimeout(500);
+      rebuiltFor = await p.evaluate(() => [...document.querySelectorAll('#grid image, #alist img')]
+        .filter((n) => /\/api\/agent\/alpha\/avatar/.test(n.getAttribute('src') || n.getAttribute('href') || '')).length === 2
+        && ![...document.querySelectorAll('#grid image, #alist img')].some((n) => window.__preAlpha.includes(n)));
+    }
+    const t0 = Date.now();
+    await p.evaluate(() => { window.__beta = [...document.querySelectorAll('#grid image, #alist img')].filter((n) => /\/api\/agent\/beta\/avatar/.test(n.getAttribute('src') || n.getAttribute('href') || '')); });
+    await p.waitForTimeout(18000);   // the delays are 5, then 10 s: retry=1 at about 5 s, retry=2 at about 15 s
     p.off('request', onReq);
     await p.unroute('**/api/agent/alpha/avatar*');
-    say('a failed avatar is asked for again by itself (retry=N requests)', put2 >= 200 && put2 < 300 && asked.retries >= 2, 'PUT ' + put2 + ', ' + asked.retries + ' retries in 18 s');
-    say('the retry does not rebuild the container (beta is not fetched)', asked.beta === 0, asked.beta + ' beta fetches');
+    const betaKept = await p.evaluate(() => ({ n: window.__beta.length, kept: window.__beta.every((x) => x.isConnected) }));
+    const late = retried.filter((x) => x.t >= t0);
+    say('fixture: the new picture was saved and drawn, and beta was captured in both places', put2 >= 200 && put2 < 300 && rebuiltFor && betaKept.n === 2, 'PUT ' + put2 + ' ' + JSON.stringify(betaKept));
+    say('a failed avatar is asked for again, by itself, twice in 18 s (retry=1 and retry=2)', late.some((x) => x.n === 1) && late.some((x) => x.n === 2), JSON.stringify(late.map((x) => x.n)));
+    say('with a backoff: no third retry within 18 s (every 5 s would have made one)', !late.some((x) => x.n >= 3), JSON.stringify(late.map((x) => x.n)));
+    say('the retry does not rebuild the container: beta\'s avatar nodes are the same ones', betaKept.kept, JSON.stringify(betaKept));
 
     // Arm 2: a real change still paints both. First, beta is drawn as running in both, so the arm can fail.
     const running = await p.evaluate(() => {

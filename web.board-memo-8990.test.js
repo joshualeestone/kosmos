@@ -6,8 +6,10 @@
  * container makes the memo describe markup that is no longer on screen, and the next poll with the old markup skips
  * and leaves the other write up. The failed-poll card did exactly that (render-phone-offline-718 caught it).
  *
- * So the writers are pinned here: a new innerHTML or insertAdjacentHTML write into either container fails this test
- * until it is added below, and adding it is the moment to decide whether it must clear the memo.
+ * So the writers are pinned here, by the spellings this page uses: `grid.innerHTML`, `alist.innerHTML` and
+ * `alist.insertAdjacentHTML`, the same writes by getElementById, and the failed-poll loop over ['grid', 'alist']. A
+ * write spelled another way (another variable name, append, textContent) is NOT caught; the pins are a tripwire
+ * for the usual shapes, not a proof that nothing else writes.
  * The rendered behaviour is docs/browser-checks/render-avatar-steady-8990.js; this reads source only.
  */
 
@@ -25,6 +27,19 @@ test('the grid is written in exactly two places: setGridHtml and the failed-poll
   assert.equal(count(/\bgrid\.innerHTML\s*=\s*html;/g), 1, 'setGridHtml no longer writes the grid');
   assert.match(PAGE, /function setGridHtml\(html\) \{\s*const grid = document\.getElementById\('grid'\);\s*if \(!grid \|\| html === GRID_HTML\) return;\s*GRID_HTML = html;\s*grid\.innerHTML = html;\s*\}/,
     'setGridHtml no longer skips markup it already wrote');
+});
+
+test('neither container is written by getElementById', () => {
+  assert.equal(count(/getElementById\('alist'\)\.(innerHTML\s*=|insertAdjacentHTML\(|replaceChildren\()/g), 0, 'a direct write to #alist by id bypasses ALIST_HTML');
+  assert.equal(count(/getElementById\('grid'\)\.(insertAdjacentHTML\(|replaceChildren\()/g), 0, 'a direct write to #grid by id bypasses GRID_HTML');
+});
+
+test('a failed avatar is retried by itself, with a backoff, a bounded number of times', () => {
+  assert.match(PAGE, /const AVATAR_RETRY_MS = \[5000, 10000, 20000, 40000\];/, 'the retry delays changed; re-check the browser check\'s timing window');
+  assert.match(PAGE, /if \(n >= AVATAR_RETRY_MS\.length\) return;/, 'the retry is no longer capped');
+  const at = PAGE.indexOf('const AVATAR_RETRY_MS');
+  const body = PAGE.slice(at, at + 1500);
+  assert.doesNotMatch(body, /GRID_HTML|ALIST_HTML|MY_AGENTS_HTML/, 'the retry touches a container memo, so one broken picture rebuilds the whole container every time');
 });
 
 test('the list is written by paintAgentListNow (two memo-guarded writes and the empty board) and the failed-poll card', () => {

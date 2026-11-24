@@ -42681,8 +42681,8 @@ function setGridHtml(html) {
   GRID_HTML = html;
   grid.innerHTML = html;
 }
-/* kosmos#8990: an agent avatar in the grid or the list that fails to load is asked for again, by itself, after 5, 10,
-   20 and 40 s, then left. Rebuilding every poll used to retry a failed picture by accident; with the memos above it would
+/* kosmos#8990: an agent avatar in the grid, the list or My Agents (all three skip identical markup) that fails to load
+   is asked for again, by itself, after 5, 10, 20 and 40 s, then left. Rebuilding every poll used to retry a failed picture by accident; with the memos above it would
    stay broken until the card changed. Only the failed element is retried, never the container, so one broken picture
    cannot bring back the every-poll rebuild for everybody else. Captured, because a load error does not bubble. */
 const AVATAR_RETRY_MS = [5000, 10000, 20000, 40000];
@@ -42692,7 +42692,7 @@ document.addEventListener('error', (e) => {
   if (!t || typeof t.getAttribute !== 'function' || typeof t.closest !== 'function') return;
   const attr = t.hasAttribute('src') ? 'src' : 'href';
   const url = t.getAttribute(attr) || '';
-  if (!/^\/api\/agent\/[^/]+\/avatar(\?|$)/.test(url) || !t.closest('#grid, #alist')) return;
+  if (!/^\/api\/agent\/[^/]+\/avatar(\?|$)/.test(url) || !t.closest('#grid, #alist, #my-agents-list')) return;
   const n = t.__avatarRetries || 0;
   if (n >= AVATAR_RETRY_MS.length) return;
   t.__avatarRetries = n + 1;
