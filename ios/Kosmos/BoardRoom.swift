@@ -769,6 +769,8 @@ extension Board {
         // kosmos#7918: of needsYouQuestions, those the agent holds until the person is back (summary.needsYouHeld, #7916).
         // 0 from a board older than #7916, which never sent it, so the pill reads the plain Question there.
         var needsYouHeld: Int = 0
+        // kosmos#9011: open tasks marked built and waiting (summary.builtWaiting); 0 from a board that never sent it.
+        var builtWaiting: Int = 0
         let working: Int
         let restarting: Int
         // kosmos#7342 (Mona Lisa): on Mentions only or Muted (the board's notify, #7210): its count stays on its row but
@@ -949,6 +951,7 @@ extension Board {
                               folderProblem: folderProblem.flatMap { $0.isEmpty ? nil : $0 },
                               needsYou: integer(s["needsYou"]) ?? 0, needsYouQuestions: integer(s["needsYouQuestions"]) ?? 0,
                               heldForYou: integer(s["heldForYou"]) ?? 0, needsYouHeld: integer(s["needsYouHeld"]) ?? 0,
+                              builtWaiting: integer(s["builtWaiting"]) ?? 0,
                               working: integer(s["working"]) ?? 0, restarting: integer(s["restarting"]) ?? 0,
                               quiet: ["mentions", "muted"].contains(p["notify"] as? String ?? ""),
                               notify: ["all", "mentions", "muted"].contains(p["notify"] as? String ?? "") ? (p["notify"] as! String) : "all",
@@ -957,10 +960,10 @@ extension Board {
         return ProjectList(projects: rows, agentsUnreadable: isTrue(obj["agentsUnreadable"]))
     }
 
-    enum ProjectWord: Equatable { case question, questionHeld, issue, paused, working, restarting }
+    enum ProjectWord: Equatable { case question, questionHeld, issue, paused, working, restarting, builtWaiting }
 
     // The board's one status word (pjPillOf): Question (only agents' own questions, calm) > Issue > Paused > Working >
-    // Restarting > none. None when nothing is running or the agents could not be read (#4730).
+    // Restarting > Built but waiting (kosmos#9011) > none. None when nothing is running or the agents could not be read (#4730).
     // kosmos#7918 (pjPillOf, #7916): when every one of those questions is held until the person is back, Question held.
     static func projectWord(_ p: ProjectRow, agentsUnreadable: Bool) -> ProjectWord? {
         if !agentsUnreadable && p.needsYou > 0 && p.needsYouQuestions == p.needsYou && p.needsYouHeld == p.needsYou && p.heldForYou == 0 { return .questionHeld }   // #7916: not over a task held for you
@@ -971,6 +974,8 @@ extension Board {
         if p.paused && !p.archived { return .paused }
         if !agentsUnreadable && p.working > 0 { return .working }
         if !agentsUnreadable && p.restarting > 0 { return .restarting }
+        // kosmos#9011 (pjPillOf): tasks built and waiting, last; it needs no roster, as the hold for the person.
+        if p.builtWaiting > 0 { return .builtWaiting }
         return nil
     }
 
@@ -982,6 +987,7 @@ extension Board {
         case .paused: return "Paused"
         case .working: return "Working"
         case .restarting: return "Restarting"
+        case .builtWaiting: return "Built but waiting"
         }
     }
 

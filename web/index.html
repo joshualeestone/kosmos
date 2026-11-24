@@ -72795,10 +72795,12 @@ function pjPillOf(p, unreadable) {
   /* #2019: a project whose only active agent is mid-restart keeps a Restarting badge (it is running);
      it ranks below Working. It reads summary.restarting; the K matches the card's mark. */
   if (!unreadable && s.restarting) return { cls: '', glyph: GLYPH.restarting, label: 'Restarting' };
-  /* kosmos#9011 part 2: nothing running and nobody needing the person, but tasks are built and waiting for the person to
-     check them (engine/projects.js builtWaiting; the Tasks page's "Built but waiting", #3951). It read as idle, so a
-     finished queue looked like no work. Like #7797's held-for-you Question, it is something the person can act on, so
-     it is shown under #4730's rule; it needs no roster, so it shows when the agents cannot be read, as #7797's does. */
+  /* kosmos#9011 part 2: nothing running and nobody needing the person, but tasks are built and waiting (a review, a
+     release or the person: engine/projects.js builtWaiting; the Tasks page's "Built but waiting", #3951). It read as
+     idle, so a finished queue looked like no work. This BENDS #4730 (Josh: a badge only when something is running), as
+     #5391's Paused does: built work is not running. Taken because the card asks for exactly this state and it is the
+     product's own word for it; if #4730 is to be read strictly, this line goes. Calm, last, and it needs no roster, as
+     #7797's held-for-you Question. */
   if (s.builtWaiting > 0) return { cls: '', glyph: '', label: 'Built but waiting' };
   /* #4730 (Josh, 2026-09-30 09:06): "if there's nothing running or we can't tell, let's just not
      display a badge here. Let's only display a badge if something is actually running." So
