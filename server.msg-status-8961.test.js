@@ -142,6 +142,14 @@ test('#8961 on an enforcing board a pane-only caller is refused, and an agent to
       body: JSON.stringify({ id, from_pane: '%1' }) });
     const j = await res.json().catch(() => null);
     assert.notEqual(j && j.found, true, 'a pane-only caller was answered on an enforcing board: ' + JSON.stringify(j));
+    // A pane that names no agent, enforcement off: the route's own refusal, with its reason in `sentence` for the CLIs.
+    boardAuthState.on = false;
+    const unknown = await fetch(base + '/api/msg/status', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, from_pane: '%1' }) }).then((x) => x.json());
+    assert.equal(unknown.found, false);
+    assert.equal(unknown.sentence, unknown.because, JSON.stringify(unknown));
+    assert.ok(unknown.sentence, JSON.stringify(unknown));
+    boardAuthState.on = true;
     // Refused by the board's own gate before the route runs (the route's denyPaneFallback is the second line).
     assert.match(String(j && (j.error || j.sentence)), /no board token or agent token came/, JSON.stringify(j));
     const ok = await post('/api/msg/status', 'writer', { id });

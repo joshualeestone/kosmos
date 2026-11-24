@@ -204,6 +204,13 @@ test('an agent\'s own idle report or a person\'s clear is not a turn end', () =>
   assert.equal(run([sent()], [end(-60), start(2), end(5, 'agent'), end(6, 'operator')]).status, STATUS.READING);
 });
 
+test('a session that ends after a turn started after delivery names that turn', () => {
+  const s = run([sent()], [end(-60), start(2), { state: 'stopped', at: ms(6), by: 'auto' }]);
+  assert.equal(s.status, STATUS.SESSION_ENDED);
+  assert.equal(s.turnStartedAt, at(2));
+  assert.match(sentence(s), /started a turn after your message arrived .*, then its session stopped or restarted at /);
+});
+
 test('a session that stopped or restarted after delivery says so', () => {
   const s = run([sent()], [end(-60), { state: 'stopped', at: ms(4), by: 'auto' }]);
   assert.equal(s.status, STATUS.SESSION_ENDED);

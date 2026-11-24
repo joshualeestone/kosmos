@@ -20887,12 +20887,13 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const roster = safeRoster();
-      if (roster === null) { sendJson(res, 200, { found: false, because: 'we could not check which agents are running, so we could not tell who is asking' }); return; }
+      // `sentence` on every answer: it is the field both CLIs print.
+      if (roster === null) { const because = 'we could not check which agents are running, so we could not tell who is asking'; sendJson(res, 200, { found: false, because, sentence: because }); return; }
       const denyPaneFallback = boardAuthState.on
         && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
       const caller = resolveAgentSender(req, body, roster, { denyPaneFallback,
         denyBecause: 'this board only answers a message status for the account that started it, or an agent with a token' });
-      if (!caller.ok) { sendJson(res, 200, { found: false, because: caller.because }); return; }
+      if (!caller.ok) { sendJson(res, 200, { found: false, because: caller.because, sentence: caller.because }); return; }
       const msgstatus = require('./engine/msgstatus');
       let out;
       try {
