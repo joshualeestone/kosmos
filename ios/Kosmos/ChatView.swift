@@ -2751,8 +2751,9 @@ struct ChatView: View {
         let startedIn = client.chatEpoch
         Task {
             let gone = await client.dismissDraft(id: id, of: agent)
-            guard startedIn == client.chatEpoch else { return }
+            // Review 1: before the epoch check (as reactTo), so a sign-out meanwhile cannot leave Dismiss off for good.
             dismissingDrafts.remove(id)
+            guard startedIn == client.chatEpoch else { return }
             if gone {
                 if composerNote == Board.draftDismissFailed { composerNote = nil }
                 // As after a delete: a read already in the air still holds the draft, so it is dropped.
@@ -3423,8 +3424,6 @@ struct WorkingLine: View {
     }
 }
 
-// Mona Lisa's way-through row: a card-colour pill that opens the agent's chat on the board, or, with no action
-// (kosmos#8952: a question or permission), the same pill that only says something.
 // kosmos#8958: an unsent draft as the board draws it (dm-draft): Kosmos's band, the words quoted, and its two actions.
 struct UnsentDraftRow: View {
     let words: String
@@ -3441,18 +3440,28 @@ struct UnsentDraftRow: View {
                 .overlay(Rectangle().fill(Palette.secondary.opacity(0.4)).frame(width: 3), alignment: .leading)
                 .accessibilityLabel(Text("The text that was in its input box: ") + Text(words))
             HStack(spacing: 10) {
-                Button(Board.draftUse, action: use).buttonStyle(.bordered).frame(minHeight: 44)
-                Button(Board.draftDismiss, action: dismiss).buttonStyle(.bordered).frame(minHeight: 44).disabled(busy)
+                // Review 1: the frame on the label, so the whole 44 pt is the tap target (as the title's button).
+                Button(action: use) { action(Board.draftUse) }.buttonStyle(.plain)
+                Button(action: dismiss) { action(Board.draftDismiss) }.buttonStyle(.plain).disabled(busy).opacity(busy ? 0.5 : 1)
             }
-            .font(.footnote.weight(.semibold))
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.pillStroke, lineWidth: 0.5))
     }
+
+    private func action(_ words: String) -> some View {
+        Text(words).font(.footnote.weight(.semibold)).foregroundColor(Palette.link)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
+            .background(RoundedRectangle(cornerRadius: 10).stroke(Palette.secondary.opacity(0.4), lineWidth: 1))
+            .contentShape(Rectangle())
+    }
 }
 
+// Mona Lisa's way-through row: a card-colour pill that opens the agent's chat on the board, or, with no action
+// (kosmos#8952: a question or permission), the same pill that only says something.
 struct WayThroughRow: View {
     let text: Text
     let action: (() -> Void)?
