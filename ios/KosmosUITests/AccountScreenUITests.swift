@@ -33,7 +33,7 @@ final class AccountScreenUITests: XCTestCase {
 
         for _ in 0..<4 where !app.buttons["account-sign-out-everywhere"].isHittable { app.swipeUp() }
         XCTAssertTrue(app.buttons["account-sign-out"].exists && app.buttons["account-sign-out-everywhere"].exists, "no sign-out buttons")
-        XCTAssertTrue(app.buttons["More on Kosmos+"].exists, "no way to the rest of the account")
+        XCTAssertTrue(app.buttons["account-more"].exists, "no way to the rest of the account")
         shot(app, "account-sign-out")
     }
 

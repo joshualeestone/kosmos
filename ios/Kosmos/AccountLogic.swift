@@ -191,7 +191,8 @@ enum Account {
     }
 
     // The page's rule (kosmos#4779): 200, or 401 (this sign-in is already over), signs out here too. Anything else keeps
-    // the sign-in, because the other sign-ins may not have been ended.
+    // the sign-in, because the other sign-ins may not have been ended. A 401 says only that this one is over, not that the
+    // others were ended; like the page, the app signs out here and says nothing more (decided, in the plan).
     static func everywhereAnswer(status: Int?, data: Data?) -> SignOut {
         guard let status else { return .stay(reach) }
         if (200...299).contains(status) || status == 401 { return .signOutHere }
