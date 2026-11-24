@@ -370,7 +370,7 @@ final class TaskPageModel: ObservableObject {
         return true
     }
     // kosmos#8958 slice B3: the board's Repeats Save (tk-repeat-save). Nothing is sent while a box is empty, while one is
-    // on its way, or for the rule already stored. A hold in flight does not stop it: the board's repeat and hold routes
+    // on its way, while Mark as done is out, on a finished task, or for the rule already stored. A hold in flight does not stop it: the board's repeat and hold routes
     // change different fields, and a held task can still repeat. true when the Mac recorded it; then the task and activity are read.
     func saveRepeat(_ wire: Board.RepeatWire, names: [String: String]) async -> Bool {
         guard !repeatSaving, !pressing, current, let page, !page.closed, Board.repeatBody(wire) != nil,

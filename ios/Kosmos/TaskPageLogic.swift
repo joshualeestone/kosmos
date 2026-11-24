@@ -896,6 +896,16 @@ extension Board {
         return repeatWire(d) == repeatWire(stored) ? nil : d
     }
 
+    // The stored rule as the controls show it, with a daily rule's box on `box` when the stored list holds that time:
+    // after a save, the box stays on the time the person put in it, whichever place it sorts to (the board's
+    // tkRepeatSaved, kosmos#5752 round 3). Any other rule, or a box the list no longer holds, shows as stored.
+    static func repeatShown(_ stored: RepeatChoice?, box: String?) -> RepeatChoice? {
+        guard var s = stored, s.every == .day, let box, box != s.at, s.others.contains(box) else { return stored }
+        s.others = ([s.at] + s.others).filter { $0 != box }
+        s.at = box
+        return s
+    }
+
     // The stored rule moved (another device, an agent) under a draft: a draft that was the OLD rule is nothing unsaved,
     // so the controls follow the new one (the board's tkPaintRepeat review 3); any other draft stands, as keptRepeatDraft
     // keeps it.

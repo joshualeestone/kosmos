@@ -43,7 +43,7 @@ repeat line, natively. Stacked on B2 (taskhold-8958); rebased onto main once B1 
 - The app's sources typecheck for iOS 16 (the view is compiled by no logic runner).
 - Every iOS LogicTests runner, since TasksLogic.swift (fillRepeat) is compiled by most of them: run.sh 2255,
   run-tasks 167, run-room 907, run-actions 99, run-newtask 108, run-settings 48, run-agentinfo 295, run-composer 61,
-  run-files 138, run-pullrefresh 48, run-sweep 45, run-orb, run-taskpage 270, all passing.
+  run-files 138, run-pullrefresh 48, run-sweep 45, run-orb, run-taskpage, all passing (taskpage's count is above).
 
 ## Review decisions
 - An edit keeps the person's choice as set, even when it equals the stored rule (Save turns off); only a change to
@@ -55,6 +55,8 @@ repeat line, natively. Stacked on B2 (taskhold-8958); rebased onto main once B1 
   Any other draft stands, its daily other times following the new rule.
 - keptRepeatDraft compares the draft with the stored rule as it stands BEFORE re-deriving a daily rule's other times:
   re-deriving first rebuilt them from the sorted stored list and dropped a time the box had moved past, after a save.
+- After a save the daily box stays on the person's time, whichever place it sorts to (Board.repeatShown, the board's
+  tkRepeatSaved); Cancel shows only while the choice differs from the stored rule.
 - Mark as done sends nothing, and is drawn off, while a Repeats save is out, as it already waits for a hold.
 - The page's scroll view closes the keyboard on a drag (the minutes box is a number pad, with no return key).
 - A finished task drops an unsaved choice and any Repeats line.
