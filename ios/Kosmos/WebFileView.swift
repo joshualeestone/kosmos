@@ -10,7 +10,7 @@ struct WebFileView: View {
     let file: URL
     let close: () -> Void
     // What the sheet shows, made once when it opens (.task), never while drawing.
-    private enum Shown { case reading, page(Data, Board.WebFileKind), text(String), unreadable }
+    private enum Shown { case reading, page(Data, Board.WebFileKind), text(String, cut: Bool), unreadable, tooLarge }
     @State private var shown = Shown.reading
 
     var body: some View {
@@ -39,24 +39,34 @@ struct WebFileView: View {
                     .font(.footnote).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity).padding(10)
             }
-        case .text(let text):
+        case .text(let text, let cut):
             ScrollView {
                 Text(text)
                     .font(.system(.footnote, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
+                if cut {
+                    Text("Only the beginning is shown. Share it to see all of it.")
+                        .font(.footnote).foregroundStyle(.secondary).padding([.horizontal, .bottom])
+                }
             }
         case .unreadable:
-            VStack(spacing: 12) {
-                Image(systemName: "doc.richtext").font(.largeTitle).foregroundStyle(.secondary)
-                Text("This page can't be shown on iPhone").font(.headline).multilineTextAlignment(.center)
-                Text("Share it, or save it to Files, to open it on another device.")
-                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            notShown("This page can't be shown on iPhone")
+        case .tooLarge:
+            notShown("This page is too large to show on iPhone")
         }
+    }
+
+    private func notShown(_ title: String) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "doc.richtext").font(.largeTitle).foregroundStyle(.secondary)
+            Text(title).font(.headline).multilineTextAlignment(.center)
+            Text("Share it, or save it to Files, to open it on another device.")
+                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // Read off the main thread. Text is the first 256 KB (one Text that size still lays out quickly); a page that cannot
@@ -69,9 +79,13 @@ struct WebFileView: View {
             case .text:
                 guard let h = try? FileHandle(forReadingFrom: file) else { return .unreadable }
                 defer { try? h.close() }
-                let data = (try? h.read(upToCount: 256 * 1024)) ?? Data()
-                return .text(String(decoding: data, as: UTF8.self))
+                let shown = 256 * 1024
+                let data = (try? h.read(upToCount: shown + 1)) ?? Data()
+                return .text(String(decoding: data.prefix(shown), as: UTF8.self), cut: data.count > shown)
             case .page, .svg, .archive:
+                // The size first, so a file over the cap is never read into memory.
+                let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? Int.max
+                guard size <= Board.webFileMaxBytes else { return .tooLarge }
                 guard let data = try? Data(contentsOf: file), let page = Board.inertPage(data, kind: kind) else { return .unreadable }
                 return .page(page, kind)
             }
@@ -147,9 +161,7 @@ private struct WebFileSheetItem: Identifiable { let url: URL; var id: URL { url 
 
 extension View {
     func filePreview(_ url: Binding<URL?>) -> some View {
-        // By the saved name alone: that is what Quick Look picks its viewer by, so a file Quick Look would draw as a page
-        // always comes here. (A page under a plain name, say "x.txt" typed text/html, was fetched under fetchFile's
-        // stricter rule and is then shown by Quick Look as the text it is named.)
+        // By the saved name alone: that is what Quick Look picks its viewer by (fetchFile saves through Board.fileName).
         let web = { (u: URL?) in u.map { Board.isWebDocument(name: $0.lastPathComponent, type: "") } ?? false }
         return self
             .quickLookPreview(Binding(get: { web(url.wrappedValue) ? nil : url.wrappedValue }, set: { url.wrappedValue = $0 }))

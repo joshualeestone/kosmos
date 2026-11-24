@@ -2015,11 +2015,13 @@ enum Board {
         case "mht", "mhtml", "svgz": return .unreadable
         case "xml": return .text
         default:
-            // Named otherwise but typed as markup (isWebDocument's second test): by its type.
-            let t = UTType(mimeType: type.lowercased())
-            if t?.conforms(to: .svg) == true { return .svg }
-            if t?.conforms(to: .webArchive) == true { return .archive }
-            if t?.conforms(to: .html) == true { return .page }
+            // Named otherwise but known as markup (isWebDocument's second test): by its extension's type, then its MIME type
+            // (an .xht page is drawn as .xhtml is).
+            let types = [ext.isEmpty ? nil : UTType(filenameExtension: ext), UTType(mimeType: type.lowercased())].compactMap { $0 }
+            if types.contains(where: { $0.conforms(to: .svg) }) { return .svg }
+            if types.contains(where: { $0.conforms(to: .webArchive) }) { return .archive }
+            // public.xhtml (.xht) conforms to XML, not HTML, so it is named.
+            if types.contains(where: { $0.conforms(to: .html) || UTType("public.xhtml").map($0.conforms) == true }) { return .page }
             return .text
         }
     }

@@ -1684,6 +1684,7 @@ do {
           && kind("saved.mht", "") == .unreadable && kind("saved.mhtml", "") == .unreadable && kind("pic.svgz", "") == .unreadable,
           "an SVG and a web archive are drawn; XML is text; MHTML and a compressed SVG have no reader here")
     check(kind("page.html.", "") == .page && kind("page.html\u{0}", "") == .page, "judged on the saved name, as isWebDocument is")
+    check(kind("old.xht", "") == .page && kind("feed.rss", "") == .text, "an extension known as a page by its type (.xht) is drawn; other markup is text")
     // kosmos#8953: what the locked web view draws. A page as it is; an SVG only as a picture (base64 inside an <img>, so no
     // markup of the file is ever parsed as a document); a web archive's own page; nothing for text or an unreadable kind.
     let pageBytes = Data("<h1>Hi</h1><a href=\"http://x/\">x</a>".utf8)

@@ -57,9 +57,9 @@ final class WebFileUITests: XCTestCase {
         URLSession.shared.dataTask(with: URL(string: address + "/control")!) { _, _, _ in done.fulfill() }.resume()
         wait(for: [done], timeout: 10)
         // The listener closes each connection unanswered, so URLSession retries: the baseline is the count once it has
-        // stopped changing for a second.
+        // stopped changing for two seconds.
         var baseline = probe.count
-        for _ in 0..<10 { sleep(1); if probe.count == baseline { break }; baseline = probe.count }
+        for _ in 0..<10 { sleep(2); if probe.count == baseline { break }; baseline = probe.count }
         XCTAssertGreaterThanOrEqual(baseline, 1, "the control request did not reach the listener")
 
         let app = XCUIApplication()
