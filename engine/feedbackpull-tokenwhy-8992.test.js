@@ -15,6 +15,7 @@ process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 const fp = require('./feedbackpull');
 
 test.afterEach(() => { fp.setSecretsRunner(null); fp.setTransport(null); });
+test.after(() => { fs.rmSync(SB, { recursive: true, force: true }); });
 
 const T = fp.FEEDBACK_TOKEN_TARGET;
 const MISSING = `secrets-map: no credential mapped to target '${T}' in /x/.config/secrets.\n`;
@@ -84,13 +85,30 @@ test('review 1: a first copy that cannot be run, or does not know the verb, lets
     fp.setSecretsRunner((bin, args) => (bin === 'secrets-map.sh' ? first : (args[0] === 'value' ? ok('tok2') : ok(''))));
     assert.deepEqual(fp.tokenReading(), { token: 'tok2' }, JSON.stringify(first));
     fp.setSecretsRunner((bin) => (bin === 'secrets-map.sh' ? first : { error: ENOENT }));
-    assert.deepEqual(fp.tokenReading(), { why: 'unsure' }, 'and with no second place: unsure, not "no tool"');
+    assert.deepEqual(fp.tokenReading(), { why: 'tool-broken' }, 'and with no second place: the tool is broken, not "no tool" and not "run again"');
   }
   // A timeout answers at the first place (the wait stays one read and one lookup).
   const asked = [];
   fp.setSecretsRunner((bin, args) => { asked.push(bin === 'secrets-map.sh' ? 'first ' + args[0] : 'second ' + args[0]); return args[0] === 'value' ? { error: TIMEOUT } : ok(FILED); });
   assert.deepEqual(fp.tokenReading(), { why: 'unread' });
   assert.deepEqual(asked, ['first value', 'first lookup']);
+});
+
+test('a tool that cannot run value says update it, never run again or file it', async () => {
+  fp.setSecretsRunner(() => ({ status: 2, stdout: '', stderr: 'usage: secrets-map.sh <lookup|...>\n' }));
+  const r = await fp.pull(path.join(SB, 'd6'));
+  assert.equal(r.why, 'tool-broken');
+  assert.match(r.because, /Update it with \/agent-refresh, then run the pull again; do not file the token again/);
+  assert.doesNotMatch(r.because, /File it with/);
+});
+
+test('the token the map gives is the one the pull sends', async () => {
+  map({ value: ok('vercel_blob_rw_from_map\n') });
+  const sent = [];
+  fp.setTransport({ list: async (tok) => { sent.push(tok); return []; }, get: async () => '' });
+  const r = await fp.pull(path.join(SB, 'd7'));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(sent, ['vercel_blob_rw_from_map']);
 });
 
 test('a read that failed some other way (exit 1, not "no credential") on a filed target: run again', () => {
@@ -107,6 +125,7 @@ test('a target the map does not have says not filed (the old message, still righ
   assert.equal(r.why, 'missing');
   assert.match(r.because, /token is not filed yet/);
   assert.match(r.because, /File it with \/add-secret/);
+  assert.match(r.because, /run `secrets-map.sh audit` first/, 'a credential whose header cannot be read looks unfiled');
 });
 
 test('the map does not answer the lookup either: run again, file only if a lookup says missing', async () => {
@@ -138,7 +157,7 @@ test('the first place missing, the second answering: the token from the second',
 
 test('a runner that throws is a failed read, never a crash', () => {
   fp.setSecretsRunner(() => { throw new Error('boom'); });
-  assert.deepEqual(fp.tokenReading(), { why: 'unsure' });
+  assert.deepEqual(fp.tokenReading(), { why: 'tool-broken' }, 'it could not be run at either place');
 });
 
 test('the real secrets-map.sh, its secrets folder pointed at an empty and at an absent folder: tokenReading says missing', (t) => {
@@ -152,10 +171,13 @@ test('the real secrets-map.sh, its secrets folder pointed at an empty and at an 
   try {
     // Review 2: the tool's own folder first, so the copy tokenReading finds on PATH is the one this test checked for.
     process.env.PATH = path.dirname(real) + path.delimiter + (wasPath || '');
+    /* Never let a token reach an assertion's message: if a copy of the tool ignored SECRETS_DIR and read the real one,
+       a deepEqual diff would print it. Only whether a token came back is asserted, then the why. */
+    const noToken = (r, what) => { assert.ok(!Object.prototype.hasOwnProperty.call(r, 'token'), what + ': a token was read, so SECRETS_DIR was not honoured'); assert.equal(r.why, 'missing', what); };
     process.env.SECRETS_DIR = empty;
-    assert.deepEqual(fp.tokenReading(), { why: 'missing' }, 'an empty secrets folder');
+    noToken(fp.tokenReading(), 'an empty secrets folder');
     process.env.SECRETS_DIR = path.join(SB, 'no-such-secrets-folder');
-    assert.deepEqual(fp.tokenReading(), { why: 'missing' }, 'no secrets folder');
+    noToken(fp.tokenReading(), 'no secrets folder');
     assert.equal(fs.existsSync(path.join(SB, 'no-such-secrets-folder')), false, 'and the tool did not make one');
   } finally {
     if (was === undefined) delete process.env.SECRETS_DIR; else process.env.SECRETS_DIR = was;

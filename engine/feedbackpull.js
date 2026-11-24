@@ -97,6 +97,8 @@ function runSecrets(bin, args) {
  *   'unread'    one credential, consumed by `value`, and reading it failed or timed out: run again, never re-file.
  *   'unsure'    reading failed and the map did not answer the lookup either: run again; file only if a lookup says
  *               it is missing.
+ *   'tool-broken' the secrets-map.sh found cannot run `value` (not executable, or an old copy without the verb) and no
+ *               other place answered: running again cannot help; update the tool.
  *   'no-tool'   no secrets-map.sh at either place.
  * Before #8992 every one of these read as "not filed yet", which told an agent to run /add-secret over a working token.
  * The lookup's report is metadata only (where the file is, its format, whether it can be used), never a value, and
@@ -118,16 +120,17 @@ function tokenReading() {
     if (got && got.error && got.error.code === 'ENOENT') continue;   // not at this place; try the next
     const t = String((got && got.stdout) || '').trim();
     if (got && !got.error && got.status === 0 && t) return { token: t };
-    /* Review 1: a copy that could not be started (not executable, not runnable here) or that does not know the verb
-       (a usage exit 2) is not this place's answer: the next place may work, as it did before #8992. A timeout is: it
-       answers now, so the wait stays bounded at one read and one lookup. */
+    /* A copy that could not be started (not executable, not runnable here) or that does not know the verb (a usage
+       exit 2) is not this place's answer: the next place may work, as it did before #8992. If none does, the tool is
+       broken, which running again cannot fix. A timeout does answer here, so a hung tool costs one read and one lookup
+       at this place (a broken first copy that is also slow adds the second place's wait). */
     const timedOut = Boolean(got && got.error && got.error.code === 'ETIMEDOUT');
-    if ((got && got.error && !timedOut) || (got && !got.error && got.status === 2)) { fallback = 'unsure'; continue; }
+    if ((got && got.error && !timedOut) || (got && !got.error && got.status === 2)) { fallback = 'tool-broken'; continue; }
     // The tool is here and did not give the token: ask the map whether the target is in it, and in what state.
     let seen;
     try { seen = runSecrets(bin, ['lookup', FEEDBACK_TOKEN_TARGET]); } catch { seen = { error: new Error('could not run') }; }
     if (seen && !seen.error && seen.status === 0) {
-      /* Review 2: only a single credential whose report says to consume it with `value` is one a read can give, so its
+      /* Only a single credential whose report says to consume it with `value` is one a read can give, so its
          failure is passing ('unread'). Any other consume line (BLOCKED, an env, a path, an undeterminable shape) is a
          filing `value` refuses every time ('misfiled'). */
       const report = String(seen.stdout || '');
@@ -150,8 +153,9 @@ function noTokenBecause(why) {
   if (why === 'unread') return 'the collected-feedback token is filed (' + t + ') but reading it failed or timed out just now. Run the pull again; do not file it again. If it fails again, `secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '` says why.';
   if (why === 'misfiled') return 'the collected-feedback token is filed (' + t + ') but the secrets map will not read it as filed: `secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '` shows why (a BLOCKED line, a shape other than a bare token, or more than one credential for it). Fix the filing with /add-secret, or the file\'s mode if it says not readable; running the pull again will not help.';
   if (why === 'unsure') return 'the collected-feedback token could not be read just now, and the secrets map did not answer whether it is filed (' + t + '). Run the pull again; file it with /add-secret only if `secrets-map.sh lookup ' + FEEDBACK_TOKEN_TARGET + '` says it is missing.';
+  if (why === 'tool-broken') return 'the secrets-map.sh on this computer cannot read the collected-feedback token (' + t + '): it could not be run, or it is an old copy without `value`. Update it with /agent-refresh, then run the pull again; do not file the token again.';
   if (why === 'no-tool') return 'the secrets map tool (secrets-map.sh) is not on this computer, so the collected-feedback token (' + t + ') cannot be read here.';
-  return 'the collected-feedback token is not filed yet (' + t + '). File it with /add-secret and re-run; nothing else changes.';
+  return 'the collected-feedback token is not filed yet (' + t + '). File it with /add-secret and re-run; nothing else changes. If you believe it is filed, run `secrets-map.sh audit` first: a credential whose header cannot be read looks unfiled.';
 }
 
 async function defaultList(tok) {

@@ -29,7 +29,7 @@ run again and check lookup), the safe side. The real-tool test pins the wording 
   says fix the filing, not run again (a persistent fault must not read as transient).
 - "no credential dir at" (no secrets folder) is missing too, as the tool says.
 - A first copy that cannot be started or does not know the verb (usage exit 2) lets the second place answer, as before
-  #8992; a timeout answers at once, so the wait stays one read plus one lookup (16 s worst case, the old worst case).
+  #8992; a timeout answers at once, so a hung tool costs one read plus one lookup at that place (16 s); a broken first copy that is also slow adds the second place's wait.
 - 'unread' adds: if it fails again, `secrets-map.sh lookup` says why.
 - Tests: a part printed before a timeout is never used; the real tool driven through tokenReading with SECRETS_DIR at an
   empty and an absent folder (never the real one). Mutations checked: misfiled, nodir, fallback, partial token.
@@ -41,3 +41,11 @@ run again and check lookup), the safe side. The real-tool test pins the wording 
 - The misfiled message also names the file's mode (the not-readable case).
 - The real-tool test puts that tool's folder first on PATH, so the copy found is the one checked.
 - Tests use the real lookup report shape (FILED); mutation checked (dropping the consume match).
+
+## Round 3 (opus) fixes
+- 'tool-broken': a secrets-map.sh that cannot run `value` (not executable, an old copy, a usage exit 2) at every place
+  says update it with /agent-refresh; never "run again" (it would fail forever) and never "file it".
+- The real-tool test never lets a token reach an assertion message (asserts only that none came back, then the why).
+- 'missing' adds: if you believe it is filed, run `secrets-map.sh audit` first (an unreadable header looks unfiled).
+- A test that the token the map gives is the one the pull sends; the test's temp folder is removed; "Review N" labels
+  dropped from new comments; the wait note made exact.
