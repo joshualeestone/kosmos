@@ -35,7 +35,7 @@ final class TextSetupUITests: XCTestCase {
 
     func testTheTextScreens() {
         // With the phone pad up (it has no return key), the send button must still be reachable. A Mac whose Simulator
-        // uses the hardware keyboard shows no pad; then there is nothing to cover the button, as CentredWaitsUITests does.
+        // uses the hardware keyboard shows no pad, so this fails there (ios/tools/ui-sample.sh refuses to run on one).
         var app = launch("setupphone")
         let phone = app.textFields["signin-phone"]
         XCTAssertTrue(phone.waitForExistence(timeout: 10), "the number screen is not showing")
@@ -46,11 +46,14 @@ final class TextSetupUITests: XCTestCase {
             let send = app.buttons["Text me a code"]
             XCTAssertTrue(send.isHittable, "the phone pad covers Text me a code")
             XCTAssertLessThanOrEqual(send.frame.maxY, app.keyboards.firstMatch.frame.minY, "the phone pad covers Text me a code: \(send.frame)")
+        } else {
+            XCTFail("no phone pad appeared, so whether it covers Text me a code was not measured")
         }
         app.terminate()
         app = launch("setuptext")
         XCTAssertTrue(app.staticTexts["Type the code"].waitForExistence(timeout: 10), "the texted-code screen is not showing")
         XCTAssertTrue(app.buttons["Use a different number"].exists, "no way to correct the number")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "0123")).firstMatch.exists, "the masked number is not shown")
         keep(app, "setup-text")
         app.terminate()
         app = launch("setuptexterror")

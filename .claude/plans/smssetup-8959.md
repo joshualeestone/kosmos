@@ -30,6 +30,9 @@ fresh sign-in sheet (ContentView.swift:317), so that path is covered too.
   would be a second rule that can disagree with the server.
 - The texted code's lifetime is the fixed "ten minutes" the existing second-step words use (config.rs ttl::CODE = 600),
   not a countdown from `expires_in`. Weakest premise: if ttl::CODE changes, both lines go stale together.
+- Text enrol waits up to SignIn.textSendTimeout (45 s), not the session's 15 s: Kosmos+ answers only after its
+  text provider (up to about 28 s with retries). Measured on macOS: a request's own timeoutInterval overrides the
+  session's (3 s session, 20 s request, an 8 s answer arrived).
 - No resend button: "Use a different number" then "Text me a code" sends again, and Kosmos+ rate-limits it.
 
 ## Validation

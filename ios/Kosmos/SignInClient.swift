@@ -245,7 +245,9 @@ final class SignInClient {
     // kosmos#8959: `phone` set enrols text messages to that number; nil enrols an authenticator app.
     func enrol(token: String, phone: String? = nil) async throws -> SignIn.Enrolled {
         let body = phone.map { SignIn.enrolBody(phone: $0) } ?? SignIn.enrolBody()
-        let (status, json) = try await post(SignIn.enrolPath, body, bearer: token)
+        // Kosmos+ answers a text enrol only after its text provider does (second.rs sms_send_off_runtime: up to about
+        // 28 s with its retries), and sends nothing meanwhile, so the session's 15 s would give up on a text being sent.
+        let (status, json) = try await post(SignIn.enrolPath, body, bearer: token, timeout: phone == nil ? nil : SignIn.textSendTimeout)
         return SignIn.enrolled(status: status, json: json)
     }
 
@@ -254,8 +256,9 @@ final class SignInClient {
         return SignIn.answer(status: status, json: json)
     }
 
-    private func post(_ path: String, _ body: [String: Any], bearer: String? = nil) async throws -> (Int, Any?) {
+    private func post(_ path: String, _ body: [String: Any], bearer: String? = nil, timeout: TimeInterval? = nil) async throws -> (Int, Any?) {
         var request = URLRequest(url: coordinator.appendingPathComponent(path))
+        if let timeout { request.timeoutInterval = timeout }   // a request's own timeout wins over the session's
         if let bearer { request.setValue("Bearer " + bearer, forHTTPHeaderField: "Authorization") }
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
