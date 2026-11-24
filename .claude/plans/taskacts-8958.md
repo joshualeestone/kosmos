@@ -32,6 +32,11 @@ Hold, repeat, the receipt and undo are B2 to B5. The info button stays (parts an
   results, every said-line branch, and the model's three actions through the fake Mac). All 13 LogicTests runners pass.
 - Mutant: dropping "Your message stays on the task." reds 3 checks. (Sending a nil due as Any is equivalent: Foundation
   writes it as null, and the test reads the wire.)
+- Review 2: the date picker only chooses; Set saves and Cancel puts it back, in both states (the board's field saves
+  once on change, never per day tapped); Set, Cancel and Clear are 44 pt both ways and stack at large text; a stored
+  date the phone cannot read shows as kept, with Clear; the edit form stays locked through its re-read; the title is
+  one line (a line break is a space); the sample Mac records a message in task 4's activity, and the UI test waits for
+  the page to draw and for the message there.
 - Review 1: Cancel is off while a save is out (a late answer cannot close a newer form); caps count UTF-16 units, as the
   board's maxlength; a lone \r is read as the board's form reads it; a picked date shows until the Mac's answer is read.
 - KosmosUITests/TaskPageActionsUITests (3, in ui-sample.sh's lazy list): the page's actions (shots in light and dark),

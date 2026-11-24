@@ -25,9 +25,8 @@ struct TaskPageView: View {
     @State private var editing: (title: String, detail: String?)?
     @State private var editTitle = ""
     @State private var editDetail = ""
-    // The Due section: a date picked and on its way (shown until the Mac's answer is read), and a picker opened on a task
-    // with no date, not saved until Set (the board's empty field saves nothing until a date is chosen).
-    @State private var duePending: Date?
+    // The Due section's picker: the date being chosen, saved only by Set (the board's date field saves once, on change,
+    // when a date is committed, never on each day tapped).
     @State private var dueDraft: Date?
 
     init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
@@ -291,8 +290,8 @@ struct TaskPageView: View {
         NavigationView {
             Form {
                 Section(Board.taskEditTitle) {
-                    TextField(Board.taskEditTitle, text: $editTitle, axis: .vertical)
-                        .lineLimit(1...4)
+                    // One line, as the board's text input (Return does not add a line break to a title).
+                    TextField(Board.taskEditTitle, text: $editTitle)
                         .onChange(of: editTitle) { t in let c = Board.capped(t, Board.taskEditTitleMax); if c != t { editTitle = c } }
                 }
                 Section(Board.taskEditDetail) {
@@ -326,46 +325,26 @@ struct TaskPageView: View {
         .interactiveDismissDisabled(model.editSaving)
     }
 
-    // kosmos#8958 slice B1: the board's Due row, saved as soon as it is picked or cleared (saveTaskDue). A task with no
-    // date shows Set a due date, which opens the picker unsaved; Set saves it.
+    // kosmos#8958 slice B1: the board's Due row (saveTaskDue). The picker chooses a date; Set saves it, Cancel puts it
+    // back; Clear clears a stored date. With no date, Set a due date opens the picker on a week from today, unsaved.
     private func dueBlock(_ p: Board.TaskPage) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let stored = p.dueDate.flatMap { Board.dueDay($0) }
+        return VStack(alignment: .leading, spacing: 6) {
             sectionTitle("Due")
-            if let due = p.dueDate, let day = Board.dueDay(due) {
-                HStack(spacing: 12) {
-                    DatePicker("Due date", selection: Binding(get: { duePending ?? day }, set: { d in
-                        model.touched()
-                        let s = Board.dueString(d)
-                        guard s != due else { return }
-                        duePending = d
-                        Task { await model.setDue(s, names: names); duePending = nil }
-                    }), displayedComponents: .date)
-                    .labelsHidden()
-                    .accessibilityLabel(p.dueLine() ?? "Due date")
-                    .disabled(model.dueSaving)
-                    Button("Clear") { model.touched(); Task { await model.setDue(nil, names: names) } }
-                        .font(.footnote).foregroundColor(Palette.link).frame(minHeight: 44).disabled(model.dueSaving)
-                        .accessibilityLabel("Clear the due date")
+            if let shown = dueDraft ?? stored {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) { duePicker(shown); dueButtons(p, stored: stored) }
+                    VStack(alignment: .leading, spacing: 6) { duePicker(shown); HStack(spacing: 12) { dueButtons(p, stored: stored) } }
                 }
-            } else if let draft = dueDraft {
+            } else if let raw = p.dueDate {
+                // A stored date this phone cannot read as a day: said as the Mac keeps it, and it can still be cleared.
                 HStack(spacing: 12) {
-                    DatePicker("Due date", selection: Binding(get: { draft }, set: { dueDraft = $0 }), displayedComponents: .date)
-                        .labelsHidden()
-                        .accessibilityLabel("Due date")
-                    Button("Set") {
-                        model.touched()
-                        let s = Board.dueString(draft)
-                        Task { await model.setDue(s, names: names); if model.dueRefusal == nil { dueDraft = nil } }
-                    }
-                    .font(.footnote.weight(.semibold)).foregroundColor(Palette.link).frame(minHeight: 44).disabled(model.dueSaving)
-                    .accessibilityLabel("Set the due date")
-                    Button("Cancel") { dueDraft = nil }
-                        .font(.footnote).foregroundColor(Palette.link).frame(minHeight: 44).disabled(model.dueSaving)
+                    Text("Due " + raw).font(.footnote).foregroundColor(Palette.primary)
+                    dueAction("Clear", label: "Clear the due date") { Task { await model.setDue(nil, names: names) } }
                 }
             } else {
                 Button {
                     model.touched()
-                    // The picker opens on a week from today, nothing saved until Set.
                     dueDraft = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
                 } label: {
                     Text("Set a due date").font(.footnote).foregroundColor(Palette.link)
@@ -378,6 +357,35 @@ struct TaskPageView: View {
                     .onAppear { UIAccessibility.post(notification: .announcement, argument: why) }
             }
         }
+    }
+
+    private func duePicker(_ shown: Date) -> some View {
+        DatePicker("Due date", selection: Binding(get: { shown }, set: { model.touched(); dueDraft = $0 }), displayedComponents: .date)
+            .labelsHidden()
+            .disabled(model.dueSaving)
+    }
+
+    // Set and Cancel while a date is being chosen that is not the stored one; Clear for a stored date otherwise.
+    @ViewBuilder private func dueButtons(_ p: Board.TaskPage, stored: Date?) -> some View {
+        if let draft = dueDraft, stored.map({ Board.dueString($0) }) != Board.dueString(draft) {
+            dueAction("Set", label: "Set the due date", strong: true) {
+                let s = Board.dueString(draft)
+                Task { await model.setDue(s, names: names); if model.dueRefusal == nil { dueDraft = nil } }
+            }
+            dueAction("Cancel", label: "Cancel") { model.clearDueRefusal(); dueDraft = nil }
+        } else if stored != nil {
+            dueAction("Clear", label: "Clear the due date") { dueDraft = nil; Task { await model.setDue(nil, names: names) } }
+        }
+    }
+
+    private func dueAction(_ words: String, label: String, strong: Bool = false, _ run: @escaping () -> Void) -> some View {
+        Button { model.touched(); run() } label: {
+            Text(words).font(strong ? .footnote.weight(.semibold) : .footnote).foregroundColor(Palette.link)
+                .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.dueSaving)
+        .accessibilityLabel(label)
     }
 
     // kosmos#8958 slice B1: the board's message box under the activity (tk-say): recorded on the task and sent to its
@@ -444,9 +452,16 @@ struct TaskPageView: View {
     // Locked: the sample Mac is called off the main actor, by the loop, a press and a seen mark at once.
     private static let sampleLock = NSLock()
     private static var sampleClosed: Set<Int> = []
+    // kosmos#8958 slice B1: messages said on the sample tasks, shown in their activity as the Mac records them.
+    private static var sampleSaid: [Int: [String]] = [:]
     private static func sampleSend(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         guard let r = build(URL(string: "https://sample.invalid")!), let url = r.url else { return nil }
         let path = url.path
+        if path.hasSuffix("/message"), let n = Int(url.deletingLastPathComponent().lastPathComponent),
+           let words = (r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["text"] as? String {
+            sampleLock.withLock { sampleSaid[n, default: []].append(words) }
+        }
+        let saidNow: [Int: [String]] = sampleLock.withLock { sampleSaid }
         let closedNow: Set<Int> = sampleLock.withLock {
             if path.hasSuffix("/close") || path.hasSuffix("/reopen") {
                 if let n = Int(url.deletingLastPathComponent().lastPathComponent) {
@@ -468,11 +483,15 @@ struct TaskPageView: View {
             body = #"{"events":[{"at":""# + iso(4000) + #"","kind":"created"}]}"#
         } else if path.hasSuffix("/activity") {
             body = #"{"events":[{"at":""# + iso(2900) + #"","kind":"created","who":"dana","parent":3},{"at":""# + iso(300) + #"","kind":"said","text":"Use the March photos for the captions."},{"at":""# + iso(40) + #"","kind":"built","by":"dana","note":"captions need a check"}"#
+                + (saidNow[4] ?? []).map { #",{"at":""# + iso(0) + #"","kind":"said","text":"# + Self.jsonString($0) + "}" }.joined()
                 + (closedNow.contains(4) ? #",{"at":""# + iso(0) + #"","kind":"closed"}"# : "") + "]}"
         } else {
             body = "{}"
         }
         return (Data(body.utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+    }
+    private static func jsonString(_ s: String) -> String {
+        (try? JSONSerialization.data(withJSONObject: [s])).flatMap { String(data: $0, encoding: .utf8) }.map { String($0.dropFirst().dropLast()) } ?? "\"\""
     }
     #endif
 
