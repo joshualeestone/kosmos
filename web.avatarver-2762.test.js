@@ -176,8 +176,8 @@ test('#2762: the number of avatar URLs on the page is PINNED', () => {
   // kosmos#5302: refitOldPictures reads a picture (GET, cache: 'no-store') and saves it fitted (PUT); two fetches, no
   // render; 23 -> 25.
   // kosmos#8990: the failed-avatar retry listener matches agent avatar URLs with a regex literal that contains
-  // '/avatar'; a matcher, no render. The grid, list and working-line pictures it retries were versioned in the same
-  // change, since the grid and list now skip identical markup. 25 -> 26.
+  // '/avatar'; a matcher, no render. The grid, list and working-line pictures were versioned in the same change (the
+  // grid and list now skip identical markup); the grid, list and My Agents ones are the ones it retries. 25 -> 26.
   assert.equal(count, 26,
     'the page now has ' + count + ' avatar URLs, not 26. NOTE: this counts every occurrence, '
     + 'including 9 fetch() calls and 4 /api/you/avatar lines, so an unrelated fetch moves it too; '

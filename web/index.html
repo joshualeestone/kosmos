@@ -66349,8 +66349,9 @@ function tcGoToTeam(auto) {
   // Review 21: a wheel scroll counts too; all three are removed when the mark window ends.
   for (const ev of ['pointerdown', 'keydown', 'wheel']) document.addEventListener(ev, theirs, { once: true, capture: true, passive: true });
   const sel = names.map((n) => '.acard[data-agent="' + CSS.escape(n) + '"], .lrow[data-agent="' + CSS.escape(n) + '"]').join(', ');
-  /* kosmos#8990: the cards given tabindex=-1 below, so it comes off when the mark ends (a card still holding focus keeps
-     it); a poll that changes nothing no longer rebuilds them. */
+  /* kosmos#8990: the cards given tabindex=-1 below, so it comes off when the mark ends; a poll that changes nothing no
+     longer rebuilds them. A card still holding focus then keeps it until its markup next changes (-1 is not in the tab
+     order, so it only stays focusable by script or click). */
   const tabbed = new Set();
   const mark = () => {
     const live = Date.now() < until;
@@ -90040,8 +90041,8 @@ function fedOutsidePaint(tabOnly) {
   }
   if (tabOnly) return;
   // The consolidated rail draws the section inside its own list, so it repaints that list while it groups.
-  // Only when the section's markup changed, so an answer that changes nothing adds no extra rebuild (the status
-  // poll rebuilds the rail anyway). PJ_CURRENT covers a board with no agents, whose rail is not grouped.
+  // Only when the section's markup changed, so an answer that changes nothing adds no rebuild (and paintAgentList
+  // itself skips markup it already wrote, kosmos#8990). PJ_CURRENT covers a board with no agents, whose rail is not grouped.
   if ((AGENTS_GROUPED || PJ_CURRENT) && document.body.classList.contains('consolidated') && typeof paintAgentList === 'function'
     && fedOutsidePaint.rail !== html) { fedOutsidePaint.rail = html; paintAgentList(); }
 }
