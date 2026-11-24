@@ -31,4 +31,10 @@
 - Typecheck of ios/Kosmos against the simulator SDK (0 errors; control with an injected error: 4 errors).
 
 ## Weakest premise
-That the plan line is status, not selling, under #718. The in-app page already shows it, so the phone adds nothing new.
+That the plan line and the standing note are status, not selling, under #718. Review 2 named the sharper half: the
+server's standing sentences include "you can buy seats for your members", "you can renew them" and "buy them again"
+(signin.rs standing_note, company seats). They are statements with no button or link, they are the server's one copy,
+and the in-app page shows them today, so the phone adds no new exposure. If Josh or App Review wants none of that in
+the app, the change belongs in signin.rs (one sentence set for the apps), not in a filter here.
+- Not covered by the UI test: the standing note's look (no sample state carries one). Its parsing and colour choice are
+  LogicTests'; a sample variant can come with B3 if a design review asks.

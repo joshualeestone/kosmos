@@ -219,6 +219,13 @@ enum Account {
     // the page's ONE SWITCH (CAN_BUY_HERE, kosmos#718) keeps selling out of the apps, and only Josh changes that.
     static let mePath = "/v1/account/me"
     static let planActive = "Kosmos+ \u{00B7} Active"
+    static let planSpoken = "Kosmos+, Active"
+
+    // Whether an answer is a JSON object at all: one that is not is a failed read, not an account with no plan.
+    static func isObject(_ data: Data?) -> Bool {
+        guard let data else { return false }
+        return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any]) != nil
+    }
 
     static func meRequest(coordinator: URL, session: String) -> URLRequest {
         var r = URLRequest(url: coordinator.appendingPathComponent(String(mePath.dropFirst())))

@@ -167,7 +167,11 @@ struct AccountView: View {
     @ViewBuilder private var planSection: some View {
         if plan != nil || standing != nil {
             Section {
-                if let plan { Text(plan).foregroundColor(Palette.primary).accessibilityIdentifier("account-plan") }
+                if let plan {
+                    // Review 2: VoiceOver reads the dot as "middle dot"; the label says it as a pause.
+                    Text(plan).foregroundColor(Palette.primary)
+                        .accessibilityLabel(Account.planSpoken).accessibilityIdentifier("account-plan")
+                }
                 if let standing {
                     Text(standing.words).font(.subheadline)
                         .foregroundColor(standing.calm ? Palette.secondary : Palette.dangerWord)
@@ -642,7 +646,8 @@ struct AccountView: View {
         guard let session = currentSession() else { plan = nil; standing = nil; return }
         let (status, data) = await send(Account.meRequest(coordinator: coordinator, session: session))
         guard !Task.isCancelled, ticket == planTicket, currentSession() == session, let status else { return }
-        if (200...299).contains(status) { plan = Account.planLine(data); standing = Account.standingNote(data) }
+        // Review 2: a 200 that is not the account's JSON (a captive page, say) is a failed read, so what is shown stays.
+        if (200...299).contains(status), Account.isObject(data) { plan = Account.planLine(data); standing = Account.standingNote(data) }
         else if status == 401 { plan = nil; standing = nil }
     }
 

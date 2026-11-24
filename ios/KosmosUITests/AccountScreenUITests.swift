@@ -47,10 +47,12 @@ final class AccountScreenUITests: XCTestCase {
         shot(app, "account-sign-out")
         // The plan line sits at the top: scroll back up to it (slowly, so a swipe at the top is not a pull to refresh).
         let plan = app.staticTexts["account-plan"]
-        for _ in 0..<8 where !plan.exists || !plan.isHittable { app.swipeDown(velocity: .slow) }
+        // Review 2: the screen is long by now, so up to 25 swipes, and the row must be on screen, not only built.
+        for _ in 0..<25 where !(plan.exists && plan.isHittable) { app.swipeDown(velocity: .slow) }
         // The sample answers as an active plan; reading /v1/account/me is LogicTests/account's (planLine, standingNote).
-        XCTAssertTrue(plan.exists, "the plan section does not show its line")
-        XCTAssertEqual(plan.label, "Kosmos+ \u{00B7} Active", "the plan line's words are not the page's")
+        XCTAssertTrue(plan.exists && plan.isHittable, "the plan section does not show its line")
+        XCTAssertTrue(app.staticTexts["Kosmos+ \u{00B7} Active"].exists, "the plan line's words are not the page's")
+        XCTAssertEqual(plan.label, "Kosmos+, Active", "VoiceOver does not read the plan line as words")
         XCTAssertFalse(app.staticTexts["account-standing"].exists, "a standing note for a plan in good standing")
         noSelling(app, "the plan")
         shot(app, "account-plan")
