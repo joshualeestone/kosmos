@@ -893,11 +893,13 @@ function publisher(name, opts) {
       if (opens) current.opened = true;
       if (opens || (e && e.type === 'result' && current.opened === true)) {
         current.startDue = null;
-        /* Review 10: a turn that opens while no message is under way opens on the messages ready for one (written into an
-           idle agent, or left waiting when the last turn ended). All of them: Claude Code may take several waiting messages
-           into one turn, and marking only one would later call the rest "never started". A wake-up opens on none: nothing
-           is ready. */
-        if (opens && !current.msgs.some((m) => m.startedAt !== null)) startMsgs(current.msgs.filter((x) => x.startedAt === null && x.ready === true));
+        /* Review 10, 11: a turn that opens while no message is under way opens on the OLDEST message ready for one (written
+           into an idle agent, or left waiting when the last turn ended): measured above, each message is its own turn, never
+           batched. The rest start at their own turn, or join this one when its calls return. A wake-up opens on none. */
+        if (opens && !current.msgs.some((m) => m.startedAt !== null)) {
+          const first = current.msgs.find((x) => x.startedAt === null && x.ready === true);
+          if (first) startMsgs([first]);
+        }
         reportRan();
       }
       const next = stateAfterEvent(e);
@@ -919,6 +921,7 @@ function publisher(name, opts) {
           current.queued = 0;
           /* kosmos#8951 review 10: the waiting messages join this turn now, each started on this moment's clock. */
           startMsgs(current.msgs.filter((m) => m.startedAt === null));
+          reportRan();   // review 11: one written after a report may have just joined, so the report can end this event
         }
       }
       if (e && e.type === 'result') {

@@ -609,3 +609,41 @@ test('#8951 review 10: each message keeps its own clock: one that joined a minut
   r.pub.stopped(); r.pub.started(7001, 'sid-1');
   assert.deepEqual(r.last().unstarted, { since: new Date(T0 + 60 * 1000).toISOString(), count: 1, lost: true }, 'only C');
 });
+
+test('#8951 review 11: two messages waiting at a result run as two turns, so the second is still tracked until its own', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.event(init);                   // m1
+  r.pub.wrote(); r.pub.wrote();                       // m2 and m3 wait behind it
+  r.pub.event(result);
+  r.pub.event(init);                                  // m2's turn
+  r.clock.t += 60 * 1000;
+  r.pub.event({ type: 'assistant', message: { content: [] } }); r.pub.event(result);
+  r.pub.event(init);                                  // m3's turn
+  r.clock.t += 600;
+  r.pub.stopped(); r.pub.started(7001, 'sid-1');
+  assert.deepEqual(r.last().unstarted && { count: r.last().unstarted.count, lost: r.last().unstarted.lost }, { count: 1, lost: true }, 'm3 died 0.6 s into its turn');
+  // And if m3's turn never opens, the deadline still reports it.
+  const q = recording();
+  q.pub.started(6368, 'sid-1');
+  q.pub.wrote(); q.pub.event(init); q.pub.wrote(); q.pub.wrote(); q.pub.event(result);
+  q.pub.event(init); q.pub.event(result);             // m2's turn ends; m3 never opens one
+  q.timers.splice(0, q.timers.length - 1);            // only the latest deadline is live
+  q.fire();
+  assert.equal(q.last().unstarted && q.last().unstarted.count, 1);
+});
+
+test('#8951 review 11: a message written after a carried report that joins a turn ends the report in that same event', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.stopped(); r.pub.started(7001, 'sid-1');   // carried
+  r.clock.t += HOLD;
+  r.pub.event(init);
+  r.pub.event({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'w1', name: 'Bash', input: { command: 'x' } }] } });
+  r.pub.wrote();                                                   // the resend waits behind the call
+  r.pub.event({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'w1', content: 'ok' }] } });
+  assert.equal(r.last().unstarted, undefined, 'it joined and the hold had passed: over now');
+  r.clock.t += 15 * 1000;
+  r.pub.stopped(); r.pub.started(7002, 'sid-1');
+  assert.equal(r.last().unstarted, undefined, 'a stop after a long model call does not bring it back');
+});
