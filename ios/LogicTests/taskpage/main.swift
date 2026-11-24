@@ -1069,6 +1069,11 @@ do {
     var weekly = stored; weekly.every = .week
     check(Board.keptRepeatDraft(weekly, stored: stored)?.every == .week, "a frequency change is a draft")
     check(Board.keptRepeatDraft(moved, stored: nil) == nil, "a rule the controls cannot show drops the draft")
+    var past = stored; past.at = "20:00"
+    let savedPast = C(every: .day, at: "17:00", others: ["20:00"])   // as the read after the save gives it, sorted
+    check(Board.repeatWire(past) == .day("17:00,20:00") && Board.keptRepeatDraft(past, stored: savedPast) == nil,
+          "a box moved past the other time and saved: the read of the saved rule ends the draft (no time dropped)")
+    check(Board.followStored(past, old: stored, new: savedPast) == nil, "and so does the change the save itself caused")
     let never = C(every: .never), hourly = C(every: .hour)
     check(Board.followStored(never, old: never, new: stored) == nil,
           "a draft put back on the old rule follows a rule changed elsewhere (never left showing Never over a daily rule)")

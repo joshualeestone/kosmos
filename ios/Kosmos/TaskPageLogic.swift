@@ -886,6 +886,9 @@ extension Board {
     // board's tkRepeatFollowUnderEdit, kosmos#5752 round 3), so Save never sends times that are on no screen.
     static func keptRepeatDraft(_ draft: RepeatChoice?, stored: RepeatChoice?) -> RepeatChoice? {
         guard var d = draft, let stored else { return nil }
+        // First as it stands: a draft that IS the stored rule goes (after a save, the rule just saved). Following the
+        // others first would rebuild them from the sorted stored list and lose a time the box had moved past.
+        if repeatWire(d) == repeatWire(stored) { return nil }
         if d.every == .day {
             let list = stored.every == .day ? [stored.at] + stored.others : []
             d.others = Array(list.dropFirst()).filter { $0 != d.at }
