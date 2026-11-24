@@ -13,6 +13,9 @@
  *             and ends the session.
  *   STARTUP   a session of ours whose pane is dead (kept by remain-on-exit, no hook) is not adopted as alive: a launch
  *             records it and replaces it with a live one.
+ *   RETURN    the supervisor is gone and the agent's kept pane is dead beside a live pane a person split off: the next
+ *             launch reads the agent's own pane as dead, records it, and starts a fresh agent.
+ *   Every supervisor's stderr is kept and must carry no "command not found".
  *
  *   node --test supervisor.macrestart-8988.test.js
  */
@@ -70,7 +73,14 @@ function fixture() {
   };
   const args = [path.join(root, 'bin', 'agent-supervisor.sh'), NAME, path.join(root, 'work'), runner, tmux, '', '', 'claude'];
   const kids = [];
-  const start = () => { const c = spawn('/bin/bash', args, { env, stdio: 'ignore' }); kids.push(c); return c; };
+  let err = '';
+  const start = () => {
+    const c = spawn('/bin/bash', args, { env, stdio: ['ignore', 'ignore', 'pipe'] });
+    c.stderr.on('data', (d) => { err += d; });
+    kids.push(c);
+    return c;
+  };
+  const noisy = () => /command not found|syntax error|unbound variable/i.test(err) ? err : '';
   /* Bounded: a supervisor left watching a dead pane would otherwise hang this file instead of failing it. */
   const ends = (child, ms = 20000) => new Promise((resolve, reject) => {
     if (child.exitCode !== null || child.signalCode !== null) return resolve({ code: child.exitCode });
@@ -103,7 +113,7 @@ function fixture() {
     for (const c of kids) if (c.exitCode === null && c.signalCode === null) c.kill('SIGKILL');
     try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
   };
-  return { root, start, ends, tx, alive, paneDead, agentPane, hooked, until, died, tell, card, cleanup };
+  return { root, start, ends, tx, alive, paneDead, agentPane, hooked, until, died, tell, card, noisy, cleanup };
 }
 
 test('#8988 CRASH and STOP: an exit is recorded by the hook and read on the card after the relaunch; a stop records nothing', { skip: SKIP }, async () => {
@@ -126,6 +136,7 @@ test('#8988 CRASH and STOP: an exit is recorded by the hook and read on the card
     f.tx('kill-session', '-t', '=' + NAME);   // a deliberate stop
     await f.ends(two);
     assert.equal(f.died(), before, 'a stop is not a death: nothing new recorded');
+    assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
   } finally { f.cleanup(); }
 });
 
@@ -138,6 +149,7 @@ test('#8988 SIGNAL: a process ended by a signal is recorded by name', { skip: SK
     f.tell('term');
     await f.ends(one);
     assert.match(String(f.died()), /^\d{9,11} signal term\n$/i);
+    assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
   } finally { f.cleanup(); }
 });
 
@@ -154,6 +166,7 @@ test('#8988 WAIT: with the hook gone, the supervisor itself records a dead pane 
     await f.ends(one);
     assert.equal(f.alive(), false, 'a dead pane never holds the agent stopped');
     assert.match(String(f.died()), /^\d{9,11} status 3\n$/);
+    assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
   } finally { f.cleanup(); }
 });
 
@@ -172,6 +185,7 @@ test('#8988 SPLIT: a pane a person splits off the agent\'s window ending neither
     f.tell('exit 7');   // CONTROL: the agent's own death is still recorded
     await f.ends(one);
     assert.match(String(f.died()), /^\d{9,11} status 7\n$/);
+    assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
   } finally { f.cleanup(); }
 });
 
@@ -189,5 +203,31 @@ test('#8988 STARTUP: a dead session of ours is recorded and replaced, never adop
     assert.match(String(f.died()), /^\d{9,11} status 9\n$/);
     f.tell('exit 0');
     await f.ends(one);
+    assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
+  } finally { f.cleanup(); }
+});
+
+test('#8988 RETURN: a dead agent pane beside a live split pane is recorded and replaced by the next launch', { skip: SKIP }, async () => {
+  const f = fixture();
+  try {
+    const one = f.start();
+    await f.until(f.alive, 'the session');
+    await f.until(f.hooked, 'its pane-died hook');
+    const split = f.tx('split-window', '-t', f.agentPane(), '/bin/sleep 60');
+    assert.equal(split.status, 0, split.stderr);
+    assert.equal(f.tx('set-hook', '-u', '-p', '-t', f.agentPane(), 'pane-died').status, 0);
+    const pane = f.agentPane();
+    one.kill('SIGKILL');   // the supervisor is gone (a killed job), so nothing is watching
+    await f.ends(one);
+    f.tell('exit 5');
+    await f.until(() => (f.tx('list-panes', '-s', '-t', '=' + NAME, '-F', '#{pane_id} #{pane_dead}').stdout || '').includes(pane + ' 1'), 'the agent pane to die, kept');
+    assert.equal(f.died(), null, 'CONTROL: nothing has recorded it yet');
+    const two = f.start();
+    /* Pane ids restart with a fresh server, so the id cannot tell the new pane from the old: the record can. */
+    await f.until(() => f.died() !== null && f.hooked() && f.paneDead() === '0', 'a fresh agent');
+    assert.match(String(f.died()), /^\d{9,11} status 5\n$/, 'the agent pane\'s exit, not the split pane\'s');
+    f.tell('exit 0');
+    await f.ends(two);
+    assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
   } finally { f.cleanup(); }
 });

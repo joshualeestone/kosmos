@@ -24,11 +24,19 @@ assertSandboxedDataRoot(SANDBOX, [store.ROOT]);
 
 const T0 = 1795530000;   // a death, in epoch seconds
 /** restartedFor over files given as text, and a self-report history given as rows. */
+/* The self-report record is a REAL file read by the real selfreport.history (review 3: hand-built rows had a shape
+   history() never returns, so every arm passed against a reader that could not work). */
+const selfreport = require('./selfreport');
+function reports(rows) {
+  const f = selfreport.fileFor('hal');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, (rows || []).map((r) => JSON.stringify({ v: 1, ...r })).join('\n') + (rows && rows.length ? '\n' : ''));
+}
 function read(died, runs, rows) {
+  reports(rows);
   const files = { [mr.diedFileFor('hal')]: died, [crashloop.fileFor('hal')]: runs };
   return mr.restartedFor('hal', {
     read: (f) => { if (files[f] === undefined) throw Object.assign(new Error('none'), { code: 'ENOENT' }); return files[f]; },
-    history: () => rows || [],
   });
 }
 
@@ -59,6 +67,7 @@ test('#8988 a finished answer after the restart clears it; one before it, an ope
   const at = (s) => new Date(s * 1000).toISOString();
   const done = (s, extra) => ({ state: 'idle', because: 'finished responding', at: at(s), by: 'auto', ...extra });
   assert.equal(read(T0 + ' status 7\n', runs, [done(T0 + 100)]), null, 'a turn finished on the restarted process');
+  assert.equal(selfreport.history('hal').filter((r) => r.turn === 'end').length, 1, 'CONTROL: the real reader marks the hook\'s Stop as a turn end');
   assert.ok(read(T0 + ' status 7\n', runs, [done(T0 - 100)]), 'a turn before the restart does not clear it');
   assert.ok(read(T0 + ' status 7\n', runs, [done(T0 + 100, { by: 'operator' })]), 'a person\'s row is not the agent\'s turn');
   assert.ok(read(T0 + ' status 7\n', runs, [{ state: 'working', because: 'started', at: at(T0 + 100) }]), 'a turn that only started does not');
