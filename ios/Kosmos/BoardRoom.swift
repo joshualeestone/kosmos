@@ -1359,11 +1359,8 @@ extension Board {
         let d = p.description.trimmingCharacters(in: .whitespacesAndNewlines)
         return d.isEmpty ? projectNoDescription : d
     }
-
-    static let projectMoreOnBoard = "Open on your computer\u{2019}s board"
-    static let projectMoreOnBoardWhy = "Change who is on it, archive it and more there."
-    // Slice B: under Settings, what is still the board's (its members, webhooks, folder, archive and the rest).
-    static let projectSettingsOnBoardWhy = "Members, archiving and the rest of its settings are there."
+    // kosmos#8956: the general "Open on your computer's board" rows are gone; members and archiving are native, and the
+    // one hand-off left (members from other computers) is labelled for itself (projectOutsideMembers).
 }
 
 
@@ -1465,6 +1462,8 @@ extension Board {
     }
     /* Outside members (people and agents on other computers, #5287 federation) stay on the board for now. */
     static let projectOutsideMembers = "Members from other computers"
+    /* What is still the board's, said where the hand-off is, so the phone never implies it can do the rest. */
+    static let projectStillOnBoard = "Its webhooks, its folder and the rest of its settings are on your computer's board too."
 
     /* The agents that can be added: the person's own agents not on the project yet, in the agents list's order.
        Guide agents and agents shown as gone are left out, as the board's add list leaves them out. */
@@ -1476,10 +1475,19 @@ extension Board {
     /* POST adds, DELETE removes (the board's addMemberToProject and dropMember). */
     static func projectMemberRequest(mac: URL, project: String, session: String, add: Bool) -> URLRequest? {
         guard isProjectId(project), !session.isEmpty,
-              let s = session.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-_."))),
-              let url = URL(string: "/api/project/\(project)/agent/\(s)", relativeTo: mac) else { return nil }
-        var r = URLRequest(url: url.absoluteURL)
-        r.httpMethod = add ? "POST" : "DELETE"
+              let s = session.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-_."))) else { return nil }   // percent-encoded, so the URL below always parses
+        return add ? projectMemberAddRequest(mac: mac, project: project, agent: s) : projectMemberDropRequest(mac: mac, project: project, agent: s)
+    }
+    // Each built in place with its own method, as server.ios-routes-6838.test.js reads every request the app sends.
+    private static func projectMemberAddRequest(mac: URL, project: String, agent: String) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/project/\(project)/agent/\(agent)", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        return r
+    }
+    private static func projectMemberDropRequest(mac: URL, project: String, agent: String) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/project/\(project)/agent/\(agent)", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "DELETE"
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         return r
     }
