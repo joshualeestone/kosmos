@@ -2743,6 +2743,7 @@ struct ChatView: View {
         composerFocused = true
         // Said now, as the board does, rather than only when Send is pressed; as `blocked`, so an edit takes it away.
         if Board.overOneMessage(draftText) {
+            if composerNote == Board.draftTooLong { UIAccessibility.post(notification: .announcement, argument: Board.draftTooLong) }
             composerNote = Board.draftTooLong
             blocked = (draftText, Board.draftTooLong)
         }
@@ -2766,6 +2767,9 @@ struct ChatView: View {
                 if let t = thread { thread = Board.withoutDraft(t, id: id) }
                 Task { await read() }
             } else {
+                Haptics.failed()
+                // The same refusal twice does not change the line, so it would not be heard again: say it (as Try again).
+                if composerNote == Board.draftDismissFailed { UIAccessibility.post(notification: .announcement, argument: Board.draftDismissFailed) }
                 composerNote = Board.draftDismissFailed
             }
         }
