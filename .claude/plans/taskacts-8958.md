@@ -17,7 +17,8 @@ Hold, repeat, the receipt and undo are B2 to B5. The info button stays (parts an
 - TaskPageModel: say (true when recorded, so the box empties; the line under it), setDue, saveText (true when the form
   can close), each reading the task and activity again after, as press does.
 - TaskPageView: Edit title or detail under the title (a sheet with Save and Cancel), a Due section (a date picker and
-  Clear, or Set a due date: a week from today, then changeable), and the message box with Send and the board's note
+  Clear, or Set a due date: a picker opened on a week from today, saved only by Set, so no date is recorded that
+  nobody picked); the header's due line is gone (the Due section shows it), and the message box with Send and the board's note
   under the activity. 44 pt targets; refusals announced.
 - server.ios-routes-6838.test.js: the three routes declared.
 
@@ -31,6 +32,8 @@ Hold, repeat, the receipt and undo are B2 to B5. The info button stays (parts an
   results, every said-line branch, and the model's three actions through the fake Mac). All 13 LogicTests runners pass.
 - Mutant: dropping "Your message stays on the task." reds 3 checks. (Sending a nil due as Any is equivalent: Foundation
   writes it as null, and the test reads the wire.)
+- Review 1: Cancel is off while a save is out (a late answer cannot close a newer form); caps count UTF-16 units, as the
+  board's maxlength; a lone \r is read as the board's form reads it; a picked date shows until the Mac's answer is read.
 - KosmosUITests/TaskPageActionsUITests (3, in ui-sample.sh's lazy list): the page's actions (shots in light and dark),
   a message sent and the box emptied, the edit form opening with the title and closing on Save. Not run on this Mac
   (busy); CI's "ui tests (sample board)" runs it.
@@ -38,5 +41,5 @@ Hold, repeat, the receipt and undo are B2 to B5. The info button stays (parts an
 
 ## Weakest premise
 The UI test's path (Tasks tab, the sample row "Pages 1 to 8", the swipes to the message box) is written from the code,
-not run; CI is the first run. "Set a due date" picking a week from today is my call: the board's empty date field has
-no default, and a picker needs a date to show.
+not run; CI is the first run. "Set a due date" opening on a week from today is my call (a picker needs a date to show);
+nothing is saved until Set.

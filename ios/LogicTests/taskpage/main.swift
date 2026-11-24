@@ -692,6 +692,24 @@ check(said(#"{"delivered":[{"agent":"eli","state":"held","heldUntil":"2999-01-01
 check(said(#"{"delivered":[{"agent":"dana","state":"placed"},{"agent":"dana","state":"could_not","because":"x"}]}"#)
       == "Kosmos could not reach Dana, so it was not told. Your message stays on the task.", "listed twice: its worst outcome")
 check(said(#"{"delivered":[{"agent":"eli","state":"unconfirmed"}]}"#) == "Kosmos could not confirm that Eli got it.", "anything else: not confirmed")
+check(said(#"{"delivered":[{"agent":"eli","state":"could_not","because":"eli is not on this project any more"}]}"#)
+      == "Eli is not on this project any more, so it was not told. Your message stays on the task.", "not on the project any more")
+check(said(#"{"delivered":[{"agent":"eli","state":"could_not","because":"Kosmos could not keep this one"}]}"#)
+      == "Kosmos could not keep your message for Eli, so it was not told. Your message stays on the task.", "could not keep it")
+check(said(#"{"delivered":[{"agent":"eli","state":"held","because":"it still has messages kept"}]}"#)
+      == "Kosmos will try to send your message to Eli after the ones already waiting for it.", "behind messages already kept")
+check(said(#"{"delivered":[{"agent":"eli","state":"held"}]}"#) == "Kosmos is keeping your message and will try to send it to Eli later.",
+      "held with no time known")
+check(said(#"{"delivered":[{"agent":"eli","state":"held","heldUntil":"2000-01-01T00:00:00Z"}]}"#)
+      == "Kosmos is keeping your message and will try to send it to Eli later.", "a reset time already past is not called out of usage")
+check(said(#"{"delivered":[{"agent":null,"state":"could_not","because":"x"}]}"#)
+      == "Kosmos could not reach an agent, so it was not told. Your message stays on the task.", "an agent with no name")
+check(said(#"{"delivered":[{"agent":"","state":"held","heldFor":"signin"}]}"#)
+      == "An agent is signed out. Kosmos will try to send your message to an agent once it is signed in again.", "a sentence opening with no name")
+check(said(#"{"delivered":[null]}"#) == nil, "a list with no usable entry: no line, as the board (its list was not empty)")
+check(Board.capped(String(repeating: "\u{1F600}", count: 3), 4).utf16.count == 4 && Board.capped("abc", 4) == "abc",
+      "the caps count UTF-16 units, as the board's maxlength")
+check(Board.boardLineEnds("a\rb\r\nc") == "a\nb\nc", "a lone CR and a CRLF are both line ends, as the board's form")
 
 await b1ModelTests()
 

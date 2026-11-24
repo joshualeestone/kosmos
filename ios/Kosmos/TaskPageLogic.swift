@@ -227,7 +227,7 @@ extension Board.TaskPage {
         return "Added by " + fixed.lowercased() + parts.words.dropFirst(fixed.count)
     }
 
-    // The due date, read only here (it is set on the board's page): "Due Oct 30".
+    // The due date as words: "Due Oct 30" (the Due section's spoken label).
     func dueLine(calendar: Calendar = .current) -> String? {
         guard let due = dueDate else { return nil }
         let p = DateFormatter()
@@ -565,6 +565,18 @@ extension Board {
     static let taskEditNeedsTitle = "A task needs a title: say what needs doing."
     static let taskEditFailed = "we could not change that task"
 
+    // The board's maxlength and the Mac count UTF-16 units, so the phone's caps do too.
+    static func capped(_ text: String, _ max: Int) -> String {
+        guard text.utf16.count > max else { return text }
+        var t = text
+        while t.utf16.count > max { t.removeLast() }
+        return t
+    }
+    // Line ends as the board's form reads them (/\r\n?/g).
+    static func boardLineEnds(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+    }
+
     private static func taskPost(_ url: URL?, _ body: [String: Any]) -> URLRequest? {
         guard let url, let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
         var r = URLRequest(url: url)
@@ -622,8 +634,7 @@ extension Board {
         guard !t.isEmpty else { return .needsTitle }
         var body: [String: String?] = [:]
         if t != openedTitle.trimmingCharacters(in: .whitespacesAndNewlines) { body["sentence"] = t }
-        let was = (openedDetail ?? "").replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let was = boardLineEnds(openedDetail ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if d != was { body["detail"] = d.isEmpty ? .some(nil) : .some(d) }
         return body.isEmpty ? .nothing : .send(body)
     }
@@ -646,8 +657,10 @@ extension Board {
     static func taskSaidLine(_ body: Data?, name: (String) -> String) -> String? {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         guard let all = obj?["delivered"] as? [Any] else { return nil }
+        // The board tests the list as it came (an empty one means nobody is assigned); entries that are not objects are
+        // skipped after that.
+        if all.isEmpty { return "No agent is assigned to this task, so nobody was told." }
         let list = all.compactMap { $0 as? [String: Any] }
-        if list.isEmpty { return "No agent is assigned to this task, so nobody was told." }
         func rank(_ s: String?) -> Int { s == "could_not" ? 3 : s == "placed" ? 0 : s == "held" ? 1 : 2 }
         var order: [String] = []
         var by: [String: [String: Any]] = [:]
