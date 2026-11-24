@@ -511,7 +511,37 @@ function overviewOf(p, roster, o) {
     members,
     tasks: openTasks(p.tasks, p.paused === true),
     records: recordsSummary(p.id),
+    activity: activityOf(p, opts),   // kosmos#8996
   };
+}
+
+/* kosmos#8996: when anything last happened on the project, and whether it has been quiet long enough to tell the person.
+   An agent on a quiet project could not tell "new" from "quiet long enough that the person should hear", so each picked
+   its own threshold. Activity is the newest of: a post in its room (messages.lastPostAt, which leaves out Kosmos's own
+   notes, #6341), any task's last activity (tasks.lastActivityOf, the board's "Quietest first" measure), and the project
+   being made. A paused or archived project's quiet is expected and is never called stale. A room log that cannot be read
+   makes the answer unknown, never "quiet" (a guess would tell the person about a project that may be busy). This is a
+   line of text for `project show`; it raises nothing on the board (#6209, #6341: no new "needs you"). */
+const QUIET_DAYS = 14;
+function activityOf(p, o) {
+  const opts = o || {};
+  const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+  let room;
+  try { room = opts.lastPostAt ? opts.lastPostAt(p.id) : require('./messages').lastPostAt(p.id); } catch { room = undefined; }
+  const taskAt = opts.lastActivityOf || ((id, t) => { try { return require('./tasks').lastActivityOf(id, t); } catch { return null; } });
+  const seen = [];
+  const add = (ms, kind) => { if (Number.isFinite(ms) && ms <= now) seen.push({ ms, kind }); };   // a future time proves nothing
+  if (Number.isFinite(room)) add(room, 'post');
+  for (const t of Array.isArray(p.tasks) ? p.tasks : []) add(Date.parse(taskAt(p.id, t)), 'task');
+  add(Date.parse(p.createdAt), 'made');
+  const paused = p.paused === true || p.archived === true;
+  if (room === undefined) return { at: null, kind: null, ageDays: null, quietDays: QUIET_DAYS, quiet: false, unknown: true, paused };
+  if (!seen.length) return { at: null, kind: null, ageDays: null, quietDays: QUIET_DAYS, quiet: false, unknown: false, paused };
+  // The newest wins; on a tie, a post or a task says more than the making.
+  seen.sort((a, b) => b.ms - a.ms || (a.kind === 'made') - (b.kind === 'made'));
+  const last = seen[0];
+  const ageDays = Math.floor((now - last.ms) / 86400000);
+  return { at: new Date(last.ms).toISOString(), kind: last.kind, ageDays, quietDays: QUIET_DAYS, quiet: !paused && ageDays >= QUIET_DAYS, unknown: false, paused };
 }
 
 /* #6994: how many records the project keeps and how many are stale, for `project show` (the rows themselves are read
@@ -676,6 +706,22 @@ const SUMMARY_WORDS = {
   unreadable: () => 'we could not look',
 };
 
+/* kosmos#8996: the one line `project show` prints for a project's activity. Numbers and fixed words only. */
+function activityLine(a) {
+  if (!a || typeof a !== 'object') return null;
+  const n = (x) => Math.max(0, Math.floor(Number(x) || 0));
+  const days = (d) => (d === 1 ? '1 day' : d + ' days');
+  if (a.unknown === true) return 'Last activity: Kosmos could not read the project\'s room just now, so it cannot say how long the project has been quiet.';
+  if (!a.at) return 'Last activity: none Kosmos can date.';
+  const what = a.kind === 'post' ? 'a post in its room' : a.kind === 'task' ? 'a task moved' : 'the project was made';
+  const when = n(a.ageDays) === 0 ? 'today' : days(n(a.ageDays)) + ' ago';
+  const head = 'Last activity: ' + what + ', ' + when + ' (' + one(String(a.at).slice(0, 10)) + ').';
+  if (a.paused === true) return head + ' The project is paused or archived, so quiet is expected.';
+  if (a.quiet === true) return head + ' That is past the ' + days(n(a.quietDays)) + ' Kosmos counts as normal quiet: worth telling your person, once.';
+  if (a.kind === 'made') return head + ' Nothing has been posted or moved since it was made; quiet is normal until ' + days(n(a.quietDays)) + '.';
+  return head + ' Quiet is normal until ' + days(n(a.quietDays)) + '.';
+}
+
 /** `kosmos project show <id>`, as lines of text. */
 function renderShow(payload) {
   const p = payload && payload.project;
@@ -711,6 +757,8 @@ function renderShow(payload) {
       : (p.doneSection === false ? 'BRIEF.md has no Done section (a "## Done looks like" heading) to read' : 'not filled in yet')));
   }
   out.push('Tasks: ' + taskLine(p.tasks) + (p.tasks && p.tasks.total ? '. List them: kosmos task list ' + one(p.id) : ''));
+  const act = activityLine(p.activity);   // kosmos#8996; an older board sends no activity, and says nothing here
+  if (act) out.push(act);
   /* #6994: the records, and the verb, where an agent looks at a project (teaching it in the operating block is #6995;
      the boot file is at its size canary). An older board sends no `records`, and says nothing here. */
   const rec = p.records;
@@ -739,4 +787,5 @@ function renderShow(payload) {
   return out;
 }
 
-module.exports = { summaryFreshness, idleExcused, workExcused, familyOf, overviewOf, listOf, renderList, renderShow, one, SUMMARY_RHYTHM_HOURS, WORKING_WALL_CAP_HOURS, WAKE_GRACE_MS };
+module.exports = { summaryFreshness, idleExcused, workExcused, familyOf, overviewOf, listOf, renderList, renderShow, one, SUMMARY_RHYTHM_HOURS, WORKING_WALL_CAP_HOURS, WAKE_GRACE_MS,
+  activityOf, activityLine, QUIET_DAYS };   // kosmos#8996
