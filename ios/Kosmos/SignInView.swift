@@ -5,8 +5,8 @@ import Combine
 
 // kosmos#7042 (iPhone slice 5a, #6838): the native sign-in. Email, the code, the second step, then "Allow this iPhone on
 // your Mac" with the match code until the Mac answers. The steps are SignIn.next (SignInLogic.swift, proven in
-// ios/LogicTests). What it cannot do (a company sign-in before iOS 17.4, a device key it cannot keep, a texted second
-// step to set up) goes to the web sign-in page (`useWeb`) with one line saying why.
+// ios/LogicTests). What it cannot do (a company sign-in before iOS 17.4, a device key it cannot keep) goes to the web
+// sign-in page (`useWeb`) with one line saying why. A texted second step is set up here since kosmos#8959.
 @MainActor
 final class SignInModel: ObservableObject {
     // kosmos#8246: the Mac saying no is a refusal too (it sets no error line). Counted when the step becomes
@@ -20,6 +20,8 @@ final class SignInModel: ObservableObject {
     /// cannot be changed, so no "Use a different email": that would sign into another account mid-action.
     @Published var fixedEmail = false
     @Published var code = ""
+    /// kosmos#8959: the mobile number typed for text-message setup.
+    @Published var phone = ""
     // kosmos#8246: every message written into the error line counts (refusals, an unreachable service, and the person's
     // own input checks), the same words twice included (a value watch would miss the second); the person cancelling the
     // passkey prompt themselves does not.
@@ -53,7 +55,7 @@ final class SignInModel: ObservableObject {
     init(client: SignInClient?) {
         self.client = client
         #if DEBUG
-        // The sample screens (a Debug build only): KOSMOS_SAMPLE_SIGNIN=email|code|second|sms|allow|nomac|denied|web|error|company|companyerror|passkey|passkeyerror|review|password.
+        // The sample screens (a Debug build only): KOSMOS_SAMPLE_SIGNIN=email|code|second|sms|allow|nomac|denied|web|error|company|companyerror|passkey|passkeyerror|review|password|setup|setupconfirm|setupphone|setuptext|setuptexterror.
         if let sample = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIGNIN"] { show(sample: sample); return }
         #endif
     }
@@ -196,6 +198,7 @@ final class SignInModel: ObservableObject {
                 guard mine == attempt else { return }
                 switch enrolled {
                 case .totp(let link, let secret): code = ""; step = .setupConfirm(token: token, otpauth: link, secret: secret)
+                case .sms: error = "That did not work. Try again."   // not asked for: an authenticator was
                 case .refused(let sentence):
                     // As confirm: a setup Kosmos+ says to start again (the token ran out) goes back to the email.
                     if SignIn.startsOver(sentence) { step = .email }
@@ -205,8 +208,55 @@ final class SignInModel: ObservableObject {
         }
     }
 
+    // kosmos#8959: text messages as the second step, on the phone (it used to continue on the web sign-in page).
+    func useTexts() {
+        guard !busy, case .setup(let token, true) = step else { return }
+        error = nil; step = .setupPhone(token: token)
+    }
+
+    /// Back from the number screen to the choice, where the authenticator app is offered.
+    func useAuthenticator() {
+        guard !busy, case .setupPhone(let token) = step else { return }
+        error = nil; step = .setup(token: token, sms: true)
+    }
+
+    func sendText() {
+        guard !busy, case .setupPhone(let token) = step, let client else { return }
+        guard phone.contains(where: \.isNumber) else { error = "Type your mobile number first."; return }
+        let number = phone
+        attempt += 1; let mine = attempt
+        busy = true; error = nil
+        Task {
+            defer { if mine == attempt { busy = false } }
+            do {
+                let enrolled = try await client.enrol(token: token, phone: number)
+                guard mine == attempt else { return }
+                switch enrolled {
+                case .sms(let sentTo): code = ""; step = .setupTextConfirm(token: token, sentTo: sentTo)
+                case .totp: error = "That did not work. Try again."   // not asked for: a text was
+                case .refused(let sentence):
+                    // As the authenticator: a setup Kosmos+ says to start again goes back to the email. Any other
+                    // refusal (no country code, texts not available here, too many) stays, with its sentence.
+                    if SignIn.startsOver(sentence) { step = .email }
+                    error = sentence
+                }
+            } catch { if mine == attempt { fail(error) } }
+        }
+    }
+
+    /// A new number: back to the number screen, the typed one kept to correct.
+    func changeNumber() {
+        guard !busy, case .setupTextConfirm(let token, _) = step else { return }
+        code = ""; error = nil; step = .setupPhone(token: token)
+    }
+
     func confirmSetup() {
-        guard !busy, case .setupConfirm(let token, _, _) = step else { return }
+        let token: String
+        switch step {
+        case .setupConfirm(let t, _, _), .setupTextConfirm(let t, _): token = t
+        default: return
+        }
+        guard !busy else { return }
         guard let typed = SignIn.code(code) else { error = "The code is six digits."; return }
         guard let client else { return }
         attempt += 1; let mine = attempt
@@ -220,6 +270,7 @@ final class SignInModel: ObservableObject {
                 if case .refused(let message, false) = answer {
                     // Kosmos+ says to start again (the setup expired): back to the email, with its sentence.
                     if SignIn.startsOver(message) { code = ""; step = .email }
+                    if case .setupTextConfirm = step { error = message ?? "That code is not right or has expired."; return }
                     error = message ?? "That code is not what the app shows right now."
                     return
                 }
@@ -428,6 +479,9 @@ final class SignInModel: ObservableObject {
         case "error": step = .code(email: email); code = "48291"; error = "That code is not right or has expired."
         // kosmos#7046: setting up a required second step.
         case "setup": step = .setup(token: "t", sms: true)
+        case "setupphone": step = .setupPhone(token: "t"); phone = "+1 214 555 0123"
+        case "setuptext": step = .setupTextConfirm(token: "t", sentTo: "+1 *** *** 0123")
+        case "setuptexterror": step = .setupPhone(token: "t"); phone = "214 555"; error = "The number needs the country code, like +12145551234."
         case "setupconfirm": step = .setupConfirm(token: "t", otpauth: "otpauth://totp/Kosmos:ada%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Kosmos", secret: "JBSWY3DPEHPK3PXP")
         // kosmos#7045: the code step with the company's own sign-in offered beside it, and a company refusal.
         case "company": step = .code(email: email); companyURL = URL(string: "https://login.kosmosplus.com/v1/sso/begin?email=x")
@@ -573,7 +627,7 @@ struct SignInView: View {
             errorLine
             primary("Set up an authenticator app", action: model.startSetup)
             VStack(spacing: 0) {
-                if sms { link("Use text messages instead", action: useWeb) }
+                if sms { link("Use text messages instead", action: model.useTexts) }
                 if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
             }
         case .setupConfirm(_, let otpauth, let secret):
@@ -598,6 +652,31 @@ struct SignInView: View {
             errorLine
             primary("Confirm", action: model.confirmSetup)
             if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
+        case .setupPhone:
+            // kosmos#8959: text messages as the second step, set up here rather than on the web sign-in page.
+            title("Your mobile number")
+            line(SignIn.phoneWords)
+            TextField("Mobile number", text: $model.phone)
+                .textContentType(.telephoneNumber).keyboardType(.phonePad)
+                .focused($focused).onSubmit(model.sendText).field()
+                .onChange(of: model.phone) { _ in model.error = nil }
+                .accessibilityIdentifier("signin-phone")
+            errorLine
+            primary("Text me a code", action: model.sendText)
+            VStack(spacing: 0) {
+                link("Use an authenticator app instead", action: model.useAuthenticator)
+                if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
+            }
+        case .setupTextConfirm(_, let sentTo):
+            title("Type the code")
+            line(SignIn.textedWords(sentTo: sentTo))
+            codeField(submit: model.confirmSetup)
+            errorLine
+            primary("Confirm", action: model.confirmSetup)
+            VStack(spacing: 0) {
+                link("Use a different number", action: model.changeNumber)
+                if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
+            }
         case .done:
             HStack(spacing: 8) { SweepDots(scales: false); Text("Signed in").font(.footnote).foregroundColor(Palette.secondary) }
         }

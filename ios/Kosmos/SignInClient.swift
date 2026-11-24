@@ -242,8 +242,10 @@ final class SignInClient {
     }
 
     // kosmos#7046: setting up a required second step, with the enrol-only token verify gave (never a session).
-    func enrol(token: String) async throws -> SignIn.Enrolled {
-        let (status, json) = try await post(SignIn.enrolPath, SignIn.enrolBody(), bearer: token)
+    // kosmos#8959: `phone` set enrols text messages to that number; nil enrols an authenticator app.
+    func enrol(token: String, phone: String? = nil) async throws -> SignIn.Enrolled {
+        let body = phone.map { SignIn.enrolBody(phone: $0) } ?? SignIn.enrolBody()
+        let (status, json) = try await post(SignIn.enrolPath, body, bearer: token)
         return SignIn.enrolled(status: status, json: json)
     }
 
