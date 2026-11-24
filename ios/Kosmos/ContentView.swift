@@ -865,8 +865,9 @@ final class BoardWeb: ObservableObject {
     /// whose start removes it (review round 8). Called after a sign-out: from the native sign-in (backing out), and
     /// from Settings' account screen (kosmos#8959 slice B1a). The page is reloaded either way. Its loss is not felt because
     /// nobody is signed in to use it. Also called when a second step set up on the account screen renewed the session
-    /// (kosmos#8959 slice B1b): the old one is refused by Kosmos+ from then on, and the reloaded page starts with the
-    /// fresh one; what the hidden page was showing is lost, a cost the person meets only by going back to it. Recorded gap: in a store-shots build (KOSMOS_STORE_SHOTS) the native sign-in does not
+    /// (kosmos#8959 slice B1b): Kosmos+ refuses the old one from then on. The reloaded page takes the keychain's session,
+    /// so when the keychain could not save the fresh one (the registrar then holds it for this launch only) the page
+    /// starts signed out, as it does after any sign-in the keychain refused. What the hidden page was showing is lost. Recorded gap: in a store-shots build (KOSMOS_STORE_SHOTS) the native sign-in does not
     /// come up after a Settings sign-out, so the reloaded page shows.
     func forget(_ token: String) {
         forgotten.append(token)

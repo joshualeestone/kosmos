@@ -205,8 +205,10 @@ struct AccountView: View {
             if let secondNote {
                 Text(secondNote).font(.footnote).foregroundColor(Palette.dangerWord)
             } else if case .known(let status) = second {
-                Text(status.enrolled != nil ? AccountSecond.resetWords : (status.smsAvailable ? "" : AccountSecond.noTextsWords))
-                    .font(.footnote).foregroundColor(Palette.secondary)
+                if status.enrolled != nil || !status.smsAvailable {
+                    Text(status.enrolled != nil ? AccountSecond.resetWords : AccountSecond.noTextsWords)
+                        .font(.footnote).foregroundColor(Palette.secondary)
+                }
             }
         }
     }
@@ -557,9 +559,12 @@ struct AccountView: View {
             secondNote = AccountSecond.signInAgainWords(kind: kind)
         case .refused(let why):
             setupNote = why == AccountSecond.codeRefused ? SignIn.setupCodeRefused(texted: texted) : why
-        case .signedOut:
+        case .startOver(let why):
             closeSetup(force: true)
-            secondNote = "Kosmos+ no longer takes this sign-in. Sign out, then sign in again."
+            secondNote = why
+        case .signedOut(let why):
+            closeSetup(force: true)
+            secondNote = why
         }
     }
 
