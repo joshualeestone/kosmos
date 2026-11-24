@@ -447,7 +447,7 @@ final class TaskPageModel: ObservableObject {
         // Said only while the choice shows what was saved: a read showing someone else (changed elsewhere in between)
         // would otherwise put "Saved." under that other name.
         if (reviewerShown ?? self.page?.repeatReviewer) == want {
-            reviewerSay = Board.repeatSaved
+            reviewerSay = Board.repeatSaved   // the same word on purpose: the board says "Saved." for both
             reviewerSavedAs = want
         }
         reviewerSaving = nil

@@ -9,8 +9,9 @@ Stacked on B3 (taskrepeat-8958); rebased onto main once B1, B2 and B3 merge.
   the project's agents in the project's order, and a stored reviewer who has left the project, listed with
   " (left the project)" so the choice never shows something that is not stored. Saved on change, as the board's.
 - Rejected: a Save button (the board saves on change; two different save gestures for one section would confuse).
-- Weakest premise: the names come from the projects read's members (the board uses the board-wide roster), so an agent
-  with no name on the project shows its roster name or session name, which can differ from the board's label.
+- Weakest premise: the names come from the projects read's members first (the board's tkPaintReviewer uses only the
+  board-wide roster name), so one agent can have different labels on the two surfaces whenever its project name and
+  its roster name differ, in either direction.
 
 ## Change
 - TaskPageLogic: TaskPage.repeatReviewer ("none", "me" or a session name, the board's tkReviewerOf) and memberOrder;
@@ -29,7 +30,9 @@ Stacked on B3 (taskrepeat-8958); rebased onto main once B1, B2 and B3 merge.
   fake Mac can now hold every request (queueing) and answer them in any order, and the test is red under counting.
 - "Saved." is said only while the choice shows what was saved, never under a reviewer changed elsewhere meanwhile.
 - While the saved reviewer shows, the save compares against it, so choosing the page's stale reviewer back is sent.
-- The visible "If missed, tell" is hidden from VoiceOver; the menu's label says it.
+- The visible "If missed, tell" is hidden from VoiceOver; the menu's label says it, and both are Voice Control input
+  labels. The menu has a 44 pt frame and a content shape; whether the menu takes touches across all of it is not
+  measured.
 
 ## Tests
 - ios/LogicTests/taskpage: B3b section and b3bModelTests, 318/318 with B3's. Every guard and the shown-after-a-failed-read
