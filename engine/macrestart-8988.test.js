@@ -57,6 +57,9 @@ test('#8988 the restart is the last start, within the window after the death', (
   assert.equal(read(T0 + ' status 7\n', 'start ' + (T0 + 40) + '\nend ' + (T0 + 500) + '\nstart ' + (T0 + 900) + '\n'), null,
     'a later start (a person\'s restart) is not that death\'s restart');
   assert.equal(read(T0 + ' status 7\n', 'start ' + (T0 - 30) + '\n'), null, 'the death came after the last start: no restart yet');
+  const start = 'start ' + (T0 + 40) + '\n';
+  assert.equal(read(T0 + ' signal term\n', 'kosmos ' + (T0 - 5) + '\n' + start), null, 'Kosmos ended it (a restart, a switch): not a crash');
+  assert.ok(read(T0 + ' signal term\n', 'kosmos ' + (T0 - 3600) + '\n' + start), 'CONTROL: a Kosmos restart an hour before is another event');
   assert.equal(read(undefined, 'start ' + (T0 + 40) + '\n'), null, 'CONTROL: no death recorded, no line');
   assert.equal(read(T0 + ' status 0\n', 'start ' + (T0 + 40) + '\n'), null, 'exit 0 is Claude closed on purpose (/exit), not a crash');
   assert.equal(read(T0 + ' status 7\n', undefined), null, 'no run file, no line');

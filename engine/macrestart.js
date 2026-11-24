@@ -18,6 +18,9 @@ const crashloop = require('./crashloop');
 
 /* launchd's ThrottleInterval (30 s) plus the supervisor's 10 s wait poll and its start-up, with room to spare. */
 const RESTART_WINDOW_MS = 5 * 60 * 1000;
+/* A restart, switch or change Kosmos made itself stamps the run file ("kosmos <epoch>", crashloop.noteDeliberate) when
+   it begins, just before it ends the process. A death this soon after such a stamp is Kosmos's, not a crash. */
+const DELIBERATE_BEFORE_MS = 60 * 1000;
 
 function diedFileFor(sessionName) { return path.join(crashloop.dir(), store.safeKey(sessionName) + '.died'); }
 
@@ -31,11 +34,6 @@ function parseDied(text) {
   return { atMs, code: null, signal: name.startsWith('SIG') ? name : 'SIG' + name };
 }
 
-/** The ms of the last "start" line, or null. */
-function lastStartMs(runText) {
-  const runs = crashloop.parse(runText);
-  return runs.length ? runs[runs.length - 1].start : null;
-}
 
 /** Did a turn finish at or after `sinceMs`? The report hook's Stop, as selfreport.history marks it (turn 'end', its
     `at` in ms). null when the record could not be read. */
@@ -59,13 +57,15 @@ function restartedFor(sessionName, opts) {
     try { died = parseDied(read(diedFileFor(sessionName))); } catch { return null; }
     /* An exit with code 0 is Claude closing on purpose (a person typing /exit): not a crash to explain. */
     if (!died || died.code === 0) return null;
-    let start;
-    try { start = lastStartMs(read(crashloop.fileFor(sessionName))); } catch { return null; }
+    let runs;
+    try { runs = crashloop.parse(read(crashloop.fileFor(sessionName))); } catch { return null; }
+    const start = runs.length ? runs[runs.length - 1].start : null;
     if (start === null || start < died.atMs || start - died.atMs > RESTART_WINDOW_MS) return null;
+    if ((runs.deliberate || []).some((d) => d >= died.atMs - DELIBERATE_BEFORE_MS && d <= start)) return null;
     if (finishedSince(sessionName, start, history) !== false) return null;
     const why = require('./win32streamstate').restartWhy({ code: died.code, signal: died.signal });
     return { at: new Date(start).toISOString(), why };
   } catch { return null; }
 }
 
-module.exports = { RESTART_WINDOW_MS, diedFileFor, parseDied, lastStartMs, finishedSince, restartedFor };
+module.exports = { RESTART_WINDOW_MS, DELIBERATE_BEFORE_MS, diedFileFor, parseDied, finishedSince, restartedFor };
