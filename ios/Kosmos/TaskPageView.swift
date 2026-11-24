@@ -559,7 +559,8 @@ struct TaskPageView: View {
 
     // kosmos#8958 slice B3b: the board's "If missed, tell" (tk-review-who), under the repeat line of a task whose rule is
     // stored: Nobody (nothing is said), Me (the task waits in Needs Your Decision), or an agent on the project (one line
-    // in its session), once per missed run. Saved on change, as the board's; while it is out, the choice sent shows.
+    // in its session), once per missed run. Saved on change, as the board's; while it is out, the choice sent shows, and
+    // after a save whose read failed, the choice saved (model.reviewerShown).
     private func reviewerRow(_ p: Board.TaskPage) -> some View {
         let options = Board.reviewerOptions(p, roster: roster)
         let shown = model.reviewerSaving ?? model.reviewerShown ?? p.repeatReviewer
