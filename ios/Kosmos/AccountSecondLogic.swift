@@ -135,6 +135,16 @@ enum AccountSecond {
         case signedOut(String)
     }
 
+    // MARK: - Keeping a renewed session (PushNotificationManager.sessionRenewed), here so the suite can run it
+
+    /// Whether a fresh session from confirm replaces `held`: only a real, different session, and only while `old` (the
+    /// one confirm was sent with) is still the one held. A sign-in that changed meanwhile is left alone.
+    static func renews(old: String, fresh: String, held: String?) -> Bool { !fresh.isEmpty && fresh != old && held == old }
+
+    /// Whether what other parts keep under the old session moves (BoardClient reads the keychain): only once the keychain
+    /// holds the fresh one. When it refused it, BoardClient still reads the old session, so nothing is moved under it.
+    static func moves(fresh: String, keychainNow: String?) -> Bool { keychainNow == fresh }
+
     static func signInAgainWords(kind: String) -> String {
         onTitle + ". " + onWords(kind: kind) + " Sign in again on this iPhone to keep going."
     }

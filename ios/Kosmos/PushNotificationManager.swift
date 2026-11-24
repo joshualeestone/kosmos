@@ -219,9 +219,9 @@ final class PushNotificationManager: NSObject, ObservableObject {
     /// after any sign-in the keychain refused. Says whether it kept the fresh session.
     @discardableResult
     func sessionRenewed(from old: String, to fresh: String, moving: (String, String) -> Void = { _, _ in }) -> Bool {
-        guard !fresh.isEmpty, fresh != old, currentSession == old else { return false }
+        guard AccountSecond.renews(old: old, fresh: fresh, held: currentSession) else { return false }
         registrar.didReceive(.signedIn(fresh))
-        if SessionKeychain.live.load() == fresh { moving(old, fresh) }
+        if AccountSecond.moves(fresh: fresh, keychainNow: SessionKeychain.live.load()) { moving(old, fresh) }
         return true
     }
 
