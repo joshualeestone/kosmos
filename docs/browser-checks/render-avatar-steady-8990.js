@@ -12,6 +12,9 @@
  *      rebuilt" would be true of a page that never polled.
  *   2. A REAL CHANGE STILL PAINTS: one agent's session ends, and within a few polls both the grid and the rail stop
  *      showing it as running. A memo that never wrote again would pass arm 1 and fail here.
+ *   3. A NEW PICTURE IS DRAWN (run before arm 2): an uploaded avatar replaces the avatar element in the grid and the
+ *      rail. The avatar URLs carry the picture's version (?v=), so a new picture is a change of markup (#2698's rule).
+ *   4. A FAILED PICTURE IS ASKED FOR AGAIN: with alpha's avatar answering 500, later polls request it again.
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-avatar-steady-8990.js
  * Self-contained: a throwaway board (sandboxed data, fake tmux) on a free port, killed at the end.
@@ -104,6 +107,41 @@ const say = (n, cond, note) => {
     say('steady: no avatar node rebuilt in the grid', steady.grid === 0, steady.grid + ' added or removed');
     say('steady: no avatar node rebuilt in the rail', steady.alist === 0, steady.alist + ' added or removed');
     say('steady: no avatar fetched again', avatarFetches.length === 0, avatarFetches.length + ' fetches ' + avatarFetches.slice(0, 4).join(' '));
+
+    // Arm 3 (run before arm 2, which ends beta's session): a NEW picture for alpha reaches the grid and the rail. The
+    // avatar URL must change with the picture's version, or the memo sees identical markup and keeps the old picture.
+    await p.evaluate(() => {
+      const isAv = (n) => /\/api\/agent\/alpha\/avatar(\?|$)/.test(n.getAttribute('src') || n.getAttribute('href') || '');
+      window.__oldAlpha = [...document.querySelectorAll('#grid image, #grid img, #alist img')].filter(isAv);
+    });
+    const put = await p.evaluate(async () => {
+      const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
+      const r = await fetch('/api/agent/alpha/avatar', { method: 'PUT', headers: { 'content-type': 'image/png' }, body: png });
+      return r.status;
+    });
+    let pic = null;
+    for (let i = 0; i < 40 && !(pic && pic.grid && pic.alist); i++) {
+      await p.waitForTimeout(500);
+      pic = await p.evaluate(() => {
+        const isAv = (n) => /\/api\/agent\/alpha\/avatar(\?|$)/.test(n.getAttribute('src') || n.getAttribute('href') || '');
+        const fresh = (sel) => { const now = [...document.querySelectorAll(sel)].filter(isAv); return now.length > 0 && now.every((n) => !window.__oldAlpha.includes(n)); };
+        return { grid: fresh('#grid image, #grid img'), alist: fresh('#alist img'), old: window.__oldAlpha.length };
+      });
+    }
+    say('fixture: the new picture was saved (and alpha was drawn in both places before)', put >= 200 && put < 300 && pic && pic.old === 2, 'PUT ' + put + ' ' + JSON.stringify(pic));
+    say('a new picture is drawn in the grid (its avatar element is replaced)', !!(pic && pic.grid), JSON.stringify(pic));
+    say('a new picture is drawn in the rail (its avatar element is replaced)', !!(pic && pic.alist), JSON.stringify(pic));
+
+    // Arm 4: a picture that FAILS to load is tried again at the next poll (rebuilding every poll used to do that). Every
+    // alpha avatar request now answers 500; a new picture changes the markup, both places load it and fail, and then
+    // only the retry can ask again. Without it this window sees exactly two requests (one per place).
+    const failed = [];
+    await p.route('**/api/agent/alpha/avatar*', (r) => { if (r.request().method() === 'GET') { failed.push(Date.now()); r.fulfill({ status: 500, body: '' }); } else r.continue(); });
+    const put2 = await p.evaluate(async () => (await fetch('/api/agent/alpha/avatar', { method: 'PUT', headers: { 'content-type': 'image/png' },
+      body: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 2]) })).status);
+    await p.waitForTimeout(14000);
+    await p.unroute('**/api/agent/alpha/avatar*');
+    say('a failed avatar is asked for again at later polls', put2 >= 200 && put2 < 300 && failed.length >= 4, 'PUT ' + put2 + ', ' + failed.length + ' failed requests in 14 s');
 
     // Arm 2: a real change still paints both. First, beta is drawn as running in both, so the arm can fail.
     const running = await p.evaluate(() => {

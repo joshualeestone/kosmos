@@ -24555,7 +24555,7 @@ function face(a) {
   const clip = 'clip-' + a.sessionName.replace(/[^A-Za-z0-9_-]/g, '_');
   return a.hasAvatar
     ? `<defs><clipPath id="${clip}"><circle cx="36" cy="36" r="23"/></clipPath></defs>
-       <image href="/api/agent/${encodeURIComponent(a.sessionName)}/avatar"
+       <image href="/api/agent/${encodeURIComponent(a.sessionName)}/avatar?v=${a.avatarVer || 0}"
               x="13" y="13" width="46" height="46" preserveAspectRatio="xMidYMid slice"
               clip-path="url(#${clip})"/>`
     /* style="", not a fill attribute: an SVG presentation attribute sits
@@ -24937,7 +24937,7 @@ function lrow(a) {
        the card and the detail panel, which have the room the row does not. */
     if (a.needsTrust === true) {
       const tav = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
-        ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
+        ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar?v=${a.avatarVer || 0}" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
       return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
       <div class="lav">${tav}<span class="pres lpres unsure" aria-hidden="true"></span></div>${dmBadge(a)}
@@ -24950,7 +24950,7 @@ function lrow(a) {
     </div>`;
     }
     const off = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
-      ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
+      ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar?v=${a.avatarVer || 0}" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
     return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
       <div class="lav">${off}<span class="pres lpres off" aria-hidden="true"></span></div>${dmBadge(a)}
@@ -24967,7 +24967,7 @@ function lrow(a) {
   const pct = pctOf(a.context);
   const band = memBand(pct);
   const av = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
-    ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
+    ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar?v=${a.avatarVer || 0}" alt="">`
     : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
   /* ⚠️ NEVER AN EMPTY SLOT. This once rendered a dashed track beside a BLANK percent, which reads as "0% used,
      room to spare", the inverse of the truth. The list is half the board (the layout is user-selectable), so the
@@ -27696,11 +27696,11 @@ function paintRailPjNotice() {
 function paintAgentList() {
   if (typeof keepStarFocus === 'function') keepStarFocus(paintAgentListNow); else paintAgentListNow();
 }
-/* kosmos#8990: the markup #alist last received from this function, so a poll that changes nothing writes nothing.
-   Rewriting identical rows rebuilt every avatar <img>, and agent avatars are served no-store, so a project room with the
-   rail beside it fetched each member's picture again every poll (54 fetches in 130 s for two agents). The same
-   compare as MY_AGENTS_HTML just below, without its scroll and focus keeping (a focused star is kept by keepStarFocus). Compared against the string we last WROTE, never innerHTML, which the browser reserializes.
-   null means "not ours": the empty-board branch builds the list in pieces and clears it, so the next paint always writes. */
+/* kosmos#8990: the markup this function last wrote into #alist, so a poll that changes nothing writes nothing.
+   Rewriting identical rows rebuilt every avatar <img>, and agent avatars are served no-store, so each rebuild fetched
+   the picture again. Compared against the string last WRITTEN, never innerHTML, which the browser reserializes (the
+   compare MY_AGENTS_HTML uses). null means "write next time": the empty-board branch builds the list in pieces, and
+   the failed-poll path and a failed avatar load write or need a write behind this memo, so they clear it. */
 let ALIST_HTML = null;
 function paintAgentListNow() {
   const alist = document.getElementById('alist');
@@ -42127,8 +42127,8 @@ function paintOrg() {
       /* #2698: `?v=` the avatar version so a changed picture changes this markup.
          Without it the URL is byte-identical after an update, the repaint guard
          below (html === ORG_HTML) skips, and this node's <img> is never recreated,
-         so the org chart keeps the OLD picture while grid and list (which rebuild
-         their imgs each poll) update. The avatar route is no-store, so a recreated
+         so the org chart keeps the OLD picture. The grid and the list follow the
+         same rule since kosmos#8990, which made them skip identical markup too. The avatar route is no-store, so a recreated
          <img> refetches the current image; this only has to make the markup differ. */
       ? '<img src="/api/agent/' + encodeURIComponent(a.sessionName) + '/avatar?v=' + (a.avatarVer || 0) + '" alt="" draggable="false">'
       /* ⚠️ WRAPPED, so the rule above has an element to reach. Bare text in the
@@ -42681,6 +42681,16 @@ function setGridHtml(html) {
   GRID_HTML = html;
   grid.innerHTML = html;
 }
+/* kosmos#8990: an agent avatar that failed to load is tried again at the next poll. Rebuilding every poll used to do
+   that by accident; with the memos above, a picture that failed once would stay broken until the card changed. So a
+   failed avatar in the grid or the rail forgets that container's memo. Captured, because a load error does not bubble. */
+document.addEventListener('error', (e) => {
+  const t = e.target;
+  if (!t || typeof t.getAttribute !== 'function' || typeof t.closest !== 'function') return;
+  if (!/^\/api\/agent\/[^/]+\/avatar(\?|$)/.test(t.getAttribute('src') || t.getAttribute('href') || '')) return;
+  if (t.closest('#grid')) GRID_HTML = null;
+  else if (t.closest('#alist')) ALIST_HTML = null;
+}, true);
 /* The grid and the list in the chosen order, now. Shared by the sort control, a star and the stars' reload, so they
    cannot disagree about what "the board's order" is. A focused star keeps its focus (keepStarFocus). */
 function repaintAgentOrder(follow) {
@@ -43982,7 +43992,7 @@ function busyRow(fresh, name, opts) {
   const who = name || (fresh && fresh.name) || 'This agent';
   const face = (fresh && fresh.hasAvatar)
     ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/'
-      + encodeURIComponent(fresh.sessionName) + '/avatar" alt=""></div>'
+      + encodeURIComponent(fresh.sessionName) + '/avatar?v=' + (fresh.avatarVer || 0) + '" alt=""></div>'
     : '<div class="msg-av" aria-hidden="true" style="background:' + discTint(who)
       + ';color:' + discInk(who) + '">' + esc(initials(who)) + '</div>';
   /**
@@ -44165,7 +44175,7 @@ function paintBusy(fresh, name) {
      every poll anyway. Key on the inputs busyRow actually varies on instead, so
      an unchanged working agent keeps ONE continuous animation. */
   const busyKey = [
-    fresh.sessionName, fresh.state, (name || fresh.name || ''), fresh.hasAvatar ? '1' : '0',
+    fresh.sessionName, fresh.state, (name || fresh.name || ''), fresh.hasAvatar ? '1' : '0', String(fresh.avatarVer || 0),
     /* #6716: the line no longer quotes the screen, so nothing in it changes with the evidence and it is not keyed on.
        (Never for working either: a working agent's evidence changes every poll, and keying on it would rebuild the
        .act dots each poll, the exact reset this key exists to stop.) */
