@@ -15,7 +15,7 @@ final class SignInModel: ObservableObject {
     @Published var step: SignIn.Step = .email {
         didSet {
             if step == .denied(asking: false), oldValue != .denied(asking: false) { failures += 1 }
-            if step == .email { phone = "" }   // kosmos#8959: a number typed for one account is not offered to the next
+            if step == .email { phone = "" }   // kosmos#8959
         }
     }
     @Published var email = ""
@@ -248,9 +248,10 @@ final class SignInModel: ObservableObject {
     }
 
     func confirmSetup() {
-        let token: String
+        let token: String, texted: Bool
         switch step {
-        case .setupConfirm(let t, _, _), .setupTextConfirm(let t, _): token = t
+        case .setupConfirm(let t, _, _): token = t; texted = false
+        case .setupTextConfirm(let t, _): token = t; texted = true
         default: return
         }
         guard !busy else { return }
@@ -267,8 +268,7 @@ final class SignInModel: ObservableObject {
                 if case .refused(let message, false) = answer {
                     // Kosmos+ says to start again (the setup expired): back to the email, with its sentence.
                     if SignIn.startsOver(message) { code = ""; step = .email }
-                    if case .setupTextConfirm = step { error = message ?? SignIn.setupCodeRefused(texted: true); return }
-                    error = message ?? SignIn.setupCodeRefused(texted: false)
+                    error = message ?? SignIn.setupCodeRefused(texted: texted)
                     return
                 }
                 take(answer, email: email)

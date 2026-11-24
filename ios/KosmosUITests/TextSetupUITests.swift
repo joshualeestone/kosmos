@@ -42,8 +42,7 @@ final class TextSetupUITests: XCTestCase {
         app.terminate()
         app = launch("setuptexterror")
         let refusal = "Error: The number needs the country code, like +12145551234."
-        XCTAssertTrue(app.staticTexts[refusal].waitForExistence(timeout: 10) || app.otherElements[refusal].exists,
-                      "Kosmos+'s refusal is not shown under the number")
+        XCTAssertTrue(app.descendants(matching: .any)[refusal].waitForExistence(timeout: 10), "Kosmos+'s refusal is not shown under the number")
         keep(app, "setup-text-error")
     }
 }
