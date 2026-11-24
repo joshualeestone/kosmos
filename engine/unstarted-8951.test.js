@@ -342,6 +342,11 @@ test('#8951 review 3: a process that ends long after the last write (a Restart) 
   r.pub.stopped(); r.pub.started(7001, 'sid-1');                     // the person presses Restart
   assert.deepEqual(r.last().unstarted, { since: new Date(T0).toISOString(), count: 2 }, 'not lost');
   assert.deepEqual(r.told, [{ since: new Date(T0).toISOString(), count: 2, lost: false }]);
+  r.clock.t += HOLD;
+  r.pub.event(init);                                                  // review 4: the new process's own start, no write
+  assert.ok(r.last().unstarted, 'carried, it still needs a later write: no turn on the new process can be those messages');
+  r.pub.wrote(); r.pub.event(init);
+  assert.equal(r.last().unstarted, undefined, 'CONTROL: a later write\'s turn ends it');
   const q = recording();
   q.pub.started(6368, 'sid-1');
   q.pub.wrote();
@@ -384,8 +389,36 @@ test('#8951 review 3: once the report clears from the card, its push is no longe
   ds.unstartedGone([withStall], now);
   const later = now + 26 * MIN;
   assert.deepEqual(ds.acksDue([], later), [], 'CONTROL: still on the card, the push stays open');
-  assert.deepEqual(ds.unstartedGone([{ ...board.card('homer'), deliveryStall: null }], later), ['homer']);
+  // Review 4: a card restarting, stopped, missing or now showing a stuck step says nothing about the report.
+  for (const [why, cards] of [['restarting', [{ ...board.card('homer'), state: 'restarting', deliveryStall: null }]], ['stopped', [{ ...board.card('homer'), state: 'stopped', deliveryStall: null }]],
+    ['missing', []], ['a stuck step', [{ ...board.card('homer'), state: 'working', deliveryStall: { since: new Date(now).toISOString(), count: 1, lastWhy: 'turn', step: 'x' } }]]]) {
+    assert.deepEqual(ds.unstartedGone(cards, later), [], why + ': not cleared');
+    assert.deepEqual(ds.acksDue([], later), [], why + ': the push stays open');
+  }
+  assert.deepEqual(ds.unstartedGone([{ ...board.card('homer'), state: 'idle', deliveryStall: null }], later), ['homer']);
   const acks = ds.acksDue([], later);
   assert.equal(acks.length, 1, 'acked once the report cleared');
   assert.equal(acks[0].id, sent[0].id);
+});
+
+test('#8951 review 4: a fresh loss added to an old report gets a fresh hold', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.fire();                          // a deadline report at T0
+  r.clock.t += 10 * MIN;                            // long past its hold
+  r.pub.wrote(); r.pub.stopped(); r.pub.started(7001, 'sid-1');   // then a message the process stops on
+  r.pub.wrote(); r.pub.event(init);                 // a later write opens a turn at once
+  assert.ok(r.last().unstarted, 'held: the fresh loss has not been shown yet');
+  r.clock.t += HOLD;
+  r.fire();
+  assert.equal(r.last().unstarted, undefined);
+});
+
+test('#8951: the minute sweep takes a cleared report off the open pushes BEFORE it acks them', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const gone = src.indexOf('ds.unstartedGone(r)');
+  const acks = src.indexOf('ds.acksDue(stallEnds)');
+  assert.ok(gone > 0 && acks > 0, 'both calls are in the sweep');
+  assert.ok(gone < acks, 'unstartedGone runs first, so the same sweep can ack');
+  assert.ok(acks - gone < 400, 'and in the same sweep, a few lines apart');
 });

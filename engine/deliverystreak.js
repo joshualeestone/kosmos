@@ -532,11 +532,17 @@ function unstartedGone(cards, now = Date.now()) {
   const gone = [];
   try {
     const showing = new Set();
+    /* Review 4: cleared only when the card is on the board, reads a state the stall is shown in (idle or working), and
+       carries no turn stall at all. A card restarting, stopped or missing for a sweep (the Restart its own advice names)
+       says nothing about the report, and one now showing #7368's stuck step still has a push worth waiting on. */
+    const clear = new Set();
     for (const c of cards || []) {
-      if (c && typeof c.sessionName === 'string' && c.deliveryStall && c.deliveryStall.unstarted === true) showing.add(c.sessionName);
+      if (!c || typeof c.sessionName !== 'string') continue;
+      if (c.deliveryStall && c.deliveryStall.unstarted === true) showing.add(c.sessionName);
+      else if ((c.state === 'idle' || c.state === 'working') && !(c.deliveryStall && c.deliveryStall.lastWhy === 'turn')) clear.add(c.sessionName);
     }
     for (const s of [...unstartedShown]) {
-      if (showing.has(s)) continue;
+      if (showing.has(s) || !clear.has(s)) continue;
       unstartedShown.delete(s);
       gone.push(s);
       for (const p of pushOpen.values()) if (p.at <= now) p.open.delete(s);
