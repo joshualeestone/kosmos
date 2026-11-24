@@ -2,7 +2,9 @@
 /* kosmos#8996: `kosmos project show` says when the project last had activity, and when quiet has gone on long enough to
    tell the person (14 days). Activity is the newest of a room post, a task's last activity and the making; a paused or
    archived project is never called quiet; an unreadable room log is "cannot say", never "quiet". */
-process.env.TZ = 'America/Chicago';   // the printed date is this computer's local day; pinned so the test reads one way
+// The printed date is this computer's local day; pinned so the test reads one way. Not restored: run-tests.sh runs each
+// test file in its own process, so it cannot reach another file.
+process.env.TZ = 'America/Chicago';
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -66,7 +68,8 @@ test('the line says what it was, when, and when quiet stops being normal', () =>
   const base = { at: '2026-11-21T10:00:00.000Z', kind: 'post', ageDays: 3, quietDays: 14, quiet: false, unknown: false, paused: false, parked: false };
   assert.equal(v.activityLine(base), 'Last activity: a post in its room, 3 days ago (2026-11-21). Quiet is normal until 14 days.');
   assert.equal(v.activityLine({ ...base, kind: 'task', ageDays: 20, quiet: true }),
-    'Last activity: a task was added or moved, 20 days ago (2026-11-21). That is past the 14 days Kosmos counts as normal quiet. If nobody has said so in its room, tell your person there.');
+    'Last activity: work on a task, 20 days ago (2026-11-21). That is past the 14 days Kosmos counts as normal quiet. Read its room: if nobody has said so there, post it there once, for your person.');
+  assert.match(v.activityLine({ ...base, quiet: true, ageDays: 20 }, 'lease'), /Read kosmos room lease: if nobody has said so there/);
   assert.equal(v.activityLine({ ...base, ageDays: 30, paused: true }),
     'Last activity: a post in its room, 30 days ago (2026-11-21). The project is paused or archived, so quiet is expected.');
   assert.equal(v.activityLine({ ...base, ageDays: 30, parked: true }),
@@ -84,7 +87,7 @@ test('project show prints the line after the tasks', () => {
     activity: { at: '2026-11-01T00:00:00.000Z', kind: 'task', ageDays: 23, quietDays: 14, quiet: true, unknown: false, paused: false } } });
   const at = lines.findIndex((l) => l.startsWith('Tasks: '));
   assert.ok(at >= 0);
-  assert.match(lines[at + 1], /^Last activity: a task was added or moved, 23 days ago .* tell your person there\.$/);
+  assert.match(lines[at + 1], /^Last activity: work on a task, 23 days ago .* Read kosmos room p: if nobody has said so there, post it there once, for your person\.$/);
 });
 
 test('overviewOf carries the activity for the CLI', () => {
@@ -125,4 +128,20 @@ test('against the real store, nothing stubbed: a project made, then given a task
   const second = show();
   assert.equal(second.kind, 'task', 'the real task reader did not date the new task');
   assert.equal(second.ageDays, 0);
+});
+
+test('a hold whose own condition is met (its date passed) is not parked', () => {
+  const expired = { number: 1, sentence: 'a', onHold: true, onHoldUntil: { at: iso(NOW - 20 * DAY) } };
+  const waiting = { number: 1, sentence: 'a', onHold: true, onHoldUntil: { at: iso(NOW + 20 * DAY) } };
+  const old = { room: NOW - 30 * DAY };
+  assert.equal(act({ id: 'p', createdAt: made, tasks: [expired] }, old).parked, false);
+  assert.equal(act({ id: 'p', createdAt: made, tasks: [expired] }, old).quiet, true);
+  // CONTROL: the same hold, still waiting for its date, is parked.
+  assert.equal(act({ id: 'p', createdAt: made, tasks: [waiting] }, old).parked, true);
+});
+
+test('a task reader that throws does not break project show', () => {
+  const a = v.activityOf({ id: 'p', createdAt: made, tasks: [{ number: 1 }] },
+    { now: NOW, lastPostAt: () => NOW - DAY, lastActivityOf: () => { throw new Error('boom'); } });
+  assert.equal(a.kind, 'post');
 });
