@@ -1,33 +1,33 @@
 {
-  "version": "0.8.19",
+  "version": "0.8.20",
   "highlights": [
     {
-      "icon": "shield",
-      "title": "Browsers Kosmos opens keep its keys out",
-      "line": "The browser a Kosmos sign-in opens on Windows no longer starts with Kosmos's own keys in its environment.",
+      "icon": "chat",
+      "title": "A message an agent never started is reported",
+      "line": "On Windows, if an agent takes in your message but never starts on it, its card says so instead of looking idle or busy.",
       "platforms": [
         "windows"
       ]
     },
     {
-      "icon": "list",
-      "title": "Clearer spreadsheets for your agent",
-      "line": "Spreadsheets you attach reach your agent row by row, with each value named by its column."
+      "icon": "tasks",
+      "title": "Shared tasks say who has finished",
+      "line": "A task with several agents now says which of them have finished and who is still on it, on the board and in task lists."
+    },
+    {
+      "icon": "chat",
+      "title": "Agents that answer you elsewhere say so",
+      "line": "When an agent says it answers you on another channel, its chat now says so in place of \"Nothing back yet.\""
     },
     {
       "icon": "shield",
-      "title": "Signing in again keeps your invitation",
-      "line": "If Kosmos asks you to sign in again while you invite someone outside, you come back with who it is for already filled in."
+      "title": "An old Grok sign-in says since when",
+      "line": "A Grok sign-in not renewed for over three days now reads \"not confirmed since\" a date, not \"Signed in\"."
     },
     {
-      "icon": "tasks",
-      "title": "A task says how many subtasks are on hold",
-      "line": "A task with subtasks now says how many are on hold beside its done count, on the board and in task lists."
-    },
-    {
-      "icon": "swarm",
-      "title": "Agent browsers left running are closed",
-      "line": "From now on, a browser an agent's session leaves running is closed when that agent starts again, so they stop piling up.",
+      "icon": "shield",
+      "title": "An old Meta Muse sign-in says since when",
+      "line": "On the Mac, a Meta Muse sign-in not seen working for over three days now reads \"not confirmed since\" a date, not green.",
       "platforms": [
         "mac"
       ]
