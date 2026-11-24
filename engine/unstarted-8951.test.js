@@ -712,12 +712,12 @@ test('#8951 review 13: a write whose callback comes just after a main turn opene
   assert.equal(q.last().unstarted && q.last().unstarted.count, 1, 'CONTROL: written well after, its own turn never opened');
 });
 
-test('#8951 review 13: over the record cap, finished records go first, so a message that never ran is still counted', () => {
+test('#8951 review 13: the per-process record list is capped at MSGS_MAX', () => {
   const r = recording();
   r.pub.started(6368, 'sid-1');
   r.pub.wrote(); r.pub.event(init);                         // m0 under way, the turn runs long
-  for (let i = 0; i < ss.MSGS_MAX; i += 1) r.pub.wrote();   // the cap is reached behind it
+  for (let i = 0; i < ss.MSGS_MAX + 5; i += 1) r.pub.wrote();   // more waiting behind it than the cap
   r.clock.t += ss.LOST_WINDOW_MS + 1;
   r.pub.stopped(); r.pub.started(7001, 'sid-1');
-  assert.equal(r.last().unstarted.count, ss.MSGS_MAX, 'm0 ran and was dropped; every waiting one is still counted');
+  assert.equal(r.last().unstarted.count, ss.MSGS_MAX, 'the oldest go, finished ones first (m0), and the list never grows past the cap');
 });
