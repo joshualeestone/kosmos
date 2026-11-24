@@ -775,6 +775,7 @@ function assignPart(projectId, n, partId, who, made) {
   let taken = false;
   let stopped = false;   // #5382: a failover move refused because the work itself changed (finished, closed, held), not its owner
   let builtRefused = null;   // kosmos#7869: an agent's give on a built task ({ n, project } of the stored task, for the sentence)
+  let previous = null;   // kosmos#8989: who held the part before this move, read inside the same write
   // The membership check runs only for a part that actually exists (inside
   // the id match below) -- checked unconditionally up front, a nonexistent
   // partId with an unrecognised who threw the membership error instead of
@@ -814,6 +815,7 @@ function assignPart(projectId, n, partId, who, made) {
       // Nothing moves, so nothing may read as given: givenOpen would otherwise drop the built mark (dropBuilt below).
       if (made && made.via === 'process' && movedByOf(made) && moved && whoKey && t.builtAt && !x.closedAt) { builtRefused = { n: t.number, project: p.id }; moved = false; givenOpen = false; return x; }
       if (!moved) return x;
+      previous = typeof x.who === 'string' && x.who ? x.who : null;
       const y = { ...x, who: whoKey, movedVia: viaOf(made), movedAt: new Date().toISOString() };
       /* #6103: `movedBy` (movedByOf). Any move clears the last one, so it never names an agent that did not make this move. */
       const by = movedByOf(made);
@@ -847,7 +849,8 @@ function assignPart(projectId, n, partId, who, made) {
     taskchat.record(projectId, Number(n), { kind: 'assigned', partId: Number(partId), who: whoKey, ...(by ? { by } : {}) });   // #6103
   }
   recordDroppedForWork(projectId, n, task);
-  return { ok: true, task, changed: moved };
+  // kosmos#8989: `previous`, the agent a real move took the part from (null when it had nobody), for the caller to tell.
+  return { ok: true, task, changed: moved, ...(moved ? { previous } : {}) };
 }
 
 /* #5382 (review 8): `session` was told this part was given away; it leaves the part's owedTell. Records nothing

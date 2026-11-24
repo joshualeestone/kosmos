@@ -736,16 +736,6 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
   const failoverFrom = assigner && typeof from === 'string' && from ? from : null;
   const made = failoverFrom ? { via: 'assigner', onlyIfWho: failoverFrom, failover: true }
     : assigner ? { via: 'assigner', onlyIfFree: true } : screen ? { via: 'screen' } : { via: 'process', by };   // #6103: `by`, the named caller (movedBy)
-  /* kosmos#8989: the part's holder before this give. Only tellEveryoneOn's new holders were synced, so an agent a part
-     was moved away from kept listing it until something else rewrote its file. Read before the write; a read that
-     fails names nobody (the old behaviour). */
-  let before = null;
-  try {
-    const pr = (projects.readAll() || []).find((x) => x && x.id === projectId);
-    const t0 = pr ? tasks.byNumber(pr, n) : null;
-    const p0 = t0 ? tasks.partsOf(t0).find((x) => Number(x.id) === Number(partId)) : null;
-    before = p0 && typeof p0.who === 'string' && p0.who ? p0.who : null;
-  } catch { before = null; }
   let out;
   try { out = tasks.assignPart(projectId, n, partId, who, made); }
   catch (err) { require('./engine/agyquota').releaseCapStart(capSlot); throw err; }   // a write that threw gave nothing
@@ -785,9 +775,12 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
       if (failoverFrom && !back.ok) back = takeBack(null);
       return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard: heardResult };
     }
-    // kosmos#8989: the agent it was taken from, unless it still holds another part of the task (then tellEveryoneOn
-    // syncs it), is synced too, and owed a re-read unless it moved the part itself.
-    if (out.changed && before && before !== who && !tasks.whoOf(out.task).includes(before)) {
+    /* kosmos#8989: the agent it was taken from (assignPart's `previous`, read inside the write), unless it still holds
+       another part of the task (then tellEveryoneOn syncs it). Before this, only the new holders were synced, so it kept
+       listing the part. Owed a re-read unless it moved the part itself; the Assigner's failover source is owed one too,
+       since it learns of the move only when it is back from its limit. */
+    const before = out.changed && typeof out.previous === 'string' ? out.previous : null;
+    if (before && before !== who && !tasks.whoOf(out.task).includes(before)) {
       try { projects.syncAgent(before, r, { byOther: before !== (screen ? null : by) }); } catch { /* the give stands; the next sync catches up */ }
     }
     return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
