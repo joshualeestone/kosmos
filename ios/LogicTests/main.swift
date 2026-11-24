@@ -6319,5 +6319,31 @@ do {
     check(Board.inviteStep(#"{"show":true,"link":"http://x.test/","headline":"H","line":"L"}"#.data(using: .utf8)) == nil, "not https, no step")
     check(Board.inviteStep(nil) == nil, "no answer, no step")
 }
+// kosmos#8952: a question or permission row with no buttons opens nothing; it says where to answer only while it is the
+// one being asked.
+do {
+    let row = { (id: String, way: Board.ChatRow.WayThrough?) in
+        Board.ChatRow(id: id, atRaw: nil, at: nil, text: id, who: .agent, wayThrough: way)
+    }
+    let rows = [row("q1", .question), row("a", nil), row("p1", .permission), row("f", .attachment), row("p2", .permission), row("b", nil)]
+    check(Board.askingNow(rows[4], in: rows, needsYou: true), "the newest permission row is the one being asked while the agent needs you")
+    check(!Board.askingNow(rows[2], in: rows, needsYou: true) && !Board.askingNow(rows[0], in: rows, needsYou: true),
+          "an older question or permission is past, even while the agent needs you")
+    check(!Board.askingNow(rows[4], in: rows, needsYou: false), "CONTROL: nothing is being asked when the agent does not need you")
+    check(!Board.askingNow(rows[3], in: rows, needsYou: true), "a file row is never a question")
+    check(Board.askedLine(.permission, now: true) == " needs your permission. Answer it on your computer."
+          && Board.askedLine(.permission, now: false) == " asked for your permission."
+          && Board.askedLine(.question, now: true) == " asked you something. Answer it on your computer."
+          && Board.askedLine(.question, now: false) == " asked you something.",
+          "the words: where to answer while asked, only what was asked once past")
+    check(Board.askedLine(.attachment, now: true) == nil && Board.askedLine(.draft, now: false) == nil,
+          "a file and unsent words keep their link to the board")
+    for way in [Board.ChatRow.WayThrough.question, .permission] {
+        for now in [true, false] {
+            let line = Board.askedLine(way, now: now) ?? ""
+            check(!line.contains("board") && !line.contains("\u{203A}") && !line.contains("Esc"), "no board, no chevron, no terminal words: \(line)")
+        }
+    }
+}
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

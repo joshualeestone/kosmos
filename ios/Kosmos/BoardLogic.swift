@@ -2433,6 +2433,22 @@ enum Board {
         row.wayThrough == .question || row.wayThrough == .permission ? (row.reported ? nil : thread.choices) : nil
     }
 
+    // kosmos#8952: a question or permission row with no buttons opens nothing: the board draws none for it either (the same
+    // choices), only the window's text. It says plainly where to answer while the agent is waiting on it (the newest such
+    // row, while the agent needs the person), and only what was asked once it is past.
+    static func askingNow(_ row: ChatRow, in rows: [ChatRow], needsYou: Bool) -> Bool {
+        guard needsYou, row.wayThrough == .question || row.wayThrough == .permission else { return false }
+        return rows.last { $0.wayThrough == .question || $0.wayThrough == .permission }?.id == row.id
+    }
+    // The words after the agent's name on that row, or nil for a row that keeps its link (a file, unsent words).
+    static func askedLine(_ way: ChatRow.WayThrough, now: Bool) -> String? {
+        switch way {
+        case .question: return now ? " asked you something. Answer it on your computer." : " asked you something."
+        case .permission: return now ? " needs your permission. Answer it on your computer." : " asked for your permission."
+        case .attachment, .draft: return nil
+        }
+    }
+
     // DM_PERM_DOES.
     static func permissionDoes(_ kind: String) -> String {
         switch kind {
