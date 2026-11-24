@@ -80,13 +80,14 @@ struct AccountView: View {
     @State private var passkeyDone: String?
     @State private var passkeyBusy = false
     @State private var passkeyFor: String?
+    @State private var passkeyAdding = false   // review 7: the Add button says "Adding" only for an Add, not a Remove
     @State private var removing: AccountSecurity.Passkey?
     // Review 1 (B1c): the sign-in each dialog was opened for. A press after the sign-in changed does nothing, as B1a's
     // Sign out everywhere (everywhereFor).
     @State private var removingFor: String?
     @State private var notMeAskedFor: String?
-    // A challenge kept after Apple's sheet was closed, used again by the next Add of the same sign-in (as the page's
-    // pkAddReady): each begin stores one, and five waiting are refused.
+    // A challenge kept after any end but finish, used again by the next Add of the same account (followed across a renewal
+    // by stillHeld), as the page's pkAddReady: each begin stores one, and five waiting are refused.
     @State private var heldAdd: (reg: AccountSecurity.Registration, at: Date, session: String)?
     @State private var maker = PasskeyMaker()
     @State private var newPlaces: [AccountSecurity.NewPlace] = []
@@ -119,7 +120,7 @@ struct AccountView: View {
             busy = nil; busyFor = nil; askEverywhere = false; everywhereFor = nil; askLocalOnly = false
             setupBusy = false; setup = nil; setupFor = nil; setupNote = nil; secondNote = nil; phone = ""; code = ""
             second = .reading
-            maker.cancel(); passkeyBusy = false; passkeyFor = nil; removing = nil; passkeyNote = nil; passkeyDone = nil
+            maker.cancel(); passkeyBusy = false; passkeyFor = nil; passkeyAdding = false; removing = nil; passkeyNote = nil; passkeyDone = nil
             passkeys = .reading; newPlaces = []; notMeFor = nil; notMeBusy = false; notMeBusyFor = nil; notMeNote = nil
             removingFor = nil; notMeAskedFor = nil; heldAdd = nil; renewedFrom = [:]; passkeyListNote = nil
             load = .reading
@@ -382,7 +383,7 @@ struct AccountView: View {
                         .frame(minHeight: 44)
                         .accessibilityElement(children: .contain)
                     }
-                    Button(passkeyBusy ? "Adding a passkey" : AccountSecurity.addButton) { Task { await addPasskey() } }
+                    Button(passkeyAdding ? "Adding a passkey" : AccountSecurity.addButton) { Task { await addPasskey() } }
                         .disabled(passkeyBusy || busy != nil)
                         .accessibilityIdentifier("account-passkey-add")
                 }
@@ -480,7 +481,7 @@ struct AccountView: View {
             .accessibilityIdentifier("account-more")
         } footer: {
             // Review 3: passkeys are here when Kosmos+ has them, and off on the page too when it does not.
-            Text("Your plan and billing and adding a computer are on your Kosmos+ account page.")
+            Text("Your plan, billing and adding a computer are on your Kosmos+ account page.")
                 .font(.footnote).foregroundColor(Palette.secondary)
         }
     }
@@ -804,8 +805,8 @@ struct AccountView: View {
         // Review 3: known before begin from the list shown, so no fresh sign-in is asked for an Add this iPhone cannot do.
         // Review 4: when the list is not shown, the check after begin (on its exclude list) still stops it; nothing is made.
         if #available(iOS 17.4, *) {} else if case .loaded(let rows) = passkeys, !rows.isEmpty { passkeyNote = AccountSecurity.addNeedsNewer; return }
-        passkeyBusy = true; passkeyFor = first
-        defer { if passkeyFor == first { passkeyBusy = false; passkeyFor = nil } }
+        passkeyBusy = true; passkeyFor = first; passkeyAdding = true
+        defer { if passkeyFor == first { passkeyBusy = false; passkeyFor = nil; passkeyAdding = false } }
         /* Review 2: a challenge is held from the moment begin answers, with the time begin answered (its true age), and is
            let go only once finish has been sent. Every other end (Apple's sheet closed or refused, the host refused, an
            older iOS) leaves it for the next press, so presses do not stack up waiting challenges (Kosmos+ keeps five).
@@ -816,6 +817,7 @@ struct AccountView: View {
             reg = held.reg; begunAt = held.at
         } else {
             heldAdd = nil
+            let asked = Date()   // review 7: the age counts from the ask, as the page's askedAt (the answer's travel is part of it)
             let (status, data) = await send(AccountSecurity.beginRequest(coordinator: coordinator, session: first))
             guard stillHeld(first) != nil else { return }
             guard let status else { passkeyNote = Account.reach; return }
@@ -824,7 +826,7 @@ struct AccountView: View {
             // A begin asking for what an iPhone passkey is not (another algorithm, an attestation) is refused here rather
             // than making a passkey finish would turn away.
             guard let got = AccountSecurity.registration(status: status, json: begun) else { passkeyNote = AccountSecurity.addFailed; return }
-            reg = got; begunAt = Date()
+            reg = got; begunAt = asked
             heldAdd = (got, begunAt, first)
         }
         if let refusal = AccountSecurity.rpRefusal(reg, coordinator: coordinator) { passkeyNote = refusal; return }
@@ -849,7 +851,7 @@ struct AccountView: View {
             // No answer: it may have been added or not. The list is read again; the note (kept apart from the list's) says
             // what to do if it is not there.
             guard let fs else {
-                passkeyNote = "Kosmos+ did not answer. If the new passkey is not listed, delete it in the Passwords app and add one again."
+                passkeyNote = "Kosmos+ did not answer. If the new passkey is not listed, delete it in \(AccountSecurity.passwordsPlace) and add one again."
                 await readPasskeys(); return
             }
             guard (200..<300).contains(fs) else {

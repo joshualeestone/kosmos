@@ -44,26 +44,32 @@ enum AccountSecurity {
     static let newPlacesTitle = "Sign-ins from new places"
     static let newPlacesWords = "When your account is signed in to from a phone, computer or browser it had not been signed in from before, we email you and list it here for 30 days. If one was not you, press Not me: it signs your account out everywhere, this sign-in included."
     static let notMeButton = "Not me: sign out everywhere"
+    /// The page's two-press asks, kept to compare with the page; the phone's dialogs say removeQuestion and notMeQuestion.
+    static func removeAsk(name: String) -> String { "Press it again to remove \(name)." }
     static let notMeAsk = "Press it again to sign your account out everywhere, this sign-in included."
     static let notMeFailed = "That did not work. Try again in a moment."
     static let unnamedDevice = "An unnamed device"
 
-    static func removeAsk(name: String) -> String { "Press it again to remove \(name)." }
     /// The page's own words when the passkey's host is not this Kosmos+'s (a passkey made for it would not work here).
     static func addOnlyAt(_ rp: String) -> String { "Passkeys can be added only at \(rp)." }
-    /// Review 1 (B1c): before iOS 17.4 the exclude list cannot be passed, and an account that already has a passkey could
-    /// see it replaced in iCloud Keychain. Not the page's words: the page has no such case.
+    /// Where a passkey saved on this iPhone is deleted: the Passwords app from iOS 18, Settings > Passwords before it
+    /// (review 7: Add works from iOS 17.4, where there is no Passwords app).
+    static let passwordsPlace = "the Passwords app (Settings > Passwords before iOS 18)"
     /// Review 4: finish refused for a sign-in that grew too old while Apple's sheet was open. The passkey was made on the
-    /// iPhone already, and Kosmos+ does not know it, so it must be deleted from Passwords too.
-    static let stepUpAfterMade = "That passkey was made on this iPhone, but your sign-in is no longer recent enough for Kosmos+ to add it. Delete it in the Passwords app, then sign out, sign in again, and add one straight away."
-    /// Review 5: any refusal after the passkey was made, said with the delete-it instruction, since it exists on the
-    /// iPhone and Kosmos+ does not know it. The step-up case has its own fuller words (stepUpAfterMade).
+    /// iPhone already, and Kosmos+ does not know it, so it must be deleted there too.
+    static let stepUpAfterMade = "That passkey was made on this iPhone, but your sign-in is no longer recent enough for Kosmos+ to add it. Delete it in \(passwordsPlace), then sign out, sign in again, and add one straight away."
+    /// Review 5: any other refusal after the passkey was made, with the delete-it instruction. Kosmos+'s own sentence is
+    /// kept as written (review 7: not lowercased, so "Kosmos+" stays), and the generic fallback is not repeated.
     static func madeButRefused(_ why: String) -> String {
-        let said = why.hasSuffix(".") ? String(why.dropLast()) : why
-        return "That passkey was made on this iPhone, but Kosmos+ did not add it: " + said.prefix(1).lowercased() + said.dropFirst() + ". Delete it in the Passwords app."
+        let head = "That passkey was made on this iPhone, but Kosmos+ did not add it"
+        let tail = " Delete it in \(passwordsPlace)."
+        if why == addFailed || why.isEmpty { return head + "." + tail }
+        return head + ". Kosmos+ said: " + (why.hasSuffix(".") ? why : why + ".") + tail
     }
-    static let addNeedsNewer = "This iPhone needs iOS 17.4 or later to add a passkey while your account already has one, so that one is not replaced. You can add one on your Kosmos+ account page."
-    /// A challenge kept after a closed sheet is used again for this long (the page's PK_READY_MS, under its 5 minutes).
+    /// Review 1: before iOS 17.4 the exclude list cannot be passed, and an account that already has a passkey could see it
+    /// replaced in iCloud Keychain. Review 7: Safari or a computer, since the page opened inside the app hides Add.
+    static let addNeedsNewer = "This iPhone needs iOS 17.4 or later to add a passkey while your account already has one, so that one is not replaced. You can add one in Safari, or on your computer."
+    /// How long a challenge kept after any end but finish is used again (the page's PK_READY_MS, under its 5 minutes).
     static let heldChallengeSeconds: Double = 240
 
     // MARK: - Passkeys
@@ -124,7 +130,7 @@ enum AccountSecurity {
     /// too, and iOS would keep offering it at sign-in. The date tells two passkeys of one name apart.
     static func removeQuestion(_ p: Passkey, day: (Int) -> String) -> String {
         let added = p.createdAt.map(day).flatMap { $0.isEmpty ? nil : ", added \($0)," } ?? ""
-        return "Remove \(p.name)\(added) from your Kosmos+ account? It stays in your Passwords app until you delete it there."
+        return "Remove \(p.name)\(added) from your Kosmos+ account? If it is saved on this iPhone, delete it in \(passwordsPlace) too."
     }
     /// Review 3: the Not me dialog's words. The page's "Press it again" fits its two presses, not a phone's named button.
     static let notMeQuestion = "This signs your account out everywhere, this iPhone included."

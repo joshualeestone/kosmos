@@ -30,15 +30,15 @@ check(S.removeBody(.init(credentialID: "AAA", name: "x", createdAt: nil, lastUse
 check(S.removeAsk(name: "iPhone") == "Press it again to remove iPhone.", "the remove ask")
 // Review 3: the phone's dialogs, and the review account's own step-up sentence.
 check(S.removeQuestion(.init(credentialID: "A", name: "iPhone", createdAt: 1_700_000_000, lastUsedAt: nil), day: day)
-      == "Remove iPhone, added 14 Nov 2023, from your Kosmos+ account? It stays in your Passwords app until you delete it there.", "the remove question, dated")
+      == "Remove iPhone, added 14 Nov 2023, from your Kosmos+ account? If it is saved on this iPhone, delete it in the Passwords app (Settings > Passwords before iOS 18) too.", "the remove question, dated")
 check(S.removeQuestion(.init(credentialID: "A", name: "iPhone", createdAt: nil, lastUsedAt: nil), day: day)
-      == "Remove iPhone from your Kosmos+ account? It stays in your Passwords app until you delete it there.", "the remove question, undated")
+      == "Remove iPhone from your Kosmos+ account? If it is saved on this iPhone, delete it in the Passwords app (Settings > Passwords before iOS 18) too.", "the remove question, undated")
 check(S.notMeQuestion == "This signs your account out everywhere, this iPhone included.", "the Not me question")
 check(S.refusal(json: ["error": "for this, sign in again the way you usually do (and your second step, if you have one), then do it within 10 minutes", "code": "step_up_required"], fallback: "x") == S.stepUp,
       "the usual step-up sentence becomes the page's words")
 check(S.refusal(json: ["error": "the review account cannot do this", "code": "step_up_required"], fallback: "x") == "The review account cannot do this.",
       "the review account's own sentence is kept: signing in again would not help")
-check(S.stepUpAfterMade.contains("Delete it in the Passwords app"), "a step-up refused at finish says to delete the passkey made")
+check(S.stepUpAfterMade.contains("Delete it in the Passwords app (Settings > Passwords before iOS 18)"), "a step-up refused at finish says to delete the passkey made")
 check(S.sheetSeconds(ageSeconds: 0) == 285 && S.sheetSeconds(ageSeconds: 200) == 85 && S.sheetSeconds(ageSeconds: 299) == 10,
       "Apple's sheet closes 15 s before the challenge lapses (at least 10 s)")
 
@@ -169,8 +169,11 @@ check(S.notMeBody(got[0])["id"] as? String == "p1", "not-me sends the id")
 check(S.notMe(status: 200, json: ["ok": true]) == .signedOutEverywhere, "done: signed out everywhere")
 check(S.notMe(status: 401, json: nil) == .sessionGone, "401: this iPhone's own sign-in was already refused, so nobody was signed out (review 5)")
 check(S.notMeSessionGone.contains("did not sign anyone out"), "the 401 words say nobody was signed out")
-check(S.madeButRefused("That passkey request expired; start again.") == "That passkey was made on this iPhone, but Kosmos+ did not add it: that passkey request expired; start again. Delete it in the Passwords app.",
+check(S.madeButRefused("That passkey request expired; start again.") == "That passkey was made on this iPhone, but Kosmos+ did not add it. Kosmos+ said: That passkey request expired; start again. Delete it in the Passwords app (Settings > Passwords before iOS 18).",
       "any refusal after the passkey was made says to delete it (review 5)")
+check(S.madeButRefused(S.addFailed) == "That passkey was made on this iPhone, but Kosmos+ did not add it. Delete it in the Passwords app (Settings > Passwords before iOS 18).",
+      "the generic fallback is not repeated (review 7)")
+check(S.addNeedsNewer.hasSuffix("You can add one in Safari, or on your computer."), "the 17.4 note does not send the person to the in-app page, which hides Add (review 7)")
 check(S.notMe(status: 404, json: ["error": "no such sign-in"]) == .refused("No such sign-in."), "its own sentence")
 check(S.notMe(status: 500, json: nil) == .refused(S.notMeFailed), "the page's line")
 
@@ -185,6 +188,8 @@ check(S.seconds("1700000000") == nil && S.seconds(true) == nil && S.seconds(nil)
 // read through git (review 3: that checkout's working tree is often far behind, and an old page failed or skipped these).
 func relayPage() -> String? {
     if let dir = ProcessInfo.processInfo.environment["KOSMOS_RELAY"] {
+        // Set but empty: skip the comparison (CI sets it; review 7: a fleet Mac may hold a stale clone of the relay).
+        if dir.isEmpty { return nil }
         return try? String(contentsOfFile: dir + "/coordinator/src/signin.html", encoding: .utf8)
     }
     let git = Process()
