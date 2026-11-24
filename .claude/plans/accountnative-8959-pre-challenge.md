@@ -35,15 +35,73 @@ converged: false
 - The commit shas below are from BEFORE the rebase, and none of them is on the branch any more. They are history, not
   pointers into it.
 
-### Per-Iteration Breakdown (pre-rebase commits a14289b34e, 16c1b215e1, 30b4059a8e, bdabbe2546, 41ec3b6251, 4306e89df7, 16876a4e99, 984c20819b)
-- it1 opus: W stale sign-out answer after account change FIXED; W keychain-less session (registrar) FIXED (currentSession); W read() stale, no account watch FIXED (accountGeneration); W web.forget comment FIXED; C UI test not in CI FIXED (ui-sample.sh lazy list).
-- it2 sonnet: W overlapping reads FIXED (readTicket); W busy not reset on change FIXED; W 401 everywhere not documented FIXED (plan and comment).
-- it3 opus: W URLSession.shared (redirects, cache) FIXED (ephemeral + RefuseRedirects); W no @MainActor FIXED; W sign-out wiring untested DEFERRED (the UI sample has no session; checked by hand on a device).
-- it4 sonnet: W cancelled refresh read as an outage FIXED (Task.isCancelled); W busy stuck without bump FIXED (busyFor/retireFor); W guards untested, a duplicate of it3 (the deferral stands).
-- it5 opus: W untested edges FIXED (48 h, fortnight, remote off past 14 d, full stop); nits fixed.
-- it6 sonnet: W cancelled first read stuck on Reading FIXED; W local-only sign-out had no confirm FIXED (dialog); W recursive read FIXED (one retry); W sample gating DEFERRED (SettingsView.sample is #if DEBUG); C RefuseRedirects third copy DEFERRED (plan).
-- it7 opus: W askEverywhere survived an account change and would sign the NEW account out everywhere FIXED (reset + everywhereFor); W askLocalOnly not reset FIXED; nits: SettingsView params required, Retire disabled during sign-out.
-- it8 sonnet: W sign-out completes after leaving the screen DOCUMENTED (plan); W offerLocalOnly stale FIXED; W UI count assert weak FIXED (named buttons); C rm guard FIXED (${out:?}).
+### Per-Iteration Breakdown
+
+Commits named here are from before the rebase (a14289b34e, 16c1b215e1, 30b4059a8e, bdabbe2546, 41ec3b6251, 4306e89df7, 16876a4e99, 984c20819b) and are not on the branch any more.
+
+#### Iteration 1
+**Reviewer model:** opus
+
+- [WARNING] stale sign-out answer after account change FIXED
+- [WARNING] keychain-less session (registrar) FIXED (currentSession)
+- [WARNING] read() stale, no account watch FIXED (accountGeneration)
+- [WARNING] web.forget comment FIXED
+- [CONVENTION] UI test not in CI FIXED (ui-sample.sh lazy list).
+
+#### Iteration 2
+**Reviewer model:** sonnet
+
+- [WARNING] overlapping reads FIXED (readTicket)
+- [WARNING] busy not reset on change FIXED
+- [WARNING] 401 everywhere not documented FIXED (plan and comment).
+
+#### Iteration 3
+**Reviewer model:** opus
+
+- [WARNING] URLSession.shared (redirects, cache) FIXED (ephemeral + RefuseRedirects)
+- [WARNING] no @MainActor FIXED
+- [WARNING] sign-out wiring untested DEFERRED (the UI sample has no session; checked by hand on a device).
+
+#### Iteration 4
+**Reviewer model:** sonnet
+
+- [WARNING] cancelled refresh read as an outage FIXED (Task.isCancelled)
+- [WARNING] busy stuck without bump FIXED (busyFor/retireFor)
+- [WARNING] guards untested, a duplicate of it3 (the deferral stands).
+
+#### Iteration 5
+**Reviewer model:** opus
+
+- [WARNING] untested edges FIXED (48 h, fortnight, remote off past 14 d, full stop)
+- [NIT] fixed.
+
+#### Iteration 6
+**Reviewer model:** sonnet
+
+- [WARNING] cancelled first read stuck on Reading FIXED
+- [WARNING] local-only sign-out had no confirm FIXED (dialog)
+- [WARNING] recursive read FIXED (one retry)
+- [WARNING] sample gating DEFERRED (SettingsView.sample is #if DEBUG)
+- [CONVENTION] RefuseRedirects third copy DEFERRED (plan).
+
+#### Iteration 7
+**Reviewer model:** opus
+
+- [WARNING] askEverywhere survived an account change and would sign the NEW account out everywhere FIXED (reset + everywhereFor)
+- [WARNING] askLocalOnly not reset FIXED
+- [NIT] SettingsView params required, Retire disabled during sign-out.
+
+#### Iteration 8
+**Reviewer model:** sonnet
+
+- [WARNING] sign-out completes after leaving the screen DOCUMENTED (plan)
+- [WARNING] offerLocalOnly stale FIXED
+- [WARNING] UI count assert weak FIXED (named buttons)
+- [CONVENTION] rm guard FIXED (${out:?}).
+
+### Strengths (across all iterations)
+- [STRENGTH] The screen reuses the web page's own words and Kosmos+'s own refusals; the app never computes the Retire code.
+- [STRENGTH] Every answer is pinned to the account that asked (accountGeneration, readTicket), so a late answer never acts on a different account.
 
 ### Outstanding questions
 None. The scope decisions are on #8959 (comment 7122016244).
