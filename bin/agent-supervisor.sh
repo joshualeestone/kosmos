@@ -901,7 +901,11 @@ if [ -z "$adopt" ]; then
     # record for such a path or name, as before.
     case "$_f$SESSION" in *"'"*|*"#"*|*";"*|*\\*) return 0 ;; esac
     # The session's ID names exactly this session (a plain name falls back to a prefix match; #4530).
-    _sid="$(session_id_exact)"; [ -n "$_sid" ] || return 0
+    _sid="$(session_id_exact)"
+    if [ -z "$_sid" ]; then
+      say "$SESSION: how it stops will not be recorded, since its session's id could not be read (a launch without a UTF-8 LANG reads none)"
+      return 0
+    fi
     _p="$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_id}' 2>/dev/null)"
     case "$_p" in %[0-9]*) ;; *) return 0 ;; esac
     case "$_p" in *[!%0-9]*) return 0 ;; esac   # exactly one pane at launch, or nothing is armed
