@@ -3,7 +3,8 @@
 ## Done when
 Each fallback tap listed on #8957 (and #8954's two) says, before it is tapped, that it opens on your computer's board,
 in one wording with one icon. "Back to Kosmos" no longer appears on the phone's own tabs when the computer or Kosmos+
-is not answering (Try again is already there). Checked in the simulator (KosmosUITests) with a screenshot per screen;
+is not answering (Try again is already there). Checked in the simulator (KosmosUITests, review 3: four screens, the not-answering tab, signed out, refused and +, each with a
+screenshot; the other sites are checked by build, reading and LogicTests' Board.opensBoardFor);
 the words and the rule for when the note shows are covered in ios/LogicTests.
 
 ## Decided (card comment 7121836312)
@@ -24,7 +25,7 @@ the words and the rule for when the note shows are covered in ios/LogicTests.
 - Review 1: a sign-in fallback names where it goes. Signed out (the Agents tab's two Sign in buttons, the sign-in
   screen's company link and Continue) it is "Opens the Kosmos+ sign-in page"; the fresh sign-in sheet (already signed
   in) says the board; New Agent and New Project's sheets open nothing, so no note (SignInView useWebNote, from the
-  caller). The + alert says why: "Your computer has not let this iPhone in yet, so it is made there."
+  caller). Review 3: the refused Sign in keeps its web session (403), so it says the board, not a sign-in page. The + alert gives no reason (any one sentence was untrue in some phase); the question and Cancel stay.
 - The "only when the agents list lacks the agent" rule is Board.opensBoardFor (tested); the room and project info apply
   the same rule to their own lists.
 

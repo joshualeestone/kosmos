@@ -1621,8 +1621,6 @@ private struct CreateOnBoardAsk: ViewModifier {
                       isPresented: Binding(get: { asked == what }, set: { if !$0 { asked = nil } })) {
             Button(AppTabs.createOnBoardOpen) { asked = nil; open() }
             Button("Cancel", role: .cancel) { asked = nil }
-        } message: {
-            Text(AppTabs.createOnBoardWhy)
         }
     }
 }

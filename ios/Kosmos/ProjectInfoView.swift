@@ -293,6 +293,7 @@ struct ProjectInfoView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(m.name).foregroundColor(Palette.primary)
                     if let line { Text(line).font(.footnote).foregroundColor(Palette.secondary) }
+                    if agent == nil { OpensOnBoardNote() }   // kosmos#8957: said in words, not only the icon
                 }
                 Spacer(minLength: 8)
                 if m.needsYouHere != nil {

@@ -6403,8 +6403,7 @@ do {
     check(!Board.opensBoardFor("dana", agents: listed) && Board.opensBoardFor("eli", agents: listed)
           && Board.opensBoardFor("dana", agents: []),
           "the board is named only when the agents list lacks the agent (its native chat opens otherwise)")
-    check(AppTabs.createOnBoardWhy.contains("computer") && !AppTabs.createOnBoardWhy.contains("Mac"), "+ says why it goes to the computer")
-    for w in [Board.opensOnBoard, Board.opensSignInPage, AppTabs.createOnBoardWhy, AppTabs.createOnBoardQuestion(.agent),
+    for w in [Board.opensOnBoard, Board.opensSignInPage, AppTabs.createOnBoardQuestion(.agent),
               AppTabs.createOnBoardQuestion(.project), AppTabs.createOnBoardOpen] {
         check(!w.contains("\u{2014}") && !w.contains("\u{203A}") && !w.contains("Mac"), "no em dash, no chevron, no Mac: \(w)")
     }

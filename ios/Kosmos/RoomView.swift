@@ -725,6 +725,7 @@ struct RoomView: View {
                 .accessibilityFocused($needsFocus, equals: row.session)
             }
             .font(.footnote.weight(.semibold))
+            if store.agent(row.session) == nil { OpensOnBoardNote() }   // kosmos#8957: said in words, not only the icon
         }
         .accessibilityElement(children: .contain)
     }

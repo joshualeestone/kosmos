@@ -625,7 +625,7 @@ struct BoardStates<Empty: View>: View {
             VStack(spacing: 12) {
                 message("Kosmos+ did not let this iPhone in.", detail: "If this iPhone was removed from your account, sign in again. Otherwise try again in a moment.", retry: true)
                 Button { openBoard() } label: { Text("Sign in") }
-                OpensOnBoardNote(words: Board.opensSignInPage)   // kosmos#8957: as above
+                OpensOnBoardNote()   // kosmos#8957: a 403 keeps the web session, so this is the board page, not a sign-in
             }
         }
     }

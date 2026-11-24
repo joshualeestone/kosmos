@@ -31,8 +31,9 @@ final class BoardHandoffUITests: XCTestCase {
             let signIn = app.buttons["Sign in"]
             XCTAssertTrue(signIn.waitForExistence(timeout: 10), "\(wait): no Sign in button")
             keep(app, "signin-fallback-" + wait)
-            XCTAssertTrue(app.staticTexts["Opens the Kosmos+ sign-in page"].exists,
-                          "\(wait): nothing says Sign in opens the Kosmos+ sign-in page")
+            // Signed out, the sign-in page; refused (a 403 keeps the web session), the board page.
+            let words = wait == "signedout" ? "Opens the Kosmos+ sign-in page" : "Opens on your computer's board"
+            XCTAssertTrue(app.staticTexts[words].exists, "\(wait): nothing says where Sign in goes")
             app.terminate()
         }
     }
