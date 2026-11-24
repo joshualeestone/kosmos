@@ -23,6 +23,9 @@ const RESTART_WINDOW_MS = 5 * 60 * 1000;
    death is a person's restart of an agent that had already stopped: both keep the line. */
 const DELIBERATE_BEFORE_MS = 60 * 1000;
 
+/* name -> the restart start (ms) a finished turn has ended, so a cleared line is not read again at every poll. */
+const CLEARED = new Map();
+
 /** { atMs, code, signal } from a died file's text, or null. A signal name is given as tmux prints it ("term"). */
 function parseDied(text) {
   const m = /^(\d{9,11}) (?:status ([0-9]{1,10})|signal ([A-Za-z0-9]{1,16}))$/.exec(String(text || '').split('\n')[0].trim());
@@ -55,28 +58,39 @@ function restartedFor(sessionName, opts) {
   try {
     const o = opts || {};
     const read = o.read || ((f) => fs.readFileSync(f, 'utf8'));
-    /* The whole record selfreport keeps: a long turn's heartbeats would push its Stop out of the default part. Read only
-       once a death has passed every other check below, so a busy board pays nothing for agents with none. */
+    /* The kept tail first, and the whole record only when that is cut short of the restart (a long turn's heartbeats
+       push a Stop out of it). Read only once a death has passed every other check, and never again once cleared. */
     const sr = require('./selfreport');
-    const history = o.history || ((n) => sr.history(n, sr.HISTORY_MAX_BYTES));
+    const history = o.history || ((n) => sr.history(n));
     let died;
     try { died = parseDied(read(crashloop.diedFileFor(sessionName))); } catch { return null; }
     /* An exit with code 0 is Claude closing on purpose (a person typing /exit): not a crash to explain. */
     if (!died || died.code === 0) return null;
     let runs;
     try { runs = crashloop.parse(read(crashloop.fileFor(sessionName))); } catch { return null; }
-    const start = runs.length ? runs[runs.length - 1].start : null;
-    if (start === null || start < died.atMs || start - died.atMs > RESTART_WINDOW_MS) return null;
+    /* The restart is the run right after the one that was going when it died: the run whose end is at or after the
+       death (the supervisor writes `end` once the session is gone, and a second counts as the same moment: tmux's death
+       time and these lines are in whole seconds), and only while it is the last run: a later launch (a person's restart,
+       a switch) says nothing about this death, and after one the old line must not come back. With no such run on file
+       (an older, trimmed one), the first run at or after the death. */
+    const k = runs.findIndex((r) => r.start <= died.atMs + 1000 && (r.end === null || r.end === undefined || r.end >= died.atMs - 2000));
+    const restart = k >= 0 ? runs[k + 1] : runs.find((r) => r.start >= died.atMs);
+    const start = restart ? restart.start : null;
+    if (!restart || restart !== runs[runs.length - 1] || start - died.atMs > RESTART_WINDOW_MS) return null;
+    if (o.memo !== false && CLEARED.get(sessionName) === start) return null;
     const ours = (runs.deliberate || []).some((d) => d <= died.atMs && d >= died.atMs - DELIBERATE_BEFORE_MS
       && !runs.some((r) => r.start > d && r.start <= died.atMs));
     if (ours) return null;
     /* A shutdown ends every agent by signal, so a death before this boot is the machine's, not Claude's. (A logout with
        no reboot is not told apart: its deaths read as an ended process.) */
     if (died.atMs < (Number.isFinite(o.bootMs) ? o.bootMs : Date.now() - os.uptime() * 1000)) return null;
-    if (finishedSince(sessionName, start, history) !== false) return null;
+    let ended = finishedSince(sessionName, start, history);
+    if (ended === null && !o.history) ended = finishedSince(sessionName, start, (n) => sr.history(n, sr.HISTORY_MAX_BYTES));
+    if (ended === true && o.memo !== false) CLEARED.set(sessionName, start);
+    if (ended !== false) return null;
     const why = require('./win32streamstate').restartWhy({ code: died.code, signal: died.signal });
     return { at: new Date(start).toISOString(), why };
   } catch { return null; }
 }
 
-module.exports = { RESTART_WINDOW_MS, DELIBERATE_BEFORE_MS, diedFileFor: crashloop.diedFileFor, parseDied, finishedSince, restartedFor };
+module.exports = { CLEARED, RESTART_WINDOW_MS, DELIBERATE_BEFORE_MS, diedFileFor: crashloop.diedFileFor, parseDied, finishedSince, restartedFor };
