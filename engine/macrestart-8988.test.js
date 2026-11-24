@@ -36,6 +36,7 @@ function read(died, runs, rows) {
   reports(rows);
   const files = { [mr.diedFileFor('hal')]: died, [crashloop.fileFor('hal')]: runs };
   return mr.restartedFor('hal', {
+    bootMs: (T0 - 100000) * 1000,   // these deaths are long after the boot; the reboot arm says otherwise
     read: (f) => { if (files[f] === undefined) throw Object.assign(new Error('none'), { code: 'ENOENT' }); return files[f]; },
   });
 }
@@ -44,6 +45,7 @@ test('#8988 parseDied: a status, a signal (named as tmux prints it), and nothing
   assert.deepEqual(mr.parseDied(T0 + ' status 7\n'), { atMs: T0 * 1000, code: 7, signal: null });
   assert.deepEqual(mr.parseDied(T0 + ' signal term'), { atMs: T0 * 1000, code: null, signal: 'SIGTERM' });
   assert.deepEqual(mr.parseDied(T0 + ' signal SIGKILL'), { atMs: T0 * 1000, code: null, signal: 'SIGKILL' });
+  assert.equal(mr.parseDied(T0 + ' status 0').code, 0, 'CONTROL: the parser keeps an exit 0; the reader is what hides it');
   for (const bad of ['', 'x status 7', T0 + ' status', T0 + ' status -1', T0 + ' signal 9x', T0 + ' exit 7', null]) {
     assert.equal(mr.parseDied(bad), null, JSON.stringify(bad));
   }
@@ -60,6 +62,14 @@ test('#8988 the restart is the last start, within the window after the death', (
   const start = 'start ' + (T0 + 40) + '\n';
   assert.equal(read(T0 + ' signal term\n', 'kosmos ' + (T0 - 5) + '\n' + start), null, 'Kosmos ended it (a restart, a switch): not a crash');
   assert.ok(read(T0 + ' signal term\n', 'kosmos ' + (T0 - 3600) + '\n' + start), 'CONTROL: a Kosmos restart an hour before is another event');
+  assert.ok(read(T0 + ' status 1\n', 'kosmos ' + (T0 - 50) + '\nend ' + (T0 - 45) + '\nstart ' + (T0 - 40) + '\nend ' + T0 + '\n' + start),
+    'a switch whose NEW process crashed: the crash is said');
+  assert.ok(read(T0 + ' status 1\n', 'start ' + (T0 - 600) + '\nend ' + T0 + '\nkosmos ' + (T0 + 20) + '\n' + start),
+    'a person restarting an agent that had already crashed: the crash is still why');
+  const rebooted = (boot) => mr.restartedFor('hal', { bootMs: boot * 1000, history: () => [],
+    read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' signal term\n' : start) });
+  assert.equal(rebooted(T0 + 20), null, 'a death before this boot is the shutdown, not Claude');
+  assert.ok(rebooted(T0 - 3600), 'CONTROL: the same death in this boot is said');
   assert.equal(read(undefined, 'start ' + (T0 + 40) + '\n'), null, 'CONTROL: no death recorded, no line');
   assert.equal(read(T0 + ' status 0\n', 'start ' + (T0 + 40) + '\n'), null, 'exit 0 is Claude closed on purpose (/exit), not a crash');
   assert.equal(read(T0 + ' status 7\n', undefined), null, 'no run file, no line');
@@ -99,4 +109,13 @@ test('#8988 the files are where the supervisor writes them (the run file\'s fold
   assert.equal(path.dirname(mr.diedFileFor('Hal-9')), crashloop.dir());
   assert.equal(path.basename(mr.diedFileFor('Hal-9')), store.safeKey('Hal-9') + '.died');
   assert.equal(path.basename(crashloop.fileFor('Hal-9')), store.safeKey('Hal-9') + '.log');
+});
+
+test('#8988 a removed or re-made agent carries no death from its last life', () => {
+  fs.mkdirSync(crashloop.dir(), { recursive: true });
+  fs.writeFileSync(mr.diedFileFor('hal'), '1 status 7\n');
+  fs.writeFileSync(crashloop.fileFor('hal'), 'start 1\n');
+  crashloop.forget('hal');
+  assert.equal(fs.existsSync(mr.diedFileFor('hal')), false);
+  assert.equal(fs.existsSync(crashloop.fileFor('hal')), false);
 });
