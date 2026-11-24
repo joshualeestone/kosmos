@@ -1451,7 +1451,7 @@ extension Board {
     static func projectArchiveBody() -> [String: Any] { ["archived": true] }
     static let projectArchiveTitle = "Archive project"
     static func projectArchiveAsk(_ name: String) -> String {
-        "Archive \(name)? It leaves your projects list and stops counting. Everything stays, and you can restore it from Archived projects on your computer's board."   // review 2: the board's own archive hint
+        "Archive \(name)? It leaves your projects list and stops counting. Everything stays, and you can restore it from Archived on your computer's board."   // review 2: the board's own archive hint
     }
     static let projectArchivedLine = "Archived."
 
@@ -1472,21 +1472,14 @@ extension Board {
         return agents.filter { !on.contains($0.session) && !$0.session.isEmpty && !$0.isGuide }
     }
 
-    /* POST adds, DELETE removes (the board's addMemberToProject and dropMember). */
+    /* POST adds, DELETE removes (the board's addMemberToProject and dropMember). Review 3: adding is the room's own
+       addMemberRequest, so the two paths send for the same sessions (isAgentSession) and never disagree. */
     static func projectMemberRequest(mac: URL, project: String, session: String, add: Bool) -> URLRequest? {
-        guard isProjectId(project), !session.isEmpty,
-              let s = session.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")) else { return nil }   // review 1: ASCII only, so the URL parses on iOS 16 too
-        return add ? projectMemberAddRequest(mac: mac, project: project, agent: s) : projectMemberDropRequest(mac: mac, project: project, agent: s)
+        add ? addMemberRequest(mac: mac, project: project, agent: session) : dropMemberRequest(mac: mac, project: project, agent: session)
     }
-    // Each built in place with its own method, as server.ios-routes-6838.test.js reads every request the app sends.
-    // The force unwrap is safe: `agent` is ASCII percent-encoded and `project` an id (isProjectId), so the URL always parses.
-    private static func projectMemberAddRequest(mac: URL, project: String, agent: String) -> URLRequest {
-        var r = URLRequest(url: URL(string: "/api/project/\(project)/agent/\(agent)", relativeTo: mac)!.absoluteURL)
-        r.httpMethod = "POST"
-        r.setValue("application/json", forHTTPHeaderField: "Accept")
-        return r
-    }
-    private static func projectMemberDropRequest(mac: URL, project: String, agent: String) -> URLRequest {
+    // DELETE /api/project/<id>/agent/<session>, as the board's dropMember; the same checks as addMemberRequest.
+    static func dropMemberRequest(mac: URL, project: String, agent: String) -> URLRequest? {
+        guard isProjectId(project), isAgentSession(agent) else { return nil }
         var r = URLRequest(url: URL(string: "/api/project/\(project)/agent/\(agent)", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "DELETE"
         r.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -1521,7 +1514,7 @@ extension Board {
         switch r {
         case .done(let t):
             switch (add, t) {
-            case (true, .told), (true, .notTried): return "Added \(name)."   // review 2: the board says nothing more for an add
+            case (true, .told), (true, .notTried): return addedMemberLine(name)   // review 3: the room's own add line; the board says nothing more
             case (true, .couldNot(let why)):
                 return "Added \(name), but we could not update them, so they may not know about this project yet." + (why.map { " " + sentence($0) } ?? "")
             case (false, .couldNot(let why)):
