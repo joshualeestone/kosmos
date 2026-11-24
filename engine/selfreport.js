@@ -659,6 +659,10 @@ function read(sessionName) {
 /* #6209: `tailBytes` lets one reader look further back than TAIL_BYTES (the summary-overdue sweep, whose question is
    about hours of work, which a busy agent's 64 KB does not hold). Clamped to [TAIL_BYTES, HISTORY_MAX_BYTES]. */
 const HISTORY_MAX_BYTES = 4 * 1024 * 1024;
+/* kosmos#8961: the sentences the report hooks send at a turn's start and end (install/kosmos-report-hook.sh, and
+   engine/kosmos-report-hook.js reportFor); the start one is toolloop.js PROMPT_TEXT. */
+const TURN_START_TEXT = 'answering a prompt';
+const TURN_END_TEXT = 'finished responding';
 /* kosmos#5297 (#5296): the states and times in the same bounded tail read() looks at, oldest first, for a caller that
    asks WHEN an agent was busy rather than what it is doing now (communityturn: has it worked since its last post).
    Same skips as read(): an unknown state or a bad line is left out. null when there is no record or it cannot be read,
@@ -692,7 +696,11 @@ function history(sessionName, tailBytes) {
     const by = row.by === 'operator' || row.by === 'auto' || row.by === 'agent' ? row.by : null;
     // kosmos#8634: and a held question (#7915), so a reminder to ask it again says --held and buzzes nobody.
     const held = row.state === 'needs_you' && row.held === true;
-    if (Number.isFinite(at)) out.push({ state: row.state, at, ...(by ? { by } : {}), ...(held ? { held: true } : {}) });
+    /* kosmos#8961: the report hook's turn marks, by the same rule toolloop.endsTurn reads them (its prompt sentence
+       starts a turn, its idle ends one), so engine/msgstatus.js can tell a turn's start and end from other reports. */
+    const turn = by !== 'auto' ? null : (row.state === 'working' && row.because === TURN_START_TEXT ? 'start'
+      : row.state === 'idle' && row.because === TURN_END_TEXT ? 'end' : null);
+    if (Number.isFinite(at)) out.push({ state: row.state, at, ...(by ? { by } : {}), ...(held ? { held: true } : {}), ...(turn ? { turn } : {}) });
   }
   out.truncated = cut;   // the record is longer than the tail: rows older than out[0] exist and are not here
   return out;

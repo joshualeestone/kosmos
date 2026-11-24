@@ -6970,7 +6970,7 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    here (decided on #4491, pinned in server.agent-token-gate-4491.test.js). Each read makes the board ask the
    service at most once (no cache, no valve, an 8 second limit): a looping token-only caller can do that as fast
    as any agent holding the board token already can. */
-const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
+const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/msg/status', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/agents/list', 'GET /api/tasks', 'GET /api/tasks/mine', 'GET /api/community/read',
   'POST /api/undo/keep', 'POST /api/agent/reply-channel', 'POST /api/toolfail', 'GET /api/project-file/who',
   'GET /api/connections/found', 'POST /api/connections/found']);   // kosmos#8519: the read is the disk only; the write names the caller (resolveAgentSender)   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler; toolfail: #6071, its handler resolves the caller token-first (resolveAgentSender)
@@ -20874,6 +20874,39 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#8961: `kosmos msg --status <id>`: what happened to a direct message (engine/msgstatus.js). The caller is
+     named as on /api/msg (its agent token, else its pane), and only the message's sender or recipient is answered. On
+     an enforcing board a request with neither an agent token nor the board token is refused, as /api/report is: a
+     pane id is enumerable. A read: it writes nothing and types nothing. */
+  if (pathname === '/api/msg/status' && req.method === 'POST') {
+    readBody(req).then((buf) => {
+      let body = null;
+      try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.id !== 'string') {
+        sendJson(res, 400, { error: 'we could not read that request; it needs a message id, like m12' });
+        return;
+      }
+      const roster = safeRoster();
+      if (roster === null) { sendJson(res, 200, { found: false, because: 'we could not check which agents are running, so we could not tell who is asking' }); return; }
+      const denyPaneFallback = boardAuthState.on
+        && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+      const caller = resolveAgentSender(req, body, roster, { denyPaneFallback,
+        denyBecause: 'this board only answers a message status for the account that started it, or an agent with a token' });
+      if (!caller.ok) { sendJson(res, 200, { found: false, because: caller.because }); return; }
+      const msgstatus = require('./engine/msgstatus');
+      let out;
+      try {
+        out = msgstatus.status(body.id, {
+          rows: messages.readLog(),
+          asker: caller.card.sessionName,
+          history: (session) => selfreport.history(session),
+          sessionOf: (name) => { const card = chat.resolveCard(roster, name); return (card && card.sessionName) || name; },
+        });
+      } catch { out = { found: false, because: 'we could not read the message record' }; }
+      sendJson(res, 200, { ...out, sentence: msgstatus.sentence(out) });
+    }).catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
   if (pathname === '/api/msg' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
