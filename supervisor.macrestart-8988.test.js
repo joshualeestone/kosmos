@@ -64,13 +64,18 @@ function fixture() {
     AGENT_WORKFORCE_CLAUDE_CONFIG: path.join(root, 'home', '.claude.json'),
     CLAUDE_CONFIG_DIR: path.join(root, 'home', '.claude'),
     KOSMOS_AGENT_BROWSER: 'off',
+    /* As every agent's plist sets it (engine/create.js). Without a UTF-8 locale tmux prints a tab in -F output as "_",
+       so the supervisor's session_id_exact finds no session and the hook is never set. */
+    LANG: 'en_US.UTF-8',
   };
   const args = [path.join(root, 'bin', 'agent-supervisor.sh'), NAME, path.join(root, 'work'), runner, tmux, '', '', 'claude'];
   const kids = [];
   const start = () => { const c = spawn('/bin/bash', args, { env, stdio: 'ignore' }); kids.push(c); return c; };
-  const ends = (child) => new Promise((resolve) => {
+  /* Bounded: a supervisor left watching a dead pane would otherwise hang this file instead of failing it. */
+  const ends = (child, ms = 20000) => new Promise((resolve, reject) => {
     if (child.exitCode !== null || child.signalCode !== null) return resolve({ code: child.exitCode });
-    child.on('exit', (code) => resolve({ code }));
+    const t = setTimeout(() => reject(new Error('the supervisor did not exit within ' + ms + ' ms (is it watching a dead pane?)')), ms);
+    child.on('exit', (code) => { clearTimeout(t); resolve({ code }); });
   });
   const tx = (...a) => spawnSync(tmux, a, { encoding: 'utf8', env });
   const alive = () => tx('has-session', '-t', '=' + NAME).status === 0;
@@ -79,6 +84,8 @@ function fixture() {
     for (let i = 0; i < 400; i++) { if (fn()) return; await new Promise((r) => setTimeout(r, 50)); }
     assert.fail('timed out waiting for ' + what);
   };
+  /* The supervisor sets its hook just after the session exists; an arm that ends the runner first would race it. */
+  const hooked = () => /pane-died/.test(tx('show-hooks', '-w', '-t', '=' + NAME + ':').stdout || '');
   const diedPath = path.join(root, 'data', 'Kosmos', 'runs', NAME + '.died');
   const died = () => (fs.existsSync(diedPath) ? fs.readFileSync(diedPath, 'utf8') : null);
   const tell = (how) => { fs.writeFileSync(path.join(ctl, 'how'), how); fs.writeFileSync(path.join(ctl, 'go'), ''); };
@@ -94,7 +101,7 @@ function fixture() {
     for (const c of kids) if (c.exitCode === null && c.signalCode === null) c.kill('SIGKILL');
     try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
   };
-  return { root, start, ends, tx, alive, paneDead, until, died, tell, card, cleanup };
+  return { root, start, ends, tx, alive, paneDead, hooked, until, died, tell, card, cleanup };
 }
 
 test('#8988 CRASH and STOP: an exit is recorded by the hook and read on the card after the relaunch; a stop records nothing', { skip: SKIP }, async () => {
@@ -102,6 +109,7 @@ test('#8988 CRASH and STOP: an exit is recorded by the hook and read on the card
   try {
     const one = f.start();
     await f.until(f.alive, 'the first session');
+    await f.until(f.hooked, 'its pane-died hook');
     assert.equal(f.died(), null, 'CONTROL: nothing recorded before any death');
     assert.equal(f.card(), null, 'CONTROL: no restart line before any death');
     f.tell('exit 7');
@@ -124,6 +132,7 @@ test('#8988 SIGNAL: a process ended by a signal is recorded by name', { skip: SK
   try {
     const one = f.start();
     await f.until(f.alive, 'the session');
+    await f.until(f.hooked, 'its pane-died hook');
     f.tell('term');
     await f.ends(one);
     assert.match(String(f.died()), /^\d{9,11} signal term\n$/i);
@@ -136,9 +145,11 @@ test('#8988 WAIT: with the hook gone, the supervisor itself records a dead pane 
   const f = fixture();
   try {
     const one = f.start();
-    await f.until(f.alive, 'the session');
+    /* The hook is set just after the session exists: wait for it, or the unset can land first and the hook fires. */
+    await f.until(f.hooked, 'the supervisor to set its pane-died hook');
     const unset = f.tx('set-hook', '-u', '-t', '=' + NAME + ':', 'pane-died');
     assert.equal(unset.status, 0, unset.stderr);
+    assert.equal(f.hooked(), false, 'the hook is gone, so only the supervisor can record this death');
     f.tell('exit 3');
     await f.ends(one);
     assert.equal(f.alive(), false, 'a dead pane never holds the agent stopped');

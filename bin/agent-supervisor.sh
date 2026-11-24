@@ -259,13 +259,15 @@ died_file() {
   mkdir -p "$_dir" 2>/dev/null || return 0
   printf '%s\n' "$_dir/$_key.died"
 }
-# kosmos#8988: every pane of this session has exited (kept by remain-on-exit). An empty or unreadable answer is not
-# "dead": only a session tmux says is all dead pane is.
+# kosmos#8988: every pane of this session has exited (kept by remain-on-exit). Only an answer of "1" on every line is
+# dead: an empty, unreadable or unexpected answer is not, since reading a live agent as dead would end it.
 session_all_dead() {
-  local _d
+  local _d _l
   _d="$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_dead}' 2>/dev/null)" || return 1
   [ -n "$_d" ] || return 1
-  case "$_d" in *0*) return 1 ;; esac
+  while IFS= read -r _l; do [ "$_l" = 1 ] || return 1; done <<EOF
+$_d
+EOF
   return 0
 }
 # kosmos#8988: the dead pane's own exit, written as the hook writes it, for a Claude agent only (its card's words).
@@ -849,14 +851,16 @@ if [ -z "$adopt" ]; then
   # be set, remain-on-exit is switched back off, so a pane is never kept with nothing to end it. Best-effort.
   arm_death_record() {
     [ "$RUNNER" = claude ] || return 0
-    local _f _inner _q
+    local _f _inner _q _sid
     _f="$(died_file)"; [ -n "$_f" ] || return 0
     case "$_f$SESSION" in *"'"*) return 0 ;; esac   # a quote cannot ride the hook's quoting: no record, as before
-    "$TMUX_BIN" set-option -w -t "$TARGET:" remain-on-exit on 2>/dev/null || return 0
+    # The session's ID names exactly this session (a plain name falls back to a prefix match; #4530).
+    _sid="$(session_id_exact)"; [ -n "$_sid" ] || return 0
+    "$TMUX_BIN" set-option -w -t "$_sid" remain-on-exit on 2>/dev/null || return 0
     _inner="printf '%s %s %s\\n' '#{pane_dead_time}' '#{?pane_dead_signal,signal,status}' '#{?pane_dead_signal,#{pane_dead_signal},#{pane_dead_status}}' > '$_f' 2>/dev/null; true"
     _q="'$(printf '%s' "$_inner" | sed "s/'/'\\\\''/g")'"
-    "$TMUX_BIN" set-hook -t "$TARGET:" pane-died "run-shell $_q ; kill-session -t '=$SESSION'" 2>/dev/null \
-      || "$TMUX_BIN" set-option -w -t "$TARGET:" remain-on-exit off 2>/dev/null
+    "$TMUX_BIN" set-hook -t "$_sid" pane-died "run-shell $_q ; kill-session -t '=$SESSION'" 2>/dev/null \
+      || "$TMUX_BIN" set-option -w -t "$_sid" remain-on-exit off 2>/dev/null
     return 0
   }
 
