@@ -24,7 +24,8 @@ engine/accountmove.js, with the optional `handoffFirst` dependency, for each age
 
 Not asked (moved at once): an agent not running (no clause added, since the move's words already say it); one whose
 card reads rate_limited or auth_failed (it cannot take a turn now). A blocked card with a usage-limit report IS asked,
-because that report can be hours stale.
+because that report can be hours stale; so is one whose connection was lost (review 8: it can recover during the wait).
+A stopped, restarting or crashed pane is refused by the delivery itself at once ("the request did not reach it").
 
 The move says what happened: its sentence, its view (`handoff`), Settings ("No handoff written in time (...)", "Not asked
 for a handoff (...): why", and a stop during the wait said as such), and the automatic mover's notice. The page and both
@@ -56,7 +57,8 @@ words reaching a person, carry-on, settling, the page wait. 2 sonnet: what count
 a bounded ask. 3 opus: a BLOCKER, fixed (the Windows pickup); a failed pickup's words; the stop wording; the CLI waits.
 4 sonnet: no typing at the deadline to a session that cannot take a turn; a late ask. 5 opus: the ask inside the budget;
 the person told of a pickup that did not land; Settings names agents not asked. 6 sonnet: busy beside freshness. 7 opus:
-the not-running clause, the out-of-usage rule, page tests, stale comments, this plan.
+the not-running clause, the out-of-usage rule, page tests, stale comments, this plan. 8 sonnet: no BLOCKER or
+WARNING to fix; a type guard. Stopped at the round-8 cap, converged: false, no BLOCKER open.
 
 ## Tests
 - engine/accountmove-handoff-9010.test.js (17): order (ask, restart, pickup); not in time; not asked; a throwing or

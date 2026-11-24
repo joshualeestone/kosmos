@@ -179,7 +179,7 @@ async function saveFirst(deps, name, stopped) {
     }, () => {});
   }
   // Review 7: a null reason is kept (not running: the move's own words already say so); only no answer at all is unreachable.
-  if (!asked || asked.asked !== true) return { asked: false, saved: false, why: asked && 'why' in asked ? asked.why : 'we could not reach it.' };
+  if (!asked || asked.asked !== true) return { asked: false, saved: false, why: asked && typeof asked === 'object' && 'why' in asked ? asked.why : 'we could not reach it.' };
   let seen = null;
   for (;;) {
     let got = false;
