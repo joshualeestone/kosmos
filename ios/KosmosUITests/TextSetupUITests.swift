@@ -25,7 +25,7 @@ final class TextSetupUITests: XCTestCase {
         texts.tap()
         let phone = app.textFields["signin-phone"]
         XCTAssertTrue(phone.waitForExistence(timeout: 5), "the number screen did not open")
-        XCTAssertFalse(app.buttons["Close this page"].exists, "the board page opened over the sign-in")   // ContentView.swift's label
+        XCTAssertFalse(app.buttons["Close this page"].exists, "a web page opened over the sign-in")   // ContentView.swift's label
         XCTAssertTrue(app.buttons["Text me a code"].exists, "the number screen has no send button")
         keep(app, "setup-phone")
         // And back to the choice, where the authenticator app is offered.

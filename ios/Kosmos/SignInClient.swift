@@ -73,7 +73,8 @@ final class SignInClient {
 
     // MARK: - The calls
 
-    enum SignInError: Error { case keyNotKept, unreachable }
+    /// `timedOut`: the request went out and no answer came in time (kosmos#8959: a text may still have been sent).
+    enum SignInError: Error { case keyNotKept, unreachable, timedOut }
 
     /// What start said: a code is on its way (or would be: the answer is the same for any address), with the
     /// company's own sign-in offered beside it or required instead (kosmos#7045). `company` nil with `required`:
@@ -127,7 +128,7 @@ final class SignInClient {
     // MARK: - Passkey sign-in (kosmos#7050 slice C)
 
     /// What begin said: an offer a passkey can answer, passkeys switched off (a 404: the route is not there), or an
-    /// answer that is neither (a server error, an offer for another host). Throws SignInError.unreachable when Kosmos+
+    /// answer that is neither (a server error, an offer for another host). Throws SignInError.unreachable (.timedOut on a timeout) when Kosmos+
     /// did not answer at all.
     enum PasskeyBegin { case offer(SignIn.PasskeyOffer), off, unusable(String?) }
 
@@ -263,9 +264,11 @@ final class SignInClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        guard let (data, response) = try? await http.data(for: request), let answer = response as? HTTPURLResponse else {
-            throw SignInError.unreachable
-        }
+        let data: Data, response: URLResponse
+        do { (data, response) = try await http.data(for: request) } catch let e as URLError where e.code == .timedOut {
+            throw SignInError.timedOut
+        } catch { throw SignInError.unreachable }
+        guard let answer = response as? HTTPURLResponse else { throw SignInError.unreachable }
         return (answer.statusCode, try? JSONSerialization.jsonObject(with: data))
     }
 }
