@@ -187,11 +187,6 @@ struct OpensOnBoardNote: View {
     }
 }
 
-extension View {
-    /// The button's VoiceOver hint for a tap that opens the computer's board (kosmos#8957).
-    func opensOnBoardHint(_ words: String = Board.opensOnBoard) -> some View { accessibilityHint(words) }
-}
-
 // kosmos#7389 (Mona Lisa's design): "Getting report.pdf" with Cancel at the bottom while a board file arrives.
 struct DownloadLine: View {
     let name: String
