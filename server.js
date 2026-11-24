@@ -3637,6 +3637,40 @@ function accountMoveDeps() {
     putBackAsync: (n, dir) => (process.platform === 'win32'
       ? removal.putBackAsync(n, dir)
       : Promise.resolve(create.restoreAccount(n, dir))),
+    /* kosmos#9010: before its restart, a moved agent is asked to write its handoff (the restart's own #3492 prompt, path
+       and freshness test), and the fresh session is pointed at it. AGENT_WORKFORCE_MOVE_HANDOFF_OFF=1 turns this off
+       (the old behaviour, and the card's control). */
+    ...(process.env.AGENT_WORKFORCE_MOVE_HANDOFF_OFF === '1' ? {} : { handoffFirst: moveHandoffDeps() }),
+  };
+}
+/* kosmos#9010: the move's handoff steps, from #3492's pieces (handoffFileSnap, handoffRestart's prompts and freshness
+   test, chat's delivery). Not asked: an agent that is not running (no session to write it), and one out of usage (it
+   cannot take a turn to write anything: the usage mover often moves exactly such an agent). */
+function moveHandoffDeps() {
+  return {
+    ask: async (name) => {
+      const session = sessionOf(name);
+      if (!session) return { asked: false, why: 'it was not running.' };
+      /* The live state is on the board's status card (safeRoster), matched as delivery matches it (chat.resolveCard).
+         Not claimantFor's: the pane roster carries no state (test-support/fleet refuses that read). */
+      const roster = safeRoster();
+      const card = chat.resolveCard(roster, name);
+      if (card && card.state === 'rate_limited') return { asked: false, why: 'it was out of usage, so it could not write one.' };
+      const snap = handoffFileSnap(session);
+      let delivery;
+      try { delivery = await chat.deliverAsync(name, handoffRestart.handoffForRestartPrompt(snap.path), roster, undefined, undefined, { movedNote: false }); }
+      catch { return { asked: false, why: 'we could not reach it.' }; }
+      // UNCONFIRMED may have been typed (it is never typed twice), so it counts as asked; only COULD_NOT is not.
+      if (!delivery || delivery.state === chat.DELIVERY.COULD_NOT) return { asked: false, why: 'the request did not reach it.' };
+      return { asked: true, path: snap.path, before: { exists: snap.exists, mtimeMs: snap.mtimeMs } };
+    },
+    isFresh: (name, before) => {
+      const session = sessionOf(name);
+      if (!session) return false;
+      return handoffRestart.handoffIsFresh(before, handoffFileSnap(session));
+    },
+    // The restart's own pickup line (the moved note rides it, #5400), through the shared-quota gate as #3492's does.
+    pickup: (name, path) => chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(path), safeRoster(), undefined, undefined, { cap: false }),
   };
 }
 
