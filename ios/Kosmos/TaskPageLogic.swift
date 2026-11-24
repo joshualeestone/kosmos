@@ -80,6 +80,10 @@ extension Board {
         // this phone cannot show (the controls then stay on the board).
         var repeatRow: TaskRow? = nil
         var repeatStored: RepeatChoice? = RepeatChoice(every: .never)
+        // kosmos#8958 slice B3b: who is told when a run is missed (the board's tkReviewerOf): "none", "me", or an agent's
+        // session name; and the project's members in the project's order (a Set has none), for the choice's list.
+        var repeatReviewer = "none"
+        var memberOrder: [String] = []
     }
 
     enum TaskPageRead: Equatable {
@@ -99,9 +103,10 @@ extension Board {
         guard let t = tasks.first(where: { integer($0["number"]) == number }) else { return .gone }
         var members: [String: String] = [:]
         var memberSessions = Set<String>()
+        var memberOrder: [String] = []
         for a in (p["agents"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) {
             guard let s = a["sessionName"] as? String, !s.isEmpty else { continue }
-            memberSessions.insert(s)
+            if memberSessions.insert(s).inserted { memberOrder.append(s) }
             // A member with no name of its own is named by the roster (tkMemberName: m.name || tskAgentName).
             if let n = a["name"] as? String, !n.isEmpty { members[s] = n }
         }
@@ -160,6 +165,8 @@ extension Board {
         fillRepeat(&row, t)
         if row.repeating { page.repeatRow = row }
         page.repeatStored = repeatStored(t["repeat"])
+        page.repeatReviewer = t["repeatReviewerPerson"] as? Bool == true ? "me" : text(t["repeatReviewer"]) ?? "none"
+        page.memberOrder = memberOrder
         return .page(page)
     }
 }
@@ -938,5 +945,27 @@ extension Board {
     static func taskRepeatRequest(mac: URL, project: String, number: Int, wire: RepeatWire) -> URLRequest? {
         guard let body = repeatBody(wire) else { return nil }
         return taskPost(taskRoute(mac: mac, project: project, number: number, "repeat"), body)
+    }
+}
+
+// MARK: Who is told when a run is missed (kosmos#8958 slice B3b: the board's tk-review-who)
+
+extension Board {
+    struct ReviewerOption: Equatable, Hashable { let value: String; let words: String }
+    // The board's tkPaintReviewer list: Nobody, Me, the project's agents in its order, and a stored reviewer no longer on
+    // the project, said so, so the choice never shows something that is not stored.
+    static func reviewerOptions(_ p: TaskPage, roster: [String: String]) -> [ReviewerOption] {
+        var agents = p.memberOrder
+        let stored = p.repeatReviewer
+        if stored != "none" && stored != "me" && !p.memberSessions.contains(stored) { agents.append(stored) }
+        return [ReviewerOption(value: "none", words: "Nobody"), ReviewerOption(value: "me", words: "Me")]
+            + agents.map { ReviewerOption(value: $0, words: p.name($0, roster: roster) + (p.memberSessions.contains($0) ? "" : " (left the project)")) }
+    }
+    static let reviewerFailed = "we could not change who is told"
+    static let reviewerUnreached = "we could not reach Kosmos to change who is told"
+
+    // POST .../task/<n>/repeat {reviewer}: the same route as the rule, with only the reviewer (the board's change).
+    static func taskReviewerRequest(mac: URL, project: String, number: Int, reviewer: String) -> URLRequest? {
+        taskPost(taskRoute(mac: mac, project: project, number: number, "repeat"), ["reviewer": reviewer])
     }
 }

@@ -4,8 +4,8 @@ import SwiftUI
 // what TaskPageLogic.swift says and does what TaskPageModel.swift does: the board's task page (web/index.html,
 // paintTaskPage) for reading, and its human verbs: Mark as done / Reopen, and (kosmos#8958 slice B1) a message on the
 // task, its due date, and editing its title or detail, (slice B2) Put on hold / Take off hold, and (slice B3) how often
-// it repeats. What this page does not do yet (the hold form, who is told of a missed run, parts, Add subtask, Close them
-// and this task, the receipt, undo) is on the board's page, one tap away by the info button.
+// it repeats, and (B3b) who is told when a run is missed. What this page does not do yet (the hold form, parts, Add
+// subtask, Close them and this task, the receipt, undo) is on the board's page, one tap away by the info button.
 struct TaskPageRef: Hashable {
     let project: String
     let number: Int
@@ -257,8 +257,8 @@ struct TaskPageView: View {
                 .background(RoundedRectangle(cornerRadius: 10).fill(Palette.primary))
             }
             .buttonStyle(.plain)
-            .disabled(model.pressing || model.holding || model.repeatSaving)
-            .opacity(model.pressing || model.holding || model.repeatSaving ? 0.6 : 1)
+            .disabled(model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil)
+            .opacity(model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil ? 0.6 : 1)
             .accessibilityValue(model.pressing ? "In progress" : "")
             if let refusal = model.refusal {
                 Text(refusal).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
@@ -419,8 +419,8 @@ struct TaskPageView: View {
 
     // kosmos#8958 slice B3: the board's Repeats controls (tk-repeat-*) on an open task: how often, and when (a time, a
     // day and a time, or a number of minutes); Save sends the choice when it differs from the stored rule. The line
-    // under them is the board's own sentence (Tasks.repeatSentence), red while a run is missed. Who is told when a run
-    // is missed (tk-review-who) is still on the board's page.
+    // under them is the board's own sentence (Tasks.repeatSentence), red while a run is missed, and under that who is
+    // told when one is (reviewerRow, slice B3b).
     private func repeatBlock(_ p: Board.TaskPage) -> some View {
         let stored = p.repeatStored
         let storedShown = Board.repeatShown(stored, box: repeatBox)
@@ -516,8 +516,8 @@ struct TaskPageView: View {
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .disabled(!ready || model.repeatSaving || model.pressing)
-                    .opacity(!ready || model.repeatSaving || model.pressing ? 0.5 : 1)
+                    .disabled(!ready || model.repeatSaving || model.reviewerSaving != nil || model.pressing)
+                    .opacity(!ready || model.repeatSaving || model.reviewerSaving != nil || model.pressing ? 0.5 : 1)
                     .accessibilityLabel("Save how this task repeats")
                     .accessibilityIdentifier("taskpage.repeat.save")
                     if repeatDraft != nil && !unchanged {
@@ -544,6 +544,7 @@ struct TaskPageView: View {
                     .foregroundColor(Tasks.repeatMissed(row).isEmpty ? Palette.secondary : Palette.dangerWord)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("taskpage.repeat.line")
+                reviewerRow(p)
             }
         }
         // The stored rule moved (another device, an agent): a draft it now equals is dropped, and a daily edit's other
@@ -553,6 +554,39 @@ struct TaskPageView: View {
             if !model.repeatSaving { repeatBox = nil }
             repeatDraft = Board.followStored(repeatDraft, old: repeatDraftBase, new: s)
             repeatDraftBase = s
+        }
+    }
+
+    // kosmos#8958 slice B3b: the board's "If missed, tell" (tk-review-who), under the repeat line of a task whose rule is
+    // stored: Nobody (nothing is said), Me (the task waits in Needs Your Decision), or an agent on the project (one line
+    // in its session), once per missed run. Saved on change, as the board's; while it is out, the choice sent shows.
+    private func reviewerRow(_ p: Board.TaskPage) -> some View {
+        let options = Board.reviewerOptions(p, roster: roster)
+        let shown = model.reviewerSaving ?? p.repeatReviewer
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text("If missed, tell").font(.footnote).foregroundColor(Palette.secondary)
+                Picker("Who is told if a run is missed", selection: Binding(get: { shown }, set: { want in
+                    model.touched()
+                    Task { await model.saveReviewer(want, names: names) }
+                })) {
+                    ForEach(options, id: \.self) { Text($0.words).tag($0.value) }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityLabel("Who is told if a run is missed")
+                .tint(Palette.link)
+                .frame(minHeight: 44)
+                .disabled(model.reviewerSaving != nil || model.repeatSaving || model.pressing)
+                .accessibilityIdentifier("taskpage.repeat.reviewer")
+                if model.reviewerSaving != nil { SweepDots(scales: false) }
+            }
+            if let say = model.reviewerSay {
+                Text(say).font(.footnote).foregroundColor(model.reviewerRefused ? Palette.dangerWord : Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .id("reviewer:" + say)
+                    .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
+            }
         }
     }
 
