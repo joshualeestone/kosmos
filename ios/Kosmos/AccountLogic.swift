@@ -199,8 +199,8 @@ enum Account {
         return .stay(errorWords(data) ?? "That did not work. Try again in a moment.")
     }
 
-    // Sign out on this iPhone: 200 ended it on Kosmos+; 401 means Kosmos+ no longer takes this sign-in, so there is
-    // nothing left to end there. Anything else, or no answer, is said, and the person chooses (AccountView): try again,
+    // Sign out on this iPhone: 200 ended it on Kosmos+ (forget answers 200 for a session it already refuses, too). 401 is
+    // taken the same way, as nothing left to end. Anything else, or no answer, is said, and the person chooses (AccountView): try again,
     // or sign out on this iPhone only. The page signs out at once and says it afterwards; here the screen it would be
     // said on goes away with the sign-in, so the choice comes first.
     static func forgetAnswer(status: Int?) -> SignOut {

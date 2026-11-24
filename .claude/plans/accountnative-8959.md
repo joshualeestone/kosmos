@@ -28,6 +28,8 @@ The delete-account row stays on the web page (slice C).
   appearance dark` (XCUIDevice appearance does not switch the iOS 27 simulator).
 
 ## Known gaps, decided
+- No automated check drives a real sign-out through ContentView (the UI sample has no session; the sample run
+  returns before any request). The decisions are in the logic suite; the wiring is checked by hand on a device.
 - Sign out everywhere answered 401 (this sign-in already over) signs out here as the page does, though it does
   not prove the other sign-ins ended (a sign-out everywhere done elsewhere is the usual cause).
 - The web page's per-row "Open" link (kosmos#6850) is not ported: the app opens computers from its own

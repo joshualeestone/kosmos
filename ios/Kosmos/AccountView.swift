@@ -186,13 +186,17 @@ struct AccountView: View {
 
     // MARK: Asking Kosmos+
 
+    // One ephemeral session refusing redirects, as Settings and the sign-in client use: the Kosmos+ session is never
+    // carried to another host, and nothing is cached to disk.
+    private static let http = URLSession(configuration: .ephemeral, delegate: RefuseRedirects(), delegateQueue: nil)
+
     private func send(_ r: URLRequest) async -> (Int?, Data?) {
-        guard let (data, answer) = try? await URLSession.shared.data(for: r), let http = answer as? HTTPURLResponse
+        guard let (data, answer) = try? await Self.http.data(for: r), let http = answer as? HTTPURLResponse
         else { return (nil, nil) }
         return (http.statusCode, data)
     }
 
-    private func read() async {
+    @MainActor private func read() async {
         if sample { load = .loaded(Self.sampleRows); return }
         readTicket += 1
         let ticket = readTicket
@@ -212,15 +216,16 @@ struct AccountView: View {
         }
     }
 
-    private func askRetire(_ name: String) async {
+    @MainActor private func askRetire(_ name: String) async {
         // A sample run (screenshots) has no session and never asks Kosmos+.
         guard let session = sample ? "sample" : currentSession(), !retireBusy else { return }
         listNote = nil
         retireBusy = true
         let (status, data) = sample ? (409, Data(#"{"confirm":"K7QX","message":"type K7QX to retire \#(name); it will stop answering and its name is free again after a day"}"#.utf8))
             : await send(Account.retireRequest(coordinator: coordinator, session: session, name: name))
-        retireBusy = false
+        // A sign-in change meanwhile already cleared the flag (onChange); a request started since then keeps its own.
         guard sample || currentSession() == session else { return }
+        retireBusy = false
         switch Account.retireAnswer(status: status, data: data, name: name, typed: nil) {
         case .confirm(let code, let words): typed = ""; retireNote = nil; retiring = (name, code, words)
         case .retired: await read()
@@ -228,7 +233,7 @@ struct AccountView: View {
         }
     }
 
-    private func confirmRetire() async {
+    @MainActor private func confirmRetire() async {
         if sample { closeRetire(); return }
         guard let r = retiring, let session = currentSession(), !retireBusy else { return }
         let code = Account.typedCode(typed)
@@ -236,8 +241,8 @@ struct AccountView: View {
         retireNote = nil
         retireBusy = true
         let (status, data) = await send(Account.retireRequest(coordinator: coordinator, session: session, name: r.name, confirm: code))
-        retireBusy = false
         guard currentSession() == session else { return }
+        retireBusy = false
         switch Account.retireAnswer(status: status, data: data, name: r.name, typed: code) {
         case .retired: closeRetire(); await read()
         // With a typed code retireAnswer never asks again (.confirm); a wrong code comes back as .refused.
@@ -250,29 +255,29 @@ struct AccountView: View {
         retiring = nil; typed = ""; retireNote = nil
     }
 
-    private func signOut() async {
+    @MainActor private func signOut() async {
         guard busy == nil, !sample else { return }
         guard let session = currentSession() else { signOutNote = "You are already signed out."; return }
         signOutNote = nil
         busy = .signOut
         let (status, _) = await send(Account.forgetRequest(coordinator: coordinator, session: session))
-        busy = nil
         // An answer for a sign-in that changed meanwhile signs out nothing: it would end the newer one here.
         guard currentSession() == session else { return }
+        busy = nil
         switch Account.forgetAnswer(status: status) {
         case .signOutHere: signedOut(session)
         case .stay(let why): signOutNote = why; offerLocalOnly = session
         }
     }
 
-    private func signOutEverywhere() async {
+    @MainActor private func signOutEverywhere() async {
         guard busy == nil, !sample else { return }
         guard let session = currentSession() else { signOutNote = "You are already signed out."; return }
         signOutNote = nil
         busy = .everywhere
         let (status, data) = await send(Account.signOutEverywhereRequest(coordinator: coordinator, session: session))
-        busy = nil
         guard currentSession() == session else { return }
+        busy = nil
         switch Account.everywhereAnswer(status: status, data: data) {
         case .signOutHere: signedOut(session)
         case .stay(let why): signOutNote = why
@@ -288,4 +293,11 @@ struct AccountView: View {
             Account.Computer(name: "old-mini", lastSeen: now - 60 * 86400, retired: true, position: 3),
         ]
     }()
+}
+
+private final class RefuseRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
 }
