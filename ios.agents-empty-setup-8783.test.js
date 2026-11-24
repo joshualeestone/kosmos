@@ -32,7 +32,7 @@ test('kosmos#8783: the empty Agents tab offers "Make an agent", which opens the 
   assert.match(content, /guard board\.macURL != nil else \{ openCreate\(\.agent\); return \}/, 'not connected must open the board form');
   assert.match(content, /return NewAgentPicker\.emptyStateGoesNative\(connected: board\.macURL != nil, firstRunDone: done, accounts: rows\)/,
     'native only when the rule says so (first-run done and an account)');
-  assert.match(content, /guard NewAgentPicker\.tapAnswerStands\(epochAtTap: epoch, epochNow: board\.chatEpoch, unlocked: isUnlocked\) else \{ return \}\s*firstAgentGen \+= 1; firstAgentNative = native[^\n]*\n\s*if native \{ newAgentOpen = true \} else \{ openCreate\(\.agent\) \}/,
+  assert.match(content, /guard NewAgentPicker\.tapAnswerStands\(epochAtTap: epoch, epochNow: board\.chatEpoch, unlocked: isUnlocked\) else \{ return \}\s*firstAgentGen \+= 1; firstAgentNative = native[^\n]*\n(\s*\/\/[^\n]*\n)?\s*if native && board\.macURL != nil \{ newAgentOpen = true \} else \{ openCreate\(\.agent\) \}/,
     'review 1: a late answer must not open anything after a switch or the lock');
   // Review 2: the busy flag is reset BEFORE the late-answer gate, so a refused answer can never leave the button stuck.
   assert.match(content, /firstAgentBusy = false\s*guard NewAgentPicker\.tapAnswerStands/, 'the busy flag is not reset before the gate');
@@ -40,7 +40,7 @@ test('kosmos#8783: the empty Agents tab offers "Make an agent", which opens the 
   assert.match(view, /\.onAppear \{ checkFirstAgent\(\) \}/, 'the empty state does not check which way its button goes');
   assert.match(content, /private func checkFirstAgent\(\) \{[\s\S]*?await firstAgentDecision\(\)[\s\S]*?if gen == firstAgentGen && board\.chatEpoch == epoch \{ firstAgentNative = native \}/, 'the answer for the note is not the same decision as the tap, kept only for its computer');
   // Review 3: a switch clears the answer; closing the board page asks again (first-run may have just been finished there).
-  assert.match(content, /onChange\(of: board\.chatEpoch\) \{ _ in[\s\S]*?firstAgentNative = nil; firstAgentGen \+= 1/, 'a computer switch keeps the previous answer');
+  assert.match(content, /onChange\(of: board\.chatEpoch\) \{ _ in[\s\S]*?firstAgentNative = nil; firstAgentGen \+= 1\s*if had \{ checkFirstAgent\(\) \}/, 'a computer switch keeps the previous answer');
   assert.match(content, /onChange\(of: todayBoard\) \{ open in if !open && firstAgentNative != nil \{ checkFirstAgent\(\) \} \}/, 'closing the board page does not ask again');
   // kosmos#8957 wrapped by #8954: the note that the tap opens the board shows only when it does (false), never while reading.
   assert.match(view, /if firstAgentGoesNative == false \{ OpensOnBoardNote\(\) \}/, 'the board note shows when the tap opens the native New Agent');

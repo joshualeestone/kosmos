@@ -290,7 +290,10 @@ struct ContentView: View {
         // through its own fresh sign-in's change.
         .onChange(of: board.chatEpoch) { _ in
             // kosmos#8954 review 3: another computer or account: the old answer about Make an agent is not this one's.
+            // Review 5: an admission can move the epoch in the same update, so a screen that had an answer asks again.
+            let had = firstAgentNative != nil
             firstAgentNative = nil; firstAgentGen += 1
+            if had { checkFirstAgent() }
             if !fresh.passes.spendEpoch() { newAgentOpen = false; newProjectOpen = false }
         }
         // kosmos#8954 review 3: closing the board page (where first-run may just have been finished) asks again, since the
@@ -608,7 +611,8 @@ struct ContentView: View {
             firstAgentBusy = false
             guard NewAgentPicker.tapAnswerStands(epochAtTap: epoch, epochNow: board.chatEpoch, unlocked: isUnlocked) else { return }
             firstAgentGen += 1; firstAgentNative = native   // the newest answer; an older check still reading cannot replace it
-            if native { newAgentOpen = true } else { openCreate(.agent) }
+            // Review 5: a session that ended during the read leaves nothing to post to, so the native form needs it still there.
+            if native && board.macURL != nil { newAgentOpen = true } else { openCreate(.agent) }
         }
     }
     /* kosmos#8954: when the empty state appears, which way the button goes, for its note; kept only for the computer and

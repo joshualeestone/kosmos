@@ -61,3 +61,8 @@ The decision is one shared firstAgentDecision() in ContentView, used by the tap 
 ## Round 4 (sonnet, whole branch, after the rebase): one should-fix, taken
 - The note could go stale when the computer let the phone in after the empty state appeared (the board answers through the coordinator first): the stored "board" stayed while the tap went native. Now .onChange(of: board.admissions) checks again. A drop needs no handler: it goes through start(), which sends the empty state through the waiting ring, and its appear checks again. Pinned.
 - Nits: the dots label is not pinned (left); the plan's count is 15 checks in the room section (measured with grep: 14 after round 1, plus round 2's state-none case).
+
+## Round 5 (opus, whole branch): nothing above nit. Converged. Nits taken:
+- An admission that also moves the epoch in one update cleared the answer and skipped the re-check (fails safe, note hidden): the epoch handler now re-checks when there was an answer. This corrects round 4's "a drop needs no handler" for that one case.
+- A session ending during the tap's read: the native form now also needs board.macURL still set.
+- The build: round 4's run built the app after the rebase (BUILD SUCCEEDED), and this round's run builds it again.
