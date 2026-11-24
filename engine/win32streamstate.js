@@ -771,13 +771,11 @@ function publisher(name, opts) {
       if (m.afterReport === true && current.unstarted) current.wroteAfterReport = true;
     }
   }
-  /* kosmos#8951 review 13: over the cap, drop what is finished first (started, or already reported), the oldest of
-     those; only then the oldest record. */
+  /* kosmos#8951 review 13: over the cap, the oldest records go. Turns start messages oldest first and the deadline
+     reports the oldest waiting, so finished records (started or reported) are always the oldest: they go before any
+     message still waiting. */
   function trimMsgs() {
-    while (current.msgs.length > MSGS_MAX) {
-      const i = current.msgs.findIndex((m) => m.startedAt !== null || m.reported === true);
-      current.msgs.splice(i >= 0 ? i : 0, 1);
-    }
+    current.msgs.splice(0, current.msgs.length - MSGS_MAX);
   }
   /* Review 5: every field of a report goes together, so none is left behind to change how the next report ends. */
   function endReport() {
@@ -916,13 +914,13 @@ function publisher(name, opts) {
       if (opens || (e && e.type === 'result' && current.opened === true)) {
         current.startDue = null;
         /* Review 10, 11, 13: the first main-agent event since the last result opens a turn, on the OLDEST message ready for
-           one (written while no main turn was open, or left waiting when the last turn ended) or already reported (a late
-           start of a reported message is that message's, not a newer one's). Measured above, each message is its own turn,
+           one (written while no main turn was open, or left waiting when the last turn ended), reported ones included: a late
+           start of a reported message is that message's, not a newer one's. Measured above, each message is its own turn,
            never batched. The rest start at their own turn, or join this one when its calls return. A wake-up opens on none,
            and its time is kept for a write whose callback comes just after (review 13). */
         if (opens && !current.mainTurnOpen) {
           current.mainTurnOpen = true;
-          const first = current.msgs.find((x) => x.startedAt === null && (x.ready === true || x.reported === true));
+          const first = current.msgs.find((x) => x.startedAt === null && x.ready === true);   // a reported one is ready: its deadline was armed only once it could start
           if (first) { startMsgs([first]); current.emptyOpenAt = null; } else current.emptyOpenAt = nowMs();
         }
         reportRan();
