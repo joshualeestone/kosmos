@@ -41,6 +41,7 @@ struct AccountView: View {
     // Sign out on Kosmos+ did not answer: the person chooses, try again or sign out on this iPhone only. Holds the
     // session that sign-out was for.
     @State private var offerLocalOnly: String?
+    @State private var askLocalOnly = false
 
     private enum Busy { case signOut, everywhere }
 
@@ -152,11 +153,17 @@ struct AccountView: View {
                 .disabled(busy != nil)
                 .accessibilityIdentifier("account-sign-out")
             if let session = offerLocalOnly {
-                Button("Sign out on this iPhone only", role: .destructive) {
-                    // Only while it is still the sign-in this iPhone holds.
-                    if currentSession() == session { signedOut(session) } else { offerLocalOnly = nil }
-                }
-                .disabled(busy != nil)
+                Button("Sign out on this iPhone only", role: .destructive) { askLocalOnly = true }
+                    .disabled(busy != nil)
+                    .confirmationDialog("Sign out on this iPhone only?", isPresented: $askLocalOnly, titleVisibility: .visible) {
+                        Button("Sign out on this iPhone only", role: .destructive) {
+                            // Only while it is still the sign-in this iPhone holds.
+                            if currentSession() == session { signedOut(session) } else { offerLocalOnly = nil }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("Kosmos+ has not ended this sign-in, so a copy of it could still work until you choose Sign out everywhere.")
+                    }
             }
             Button(busy == .everywhere ? "Signing out everywhere" : "Sign out everywhere", role: .destructive) { askEverywhere = true }
                 .disabled(busy != nil)
@@ -200,19 +207,24 @@ struct AccountView: View {
         return (http.statusCode, data)
     }
 
-    @MainActor private func read() async {
+    // `again`: this read follows one whose sign-in changed while it was out; it is not repeated a second time.
+    @MainActor private func read(again: Bool = false) async {
         if sample { load = .loaded(Self.sampleRows); return }
         readTicket += 1
         let ticket = readTicket
         guard let session = currentSession() else { load = .failed("You are signed out."); return }
         let (status, data) = await send(Board.macsRequest(coordinator: coordinator, session: session))
-        // A cancelled pull or a screen that went away: no answer, so nothing on screen changes.
-        if Task.isCancelled { return }
+        // A cancelled pull or a screen that went away: no answer. A list already shown stays; a first read says it did
+        // not finish, rather than reading forever.
+        if Task.isCancelled {
+            if ticket == readTicket, case .reading = load { load = .failed("Your computers were not read. Pull down to try again.") }
+            return
+        }
         // A newer read was started meanwhile (a pull, a retire, a sign-in change): its answer is the one shown.
         guard ticket == readTicket else { return }
         // The answer belongs to the sign-in that asked. One that changed meanwhile is not shown; the change itself
         // (accountGeneration) clears the list and reads it again; without one, this reads again for the sign-in held now.
-        guard currentSession() == session else { await read(); return }
+        guard currentSession() == session else { if !again { await read(again: true) }; return }
         guard let status else { if case .loaded = load { listNote = Account.reach } else { load = .failed(Account.reach) }; return }
         if (200...299).contains(status), let rows = Account.parseComputers(data) {
             load = .loaded(rows); listNote = nil

@@ -209,5 +209,5 @@ enum Account {
         return .stay(forgetFailed)
     }
 
-    static let forgetFailed = "Kosmos+ could not end this sign-in on its side, so a copy of it could still work. Try again, or sign out on this iPhone only and then choose Sign out everywhere when you next sign in."
+    static let forgetFailed = "Kosmos+ could not end this sign-in on its side. Try again, or sign out on this iPhone only."
 }

@@ -30,6 +30,10 @@ The delete-account row stays on the web page (slice C).
 ## Known gaps, decided
 - No automated check drives a real sign-out through ContentView (the UI sample has no session; the sample run
   returns before any request). The decisions are in the logic suite; the wiring is checked by hand on a device.
+- In a store-shots build (KOSMOS_STORE_SHOTS) the native sign-in does not come up after a Settings sign-out,
+  so the web view's reloaded page shows (ContentView forget).
+- RefuseRedirects is a third file-private copy, following SettingsView and SignInClient; merging them touches
+  the sign-in client and is left out of this slice.
 - Sign out everywhere answered 401 (this sign-in already over) signs out here as the page does, though it does
   not prove the other sign-ins ended (a sign-out everywhere done elsewhere is the usual cause).
 - The web page's per-row "Open" link (kosmos#6850) is not ported: the app opens computers from its own
