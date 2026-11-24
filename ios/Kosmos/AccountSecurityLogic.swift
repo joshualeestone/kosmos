@@ -49,6 +49,13 @@ enum AccountSecurity {
     static let unnamedDevice = "An unnamed device"
 
     static func removeAsk(name: String) -> String { "Press it again to remove \(name)." }
+    /// The page's own words when the passkey's host is not this Kosmos+'s (a passkey made for it would not work here).
+    static func addOnlyAt(_ rp: String) -> String { "Passkeys can be added only at \(rp)." }
+    /// Review 1 (B1c): before iOS 17.4 the exclude list cannot be passed, and an account that already has a passkey could
+    /// see it replaced in iCloud Keychain. Not the page's words: the page has no such case.
+    static let addNeedsNewer = "This iPhone needs iOS 17.4 or later to add a passkey while your account already has one, so that one is not replaced. You can add one on your Kosmos+ account page."
+    /// A challenge kept after a closed sheet is used again for this long (the page's PK_READY_MS, under its 5 minutes).
+    static let heldChallengeSeconds: Double = 240
 
     // MARK: - Passkeys
 
@@ -121,6 +128,13 @@ enum AccountSecurity {
               (b["attestation"] as? String ?? "none") == "none" else { return nil }
         let exclude = (b["exclude"] as? [Any] ?? []).compactMap { ($0 as? String).flatMap(SignIn.fromBase64url) }
         return Registration(challenge: challenge, rpID: rp, userID: user, userName: name, exclude: exclude)
+    }
+
+    /// Review 1 (B1c): the passkey is made for `rp`, and Kosmos+ checks it against its own host, as the sign-in side and the
+    /// page both require (SignIn.passkeyOffer, signin.html `b.rp_id !== host`). nil when it matches.
+    static func rpRefusal(_ r: Registration, coordinator: URL) -> String? {
+        let host = (coordinator.host ?? "").lowercased()
+        return r.rpID.lowercased() == host ? nil : addOnlyAt(r.rpID)
     }
 
     /// The finish request from what iOS hands back. nil when the attestation object holds no readable authData.

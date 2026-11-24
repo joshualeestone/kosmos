@@ -77,11 +77,19 @@ struct AccountView: View {
     @State private var passkeyBusy = false
     @State private var passkeyFor: String?
     @State private var removing: AccountSecurity.Passkey?
+    // Review 1 (B1c): the sign-in each dialog was opened for. A press after the sign-in changed does nothing, as B1a's
+    // Sign out everywhere (everywhereFor).
+    @State private var removingFor: String?
+    @State private var notMeAskedFor: String?
+    // A challenge kept after Apple's sheet was closed, used again by the next Add of the same sign-in (as the page's
+    // pkAddReady): each begin stores one, and five waiting are refused.
+    @State private var heldAdd: (reg: AccountSecurity.Registration, at: Date, session: String)?
     @State private var maker = PasskeyMaker()
     @State private var newPlaces: [AccountSecurity.NewPlace] = []
     @State private var placesTicket = 0
     @State private var notMeFor: AccountSecurity.NewPlace?
     @State private var notMeBusy = false
+    @State private var notMeBusyFor: String?   // review 1: the busy flag belongs to the sign-in that asked
     @State private var notMeNote: String?
 
     var body: some View {
@@ -108,7 +116,8 @@ struct AccountView: View {
             setupBusy = false; setup = nil; setupFor = nil; setupNote = nil; secondNote = nil; phone = ""; code = ""
             second = .reading
             maker.cancel(); passkeyBusy = false; passkeyFor = nil; removing = nil; passkeyNote = nil; passkeyDone = nil
-            passkeys = .reading; newPlaces = []; notMeFor = nil; notMeBusy = false; notMeNote = nil
+            passkeys = .reading; newPlaces = []; notMeFor = nil; notMeBusy = false; notMeBusyFor = nil; notMeNote = nil
+            removingFor = nil; notMeAskedFor = nil; heldAdd = nil
             load = .reading
             Task { await read() }
         }
@@ -122,14 +131,14 @@ struct AccountView: View {
         }
         .confirmationDialog("Remove this passkey?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
                             titleVisibility: .visible, presenting: removing) { p in
-            Button("Remove \(p.name)", role: .destructive) { Task { await removePasskey(p) } }
+            Button("Remove \(p.name)", role: .destructive) { let asked = removingFor; Task { await removePasskey(p, for: asked) } }
             Button("Cancel", role: .cancel) {}
         } message: { p in
             Text(AccountSecurity.removeAsk(name: p.name))
         }
         .confirmationDialog("Not me?", isPresented: Binding(get: { notMeFor != nil }, set: { if !$0 { notMeFor = nil } }),
                             titleVisibility: .visible, presenting: notMeFor) { p in
-            Button("Sign out everywhere", role: .destructive) { Task { await notMe(p) } }
+            Button("Sign out everywhere", role: .destructive) { let asked = notMeAskedFor; Task { await notMe(p, for: asked) } }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
             Text(AccountSecurity.notMeAsk)
@@ -359,7 +368,7 @@ struct AccountView: View {
                                 Text(AccountSecurity.passkeyLine(p, day: Self.day)).font(.footnote).foregroundColor(Palette.secondary)
                             }
                             Spacer()
-                            Button("Remove") { passkeyNote = nil; passkeyDone = nil; removing = p }
+                            Button("Remove") { passkeyNote = nil; passkeyDone = nil; removingFor = sample ? "sample" : currentSession(); removing = p }
                                 .buttonStyle(.borderless).foregroundColor(Palette.dangerWord)
                                 .disabled(passkeyBusy || busy != nil)
                                 .accessibilityLabel("Remove " + p.name)
@@ -392,7 +401,7 @@ struct AccountView: View {
                         Text(p.name).foregroundColor(Palette.primary)
                         Text(AccountSecurity.newPlaceLine(p, when: Self.when)).font(.footnote).foregroundColor(Palette.secondary)
                         if AccountSecurity.offersNotMe(p) {
-                            Button(AccountSecurity.notMeButton, role: .destructive) { notMeNote = nil; notMeFor = p }
+                            Button(AccountSecurity.notMeButton, role: .destructive) { notMeNote = nil; notMeAskedFor = currentSession(); notMeFor = p }
                                 .buttonStyle(.borderless).foregroundColor(Palette.dangerWord)
                                 .disabled(notMeBusy || busy != nil)
                         }
@@ -744,7 +753,7 @@ struct AccountView: View {
         // No answer, or a failure: a list already shown stays, with the note; a first read says it could not list them.
         guard let status else { if case .loaded = passkeys { passkeyNote = Account.reach } else { passkeys = .failed(Account.reach) }; return }
         switch AccountSecurity.list(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) {
-        case .passkeys(let rows): passkeys = .loaded(rows)
+        case .passkeys(let rows): passkeys = .loaded(rows); passkeyNote = nil   // review 1: a good read clears a failed one's note
         case .off: passkeys = .off
         case .signedOut: passkeys = .failed("You are signed out.")
         case .failed: if case .loaded = passkeys { passkeyNote = AccountSecurity.listFailed } else { passkeys = .failed(AccountSecurity.listFailed) }
@@ -758,8 +767,8 @@ struct AccountView: View {
         guard let session = currentSession() else { newPlaces = []; return }
         let (status, data) = await send(AccountSecurity.newPlacesRequest(coordinator: coordinator, session: session))
         guard !Task.isCancelled, ticket == placesTicket, currentSession() == session else { return }
-        // A blip leaves what was shown: the email is still how the owner hears of one.
-        guard let status else { return }
+        // A blip leaves what was shown, as the page does (`if (!r.ok) return`): the email is still how the owner hears of one.
+        guard let status, (200..<300).contains(status) else { return }
         newPlaces = AccountSecurity.newPlaces(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) })
     }
 
@@ -769,16 +778,29 @@ struct AccountView: View {
         if sample { passkeyDone = AccountSecurity.added; return }
         passkeyBusy = true; passkeyFor = session
         defer { if passkeyFor == session { passkeyBusy = false; passkeyFor = nil } }
-        let (status, data) = await send(AccountSecurity.beginRequest(coordinator: coordinator, session: session))
-        guard currentSession() == session else { return }
-        guard let status else { passkeyNote = Account.reach; return }
-        let begun = data.flatMap { try? JSONSerialization.jsonObject(with: $0) }
-        guard (200..<300).contains(status) else { passkeyNote = AccountSecurity.refusal(json: begun, fallback: AccountSecurity.addNotNow); return }
-        // A begin asking for what an iPhone passkey is not (another algorithm, an attestation) is refused here rather
-        // than making a passkey finish would turn away.
-        guard let reg = AccountSecurity.registration(status: status, json: begun) else { passkeyNote = AccountSecurity.addFailed; return }
+        let reg: AccountSecurity.Registration
+        if let held = heldAdd, held.session == session, Date().timeIntervalSince(held.at) < AccountSecurity.heldChallengeSeconds {
+            reg = held.reg
+        } else {
+            let (status, data) = await send(AccountSecurity.beginRequest(coordinator: coordinator, session: session))
+            guard currentSession() == session else { return }
+            guard let status else { passkeyNote = Account.reach; return }
+            let begun = data.flatMap { try? JSONSerialization.jsonObject(with: $0) }
+            guard (200..<300).contains(status) else { passkeyNote = AccountSecurity.refusal(json: begun, fallback: AccountSecurity.addNotNow); return }
+            // A begin asking for what an iPhone passkey is not (another algorithm, an attestation) is refused here rather
+            // than making a passkey finish would turn away.
+            guard let got = AccountSecurity.registration(status: status, json: begun) else { passkeyNote = AccountSecurity.addFailed; return }
+            reg = got
+        }
+        heldAdd = nil
+        if let refusal = AccountSecurity.rpRefusal(reg, coordinator: coordinator) { passkeyNote = refusal; return }
+        if #available(iOS 17.4, *) {} else if !reg.exclude.isEmpty { passkeyNote = AccountSecurity.addNeedsNewer; return }
+        let asked = Date()
         switch await maker.make(reg) {
-        case .cancelled: if currentSession() == session { passkeyNote = AccountSecurity.addCancelled }; return
+        case .cancelled:
+            // Kept for the next press of this sign-in (the challenge is live for five minutes).
+            if currentSession() == session { passkeyNote = AccountSecurity.addCancelled; heldAdd = (reg, asked, session) }
+            return
         case .alreadyHere: if currentSession() == session { passkeyNote = AccountSecurity.addHave }; return
         case .failed: if currentSession() == session { passkeyNote = AccountSecurity.addFailed }; return
         case .made(let id, let att, let client):
@@ -799,9 +821,9 @@ struct AccountView: View {
         }
     }
 
-    @MainActor private func removePasskey(_ p: AccountSecurity.Passkey) async {
-        removing = nil
-        guard !passkeyBusy, let session = sample ? "sample" : currentSession() else { return }
+    @MainActor private func removePasskey(_ p: AccountSecurity.Passkey, for asked: String?) async {
+        removing = nil; removingFor = nil
+        guard !passkeyBusy, let session = sample ? "sample" : currentSession(), asked == session else { return }
         passkeyNote = nil; passkeyDone = nil
         if sample { passkeyDone = AccountSecurity.removed; return }
         passkeyBusy = true; passkeyFor = session
@@ -817,13 +839,14 @@ struct AccountView: View {
         await readPasskeys()
     }
 
-    @MainActor private func notMe(_ p: AccountSecurity.NewPlace) async {
-        notMeFor = nil
-        guard !notMeBusy, !sample, let session = currentSession() else { return }
+    @MainActor private func notMe(_ p: AccountSecurity.NewPlace, for asked: String?) async {
+        notMeFor = nil; notMeAskedFor = nil
+        // Confirmed for another sign-in (it changed while the question was up): nothing is signed out.
+        guard !notMeBusy, !sample, let session = currentSession(), asked == session else { return }
         notMeNote = nil
-        notMeBusy = true
+        notMeBusy = true; notMeBusyFor = session
         let (status, data) = await send(AccountSecurity.notMeRequest(coordinator: coordinator, session: session, p))
-        notMeBusy = false
+        if notMeBusyFor == session { notMeBusy = false; notMeBusyFor = nil }
         guard currentSession() == session else { return }
         guard let status else { notMeNote = Account.reach; return }
         switch AccountSecurity.notMe(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) {

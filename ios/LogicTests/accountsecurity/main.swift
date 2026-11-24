@@ -59,6 +59,15 @@ do {
     check(S.passkeyName == "iPhone", "a passkey made here is named for the device kind")
 }
 
+// MARK: the passkey's host (review 1: as the sign-in side and the page require)
+do {
+    let r = S.Registration(challenge: Data([1]), rpID: "login.example", userID: Data([2]), userName: "a", exclude: [])
+    check(S.rpRefusal(r, coordinator: URL(string: "https://login.example")!) == nil, "the coordinator's own host: no refusal")
+    check(S.rpRefusal(r, coordinator: URL(string: "https://LOGIN.example/k/")!) == nil, "host compared without case or path")
+    check(S.rpRefusal(r, coordinator: URL(string: "https://other.example")!) == "Passkeys can be added only at login.example.", "another host: the page's own words")
+    check(S.heldChallengeSeconds < 300, "a kept challenge is used again only inside its five minutes")
+}
+
 // MARK: register/begin
 func b64(_ d: [UInt8]) -> String { SignIn.base64url(Data(d)) }
 var begin: [String: Any] = ["challenge": b64([1, 2, 3, 4]), "rp_id": "kosmos.example", "rp_name": "Kosmos+", "user_id": b64([9, 9]),
@@ -148,7 +157,8 @@ if let page = try? String(contentsOfFile: relay + "/coordinator/src/signin.html"
                    ("removed", S.removed), ("stepUp", S.stepUp), ("addCancelled", S.addCancelled), ("addHave", S.addHave),
                    ("addFailed", S.addFailed), ("addNotNow", S.addNotNow), ("removeFailed", S.removeFailed),
                    ("newPlacesTitle", S.newPlacesTitle), ("newPlacesWords", S.newPlacesWords), ("notMeButton", S.notMeButton),
-                   ("notMeAsk", S.notMeAsk), ("notMeFailed", S.notMeFailed), ("unnamedDevice", S.unnamedDevice)] {
+                   ("notMeAsk", S.notMeAsk), ("notMeFailed", S.notMeFailed), ("unnamedDevice", S.unnamedDevice),
+                   ("addOnlyAt", S.addOnlyAt("login.example").replacingOccurrences(of: "login.example.", with: ""))] {
         check(page.contains(w), "\(n) is the page's own words")
     }
     check(page.contains("Your passkeys could not be listed just now. "), "listFailed starts as the page's")
