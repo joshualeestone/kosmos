@@ -24,6 +24,14 @@ final class WebFileUITests: XCTestCase {
         private var seen: [String] = []
         var count: Int { lock.lock(); defer { lock.unlock() }; return n }
         var paths: [String] { lock.lock(); defer { lock.unlock() }; return seen }
+        // kosmos#8966: whether the count stays where it is for the whole window, watched every tenth of a second, so a
+        // connection fails the check the moment it arrives instead of after a fixed sleep. A window is still needed:
+        // "nothing came" can only be shown over time.
+        func stays(at count: Int, for seconds: Double) -> Bool {
+            let end = Date().addingTimeInterval(seconds)
+            repeat { if self.count != count { return false }; usleep(100_000) } while Date() < end
+            return self.count == count
+        }
         init() throws {
             let p = NWParameters.tcp
             p.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: .any)
@@ -82,20 +90,18 @@ final class WebFileUITests: XCTestCase {
                       "the viewer's Done and its line about blocked loads are missing")
         // No link is left in the page (Board.withoutLinks), so none can be activated by VoiceOver or a keyboard either.
         XCTAssertEqual(page.links.count, 0, "the page still has links: \(page.links.allElementsBoundByIndex.map(\.label))")
-        sleep(2)   // past the page's one-second refresh, which must not go anywhere
+        // Past the page's one-second refresh, which must not go anywhere.
+        XCTAssertTrue(probe.stays(at: baseline, for: 2), "loading the page reached the network: \(probe.count - baseline) connection(s)")
         shot(app, "web-page-open")
-        XCTAssertEqual(probe.count, baseline, "loading the page reached the network: \(probe.count - baseline) connection(s)")
         // Tapping a link had WebKit open a connection to its host before the navigation was refused; every link is
         // inert, including two that try to take it back (an !important rule outside the layer, and an inline one).
         for name in ["A link away", "A loud link", "An inline link"] {
             let link = page.staticTexts[name]
             XCTAssertTrue(link.exists, "the page has no \(name)")
             link.tap()
-            sleep(2)
-            XCTAssertEqual(probe.count, baseline, "tapping \(name) reached the network")
+            XCTAssertTrue(probe.stays(at: baseline, for: 2), "tapping \(name) reached the network")
         }
         XCTAssertTrue(page.staticTexts["Launch page"].exists, "the page navigated away")
-        sleep(1)
         XCTAssertEqual(probe.count, baseline, "the page reached the network: \(probe.count - baseline) connection(s); request lines seen in all: \(probe.paths)")
 
         app.buttons["Done"].tap()
@@ -110,11 +116,9 @@ final class WebFileUITests: XCTestCase {
         let svg = app.webViews["webfile.page"]
         XCTAssertTrue(svg.waitForExistence(timeout: 10), "the SVG did not open on the phone")
         XCTAssertTrue(svg.images.firstMatch.waitForExistence(timeout: 10), "the SVG is not drawn")
-        sleep(1)
         shot(app, "svg-open")
         svg.images.firstMatch.tap()
-        sleep(2)
-        XCTAssertEqual(probe.count, baseline, "the SVG reached the network")
+        XCTAssertTrue(probe.stays(at: baseline, for: 2), "the SVG reached the network")
         app.buttons["Done"].tap()
         probe.listener.cancel()
     }
