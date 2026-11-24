@@ -36,7 +36,7 @@ struct TasksTab: View {
                               open: { t in openTask = TaskPageRef(project: t.projectId, number: t.number) },
                               answer: answer,
                               answerAgent: { who in answer(who: who) },
-                              answersOnBoard: { who in Board.opensBoardFor(who, agents: client.agents) },
+                              answersOnBoard: { who in Board.opensBoardFor(who, agents: client.agents) && client.chatURL(session: who) != nil },   // review 6: only when the tap can open it
                               refresh: { await client.refreshTasks() },
                               newTask: { picked in notice = nil; newTaskFor = NewTaskStart(picked: picked) },
                               notice: notice, switcher: AnyView(MacSwitcher(client: client)))

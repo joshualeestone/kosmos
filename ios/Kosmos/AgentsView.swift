@@ -567,7 +567,9 @@ struct BoardStates<Empty: View>: View {
                 // kosmos#8957: with Back to Kosmos gone (it opened the board, whose page offered another computer), the
                 // switcher itself, light on the navy page, when the account has another computer to show.
                 .overlay(alignment: .topLeading) {
-                    if client.macs.count > 1 { MacSwitcher(client: client).environment(\.colorScheme, .dark).padding(16) }
+                    if Board.switcherRows(client.macs, shown: client.switcherShown, heard: client.heardFrom).count > 1 {   // as MacSwitcher's own menu
+                        MacSwitcher(client: client).environment(\.colorScheme, .dark).frame(minHeight: 44).padding(16)
+                    }
                 }
         case .kosmosPlusDown:
             LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: nil)
