@@ -23,6 +23,17 @@ its start. That matches the report exactly: the file changed, the changes file s
   reassign goes through the same part give (task/assign -> givePart), so it is covered.
   Not done: a route-to-oweNow test with nothing stubbed. The seam is `verdict.changed` on a TOLD verdict, which the
   engine test drives through the real syncAgent; the route tests pin what each route passes.
+- Review 3: an end-to-end test with nothing stubbed now exists (server.reread-e2e-8989.test.js: real project, tasks,
+  instruction files and debt file; own close owes nothing, a manager's close owes `projects`; it fails with the route
+  fix taken out). The reviewer measured the notice the agent gets: "Under Your projects: - task 2 of Lease: ...".
+  Holder and actor are matched by the token store's key too (sameAgentName), as the take route matches.
+  STATED LIMIT, not fixed: the section lists tasks, not parts. A part closed or moved away while the task's other parts
+  stay open (or while the old holder keeps another part) changes nothing in the holder's section, so nothing is owed.
+  Telling that needs a direct line, not a re-read of an unchanged section: a follow-up, not this card's report (which
+  is whole tasks closed by a manager).
+  Ask 2 stays declined in words: a sentence inside the notice ("notices can be late") reaches only agents that got the
+  notice. The #8948 line, "the live list is right", is what every agent reads.
+  Out of scope, noted: a project renamed on the screen rewrites every member's task lines and owes no re-read.
 
 Rejected: a separate pane line ("task N was closed by X"). The re-read debt already persists, retries, waits for an idle
 pane and gives up after a week; a second mechanism would duplicate that and could type into a busy pane.
