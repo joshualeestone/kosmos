@@ -519,9 +519,10 @@ function overviewOf(p, roster, o) {
    An agent on a quiet project could not tell "new" from "quiet long enough that the person should hear", so each picked
    its own threshold. Activity is the newest of: a post in its room (messages.lastPostAt, which leaves out Kosmos's own
    notes, #6341), any task's last activity (tasks.lastActivityOf, the board's "Quietest first" measure), and the project
-   being made. A paused or archived project's quiet is expected and is never called stale. A room log that cannot be read
-   makes the answer unknown, never "quiet" (a guess would tell the person about a project that may be busy). This is a
-   line of text for `project show`; it raises nothing on the board (#6209, #6341: no new "needs you"). */
+   being made. A project whose quiet is expected (paused, archived, a test project, the starter project with no task, or
+   parked: every unfinished task on hold or built) says why and is never called quiet. A room log that cannot be read
+   makes the answer "cannot say", never "quiet". This is a line of text for `project show`; it raises nothing on the
+   board (#6209, #6341: no new "needs you"). */
 const QUIET_DAYS = 14;
 function activityOf(p, o) {
   const opts = o || {};
@@ -785,7 +786,7 @@ function activityLine(a, id) {
   const room = typeof id === 'string' && id ? 'kosmos room ' + one(id) : 'its room';
   // Review 3: only a member can read or post in the room, and the person may run this too.
   if (a.quiet === true) return head + ' That is past the ' + days(quietDays) + ' Kosmos counts as normal quiet. If you are on'
-    + ' the project, read ' + room + ': if nobody has told your person there that it is quiet, post that there once.';
+    + ' the project, read ' + room + ': if nobody has told your person there in the last ' + days(quietDays) + ' that it is quiet, post that there once.';
   if (a.kind === 'made') return head + ' Nothing has been posted or moved since it was made; quiet is normal until ' + days(quietDays) + '.';
   return head + ' Quiet is normal until ' + days(quietDays) + '.';
 }
