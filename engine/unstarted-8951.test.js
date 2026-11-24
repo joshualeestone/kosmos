@@ -422,3 +422,55 @@ test('#8951: the minute sweep takes a cleared report off the open pushes BEFORE 
   assert.ok(gone < acks, 'unstartedGone runs first, so the same sweep can ack');
   assert.ok(acks - gone < 400, 'and in the same sweep, a few lines apart');
 });
+
+test('#8951 review 5: once a carried report ends, a later deadline report on the same process ends on a late start again', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.stopped(); r.pub.started(7001, 'sid-1');   // carried: needs a later write
+  r.clock.t += HOLD;
+  r.pub.wrote(); r.pub.event(init); r.pub.event(result);        // resent, ran: the report ends
+  assert.equal(r.last().unstarted, undefined, 'premise: ended');
+  r.clock.t += 10 * MIN;
+  r.pub.wrote(); r.fire();                                        // a new message opens no turn
+  assert.equal(r.last().unstarted && r.last().unstarted.count, 1, 'a new report, counted alone');
+  r.clock.t += HOLD;
+  r.pub.event(init);                                              // it starts late, nothing new written
+  assert.equal(r.last().unstarted, undefined, 'the late-start rule holds on this process now');
+});
+
+test('#8951 review 5: a report whose message ran is not carried by a stop during its hold', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.stopped(); r.pub.started(7001, 'sid-1');   // carried, lost
+  r.clock.t += 30 * 1000;
+  r.pub.wrote(); r.pub.event(init); r.pub.event(result);        // resent, and it ran, inside the hold
+  assert.ok(r.last().unstarted, 'premise: still held on the card');
+  r.clock.t += 60 * 1000;
+  r.pub.stopped(); r.pub.started(7002, 'sid-1');                  // a Restart during the hold
+  assert.equal(r.last().unstarted, undefined, 'it ran: the new process is not told to send it again');
+});
+
+test('#8951 review 5: fresh messages the deadline merges into an old report get a fresh hold', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.stopped(); r.pub.started(7001, 'sid-1');   // carried, at T0
+  r.clock.t += 10 * MIN;
+  r.pub.wrote(); r.fire();                                        // merged: count 2
+  assert.equal(r.last().unstarted.count, 2);
+  r.pub.wrote(); r.pub.event(init);                               // a later write's turn, seconds after the merge
+  assert.ok(r.last().unstarted, 'held: the grown report has not been shown yet');
+});
+
+test('#8951 review 5: a second report soon after a cleared one keeps the first push open', (t) => {
+  ds.resetForTests();
+  const board = fleet.install([fleet.agent('homer', { state: 'idle' })]);
+  t.after(() => { board.restore(); ds.resetForTests(); });
+  const now = Date.now();
+  const withStall = { ...board.card('homer'), deliveryStall: ds.unstartedOf('homer', { since: new Date(now - 2 * MIN).toISOString(), count: 1, lost: true }) };
+  const sent = [];
+  ds.tellStalls([withStall], { now, send: (ev) => { sent.push(ev); return true; } });
+  ds.unstartedGone([withStall], now);
+  ds.unstartedGone([{ ...board.card('homer'), state: 'idle', deliveryStall: null }], now + 5 * MIN);   // cleared
+  ds.unstartedGone([withStall], now + 10 * MIN);                                                       // lost again
+  assert.deepEqual(ds.acksDue([], now + 26 * MIN), [], 'showing again: not acked, so the person is still followed up');
+});

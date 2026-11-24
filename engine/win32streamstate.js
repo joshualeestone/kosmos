@@ -744,13 +744,25 @@ function publisher(name, opts) {
        message starting late. One carried from a process that stopped (`needsWrite`, lost or not: review 4) needs a later
        write: the process that took it in is gone, so no turn here can be it. */
     if (current.needsWrite === true && current.wroteAfterReport !== true) return;   // review 4: carried, whether lost or not
+    /* Review 5: from here the messages are known to have run. Marked now, so a stop during the hold does not carry a report
+       whose messages ran, and a new report on this process starts clean. */
+    current.reportRan = true;
     const age = nowMs() - (Number.isFinite(current.reportAt) ? current.reportAt : 0);
-    if (age >= REPORT_HOLD_MS) { current.unstarted = null; current.reportAt = null; current.wroteAfterReport = false; return; }
+    if (age >= REPORT_HOLD_MS) { endReport(); return; }
     const for_ = current.unstarted;
     if (current.clearArmedFor === for_) return;   // one deferred clear per report
     current.clearArmedFor = for_;
-    const t = timer(() => { if (current && current.unstarted === for_) { current.unstarted = null; current.reportAt = null; current.wroteAfterReport = false; flush(); } }, REPORT_HOLD_MS - age);
+    const t = timer(() => { if (current && current.unstarted === for_) { endReport(); flush(); } }, REPORT_HOLD_MS - age);
     if (t && typeof t.unref === 'function') t.unref();
+  }
+  /* Review 5: every field of a report goes together, so none is left behind to change how the next report ends. */
+  function endReport() {
+    current.unstarted = null;
+    current.reportAt = null;
+    current.wroteAfterReport = false;
+    current.needsWrite = false;
+    current.reportRan = false;
+    current.clearArmedFor = null;
   }
 
   /* `retrying` is true from a failed write until the next write that SUCCEEDS, so
@@ -806,12 +818,13 @@ function publisher(name, opts) {
   function missedStart(due) {
     if (!current || current.startDue !== due) return;
     current.startDue = null;
+    if (current.reportRan === true) endReport();   // review 5: a report whose messages ran is over, not merged into
     const prev = current.unstarted;
     const fresh = current.inFlight && Number.isInteger(current.inFlight.count) ? current.inFlight.count : 1 + (current.queued || 0);
     const count = (prev && Number.isInteger(prev.count) ? prev.count : 0) + fresh;
     const since = [prev && prev.since, current.inFlight && current.inFlight.since, due.at].filter((x) => typeof x === 'string').sort()[0];
     current.unstarted = { since, count, ...(prev && prev.lost ? { lost: true } : {}) };
-    if (!prev) current.reportAt = nowMs();
+    current.reportAt = nowMs();   // review 5: fresh messages in the report get a fresh hold, merged or not
     current.wroteAfterReport = false;   // review 2: the write that did not start is now in the report, not after it
     current.inFlight = null;   // now in `unstarted`, so a later death does not count them again
     current.queued = 0;
@@ -835,7 +848,7 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, inFlight: null, needsWrite: false };
+      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, inFlight: null, needsWrite: false, reportRan: false, clearArmedFor: null };
       /* kosmos#8951: messages the previous process took in and never ran are this agent's still: said on the new
          process's record, so its card says so, until a turn starts. */
       const lost = lostOnStop;
@@ -974,8 +987,10 @@ function publisher(name, opts) {
       const was = current;
       /* kosmos#8951: what it took in and never ran goes to the next process: an earlier report no turn cleared, plus
          anything written since. */
-      if (was && (was.unstarted || was.inFlight)) {
-        const a = was.unstarted, b = was.inFlight;
+      /* Review 5: a report whose messages are known to have run (still on its hold) is not carried: they ran. */
+      const carried = was && was.unstarted && was.reportRan !== true ? was.unstarted : null;
+      if (was && (carried || was.inFlight)) {
+        const a = carried, b = was.inFlight;
         const since = [a && a.since, b && b.since].filter((x) => typeof x === 'string').sort()[0];
         /* `lost`: the process ended with them (review 1 W4: said differently, since the message may be what ended it);
            `fresh`: some of them are newly lost now (the task log says those; a report carried as it was is not said again). */
