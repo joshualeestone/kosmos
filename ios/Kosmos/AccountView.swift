@@ -36,6 +36,8 @@ struct AccountView: View {
     @State private var retireFor: String?
     @State private var busyFor: String?
     @State private var askEverywhere = false
+    // The sign-in "Sign out everywhere?" was opened for: a press after the sign-in changed ends nothing.
+    @State private var everywhereFor: String?
     @State private var busy: Busy?
     @State private var signOutNote: String?
     // Sign out on Kosmos+ did not answer: the person chooses, try again or sign out on this iPhone only. Holds the
@@ -62,13 +64,13 @@ struct AccountView: View {
         .onChange(of: accountGeneration) { _ in
             // A sheet, a choice or a note belonged to the sign-in that just changed.
             retireBusy = false; retireFor = nil; closeRetire(); offerLocalOnly = nil; signOutNote = nil; listNote = nil
-            busy = nil; busyFor = nil
+            busy = nil; busyFor = nil; askEverywhere = false; everywhereFor = nil; askLocalOnly = false
             load = .reading
             Task { await read() }
         }
         .sheet(isPresented: Binding(get: { retiring != nil }, set: { if !$0 { closeRetire() } })) { retireSheet }
         .confirmationDialog("Sign out everywhere?", isPresented: $askEverywhere, titleVisibility: .visible) {
-            Button("Sign out everywhere", role: .destructive) { Task { await signOutEverywhere() } }
+            Button("Sign out everywhere", role: .destructive) { Task { await signOutEverywhere(for: everywhereFor) } }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This ends every sign-in to your Kosmos+ account, on this iPhone and on every other phone and browser. Your computers keep running.")
@@ -109,7 +111,7 @@ struct AccountView: View {
                 Button("Retire") { Task { await askRetire(row.name) } }
                     .buttonStyle(.borderless)
                     .foregroundColor(Palette.dangerWord)
-                    .disabled(retireBusy)
+                    .disabled(retireBusy || busy != nil)
                     .accessibilityLabel("Retire " + row.name)
             }
         }
@@ -165,7 +167,9 @@ struct AccountView: View {
                         Text("Kosmos+ has not ended this sign-in, so a copy of it could still work until you choose Sign out everywhere.")
                     }
             }
-            Button(busy == .everywhere ? "Signing out everywhere" : "Sign out everywhere", role: .destructive) { askEverywhere = true }
+            Button(busy == .everywhere ? "Signing out everywhere" : "Sign out everywhere", role: .destructive) {
+                everywhereFor = currentSession(); askEverywhere = true
+            }
                 .disabled(busy != nil)
                 .accessibilityIdentifier("account-sign-out-everywhere")
         } header: {
@@ -288,9 +292,11 @@ struct AccountView: View {
         }
     }
 
-    @MainActor private func signOutEverywhere() async {
+    @MainActor private func signOutEverywhere(for asked: String?) async {
         guard busy == nil, !sample else { return }
         guard let session = currentSession() else { signOutNote = "You are already signed out."; return }
+        // Confirmed for another sign-in (it changed while the question was up): nothing is ended.
+        guard asked == session else { return }
         signOutNote = nil
         busy = .everywhere; busyFor = session
         let (status, data) = await send(Account.signOutEverywhereRequest(coordinator: coordinator, session: session))

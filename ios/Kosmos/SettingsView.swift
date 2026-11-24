@@ -13,10 +13,10 @@ struct SettingsView: View {
     let openBoardSettings: () -> Void
     // kosmos#8959 slice B1a: the account screen signed this iPhone out (already ended on Kosmos+, or the person chose
     // this iPhone only), with the session it held.
-    var signedOut: (String) -> Void = { _ in }
+    let signedOut: (String) -> Void
     // The session signed in now, and a count bumped on every sign-in change (AccountView reads both).
-    var currentSession: () -> String? = { SessionKeychain.live.load() }
-    var accountGeneration = 0
+    let currentSession: () -> String?
+    let accountGeneration: Int
     // kosmos#7266 slice B: the person on the shown computer, for the page's top (BoardClient.youName / youPicture).
     var youName: String? = nil
     var youPicture: Data? = nil
