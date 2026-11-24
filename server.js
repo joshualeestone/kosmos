@@ -3683,16 +3683,18 @@ function moveHandoffDeps(o = {}) {
       if (!delivery || delivery.state === chat.DELIVERY.COULD_NOT) return { asked: false, why: 'the request did not reach it.' };
       return { asked: true, path: snap.path, before: { exists: snap.exists, mtimeMs: snap.mtimeMs } };
     },
-    /* The fresh file's modification time (the engine waits for it to settle), else false. Review 5: not while the agent's
-       card reads working: a handoff written in two edits has a whole turn between them, longer than one look. */
+    /* The fresh file's modification time and whether the agent is still busy (the engine settles it only when it is
+       not, and counts it at the deadline either way), else false. Review 5/6: busy is any state but idle (working, a
+       permission prompt mid-write): a handoff written in two edits has a whole turn between them, longer than one look. */
     isFresh: (rawName, was) => {
       const name = clean(rawName);
       const session = sessionOf(name);
       if (!session) return false;
-      const card = chat.resolveCard(rosterNow(), name);
-      if (card && card.state === 'working') return false;
       const now = handoffFileSnap(session);
-      return handoffRestart.handoffIsFresh(was, now) && Number.isFinite(now.mtimeMs) ? now.mtimeMs : false;
+      if (!(handoffRestart.handoffIsFresh(was, now) && Number.isFinite(now.mtimeMs))) return false;
+      let card = null;
+      try { card = chat.resolveCard(rosterNow(), name); } catch { card = null; }
+      return { mtimeMs: now.mtimeMs, busy: !!card && card.state !== 'idle' };
     },
     pickup: async (rawName, path) => {
       const name = clean(rawName);
@@ -3716,7 +3718,8 @@ function moveHandoffDeps(o = {}) {
       for (;;) {
         let started = null;
         try { started = await startedAt(name); } catch { started = null; }
-        const card = chat.resolveCard(rosterNow(), name);
+        let card = null;
+        try { card = chat.resolveCard(rosterNow(), name); } catch { card = null; }   // review 6: a throw here must not skip the note
         const idle = !!card && card.state === 'idle';
         if (!idle) sawGap = true;
         const readable = Number.isFinite(started) || Number.isFinite(was.start);
