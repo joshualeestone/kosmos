@@ -8,7 +8,7 @@ Built with `node tools/whats-new-pool.js build 0.8.21` (online) on origin/main a
 
 ## Pool additions
 - **A restarted agent says why** (#8979, PR #8987, windows, rank 13.5): "On Windows, when a Claude agent stops and Kosmos starts it again, its card says when and why, such as a sign-in or a usage limit." Read from #8987's "What changes for the person" and its browser check's rendered words. Windows only: the Mac supervisor has no publisher yet (#8987 "Not in this change").
-- **Agents can see whether a message was read** (#8961, PR #8976, notesOnly, since 0.8.20, rank 140): "kosmos msg --status says whether a message was answered, read with no answer, or not yet delivered." It shipped in 0.8.20 without a line (merged before that cut's pin); it is agent-facing, so notes only, as recorded on #8961.
+- **Agents can see whether a message was read** (#8961, PR #8976, notesOnly, since 0.8.20, rank 140): "kosmos msg --status says whether a message was answered, read with no answer, not read yet, or never delivered." (Review: the first wording left out "not read yet", the CLI's most common pending answer, and named only the rare never-delivered one.) It shipped in 0.8.20 without a line (merged before that cut's pin); it is agent-facing, so notes only, as recorded on #8961.
 
 ## Not added
 - #8992 (PR #8995): the feedback pull's own wording, an internal tool.
