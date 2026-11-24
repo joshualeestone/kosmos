@@ -25,22 +25,26 @@ const DELIBERATE_BEFORE_MS = 60 * 1000;
 
 /** { atMs, code, signal } from a died file's text, or null. A signal name is given as tmux prints it ("term"). */
 function parseDied(text) {
-  const m = /^(\d{9,11}) (?:status ([0-9]{1,10})|signal ([A-Za-z]{1,16}))$/.exec(String(text || '').split('\n')[0].trim());
+  const m = /^(\d{9,11}) (?:status ([0-9]{1,10})|signal ([A-Za-z0-9]{1,16}))$/.exec(String(text || '').split('\n')[0].trim());
   if (!m) return null;
   const atMs = Number(m[1]) * 1000;
   if (m[2] !== undefined) return { atMs, code: Number(m[2]), signal: null };
+  /* tmux names a signal where the system names signals ("term"); elsewhere it prints the number, which is kept as it is. */
   const name = m[3].toUpperCase();
-  return { atMs, code: null, signal: name.startsWith('SIG') ? name : 'SIG' + name };
+  return { atMs, code: null, signal: /^[0-9]+$/.test(name) || name.startsWith('SIG') ? name : 'SIG' + name };
 }
 
 /** Did a turn end at or after `sinceMs`? The report hook's Stop, as selfreport.history marks it (turn 'end', its `at` in
     ms). A turn that ended in an API error reports StopFailure (a blocked row), which is no turn end, so it does not
-    clear the line. null when reading the record threw; no record at all is no turn (false). */
+    clear the line. null, which hides the line, when the record was cut short before `sinceMs` (its heartbeats can push
+    a Stop out of the part read) or reading threw; no record is no turn (false). */
 function finishedSince(sessionName, sinceMs, history) {
   let rows;
   try { rows = history(sessionName); } catch { return null; }
   if (!rows) return false;
-  return rows.some((row) => !!row && row.turn === 'end' && Number.isFinite(row.at) && row.at >= sinceMs);
+  if (rows.some((row) => !!row && row.turn === 'end' && Number.isFinite(row.at) && row.at >= sinceMs)) return true;
+  if (rows.truncated && !(rows.length && rows[0] && Number.isFinite(rows[0].at) && rows[0].at <= sinceMs)) return null;
+  return false;
 }
 
 /**
@@ -51,7 +55,10 @@ function restartedFor(sessionName, opts) {
   try {
     const o = opts || {};
     const read = o.read || ((f) => fs.readFileSync(f, 'utf8'));
-    const history = o.history || ((n) => require('./selfreport').history(n));
+    /* The whole record selfreport keeps: a long turn's heartbeats would push its Stop out of the default part. Read only
+       once a death has passed every other check below, so a busy board pays nothing for agents with none. */
+    const sr = require('./selfreport');
+    const history = o.history || ((n) => sr.history(n, sr.HISTORY_MAX_BYTES));
     let died;
     try { died = parseDied(read(crashloop.diedFileFor(sessionName))); } catch { return null; }
     /* An exit with code 0 is Claude closing on purpose (a person typing /exit): not a crash to explain. */
@@ -63,7 +70,8 @@ function restartedFor(sessionName, opts) {
     const ours = (runs.deliberate || []).some((d) => d <= died.atMs && d >= died.atMs - DELIBERATE_BEFORE_MS
       && !runs.some((r) => r.start > d && r.start <= died.atMs));
     if (ours) return null;
-    /* A shutdown or logout ends every agent by signal, so a death before this boot is the machine's, not Claude's. */
+    /* A shutdown ends every agent by signal, so a death before this boot is the machine's, not Claude's. (A logout with
+       no reboot is not told apart: its deaths read as an ended process.) */
     if (died.atMs < (Number.isFinite(o.bootMs) ? o.bootMs : Date.now() - os.uptime() * 1000)) return null;
     if (finishedSince(sessionName, start, history) !== false) return null;
     const why = require('./win32streamstate').restartWhy({ code: died.code, signal: died.signal });
