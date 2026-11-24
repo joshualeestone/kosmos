@@ -438,7 +438,8 @@ final class TaskPageModel: ObservableObject {
             reviewerSaving = nil
             return false
         }
-        let ownRead = pageReads + 1   // the number read() gives the read below
+        // The number read() gives the read below: read() is on the main actor and counts before its first suspension.
+        let ownRead = pageReads + 1
         await read()
         guard current else { return false }
         if pageReadOK < ownRead { reviewerShown = want }
