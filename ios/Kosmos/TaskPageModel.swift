@@ -136,7 +136,9 @@ final class TaskPageModel: ObservableObject {
             if refusal != nil, let was = page, was.act != p.act { refusal = nil }
             if p != page { page = p }
             if let sig = holdSaySig, Board.holdNextSig(p) != sig { holdSay = nil; holdSaySig = nil }
-            if let w = repeatSavedAs, p.repeatStored.map(Board.repeatWire) != w { repeatSay = nil; repeatSavedAs = nil }
+            if let w = repeatSavedAs, p.closed || p.repeatStored.map(Board.repeatWire) != w { repeatSay = nil; repeatSavedAs = nil }
+            // Nothing about Repeats outlives the task being finished (the board's tkPaintRepeat, review 2).
+            if p.closed && repeatRefused { repeatSay = nil; repeatRefused = false }
             set(\.gone, false)
             set(\.readFailed, false)
         case .gone:

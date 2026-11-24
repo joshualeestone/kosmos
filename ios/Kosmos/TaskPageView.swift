@@ -123,6 +123,8 @@ struct TaskPageView: View {
             // Redrawn every 30 seconds, so "2 minutes ago" and "today" move on while nothing else changes.
             TimelineView(.periodic(from: .now, by: 30)) { _ in
                 ScrollView { pageBody(page).padding(16) }
+                    // The Repeats minutes box is a number pad, which has no return key: a drag closes it.
+                    .scrollDismissesKeyboard(.interactively)
             }
                 .dotsRefresh { await model.read(); await model.readActivity(names: names) }
         } else if model.gone {
@@ -156,6 +158,8 @@ struct TaskPageView: View {
             sayBlock(p)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // A finished task has no Repeats section, and an unsaved choice does not come back if it is reopened.
+        .onChange(of: p.closed) { closed in if closed { repeatDraft = nil } }
     }
 
     private func header(_ p: Board.TaskPage) -> some View {
@@ -422,7 +426,9 @@ struct TaskPageView: View {
             model.touched()
             model.clearRepeatSay()
             change(&c)
-            repeatDraft = Board.keptRepeatDraft(c, stored: stored)
+            // Kept as the person set it, even when it is now the stored rule (Save then turns off): dropping it here would
+            // put the stored rule back under their fingers, so typing 60 minutes would become Every hour mid-edit.
+            repeatDraft = c
         }
         return VStack(alignment: .leading, spacing: 6) {
             sectionTitle("Repeats")
@@ -475,7 +481,11 @@ struct TaskPageView: View {
                     Button {
                         model.touched()
                         guard let wire else { return }
-                        Task { if await model.saveRepeat(wire, names: names) { repeatDraft = nil } }
+                        Task {
+                            // Saved: the draft goes once the page reads the saved rule; if that read failed, the controls
+                            // keep showing what was saved rather than the rule from before it.
+                            if await model.saveRepeat(wire, names: names) { repeatDraft = Board.keptRepeatDraft(repeatDraft, stored: model.page?.repeatStored) }
+                        }
                     } label: {
                         HStack(spacing: 8) {
                             if model.repeatSaving { SweepDots(scales: false) }
@@ -489,7 +499,7 @@ struct TaskPageView: View {
                     .accessibilityLabel("Save how this task repeats")
                     .accessibilityIdentifier("taskpage.repeat.save")
                     if repeatDraft != nil && !model.repeatSaving {
-                        dueAction("Cancel", label: "Cancel the change to how this task repeats") { model.clearRepeatSay(); repeatDraft = nil }
+                        dueAction("Cancel", label: "Cancel the change to how this task repeats", busy: model.repeatSaving) { model.clearRepeatSay(); repeatDraft = nil }
                     }
                 }
                 if let need = wire.flatMap(Board.repeatNeeds) {
@@ -515,13 +525,14 @@ struct TaskPageView: View {
         .onChange(of: p.repeatStored) { s in repeatDraft = Board.keptRepeatDraft(repeatDraft, stored: s) }
     }
 
-    private func dueAction(_ words: String, label: String, strong: Bool = false, _ run: @escaping () -> Void) -> some View {
+    // `busy` is the section's own save in flight (the due date's, unless another section names its own).
+    private func dueAction(_ words: String, label: String, strong: Bool = false, busy: Bool? = nil, _ run: @escaping () -> Void) -> some View {
         Button { model.touched(); run() } label: {
             Text(words).font(strong ? .footnote.weight(.semibold) : .footnote).foregroundColor(Palette.link)
                 .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(model.dueSaving)
+        .disabled(busy ?? model.dueSaving)
         .accessibilityLabel(label)
     }
 
