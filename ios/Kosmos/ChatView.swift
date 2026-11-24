@@ -127,6 +127,8 @@ struct ChatView: View {
     // The words in the box. Kept here while the chat is open (typing redraws only the chat) and given to the client when
     // it goes, so leaving the chat never loses them.
     @State private var draftText = ""
+    // kosmos#8958: unsent drafts whose Dismiss is on its way to the Mac (their buttons are off meanwhile).
+    @State private var dismissingDrafts: Set<String> = []
     // kosmos#7348: the text of the last send and when, so the box filling back with it is cleared again.
     @State private var lastSent: (text: String, at: Date)?
     // Reads are numbered: only one newer than the last shown is shown, so a slow earlier read never undoes a newer one.
@@ -1860,6 +1862,11 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
                 .padding(.top, first ? 10 : 2)
                 .task { for f in row.attachments { await client.loadThumbnail(f) } }
+            } else if row.wayThrough == .draft, let id = row.draftId {
+                // kosmos#8958: the draft itself, with the board's two actions, in place of a link to the board.
+                UnsentDraftRow(words: row.text, busy: dismissingDrafts.contains(id),
+                               use: { useDraft(row) }, dismiss: { dismissDraft(id) })
+                    .padding(.top, 10)
             } else if let way = row.wayThrough {
                 VStack(alignment: .leading, spacing: 4) {
                     // A file that came with words: the words as a bubble, then the way through for the file.
@@ -2730,6 +2737,34 @@ struct ChatView: View {
         }
     }
 
+    // kosmos#8958: the board's dmDraftUse. Nothing is sent; the words wait in the box for the person.
+    private func useDraft(_ row: Board.ChatRow) {
+        draftText = Board.usingDraft(draftText, words: row.text)
+        composerFocused = true
+    }
+
+    // kosmos#8958: the board's dmDraftDismiss. The row goes once the Mac says it is gone; otherwise it stays and the
+    // composer line says so.
+    private func dismissDraft(_ id: String) {
+        guard !dismissingDrafts.contains(id) else { return }
+        dismissingDrafts.insert(id)
+        let startedIn = client.chatEpoch
+        Task {
+            let gone = await client.dismissDraft(id: id, of: agent)
+            guard startedIn == client.chatEpoch else { return }
+            dismissingDrafts.remove(id)
+            if gone {
+                if composerNote == Board.draftDismissFailed { composerNote = nil }
+                // As after a delete: a read already in the air still holds the draft, so it is dropped.
+                readShown = readsStarted
+                if let t = thread { thread = Board.withoutDraft(t, id: id) }
+                Task { await read() }
+            } else {
+                composerNote = Board.draftDismissFailed
+            }
+        }
+    }
+
     // kosmos#7614: the person's own message deleted for everyone (asked first, in the sheet). The row goes at once; a
     // refusal, or the note that an agent had already read it, is said on the composer line, as a reaction's refusal is.
     private func deleteMine(_ row: Board.ChatRow) {
@@ -3390,6 +3425,34 @@ struct WorkingLine: View {
 
 // Mona Lisa's way-through row: a card-colour pill that opens the agent's chat on the board, or, with no action
 // (kosmos#8952: a question or permission), the same pill that only says something.
+// kosmos#8958: an unsent draft as the board draws it (dm-draft): Kosmos's band, the words quoted, and its two actions.
+struct UnsentDraftRow: View {
+    let words: String
+    let busy: Bool
+    let use: () -> Void
+    let dismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(Board.draftBand).font(.footnote).foregroundColor(Palette.secondary)
+            Text(words).font(.callout).foregroundColor(Palette.primary)
+                .textSelection(.enabled)
+                .padding(.leading, 10)
+                .overlay(Rectangle().fill(Palette.secondary.opacity(0.4)).frame(width: 3), alignment: .leading)
+                .accessibilityLabel(Text("The text that was in its input box: ") + Text(words))
+            HStack(spacing: 10) {
+                Button(Board.draftUse, action: use).buttonStyle(.bordered).frame(minHeight: 44)
+                Button(Board.draftDismiss, action: dismiss).buttonStyle(.bordered).frame(minHeight: 44).disabled(busy)
+            }
+            .font(.footnote.weight(.semibold))
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.pillStroke, lineWidth: 0.5))
+    }
+}
+
 struct WayThroughRow: View {
     let text: Text
     let action: (() -> Void)?
