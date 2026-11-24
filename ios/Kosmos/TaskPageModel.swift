@@ -35,6 +35,13 @@ final class TaskPageModel: ObservableObject {
     // What the task read as when holdSay was the unhold's next sentence (Board.holdNextSig): the line goes once the task
     // reads otherwise, as the board's repaint takes it down (review 1).
     private var holdSaySig: String?
+    // kosmos#8958 slice B3: the Repeats Save in the air, and the line under it (the board's tk-repeat-msg): "Saved." or
+    // the Mac's refusal (repeatRefused). "Saved." goes once the stored rule reads as something else (the board's review
+    // 2: a rule changed elsewhere retires it).
+    @Published private(set) var repeatSaving = false
+    @Published private(set) var repeatSay: String?
+    @Published private(set) var repeatRefused = false
+    private var repeatSavedAs: Board.RepeatWire?
     // The title and detail being saved, and the line for the last save (the board's tk-msg for the form).
     // Like `pressing`, saying, dueSaving and editSaving stay set when the epoch moves mid-request: the page is then about
     // nothing.
@@ -129,6 +136,7 @@ final class TaskPageModel: ObservableObject {
             if refusal != nil, let was = page, was.act != p.act { refusal = nil }
             if p != page { page = p }
             if let sig = holdSaySig, Board.holdNextSig(p) != sig { holdSay = nil; holdSaySig = nil }
+            if let w = repeatSavedAs, p.repeatStored.map(Board.repeatWire) != w { repeatSay = nil; repeatSavedAs = nil }
             set(\.gone, false)
             set(\.readFailed, false)
         case .gone:
@@ -358,6 +366,35 @@ final class TaskPageModel: ObservableObject {
         editSaving = false
         return true
     }
+    // kosmos#8958 slice B3: the board's Repeats Save (tk-repeat-save). Nothing is sent while a box is empty, while one is
+    // on its way, or for the rule already stored. true when the Mac recorded it; then the task and activity are read.
+    func saveRepeat(_ wire: Board.RepeatWire, names: [String: String]) async -> Bool {
+        guard !repeatSaving, !pressing, current, let page, !page.closed, Board.repeatBody(wire) != nil,
+              page.repeatStored.map(Board.repeatWire) != wire else { return false }
+        repeatSaving = true
+        repeatSay = nil
+        repeatSavedAs = nil
+        repeatRefused = false
+        let (project, number) = (self.project, self.number)
+        let answer = await send { Board.taskRepeatRequest(mac: $0, project: project, number: number, wire: wire) }
+        guard current else { return false }
+        if case .refused(let why) = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0,
+                                                          failed: Board.repeatFailed, unreached: Board.repeatUnreached) {
+            repeatSay = why
+            repeatRefused = true
+            repeatSaving = false
+            return false
+        }
+        await read()
+        await readActivity(names: names)
+        guard current else { return false }
+        repeatSay = Board.repeatSaved
+        repeatSavedAs = wire
+        repeatSaving = false
+        return true
+    }
+    // A new choice retires the last answer (the board's review 1).
+    func clearRepeatSay() { repeatSay = nil; repeatSavedAs = nil; repeatRefused = false }
     func clearEditRefusal() { editRefusal = nil }
     func clearDueRefusal() { dueRefusal = nil }
 

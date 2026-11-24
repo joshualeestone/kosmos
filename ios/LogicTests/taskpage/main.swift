@@ -1029,6 +1029,133 @@ func b1ModelTests() async {
     check(!long && m.editRefusal == "say what needs doing in 200 characters or fewer; the detail has the room", "a refused save keeps the form open with the Mac's words")
 }
 
+section("slice B3: how often it repeats (kosmos#8958)")
+do {
+    typealias C = Board.RepeatChoice
+    check(Board.repeatStored(nil) == C(every: .never) && Board.repeatStored(NSNull()) == C(every: .never), "no rule: Never")
+    check(Board.repeatStored(["every": "hour", "minute": 20]) == C(every: .hour), "an hourly rule an agent set at :20 shows as Every hour")
+    check(Board.repeatStored(["every": "minutes", "n": 45]) == C(every: .minutes, minutes: "45"), "every 45 minutes fills the minutes box")
+    check(Board.repeatStored(["every": "day", "at": "07:30"]) == C(every: .day, at: "07:30"), "a daily time fills the time box")
+    check(Board.repeatStored(["every": "day", "at": ["09:00", "17:00"]]) == C(every: .day, at: "09:00", others: ["17:00"]),
+          "several daily times: the first in the box, the rest kept (kosmos#5752)")
+    check(Board.repeatStored(["every": "week", "day": 1, "at": "09:30"]) == C(every: .week, at: "09:30", on: "mon")
+          && Board.repeatStored(["every": "week", "day": 0, "at": "08:00"])?.on == "sun", "weekly: the engine's day number (Sunday 0) as the route's day")
+    check(Board.repeatStored(["every": "fortnight"]) == nil && Board.repeatStored(["every": "week", "day": 9, "at": "09:00"]) == nil
+          && Board.repeatStored("daily") == nil, "a rule the controls cannot show is nil, never shown as another rule")
+
+    check(Board.repeatWire(C(every: .never)) == .clear && Board.repeatWire(C(every: .hour)) == .hour, "Never clears; Every hour")
+    check(Board.repeatWire(C(every: .minutes, minutes: " 030 ")) == .minutes("30") && Board.repeatWire(C(every: .minutes, minutes: "60")) == .hour,
+          "minutes are sent as the board stores them: 030 is 30, and 60 is hourly")
+    check(Board.repeatWire(C(every: .minutes, minutes: "")) == .needsMinutes && Board.repeatNeeds(.needsMinutes) == "Say how many minutes",
+          "an empty minutes box is no choice yet, said in the board's words")
+    check(Board.repeatWire(C(every: .minutes, minutes: "12x")) == .minutes("12x"), "a minutes box that is not a number is sent for the Mac to refuse")
+    check(Board.repeatWire(C(every: .day, at: "")) == .needsTime && Board.repeatNeeds(.needsTime) == "Choose a time", "an empty time: Choose a time")
+    check(Board.repeatWire(C(every: .day, at: "18:00", others: ["09:00", "18:00"])) == .day("09:00,18:00"),
+          "the box and the other times go as one sorted list, each once")
+    check(Board.repeatWire(C(every: .week, at: "09:00", on: "fri")) == .week(on: "fri", at: "09:00"), "weekly sends its day and time")
+    check(Board.repeatBody(.clear)?["clear"] as? Bool == true && Board.repeatBody(.minutes("30"))?["at"] as? String == "30"
+          && Board.repeatBody(.week(on: "fri", at: "09:00"))?["on"] as? String == "fri" && Board.repeatBody(.needsTime) == nil,
+          "the bodies are the board's: clear, the minutes as at, the day as on; nothing while a box is empty")
+
+    let stored = C(every: .day, at: "09:00", others: ["17:00"])
+    var moved = stored; moved.at = "10:00"
+    check(Board.keptRepeatDraft(stored, stored: stored) == nil, "a draft that is the stored rule is no draft")
+    check(Board.keptRepeatDraft(moved, stored: stored).map(Board.repeatWire) == .day("10:00,17:00"), "moving the box keeps the other time")
+    var onto = stored; onto.at = "17:00"
+    check(Board.keptRepeatDraft(onto, stored: stored).map(Board.repeatWire) == .day("17:00"), "moving the box onto the other time leaves one time")
+    let agentChanged = C(every: .day, at: "08:00", others: ["20:00"])
+    check(Board.keptRepeatDraft(moved, stored: agentChanged).map(Board.repeatWire) == .day("10:00,20:00"),
+          "an edit under a rule changed elsewhere stands, and its other times follow the new rule (round 3 on the board)")
+    var weekly = stored; weekly.every = .week
+    check(Board.keptRepeatDraft(weekly, stored: stored)?.every == .week, "a frequency change is a draft")
+    check(Board.keptRepeatDraft(moved, stored: nil) == nil, "a rule the controls cannot show drops the draft")
+    check(Board.repeatTimeString(Board.repeatTime("07:05")) == "07:05" && Board.repeatTimeString(Board.repeatTime("23:59")) == "23:59",
+          "a time goes through the picker and back unchanged, whatever this phone's time zone")
+
+    let req = Board.taskRepeatRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "springcatalogue", number: 3, wire: .day("09:00"))
+    let sentBody = req?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(req?.httpMethod == "POST" && req?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/springcatalogue/task/3/repeat"
+          && sentBody?["every"] as? String == "day" && sentBody?["at"] as? String == "09:00", "POST .../repeat with the board's body")
+    check(Board.taskRepeatRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "x", number: 1, wire: .needsMinutes) == nil,
+          "nothing is built while a box is empty")
+
+    // A task that repeats, read from the projects read: the fields engine/taskrepeat.fieldsOf adds to it.
+    var doc = (try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any]) ?? [:]
+    var projs = doc["projects"] as? [[String: Any]] ?? []
+    var tks = projs.first?["tasks"] as? [[String: Any]] ?? []
+    if let i = tks.firstIndex(where: { ($0["number"] as? NSNumber)?.intValue == 3 }) {
+        tks[i]["repeat"] = ["every": "day", "at": ["09:00", "17:00"]]
+        tks[i]["repeatWords"] = "every day at 9am and 5pm"
+        tks[i]["repeatNextWords"] = "today at 5pm"
+        tks[i]["repeatMissed"] = 1
+        tks[i]["repeatMissedWords"] = "today at 9am"
+    }
+    if !projs.isEmpty { projs[0]["tasks"] = tks }
+    doc["projects"] = projs
+    let repeating = (try? JSONSerialization.data(withJSONObject: doc)).map { Board.parseTaskPage($0, project: "springcatalogue", number: 3) }
+    if case .page(let rp)? = repeating, let row = rp.repeatRow {
+        check(rp.repeatStored == C(every: .day, at: "09:00", others: ["17:00"]), "the page reads the stored rule for its controls")
+        check(Tasks.repeatSentence(row, now: Date()) { $0 } == "Missed the run due today at 9am. Repeats every day at 9am and 5pm. Next today at 5pm.",
+              "the page's line is the board's sentence, the missed run first")
+        check(!Tasks.repeatMissed(row).isEmpty, "a missed run marks the line (drawn red)")
+    } else {
+        check(false, "a repeating task reads as a page with its repeat row")
+    }
+    check(page(3)?.repeatRow == nil && page(3)?.repeatStored == C(every: .never), "a task that does not repeat has no line, and Never")
+}
+await b3ModelTests()
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
+
+@MainActor
+func b3ModelTests() async {
+    let mac = FakeMac()
+    let m = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch })
+    m.onScreen = true
+    m.touched()
+    let nm = ["dana": "Dana"]
+    await m.read()
+    // The rule the Mac stores once the save lands, so the read after it shows it (as the real board does).
+    func withRule(_ rule: Any) -> Data {
+        var doc = (try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any]) ?? [:]
+        var projs = doc["projects"] as? [[String: Any]] ?? []
+        var tks = projs.first?["tasks"] as? [[String: Any]] ?? []
+        if let i = tks.firstIndex(where: { ($0["number"] as? NSNumber)?.intValue == 3 }) { tks[i]["repeat"] = rule }
+        if !projs.isEmpty { projs[0]["tasks"] = tks }
+        doc["projects"] = projs
+        return (try? JSONSerialization.data(withJSONObject: doc)) ?? Data()
+    }
+    mac.asked = []
+    let unchanged = await m.saveRepeat(.clear, names: nm)
+    check(!unchanged && mac.asked.isEmpty, "Save of the rule already stored (none) sends nothing")
+    let empty = await m.saveRepeat(.needsTime, names: nm)
+    check(!empty && mac.asked.isEmpty, "nothing is sent while a box is empty")
+    var body: [String: Any]?
+    mac.onSend = { r in if r.url!.path.hasSuffix("/repeat") { body = r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } } }
+    mac.actAnswers = [(200, #"{"task":{},"words":"every week on Friday at 9am"}"#)]
+    mac.projects = (200, withRule(["every": "week", "day": 5, "at": "09:00"]))
+    let saved = await m.saveRepeat(.week(on: "fri", at: "09:00"), names: nm)
+    check(saved && body?["every"] as? String == "week" && body?["on"] as? String == "fri" && body?["at"] as? String == "09:00",
+          "a weekly rule is posted with its day and time")
+    check(mac.asked == ["POST /api/project/springcatalogue/task/3/repeat", "GET /api/projects", "GET /api/project/springcatalogue/task/3/activity"],
+          "then the page and its activity are read again")
+    check(m.repeatSay == Board.repeatSaved && !m.repeatRefused && !m.repeatSaving && m.page?.repeatStored?.on == "fri", "Saved., and the page shows the new rule")
+    mac.asked = []
+    let again = await m.saveRepeat(.week(on: "fri", at: "09:00"), names: nm)
+    check(!again && mac.asked.isEmpty, "the same rule again sends nothing")
+    mac.projects = (200, withRule(["every": "hour"]))
+    await m.read()
+    check(m.repeatSay == nil, "Saved. goes once the rule is changed elsewhere")
+    mac.onSend = nil
+    mac.actAnswers = [(400, #"{"error":"every so many minutes takes a number from 15 to 720"}"#)]
+    let refused = await m.saveRepeat(.minutes("5"), names: nm)
+    check(!refused && m.repeatSay == "every so many minutes takes a number from 15 to 720" && m.repeatRefused && !m.repeatSaving,
+          "a refusal is the Mac's own sentence, marked as a refusal")
+    m.clearRepeatSay()
+    check(m.repeatSay == nil && !m.repeatRefused, "a new choice retires the last answer")
+    mac.actAnswers = [nil]
+    let unreached = await m.saveRepeat(.minutes("30"), names: nm)
+    check(!unreached && m.repeatSay == Board.repeatUnreached, "no answer: the could-not-reach words")
+}

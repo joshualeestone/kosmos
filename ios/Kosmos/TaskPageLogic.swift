@@ -75,6 +75,11 @@ extension Board {
         let allSubtasksBuilt: Bool
         // The tasks this one replaced (theirs name it; the link is stored once).
         let replaces: [Int]
+        // kosmos#8958 slice B3: the board's repeat fields (Board.fillRepeat) when the task repeats, for its line; and the
+        // stored rule as the Repeats controls show it (Board.repeatStored): never when it does not repeat, nil for a rule
+        // this phone cannot show (the controls then stay on the board).
+        var repeatRow: TaskRow? = nil
+        var repeatStored: RepeatChoice? = RepeatChoice(every: .never)
     }
 
     enum TaskPageRead: Equatable {
@@ -132,7 +137,7 @@ extension Board {
         let parentNumber = integer(t["parent"])
         let parent = parentNumber.flatMap { n in tasks.first { integer($0["number"]) == n } }
         let replaces = tasks.filter { integer($0["replacedBy"]) == number && isClosed($0) }.compactMap { integer($0["number"]) }.sorted()
-        return .page(TaskPage(
+        var page = TaskPage(
             projectId: project, projectName: text(p["name"]) ?? project, projectPaused: p["paused"] as? Bool == true,
             members: members, memberSessions: memberSessions, number: number, sentence: text(t["sentence"]) ?? "", detail: text(t["detail"]),
             createdAt: text(t["createdAt"]), addedBy: text(t["addedBy"]), addedVia: text(t["addedVia"]),
@@ -149,7 +154,13 @@ extension Board {
             subtasks: subtasks,
             allSubtasksDone: !kids.isEmpty && kids.allSatisfy(isClosed) && !closed,
             allSubtasksBuilt: !kids.isEmpty && !kids.allSatisfy(isClosed) && kids.allSatisfy { isClosed($0) || built($0) } && !closed,
-            replaces: replaces))
+            replaces: replaces)
+        // kosmos#8958 slice B3: a task that repeats carries the board's words for its rule, runs and next run.
+        var row = TaskRow(projectId: project, projectName: page.projectName, number: number, sentence: page.sentence, state: closed ? "done" : "open")
+        fillRepeat(&row, t)
+        if row.repeating { page.repeatRow = row }
+        page.repeatStored = repeatStored(t["repeat"])
+        return .page(page)
     }
 }
 
@@ -768,5 +779,141 @@ extension Board {
         guard let wrapped = try? JSONSerialization.data(withJSONObject: ["projects": [["id": project, "tasks": [task]]]]),
               case .page(let t) = parseTaskPage(wrapped, project: project, number: number) else { return nil }
         return t
+    }
+}
+
+// MARK: How often it repeats (kosmos#8958 slice B3: the board's Repeats controls, tk-repeat-*)
+
+extension Board {
+    // The board's frequency choices (tk-repeat-every), in its order and words.
+    enum RepeatEvery: String, CaseIterable, Equatable {
+        case never = "", minutes, hour, day, week
+        var words: String {
+            switch self {
+            case .never: return "Never"
+            case .minutes: return "Every so many minutes"
+            case .hour: return "Every hour"
+            case .day: return "Every day"
+            case .week: return "Every week"
+            }
+        }
+    }
+    // The days as the route reads them (taskrepeat.fromWords), Monday first as the board lists them.
+    static let repeatDays: [(key: String, words: String)] = [("mon", "Monday"), ("tue", "Tuesday"), ("wed", "Wednesday"),
+        ("thu", "Thursday"), ("fri", "Friday"), ("sat", "Saturday"), ("sun", "Sunday")]
+    // The engine's day numbers (Sunday 0), the board's TK_REPEAT_DAYS.
+    static let repeatDayOfNumber = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+
+    // What the controls hold, each box keeping its own value whichever frequency shows (as the board's inputs do): the
+    // minutes box, the time box, a daily rule's other times (kosmos#5752: the box shows the first, the line says them
+    // all) and the day. Defaults as the board's tkRepeatShowChoice: 30 minutes, 9am, Monday.
+    struct RepeatChoice: Equatable {
+        var every: RepeatEvery
+        var minutes = "30"
+        var at = "09:00"
+        var others: [String] = []
+        var on = "mon"
+    }
+
+    // What a choice sends, as the board's tkRepeatChoice: nothing yet for an empty box (needsMinutes, needsTime). Two
+    // choices are the same rule when these are equal, which is how Save knows there is nothing to save.
+    enum RepeatWire: Equatable {
+        case clear, hour, minutes(String), day(String), week(on: String, at: String), needsMinutes, needsTime
+    }
+    static func repeatWire(_ c: RepeatChoice) -> RepeatWire {
+        switch c.every {
+        case .never: return .clear
+        case .hour: return .hour
+        case .minutes:
+            let m = c.minutes.trimmingCharacters(in: .whitespacesAndNewlines)
+            if m.isEmpty { return .needsMinutes }
+            // Written as the board stores it (review 2 on the board): "030" is 30, and 60 minutes is the hourly rule.
+            let n = m.allSatisfy({ $0.isASCII && $0.isNumber }) ? (Int(m).map(String.init) ?? m) : m
+            return n == "60" ? .hour : .minutes(n)
+        case .day:
+            if c.at.isEmpty { return .needsTime }
+            if c.others.isEmpty { return .day(c.at) }
+            return .day(Array(Set([c.at] + c.others)).sorted().joined(separator: ","))
+        case .week:
+            if c.at.isEmpty { return .needsTime }
+            return .week(on: c.on, at: c.at)
+        }
+    }
+    // The request body for a choice (the board's JSON), nil while a box is empty.
+    static func repeatBody(_ w: RepeatWire) -> [String: Any]? {
+        switch w {
+        case .clear: return ["clear": true]
+        case .hour: return ["every": "hour"]
+        case .minutes(let n): return ["every": "minutes", "at": n]
+        case .day(let at): return ["every": "day", "at": at]
+        case .week(let on, let at): return ["every": "week", "on": on, "at": at]
+        case .needsMinutes, .needsTime: return nil
+        }
+    }
+    // The board's tkRepeatDirty line for an empty box.
+    static func repeatNeeds(_ w: RepeatWire) -> String? {
+        switch w {
+        case .needsMinutes: return "Say how many minutes"
+        case .needsTime: return "Choose a time"
+        default: return nil
+        }
+    }
+
+    // The stored rule (a task's `repeat`) as the controls show it, the board's tkRepeatStoredChoice and
+    // tkRepeatShowChoice together: never for none; nil for a rule the controls cannot show (the line still says it).
+    // An hourly rule an agent set at another minute shows as hourly: from this screen hourly runs on the hour, and the
+    // rule reads unchanged until the person changes it (as on the board).
+    static func repeatStored(_ raw: Any?) -> RepeatChoice? {
+        guard let r = raw as? [String: Any] else { return raw == nil || raw is NSNull ? RepeatChoice(every: .never) : nil }
+        switch r["every"] as? String {
+        case "hour": return RepeatChoice(every: .hour)
+        case "minutes":
+            guard let n = integer(r["n"]) else { return nil }
+            return RepeatChoice(every: .minutes, minutes: String(n))
+        case "day":
+            let list = ((r["at"] as? [Any])?.compactMap { $0 as? String } ?? (r["at"] as? String).map { [$0] } ?? []).filter { !$0.isEmpty }
+            guard let first = list.first else { return nil }
+            return RepeatChoice(every: .day, at: first, others: list.dropFirst().filter { $0 != first })
+        case "week":
+            guard let d = integer(r["day"]), repeatDayOfNumber.indices.contains(d), let at = r["at"] as? String, !at.isEmpty else { return nil }
+            return RepeatChoice(every: .week, at: at, on: repeatDayOfNumber[d])
+        default: return nil
+        }
+    }
+
+    // The person's choice kept over the stored rule, the board's paint: nil (follow what is stored) once it is the same
+    // rule. A daily rule changed elsewhere under an edit keeps the edit, but its other times follow the new rule (the
+    // board's tkRepeatFollowUnderEdit, kosmos#5752 round 3), so Save never sends times that are on no screen.
+    static func keptRepeatDraft(_ draft: RepeatChoice?, stored: RepeatChoice?) -> RepeatChoice? {
+        guard var d = draft, let stored else { return nil }
+        if d.every == .day {
+            let list = stored.every == .day ? [stored.at] + stored.others : []
+            d.others = Array(list.dropFirst()).filter { $0 != d.at }
+        }
+        return repeatWire(d) == repeatWire(stored) ? nil : d
+    }
+
+    // A time box's "HH:mm" as a picker's Date, and back. The time is the computer's clock as the board keeps it, so it
+    // is read and written in one fixed calendar, never moved by this phone's time zone.
+    static let repeatClock: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c }()
+    static func repeatTime(_ at: String) -> Date {
+        let parts = at.split(separator: ":").compactMap { Int($0) }
+        let (h, m) = parts.count == 2 ? (parts[0], parts[1]) : (9, 0)
+        return repeatClock.date(from: DateComponents(year: 2000, month: 1, day: 1, hour: h, minute: m)) ?? Date(timeIntervalSince1970: 0)
+    }
+    static func repeatTimeString(_ d: Date) -> String {
+        let c = repeatClock.dateComponents([.hour, .minute], from: d)
+        return String(format: "%02d:%02d", c.hour ?? 9, c.minute ?? 0)
+    }
+
+    static let repeatFailed = "we could not change how that task repeats"
+    static let repeatUnreached = "we could not reach Kosmos to change how that task repeats"
+    static let repeatSaved = "Saved."
+    static let repeatOnBoard = "This task repeats in a way this screen cannot show. To change it, open it on your computer's board."
+
+    // POST .../task/<n>/repeat with the board's body; nil while a box is empty.
+    static func taskRepeatRequest(mac: URL, project: String, number: Int, wire: RepeatWire) -> URLRequest? {
+        guard let body = repeatBody(wire) else { return nil }
+        return taskPost(taskRoute(mac: mac, project: project, number: number, "repeat"), body)
     }
 }
