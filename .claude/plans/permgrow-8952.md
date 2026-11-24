@@ -13,7 +13,7 @@ the window goes back to its size once the prompt is gone; a window a person is w
 - End to end on a real agent: tick grows, card whole, answer, tick restores and clears; attach while grown, tick restores.
 
 ## Built
-- engine/permgrow.js: plan (pure), run (ordered tmux steps), anyPermissionWait (cheap gate), sweepOnce.
+- engine/permgrow.js: plan (pure), run (ordered tmux steps), permissionWaits (cheap gate), sweepOnce.
 - server.js: a 3 s sweep beside class1's, gated by liveExecutionAllowed and AGENT_WORKFORCE_PERMGROW_OFF; the roster is
   built only when a window is grown or a hook reports a permission wait.
 - chat.js exports its tmux() as tmuxCall (same runner seam and dry-run guard).
@@ -92,3 +92,18 @@ last 25 lines; the prompt sits at the bottom). Checked in review.
   server.js, install); an orphaned mark if KOSMOS_WORLD changes between runs (not reachable in normal use).
 - Wording: every Claude Code behaviour here (76-78 rows draws whole, scrollback cleared on resize) was measured on
   2.1.331 only; the hint gate in permissionAnswerable is what protects other versions.
+
+## Round 7 (opus) fixes: module rewritten around one documented state
+- The module header now documents every memory map (key, writer, pruning) and the grown entry's fields; plan's in and
+  out are listed; "judged" is "settled" throughout; review-round history lives here, not in code comments.
+- BUG FIXED: "the last grow did not shrink the hint" compared two different boxes and settled a longer NEXT box. It now
+  applies only to the box grown for (same report, never read whole), and needs STUCK=2 reads. A longer next box is grown
+  further (stateful test: 78 -> 118 rows). The old "longer next box" test used a box the same size; replaced.
+- A report with no agent on the roster is unsure (reads and time), not settled: the roster can be 20 s old.
+- A grown window with no prompt on screen goes back after MISSES=2 reads (one mid-redraw read no longer settles it).
+- hiddenRows uses status's hint shape (no space required after the arrow); worldIdForHeader reused for the mark.
+- FIT_MARGIN's reason is stated (two spare rows over the measured 24+50+2).
+- Mutation left alive, on purpose: clearing `hidden` when the box reads whole is redundant with the same-box check
+  (which needs req unset), kept as a guard for a whole box with no card.
+- Real run after the rewrite (grouped second session): grow 78, keep, whole card, needs_you; first no-prompt read keeps,
+  second restores.
