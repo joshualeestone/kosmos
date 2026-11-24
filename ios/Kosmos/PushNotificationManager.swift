@@ -210,11 +210,15 @@ final class PushNotificationManager: NSObject, ObservableObject {
     /// kosmos#8959 slice B1b: setting up a second step on the account screen hands back a fresh session for the SAME
     /// account (kosmos-relay second.rs confirm, kosmos#3860), and Kosmos+ refuses the old one from then on. It is kept
     /// through the registrar alone (the keychain, and push registered under it), never through take(): this is not an
-    /// account change, so nothing is counted, no reason is written for the Agents list, and the Mac's own session stays.
-    /// Only while `old` is still the session held: a sign-in that changed meanwhile is left alone. Says whether it kept it.
+    /// account change, so nothing is counted and no reason is written for the Agents list. Only while `old` is still the
+    /// session held: a sign-in that changed meanwhile is left alone. `moving` runs first, before the fresh session is
+    /// stored: BoardClient keys its kept state (the Mac session, the list, the chats) to the session, and without the
+    /// move it would read the fresh one as another account and forget them (ContentView passes BoardClient.sessionRenewed).
+    /// Says whether it kept it.
     @discardableResult
-    func sessionRenewed(from old: String, to fresh: String) -> Bool {
+    func sessionRenewed(from old: String, to fresh: String, moving: (String, String) -> Void = { _, _ in }) -> Bool {
         guard !fresh.isEmpty, fresh != old, currentSession == old else { return false }
+        moving(old, fresh)
         registrar.didReceive(.signedIn(fresh))
         return true
     }

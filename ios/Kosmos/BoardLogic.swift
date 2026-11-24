@@ -445,6 +445,15 @@ enum Board {
     }
 
     // The saved session, only while it belongs to the Kosmos+ session signed in now and names a Mac under the relay.
+    /// kosmos#8959 slice B1b: the kept Mac session moved to a renewed Kosmos+ session of the SAME account (a second step
+    /// set up on the account screen hands back a fresh one). Only one kept under `old` moves; anything else is nil.
+    static func rekeyed(_ stored: String?, from old: String, to fresh: String) -> String? {
+        guard let stored, !fresh.isEmpty, old != fresh,
+              let saved = try? JSONDecoder().decode(SavedMacSession.self, from: Data(stored.utf8)),
+              saved.owner == owner(of: old) else { return nil }
+        return encode(SavedMacSession(name: saved.name, address: saved.address, cookie: saved.cookie, owner: owner(of: fresh)))
+    }
+
     static func usableSaved(_ stored: String?, session: String?, coordinator: URL) -> SavedMacSession? {
         guard let stored, let session,
               let saved = try? JSONDecoder().decode(SavedMacSession.self, from: Data(stored.utf8)),

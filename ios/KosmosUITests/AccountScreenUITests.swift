@@ -54,8 +54,8 @@ final class AccountScreenUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Kosmos+ account"].waitForExistence(timeout: 10), "the native account screen did not open")
 
         let appButton = app.buttons["account-second-app"]
-        for _ in 0..<4 where !appButton.isHittable { app.swipeUp() }
         XCTAssertTrue(appButton.waitForExistence(timeout: 5), "no offer to set up an authenticator app")
+        for _ in 0..<4 where !appButton.isHittable { app.swipeUp() }
         XCTAssertTrue(app.buttons["account-second-sms"].exists, "texts can be sent in the sample, so they are offered too")
         let on = app.descendants(matching: .any)["account-second-on"]
         XCTAssertFalse(on.exists, "the step reads as on before it is set up")

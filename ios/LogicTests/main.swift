@@ -1993,6 +1993,13 @@ do {
     check(Board.usableSaved(stored, session: "kst2", coordinator: coordinator) == nil, "never under another account or a new sign-in")
     check(Board.usableSaved(stored, session: nil, coordinator: coordinator) == nil, "never when signed out")
     check(Board.usableSaved(nil, session: "kst1", coordinator: coordinator) == nil && Board.usableSaved("not json", session: "kst1", coordinator: coordinator) == nil, "nothing kept, or something unreadable, is nothing")
+    // kosmos#8959 slice B1b: a renewed session of the same account carries the kept Mac session across, and nothing else does.
+    let moved = Board.rekeyed(stored, from: "kst1", to: "kst1b")
+    check(Board.usableSaved(moved, session: "kst1b", coordinator: coordinator)?.cookie == "c1", "a renewal moves the kept Mac session to the fresh session")
+    check(Board.usableSaved(moved, session: "kst1", coordinator: coordinator) == nil, "and it is no longer the old one's")
+    check(Board.rekeyed(stored, from: "kst9", to: "kst1b") == nil, "only one kept under the old session moves")
+    check(Board.rekeyed(stored, from: "kst1", to: "") == nil && Board.rekeyed(stored, from: "kst1", to: "kst1") == nil, "no empty or unchanged session")
+    check(Board.rekeyed(nil, from: "kst1", to: "kst1b") == nil && Board.rekeyed("not json", from: "kst1", to: "kst1b") == nil, "nothing kept moves nothing")
     let foreign = Board.encode(Board.SavedMacSession(name: "x", address: "evil.example.com", cookie: "c1", owner: Board.owner(of: "kst1")))
     check(Board.usableSaved(foreign, session: "kst1", coordinator: coordinator) == nil, "a kept record naming a host outside the relay is refused")
     let empty = Board.encode(Board.SavedMacSession(name: "x", address: "studio.kosmosplus.com", cookie: "", owner: Board.owner(of: "kst1")))
@@ -4209,6 +4216,31 @@ section("native board loop: connecting")
         c.stop()
     }
 
+    section("native board loop: a renewed session of the same account (kosmos#8959 slice B1b)")
+    do {
+        // Setting up a second step hands back a fresh session for the SAME account. Moved across first, start() then
+        // reads it as the same account: the list, an open draft and the kept Mac session stay, with no new sign-in to
+        // the Mac and no admission counted. (The "another account" case below is the control: the same swap without
+        // sessionRenewed clears the list and signs in to the Mac again.)
+        let (c, w, sessions, macs) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        c.drafts["dana"] = "half a thought"
+        let admissionsBefore = c.admissions, handoffsBefore = w.count("/v1/account/handoff")
+        c.sessionRenewed(from: "kst9", to: "kst2")   // not the session held: nothing moves
+        check(Board.usableSaved(macs.value, session: "kst1", coordinator: coordinator) != nil, "CONTROL: a renewal from a session not held moves nothing")
+        c.sessionRenewed(from: "kst1", to: "kst2")
+        sessions.value = "kst2"
+        c.start()
+        check(!c.agents.isEmpty, "a renewal keeps the list")
+        check(c.drafts["dana"] == "half a thought", "and the open draft")
+        check(Board.usableSaved(macs.value, session: "kst2", coordinator: coordinator) != nil, "and the kept Mac session, now under the fresh session")
+        check(c.admissions == admissionsBefore, "a renewal is not a new admission")
+        _ = await settle { isLive(c) }
+        check(w.count("/v1/account/handoff") == handoffsBefore, "no new sign-in to the Mac")
+        check(c.admittedUnder == "kst2", "the board is held under the fresh session")
+        c.stop()
+    }
     section("native board loop: sign-out and another account")
     do {
         let (c, w, sessions, macs) = make("kst1")

@@ -622,7 +622,7 @@ struct ContentView: View {
             }, currentSession: { pushManager.currentSession }, renewed: { old, fresh in
                 // kosmos#8959 slice B1b: the same account's fresh session (a second step was just set up). Kept, then
                 // the web view drops the old one, which Kosmos+ now refuses, and starts its page with the fresh one.
-                if pushManager.sessionRenewed(from: old, to: fresh) { web.forget(old) }
+                if pushManager.sessionRenewed(from: old, to: fresh, moving: board.sessionRenewed) { web.forget(old) }
             }, accountGeneration: pushManager.accountChanges,
             youName: youName, youPicture: youPicture)
         } else {
