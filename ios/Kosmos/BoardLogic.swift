@@ -1990,7 +1990,7 @@ enum Board {
     }
 
     // kosmos#8966: a MIME type without its parameters ("text/html; charset=utf-8" is "text/html"), lowercased, so a file is
-    // judged the same whether or not its sender named a charset. A malformed type that starts with ";" reads as what
+    // judged the same whether or not its sender named a charset. A malformed type that starts with one ";" reads as what
     // follows it, as fileAnswerAccepted always read it: ";text/html" is then a page to both readers, the safe side for each
     // (WebFileView draws it locked; a fetched answer typed so is refused).
     static func bareType(_ type: String) -> String {
@@ -2002,6 +2002,19 @@ enum Board {
     // means the page did not draw.
     static func isDeliberateCancel(domain: String, code: Int) -> Bool {
         (domain == NSURLErrorDomain && code == NSURLErrorCancelled) || (domain == "WebKitErrorDomain" && code == 102)
+    }
+
+    // kosmos#8966: whether WebFileView's locked web view shows the can't-show card for a navigation error. Never once the
+    // page has drawn: every navigation after the first is one the view refuses itself (a refresh, a frame).
+    static func webErrorShowsCard(drawn: Bool, domain: String, code: Int) -> Bool {
+        !drawn && !isDeliberateCancel(domain: domain, code: code)
+    }
+
+    // kosmos#8966: what the locked web view does when its page process ends. iOS ends a background app's page process to
+    // free memory, so a page that had drawn is drawn again, once; a page that never drew, or ended again, shows the card.
+    enum WebProcessEnd: Equatable { case drawAgain, showCard }
+    static func webProcessEnded(drawn: Bool, drawnAgain: Bool) -> WebProcessEnd {
+        drawn && !drawnAgain ? .drawAgain : .showCard
     }
 
     // A file Quick Look would draw as a web page or a markup document, which can load from elsewhere. Judged by its name
