@@ -137,3 +137,13 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 ## Challenge loop iteration 16 (sonnet)
 - Fixed (WARNING): iteration 15's board-log rule kept the last report said after the report cleared, so a second loss no larger than the first was never logged. A card that reads clear (idle or working, no turn stall, the same clear rule unstartedGone uses) now forgets it; a restarting card does not, so a report is not said twice across a Restart.
 - Mutation red: forgetting on clear. Neighbours before push: 965 pass, 0 fail.
+
+## Challenge loop iteration 17 (opus, full)
+- Fixed (WARNING): the join started every waiting message, so a resend's tool call returning marked the reported message it replaced as started, and the report cleared though it never ran. A reported message now joins only a turn credited to a reported one (`turnOnReported`).
+- Fixed (WARNING): a carried report with a deadline report merged into it ended on a later message's turn and dropped the merged message unsaid (iteration 6's accepted cost became a silent loss after iteration 15). When the carried part is over, the report becomes this process's own for the reported messages it has not started.
+- Fixed (WARNING): the unstarted report outranked #7368's stuck step on the card, so a step stuck for an hour with messages behind it said "send it again". The stuck step comes first again; with no stuck step the report shows.
+- Fixed (NIT): the push test now asserts the turn kind in the id.
+- Mutations red: whose turn decides the join, the carried report handing on, the stuck step first. Neighbours before push: 969 pass, 0 fail.
+
+## Decided cost, stated once for the reviewers
+- The stream carries no message id, so which waiting message a turn belongs to is inferred from order and timing. Where two orders are equally possible, the rules prefer the one that can only over-report (a message said not started that did run, which costs the person one resend of a message they can see) over the one that can under-report (a lost message never said). Over-reports of that kind in rare interleavings are accepted, not bugs.
