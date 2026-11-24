@@ -92,7 +92,9 @@
 # Overrides (mainly for the test):
 #   KOSMOS_PROMOTE_GATE_CMD   the experience gate to run (default: bash <repo>/tools/staging-experience-check.sh)
 #   KOSMOS_PROMOTE_LINUX_CHECK_CMD   the Linux check-runs lookup (default: bash <repo>/tools/linux-check-runs.sh)
-#   KOSMOS_PROMOTE_BOARD_WAIT   seconds to wait for the gate's board to run V before the Mac gates (default 1800; 0 = no wait)
+#   KOSMOS_PROMOTE_BOARD_WAIT   seconds to wait for the gate's board to run V before the Mac gates (default 1800, or 600
+#             with --force, which already rests on a hand check; 0 = no wait). A board on the prod channel never takes V
+#             before the promote, so with one of those the wait only runs out: set 0.
 #   KOSMOS_PROMOTE_BOARD_WAIT_STEP   seconds between looks (default 30; 0 is refused while the wait is on)
 #   KOSMOS_PROMOTE_BOARD_SILENT_WAIT   the longest the wait goes on while nothing answers, or only a server error does
 #             (default 600): an install takes a few minutes; a wrong port, a stopped board or one stuck on a 5xx never
@@ -510,7 +512,8 @@ version_older() {
 
 # kosmos#8960: THE BOARD WAIT (see the header). Returns 0 to go on to the gates; 1 only when the settings are unusable.
 wait_for_board_on_v() {
-  local want="$1" limit="${KOSMOS_PROMOTE_BOARD_WAIT:-1800}" step="${KOSMOS_PROMOTE_BOARD_WAIT_STEP:-30}" cmd port_words
+  local _default_wait=1800; [ "$FORCE" != 1 ] || _default_wait=600
+  local want="$1" limit="${KOSMOS_PROMOTE_BOARD_WAIT:-$_default_wait}" step="${KOSMOS_PROMOTE_BOARD_WAIT_STEP:-30}" cmd port_words
   case "$limit" in ''|*[!0-9]*) echo "promote-channel: KOSMOS_PROMOTE_BOARD_WAIT must be a number of seconds, not '$limit' - refusing" >&2; return 1 ;; esac
   port_words=":${PORT:-${KOSMOS_PORT:-16180}}"
   if [ "$limit" = 0 ]; then echo "promote-channel: board wait off (KOSMOS_PROMOTE_BOARD_WAIT=0): the gates run now, whatever the board on $port_words runs."; return 0; fi

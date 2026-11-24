@@ -193,6 +193,17 @@ Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
 KOSMOS_PROMOTE_BOARD_SILENT_WAIT=5 BW_WAIT=60 bw "$(printf '1:\n1:\n1:\n0:9.9.8\n1:\n1:\n1:\n0:%s' "$V")" 0 "$Sw"
 [ "$rc" = 0 ] && [ "$looks" = 8 ] && ! has "$out" "nothing has answered" && [ -f "$Sw/dist/latest.json" ] \
   && pass "#8960: an answer between silences resets the silent clock, and the wait goes on to V" || bad "#8960 silent reset (rc=$rc looks=$looks out=$out)"
+# The default limit: 1800 s, or 600 s with --force (a hand check already stands behind it). One old look, then V.
+Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
+printf '0:9.9.8\n0:%s\n' "$V" > "$T/bv-script"; rm -f "$T/bv-log"
+out="$(BV_SCRIPT="$T/bv-script" BV_LOG="$T/bv-log" KOSMOS_PROMOTE_BOARD_VERSION_CMD="bash $BV_STUB" KOSMOS_PROMOTE_BOARD_WAIT_STEP=1 \
+  KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sw" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "(0s of 1800s;" && pass "#8960: the default wait is 1800 s" || bad "#8960 default limit (rc=$rc out=$out)"
+Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
+rm -f "$T/bv-log"
+out="$(BV_SCRIPT="$T/bv-script" BV_LOG="$T/bv-log" KOSMOS_PROMOTE_BOARD_VERSION_CMD="bash $BV_STUB" KOSMOS_PROMOTE_BOARD_WAIT_STEP=1 \
+  KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sw" --force --hand-check "$HC8960" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "(0s of 600s;" && pass "#8960: with --force the default wait is 600 s" || bad "#8960 forced default limit (rc=$rc out=$out)"
 Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
 BW_WAIT=0 bw "0:9.9.8" 0 "$Sw"
 [ "$rc" = 0 ] && [ "$looks" = 0 ] && has "$out" "board wait off (KOSMOS_PROMOTE_BOARD_WAIT=0)" \
