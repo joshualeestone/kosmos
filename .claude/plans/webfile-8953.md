@@ -54,6 +54,12 @@ Content-Disposition reaches the phone on the remote path too (read, not measured
 - The sheet's title is the saved name, so a page sent as "x.dat" typed text/html reads "x.dat.html".
 - UI coverage is the chat's list; the room and Files screens route through the same filePreview and fetchFile.
 
+## VoiceOver (review round 4)
+Touches off does not hide the page from the accessibility tree: WebFileUITests finds the page's own words through it
+(page.staticTexts["Launch page"]) with every view in the scroll view taking no touches, and that tree is what VoiceOver
+reads. VoiceOver itself was not run (a UI test cannot drive it); its activate has nothing to activate, since the page
+has no links, areas or forms left.
+
 ## Weakest premise
 That nothing else in WebKit opens a connection for a page drawn from bytes with touches off: preconnect for prefetch
 hints, DNS prefetch, or something a future WebKit adds. WebFileUITests is the guard: its listener counts connections,
