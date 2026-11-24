@@ -293,8 +293,9 @@ agent_dead() {
   _p="$(agent_pane_id)"
   if [ -n "$_p" ]; then
     # Its own session first, then anywhere (a person can move a pane into another session, where it is alive): a pane
-    # nowhere is gone, the hook's kill-pane (or a person's) having ended it. Twice, a second apart, since absence is the
-    # one answer here that ends an agent (tmux can be mid-move).
+    # nowhere is gone, the hook's kill-pane (or a person's) having ended it. Twice, a second apart (this waits that second,
+    # at the only answer here that ends an agent: tmux can be mid-move). The hook closes the agent's own pane only, and
+    # end_dead_session ends what a person's other panes leave.
     for _look in 1 2; do
       for _where in here all; do
         if [ "$_where" = here ]; then _s="$("$TMUX_BIN" list-panes -s -t "$TARGET" -F '#{pane_id} #{pane_dead}' 2>/dev/null)" || return 1
@@ -939,9 +940,10 @@ if [ -z "$adopt" ]; then
     case "$_p" in *[!%0-9]*) return 0 ;; esac   # exactly one pane at launch, or nothing is armed
     "$TMUX_BIN" set-option -t "$_sid" @kosmos_agent_pane "$_p" 2>/dev/null || return 0
     "$TMUX_BIN" set-option -p -t "$_p" remain-on-exit on 2>/dev/null || return 0
-    _inner="printf '%s %s %s\\n' '#{pane_dead_time}' '#{?pane_dead_signal,signal,status}' '#{?pane_dead_signal,#{pane_dead_signal},#{pane_dead_status}}' > '$_f' 2>/dev/null; '$TMUX_BIN' kill-pane -t '$_p' >/dev/null 2>&1; true"
+    # A pane whose death tmux has not finished filling in writes nothing and is left for the supervisor (record_dead_pane
+    # looks again a second later).
+    _inner="[ -n '#{pane_dead_time}' ] || exit 0; printf '%s %s %s\\n' '#{pane_dead_time}' '#{?pane_dead_signal,signal,status}' '#{?pane_dead_signal,#{pane_dead_signal},#{pane_dead_status}}' > '$_f' 2>/dev/null; '$TMUX_BIN' kill-pane -t '$_p' >/dev/null 2>&1; true"
     _q="'$(printf '%s' "$_inner" | sed "s/'/'\\\\''/g")'"
-    # The supervisor ends what a person's other panes leave (the hook closes the agent's own pane only).
     "$TMUX_BIN" set-hook -p -t "$_p" pane-died "run-shell $_q" 2>/dev/null \
       || { "$TMUX_BIN" set-option -pu -t "$_p" remain-on-exit 2>/dev/null   # back to what it was (a person's own setting)
            "$TMUX_BIN" set-option -u -t "$_sid" @kosmos_agent_pane 2>/dev/null; }
