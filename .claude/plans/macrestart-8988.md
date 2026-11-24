@@ -35,8 +35,8 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
   - Startup: an ours-session whose panes are all dead is recorded and replaced, never adopted.
 - engine/macrestart.js: `restartedFor(name)`: the died file, plus the LAST start in the run file, within 5 minutes after
   the death (a later start is a launch of its own). An exit with code 0 shows nothing: Claude closed on purpose
-  (a person typing /exit), not a crash to explain. Cleared by a self-report row idle "finished responding" (the
-  report hook's Stop) at or after that start, not by an operator's row. Words from `win32streamstate.restartWhy`.
+  (a person typing /exit), not a crash to explain. Cleared by a turn end (the report hook's Stop, as
+  `selfreport.history` marks it: `turn: 'end'`) at or after that start. Words from `win32streamstate.restartWhy`.
 - engine/status.js `restartedOf`: Windows as before; a Mac pane that is ours and runs Claude reads macrestart.
 
 ## Rejected
@@ -55,7 +55,9 @@ until the next turn's Stop. It fails toward showing a restart a little too long,
 - supervisor.macrestart-8988.test.js: the shipped supervisor, a real tmux on a private socket in the test's folder.
   Arms: CRASH (exit 7 recorded, read after the relaunch) and STOP (nothing recorded), SIGNAL, SPLIT (a split pane
   ending neither ends the agent nor is recorded), WAIT (hook removed: the supervisor records and ends it), STARTUP (a
-  planted dead session is replaced). Each supervisor piece was removed in
-  turn and its arm failed.
-- engine/macrestart-8988.test.js: parsing, the window, a later start, exit 0, the clearer and its controls, and the card's
+  planted dead session is replaced), RETURN (a dead agent pane beside a live split pane is recorded and replaced by the
+  next launch). Each supervisor piece was removed in turn and its arm failed, and the supervisor's stderr must carry no
+  shell error (it caught `session_id_exact` defined after its caller).
+- engine/macrestart-8988.test.js: parsing, the window, a later start, exit 0, the clearer over real self-report files read
+  by the real `selfreport.history`, and the card's
   Mac branch of status.restartedOf (ours, not ours, another runner).
