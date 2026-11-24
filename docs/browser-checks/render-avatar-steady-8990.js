@@ -6,7 +6,8 @@
  * poll, and agent avatars are served no-store, so each rebuild fetched the picture again (32 rebuilds and 16 fetches
  * in 40 s for two agents). The fix writes each of the two only when its markup changed (setGridHtml, ALIST_HTML).
  *
- * Two arms, because a guard that skips writes can fail in either direction:
+ * Four arms, run in the order 1, 3, 4, 2 (arm 2 ends a session), because a guard that skips writes can fail in either
+ * direction:
  *   1. STEADY: over the polls of a 16 s window (at least two are required) with nothing changing, no avatar node is added or removed in #grid or #alist
  *      and no avatar is fetched. The arm also asserts that the polls RAN (status responses counted), or "nothing was
  *      rebuilt" would be true of a page that never polled.
@@ -14,7 +15,8 @@
  *      showing it as running. A memo that never wrote again would pass arm 1 and fail here.
  *   3. A NEW PICTURE IS DRAWN (run before arm 2): an uploaded avatar replaces the avatar element in the grid and the
  *      rail. The avatar URLs carry the picture's version (?v=), so a new picture is a change of markup (#2698's rule).
- *   4. A FAILED PICTURE IS ASKED FOR AGAIN: with alpha's avatar answering 500, later polls request it again.
+ *   4. A FAILED PICTURE IS ASKED FOR AGAIN, BY ITSELF: with alpha's avatar answering 500, the failed elements ask again
+ *      (their URLs carry retry=N, so nothing else can be counted), and beta's picture is not fetched meanwhile.
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-avatar-steady-8990.js
  * Self-contained: a throwaway board (sandboxed data, fake tmux) on a free port, killed at the end.
@@ -25,7 +27,26 @@ const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const zlib = require('node:zlib');
 const { chromium } = require('playwright');
+
+/* A 16x16 PNG of one colour (as render-avatar-4038.js builds it): a picture a browser can decode, so no avatar on this
+   board fails to load unless an arm makes it. */
+function solidPng(r, g, bl) {
+  const w = 16; const h = 16;
+  const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = (buf) => { let c = 0xffffffff; for (const x of buf) c = crcTable[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const td = Buffer.concat([Buffer.from(type), data]);
+    const c = Buffer.alloc(4); c.writeUInt32BE(crc(td));
+    return Buffer.concat([len, td, c]);
+  };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(w * 3).map((_, i) => [r, g, bl][i % 3])]);
+  const raw = Buffer.concat(Array.from({ length: h }, () => row));
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
 
 const REPO = path.resolve(__dirname, '..', '..');
 const PORT = Number(execFileSync(process.execPath,
@@ -51,9 +72,8 @@ const say = (n, cond, note) => {
   setFleet(['alpha', 'beta']);
   process.env.AGENT_WORKFORCE_DATA = roots.DATA;
   const store = require(path.join(REPO, 'engine', 'store'));
-  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  store.saveAvatar('alpha', 'image/png', png);
-  store.saveAvatar('beta', 'image/png', png);
+  store.saveAvatar('alpha', 'image/png', solidPng(220, 20, 20));
+  store.saveAvatar('beta', 'image/png', solidPng(20, 20, 220));
   const srv = spawn(process.execPath, ['server.js'], { cwd: REPO, stdio: 'ignore', env: { ...process.env, PORT: String(PORT),
     AGENT_WORKFORCE_RELEASE_BASE: 'http://127.0.0.1:9/dist',
     AGENT_WORKFORCE_DATA: roots.DATA, AGENT_WORKFORCE_WORKERS: roots.WORKERS, AGENT_WORKFORCE_LAUNCH: roots.LAUNCH,
@@ -99,6 +119,9 @@ const say = (n, cond, note) => {
       return { grid: has('#grid'), alist: has('#alist') };
     });
     say('fixture: both avatars are drawn in the grid and in the rail', start.grid === 2 && start.alist === 2, JSON.stringify(start));
+    const decoded = await p.evaluate(() => [...document.querySelectorAll('#alist img')].filter((i) => /\/avatar(\?|$)/.test(i.getAttribute('src') || ''))
+      .map((i) => i.complete && i.naturalWidth > 0));
+    say('fixture: the avatars decode (a picture that fails would be retried and fetched again)', decoded.length === 2 && decoded.every(Boolean), JSON.stringify(decoded));
 
     // Arm 1: steady.
     await p.waitForTimeout(16000);
@@ -114,11 +137,10 @@ const say = (n, cond, note) => {
       const isAv = (n) => /\/api\/agent\/alpha\/avatar(\?|$)/.test(n.getAttribute('src') || n.getAttribute('href') || '');
       window.__oldAlpha = [...document.querySelectorAll('#grid image, #grid img, #alist img')].filter(isAv);
     });
-    const put = await p.evaluate(async () => {
-      const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
-      const r = await fetch('/api/agent/alpha/avatar', { method: 'PUT', headers: { 'content-type': 'image/png' }, body: png });
+    const put = await p.evaluate(async (bytes) => {
+      const r = await fetch('/api/agent/alpha/avatar', { method: 'PUT', headers: { 'content-type': 'image/png' }, body: new Uint8Array(bytes) });
       return r.status;
-    });
+    }, [...solidPng(20, 200, 20)]);
     let pic = null;
     for (let i = 0; i < 40 && !(pic && pic.grid && pic.alist); i++) {
       await p.waitForTimeout(500);
@@ -132,16 +154,25 @@ const say = (n, cond, note) => {
     say('a new picture is drawn in the grid (its avatar element is replaced)', !!(pic && pic.grid), JSON.stringify(pic));
     say('a new picture is drawn in the rail (its avatar element is replaced)', !!(pic && pic.alist), JSON.stringify(pic));
 
-    // Arm 4: a picture that FAILS to load is tried again at the next poll (rebuilding every poll used to do that). Every
-    // alpha avatar request now answers 500; a new picture changes the markup, both places load it and fail, and then
-    // only the retry can ask again. Without it this window sees exactly two requests (one per place).
-    const failed = [];
-    await p.route('**/api/agent/alpha/avatar*', (r) => { if (r.request().method() === 'GET') { failed.push(Date.now()); r.fulfill({ status: 500, body: '' }); } else r.continue(); });
-    const put2 = await p.evaluate(async () => (await fetch('/api/agent/alpha/avatar', { method: 'PUT', headers: { 'content-type': 'image/png' },
-      body: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 2]) })).status);
-    await p.waitForTimeout(14000);
+    // Arm 4: a picture that FAILS to load is asked for again by the failed element itself. Every alpha avatar GET now
+    // answers 500, and a new picture changes the markup, so the grid's and the rail's alpha avatars load it and fail.
+    // Only the page's retry puts retry=N on the URL, so those requests are counted and nothing else can be. Beta's
+    // picture must not be fetched meanwhile: a retry that rebuilt the container would fetch it.
+    const asked = { retries: 0, beta: 0 };
+    const onReq = (r) => {
+      const u = r.url();
+      if (/\/api\/agent\/alpha\/avatar\?[^#]*retry=\d+/.test(u)) asked.retries++;
+      if (/\/api\/agent\/beta\/avatar(\?|$)/.test(u)) asked.beta++;
+    };
+    await p.route('**/api/agent/alpha/avatar*', (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 500, body: '' }) : r.continue()));
+    p.on('request', onReq);
+    const put2 = await p.evaluate(async (bytes) => (await fetch('/api/agent/alpha/avatar', { method: 'PUT', headers: { 'content-type': 'image/png' },
+      body: new Uint8Array(bytes) })).status, [...solidPng(200, 200, 20)]);
+    await p.waitForTimeout(18000);   // retries at about 5 and 15 s after the failure
+    p.off('request', onReq);
     await p.unroute('**/api/agent/alpha/avatar*');
-    say('a failed avatar is asked for again at later polls', put2 >= 200 && put2 < 300 && failed.length >= 4, 'PUT ' + put2 + ', ' + failed.length + ' failed requests in 14 s');
+    say('a failed avatar is asked for again by itself (retry=N requests)', put2 >= 200 && put2 < 300 && asked.retries >= 2, 'PUT ' + put2 + ', ' + asked.retries + ' retries in 18 s');
+    say('the retry does not rebuild the container (beta is not fetched)', asked.beta === 0, asked.beta + ' beta fetches');
 
     // Arm 2: a real change still paints both. First, beta is drawn as running in both, so the arm can fail.
     const running = await p.evaluate(() => {
