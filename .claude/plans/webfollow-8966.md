@@ -3,13 +3,14 @@
 ## Done on this branch
 - Item 3: Board.bareType. isWebDocument, webFileKind and fileName read a MIME type without its parameters, so
   "text/html; charset=utf-8" is a page by type as "text/html" is, and such a file opens in WebFileView (saved as
-  x.dat.html). savedName is left as it is (it names every file; out of this card's scope). Logic tests: the old check that
-  pinned the parameter case as "not a page" is rewritten to the new rule; a control that a parameter naming a page does not
-  make a PDF one.
-- Item 4: didFail and didFailProvisionalNavigation route to the can't-show card, and so does the web view's page process
-  ending. A navigation the delegate cancelled (Board.isDeliberateCancel: NSURLErrorCancelled, WebKit 102 "frame load
-  interrupted"; domain-exact, logic-tested both ways) is not counted, and no error counts once the page has drawn (the only
-  navigations after didFinish are ones the delegate refuses).
+  x.dat.html). Logic tests: the old check that pinned the parameter case as "not a page" is rewritten to the new rule; a
+  control that a page type after the ';' ("text/plain; x=text/html") is a parameter, not the type.
+- Item 4: didFail and didFailProvisionalNavigation route to the can't-show card (Board.webErrorShowsCard): not for a
+  navigation the delegate cancelled (Board.isDeliberateCancel: NSURLErrorCancelled, WebKit 102 "frame load interrupted";
+  domain-exact), and not once the page has drawn (every later navigation is one the delegate refuses). The page process
+  ending (Board.webProcessEnded) draws the page again once if it had drawn, since iOS ends a background app's page process
+  to free memory; before the first draw, or a second time, it shows the card. Both decisions are logic-tested; the wiring
+  in LockedWebView is not driven by any test (a UI test cannot make WebKit fail or end its process on demand).
 - The same bare-type reading for savedName, fileWord, isPreviewableImage and fileAnswerAccepted (review round 1): a file
   typed "application/pdf; charset=binary" is saved as report.pdf. A malformed ";text/html" reads as text/html, the safe
   side for both the viewer and the fetch gate (review round 2).

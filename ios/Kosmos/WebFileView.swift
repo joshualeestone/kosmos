@@ -127,11 +127,14 @@ struct LockedWebView: UIViewRepresentable {
         private var started = false
         private var failed: () -> Void = {}
         private var drawn = false
+        private var drawnAgain = false
+        private var page = Data()
         static let blockAll = #"[{"trigger":{"url-filter":".*"},"action":{"type":"block"}}]"#
         static let ruleID = "kosmos-webfile-block-all"
 
         func load(into view: WKWebView, page: Data, failed: @escaping () -> Void) {
             self.failed = failed
+            self.page = page
             // Compiled on every open, never looked up: a kept rule from an older blockAll would outlive a change to it.
             WKContentRuleListStore.default().compileContentRuleList(forIdentifier: Self.ruleID,
                                                                      encodedContentRuleList: Self.blockAll) { [weak view] list, _ in
@@ -157,11 +160,19 @@ struct LockedWebView: UIViewRepresentable {
         // drawn, since the only navigations after it are ones this delegate refuses (a refresh, a frame).
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failIfReal(error) }
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failIfReal(error) }
-        // The page's process ended (a page too big for memory, say): what was drawn is gone, so the same card.
-        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { failed() }
+        // The page's process ended (iOS freeing memory while the app was away, or a page too big for it): drawn once more
+        // if it had drawn, else the card (Board.webProcessEnded). The content rule stays on the view's configuration.
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            switch Board.webProcessEnded(drawn: drawn, drawnAgain: drawnAgain) {
+            case .showCard: failed()
+            case .drawAgain:
+                drawnAgain = true; started = false; drawn = false
+                webView.load(page, mimeType: "text/html", characterEncodingName: "utf-8", baseURL: URL(string: "about:blank")!)
+            }
+        }
         private func failIfReal(_ error: Error) {
             let e = error as NSError
-            if !drawn, !Board.isDeliberateCancel(domain: e.domain, code: e.code) { failed() }
+            if Board.webErrorShowsCard(drawn: drawn, domain: e.domain, code: e.code) { failed() }
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,

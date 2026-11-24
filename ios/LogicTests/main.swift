@@ -1719,6 +1719,14 @@ do {
           && !Board.isDeliberateCancel(domain: "WebKitErrorDomain", code: 101) && !Board.isDeliberateCancel(domain: "WebKitErrorDomain", code: NSURLErrorCancelled)
           && !Board.isDeliberateCancel(domain: NSURLErrorDomain, code: 102),
           "CONTROL: any other error, or a matching code in the other domain, is a failed page")
+    check(Board.webErrorShowsCard(drawn: false, domain: NSURLErrorDomain, code: NSURLErrorCannotDecodeContentData)
+          && !Board.webErrorShowsCard(drawn: false, domain: NSURLErrorDomain, code: NSURLErrorCancelled)
+          && !Board.webErrorShowsCard(drawn: true, domain: NSURLErrorDomain, code: NSURLErrorCannotDecodeContentData),
+          "kosmos#8966: a real error before the page drew shows the card; a cancel, or anything after it drew, does not")
+    check(Board.webProcessEnded(drawn: true, drawnAgain: false) == .drawAgain
+          && Board.webProcessEnded(drawn: true, drawnAgain: true) == .showCard
+          && Board.webProcessEnded(drawn: false, drawnAgain: false) == .showCard,
+          "kosmos#8966: a page process that ends after the page drew draws it again, once; before, or a second time, the card")
     check(Board.inertPage(pageBytes, kind: .page) == Board.withoutLinks(pageBytes), "a page is drawn with its links taken out")
     // A UTF-16 page (its byte order mark wins over the UTF-8 the web view is told) is converted, so its links are found too.
     var utf16 = Data([0xFF, 0xFE]); utf16.append("<a href=x>go</a>".data(using: .utf16LittleEndian)!)
