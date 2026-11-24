@@ -544,3 +544,21 @@ test('#8951 review 7: a deadline merge clears the busy-write marker, so a turn n
   r.pub.event({ type: 'assistant', message: { content: [] } });
   assert.ok(r.last().unstarted, 'a wake-up turn\'s calls returning is not the merged messages running');
 });
+
+test('#8951 review 8: a wake-up turn opens on no message, and a turn that ran long is not lost because of a write just before the stop', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.event(init);                   // a wake-up turn
+  r.pub.wrote();                       // one message waits behind it
+  r.pub.event({ type: 'assistant', message: { content: [] } });
+  r.pub.stopped(); r.pub.started(7001, 'sid-1');
+  assert.equal(r.last().unstarted.count, 1, 'one message, counted once');
+  const q = recording();
+  q.pub.started(6368, 'sid-1');
+  q.pub.wrote(); q.pub.event(init);    // a turn on a message
+  q.clock.t += 30 * MIN;               // that runs a long time
+  q.pub.wrote();                       // another written behind it
+  q.clock.t += 3000;
+  q.pub.stopped(); q.pub.started(7001, 'sid-1');   // then a Restart
+  assert.equal(q.last().unstarted.count, 1, 'only the one waiting: the first ran for half an hour');
+});
