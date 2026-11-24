@@ -5,7 +5,7 @@
 # keyboard in that long room (RoomKeyboardUITests, #7690), and the launch screen's hand-over to the Connecting wait
 # (LaunchHandoverUITests, #7945), a sent message settling without a step (SendMovesOnceUITests, #7348), text-message
 # second-step setup on the phone, not the web page (TextSetupUITests, #8959), a web page opening on the phone while
-# reaching nothing (WebFileUITests, #8953), and a task page's message, due date and edit, natively
+# reaching nothing (WebFileUITests, #8953), and a task page's message, due date, edit, repeat and receipt, natively
 # (TaskPageActionsUITests, #8958).
 # Run by the ios workflow's "ui tests (sample board)" job, with --uikit by its two "uikit list (sample board) 1/2" and "2/2" jobs (--shard, kosmos#8453), and by
 # hand. Prints PASS, or FAIL with the failing check's own words.
@@ -59,11 +59,7 @@ done
 #   texted-code and refused-number screens (2 checks).
 # kosmos#8959 slice B1a: AccountScreenUITests, Settings' account row opening the native account screen, its rows and the
 #   Retire sheet (1 check; no chat list, so this lazy-arm run only). Slice B1b: the second step offered, set up and on (1 more).
-#   Retire sheet (1 check; no chat list, so this lazy-arm run only).
-# kosmos#8958: UnsentDraftUITests, an unsent draft drawn in the chat with Put in the message box and Dismiss, never the
-#   board (3 checks).
-# kosmos#8958 slice B1: TaskPageActionsUITests, a task page's message box, due date and Edit title or detail (3 checks).
-classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3 BlankRingUITests:5 SendMovesOnceUITests:3 EndPullUITests:6 NewChatListSwitchUITests:1 WarmReturnChatUITests:3 TextSetupUITests:2 WebFileUITests:1 AccountScreenUITests:2 UnsentDraftUITests:3 TaskPageActionsUITests:3"
+classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3 BlankRingUITests:5 SendMovesOnceUITests:3 EndPullUITests:6 NewChatListSwitchUITests:1 WarmReturnChatUITests:3 TextSetupUITests:2 WebFileUITests:1 AccountScreenUITests:2"
 # kosmos#7609: AttachMenuUITests.testTheRowFitsAtTheLargestText skips itself in this run (TEST_RUNNER_KOSMOS_UI_SAMPLE) and is named as skipped.
 #   Alone on a Mac it runs: TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/AttachMenuUITests/testTheRowFitsAtTheLargestText
 # ChatOpensAtNewestUITests is left out of this run: its 260-message chat is too big for a CI runner to query (XCTest
@@ -75,6 +71,11 @@ classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpen
 # (KOSMOS_SAMPLE_TRACE=1): when it fails, the trace is printed below while the simulator still exists. RoomKeyboardUITests'
 # checks (#7690, #7645) append to the SAME file, so the dump prints the whole file and names every keyboard check that ran,
 # in order; each launch starts at its own "chat shown" or "room shown" line.
+# kosmos#8958: on their own line, so a change here and one to the list above never conflict. UnsentDraftUITests, an unsent
+#   draft drawn in the chat with Put in the message box and Dismiss, never the board (3 checks). TaskPageActionsUITests, a
+#   task page's message box, due date and Edit title or detail (3), Repeats changed and saved (1), and a done task's
+#   receipt (1).
+classes="$classes UnsentDraftUITests:3 TaskPageActionsUITests:5"
 skip=""
 arm="lazy"
 if [ "$uikit" = 1 ]; then
@@ -104,11 +105,12 @@ if [ "$uikit" = 1 ]; then
   #   EarlierDoubleAskUITests (2), a page landing is not asked for again before the list says where the top is; one control.
   # kosmos#8221 slice 17: EarlierDeleteShiftUITests (2), after a delete the next page is asked from the window as it is (no
   #   message drawn twice); one control.
-  # kosmos#8958: UnsentDraftUITests (3), the unsent draft's row on the UIKit list too.
-  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:12 ChatGapUITests:3 A11yFocusUITests:14 A11yActionsUITests:3 EarlierDroppedUITests:4 EarlierDoubleAskUITests:2 EarlierDeleteShiftUITests:2 UnsentDraftUITests:3"
+  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:12 ChatGapUITests:3 A11yFocusUITests:14 A11yActionsUITests:3 EarlierDroppedUITests:4 EarlierDoubleAskUITests:2 EarlierDeleteShiftUITests:2"
   for t in testRebuiltListShowsTheNewestMessage testRebuiltShortChatShowsTheNewestMessage testRebuiltAfterTheKeyboardWentDown; do
     skip="$skip -skip-testing:KosmosUITests/KeyboardSlideUITests/$t"
   done
+  # kosmos#8958: UnsentDraftUITests (3), the unsent draft's row on the UIKit list too. On its own line, as above.
+  classes="$classes UnsentDraftUITests:3"
 fi
 # kosmos#8453: the UIKit arm in two halves, so each CI job (ios.yml "uikit list (sample board) 1/2" and "2/2") ends well
 # inside its limit: the one job took 75 of its 80 minutes on PR #8447. 1/2 is the earlier-pages classes (their pages are
