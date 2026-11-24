@@ -2913,6 +2913,7 @@ _msg_status() {
 # no answer, or not read yet). Silent when the answer carries no id (an older board).
 _say_msg_id() {
   local _mid
+  case "${1:-}" in *'"duplicate":true'*) return 0 ;; esac   # the first send already said it
   _mid=$(printf '%s' "${1:-}" | sed -n 's/.*"delivery":{[^}]*"id":"\(m[123456789][0123456789]*\)".*/\1/p')
   [ -n "$_mid" ] && say "Its id is $_mid: kosmos msg --status $_mid says later whether they answered or read it."
   return 0
@@ -2922,6 +2923,7 @@ cmd_msg() {
   local to text body verdict state because _a
   # kosmos#8961: --status <id> is its own verb (a read), never mixed with sending.
   if [ "${1:-}" = "--status" ]; then shift; _msg_status "$@"; return; fi
+  case "${1:-}" in --status=*) _a="${1#--status=}"; shift; _msg_status "$_a" "$@"; return ;; esac
   # #2909: --stdin (leading, or alone after the agent: kosmos#8769) reads the message from standard input, so backticks and $ reach the
   # agent as written; the shared _read_piped_message does the read. from_stdin also arms
   # _keep_piped, so every failure after the read keeps the message in a private file.
@@ -3115,6 +3117,7 @@ cmd_msg() {
       # nonzero-1, which would invite the retry the state exists to stop.
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
       say "Not confirmed: ${because:-the text may already be in their composer}. Do not re-send; check with them."
+      _say_msg_id "$body"   # kosmos#8961
       exit 3
       ;;
     *'"heldBy":"limit"'*|*'"heldBy": "limit"'*)
@@ -3130,6 +3133,7 @@ cmd_msg() {
           held_until=$(printf '%s' "$body" | sed -n 's/.*"heldUntil":"\([^"]*\)".*/\1/p')
           say "Held for $to: it is out of usage${held_until:+ until $held_until}. Kosmos types it after the reset; do not re-send." ;;
       esac
+      _say_msg_id "$body"   # kosmos#8961: held is where --status says the most (typed later, or dropped)
       ;;
     *)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')

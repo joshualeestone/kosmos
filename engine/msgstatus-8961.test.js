@@ -89,8 +89,10 @@ test('a held message typed later counts from when it was typed; a dropped one sa
 test('names compare as the roster resolves them, not as typed', () => {
   const sessionOf = (n) => ({ mara: 'mara', leo: 'leo' })[String(n).toLowerCase()] || n;
   const rows = [sent({ to: 'Mara' }), { kind: 'message', id: 'm11', from: 'mara', to: 'Leo', at: at(3), state: 'placed', in_reply_to: 'm10' }];
-  const s = status('m10', { rows, history: () => [], sessionOf, asker: 'LEO' });
+  const s = status('m10', { rows, history: () => [], sessionOf, asker: 'leo' });
   assert.equal(s.status, STATUS.ANSWERED, JSON.stringify(s));
+  // The asker is matched exactly: a session named only in another case is someone else.
+  assert.equal(status('m10', { rows, history: () => [], sessionOf, asker: 'LEO' }).found, false);
 });
 
 test('a cut history whose first mark is a start is not read as a fresh turn', () => {
@@ -120,7 +122,9 @@ test('a held reply counts from when it was typed, not from when it was sent', ()
   const typed = { kind: 'held-delivered', of: 'm10', from: 'leo', to: 'mara', at: at(20), state: 'placed' };
   const reply = { kind: 'message', id: 'm11', from: 'mara', to: 'leo', at: at(10), state: 'held' };   // sent before m10 was typed
   const replyTyped = { kind: 'held-delivered', of: 'm11', from: 'mara', to: 'leo', at: at(30), state: 'placed' };   // typed after
-  assert.equal(run([held, typed, reply, replyTyped], [end(-60)]).status, STATUS.ANSWERED);
+  const s = run([held, typed, reply, replyTyped], [end(-60)]);
+  assert.equal(s.status, STATUS.ANSWERED);
+  assert.equal(s.answeredAt, at(30), 'answered at is when the reply was typed, not when it was sent');
 });
 
 test('a session restart ends a standing wait: the new session\'s turns count', () => {
@@ -137,6 +141,13 @@ test('a turn running at delivery that ended, then a whole turn after it: read wi
 
 test('an automatic blocked (a provider stop) is a standing wait; the hook\'s permission ask is not', () => {
   assert.equal(run([sent()], [end(-60), { state: 'blocked', at: ms(-10), by: 'auto' }]).status, STATUS.UNKNOWN);
+});
+
+test('a provider block the hook\'s own idle cleared before delivery is no wait', () => {
+  const block = { state: 'blocked', at: ms(-25), by: 'auto' };
+  assert.equal(run([sent()], [end(-30), block, end(-20), start(10)]).status, STATUS.READING);
+  // CONTROL: the same block with nothing after it still stands.
+  assert.equal(run([sent()], [end(-30), block, start(10)]).status, STATUS.UNKNOWN);
 });
 
 test('a reply that cites another message, or came before a held message was typed, is not its answer', () => {

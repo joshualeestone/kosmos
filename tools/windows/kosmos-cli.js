@@ -540,7 +540,7 @@ function keepPipedCopy(ctx, text, maybe) {   // maybe (#4934): a first try may h
 
 /* kosmos#8961, as install/kosmos _say_msg_id: after a send, its id and the command that says later what happened to it. */
 function sayMsgId(ctx, d) {
-  if (d && typeof d.id === 'string' && /^m[1-9][0-9]{0,15}$/.test(d.id)) ctx.out('Its id is ' + d.id + ': kosmos msg --status ' + d.id + ' says later whether they answered or read it.');
+  if (d && d.duplicate !== true && typeof d.id === 'string' && /^m[1-9][0-9]{0,15}$/.test(d.id)) ctx.out('Its id is ' + d.id + ': kosmos msg --status ' + d.id + ' says later whether they answered or read it.');
 }
 const MSG_STATUS_USAGE = '   or: kosmos msg --status <id>  (whether a message you sent was answered, or read with no answer, or not read yet)';
 /* kosmos#8961, as install/kosmos _msg_status: `kosmos msg --status <id>` reads what happened to a direct message (answered
@@ -561,6 +561,7 @@ async function verbMsgStatus(ctx, args) {
 async function verbMsg(ctx, args) {
   // kosmos#8961: --status <id> is its own verb (a read), never mixed with sending.
   if (args[0] === '--status') return verbMsgStatus(ctx, args.slice(1));
+  if (typeof args[0] === 'string' && args[0].startsWith('--status=')) return verbMsgStatus(ctx, [args[0].slice('--status='.length), ...args.slice(1)]);
   /* #2909: --stdin (leading, or alone after the agent: kosmos#8769) reads the message from standard input, shared with post via
      readPipedMessage, and every failure after the read keeps it in a private file. */
   /* #7886 item 3: --in-reply-to <id> (leading, in any order with --stdin) answers a direct message, as install/kosmos. */
@@ -645,34 +646,39 @@ async function verbMsg(ctx, args) {
   if (d.state === 'placed' || d.state === 'queued') {
     if (d.queued === true || d.state === 'queued') {
       ctx.out('Queued with ' + to + (d.duplicate === true ? ' (it had arrived the first time; it was not sent twice).' : ' (they are mid-task, so they will not read this until it finishes).'));
-      if (d.duplicate !== true) sayMsgId(ctx, d);
+      sayMsgId(ctx, d);
       return 0;
     }
     ctx.out('Placed with ' + to + (d.duplicate === true ? ' (it had arrived the first time; it was not sent twice).' : '.'));
-    if (d.duplicate !== true) sayMsgId(ctx, d);
+    sayMsgId(ctx, d);
     return 0;
   }
-  if (d.state === 'unconfirmed') return maybe(ctx.err, 'Not confirmed: ' + (clause(d.because) || 'the text may already be in their composer') + '. Do not re-send; check with them.');
+  if (d.state === 'unconfirmed') { const code = maybe(ctx.err, 'Not confirmed: ' + (clause(d.because) || 'the text may already be in their composer') + '. Do not re-send; check with them.'); sayMsgId(ctx, d); return code; }
   // #5805 slice 2a: kept for an agent out of usage, typed after its reset. Accepted, so 0, as Queued is.
   if (d.held === true && d.heldBy === 'limit' && d.behind === true && d.behindFor === 'input') {   // #6774
     ctx.out('Held for ' + to + ': it still has messages kept while its input box held text not yet sent, and Kosmos types this one after them, or, after 2 hours with the box still full, drops it and tells you. Do not re-send.');   // kosmos#7936
+    sayMsgId(ctx, d);
     return 0;
   }
   if (d.held === true && d.heldBy === 'limit' && d.heldFor === 'input') {   // #6774
     ctx.out('Held for ' + to + ': its input box holds text not yet sent. Kosmos types it once the box is clear, or, after 2 hours with the box still full, drops it and tells you; do not re-send.');
+    sayMsgId(ctx, d);
     return 0;
   }
   if (d.held === true && d.heldBy === 'limit' && d.behind === true) {
     ctx.out('Held for ' + to + ': it still has messages kept from while it was out of usage, and Kosmos types this one after them. Do not re-send.');
+    sayMsgId(ctx, d);
     return 0;
   }
   // #5948: kept for an agent that is signed out, typed once it is signed in again.
   if (d.held === true && d.heldBy === 'limit' && d.heldFor === 'signin') {
     ctx.out('Held for ' + to + ': it is signed out. Kosmos types it once it is signed in again; do not re-send.');
+    sayMsgId(ctx, d);
     return 0;
   }
   if (d.held === true && d.heldBy === 'limit') {
     ctx.out('Held for ' + to + ': it is out of usage' + (typeof d.heldUntil === 'string' && d.heldUntil ? ' until ' + d.heldUntil : '') + '. Kosmos types it after the reset; do not re-send.');
+    sayMsgId(ctx, d);
     return 0;
   }
   ctx.err('Not delivered: ' + (clause(d.because) || 'we could not tell why') + '.');

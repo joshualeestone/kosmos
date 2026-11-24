@@ -20886,31 +20886,36 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { error: 'we could not read that request; it needs a message id, like m12' });
         return;
       }
-      const roster = safeRoster();
-      // `sentence` on every answer: it is the field both CLIs print.
-      if (roster === null) { const because = 'we could not check which agents are running, so we could not tell who is asking'; sendJson(res, 200, { found: false, because, sentence: because }); return; }
-      const denyPaneFallback = boardAuthState.on
-        && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
-      const caller = resolveAgentSender(req, body, roster, { denyPaneFallback,
-        denyBecause: 'this board only answers a message status for the account that started it, or an agent with a token' });
-      if (!caller.ok) { sendJson(res, 200, { found: false, because: caller.because, sentence: caller.because }); return; }
-      const msgstatus = require('./engine/msgstatus');
-      let out;
       try {
-        out = msgstatus.status(body.id, {
-          rows: messages.readLog(),
-          asker: caller.card.sessionName,
-          /* The short tail first; the longest one (4 MB, read synchronously) only when the short one is cut after the
-             send, since a busy agent's heartbeats fill the short one in well under an hour. */
-          history: (session, sentAt) => {
-            const short = selfreport.history(session);
-            if (!short || short.truncated !== true || (short.length && short[0].at <= sentAt)) return short;
-            return selfreport.history(session, selfreport.HISTORY_MAX_BYTES);
-          },
-          sessionOf: (name) => { const card = chat.resolveCard(roster, name); return (card && card.sessionName) || name; },
-        });
-      } catch { out = { found: false, because: 'we could not read the message record' }; }
-      sendJson(res, 200, { ...out, sentence: msgstatus.sentence(out) });
+        const roster = safeRoster();
+        // `sentence` on every answer: it is the field both CLIs print.
+        if (roster === null) { const because = 'we could not check which agents are running, so we could not tell who is asking'; sendJson(res, 200, { found: false, because, sentence: because }); return; }
+        const denyPaneFallback = boardAuthState.on
+          && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+        const caller = resolveAgentSender(req, body, roster, { denyPaneFallback,
+          denyBecause: 'this board only answers a message status for the account that started it, or an agent with a token' });
+        if (!caller.ok) { sendJson(res, 200, { found: false, because: caller.because, sentence: caller.because }); return; }
+        const msgstatus = require('./engine/msgstatus');
+        let out;
+        try {
+          out = msgstatus.status(body.id, {
+            rows: messages.readLog(),
+            asker: caller.card.sessionName,
+            /* The short tail first; the longest one (4 MB, read synchronously) only when the short one is cut after the
+               send, since a busy agent's heartbeats fill the short one in well under an hour. */
+            history: (session, sentAt) => {
+              const short = selfreport.history(session);
+              if (!short || short.truncated !== true || (short.length && short[0].at <= sentAt)) return short;
+              return selfreport.history(session, selfreport.HISTORY_MAX_BYTES);
+            },
+            sessionOf: (name) => { const card = chat.resolveCard(roster, name); return (card && card.sessionName) || name; },
+          });
+        } catch { out = { found: false, because: 'we could not read the message record' }; }
+        sendJson(res, 200, { ...out, sentence: msgstatus.sentence(out) });
+      } catch {   // anything thrown above: a sentence, never an internal message
+        const because = 'we could not check that message just now; try again in a moment';
+        sendJson(res, 500, { found: false, because, sentence: because });
+      }
     }).catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || 'we could not read that request') }));
     return;
   }

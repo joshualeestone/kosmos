@@ -22,7 +22,9 @@
  *
  * ⚠️ A residual, not handled: the row's time is taken when the send BEGINS (engine/messages.js sendWithDelivery), and
  * typing into the pane can take a moment after it. A turn the recipient started for another reason inside that
- * moment counts as one that started after the message arrived. No later delivery time is recorded to narrow it.
+ * moment counts as one that started after the message arrived. No later delivery time is recorded to narrow it. A
+ * held message is the other way round: its held-delivered row is written just AFTER typing, so a turn started in that
+ * moment reads as already running, which leans toward "may have read it".
  *
  * Pure apart from the two readers, which the caller passes in (the route passes the real ones, the tests stubs).
  */
@@ -77,7 +79,8 @@ function status(id, o) {
   const asked = o && typeof o.asker === 'string';
   /* With an asker, only the sender is answered (every sentence is written to the sender), and with one refusal for
      "no such message" and "not yours", so an agent cannot tell another message's id from a missing one. */
-  if (asked && (!msg || canon(o.asker) !== canon(msg.from))) {
+  // Exactly: the asker is the caller's own session name, as a row's `from` is, so two names differing in case stay apart.
+  if (asked && (!msg || o.asker !== msg.from)) {
     return { found: false, because: 'there is no direct message ' + key + ' sent by you' };
   }
   if (!msg) return { found: false, because: 'there is no direct message ' + key + ' on this board' };
@@ -111,8 +114,11 @@ function status(id, o) {
   const to = canon(msg.to);
   const from = canon(msg.from);
   // A held reply counts only once the sweep typed it (its held-delivered row), and from then: kept, it had not reached the sender.
-  const typedAtOf = (r) => { const d = rows.find((x) => x && x.kind === 'held-delivered' && x.of === r.id && (x.state === 'placed' || x.state === 'unconfirmed')); return d ? d.at : null; };
-  const replyAt = (r) => Date.parse((r.state === 'held' ? typedAtOf(r) : r.at) || '');
+  const typedAt = new Map();
+  for (const x of rows) {
+    if (x && x.kind === 'held-delivered' && (x.state === 'placed' || x.state === 'unconfirmed') && !typedAt.has(x.of)) typedAt.set(x.of, x.at);
+  }
+  const replyAt = (r) => Date.parse((r.state === 'held' ? typedAt.get(r.id) : r.at) || '');
   const back = rows.filter((r) => r && r.kind === 'message' && typeof r.to === 'string' && r.id !== key
     && canon(r.from) === to && canon(r.to) === from
     && (r.state === 'placed' || r.state === 'unconfirmed' || r.state === 'held')
@@ -121,7 +127,7 @@ function status(id, o) {
     && Number.isFinite(replyAt(r)) && replyAt(r) >= sentAt);
   const cited = back.find((r) => r.in_reply_to === key);
   const answer = cited || back[0];
-  if (answer) return { ...base, status: STATUS.ANSWERED, answer: answer.id, answeredAt: answer.at, cites: Boolean(cited) };
+  if (answer) return { ...base, status: STATUS.ANSWERED, answer: answer.id, answeredAt: iso(replyAt(answer)), cites: Boolean(cited) };
 
   let session = msg.to;
   try { session = (o && typeof o.sessionOf === 'function' && o.sessionOf(msg.to)) || msg.to; } catch { session = msg.to; }
@@ -157,8 +163,10 @@ function status(id, o) {
     /* An automatic blocked (a provider stop) is a wait too: selfreport.record refuses the hook's working rows over it,
        as over the agent's own. The hook's permission ask (an automatic needs_you) is not: its rows still land. */
     if (row.state === 'needs_you' || row.state === 'blocked') waiting = row.by !== 'auto' || row.state === 'blocked';
-    // The agent's or a person's other report ends it, and so does a session's start or stop (a new session's hook rows are recorded).
-    else if (row.state === 'stopped' || row.state === 'started' || row.by !== 'auto') waiting = false;
+    /* Anything else ends it: the agent's or a person's other report, a session's start or stop, and any automatic
+       working or idle that was recorded at all, since the guard refuses those while a wait stands (the hook's
+       turn-end idle is what clears a provider block, #6209). */
+    else waiting = false;
     if (row.at >= sentAt && waiting) waitStood = true;
     const mark = turnMark(row);
     if (!mark) continue;
