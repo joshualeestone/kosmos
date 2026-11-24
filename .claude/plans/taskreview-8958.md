@@ -25,11 +25,11 @@ Stacked on B3 (taskrepeat-8958); rebased onto main once B1, B2 and B3 merge.
 - A reviewer the Mac recorded when the read after it failed stays shown (reviewerShown) until a read of the page
   succeeds, as the Repeats controls keep what was saved; the board instead repaints from its stale read.
 - Whether the save's own read landed is judged by read number (a read that started after the save was recorded),
-  not by counting successes, which a tick read started before it and landing with the old page would pass. Reasoned,
-  not tested: the fake Mac holds one request at a time, so that ordering cannot be built in the logic tests.
+  not by counting successes, which a tick read started before it and landing with the old page would pass. Tested: the
+  fake Mac can now hold every request (queueing) and answer them in any order, and the test is red under counting.
 - While the saved reviewer shows, the save compares against it, so choosing the page's stale reviewer back is sent.
 - The visible "If missed, tell" is hidden from VoiceOver; the menu's label says it.
 
 ## Tests
-- ios/LogicTests/taskpage: B3b section and b3bModelTests, 313/313 with B3's. Every guard and the shown-after-a-failed-read
+- ios/LogicTests/taskpage: B3b section and b3bModelTests, 316/316 with B3's. Every guard and the shown-after-a-failed-read
   line go red when removed.
