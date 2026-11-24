@@ -1011,6 +1011,76 @@ test('#570 7c-5 stderr is drained, and a death carries its tail to the task log'
   quiet.stop();
 });
 
+/* kosmos#8967: three deaths on the Windows box logged only "homer died": the exit code
+   was on the event but never on the line, and claude in stream-json mode reports a fatal
+   error on stdout, which the stderr-only reason could not see. */
+function diedWith(feed) {
+  const kids = [];
+  const events = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = streamingChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  feed(kids[0]);
+  h.stop();
+  return events.find((e) => e.action === 'died');
+}
+
+test('#8967 a death keeps its exit code and its signal on the event', () => {
+  const coded = diedWith((c) => c.emit('exit', 3221225477, null));
+  assert.equal(coded.code, 3221225477);
+  assert.equal(coded.signal, null);
+  const signalled = diedWith((c) => c.emit('exit', null, 'SIGTERM'));
+  assert.equal(signalled.code, null);
+  assert.equal(signalled.signal, 'SIGTERM');
+});
+
+test('#8967 an error result on stdout rides on the death; a successful reply never does', () => {
+  const errored = diedWith((c) => {
+    c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'the agent said a private thing' }) + '\n'));
+    c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'usage limit\nreached' }) + '\n'));
+    c.die(1);
+  });
+  assert.equal(errored.because, 'its last error on stdout: error_during_execution: usage limit reached');
+
+  const clean = diedWith((c) => {
+    c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'the agent said a private thing' }) + '\n'));
+    c.die(0);
+  });
+  assert.equal(clean.because, undefined, 'a successful result is the agent\'s reply, not a reason');
+
+  const both = diedWith((c) => {
+    c.stderr.emit('data', Buffer.from('boom\n'));
+    c.stdout.emit('data', Buffer.from('Error: not logged in\n'));
+    c.die(1);
+  });
+  assert.equal(both.because, 'it said: boom; its last error on stdout: not JSON: Error: not logged in');
+});
+
+test('#8967 stdoutError reads only errors, and clips them', () => {
+  assert.equal(sup.stdoutError({ type: 'assistant', message: {} }, '{}'), '');
+  assert.equal(sup.stdoutError({ type: 'result', subtype: 'success', is_error: false, result: 'hi' }, ''), '');
+  assert.equal(sup.stdoutError({ type: 'result', subtype: 'error_max_turns' }, ''), 'error_max_turns');
+  assert.equal(sup.stdoutError({ type: 'result', is_error: true, result: 'x' }, ''), 'error: x');
+  assert.equal(sup.stdoutError(null, '   '), '');
+  assert.equal(sup.stdoutError(null, 'y'.repeat(1000)).length, 'not JSON: '.length + 300);
+});
+
+test('#8967 the task-log line: a died line carries its exit, every other line is as before', () => {
+  const at = '2026-11-24T00:00:00.000Z';
+  assert.equal(sup.taskLogLine(at, 'homer', { action: 'died', code: 3221225477, signal: null }),
+    at + ' homer died (exit code 3221225477 = 0xC0000005)');
+  assert.equal(sup.taskLogLine(at, 'homer', { action: 'died', code: 1, signal: null, because: 'it said: x' }),
+    at + ' homer died (exit code 1) -- it said: x');
+  assert.equal(sup.taskLogLine(at, 'homer', { action: 'died', code: null, signal: 'SIGKILL' }), at + ' homer died (signal SIGKILL)');
+  assert.equal(sup.taskLogLine(at, 'homer', { action: 'died', code: null, signal: null }), at + ' homer died');
+  assert.equal(sup.taskLogLine(at, 'homer', { action: 'resumed', code: 7 }), at + ' homer resumed', 'only a death shows a code');
+  assert.equal(sup.taskLogLine(at, 'homer', { action: 'waiting', because: 'b' }), at + ' homer waiting -- b');
+  assert.equal(sup.exitWords(-1, null), ' (exit code -1 = 0xFFFFFFFF)');
+});
+
 test('#570 7c-4 a write that fails AFTER it was handed to the pipe is unsure, never a definite no', () => {
   /* Baron's bar (Mac delivery owner, 2026-09-10): a write that buffered and then
      errored may already have put bytes in front of the agent, so it must read as
