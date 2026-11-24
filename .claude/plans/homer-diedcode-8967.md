@@ -24,6 +24,10 @@ the log: a death is now written up to 500 ms later (the drain below), so the res
   reads), joined with ` | `, and falls back to `result`. A successful result is the agent's own reply and is never
   kept. A successful result or a new turn (`system/init`) clears an earlier error, so an old error never rides on an
   unrelated death. The record is the child's own, kept even after the child is replaced.
+- The label is the subtype only when it names an error (`error...`); an API failure that claude reports as
+  `subtype: 'success'` with `is_error: true` (usage limit, credit, auth) reads `error (success): <text>`, never
+  `success: ...`. An error result outranks any non-event line after it in the same turn; a later error result
+  replaces either.
 - The `died` reason joins `it said: <stderr tail>` and `its stdout said: <...>` with `; `.
 - `taskLogLine(at, name, e)` builds every supervisor-event line (`onEvent`; the few lines `main()` writes by hand for its own conditions, such as host-gone or channel-refused, are untouched); only a `died` line adds `(exit code N)` (with
   `= 0xXXXXXXXX` for a Windows code past 255 or below 0, an NTSTATUS) or `(signal S)`. A death with neither reads as
@@ -42,7 +46,7 @@ the log: a death is now written up to 500 ms later (the drain below), so the res
   dropped. Only the reason gathering, the `died` line and the restart decision wait.
 
 ## Tests (engine/win32supervisor.test.js)
-Fourteen `#8967` tests: code and signal on the event; error vs successful result vs non-event line on the reason, and an
+Seventeen `#8967` tests: code and signal on the event; error vs successful result vs non-event line on the reason, and an
 old error cleared by a success and by a new turn; the death waiting for stdout in the real-world order (exit first);
 the drain bound when stdout never ends, a death released by close alone, and no wait for a stdout already destroyed or closed; process state settled at exit (stopped at once, a late flush not counted); a late line publishing nothing; a send during the drain; stdoutError (including a 16 MB line in bounded time) and
 taskLogLine directly. Each was run against the code before its fix and failed there (control runs on the box).

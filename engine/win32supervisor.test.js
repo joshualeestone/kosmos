@@ -1289,6 +1289,46 @@ test('#8967 endsLastError: a result or a new turn ends the last error; nothing e
   assert.equal(sup.endsLastError(7), false);
 });
 
+test('#8967 an API failure reported as subtype success with is_error is labelled an error, not "success"', () => {
+  assert.equal(sup.stdoutError({ type: 'result', subtype: 'success', is_error: true, result: 'Claude AI usage limit reached' }, ''),
+    'error (success): Claude AI usage limit reached');
+});
+
+test('#8967 a non-event line after an error result does not replace it; a later error result does', () => {
+  const kept = diedWith((c) => {
+    c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['the real cause'] }) + '\n'));
+    c.stdout.emit('data', Buffer.from('a shutdown notice\n'));
+    c.die(1);
+  });
+  assert.equal(kept.because, 'its stdout said: error_during_execution: the real cause');
+
+  const newer = diedWith((c) => {
+    c.stdout.emit('data', Buffer.from('a startup notice\n'));
+    c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true }) + '\n'));
+    c.die(1);
+  });
+  assert.equal(newer.because, 'its stdout said: error_max_turns', 'an error result replaces an earlier non-event line');
+});
+
+test('#8967 a drain that times out leaves nothing listening on the dead stdout', async () => {
+  const kids = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    stdoutDrainMs: 20,
+    launch: () => { const c = pipedChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  const out = kids[0].stdout;
+  const endBefore = out.listenerCount('end');
+  const closeBefore = out.listenerCount('close');
+  kids[0].emit('exit', 1, null);
+  assert.equal(out.listenerCount('end'), endBefore + 1, 'control: the drain does listen while it waits');
+  await new Promise((r) => setTimeout(r, 120));
+  assert.equal(out.listenerCount('end'), endBefore);
+  assert.equal(out.listenerCount('close'), closeBefore);
+  h.stop();
+});
+
 test('#8967 an error result with only whitespace for text leaves no stray colon', () => {
   assert.equal(sup.stdoutError({ type: 'result', subtype: 'error_during_execution', is_error: true, result: '   ' }, ''), 'error_during_execution');
 });
