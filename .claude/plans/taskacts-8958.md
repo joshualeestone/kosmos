@@ -55,6 +55,11 @@ Hold, repeat, the receipt and undo are B2 to B5. The info button stays (parts an
   (busy); CI's "ui tests (sample board)" runs it.
 - swiftc -typecheck of every ios/Kosmos source at iOS 16: clean.
 
+## Known and left (review 8, the last round)
+- Return in the edit title does not save (the board's Enter submits its form): Save is in the sheet's bar.
+- The UI test's "box emptied" check alone would pass on a box cleared without sending; the activity check after it is
+  what proves delivery.
+
 ## Weakest premise
 The UI test's path (Tasks tab, the sample row "Pages 1 to 8", the swipes to the message box) is written from the code,
 not run; CI is the first run. "Set a due date" opening on a week from today is my call (a picker needs a date to show);
