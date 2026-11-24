@@ -36,6 +36,7 @@ function read(died, runs, rows) {
   reports(rows);
   const files = { [mr.diedFileFor('hal')]: died, [crashloop.fileFor('hal')]: runs };
   return mr.restartedFor('hal', {
+    memo: false,   // each arm is its own agent; the memo has its own test
     bootMs: (T0 - 100000) * 1000,   // these deaths are long after the boot; the reboot arm says otherwise
     read: (f) => { if (files[f] === undefined) throw Object.assign(new Error('none'), { code: 'ENOENT' }); return files[f]; },
   });
@@ -67,7 +68,7 @@ test('#8988 the restart is the last start, within the window after the death', (
     'a switch whose NEW process crashed: the crash is said');
   assert.ok(read(T0 + ' status 1\n', 'start ' + (T0 - 600) + '\nend ' + T0 + '\nkosmos ' + (T0 + 20) + '\n' + start),
     'a person restarting an agent that had already crashed: the crash is still why');
-  const rebooted = (boot) => mr.restartedFor('hal', { bootMs: boot * 1000, history: () => [],
+  const rebooted = (boot) => mr.restartedFor('hal', { memo: false, bootMs: boot * 1000, history: () => [],
     read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' signal term\n' : start) });
   assert.equal(rebooted(T0 + 20), null, 'a death before this boot is the shutdown, not Claude');
   assert.ok(rebooted(T0 - 3600), 'CONTROL: the same death in this boot is said');
@@ -96,12 +97,12 @@ test('#8988 a finished answer after the restart clears it; one before it, an ope
   assert.ok(fs.statSync(selfreport.fileFor('hal')).size > 64 * 1024, 'precondition: more than the default reading');
   assert.equal(read(T0 + ' status 7\n', runs, beats), null, 'a finished turn long before a long turn of heartbeats still clears it');
   const cut = [{ state: 'working', at: T0 * 1000 + 90000, by: 'auto' }]; cut.truncated = true;
-  assert.equal(mr.restartedFor('hal', { bootMs: 0, history: () => cut, read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' status 7\n' : runs) }), null,
+  assert.equal(mr.restartedFor('hal', { memo: false, bootMs: 0, history: () => cut, read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' status 7\n' : runs) }), null,
     'a record cut short before the restart cannot say: no line');
   const reached = [{ state: 'working', at: T0 * 1000 - 1000, by: 'auto' }]; reached.truncated = true;
-  assert.ok(mr.restartedFor('hal', { bootMs: 0, history: () => reached, read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' status 7\n' : runs) }),
+  assert.ok(mr.restartedFor('hal', { memo: false, bootMs: 0, history: () => reached, read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' status 7\n' : runs) }),
     'CONTROL: a cut record that reaches back past the restart, with no finished turn, keeps the line');
-  const unreadable = mr.restartedFor('hal', { read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' status 7\n' : runs), history: () => { throw new Error('x'); } });
+  const unreadable = mr.restartedFor('hal', { memo: false, read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' status 7\n' : runs), history: () => { throw new Error('x'); } });
   assert.equal(unreadable, null, 'when the record cannot say, no line');
 });
 
@@ -147,4 +148,36 @@ test('#8988 the supervisor writes no death file for an agent in a named Kosmos',
   assert.match(run(undefined).stdout, /\/Kosmos\/runs\/ava\.died$/m, 'CONTROL: the default Kosmos has one');
   assert.match(run('default').stdout, /\/Kosmos\/runs\/ava\.died$/m);
   assert.equal(run('qa').stdout, '', 'a named Kosmos has none');
+});
+
+test('#8988 a later launch takes the line with it: a person restart after a cleared crash does not bring the crash back', () => {
+  const at = (n) => new Date(n * 1000).toISOString();
+  const runs = 'start ' + (T0 - 600) + '\nend ' + T0 + '\nstart ' + (T0 + 40) + '\n';
+  const rows = [{ state: 'idle', because: 'finished responding', by: 'auto', at: at(T0 + 100) }];
+  assert.equal(read(T0 + ' status 7\n', runs, rows), null, 'the first restart: the turn cleared it');
+  assert.ok(read(T0 + ' status 7\n', runs, []), 'CONTROL: with no turn it is said');
+  assert.equal(read(T0 + ' status 7\n', runs + 'kosmos ' + (T0 + 200) + '\nend ' + (T0 + 210) + '\nstart ' + (T0 + 230) + '\n', rows), null,
+    'a person\'s restart later is another launch: nothing');
+  /* The run that died, and the one right after it, in whole seconds (measured: the relaunch's start can share the death's
+     second, or come just before tmux's death time). */
+  assert.ok(read((T0 + 1) + ' status 7\n', 'start ' + T0 + '\nend ' + (T0 + 1) + '\nstart ' + (T0 + 1) + '\n'), 'same second');
+  assert.ok(read((T0 + 2) + ' status 7\n', 'start ' + T0 + '\nend ' + (T0 + 1) + '\nstart ' + (T0 + 1) + '\n'), 'start a second before the death time');
+  assert.equal(read((T0 + 1) + ' status 7\n', 'start ' + T0 + '\n'), null, 'no relaunch yet: the run that died is still the last');
+  assert.equal(read(T0 + ' status 7\n', runs + 'end ' + (T0 + 60) + '\nstart ' + (T0 + 70) + '\n', []), null,
+    'a second launch, for any reason, ends that line (a failed relaunch too, the plan\'s stated cost)');
+});
+
+test('#8988 a cleared line is not read again at every poll', () => {
+  mr.CLEARED.clear();
+  let reads = 0;
+  const run = () => mr.restartedFor('hal', { bootMs: 0, history: () => { reads += 1; const r = [{ turn: 'end', at: (T0 + 100) * 1000, state: 'idle' }]; return r; },
+    read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' status 7\n' : 'start ' + (T0 + 40) + '\n') });
+  assert.equal(run(), null);
+  assert.equal(run(), null);
+  assert.equal(reads, 1, 'the second poll did not read the history again');
+  /* CONTROL: a newer crash (a new death, a new start) is read afresh. */
+  const later = mr.restartedFor('hal', { bootMs: 0, history: () => { reads += 1; return []; },
+    read: (f) => (f === mr.diedFileFor('hal') ? (T0 + 500) + ' status 9\n' : 'start ' + (T0 + 540) + '\n') });
+  assert.ok(later, 'the next death is its own line');
+  mr.CLEARED.clear();
 });

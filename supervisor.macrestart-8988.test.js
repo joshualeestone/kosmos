@@ -10,6 +10,10 @@
  *   STOP      a deliberate kill-session records nothing (the death file is unchanged).
  *   SIGNAL    the runner is ended by SIGTERM: "signal term", read as "(signal SIGTERM)".
  *   SPLIT     a pane a person split off ending neither ends the agent nor is recorded.
+ *   LIVE      the agent dies with its hook intact while a split pane is live and active: its own exit is recorded, and
+ *             the supervisor ends what the split leaves.
+ *   MODE      after a crash, a client attaching to another session finds its pane in no mode (a failed hook command
+ *             would open over it, and a pane in view-mode hears no Enter).
  *   HASH      a data folder with a # in it gets no hook (run-shell reads # as a format): nothing is kept or recorded.
  *   NOLANG    a launch without a UTF-8 locale cannot read the session's id: it says so, records nothing, keeps nothing.
  *   GROUP     a session a person grouped with the agent's is not left holding its dead pane.
@@ -47,7 +51,7 @@ function fixture(tag = '', { lang = 'en_US.UTF-8' } = {}) {
   for (const dir of ['bin', 'data', 'work', 'shim', 'home', 'ctl']) fs.mkdirSync(path.join(root, dir), { recursive: true });
   fs.symlinkSync(SHIPPED, path.join(root, 'bin', 'agent-supervisor.sh'));
   fs.symlinkSync(path.join(REPO, 'engine'), path.join(root, 'engine'));
-  const sock = path.join(root, 's');
+  const sock = path.join(root, 's');   // also where a MODE client attaches
   const tmux = path.join(root, 'tmux.sh');
   fs.writeFileSync(tmux, `#!/bin/bash\nexec ${JSON.stringify(REAL_TMUX)} -S ${JSON.stringify(sock)} -f /dev/null "$@"\n`, { mode: 0o755 });
   const ctl = path.join(root, 'ctl');
@@ -118,7 +122,7 @@ function fixture(tag = '', { lang = 'en_US.UTF-8' } = {}) {
     try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
   };
   const stderrText = () => err;
-  return { root, stderrText, start, ends, tx, alive, paneDead, agentPane, hooked, until, died, tell, card, noisy, cleanup };
+  return { root, tmux, sock, stderrText, start, ends, tx, alive, paneDead, agentPane, hooked, until, died, tell, card, noisy, cleanup };
 }
 
 test('#8988 CRASH and STOP: an exit is recorded by the hook and read on the card after the relaunch; a stop records nothing', { skip: SKIP }, async () => {
@@ -280,4 +284,39 @@ test('#8988 NOLANG: a launch that cannot read the session\'s id says so, and arm
     assert.equal(f.died(), null, 'nothing recorded, nothing kept');
     assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
   } finally { f.cleanup(); }
+});
+
+test('#8988 LIVE: the agent dies with its hook intact and a live, active split pane', { skip: SKIP }, async () => {
+  const f = fixture();
+  try {
+    const one = f.start();
+    await f.until(f.alive, 'the session');
+    await f.until(f.hooked, 'its pane-died hook');
+    assert.equal(f.tx('split-window', '-t', f.agentPane(), '/bin/sleep 60; exit 2').status, 0);   // the split is now the active pane
+    f.tell('exit 7');
+    await f.ends(one);
+    assert.match(String(f.died()), /^\d{9,11} status 7\n$/, 'the agent\'s exit, not the active pane\'s');
+    assert.equal(f.alive(), false, 'the supervisor ended what was left');
+    assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
+  } finally { f.cleanup(); }
+});
+
+test('#8988 MODE: a crash leaves no tmux error to open over another agent\'s pane', { skip: SKIP || (process.platform !== 'darwin' && 'script(1) takes different arguments here') }, async () => {
+  const f = fixture();
+  let client = null;
+  try {
+    const one = f.start();
+    await f.until(f.alive, 'the session');
+    await f.until(f.hooked, 'its pane-died hook');
+    assert.equal(f.tx('new-session', '-d', '-s', 'keep', '/bin/sleep 120').status, 0);
+    f.tell('exit 8');
+    await f.ends(one);
+    client = spawn('/usr/bin/script', ['-q', '/dev/null', f.tmux, 'attach-session', '-t', 'keep'], { stdio: 'ignore', env: { ...process.env, TERM: 'xterm-256color' } });
+    await new Promise((r) => setTimeout(r, 2000));
+    const modes = (f.tx('list-panes', '-t', 'keep', '-F', '#{pane_in_mode} #{pane_mode}').stdout || '').trim();
+    assert.equal(modes, '0', 'a pane a person attaches to is in no mode: ' + modes);
+  } finally {
+    if (client) client.kill('SIGKILL');
+    f.cleanup();
+  }
 });
