@@ -2434,13 +2434,14 @@ enum Board {
     }
 
     // kosmos#8952: a question or permission row with no buttons opens nothing: the board draws none for it either (the same
-    // choices), only the window's text. It says where to answer only while it is the newest such row, nothing the person
-    // wrote comes after it, and the agent is waiting on an answer (waitsOnAnswer).
+    // choices), only the window's text. It says where to answer only while it is the newest such row and the agent is
+    // waiting on an answer (waitsOnAnswer). A question is also past once the person wrote after it; a permission is not,
+    // since typed words do not answer one (#6054).
     static func askingNow(_ row: ChatRow, in rows: [ChatRow], waiting: Bool) -> Bool {
         guard waiting, row.wayThrough == .question || row.wayThrough == .permission,
               let at = rows.lastIndex(where: { $0.wayThrough == .question || $0.wayThrough == .permission }),
               rows[at].id == row.id else { return false }
-        return !rows[(at + 1)...].contains { $0.who == .person }
+        return row.wayThrough == .permission || !rows[(at + 1)...].contains { $0.who == .person }
     }
     // The agent's state is a wait on the person (needs_you, question, approval), and it is neither crash looping nor failed
     // to restart.

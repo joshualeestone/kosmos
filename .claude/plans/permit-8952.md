@@ -27,7 +27,8 @@ options as the real prompt does, so the board and the phone get the same buttons
    such a box is still not permissionAnswerable and gets no permissionCard.
 2. ios BoardLogic.swift: Board.askingNow(row, in:, waiting:) (the newest question/permission row, nothing from the person
    after it, while the agent waits on an answer: Board.waitsOnAnswer, state needs_you/question/approval; review 1: needing
-   the person for a crash loop or a stuck error is not an open question) and Board.askedLine(way, now:). ChatView: a question/permission WayThroughRow has no action and
+   the person for a crash loop or a failed restart is not an open question; a person's reply ends a question, never a
+   permission, review 4) and Board.askedLine(way, now:). ChatView: a question/permission WayThroughRow has no action and
    says the askedLine; files and unsent words keep their link. WayThroughRow's action is optional.
 
 ## Decided
@@ -44,6 +45,8 @@ options as the real prompt does, so the board and the phone get the same buttons
 - Part 2: the other web-board taps (Files/8952-web-board-taps.md, 31 in-app, 4 notification routes).
 
 ## Tests
+- server.permscroll-8952.test.js (review 4), through the real routes: a cut-off box with the scroll line gets no Allow or
+  Deny on the phone's notice, no `asked` on the thread, and a pressed Yes sends no key. CONTROL: the whole box is pressable.
 - status.permscroll-8952.test.js: the real 2.1.296 Bash capture with the scroll line at 1, 2, 3 spaces, up and down,
   singular: options identical to the real prompt; CONTROL other lines still refused; the #6054 gate unchanged.
   Mutation-checked (removing the skip fails 2 of 3).
@@ -51,9 +54,10 @@ options as the real prompt does, so the board and the phone get the same buttons
   no chevron, no terminal words). Every run-*.sh green; the app builds for the simulator.
 
 ## Weakest premise
+That an agent waiting on an answer (waitsOnAnswer) plus the newest question or permission row means that row is the one
+being asked. A reported safety check that timed out leaves the agent no longer waiting, so the row reads as past ("asked
+for your permission"), which is true by then.
+
 Residual, accepted (review 3): a plain needs_you with neither reportedByAgent nor awaitingApproval (engine/cardlabel.js
-reasonOf 'waiting': a Codex hooks screen, the safeguards menu) counts as waiting, so an unanswered question row above it
-says to reply. The agent is waiting on its screen there, so the computer is still the right place.
-That "needs you" plus newest question row means the row is the one being asked. A reported safety check that timed
-out leaves the agent no longer needing the person, so the row reads as past ("asked for your permission"), which is
-true by then.
+reasonOf 'waiting': a Codex hooks screen, the safeguards menu) counts as waiting, so an unanswered row above it says
+where to answer. The agent is waiting on its screen there, so the computer is still the right place.

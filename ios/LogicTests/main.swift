@@ -6331,8 +6331,13 @@ do {
           "an older question or permission is past, even while the agent needs you")
     check(!Board.askingNow(rows[4], in: rows, waiting: false), "CONTROL: nothing is being asked when the agent is not waiting on an answer")
     check(!Board.askingNow(rows[3], in: rows, waiting: true), "a file row is never a question")
-    let answered = rows + [Board.ChatRow(id: "y", atRaw: nil, at: nil, text: "yes", who: .person, wayThrough: nil)]
-    check(!Board.askingNow(answered[4], in: answered, waiting: true), "a question the person wrote after is past")
+    let reply = Board.ChatRow(id: "y", atRaw: nil, at: nil, text: "yes", who: .person, wayThrough: nil)
+    let typedAfter = rows + [reply]
+    check(Board.askingNow(typedAfter[4], in: typedAfter, waiting: true),
+          "a permission is still asked after the person typed: typed words do not answer one")
+    let asked = [row("p0", .permission), row("q2", .question)]
+    check(Board.askingNow(asked[1], in: asked, waiting: true), "premise: the newest question is asked")
+    check(!Board.askingNow(asked[1], in: asked + [reply], waiting: true), "a question the person replied to is past")
     let agent = { (s: String, stuck: Bool) in
         Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, needsYou: true, crashLooping: stuck)
     }
