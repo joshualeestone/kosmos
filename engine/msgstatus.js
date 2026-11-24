@@ -28,7 +28,8 @@ const STATUS = Object.freeze({
   READ_NO_ANSWER: 'read_no_answer', // a turn started after delivery and ended, and nothing came back by command
   READING: 'reading',              // a turn started after delivery and has not ended
   MAYBE_READ: 'maybe_read',        // a turn already running at delivery ended after it, and nothing came back
-  NOT_YET: 'not_yet',              // no turn has started or ended since delivery
+  IN_TURN: 'in_turn',              // a turn already running at delivery has not ended yet
+  NOT_YET: 'not_yet',              // the agent was between turns at delivery and none has started since
   SESSION_ENDED: 'session_ended',  // its session stopped or restarted after delivery, before any turn answered it
   NOT_DELIVERED: 'not_delivered',  // the row is held (kept for later) or was never typed
   UNKNOWN: 'unknown',              // the recipient's report history cannot say (none, unreadable, or cut too short)
@@ -59,26 +60,54 @@ function status(id, o) {
   const key = String(id == null ? '' : id).trim();
   if (!ID_RE.test(key)) return { found: false, because: 'that is not a message id; ids look like m12' };
   const rows = Array.isArray(o && o.rows) ? o.rows : [];
+  /* Names compare as the roster resolves them: a message row's `to` is the name as the sender typed it (only
+     trimmed), while `from` is the sender's session name, and delivery matches case-insensitively (#989). */
+  const canon = (name) => {
+    let n = name;
+    try { n = (o && typeof o.sessionOf === 'function' && o.sessionOf(name)) || name; } catch { n = name; }
+    return String(n == null ? '' : n).trim().toLowerCase();
+  };
   // A direct message only: a room post has many readers and its own answered/unanswered tracking (#4612).
   const msg = rows.find((r) => r && r.kind === 'message' && r.id === key && typeof r.to === 'string');
-  if (!msg) return { found: false, because: 'there is no direct message ' + key + ' on this board' };
-  if (o && typeof o.asker === 'string' && o.asker !== msg.from && o.asker !== msg.to) {
-    return { found: false, because: 'message ' + key + ' was not sent by you or to you' };
+  const asked = o && typeof o.asker === 'string';
+  /* With an asker, one refusal for "no such message" and "not yours", so an agent cannot tell another pair's
+     message id from a missing one. */
+  if (asked && (!msg || (canon(o.asker) !== canon(msg.from) && canon(o.asker) !== canon(msg.to)))) {
+    return { found: false, because: 'there is no direct message ' + key + ' sent by you or to you' };
   }
+  if (!msg) return { found: false, because: 'there is no direct message ' + key + ' on this board' };
   const base = { found: true, id: key, from: msg.from, to: msg.to, at: msg.at,
-    ...(msg.replyExpected === false ? { replyExpected: false } : {}) };
-  const sentAt = Date.parse(msg.at || '');
+    ...(msg.replyExpected === false ? { replyExpected: false } : {}),
+    ...(msg.unsubmitted === true ? { unsubmitted: true } : {}) };
+  let sentAt = Date.parse(msg.at || '');
   if (!Number.isFinite(sentAt)) return { ...base, status: STATUS.UNKNOWN, because: 'the message has no time on its record' };
-  if (msg.state !== 'placed' && msg.state !== 'unconfirmed') {
+  if (msg.state === 'held') {
+    /* A held message is typed or dropped later by the minute sweep, which records it in its own row
+       (engine/messages.js held-delivered / held-dropped, `of` the message id). Typed, it counts from then. */
+    const later = rows.filter((r) => r && r.of === key && (r.kind === 'held-delivered' || r.kind === 'held-dropped'));
+    const dropped = later.find((r) => r.kind === 'held-dropped');
+    const typed = later.find((r) => r.kind === 'held-delivered' && (r.state === 'placed' || r.state === 'unconfirmed'));
+    if (typed && Number.isFinite(Date.parse(typed.at || ''))) {
+      sentAt = Date.parse(typed.at);
+      base.typedAt = typed.at;
+    } else if (dropped) {
+      return { ...base, status: STATUS.NOT_DELIVERED, delivery: 'dropped', droppedAt: dropped.at || null };
+    } else {
+      return { ...base, status: STATUS.NOT_DELIVERED, delivery: 'held' };
+    }
+  } else if (msg.state !== 'placed' && msg.state !== 'unconfirmed') {
     return { ...base, status: STATUS.NOT_DELIVERED, delivery: msg.state || null };
   }
 
   /* An answer by command: a direct message from the recipient to the sender, after this one. One that cites this
      message (--in-reply-to) is preferred; otherwise the first one after it, which may be about something else, and
      says so (`cites: false`). */
-  const back = rows.filter((r) => r && r.kind === 'message' && r.from === msg.to && r.to === msg.from
+  const to = canon(msg.to);
+  const from = canon(msg.from);
+  const back = rows.filter((r) => r && r.kind === 'message' && typeof r.to === 'string' && r.id !== key
+    && canon(r.from) === to && canon(r.to) === from
     && (r.state === 'placed' || r.state === 'unconfirmed' || r.state === 'held')
-    && Number.isFinite(Date.parse(r.at || '')) && Date.parse(r.at) >= sentAt && r.id !== key);
+    && Number.isFinite(Date.parse(r.at || '')) && Date.parse(r.at) >= Date.parse(msg.at));
   const cited = back.find((r) => r.in_reply_to === key);
   const answer = cited || back[0];
   if (answer) return { ...base, status: STATUS.ANSWERED, answer: answer.id, answeredAt: answer.at, cites: Boolean(cited) };
@@ -93,27 +122,46 @@ function status(id, o) {
     return { ...base, status: STATUS.UNKNOWN, because: 'the report history kept for ' + msg.to + ' does not reach back to this message' };
   }
 
-  /* A start counts only when the agent was between turns (the mark before it is an end, a session mark, or none).
-     Kosmos itself writes an automatic working row that carries the current sentence when a working agent posts to a
-     room (server.js, the room post's project stamp), so a second "answering a prompt" with no end between is the
-     same turn, not a new one. A turn cancelled with Esc (a start, then another start) is read as one turn by this:
-     that errs toward "may have read it", never toward "read". */
+  /* A start counts only when the agent was between turns (the mark before it is an end, a session mark, or none in
+     a history that is not cut). Kosmos itself writes an automatic working row that carries the current sentence when
+     a working agent posts to a room (server.js, the room post's project stamp), so a second "answering a prompt" with
+     no end between is the same turn, not a new one. A turn cancelled with Esc (a start, then another start) is read
+     as one turn by this: that errs toward "may have read it", never toward "read". In a cut history the mark before
+     the first one kept is not known, so it is read as possibly mid-turn ('cut'), never as between turns.
+
+     A deliberate needs_you or blocked (the agent's own, not the hook's) makes selfreport.record refuse the hook's
+     automatic working and idle rows while it stands (#900), so turns then leave no marks. Any time one stood after
+     the message arrived, only a turn seen whole counts; anything less is unknown, never "not read yet". */
   let started = null;
-  let last = null;
+  let last = hist.truncated === true ? 'cut' : null;
+  let before = last;   // the last mark before the message arrived
+  let waitStood = false;
+  let waiting = false;
   for (const row of hist) {
+    if (!row) continue;
+    if (row.at >= sentAt && waiting) waitStood = true;   // standing when this row came, so possibly at the send
+    if (row.state === 'needs_you' || row.state === 'blocked') waiting = row.by !== 'auto';
+    else if (row.state !== 'stopped' && row.state !== 'started' && row.by !== 'auto') waiting = false;   // the agent's or a person's other report ends it
+    if (row.at >= sentAt && waiting) waitStood = true;
     const mark = turnMark(row);
     if (!mark) continue;
     const prev = last;
     last = mark;
-    if (!(row.at >= sentAt)) continue;
+    if (!(row.at >= sentAt)) { before = mark; continue; }
     if (mark === 'session') return { ...base, status: STATUS.SESSION_ENDED, sessionAt: iso(row.at) };
-    if (mark === 'start') { if (started === null && prev !== 'start') started = row.at; continue; }
+    if (mark === 'start') { if (started === null && (prev === null || prev === 'end' || prev === 'session')) started = row.at; continue; }
     if (mark === 'end') {
       if (started !== null) return { ...base, status: STATUS.READ_NO_ANSWER, turnStartedAt: iso(started), turnEndedAt: iso(row.at) };
+      if (waitStood) break;
       return { ...base, status: STATUS.MAYBE_READ, turnEndedAt: iso(row.at) };
     }
   }
+  if (waiting || waitStood) {
+    return { ...base, status: STATUS.UNKNOWN, because: msg.to + ' had a question or a block of its own standing, and while one stands its turn reports are not recorded' };
+  }
   if (started !== null) return { ...base, status: STATUS.READING, turnStartedAt: iso(started) };
+  if (before === 'start') return { ...base, status: STATUS.IN_TURN };
+  if (before === 'cut') return { ...base, status: STATUS.UNKNOWN, because: 'the report history kept for ' + msg.to + ' does not show whether it was in a turn when your message arrived' };
   return { ...base, status: STATUS.NOT_YET };
 }
 
@@ -122,7 +170,8 @@ function status(id, o) {
 function sentence(s) {
   if (!s || s.found !== true) return (s && s.because) || 'we could not read that message';
   const who = s.to;
-  const fyi = s.replyExpected === false ? ' It was sent with --no-reply, so no answer was asked for.' : '';
+  const fyi = (s.replyExpected === false ? ' It was sent with --no-reply, so no answer was asked for.' : '')
+    + (s.unsubmitted === true ? ' When it was typed, Kosmos saw it left unsent in its input box.' : '');
   switch (s.status) {
     case STATUS.ANSWERED:
       return who + ' answered by command: message ' + s.answer + ' at ' + s.answeredAt
@@ -135,11 +184,14 @@ function sentence(s) {
     case STATUS.MAYBE_READ:
       return who + ' was already in a turn when your message arrived; that turn ended at ' + s.turnEndedAt
         + ' without sending you anything by command. It may have read your message in that turn, or it may read it in its next one.' + fyi;
+    case STATUS.IN_TURN:
+      return who + ' was already in a turn when your message arrived, and that turn has not ended. It may be reading your message now, or it may read it in its next turn.' + fyi;
     case STATUS.NOT_YET:
       return who + ' has not started or finished a turn since your message arrived, so it has not read it yet.' + fyi;
     case STATUS.SESSION_ENDED:
       return who + '’s session stopped or restarted at ' + s.sessionAt + ' before it answered; your message may not have been read.';
     case STATUS.NOT_DELIVERED:
+      if (s.delivery === 'dropped') return 'Message ' + s.id + ' was never typed to ' + who + ': Kosmos kept it, then dropped it' + (s.droppedAt ? ' at ' + s.droppedAt : '') + ', and told you then.';
       return 'Message ' + s.id + ' has not been typed to ' + who + ' (its record reads ' + (s.delivery || 'unknown') + ').';
     default:
       return 'Kosmos cannot tell whether ' + who + ' read message ' + s.id + ': ' + (s.because || 'its report history cannot say') + '.';

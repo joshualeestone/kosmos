@@ -111,7 +111,16 @@ test('#8961 a turn after delivery that ends with nothing sent back: read with no
   assert.equal((await post('/api/msg/status', 'mara', { id })).json.status, 'read_no_answer');
   const out = await post('/api/msg/status', 'kai', { id });
   assert.equal(out.json.found, false);
-  assert.match(out.json.sentence, /not sent by you or to you/);
+  assert.match(out.json.sentence, /there is no direct message m\d+ sent by you or to you/);
+});
+
+test('#8961 history() marks only the hook\'s own turn sentences', async () => {
+  assert.equal(selfreport.record('kai', { state: 'working', because: 'answering a prompt' }).recorded, true);   // the agent's own: no mark
+  hook('kai', 'working', 'running Bash');   // a heartbeat: no mark
+  hook('kai', 'working', 'answering a prompt');
+  hook('kai', 'idle', 'finished responding');
+  const rows = selfreport.history('kai').slice(-4);
+  assert.deepEqual(rows.map((r) => r.turn || null), [null, null, 'start', 'end']);
 });
 
 test('#8961 an answer by command reads as answered, citing the message', async () => {

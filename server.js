@@ -20899,7 +20899,8 @@ const server = http.createServer(async (req, res) => {
         out = msgstatus.status(body.id, {
           rows: messages.readLog(),
           asker: caller.card.sessionName,
-          history: (session) => selfreport.history(session),
+          // The longest tail history() reads: a busy agent's heartbeats fill the short one in well under an hour.
+          history: (session) => selfreport.history(session, selfreport.HISTORY_MAX_BYTES),
           sessionOf: (name) => { const card = chat.resolveCard(roster, name); return (card && card.sessionName) || name; },
         });
       } catch { out = { found: false, because: 'we could not read the message record' }; }

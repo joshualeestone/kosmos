@@ -52,6 +52,75 @@ test('a message back from before the send, or to someone else, is not an answer'
   assert.equal(run(rows, [start(2), end(9)]).status, STATUS.READ_NO_ANSWER);
 });
 
+test('a turn already running at delivery and still running is in a turn, not "not read yet"', () => {
+  const s = run([sent()], [end(-60), start(-30), beat(2)]);
+  assert.equal(s.status, STATUS.IN_TURN);
+  assert.match(sentence(s), /It may be reading your message now/);
+});
+
+test('a deliberate needs_you standing at or after delivery is unknown, never "not read yet" (its turns leave no marks)', () => {
+  const ask = (t, by = 'agent') => ({ state: 'needs_you', at: ms(t), by });
+  assert.equal(run([sent()], [end(-60), ask(-10)]).status, STATUS.UNKNOWN);   // standing since before the send
+  assert.equal(run([sent()], [end(-60), ask(3)]).status, STATUS.UNKNOWN);    // raised after it
+  // Cleared after the send, before anything else: the turns while it stood were not recorded.
+  assert.equal(run([sent()], [end(-60), ask(-10), { state: 'idle', at: ms(4), by: 'operator' }]).status, STATUS.UNKNOWN);
+  assert.match(sentence(run([sent()], [end(-60), ask(-10)])), /while one stands its turn reports are not recorded/);
+  // A turn seen whole after the send still counts.
+  assert.equal(run([sent()], [end(-60), start(2), end(5), ask(7)]).status, STATUS.READ_NO_ANSWER);
+  // A wait cleared before the send is no wait; the hook's own permission ask is not a deliberate one.
+  assert.equal(run([sent()], [ask(-30), { state: 'working', at: ms(-20), by: 'agent' }, end(-10)]).status, STATUS.NOT_YET);
+  assert.equal(run([sent()], [end(-60), ask(-30, 'auto'), end(-20)]).status, STATUS.NOT_YET);
+});
+
+test('a held message typed later counts from when it was typed; a dropped one says so', () => {
+  const held = sent({ state: 'held' });
+  const typed = { kind: 'held-delivered', of: 'm10', from: 'leo', to: 'mara', at: at(20), state: 'placed' };
+  // A turn between the send and the typing does not count; one after the typing does.
+  assert.equal(run([held, typed], [end(-60), start(5), end(9)]).status, STATUS.NOT_YET);
+  assert.equal(run([held, typed], [end(-60), start(25), end(29)]).status, STATUS.READ_NO_ANSWER);
+  const dropped = { kind: 'held-dropped', of: 'm10', from: 'leo', to: 'mara', at: at(30) };
+  const d = run([held, dropped], []);
+  assert.equal(d.status, STATUS.NOT_DELIVERED);
+  assert.equal(d.delivery, 'dropped');
+  assert.match(sentence(d), /dropped it at /);
+  assert.doesNotMatch(sentence(d), /["\\]/);
+});
+
+test('names compare as the roster resolves them, not as typed', () => {
+  const sessionOf = (n) => ({ mara: 'mara', leo: 'leo' })[String(n).toLowerCase()] || n;
+  const rows = [sent({ to: 'Mara' }), { kind: 'message', id: 'm11', from: 'mara', to: 'Leo', at: at(3), state: 'placed', in_reply_to: 'm10' }];
+  const s = status('m10', { rows, history: () => [], sessionOf, asker: 'mara' });
+  assert.equal(s.status, STATUS.ANSWERED, JSON.stringify(s));
+});
+
+test('a cut history whose first mark is a start is not read as a fresh turn', () => {
+  const cut = [beat(-50), start(3), end(6)];
+  cut.truncated = true;
+  assert.equal(run([sent()], cut).status, STATUS.MAYBE_READ);
+  const quiet = [beat(-50)];
+  quiet.truncated = true;
+  assert.equal(run([sent()], quiet).status, STATUS.UNKNOWN);
+});
+
+test('an unsent line in the input box is said', () => {
+  assert.match(sentence(run([sent({ unsubmitted: true })], [end(-60)])), /left unsent in its input box/);
+});
+
+test('the turn sentences match what the report hooks send', () => {
+  const selfreport = require('./selfreport');
+  const hook = require('./kosmos-report-hook');
+  const fs = require('node:fs');
+  const path = require('node:path');
+  assert.equal(require('./toolloop').endsTurn('working', selfreport.TURN_START_TEXT), 'prompt');
+  const js = fs.readFileSync(path.join(__dirname, 'kosmos-report-hook.js'), 'utf8');
+  const sh = fs.readFileSync(path.join(__dirname, '..', 'install', 'kosmos-report-hook.sh'), 'utf8');
+  for (const text of [selfreport.TURN_START_TEXT, selfreport.TURN_END_TEXT]) {
+    assert.ok(js.includes("'" + text + "'"), 'engine/kosmos-report-hook.js no longer sends ' + text);
+    assert.ok(sh.includes(' ' + text), 'install/kosmos-report-hook.sh no longer sends ' + text);
+  }
+  assert.ok(hook, 'the hook module loads');
+});
+
 test('a turn already running at delivery that ends later is maybe read, never read', () => {
   const s = run([sent()], [start(-30), beat(1), end(6)]);
   assert.equal(s.status, STATUS.MAYBE_READ);
@@ -104,7 +173,9 @@ test('a bad id, a missing id, a room post and an outsider are refused', () => {
   assert.equal(status('m10', { rows: [post] }).found, false);
   const out = run([sent()], [], { asker: 'kai' });
   assert.equal(out.found, false);
-  assert.match(out.because, /not sent by you or to you/);
+  assert.match(out.because, /sent by you or to you/);
+  // The same refusal for a missing id, so an outsider cannot tell the two apart.
+  assert.equal(status('m99', { rows: [sent()], asker: 'kai' }).because, out.because.replace('m10', 'm99'));
   assert.equal(run([sent()], [end(-60)], { asker: 'mara' }).status, STATUS.NOT_YET);
 });
 
