@@ -330,8 +330,7 @@ function main(argv, deps) {
          that is chatty about it. */
       if (e.action === 'waiting' && last === 'waiting') return;
       last = e.action;
-      say(new Date().toISOString() + ' ' + spec.name + ' ' + e.action
-        + (e.because ? ' -- ' + e.because : ''));
+      say(taskLogLine(new Date().toISOString(), spec.name, e));
     },
   });
   /**
@@ -433,6 +432,45 @@ function saysNothingToResume(e) {
     one sentence that explains a crash; small enough that a chatty agent cannot
     flood the task log through it. */
 const STDERR_TAIL_CHARS = 500;
+
+/** kosmos#8967: the most of one stdout error that rides on a `died` line. */
+const STDOUT_ERROR_CHARS = 300;
+
+/**
+ * kosmos#8967: what a stdout line says about an error, or '' when it says nothing.
+ * An error `result` (is_error, or an `error...` subtype) gives its subtype and its
+ * text; a line that is not JSON gives itself, since stream-json output is JSON and
+ * a plain line is the CLI talking. A successful result, or any other event, gives
+ * nothing: its text is the agent's reply, which has no place on the task log.
+ */
+function stdoutError(e, line) {
+  const clip = (t) => String(t).replace(/\s+/g, ' ').trim().slice(0, STDOUT_ERROR_CHARS);
+  if (e === null || e === undefined) { const t = clip(line || ''); return t ? 'not JSON: ' + t : ''; }
+  if (typeof e !== 'object' || e.type !== 'result') return '';
+  const subtype = typeof e.subtype === 'string' ? e.subtype : '';
+  if (e.is_error !== true && !subtype.startsWith('error')) return '';
+  const text = typeof e.result === 'string' ? e.result : '';
+  return clip((subtype || 'error') + (text ? ': ' + text : ''));
+}
+
+/**
+ * kosmos#8967: how an exit reads on the task log. A Windows exit code past 255 is an
+ * NTSTATUS (0xC0000005 is an access violation, 0xC000013A a Ctrl+C), so it is shown
+ * in hex as well; a death with no code and no signal says nothing rather than guess.
+ */
+function exitWords(code, signal) {
+  if (signal) return ' (signal ' + signal + ')';
+  if (typeof code !== 'number' || !Number.isFinite(code)) return '';
+  const hex = code > 255 || code < 0 ? ' = 0x' + (code >>> 0).toString(16).toUpperCase().padStart(8, '0') : '';
+  return ' (exit code ' + code + hex + ')';
+}
+
+/** kosmos#8967: one task-log line for one supervisor event. A `died` line carries its exit. */
+function taskLogLine(at, name, e) {
+  return at + ' ' + name + ' ' + e.action
+    + (e.action === 'died' ? exitWords(e.code, e.signal) : '')
+    + (e.because ? ' -- ' + e.because : '');
+}
 
 /** How long the supervisor gives its agent to leave, once its host is gone, before
     exiting anyway. Closing stdin was measured ending the agent in ~800ms, so this
@@ -647,10 +685,18 @@ function superviseStreaming(spec, opts) {
        happens when nobody drains a full pipe. Only the CURRENT child publishes;
        a late line from a child already replaced says nothing about the new one. */
     const { lineReader, parseEvent } = require('./win32streamstate');
+    /* kosmos#8967: the last error this child reported on stdout, kept short, so its
+       death can say why. Only an error `result` or a line that is not JSON at all
+       (stream-json output is all JSON, so a plain line is the CLI talking): never a
+       successful result, whose text is the agent's own reply. Best effort, like the
+       stderr tail below: a line that arrives after 'exit' is not in the death's line. */
+    let stdoutSaid = '';
     if (c.stdout && typeof c.stdout.on === 'function') {
       const feed = lineReader((line) => {
-        if (child !== c) return;
         const e = parseEvent(line);
+        const err = stdoutError(e, line);
+        if (err) stdoutSaid = err;   // this child's own record, so kept even once it is replaced
+        if (child !== c) return;
         if (resumed && saysNothingToResume(e)) nothingToResume = true;
         followSessionId(e);   // before the state sink, so a rekey lands before the turn's events
         stream.event(e);
@@ -668,7 +714,7 @@ function superviseStreaming(spec, opts) {
     /* ⚠️ ONE HANDLER, AND IT MUST NOT FIRE TWICE. 'exit' and 'close' both arrive;
        acting on both would double-count a death and burn the throttle budget. */
     let handled = false;
-    const gone = (code) => {
+    const gone = (code, signal) => {
       if (handled) return;
       handled = true;
       /* This run is over whether or not it was already replaced, so its token is
@@ -685,13 +731,19 @@ function superviseStreaming(spec, opts) {
       const wasCurrent = child === c;
       if (wasCurrent) { child = null; stream.stopped(); }
       const said = stderrTail.replace(/\s+/g, ' ').trim();
-      onEvent({ action: 'died', code: code === undefined ? null : code, sessionId: handle.sessionId, because: said ? 'it said: ' + said : undefined });
+      /* kosmos#8967: Claude in stream-json mode reports a fatal error as a `result`
+         event on STDOUT, not on stderr, so a death after one used to read as silent. */
+      const reasons = [];
+      if (said) reasons.push('it said: ' + said);
+      if (stdoutSaid) reasons.push('its last error on stdout: ' + stdoutSaid);
+      onEvent({ action: 'died', code: code === undefined ? null : code, signal: signal || null, sessionId: handle.sessionId,
+        because: reasons.length ? reasons.join('; ') : undefined });
       /* A stopped loop decides no next start: `stop()` clears `child` before the
          child exits, so a stop during a failed resume leaves its row alone. */
       if (nothingToResume && wasCurrent) startFreshAfter(handle.sessionId);
       if (running) schedule();
     };
-    c.on('exit', gone);
+    c.on('exit', (code, signal) => gone(code, signal));
     c.on('error', () => gone(null));
   }
 
@@ -921,4 +973,5 @@ module.exports = {
   THROTTLE_MS, POLL_MS, REGISTRATION_GRACE_MS,
   isAlive, ourLiveSession, ensureRunning, supervise, superviseStreaming, specFromArgv, usageDirFor,
   setLiveReader, liveSessions, main, browserFor, endOrphansFor,
+  stdoutError, exitWords, taskLogLine,
 };
