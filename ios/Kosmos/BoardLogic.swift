@@ -1749,8 +1749,7 @@ enum Board {
 
     // The Mac's draft ids (server.js refuses any other shape).
     static func draftId(_ raw: Any?) -> String? {
-        // The count too: ICU's $ also matches before a final newline, which the Mac's regex refuses.
-        guard let s = raw as? String, s.count == 12, s.range(of: #"^[0-9a-f]{12}$"#, options: .regularExpression) != nil else { return nil }
+        guard let s = raw as? String, s.range(of: #"^[0-9a-f]{12}$"#, options: .regularExpression) != nil else { return nil }
         return s
     }
 
