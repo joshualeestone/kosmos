@@ -362,7 +362,6 @@ final class TaskPageModel: ObservableObject {
             case .unreadable: self.undoFailedRead = (key, self.now()); self.undoAsked = nil
             }
             self.clearUndoSay()
-            if self.undoDone != nil { self.undoDone = nil }
             self.undoPlanKey = key
             if self.undoPlan != plan { self.undoPlan = plan }
         }

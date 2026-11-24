@@ -2223,6 +2223,57 @@ func b5ModelTests() async {
         await settle(f)
         check(f.undoDone != nil, "and after the next read")
     }
+    // Closed again while an undo is out, and this close has no receipt: nothing for the answer to stand under.
+    do {
+        let fm = FakeMac(); let f = model(fm)
+        fm.projects = with(closedAt: at1); fm.undo = offer("a.js")
+        await settle(f)
+        fm.actAnswers = [(200, #"{"done":["/w/a.js"]}"#)]
+        fm.holdTheNext()
+        let going = Task { await press(f, ["/w/a.js"]) }
+        await waitUntil({ fm.holding }, "the undo")
+        fm.projects = with(closedAt: at2)
+        fm.receipt = (200, Data(#"{"ready":false}"#.utf8))
+        await settle(f)
+        check(f.receipt == nil && f.undoPlan == nil, "the receipt went: the offer goes, an undo out or not")
+        fm.release()
+        await going.value
+        check(f.undoDone == nil && !f.undoing, "and its answer draws nothing")
+    }
+    // Closed again while an undo is out and the page is not in front: what was done is still said on the return.
+    do {
+        let fm = FakeMac(); let f = model(fm)
+        fm.projects = with(closedAt: at1); fm.undo = offer("a.js")
+        await settle(f)
+        fm.actAnswers = [(200, #"{"done":["/w/a.js"]}"#)]
+        fm.holdTheNext()
+        let going = Task { await press(f, ["/w/a.js"]) }
+        await waitUntil({ fm.holding }, "the undo")
+        f.onScreen = false
+        fm.projects = with(closedAt: at2)
+        await f.read()
+        fm.release()
+        await going.value
+        check(f.undoDone == "Undone: 1 file.", "premise: done, while away")
+        f.onScreen = true
+        await settle(f)
+        check(f.undoDone == "Undone: 1 file." && f.undoPlan == nil, "back on the page: still said")
+    }
+    // A plan landing takes the line about the last list with it.
+    do {
+        let fm = FakeMac(); let f = model(fm)
+        fm.projects = with(closedAt: at1); fm.undo = offer("a.js")
+        await settle(f)
+        fm.holdTheNext()
+        f.leaveUndo()
+        let reading = f.undoReading
+        await waitUntil({ fm.holding }, "Cancel's read")
+        await press(f, [])
+        check(f.undoSay == Board.undoChoose, "premise: a line about this list")
+        fm.release()
+        await reading?.value
+        check(f.undoSay == nil && shown(f) == ["a.js"], "read again: the line goes")
+    }
     // Put back, or the Mac switched, while an undo is out: its answer draws nothing.
     do {
         let fm = FakeMac(); let f = model(fm)
