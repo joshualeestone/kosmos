@@ -443,8 +443,12 @@ final class TaskPageModel: ObservableObject {
         if pageReadOK < ownRead { reviewerShown = want }
         await readActivity(names: names)
         guard current else { return false }
-        reviewerSay = Board.repeatSaved
-        reviewerSavedAs = want
+        // Said only while the choice shows what was saved: a read showing someone else (changed elsewhere in between)
+        // would otherwise put "Saved." under that other name.
+        if (reviewerShown ?? self.page?.repeatReviewer) == want {
+            reviewerSay = Board.repeatSaved
+            reviewerSavedAs = want
+        }
         reviewerSaving = nil
         return true
     }

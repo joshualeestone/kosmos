@@ -27,9 +27,10 @@ Stacked on B3 (taskrepeat-8958); rebased onto main once B1, B2 and B3 merge.
 - Whether the save's own read landed is judged by read number (a read that started after the save was recorded),
   not by counting successes, which a tick read started before it and landing with the old page would pass. Tested: the
   fake Mac can now hold every request (queueing) and answer them in any order, and the test is red under counting.
+- "Saved." is said only while the choice shows what was saved, never under a reviewer changed elsewhere meanwhile.
 - While the saved reviewer shows, the save compares against it, so choosing the page's stale reviewer back is sent.
 - The visible "If missed, tell" is hidden from VoiceOver; the menu's label says it.
 
 ## Tests
-- ios/LogicTests/taskpage: B3b section and b3bModelTests, 316/316 with B3's. Every guard and the shown-after-a-failed-read
+- ios/LogicTests/taskpage: B3b section and b3bModelTests, 318/318 with B3's. Every guard and the shown-after-a-failed-read
   line go red when removed.

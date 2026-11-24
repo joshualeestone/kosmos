@@ -1360,9 +1360,18 @@ func b3bModelTests() async {
           "a tick read started before the save and landing during it does not stand for the save's own read")
     mac.projects = (200, with(["repeat": rule, "repeatReviewer": "me"]))
     await m.read()
-    mac.projects = (200, with(["repeat": NSNull()]))
+    check(m.reviewerSay == Board.repeatSaved, "premise: Saved. for me shows")
+    // The reviewer is left as saved, so only the rule being gone can take Saved. down.
+    mac.projects = (200, with(["repeat": NSNull(), "repeatReviewer": "me"]))
     await m.read()
     check(m.reviewerSay == nil, "Saved. goes when the task stops repeating")
+    // A save whose own read shows someone else (changed elsewhere in between) says nothing: never Saved. under another name.
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "me"]))
+    await m.read()
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "eli"]))
+    let overtaken = await m.saveReviewer("dana", names: nm)
+    check(overtaken && m.reviewerSay == nil && m.page?.repeatReviewer == "eli", "a save overtaken by another change says no Saved. under that other reviewer")
     mac.projects = (200, with(["repeat": rule, "repeatReviewer": "dana"]))
     await m.read()
     mac.actAnswers = [(200, #"{"task":{}}"#)]
