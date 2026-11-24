@@ -7,6 +7,7 @@
  * second row shaded "really really light" so the eye can follow it across.
  * Drives the SHIPPED paintProjects / projectCard / pjPillOf / applyConsFold against a fixture
  * PROJECTS list in the real page, in the grid and the list (roadmap) view, light and dark.
+ * kosmos#9011 part 2 adds "Built but waiting": a project whose tasks are built and waiting for the person.
  * Controls that can return the dangerous answer:
  *   - Working and Issue projects still show their badge (removing every badge would pass the rest);
  *   - the fixture really has an unseen member and a project with nothing running (so "no badge"
@@ -184,6 +185,28 @@ function ok(name, cond, detail) {
         !!q.ask && !!q.issue && !q.ask.attn && (view === 'list' || q.ask.border !== q.issue.border), JSON.stringify({ ask: q.ask && q.ask.border, issue: q.issue && q.issue.border }));
       if (view === 'grid') ok(`${t} grid: #6483 the Question pill does not wear the Issue pill's red border`, !!q.ask && !!q.issue && q.ask.pillBorder !== q.issue.pillBorder,
         JSON.stringify({ ask: q.ask && q.ask.pillBorder, issue: q.issue && q.issue.pillBorder }));
+    }
+
+    // kosmos#9011 part 2: a project whose tasks are built and waiting for the person says "Built but waiting", calm (not
+    // red); one with nothing running and nothing built keeps no badge (#4730, the CONTROL); a busy one still says Working.
+    for (const view of ['grid', 'list']) {
+      const b = await page.evaluate((view) => {
+        const mk = (id, name, summary) => ({ id, name, parent: null, parentName: null, parentArchived: false, archived: false,
+          summary, agents: [], description: '', unread: 0 });
+        PROJECTS = [mk('b-built', 'B built', { total: 1, builtWaiting: 2 }), mk('c-none', 'C none', { total: 1, builtWaiting: 0 }),
+          mk('d-busy', 'D busy', { total: 1, working: 1, builtWaiting: 2 })];
+        PJ_AGENTS_UNREADABLE = false;
+        const list = document.getElementById('pj-list');
+        list.classList.toggle('asgrid', view === 'grid');
+        document.body.classList.toggle('pj-roadmap', view === 'list');
+        paintProjects();
+        const read = (id) => { const r = list.querySelector('.pj-row[data-project="' + id + '"]'); const pill = r && r.querySelector('.pjpill');
+          return r ? { attn: r.classList.contains('attn'), pill: pill ? pill.textContent.trim() : null } : null; };
+        return { built: read('b-built'), none: read('c-none'), busy: read('d-busy') };
+      }, view);
+      ok(`${t} ${view}: #9011 a project with built tasks waiting says Built but waiting, not red`, !!b.built && b.built.pill === 'Built but waiting' && !b.built.attn, JSON.stringify(b.built));
+      ok(`${t} ${view}: #9011 CONTROL nothing running and nothing built: still no badge (#4730)`, !!b.none && b.none.pill === null, JSON.stringify(b.none));
+      ok(`${t} ${view}: #9011 a busy project with built tasks still says Working`, !!b.busy && /Working/.test(b.busy.pill || ''), JSON.stringify(b.busy));
     }
 
     // A blind roster: no project shows a badge, not even Working (it could not read it), and no

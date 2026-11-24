@@ -1546,6 +1546,12 @@ function describe(project, roster, all) {
          there, so the pill and the need-you tile never disagree. */
       heldForYou: project.archived === true ? 0 : (Array.isArray(project.tasks) ? project.tasks : []).filter((t) => t && require('./tasks').isOnHold(t)
         && t.onHoldForPerson === true && !require('./tasks').progressOf(t).closed).length,
+      /* kosmos#9011 part 2: open tasks of this project marked built (`kosmos task built`) and waiting on the person to check
+         them: Josh's "Built but waiting" (#3951, the task state of the same name). A project whose queue is all built
+         read as idle; its card says so instead when nothing outranks it. No roster needed, as heldForYou; none on an
+         archived project. A task's own hold outranks built (taskState), so a held one is not counted. */
+      builtWaiting: project.archived === true ? 0 : (Array.isArray(project.tasks) ? project.tasks : []).filter((t) => t
+        && require('./tasks').taskState(t) === 'built').length,
       /* #6483: of needsYou, how many are an agent's own question about this project (reported by the agent, #2808 class
          2), the case the agent's card calls a calm "Question". When it is all of them, the project card says Question
          too; any other reason (sign-in lapsed, a crash loop, a technical prompt) keeps Issue. */
