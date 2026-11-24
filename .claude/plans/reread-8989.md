@@ -17,6 +17,12 @@ its start. That matches the report exactly: the file changed, the changes file s
   never checked one); `/task/:n/text` passes `byOther` for a title changed by someone else; `givePart` syncs the agent a
   part was moved AWAY from (before, nobody synced it, so it kept listing the part), owed unless it moved it itself.
   A hold set by someone else was already owed (rulesChangedIn compares hold marks).
+- Review 2: the agent a part was taken from is now `assignPart`'s own `previous`, read inside the write (not a separate
+  read before it, which could race a second move and cost the Assigner an extra store read). The Assigner's failover
+  source is owed a re-read on purpose: it is at its limit, and learns of the move when it is back. A whole-task
+  reassign goes through the same part give (task/assign -> givePart), so it is covered.
+  Not done: a route-to-oweNow test with nothing stubbed. The seam is `verdict.changed` on a TOLD verdict, which the
+  engine test drives through the real syncAgent; the route tests pin what each route passes.
 
 Rejected: a separate pane line ("task N was closed by X"). The re-read debt already persists, retries, waits for an idle
 pane and gives up after a week; a second mechanism would duplicate that and could type into a busy pane.
@@ -38,4 +44,7 @@ the supervisor) is treated as "someone else" and gets one needless notice: the s
   write owes nothing. A mutant without the byOther arm fails it.
 - server.reread-close-8989.test.js: manager close -> byOther true; own close -> false (control); no token -> true;
   reopen by another -> true, own reopen -> false; bulk screen close; close with built subtasks; part close by another
-  and own; a part moved away on the screen syncs the old holder. Each new path has a mutant that fails its test.
+  and own; a part moved away on the screen syncs the old holder, and an agent's own move is its own; a retitle by
+  another and the holder's own. Each new path has a mutant that fails its test.
+- engine/tasks.assignprevious-8989.test.js: a move names the previous holder; a same-holder resubmit names nobody
+  (control); taking someone off names them. A mutant that never records it fails 2 of 3.
