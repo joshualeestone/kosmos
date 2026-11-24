@@ -206,6 +206,27 @@ struct TaskPageView: View {
             if let hold = p.holdLine {
                 Text(hold).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
             }
+            // kosmos#8958 slice B2: the board's tk-hold, on an open task. What a hold waits for and why are still set on
+            // the board's page (the info button).
+            if !p.closed {
+                let was = p.onHold
+                Button { model.touched(); Task { await model.toggleHold(wasOnHold: was, names: names) } } label: {
+                    HStack(spacing: 8) {
+                        if model.holding { SweepDots(scales: false) }
+                        Text(Board.holdTitle(onHold: was)).font(.body.weight(.semibold)).foregroundColor(Palette.link)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(RoundedRectangle(cornerRadius: 10).stroke(Palette.secondary.opacity(0.4), lineWidth: 1))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(model.holding || model.pressing)
+                .accessibilityValue(model.holding ? "In progress" : "")
+                if let say = model.holdSay {
+                    Text(say).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+                        .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
+                }
+            }
             if p.allSubtasksDone {
                 Text("All subtasks done.").font(.footnote).foregroundColor(Palette.secondary)
             } else if p.allSubtasksBuilt {

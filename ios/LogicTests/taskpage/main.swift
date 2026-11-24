@@ -99,7 +99,7 @@ let parts = page(5)
 check(parts?.stateWord == "1 of 2 parts done", "two parts, one done: the count")
 check(parts?.partLines(roster: roster).map { "\($0.who)|\($0.line ?? "")|\($0.done)" } == ["Eli||true", "Dana|Check linen prices|false"],
       "each part: who, its own words when they differ, and done")
-check(parts?.holdLine == "You put this on hold, so only you can take it off, on your computer's board. Kosmos does not nudge anyone about it or hand it out.",
+check(parts?.holdLine == "You put this on hold, so only you can take it off, here. Kosmos does not nudge anyone about it or hand it out.",
       "held by the person: said, and where it is taken off (the phone has no control for it)")
 check(parts?.added(now: createdAt, calendar: cal) == "eli, today", "added by an agent: the board's own words (its session name)")
 
@@ -724,6 +724,54 @@ check(Board.taskEdit(title: "Pages 1 to 8", detail: "", openedTitle: "Pages 1\nt
       "a stored title with a line break is not sent back by a Save that changed nothing")
 
 await b1ModelTests()
+
+section("#8958 slice B2: Put on hold and Take off hold")
+let hold = Board.taskHoldRequest(mac: macURL, project: "springcatalogue", number: 4, onHold: true)
+check(hold?.httpMethod == "POST" && hold?.url?.path == "/api/project/springcatalogue/task/4/hold" && bodyOf(hold)?["onHold"] as? Bool == true,
+      "Put on hold posts onHold true to the task's hold route")
+check(bodyOf(Board.taskHoldRequest(mac: macURL, project: "springcatalogue", number: 4, onHold: false))?["onHold"] as? Bool == false, "Take off hold posts false")
+check(Board.holdTitle(onHold: false) == "Put on hold" && Board.holdTitle(onHold: true) == "Take off hold", "the board's two words")
+check(Board.holdNextLine(Data(#"{"task":{},"next":"It stays with Dana."}"#.utf8)) == "It stays with Dana.", "an unhold's next sentence is said")
+check(Board.holdNextLine(Data(#"{"next":"Nobody is on it, and the Assigner is off, so it waits for a person. To choose who, assign it now."}"#.utf8))
+      == "Nobody is on it, and the Assigner is off, so it waits for a person.", "the board's assign ask is cut (no picker here yet)")
+check(Board.holdNextLine(Data(#"{"task":{}}"#.utf8)) == nil, "a hold answers with no next: nothing said")
+
+await b2ModelTests()
+
+@MainActor
+func b2ModelTests() async {
+    let mac = FakeMac()
+    let m = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch })
+    m.onScreen = true
+    m.touched()
+    let nm = ["dana": "Dana"]
+    await m.read()
+    check(m.page?.onHold == false && m.page?.closed == false, "premise: task 3 is open and not on hold")
+    mac.asked = []
+    await m.toggleHold(wasOnHold: false, names: nm)
+    check(mac.asked == ["GET /api/projects", "POST /api/project/springcatalogue/task/3/hold", "GET /api/projects", "GET /api/project/springcatalogue/task/3/activity"],
+          "Put on hold reads the task first, then posts, then reads the page and activity again")
+    check(!m.holding && m.holdSay == nil, "a hold has no next line")
+    // Already on hold elsewhere: the first read shows it, nothing is posted.
+    let saved = mac.projects
+    mac.projects = (200, Data(#"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","tasks":[{"number":3,"sentence":"Pages 9 to 12","onHold":true,"createdAt":"2026-10-24T12:00:00.000Z","parts":[{"id":1,"who":"dana"}]}]}]}"#.utf8))
+    mac.asked = []
+    await m.toggleHold(wasOnHold: false, names: nm)
+    check(!mac.asked.contains { $0.hasSuffix("/hold") } && m.holdSay == Board.holdAlready, "already on hold: nothing sent, and said so")
+    // Take off hold: posted at once, and the next sentence said.
+    mac.asked = []
+    mac.actAnswers = [(200, #"{"task":{},"next":"It stays with Dana."}"#)]
+    await m.toggleHold(wasOnHold: true, names: nm)
+    check(mac.asked.first == "POST /api/project/springcatalogue/task/3/hold" && m.holdSay == "It stays with Dana.", "Take off hold posts at once and says who has it next")
+    mac.projects = saved
+    await m.read()
+    mac.actAnswers = [(409, #"{"error":"a finished task cannot be put on hold"}"#)]
+    await m.toggleHold(wasOnHold: false, names: nm)
+    check(m.holdSay == "a finished task cannot be put on hold" && !m.holding, "a refusal is the Mac's words")
+    mac.asked = []
+    await m.toggleHold(wasOnHold: true, names: nm)
+    check(mac.asked.isEmpty, "a press whose button no longer matches the task sends nothing")
+}
 
 @MainActor
 func b1ModelTests() async {
