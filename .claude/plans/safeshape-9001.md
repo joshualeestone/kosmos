@@ -69,6 +69,19 @@ person still runs.
   execs its sleep (no orphan), waits 30 s against a 15 s bound, the missing-script case has its own path, and the file
   skips with a reason where perl has no JSON::PP (the guard fails open there by design).
 
+## Round 4 (sonnet, blind, whole branch): nothing above nit. Converged.
+- About 80 realistic agent commands through the reader (commit and PR heredocs, JSON one-liners, case arms, arithmetic,
+  here-strings, chained heredocs): all agree with the measured rules; no hang, bounded time.
+- Nits left, with reason: `$((cd x) | wc -l)` (a subshell inside $( )) is read as arithmetic: both ways need an
+  unusual command and cost one rewrite or one prompt. Perl runs (about 30 ms) on a Write or Edit whose raw input holds
+  a shape, then lets it run. The allow-hook test takes about 40 s (the 6 s clock, by design).
+
+## Replay against reality (after round 3)
+Every distinct Bash command holding either shape in this Mac's transcripts over 14 days (105), through the real hook
+with the real allow hook, against what Claude Code actually did: the guard refuses 19, every one of them a command
+Claude Code itself refused (9 by agents, 10 in my probes); it refuses none of the 71 that ran. It lets through 2 that
+Claude Code refused: neither named a protected place, so with the allow hook present those are answered allow today.
+
 ## Weakest premise
 The shapes are Claude Code 2.1.331's. A later version may refuse more (those still prompt, as today) or fewer (the
 guard then refuses a command that would have run with a prompt the allow hook steps aside from; the message names the
