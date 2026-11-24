@@ -776,3 +776,16 @@ test('#8951 review 15: a report that shrinks is not said again on the board log;
   assert.equal(ds.turnsToSay([card(2)], said).length, 1, 'grew again: said');
   assert.equal(ds.turnsToSay([card(2, true)], said).length, 1, 'turned into a stop: said');
 });
+
+test('#8951 review 16: after a report clears, a second loss is said on the board log even when it is no larger', (t) => {
+  const since = new Date(Date.now() - 10 * MIN).toISOString();
+  const board = fleet.install([fleet.agent('homer', { state: 'idle' })]);
+  t.after(() => board.restore());
+  const said = new Map();
+  const card = (count) => ({ ...board.card('homer'), state: 'idle', deliveryStall: ds.unstartedOf('homer', { since, count }) });
+  assert.equal(ds.turnsToSay([card(1)], said).length, 1);
+  assert.equal(ds.turnsToSay([{ ...board.card('homer'), state: 'restarting', deliveryStall: null }], said).length, 0);
+  assert.equal(ds.turnsToSay([card(1)], said).length, 0, 'CONTROL: a restart is not a clear, so the same report is not said twice');
+  ds.turnsToSay([{ ...board.card('homer'), state: 'idle', deliveryStall: null }], said);   // cleared
+  assert.equal(ds.turnsToSay([card(1)], said).length, 1, 'a new loss after a clear is said');
+});

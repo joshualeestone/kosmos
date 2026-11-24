@@ -326,6 +326,12 @@ function turnsToSay(cards, said) {
       if (!c || typeof c.sessionName !== 'string') continue;
       present.add(c.sessionName);
       const st = c.deliveryStall;
+      /* kosmos#8951 review 16: a card that reads clear (idle or working, no turn stall, as unstartedGone counts a clear)
+         forgets the last report said, so a second loss later is said even when it is no larger. */
+      if ((!st || st.lastWhy !== 'turn') && (c.state === 'idle' || c.state === 'working')) {
+        const prev = said.get(c.sessionName);
+        if (typeof prev === 'string' && prev.startsWith('u\u0000')) said.delete(c.sessionName);
+      }
       if (!st || st.lastWhy !== 'turn') continue;
       if (st.unstarted === true) {
         /* kosmos#8951 review 3, 15: an unstarted report is said again only when it grows (a second or third loss) or turns
