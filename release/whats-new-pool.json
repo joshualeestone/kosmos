@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.17",
+  "lastProd": "0.8.18",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -175,7 +175,8 @@
       "icon": "chat",
       "rank": 17,
       "since": "0.7.36",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.18"
     },
     {
       "title": "Kosmos waits while Claude asks you",
@@ -1270,7 +1271,8 @@
       "icon": "chat",
       "rank": 17,
       "since": "0.7.96",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.18"
     },
     {
       "title": "Shared tasks say who has finished",
@@ -2097,14 +2099,15 @@
     },
     {
       "since": "0.8.07",
-      "status": "pending",
+      "status": "shown",
       "title": "A message to an agent is not lost to typing",
       "line": "If other text lands in an agent's box while Kosmos is typing a message to it, the message is kept and sent once the box is clear.",
       "icon": "spark",
       "rank": 12.7,
       "platforms": [
         "mac"
-      ]
+      ],
+      "shownIn": "0.8.18"
     },
     {
       "since": "0.8.07",
@@ -2666,11 +2669,37 @@
     },
     {
       "since": "0.8.18",
-      "status": "pending",
+      "status": "shown",
       "title": "A company computer says whose it is",
       "line": "A company member's Kosmos names its company and what it reports there, and says which AI providers are allowed when the company limits them.",
       "icon": "shield",
-      "rank": 12.8
+      "rank": 12.8,
+      "shownIn": "0.8.18"
+    },
+    {
+      "since": "0.8.18",
+      "status": "pending",
+      "title": "Spreadsheets reach your agent row by row",
+      "line": "Spreadsheets you attach reach your agent row by row, with each value named by its column.",
+      "icon": "list",
+      "rank": 12.9
+    },
+    {
+      "since": "0.8.19",
+      "status": "pending",
+      "title": "Signing in again keeps your invitation",
+      "line": "If Kosmos asks you to sign in again while you invite someone outside, you come back with who it is for already filled in.",
+      "icon": "shield",
+      "rank": 13
+    },
+    {
+      "since": "0.8.19",
+      "status": "pending",
+      "title": "Agents trip over the command line less",
+      "icon": "list",
+      "rank": 147,
+      "notesOnly": true,
+      "line": "A mistyped kosmos command suggests the right one, and an agent can read its feedback report for an earlier day."
     }
   ],
   "lastProdWin": "0.8.17"
