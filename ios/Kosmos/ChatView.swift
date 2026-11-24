@@ -342,6 +342,7 @@ struct ChatView: View {
         // Mona Lisa's review: the tab bar would stack under the composer and take about 170pt, so it hides here.
         .toolbar(.hidden, for: .tabBar)
         .messageActionsHost()   // kosmos#7419: the one long-press sheet of this chat
+        .environment(\.paneWidth, contentWidth)   // kosmos#9002: the bubbles and cards are sized to the pane this chat is in
         .background(GeometryReader { g in
             Color.clear.onAppear { contentWidth = g.size.width }.onChange(of: g.size.width) { contentWidth = $0 }
         })
@@ -1931,7 +1932,7 @@ struct ChatView: View {
             } else if row.who == .kosmos {
                 Text(row.text).font(.footnote).foregroundColor(Palette.secondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: UIScreen.main.bounds.width * 0.85)
+                    .frame(maxWidth: contentWidth * 0.85)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
             } else {
@@ -3092,6 +3093,7 @@ struct LinkPreviewCard: View {
 }
 
 struct ChatBubble: View {
+    @Environment(\.paneWidth) var paneWidth   // kosmos#9002
     let row: Board.ChatRow
     let firstOfRun: Bool
     let lastOfRun: Bool
@@ -3122,7 +3124,7 @@ struct ChatBubble: View {
                 // kosmos#7419: the sheet (quick reactions, More, Reply, Copy text) in place of the menu.
                 .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: react, reply: reply, text: row.text, delete: delete)
             if let preview = row.preview {
-                LinkPreviewCard(preview: preview, image: previewImage, width: UIScreen.main.bounds.width * widthShare)
+                LinkPreviewCard(preview: preview, image: previewImage, width: paneWidth * widthShare)
                     .padding(.top, 2)   // clear of the bubble's tail
             }
             if !row.reactions.isEmpty { ReactionPills(pills: row.reactions, toggle: react, trailing: mine) }
@@ -3358,6 +3360,7 @@ struct NotSentLine: View {
 
 // The bubble itself: body text in the board's bubble colours, 18pt corners, a small tail on the last of a run.
 struct BubbleText: View {
+    @Environment(\.paneWidth) var paneWidth   // kosmos#9002
     let text: String
     let mine: Bool
     let tail: Bool
@@ -3381,7 +3384,7 @@ struct BubbleText: View {
                 .foregroundColor(mine ? Palette.personBubble : Palette.agentBubble)
             )
             .overlay(PressedBubbleMark())   // kosmos#7419 build 11: the bubble itself, before its width frame
-            .frame(maxWidth: UIScreen.main.bounds.width * widthShare, alignment: mine ? .trailing : .leading)
+            .frame(maxWidth: paneWidth * widthShare, alignment: mine ? .trailing : .leading)
             .fixedSize(horizontal: false, vertical: true)
     }
 

@@ -208,6 +208,7 @@ struct RoomView: View {
         .navigationBarTitleDisplayMode(.inline)
         .kosmosSolidTopBar(fade: false, ground: Palette.chatGround)   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar; its fade is on the conversation
         .messageActionsHost()   // kosmos#7419: the one long-press sheet of this room, around its posts
+        .measuresPaneWidth()   // kosmos#9002: its bubbles are sized to the pane, not the screen
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 0) {
@@ -1700,6 +1701,7 @@ extension EnvironmentValues {
 }
 
 struct RoomBubble: View {
+    @Environment(\.paneWidth) var paneWidth   // kosmos#9002
     let row: Board.RoomRow
     let first: Bool
     let last: Bool
@@ -1744,7 +1746,7 @@ struct RoomBubble: View {
                     // site name first), and opened by the post's one "Open link" action. Wrapped in a container first, as
                     // the file cards are: `.ignore` on the Button itself would keep its button trait and its action.
                     VStack(spacing: 0) {
-                        LinkPreviewCard(preview: preview, image: previewImage, width: UIScreen.main.bounds.width * 0.78)
+                        LinkPreviewCard(preview: preview, image: previewImage, width: paneWidth * 0.78)
                     }
                     .padding(.top, 2)
                     .accessibilityElement(children: .ignore)
@@ -1881,7 +1883,7 @@ struct RoomBubble: View {
                         // too: a message the person can read there can be reported (guideline 1.2).
                         report: row.kind == .external && !row.ownAccount ? report : nil,
                         block: row.kind == .external && !row.ownAccount ? block : nil, blockName: name)
-        .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
+        .frame(maxWidth: paneWidth * 0.78, alignment: mine ? .trailing : .leading)
     }
 
     var mentionNames: [String] = []
