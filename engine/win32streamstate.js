@@ -735,7 +735,11 @@ function publisher(name, opts) {
      nobody wrote does not prove the lost message ran, and the person must still be told), and not before REPORT_HOLD_MS
      since it was made, so the minute sweep shows it and pushes it at least once. */
   function reportRan() {
-    if (!current || !current.unstarted || current.wroteAfterReport !== true) return;
+    if (!current || !current.unstarted) return;
+    /* PigeonPete (#8951): a report the deadline made on THIS process ends on any turn it opens, which is most likely that
+       message starting late. One carried from a process that stopped (`lost`) needs a later write: the process that took
+       it in is gone, so no turn here can be it. */
+    if (current.unstarted.lost === true && current.wroteAfterReport !== true) return;
     const age = nowMs() - (Number.isFinite(current.reportAt) ? current.reportAt : 0);
     if (age >= REPORT_HOLD_MS) { current.unstarted = null; current.reportAt = null; current.wroteAfterReport = false; return; }
     const for_ = current.unstarted;
@@ -803,12 +807,13 @@ function publisher(name, opts) {
     const count = (prev && Number.isInteger(prev.count) ? prev.count : 0) + fresh;
     const since = [prev && prev.since, current.inFlight && current.inFlight.since, due.at].filter((x) => typeof x === 'string').sort()[0];
     current.unstarted = { since, count, ...(prev && prev.lost ? { lost: true } : {}) };
-    if (!prev) { current.reportAt = nowMs(); current.wroteAfterReport = false; }
+    if (!prev) current.reportAt = nowMs();
+    current.wroteAfterReport = false;   // review 2: the write that did not start is now in the report, not after it
     current.inFlight = null;   // now in `unstarted`, so a later death does not count them again
     current.queued = 0;
     setState(IDLE);
     flush();
-    try { onUnstarted({ since, count, lost: false }); } catch { /* the record is on disk; the log line is extra */ }
+    try { onUnstarted({ since, count, lost: !!(prev && prev.lost) }); } catch { /* the record is on disk; the log line is extra */ }
   }
 
   return {
