@@ -1043,7 +1043,7 @@ test('#8967 an error result on stdout rides on the death; a successful reply nev
     c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'usage limit\nreached' }) + '\n'));
     c.die(1);
   });
-  assert.equal(errored.because, 'its last error on stdout: error_during_execution: usage limit reached');
+  assert.equal(errored.because, 'its stdout said: error_during_execution: usage limit reached');
 
   const clean = diedWith((c) => {
     c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'the agent said a private thing' }) + '\n'));
@@ -1056,7 +1056,7 @@ test('#8967 an error result on stdout rides on the death; a successful reply nev
     c.stdout.emit('data', Buffer.from('Error: not logged in\n'));
     c.die(1);
   });
-  assert.equal(both.because, 'it said: boom; its last error on stdout: not a stream event: Error: not logged in');
+  assert.equal(both.because, 'it said: boom; its stdout said: a line that was not an event: Error: not logged in');
 
   const stale = diedWith((c) => {
     c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true }) + '\n'));
@@ -1100,7 +1100,7 @@ test('#8967 the death waits for stdout to end, so an error printed just before e
   const died = events.filter((e) => e.action === 'died');
   assert.equal(died.length, 1);
   assert.equal(died[0].code, 1);
-  assert.equal(died[0].because, 'its last error on stdout: error_during_execution: limit');
+  assert.equal(died[0].because, 'its stdout said: error_during_execution: limit');
   h.stop();
 });
 
@@ -1174,6 +1174,42 @@ test('#8967 everything about the process is settled at exit; only the died line 
   h.stop();
 });
 
+test('#8967 a stdout that errors and only closes (no end) still releases the death', () => {
+  const kids = [];
+  const events = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = pipedChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  const c = kids[0];
+  c.emit('exit', 3, null);
+  assert.equal(events.filter((e) => e.action === 'died').length, 0);
+  c.stdout.emit('close');
+  const died = events.filter((e) => e.action === 'died');
+  assert.equal(died.length, 1, 'close alone ends the wait');
+  assert.equal(died[0].code, 3);
+  c.stdout.end();   // a late end counts nothing twice
+  assert.equal(events.filter((e) => e.action === 'died').length, 1);
+  h.stop();
+});
+
+test('#8967 a stdout already closed is not waited on', () => {
+  const kids = [];
+  const events = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = pipedChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  kids[0].stdout.closed = true;
+  kids[0].emit('exit', 4, null);
+  assert.equal(events.filter((e) => e.action === 'died').length, 1);
+  h.stop();
+});
+
 test('#8967 a stdout already destroyed is not waited on', () => {
   const kids = [];
   const events = [];
@@ -1209,7 +1245,7 @@ test('#8967 a line read while an exited child drains feeds the reason and publis
   assert.equal(sink.calls.slice(before).filter((x) => x[0] === 'event').length, 0, 'no state published for a dead child');
   c.stdout.end();
   const died = events.find((e) => e.action === 'died');
-  assert.equal(died.because, 'its last error on stdout: error_during_execution: No conversation found with session ID s');
+  assert.equal(died.because, 'its stdout said: error_during_execution: No conversation found with session ID s');
   assert.equal(died.sessionId, 's', 'no rekey to the late init\'s id');
   assert.equal(events.some((e) => e.action === 'rekeyed' || e.action === 'resume-impossible'), false, 'the loop\'s own behaviour is unchanged');
   h.stop();
@@ -1221,8 +1257,12 @@ test('#8967 stdoutError reads only errors, and clips them', () => {
   assert.equal(sup.stdoutError({ type: 'result', subtype: 'error_max_turns' }, ''), 'error_max_turns');
   assert.equal(sup.stdoutError({ type: 'result', is_error: true, result: 'x' }, ''), 'error: x');
   assert.equal(sup.stdoutError(null, '   '), '');
-  assert.equal(sup.stdoutError(null, 'y'.repeat(1000)).length, 'not a stream event: '.length + 300);
-  assert.equal(sup.stdoutError(123, '123'), 'not a stream event: 123', 'JSON that is not an object is not an event either');
+  assert.equal(sup.stdoutError(null, 'y'.repeat(1000)).length, 'a line that was not an event: '.length + 300);
+  assert.equal(sup.stdoutError(123, '123'), 'a line that was not an event: 123', 'JSON that is not an object is not an event either');
+  /* Clipped on whole characters: a cut that lands inside an emoji keeps it whole. */
+  const emoji = sup.stdoutError(null, 'x'.repeat(299) + '\u{1F600}' + 'tail');
+  assert.equal(emoji, 'a line that was not an event: ' + 'x'.repeat(299) + '\u{1F600}');
+  assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(emoji), false, 'no lone high surrogate');
   /* The shape claude's error results actually carry: the message in `errors`, as
      saysNothingToResume reads it. */
   assert.equal(sup.stdoutError({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['No conversation found with session ID x', 7, ' '] }, ''),
