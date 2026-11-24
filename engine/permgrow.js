@@ -186,7 +186,15 @@ function plan({ cards, windows, waiting, skip, screenOf, busy, world, grownFor =
        hint, keeping the recorded size to go back to. */
     const hidden = !chat.permissionAnswerable(text) ? hiddenRows(text) : null;
     const rows = hidden && w.size ? w.size.h + hidden + FIT_MARGIN : 0;
-    if (hidden && rows <= MAX_ROWS) acts.push({ act: 'grow', id: w.id, session: w.session, window: w.window, size, rows, again: true });
+    const had = grownFor.get(w.id);
+    /* Review 6: still cut and no room left (over MAX_ROWS), or the last grow did not shrink the hint (Claude Code capping
+       its own box): growing cannot help, so the window goes back and this report is settled. */
+    if (hidden && (rows > MAX_ROWS || (had && had.hidden != null && hidden >= had.hidden))) {
+      acts.push(restore);
+      if (waiting && waiting.has(card.sessionName)) judged.push(card.sessionName);
+      continue;
+    }
+    if (hidden) acts.push({ act: 'grow', id: w.id, session: w.session, window: w.window, size, rows, again: true, hidden });
   }
   for (const card of list) {
     if (!card) continue;
@@ -216,7 +224,7 @@ function plan({ cards, windows, waiting, skip, screenOf, busy, world, grownFor =
     if (!hidden) { unsure.push(name); continue; }
     const rows = w.size.h + hidden + FIT_MARGIN;
     if (rows > MAX_ROWS) { judged.push(name); continue; }
-    acts.push({ act: 'grow', id: w.id, session: w.session, window: w.window, size: w.size, rows, name });
+    acts.push({ act: 'grow', id: w.id, session: w.session, window: w.window, size: w.size, rows, name, hidden });
   }
   return { acts, judged, unsure, watched, seen, unreadSeen };
 }
@@ -365,7 +373,7 @@ function sweepOnce({ roster, tmux = chat.tmuxCall, screenOf, busy = chat.paneKey
        the old box too (a longer next box, grown again, must not be put back as "another box"). */
     if (took && a.act === 'grow') {
       const name = a.name || (cards.find((c) => { const at = windowOf(c); return at && at.session === a.session && at.window === a.window; }) || {}).sessionName;
-      memory.grownFor.set(key, { at: a.again ? reportOf(name) : reportOf(a.name), req: null });
+      memory.grownFor.set(key, { at: reportOf(name), req: null, hidden: a.hidden == null ? null : a.hidden });
     }
     // Review 4: a grow that fails counts toward the unsure budget, so a window tmux will not resize stops costing reads.
     if (!took && a.act === 'grow' && a.name) countUnsure(a.name);

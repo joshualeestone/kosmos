@@ -83,3 +83,12 @@ last 25 lines; the prompt sits at the bottom). Checked in review.
 - A watched agent whose window still has a viewer costs no roster read (list-windows says so).
 - A grown window unreadable for 3 ticks, or whose card is no longer one this sweep grows, is put back.
 - An again-grow forgets the old box; the no-box-yet allowance is 3 reads AND 30 s after the report.
+
+## Round 6 (sonnet) fixes
+- A grown box still cut with no room left (over MAX_ROWS), or whose hint the last grow did not shrink, puts the window
+  back and settles that report (no tall window for a box that stays cut).
+- Deferred, with reasons: a request-id change from a Tip line appearing between ticks (not seen on 2.1.331, and the
+  press is refused safely meanwhile); restoring a pre-existing window-size (nothing sets one, grep of bin, engine,
+  server.js, install); an orphaned mark if KOSMOS_WORLD changes between runs (not reachable in normal use).
+- Wording: every Claude Code behaviour here (76-78 rows draws whole, scrollback cleared on resize) was measured on
+  2.1.331 only; the hint gate in permissionAnswerable is what protects other versions.

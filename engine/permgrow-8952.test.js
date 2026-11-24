@@ -53,7 +53,7 @@ test('premises, on the real captures', () => {
 });
 
 test('a cut prompt on an unwatched one-pane window grows it by the hidden rows, recording its size', () => {
-  assert.deepEqual(planOf({}), { acts: [{ act: 'grow', id: '@1', session: S, window: '0', size: { w: 80, h: 24 }, rows: 24 + 50 + pg.FIT_MARGIN, name: 'ada' }], judged: [], unsure: [], watched: [], seen: [], unreadSeen: [] });
+  assert.deepEqual(planOf({}), { acts: [{ act: 'grow', id: '@1', session: S, window: '0', size: { w: 80, h: 24 }, rows: 24 + 50 + pg.FIT_MARGIN, name: 'ada', hidden: 50 }], judged: [], unsure: [], watched: [], seen: [], unreadSeen: [] });
 });
 
 test('no grow: whole box, no prompt, unreadable, watched, several panes, busy, not waiting, judged, not Claude, not ours', () => {
@@ -119,8 +119,11 @@ test('a grown window: kept while the prompt is up, restored when gone, watched, 
 
 test('a grown window whose box is still (or again) cut grows again by its hint, keeping the recorded size', () => {
   const p = (screen, h = 78) => planOf({ windows: [grownWin({ size: { w: 80, h } })], screenOf: () => screen }).acts;
-  assert.deepEqual(p(CUT), [{ act: 'grow', id: '@1', session: S, window: '0', size: { w: 80, h: 24 }, rows: 78 + 50 + pg.FIT_MARGIN, again: true }]);
-  assert.deepEqual(p(CUT, 190), [], 'over MAX_ROWS: stays as it is');
+  assert.deepEqual(p(CUT), [{ act: 'grow', id: '@1', session: S, window: '0', size: { w: 80, h: 24 }, rows: 78 + 50 + pg.FIT_MARGIN, again: true, hidden: 50 }]);
+  assert.deepEqual(p(CUT, 190).map((a) => a.act), ['restore'], 'review 6: over MAX_ROWS, growing cannot help: put back');
+  assert.deepEqual(planOf({ windows: [grownWin({ size: { w: 80, h: 190 } })], screenOf: () => CUT }).judged, ['ada'], 'and settled');
+  const capped = planOf({ windows: [grownWin()], grownFor: new Map([['@1', { at: 't1', req: null, hidden: 50 }]]), screenOf: () => CUT });
+  assert.deepEqual([capped.acts.map((a) => a.act), capped.judged], [['restore'], ['ada']], 'review 6: the last grow did not shrink the hint: put back, settled');
   assert.deepEqual(p(CUT.replace(/↑ 50 more lines/, '')), [], 'no hint: stays as it is');
   const g = fakeTmux();
   assert.equal(pg.run({ act: 'grow', id: '@1', session: S, window: '0', size: { w: 80, h: 24 }, rows: 132, again: true }, g.fn, WORLD), true);
@@ -298,7 +301,7 @@ function world0({ grouped = false } = {}) {
   let at = 't1';
   const tick = () => pg.sweepOnce({ roster: () => [card()], tmux, screenOf: screen, busy: () => false, world: WORLD, memory,
     waits: () => (at ? new Map([['ada', at]]) : new Map()) });
-  return { st, tick, memory, setReport: (v) => { at = v; } };
+  return { st, tick, memory, tmux, setReport: (v) => { at = v; } };
 }
 
 test('over many ticks: grows once and stays while the prompt is up, goes back once when it is answered', () => {
@@ -393,4 +396,14 @@ test('review 5: the no-box-yet allowance is also a time, so a slow hook still ge
   const tick2 = (now, scr) => sweep({ roster: () => [card()], memory: m2, now, tmux: listing(ROW).fn, screenOf: () => scr, waits: () => new Map([['ada', at]]) });
   for (let i = 0; i < pg.UNSURE_READS; i += 1) tick2(pg.UNSURE_MS + i, IDLE);
   assert.deepEqual(tick2(pg.UNSURE_MS + 10, CUT), [], 'past both: settled until a new report');
+});
+
+
+test('over many ticks, review 6: a box Claude Code keeps cut whatever the height ends at the start size, settled', () => {
+  const w = world0();
+  const realScreen = () => (w.st.prompt ? CUT : IDLE);   // never drawn whole, the hint never shrinks
+  const memory = pg.newMemory();
+  for (let i = 0; i < 8; i += 1) pg.sweepOnce({ roster: () => [card()], tmux: (a) => w.tmux(a), screenOf: realScreen, busy: () => false, world: WORLD, memory, waits: () => new Map([['ada', 't1']]) });
+  assert.deepEqual([w.st.h, w.st.mark], [24, ''], `height ${w.st.h} after ${w.st.resizes} resizes`);
+  assert.ok(w.st.resizes <= 2, `resizes ${w.st.resizes}`);
 });
