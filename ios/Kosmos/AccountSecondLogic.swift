@@ -145,9 +145,9 @@ enum AccountSecond {
         let body = json as? [String: Any] ?? [:]
         guard (200..<300).contains(status) else {
             let sentence = SignIn.refusal(body["error"])
-            // Kosmos+ answers a wrong code with 401 too (second.rs confirm), so the status alone never means signed out:
-            // only a sentence slice A's sign-in also reads as "start over" does. A 401 says the sign-in ended; any other
-            // status says the setup did.
+            // Kosmos+ answers a wrong code with 401 too (second.rs confirm), so the status alone never means signed out.
+            // Only a sentence slice A's sign-in reads as "start over" ends anything: with a 401 it is read as the
+            // sign-in ending, otherwise as the setup ending (both close the sheet and show the sentence).
             if let sentence, SignIn.startsOver(sentence) { return status == 401 ? .signedOut(sentence) : .startOver(sentence) }
             return .refused(sentence ?? codeRefused)
         }

@@ -358,7 +358,22 @@ final class BoardClient: ObservableObject {
     // The Mac this client holds a session for and the Kosmos+ session it was opened under: a sign-out or another
     // account in the board's web tabs drops it (start()).
     private var admitted: (mac: Board.Mac, url: URL, session: String)? {
-        didSet { if admitted != nil { admissions &+= 1 } }
+        didSet { if admitted != nil && !renewing { admissions &+= 1 } }
+    }
+    // kosmos#8959 slice B1b: set while sessionRenewed moves `admitted` to the renewed session, which is not a new admission.
+    private var renewing = false
+
+    /// kosmos#8959 slice B1b: the Kosmos+ session was renewed for the SAME account (a second step set up on the account
+    /// screen; PushNotificationManager.sessionRenewed calls this before it stores the fresh one). Everything kept under
+    /// the old session moves to the fresh one, so start() does not read the change as another account and forget the
+    /// kept Mac session, the shown list and the open chat. Only what was kept under `old` moves.
+    func sessionRenewed(from old: String, to fresh: String) {
+        guard !fresh.isEmpty, old != fresh else { return }
+        let before = Board.owner(of: old), after = Board.owner(of: fresh)
+        if let held = admitted, held.session == old { renewing = true; admitted = (held.mac, held.url, fresh); renewing = false }
+        if shownOwner == before { shownOwner = after }
+        if chatsOwner == before { chatsOwner = after }
+        if let moved = Board.rekeyed(macStore.load(), from: old, to: fresh) { _ = macStore.save(moved) }
     }
     /// kosmos#8791: bumped each time the board is let in on a computer, and the Kosmos+ session it was let in under, so
     /// a retry after a fresh sign-in waits for a connection made under the NEW session (phase can still read .live from

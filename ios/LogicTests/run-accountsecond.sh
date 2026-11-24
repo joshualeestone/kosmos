@@ -6,7 +6,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 src="${1:-$here/../Kosmos}"
 out="$(mktemp -d)"
-trap 'rm -rf "$out"' EXIT
+trap 'rm -rf "${out:?}"' EXIT
 xcrun swiftc -O -o "$out/accountsecond-logic-tests" \
   "$src/SignInLogic.swift" "$src/AccountSecondLogic.swift" "$here/accountsecond/main.swift"
 "$out/accountsecond-logic-tests"

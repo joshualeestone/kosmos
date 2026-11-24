@@ -531,6 +531,12 @@ struct AccountView: View {
                 secondTicket += 1
                 if case .known(let s) = second { second = .known(.init(enrolled: s.enrolled, smsAvailable: false)) }
                 secondNote = why
+            } else if SignIn.startsOver(why) {
+                // As slice A's afterTextEnrol: a refusal no new number can fix (the sign-in ended, the setup expired).
+                closeSetup(force: true)
+                secondNote = why
+                await readSecond()
+                if secondNote == nil { secondNote = why }
             } else { setupNote = why }
         }
     }
@@ -570,7 +576,9 @@ struct AccountView: View {
             secondNote = why
             // Nothing staged any more may mean an earlier confirm went through: the section is read again.
             await readSecond()
-            if secondNote == nil { secondNote = why }
+            // The re-read found this session refused (an earlier confirm did go through): its sentence says why, and
+            // "start again" no longer fits. Otherwise the sentence stays.
+            if case .unreadable = second { secondNote = nil } else if secondNote == nil { secondNote = why }
         case .signedOut(let why):
             closeSetup(force: true)
             secondNote = why
