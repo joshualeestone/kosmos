@@ -29,10 +29,8 @@ const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
 const projectsEngine = require('./engine/projects');
 const tasksEngine = require('./engine/tasks');
-const messagesEngine = require('./engine/messages');
 
 const BOARD = 'BOARDTOKEN_test_8989_reread_0123456789abcdef';
-const GATE_REFUSAL = /this board belongs to the account that started it/;
 let base;
 
 test.before(async () => {
@@ -56,7 +54,6 @@ async function call(method, p, { headers = {}, body } = {}) {
   const text = await res.text().catch(() => '');
   return { code: res.status, text };
 }
-const refusedAtGate = (r) => r.code === 403 && GATE_REFUSAL.test(r.text);
 const asAgent = (t) => ({ 'x-kosmos-agent-token': t });
 const withBoard = (h = {}) => ({ 'x-kosmos-board-token': BOARD, ...h });
 
@@ -65,18 +62,18 @@ const withBoard = (h = {}) => ({ 'x-kosmos-board-token': BOARD, ...h });
 function world(t, holder, { stored = [], closedWith } = {}) {
   const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('otto', { state: 'idle' })]);
   const real = { readAll: projectsEngine.readAll, syncAgent: projectsEngine.syncAgent, close: tasksEngine.close, reopen: tasksEngine.reopen,
-    setPartClosed: tasksEngine.setPartClosed, assignPart: tasksEngine.assignPart };
+    setPartClosed: tasksEngine.setPartClosed, assignPart: tasksEngine.assignPart, setText: tasksEngine.setText };
   const synced = [];
   projectsEngine.readAll = () => [{ id: 'p8989', name: 'p8989', agents: ['mara', 'otto'], tasks: stored, made: { via: 'screen', by: null } }];
   projectsEngine.syncAgent = (who, roster, opts) => { synced.push([who, !!(opts && opts.byOther)]); return { state: projectsEngine.TOLD.TOLD, changed: true }; };
   tasksEngine.close = (id, n) => ({ number: Number(n), who: holder, state: 'closed', ...(closedWith ? { closedWith } : {}) });
   tasksEngine.setPartClosed = (id, n) => ({ ok: true, task: { number: Number(n), who: holder } });
   tasksEngine.assignPart = (id, n, part, who) => ({ ok: true, changed: true, previous: 'otto', task: { number: Number(n), sentence: 'x', parts: [{ id: 1, who }] } });
-  const realText = tasksEngine.setText;
   tasksEngine.setText = (id, n) => ({ titleChanged: true, changed: true, task: { number: Number(n), who: holder, sentence: 'new words' } });
-  t.after(() => { tasksEngine.setText = realText; });
+  // Every stub is put back in one place, from the one snapshot.
+  t.after(() => { Object.assign(projectsEngine, { readAll: real.readAll, syncAgent: real.syncAgent }); Object.assign(tasksEngine, { close: real.close, reopen: real.reopen, setPartClosed: real.setPartClosed, assignPart: real.assignPart, setText: real.setText }); board.restore(); });
   tasksEngine.reopen = (id, n) => ({ number: Number(n), who: holder, state: 'open' });
-  t.after(() => { Object.assign(projectsEngine, { readAll: real.readAll, syncAgent: real.syncAgent }); Object.assign(tasksEngine, { close: real.close, reopen: real.reopen, setPartClosed: real.setPartClosed, assignPart: real.assignPart }); board.restore(); });
+
   return { synced, mara: sendertoken.mint('mara').token, otto: sendertoken.mint('otto').token };
 }
 

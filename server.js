@@ -661,6 +661,9 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
    writes so a malformed or hostile body cannot close a whole store in one go. */
 const BULK_CLOSE_MAX = 200;
 
+/* kosmos#8989 review 3: by the token store's key too (sameAgentName), as the take route matches, so an agent named by
+   its key whose stored spelling differs is still itself, and is not typed a notice about its own change. */
+function changedByOther(holder, by) { return !(typeof by === 'string' && sameAgentName(holder, by, true)); }
 // `roster`: optional, so taskAct (close/reopen, below) keeps fetching its
 // own exactly as before -- only #761's routes, which already have one in
 // scope for `heardBy`, pass it through instead of paying for a second
@@ -668,9 +671,6 @@ const BULK_CLOSE_MAX = 200;
 /* kosmos#8989: `changedBy` is set only by a caller that knows who made the change (task close and reopen): the agent its
    token named, or null for the person or a caller with no token. Every assignee who is not that agent is owed a re-read
    of its projects section (projects.syncAgent byOther). Unset, nobody is owed one for the task change (as before). */
-/* kosmos#8989 review 3: by the token store's key too (sameAgentName), as the take route matches, so an agent named by
-   its key whose stored spelling differs is still itself, and is not typed a notice about its own change. */
-function changedByOther(holder, by) { return !(typeof by === 'string' && sameAgentName(holder, by, true)); }
 function tellEveryoneOn(t, roster, { changedBy } = {}) {
   const named = tasks.whoOf(t);
   if (!named.length) return undefined;
