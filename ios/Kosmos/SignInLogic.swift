@@ -529,9 +529,11 @@ enum SignIn {
     static func enrolBody() -> [String: Any] { ["kind": "totp"] }
     /// kosmos#8959: text messages, with the number as typed. Kosmos+ reads the digits and the country code, and says why
     /// when it cannot use the number (second.rs normalize_phone), so the phone does not judge it first.
+    static func enrolBody(phone: String) -> [String: Any] { ["kind": "sms", "phone": phone.trimmingCharacters(in: .whitespacesAndNewlines)] }
     /// Seconds to wait for Kosmos+ to answer a text enrol (SignInClient.enrol).
     static let textSendTimeout: TimeInterval = 45
-    static func enrolBody(phone: String) -> [String: Any] { ["kind": "sms", "phone": phone.trimmingCharacters(in: .whitespacesAndNewlines)] }
+    /// No answer to "Text me a code": Kosmos+ may have sent the text all the same, so the line says so before a retry.
+    static let textMayBeComing = "Kosmos+ did not answer in time. A text may still arrive: wait a minute before you try again."
     static func confirmBody(code: String) -> [String: Any] { ["code": code] }
 
     /// enrol's answer (kosmos-relay second.rs EnrolResp): for an authenticator the otpauth link and the secret (only an
