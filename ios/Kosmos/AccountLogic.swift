@@ -145,7 +145,7 @@ enum Account {
     static func errorWords(_ data: Data?) -> String? {
         guard let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let e = obj["error"] as? String, !e.isEmpty else { return nil }
-        return sentence(e)
+        return sentence(e) + (e.hasSuffix(".") ? "" : ".")
     }
 
     // Kosmos+ writes its messages in lower case for the page to show inside a line; on their own they start capitalised.
