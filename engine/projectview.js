@@ -528,7 +528,8 @@ function activityOf(p, o) {
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
   let room;
   try { room = opts.lastPostAt ? opts.lastPostAt(p.id) : require('./messages').lastPostAt(p.id); } catch { room = undefined; }
-  const taskAt = opts.lastActivityOf || ((id, t) => { try { return require('./tasks').lastActivityOf(id, t); } catch { return null; } });
+  const readTask = opts.lastActivityOf || ((id, t) => require('./tasks').lastActivityOf(id, t));
+  const taskAt = (id, t) => { try { return readTask(id, t); } catch { return null; } };   // review 2: guarded, injected or not
   const seen = [];
   const add = (ms, kind) => { if (Number.isFinite(ms) && ms <= now) seen.push({ ms, kind }); };   // a future time proves nothing
   if (Number.isFinite(room)) add(room, 'post');
@@ -539,9 +540,19 @@ function activityOf(p, o) {
      on purpose, and its quiet is expected too (#6341 removed that kind of flag). At least one such task, none in work. */
   let parked = false;
   try {
-    const { listGroup } = require('./tasks');
-    const left = (Array.isArray(p.tasks) ? p.tasks : []).map((t) => (t ? listGroup(t) : 'done')).filter((g) => g !== 'done');
-    parked = left.length > 0 && left.every((g) => g === 'held' || g === 'built');
+    /* listGroup on the stored task (no projectPaused: a paused project is answered by `paused` above). Review 2: a hold
+       whose own reopening condition is met (its date passed, the task it waits for closed) is not parked: it should
+       have reopened, and nothing clears the flag by itself. */
+    const { listGroup, holdUntilState } = require('./tasks');
+    const left = (Array.isArray(p.tasks) ? p.tasks : []).filter((t) => t && listGroup(t) !== 'done');
+    const waits = (t) => {
+      const g = listGroup(t);
+      if (g === 'built') return true;
+      if (g !== 'held') return false;
+      const u = holdUntilState(p, t, now);
+      return !(u && u.met === true);
+    };
+    parked = left.length > 0 && left.every(waits);
   } catch { parked = false; }
   const base = { quietDays: QUIET_DAYS, paused, parked };
   if (room === undefined) return { at: null, kind: null, ageDays: null, quiet: false, unknown: true, ...base };
@@ -716,13 +727,13 @@ const SUMMARY_WORDS = {
 };
 
 /* kosmos#8996: the one line `project show` prints for a project's activity. Numbers and fixed words only. */
-function activityLine(a) {
+function activityLine(a, id) {
   if (!a || typeof a !== 'object') return null;
   const n = (x) => Math.max(0, Math.floor(Number(x) || 0));
   const days = (d) => (d === 1 ? '1 day' : d + ' days');
   if (a.unknown === true) return 'Last activity: Kosmos could not read the project\'s room just now, so it cannot say how long the project has been quiet.';
   if (!a.at) return 'Last activity: none Kosmos can date.';
-  const what = a.kind === 'post' ? 'a post in its room' : a.kind === 'task' ? 'a task was added or moved' : 'the project was made';
+  const what = a.kind === 'post' ? 'a post in its room' : a.kind === 'task' ? 'work on a task' : 'the project was made';
   const when = n(a.ageDays) === 0 ? 'within the last day' : days(n(a.ageDays)) + ' ago';
   /* Review 1: the date in this computer's own time zone (the CLI prints it), so it matches the person's calendar. */
   const ms = Date.parse(a.at);
@@ -732,8 +743,12 @@ function activityLine(a) {
   if (a.paused === true) return head + ' The project is paused or archived, so quiet is expected.';
   if (a.parked === true) return head + ' Every unfinished task is on hold or built and waiting, so quiet is expected.';
   /* Review 1: said in the room, so every member sees it was said (and the post restarts this clock): six members do not
-     each tell the person, and a restarted agent does not tell them again. */
-  if (a.quiet === true) return head + ' That is past the ' + days(n(a.quietDays)) + ' Kosmos counts as normal quiet. If nobody has said so in its room, tell your person there.';
+     each tell the person, and a restarted agent does not tell them again. Review 2: with the command that shows whether
+     someone already has, since `project show` prints no room. The post then counts as activity, so this verdict goes
+     quiet for every member: once said, it is said. */
+  const room = typeof id === 'string' && id ? 'kosmos room ' + one(id) : 'its room';
+  if (a.quiet === true) return head + ' That is past the ' + days(n(a.quietDays)) + ' Kosmos counts as normal quiet. Read ' + room
+    + ': if nobody has said so there, post it there once, for your person.';
   if (a.kind === 'made') return head + ' Nothing has been posted or moved since it was made; quiet is normal until ' + days(n(a.quietDays)) + '.';
   return head + ' Quiet is normal until ' + days(n(a.quietDays)) + '.';
 }
@@ -773,7 +788,7 @@ function renderShow(payload) {
       : (p.doneSection === false ? 'BRIEF.md has no Done section (a "## Done looks like" heading) to read' : 'not filled in yet')));
   }
   out.push('Tasks: ' + taskLine(p.tasks) + (p.tasks && p.tasks.total ? '. List them: kosmos task list ' + one(p.id) : ''));
-  const act = activityLine(p.activity);   // kosmos#8996; an older board sends no activity, and says nothing here
+  const act = activityLine(p.activity, p.id);   // kosmos#8996; an older board sends no activity, and says nothing here
   if (act) out.push(act);
   /* #6994: the records, and the verb, where an agent looks at a project (teaching it in the operating block is #6995;
      the boot file is at its size canary). An older board sends no `records`, and says nothing here. */
