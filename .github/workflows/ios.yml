@@ -259,23 +259,93 @@ jobs:
           ios/tools/test-archive-config.sh | tee "$RUNNER_TEMP/archive-config.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/archive-config.log"
 
+  # kosmos#8993: the app the three UI jobs test, built once per run. Each of them built the same Debug app itself, about 12
+  # of a 40 minute job (measured on run 45384659475: 28.4 min of tests in a 40.5 min test action), on a macOS queue that
+  # held runs for up to 114 minutes on 2026-11-24. They now test these products (ui-sample.sh --products), and a job whose
+  # runner has another Xcode builds for itself, said in its log. If this job fails, the UI jobs do not run, and this red
+  # is the run's red, with xcodebuild's last lines in its log: the UI jobs then show as skipped, which means NOT TESTED, not
+  # green. A download that is missing, cut short or will not unpack falls back to building, with a warning on the run.
+  # The cost, said plainly: the UI jobs ask for a runner only once this job is done, so on a congested macOS queue a run
+  # waits for a runner twice. Fewer macOS minutes per run (two builds not made) should shorten the queue for everyone;
+  # whether a run's own start-to-verdict time gets shorter is measured after merge (kosmos#8993), not assumed.
+  uibuild:
+    name: ui build (sample board)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the app for the UI tests
+        run: |
+          set -o pipefail
+          ios/tools/ui-sample.sh --build-only "$RUNNER_TEMP/ui-products" | tee "$RUNNER_TEMP/ui-build.log"
+          grep -q '^PASS  ui-sample build:' "$RUNNER_TEMP/ui-build.log"
+          # One tar: an artifact drops file modes (the app's and the test runner's executables would lose +x) and links.
+          # COPYFILE_DISABLE: no ._ AppleDouble entries, which inside an .app would break its signature's seal.
+          COPYFILE_DISABLE=1 tar -C "$RUNNER_TEMP/ui-products" -cf "$RUNNER_TEMP/ui-products.tar" .
+          # What the UI jobs will unpack must still be a signed, launchable app: check the round trip here, once.
+          mkdir "$RUNNER_TEMP/ui-products-check"
+          tar -C "$RUNNER_TEMP/ui-products-check" -xf "$RUNNER_TEMP/ui-products.tar"
+          for app in "$RUNNER_TEMP"/ui-products-check/Debug-iphonesimulator/*.app; do
+            codesign --verify --deep --strict "$app" || { echo "FAIL  the tarred $(basename "$app") does not verify"; exit 1; }
+          done
+          # The UI jobs check the download against this before unpacking it.
+          ( cd "$RUNNER_TEMP" && shasum -a 256 ui-products.tar > ui-products.tar.sha256 )
+
+      # Only this run's UI jobs read it. One name per run (artifacts belong to their run), overwritten by "Re-run all jobs",
+      # so "Re-run failed jobs" on a UI job finds the products its run built. Kept 3 days for such a re-run; past that the
+      # UI job builds the app itself (see its download step). Sample-board Debug app and test runner: no account, no secrets.
+      # A failed upload is not a failed build: the UI jobs then find no shared build and build for themselves (with a warning).
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: ui-products
+          path: |
+            ${{ runner.temp }}/ui-products.tar
+            ${{ runner.temp }}/ui-products.tar.sha256
+          retention-days: 3
+          overwrite: true
+          compression-level: 0   # already one tar; zipping it again only costs the runner time
+          if-no-files-found: error
+
   # kosmos#7609: the UI tests that need no account (sample agents, a Debug build) on a fresh simulator, so a change that
   # breaks the + panel, the room title, the keyboard keeping the newest message above the box (in a DM and in a long room,
   # #7690), or a long room opening on its newest post (#7654) goes red here instead of only when someone runs the UI
-  # tests by hand. Its own job, beside the build, so neither waits on the other.
+  # tests by hand. Beside the logic build, which it does not wait for; it waits for uibuild's products (kosmos#8993).
   # The runner's simulator is usually an older iOS than the one the tests were written on, which is a check in itself
   # (#7609 item 1). ui-sample.sh passes only when every expected test ran (a filter matching nothing also exits 0).
   ui:
     name: ui tests (sample board)
+    needs: uibuild
     runs-on: macos-latest
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
 
+      # kosmos#8993: the run's shared build. If it cannot be had (expired, say), ui-sample.sh builds the app itself.
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: ui-products
+          path: ${{ runner.temp }}/ui-products-tar
+      # Only a download that matches uibuild's checksum and unpacks whole is used; anything else (expired, cut short by the
+      # network) leaves the folder empty, and ui-sample.sh builds the app itself, with this warning on the run.
+      - name: Unpack the shared build
+        run: |
+          mkdir -p "$RUNNER_TEMP/ui-products"
+          d="$RUNNER_TEMP/ui-products-tar"
+          if [ -f "$d/ui-products.tar" ] && [ -f "$d/ui-products.tar.sha256" ] && ( cd "$d" && shasum -a 256 -c ui-products.tar.sha256 ) &&
+             tar -C "$RUNNER_TEMP/ui-products" -xf "$d/ui-products.tar"; then
+            echo "using the shared build"
+          else
+            rm -rf "${RUNNER_TEMP:?}/ui-products"; mkdir -p "$RUNNER_TEMP/ui-products"
+            echo "::warning::no usable shared build for this run (missing, or not matching uibuild's checksum), so this job builds the app itself"
+          fi
+
       - name: UI tests (sample board)
         run: |
           set -o pipefail
-          UI_SAMPLE_FAILED_RESULT="$RUNNER_TEMP/ui-result.xcresult" ios/tools/ui-sample.sh | tee "$RUNNER_TEMP/ui-sample.log"
+          UI_SAMPLE_FAILED_RESULT="$RUNNER_TEMP/ui-result.xcresult" ios/tools/ui-sample.sh --products "$RUNNER_TEMP/ui-products" | tee "$RUNNER_TEMP/ui-sample.log"
           grep -q '^PASS  ui-sample:' "$RUNNER_TEMP/ui-sample.log"
 
       # kosmos#7609: three reds on main in a day left nothing to read. Sample data only: no account, no real messages.
@@ -299,13 +369,14 @@ jobs:
   # outlier at 29); slice 16 adds four checks of about 1.5 to 2 minutes each, and its first run was cancelled at 60 with
   # the per-test limit never reached (no test hung).
   # kosmos#8453: in two halves (ui-sample.sh --shard), as one job took 75 of its 80 minutes on PR #8447 and a slow runner
-  # would have timed it out, a red no PR caused. Each half builds the app on its own runner and runs about half the checks
+  # would have timed it out, a red no PR caused. Each half ran about half the checks (and, until #8993, built the app itself)
   # (measured per class: about 27 and 26 minutes of checks, before #8443's longer page delay; with the build, an estimated
   # 45 to 55 minutes each). The limit stays 75 until a run measures the halves: a job stopped at its limit is cancelled, not
   # failed, so its result bundle is never uploaded and its TIMED OUT lines never print, and one hung test costs up to 14
   # minutes. Lower it once runs show the room. A half that fails does not cancel the other (fail-fast off).
   uikit:
     name: uikit list (sample board) ${{ matrix.shard }}
+    needs: uibuild
     runs-on: macos-latest
     timeout-minutes: 75
     strategy:
@@ -315,10 +386,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # kosmos#8993: the run's shared build. If it cannot be had (expired, say), ui-sample.sh builds the app itself.
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: ui-products
+          path: ${{ runner.temp }}/ui-products-tar
+      # Only a download that matches uibuild's checksum and unpacks whole is used; anything else (expired, cut short by the
+      # network) leaves the folder empty, and ui-sample.sh builds the app itself, with this warning on the run.
+      - name: Unpack the shared build
+        run: |
+          mkdir -p "$RUNNER_TEMP/ui-products"
+          d="$RUNNER_TEMP/ui-products-tar"
+          if [ -f "$d/ui-products.tar" ] && [ -f "$d/ui-products.tar.sha256" ] && ( cd "$d" && shasum -a 256 -c ui-products.tar.sha256 ) &&
+             tar -C "$RUNNER_TEMP/ui-products" -xf "$d/ui-products.tar"; then
+            echo "using the shared build"
+          else
+            rm -rf "${RUNNER_TEMP:?}/ui-products"; mkdir -p "$RUNNER_TEMP/ui-products"
+            echo "::warning::no usable shared build for this run (missing, or not matching uibuild's checksum), so this job builds the app itself"
+          fi
+
       - name: UI tests on the UIKit list (sample board)
         run: |
           set -o pipefail
-          UI_SAMPLE_FAILED_RESULT="$RUNNER_TEMP/uikit-result.xcresult" ios/tools/ui-sample.sh --uikit --shard "${{ matrix.shard }}" | tee "$RUNNER_TEMP/ui-sample.log"
+          UI_SAMPLE_FAILED_RESULT="$RUNNER_TEMP/uikit-result.xcresult" ios/tools/ui-sample.sh --uikit --shard "${{ matrix.shard }}" --products "$RUNNER_TEMP/ui-products" | tee "$RUNNER_TEMP/ui-sample.log"
           grep -q '^PASS  ui-sample:' "$RUNNER_TEMP/ui-sample.log"
 
       # Sample data only: no account, no real messages. Named per half (no slash in an artifact name), so two cannot clash.

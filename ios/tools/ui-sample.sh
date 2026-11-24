@@ -6,11 +6,19 @@
 # (LaunchHandoverUITests, #7945), a sent message settling without a step (SendMovesOnceUITests, #7348), text-message
 # second-step setup on the phone, not the web page (TextSetupUITests, #8959), and a web page opening on the phone while
 # reaching nothing (WebFileUITests, #8953).
-# Run by the ios workflow's "ui tests (sample board)" job, with --uikit by its two "uikit list (sample board) 1/2" and "2/2" jobs (--shard, kosmos#8453), and by
+# Run by the ios workflow's "ui tests (sample board)" job, with --uikit by its two "uikit list (sample board) 1/2" and "2/2" jobs (--shard, kosmos#8453),
+# with --build-only by its "ui build (sample board)" job (kosmos#8993), and by
 # hand. Prints PASS, or FAIL with the failing check's own words.
 #
 #
-#   ios/tools/ui-sample.sh [--keep] [--uikit [--shard 1/2|2/2]]
+#   ios/tools/ui-sample.sh [--keep] [--uikit [--shard 1/2|2/2]] [--products <dir>]
+#   ios/tools/ui-sample.sh --build-only <dir>
+#
+# kosmos#8993: the app is built once per CI run and shared. --build-only <dir> builds for testing (xcodebuild
+# build-for-testing, the same project, scheme and Debug configuration `xcodebuild test` uses) and leaves the products, their
+# .xctestrun and the Xcode that built them (xcode-version) in <dir>, with no simulator. --products <dir> runs the tests from
+# those products (test-without-building) instead of building; products from another Xcode, or none, are built here as
+# before, said in one line, so a runner with another Xcode is slower, never red for it.
 #
 # --uikit (kosmos#8221): the same run on the UIKit chat list (TEST_RUNNER_KOSMOS_UIKITLIST=1), the list a phone draws only
 # with Settings' "New chat list" switch on (slice 5). Only classes that switch lists; the full list and each slice's reason
@@ -20,7 +28,8 @@
 # Two of its checks open a project room, which draws the same either way: 12 of the 14 reach the UIKit list.
 #
 # The newest iOS runtime the selected Xcode's simulator SDK can run, and the smallest iPhone it offers (the least room above the keyboard). The simulator is
-# new for each run and deleted at the end, and so are the build and the results (--keep keeps them). SignInUITests is left
+# new for each run and deleted at the end, and so are its own build and the results (--keep keeps them; a --products folder
+# is never deleted). SignInUITests is left
 # out: it needs a real account (ios/tools/ui-signin.sh). The keyboard checks need the on-screen keyboard, so a run stops if
 # the Simulator's hardware keyboard preference is on (a setting others on a shared Mac use; it is never changed here).
 # UI_SAMPLE_FAILED_RESULT=<path>: on a failed run, copy the result bundle there before it is deleted (CI's job sets it).
@@ -29,12 +38,17 @@ here="$(cd "$(dirname "$0")" && pwd)"
 keep=0
 uikit=0
 shard=""
+build_only=""
+products=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep) keep=1; shift ;;
     --uikit) uikit=1; shift ;;
     # kosmos#8453: half of the UIKit arm's classes, 1/2 (the earlier-pages classes) or 2/2 (the rest); see "shard" below.
     --shard) shard="${2:-}"; case "$shard" in 1/2|2/2) ;; *) echo "ui-sample: --shard takes 1/2 or 2/2" >&2; exit 2 ;; esac; shift 2 ;;
+    # kosmos#8993: build once, test from the products (see the header).
+    --build-only) build_only="${2:-}"; [ -n "$build_only" ] || { echo "ui-sample: --build-only takes a folder" >&2; exit 2; }; shift 2 ;;
+    --products) products="${2:-}"; [ -n "$products" ] || { echo "ui-sample: --products takes a folder" >&2; exit 2; }; shift 2 ;;
     # The header comment, however long it grows: a fixed line range has to be raised each time the header grows, and
     # #7690's longer header would have cut its last line.
     -h|--help) awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 0 ;;
@@ -123,6 +137,58 @@ if [ -n "$shard" ]; then
 fi
 # UI_SAMPLE_PRINT_CLASSES=1: print the classes this run would take and stop (ios.ui-sample-shard-8453.test.js).
 if [ "${UI_SAMPLE_PRINT_CLASSES:-}" = 1 ]; then printf '%s\n' $classes; exit 0; fi
+# kosmos#8993: build for testing and stop. A generic simulator destination, so the products run on whichever simulator the
+# test job makes. The products folder is replaced whole, so a half-written earlier one is never used.
+if [ -n "$build_only" ]; then
+  [ -z "$products$shard" ] && [ "$uikit" = 0 ] && [ "$keep" = 0 ] || { echo "ui-sample: --build-only takes no other option" >&2; exit 2; }
+  # It replaces the folder whole, so only an empty one or a products folder this script made (it holds the marker
+  # .ui-sample-products, written only here).
+  if [ -e "$build_only" ] && [ -n "$(ls -A "$build_only" 2>/dev/null)" ] && [ ! -f "$build_only/.ui-sample-products" ]; then
+    echo "ui-sample: $build_only is not empty and is not a products folder, so nothing was built into it" >&2; exit 2
+  fi
+  bwork="$(mktemp -d)"
+  trap 'rm -rf "${bwork:?}"' EXIT
+  trap 'exit 143' TERM; trap 'exit 130' INT HUP
+  blog="$bwork/build.log"
+  # ARCHS: this Mac's own architecture only, as `xcodebuild test` on one simulator built; a generic destination alone
+  # builds every simulator architecture (measured: x86_64 and arm64), twice the work for a slice no simulator here runs.
+  if ( cd "$here/.." && xcodebuild build-for-testing -project Kosmos.xcodeproj -scheme Kosmos -configuration Debug \
+         -destination 'generic/platform=iOS Simulator' ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=NO -derivedDataPath "$bwork/dd" > "$blog" 2>&1 ); then
+    rm -rf "${build_only:?}"; mkdir -p "$build_only" || { echo "FAIL  ui-sample build: could not make $build_only" >&2; exit 1; }
+    : > "$build_only/.ui-sample-products"   # first, so a copy cut short can be built into again
+    cp -R "$bwork/dd/Build/Products/." "$build_only/" || { echo "FAIL  ui-sample build: the products could not be copied" >&2; exit 1; }
+    # The stamp --products compares: this Xcode, this Mac's architecture, and the commit built (named if it differs).
+    { xcodebuild -version && uname -m; } > "$build_only/xcode-version" || { echo "FAIL  ui-sample build: no Xcode version" >&2; exit 1; }
+    git -C "$here/.." rev-parse HEAD > "$build_only/built-from" 2>/dev/null || :
+    run_file="$(find "$build_only" -maxdepth 1 -name '*.xctestrun' | head -1)"
+    if [ -z "$run_file" ]; then echo "FAIL  ui-sample build: no .xctestrun in the products" >&2; exit 1; fi
+    echo "PASS  ui-sample build: $(basename "$run_file"), $(head -1 "$build_only/xcode-version")"
+    exit 0
+  fi
+  echo "FAIL  ui-sample build: xcodebuild build-for-testing failed; its last lines:" >&2
+  tail -40 "$blog" >&2
+  exit 1
+fi
+# kosmos#8993: products from this same Xcode (and architecture) are tested without building; anything else is built here.
+run_file=""
+if [ -n "$products" ] && [ -d "$products" ]; then products="$(cd "$products" && pwd)"; fi   # xcodebuild runs from ios/
+if [ -n "$products" ]; then
+  # Exactly one: a scheme with several test plans would leave one per plan, and taking the first found would be a guess.
+  cands="$(find "$products" -maxdepth 1 -name '*.xctestrun' 2>/dev/null)"
+  cand=""; [ "$(printf '%s\n' "$cands" | grep -c .)" = 1 ] && cand="$cands"
+  if [ -z "$cand" ]; then
+    echo "ui-sample: not exactly one built test run in $products, so the app is built here"
+  elif [ "$(cat "$products/xcode-version" 2>/dev/null)" != "$({ xcodebuild -version && uname -m; } 2>/dev/null)" ]; then
+    echo "${GITHUB_ACTIONS:+::warning::}ui-sample: the products were built by another Xcode or for another architecture ($(head -1 "$products/xcode-version" 2>/dev/null || echo unknown)), so the app is built here"
+  elif built="$(cat "$products/built-from" 2>/dev/null)"; head_now="$(git -C "$here/.." rev-parse HEAD 2>/dev/null)"; \
+       [ -z "$built" ] || [ -z "$head_now" ] || [ "$built" != "$head_now" ] || [ -n "$(git -C "$here/.." status --porcelain -- ios 2>/dev/null)" ]; then
+    # Another commit, an unknown one, or uncommitted changes under ios/: testing those products could pass a change
+    # they do not contain, so the app is built here. (CI never takes this: uibuild and the UI jobs share one commit.)
+    echo "${GITHUB_ACTIONS:+::warning::}ui-sample: the products were not built from this checkout as it is (${built:0:10}), so the app is built here"
+  else
+    run_file="$cand"
+  fi
+fi
 if [ "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" = 1 ]; then
   echo "FAIL  ui-sample: the Simulator's hardware keyboard is on (ConnectHardwareKeyboard), which hides the on-screen keyboard" >&2
   exit 1
@@ -162,9 +228,19 @@ log="$work/xcodebuild.log"
 allow=""
 if [ "$uikit" = 1 ]; then allow="-test-timeouts-enabled YES -default-test-execution-time-allowance 420 -maximum-test-execution-time-allowance 420"; fi
 # shellcheck disable=SC2086  # $only, $skip and $allow are lists of separate arguments
-( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 TEST_RUNNER_KOSMOS_UI_SAMPLE=1 TEST_RUNNER_KOSMOS_UIKITLIST="$uikit" xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
-    -retry-tests-on-failure -test-iterations 2 $only $skip $allow -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
+# kosmos#8993: the same test arguments either way; only how the app is had differs (built here, or the shared products).
+if [ -n "$run_file" ]; then
+  echo "ui-sample: testing the shared build ($(basename "$run_file"))"
+  ( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 TEST_RUNNER_KOSMOS_UI_SAMPLE=1 TEST_RUNNER_KOSMOS_UIKITLIST="$uikit" xcodebuild test-without-building -xctestrun "$run_file" -destination "id=$udid" \
+      -retry-tests-on-failure -test-iterations 2 $only $skip $allow -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
+else
+  ( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 TEST_RUNNER_KOSMOS_UI_SAMPLE=1 TEST_RUNNER_KOSMOS_UIKITLIST="$uikit" xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
+      -retry-tests-on-failure -test-iterations 2 $only $skip $allow -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
+fi
 rc=$?
+# kosmos#8993: where the tested app is, for the failure notes below (they read its bundle id): the shared products, or
+# the folder this run built into.
+if [ -n "$run_file" ]; then appdir="$(dirname "$run_file")"; else appdir="$work/dd/Build/Products"; fi
 # kosmos#7609: a failed test gets one more try, because this job runs on GitHub's slower runners and waits run out there. So a test
 # counts once, by its last result, and one that failed then passed is FLAKY: named below, a warning on the run, and countable across runs.
 tally="$("$here/ui-sample-tally.sh" "$log")"
@@ -230,7 +306,7 @@ room_drag="RoomKeyboardUITests testRoomReadHigherUpAfterADragStaysWhereItWas"
 # kosmos#8221 slice 4: and the long chat's grow check, red on CI's UIKit arm only.
 dm_grow="KeyboardSlideUITests testNewestStaysJustAboveTheBoxAsItGrowsAndShrinks"
 if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check|$room_newest|$room_drag|$dm_grow)\]' failed" "$log"; then
-  app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
+  app="$(find "$appdir" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
   bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
   if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
@@ -248,7 +324,7 @@ if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check|$room_newest
 fi
 # kosmos#7767: a rebuild check's failure says what the check saw when it stopped waiting.
 if grep -q -E "^Test Case '-\[KosmosUITests\.KeyboardSlideUITests testRebuilt[A-Za-z]*\]' failed" "$log"; then
-  app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
+  app="$(find "$appdir" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
   bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
   if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
@@ -264,7 +340,7 @@ fi
 # A page that landed and was asked for again by itself (the top still reported showing) and a page that never came read
 # the same on screen, so the lines that tell them apart: each ask, each way out of it, each restart, and the top edge.
 if grep -q -E "^Test Case '-\[KosmosUITests\.(EarlierDroppedUITests|EarlierPagesUITests|EarlierDoubleAskUITests|EarlierDeleteShiftUITests) [A-Za-z0-9_]+\]' failed" "$log"; then
-  app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
+  app="$(find "$appdir" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
   bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
   if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then

@@ -4,12 +4,15 @@
 # job: the ios.yml job's exact name, "ui tests (sample board)" by default; "uikit list (sample board) 1/2" or "... 2/2" for the UIKit list (#8221; in two halves since #8453, so count each).
 set -u
 R=joshualeestone/kosmos; N="${1:-10}"; J="${2:-ui tests (sample board)}"; T="$(mktemp)"; trap 'rm -f "$T"' EXIT
-ran=0; red=0; none=0; asked=0; nojob=0; apierr=0
+ran=0; red=0; none=0; asked=0; nojob=0; apierr=0; skipped=0
 for id in $(gh run list --repo "$R" --workflow ios.yml --branch main --limit "$N" --json databaseId --jq '.[].databaseId'); do
   asked=$((asked + 1))
-  jobs="$(gh api "repos/$R/actions/runs/$id/jobs?per_page=50" --jq '.jobs[]|[.id,.name]|@tsv')" || { apierr=$((apierr + 1)); continue; }
+  jobs="$(gh api "repos/$R/actions/runs/$id/jobs?per_page=50" --jq '.jobs[]|[.id,.name,(.conclusion // "")]|@tsv')" || { apierr=$((apierr + 1)); continue; }
   job="$(printf '%s\n' "$jobs" | J="$J" awk -F'\t' '$2 == ENVIRON["J"] { print $1; exit }')"
   [ -n "$job" ] || { nojob=$((nojob + 1)); continue; }
+  # kosmos#8993: a UI job skipped because uibuild was red has no log at all; counted apart, so it never reads as "no log yet".
+  concl="$(printf '%s\n' "$jobs" | J="$J" awk -F'\t' '$2 == ENVIRON["J"] { print $3; exit }')"
+  [ "$concl" = skipped ] && { skipped=$((skipped + 1)); continue; }
   out="$(gh api "repos/$R/actions/jobs/$job/logs" 2>/dev/null)" || continue
   # Anchored on the log's timestamp: the step's own script, echoed in the log, also holds these words.
   printf '%s\n' "$out" | grep -q -E '^[^ ]+ (PASS|FAIL)  ui-sample:' || { none=$((none + 1)); continue; }
@@ -20,6 +23,7 @@ for id in $(gh run list --repo "$R" --workflow ios.yml --branch main --limit "$N
   printf '%s\n' "$out" | sed -n -E 's/^.*UI-NOTE (kosmos#[0-9]+).*/NOTE \1/p' >> "$T"
 done
 echo "main: asked $N, read $asked: $ran with a verdict, $red red; $none with no verdict (cancelled or timed out); the rest had no log yet"
+[ "$skipped" -gt 0 ] && echo "$skipped of $asked runs skipped \"$J\" (uibuild did not succeed, so it was not tested at all, kosmos#8993)"
 [ "$nojob" -gt 0 ] && echo "$nojob of $asked runs had no job named \"$J\""
 [ "$apierr" -gt 0 ] && echo "$apierr of $asked runs: their job list could not be read"
 sort "$T" | uniq -c | sort -rn
