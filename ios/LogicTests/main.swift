@@ -6436,6 +6436,9 @@ do {
     check((try! JSONSerialization.jsonObject(with: plainPress.httpBody!) as! [String: Any])["denyOnly"] == nil, "CONTROL: any other press does not")
     check(Board.liveChoices(cut)?.key == c?.key && Board.liveChoices(whole)?.key == whole.choices?.key,
           "the choices a press was for: the row's Deny on a cut thread, the thread's buttons otherwise")
+    let twoRows = thread(#"{"messages":[{"at":"2026-11-24T08:00:00Z","kind":"question","from":"cleo","text":"Q","denyOnly":{"n":2,"label":"No","asked":"x"}},{"at":"2026-11-24T09:00:00Z","kind":"question","from":"cleo","text":"Q","denyOnly":{"n":2,"label":"No","asked":"x"}}]}"#)!
+    check(Board.choices(for: twoRows.rows[0], in: twoRows) == nil && Board.choices(for: twoRows.rows[1], in: twoRows)?.denyOnly == true,
+          "only the live (last) question row gets a Deny; CONTROL: the live one does")
     let dropped = Board.withoutChoices(cut)
     check(dropped.choices == nil && dropped.rows.allSatisfy { $0.denyOnly == nil } && Board.choices(for: dropped.rows[0], in: dropped) == nil
           && dropped.rows.count == cut.rows.count,

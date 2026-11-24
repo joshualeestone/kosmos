@@ -2450,8 +2450,10 @@ enum Board {
     static func choices(for row: ChatRow, in thread: Thread) -> Choices? {
         guard row.wayThrough == .question || row.wayThrough == .permission, !row.reported else { return nil }
         if let c = thread.choices { return c }
-        // kosmos#8952 slice (c): no buttons for the whole request, but its No.
-        guard let d = row.denyOnly else { return nil }
+        // kosmos#8952 slice (c): no buttons for the whole request, but its No, and only on the live (last unreported) row.
+        guard let d = row.denyOnly,
+              thread.rows.last(where: { ($0.wayThrough == .question || $0.wayThrough == .permission) && !$0.reported })?.id == row.id
+        else { return nil }
         return Choices(options: [ChoiceOption(n: d.n, label: d.label, lasting: false)], asked: d.asked,
                        key: "deny\u{3}" + d.asked + "\u{3}\(d.n)\u{1}" + d.label, denyOnly: true)
     }

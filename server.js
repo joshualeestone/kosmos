@@ -21752,11 +21752,13 @@ const server = http.createServer(async (req, res) => {
       ? chat.permissionDenyOnly(view.text) : null;
     const denyAsked = denyRead && !chat.messageProblem(denyRead.label) ? chat.questionAbove(question.text) : null;
     const denyOnly = denyAsked ? { n: denyRead.n, label: chat.cleanMessage(denyRead.label), asked: denyAsked } : null;
-    const rowExtra = permCard ? { permission: permCard } : (denyOnly ? { denyOnly } : null);
+    // denyOnly rides only the LAST unreported question row (the live one), never an older stored one.
+    let liveQ = -1;
+    if (denyOnly && Array.isArray(servedRows)) servedRows.forEach((m, k) => { if (m && m.kind === 'question' && !m.reported) liveQ = k; });
     sendJsonTagged(req, res, 200, {
-      messages: rowExtra
-        ? servedRows.map((m) => (m && m.kind === 'question' && !m.reported ? { ...m, ...rowExtra } : m))
-        : servedRows,
+      messages: permCard
+        ? servedRows.map((m) => (m && m.kind === 'question' && !m.reported ? { ...m, permission: permCard } : m))
+        : (liveQ >= 0 ? servedRows.map((m, k) => (k === liveQ ? { ...m, denyOnly } : m)) : servedRows),
       olderCount,
       historyBecause,
       historyUnfilable,

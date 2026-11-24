@@ -32,3 +32,8 @@ server.permscroll-8952.test.js unchanged, LogicTests 2228/2228 + 12 run-*.sh, si
 ## Also covered, on purpose
 A tall plan-mode prompt ("Would you like to proceed?") whose top is off screen gets the same card; Deny there presses its
 own No ("keep planning"), which is still a refusal. The card's words hold for it.
+
+## Known edge, accepted
+The Deny's key is its visible identity plus the No's words, the same shape as the existing buttons' key. A second cut
+prompt with the same visible tail inside the 6 s answered lock reads "Denied." with no button until the lock ends;
+nothing is sent, and the next read after the lock offers Deny again.

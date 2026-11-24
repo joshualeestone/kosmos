@@ -88,6 +88,8 @@ test('#8952 (c): a cut-off box serves its No on the question row, and a denyOnly
     assert.equal(row.denyOnly.n, 4);
     assert.equal(row.denyOnly.label, 'No');
     assert.equal(row.denyOnly.asked, chat.questionAbove(chat.questionIn(CUT, 'claude').text));
+    const others = (thread.messages || []).filter((m) => m && m !== row && m.denyOnly);
+    assert.deepEqual(others, [], 'denyOnly on a row other than the live question');
     const p = await post({ text: '4', chose: 'No', asked: row.denyOnly.asked, denyOnly: true });
     assert.equal(p.status, 200, JSON.stringify(p.json));
     assert.deepEqual(calls.keys(), ['4']);
