@@ -335,17 +335,20 @@ fi
 # and two unlinks of literal folders under the home folder) did not reproduce, so nothing here claims it.
 # How the reader works: perl (JSON::PP, shipped with every Mac's /usr/bin/perl) takes tool_input.command of a Bash
 # call only. For ${(, a small quote reader: a backslash escapes the next character; '...' and $'...' are literal; a
-# # at the start of a word starts a comment; "..." is read, and a $( inside it opens an unquoted level until its );
-# a heredoc's body is read only when its delimiter is unquoted (no ' " or \ in it), and a \$ in it is literal.
-# Known misreads (rare): << inside $(( )) is read as a heredoc, so lines after it may go unread (it lets more run, the
-# old behaviour: Claude Code still refuses those); single quotes inside "$( )" are read as quotes, correctly.
+# # at the start of a word starts a comment; "..." is read, and a $( or a backtick inside it opens an unquoted level
+# until its ) or backtick; <<< is a here-string; a heredoc's body is read only when its delimiter is unquoted (no ' "
+# or \ in it), and a \$ in it is literal.
+# Known misreads (rare; review round 1): << inside $(( )) is read as a heredoc, so lines after it may go unread (lets
+# more run: the old behaviour); a case pattern's ) inside "$( )" ends that level early, and an unquoted heredoc body is
+# read flat, so '${(' in single quotes inside a $( ) there is refused although the shell does not read it.
 # 🛑 IT REFUSES ONLY WHERE THE PROMPT WOULD REACH A PERSON. Kosmos's own PermissionRequest hook
 # (engine/kosmos-permission-allow.js, #5406) answers Claude Code's safety prompts with allow (Josh, 2026-10-22), so for
 # most commands these shapes run today with no prompt and no push, and refusing them would only cost the agent a
 # rewrite. That hook steps aside when the command names .claude, .claude.json or .git, and 8 of the 9 real refusals did
 # (a plan file under .claude/plans, mostly): those are the prompts that reached the phone. So the guard asks that same
-# hook (allow_hook_allows, run on this payload renamed PermissionRequest) and refuses only when it would not answer:
-# it steps aside, or this agent has no such hook (an agent Kosmos did not start, the 9th).
+# hook (allow_hook_allows, run on this payload renamed PermissionRequest) and refuses only when it would not answer.
+# A session with no such hook is left alone (review round 1): it is the person's own Claude Code (setup wires this hook
+# into their settings too), where the prompt is theirs to answer, or an agent Kosmos did not start.
 # The check runs only when the raw input holds $$( or ${( at all, so every other call costs one bash pattern match.
 # Any failure (no perl, no JSON::PP, bad JSON) lets the call run, as before. KOSMOS_SHAPE_GUARD=off turns it off.
 # Not for Windows agents (their hook is engine/kosmos-report-hook.js) or Codex, Gemini and Grok (no such check).
@@ -357,15 +360,15 @@ _shape_reason() { # reads $INPUT; prints pid or zsh when Claude Code's check wou
   IFS= read -r -d '' _pl <<'SHAPE_PL' || true
 use strict; use warnings;
 my $in = do { local $/; <STDIN> };
-my $d = eval { require JSON::PP; JSON::PP->new->decode($in) };
+my $d = eval { require JSON::PP; JSON::PP->new->utf8->decode($in) };
 exit 0 unless ref $d eq 'HASH' && ($d->{tool_name} // '') eq 'Bash' && ref $d->{tool_input} eq 'HASH';
 my $c = $d->{tool_input}{command};
 exit 0 unless defined $c && !ref $c;
-my $pr = sub { $d->{hook_event_name} = 'PermissionRequest'; print JSON::PP->new->canonical->encode($d), "\n" };
+my $pr = sub { $d->{hook_event_name} = 'PermissionRequest'; print JSON::PP->new->utf8->canonical->encode($d), "\n" };
 if (index($c, '$' . '$(') >= 0) { print "pid\n"; $pr->(); exit 0 }
 exit 0 unless index($c, '${(') >= 0;
 my @ch = split //, $c; my $n = @ch; my $i = 0;
-my @ctx = (['N', 0]);   # N: unquoted, with its own ( depth; D: inside double quotes
+my @ctx = (['N', 0]);   # N: unquoted, with its own ( depth; B: inside backticks, read as N; D: inside double quotes
 my @pend;               # heredocs waiting for the end of the line: [delimiter, quoted, strip tabs]
 my $hit = 0;
 sub flag_at { my $k = shift; return $k + 2 < $n && $ch[$k] eq '$' && $ch[$k+1] eq '{' && $ch[$k+2] eq '(' }
@@ -377,8 +380,11 @@ while ($i < $n && !$hit) {
     if ($x eq '"') { pop @ctx; $i++; next }
     if (flag_at($i)) { $hit = 1; last }
     if ($x eq '$' && $i + 1 < $n && $ch[$i+1] eq '(') { push @ctx, ['N', 0]; $i += 2; next }
+    if ($x eq '`') { push @ctx, ['B', 0]; $i++; next }   # a backtick in double quotes: its own unquoted level
     $i++; next;
   }
+  if ($x eq '`') { if ($t eq 'B') { pop @ctx } else { push @ctx, ['B', 0] } $i++; next }   # B: read as unquoted
+  if ($x eq '<' && substr($c, $i, 3) eq '<<<') { $i += 3; next }   # a here-string, not a heredoc (review round 1)
   if ($x eq '\\') { $i += 2; next }
   if ($x eq "'") { my $e = index($c, "'", $i + 1); $i = $e < 0 ? $n : $e + 1; next }
   if ($x eq '$' && $i + 1 < $n && $ch[$i+1] eq "'") {
@@ -544,10 +550,13 @@ report_turn_end() {
 # function started, and reads false.
 kosmos_allows() { [ -n "$KOSMOS" ] || return 1; allow_hook_allows "$INPUT"; }
 # kosmos#9001: the same question for a given PermissionRequest payload ($1), with no CLI needed, for the shape guard.
-allow_hook_allows() {
+allow_hook_present() { # this agent runs with Kosmos's allow hook: an agent Kosmos started
   [ -n "${KOSMOS_PERMISSION_ALLOW_NODE:-}" ] && [ -n "${KOSMOS_PERMISSION_ALLOW_SCRIPT:-}" ] || return 1
   case "$KOSMOS_PERMISSION_ALLOW_SCRIPT" in */kosmos-permission-allow.js) ;; *) return 1 ;; esac
   [ -f "$KOSMOS_PERMISSION_ALLOW_NODE" ] && [ -x "$KOSMOS_PERMISSION_ALLOW_NODE" ] && [ -f "$KOSMOS_PERMISSION_ALLOW_SCRIPT" ] || return 1
+}
+allow_hook_allows() {
+  allow_hook_present || return 1
   local out p r start=$SECONDS
   out=$(mktemp "${TMPDIR:-/tmp}/kosmos-allow.XXXXXX" 2>/dev/null) || return 1
   printf '%s' "$1" | "$KOSMOS_PERMISSION_ALLOW_NODE" "$KOSMOS_PERMISSION_ALLOW_SCRIPT" > "$out" 2>/dev/null &
@@ -707,13 +716,15 @@ case "$EVENT" in
           _SG_WHY="${_SG_OUT%%$'\n'*}"; _SG_PR="${_SG_OUT#*$'\n'}"
           # Kosmos's allow hook answers Claude Code's safety prompt with allow (Josh, 2026-10-22), so then the command
           # runs today and nothing reaches the person: leave it alone. Refuse only where that hook would not answer.
-          if [ -n "$_SG_WHY" ] && [ "$_SG_PR" != "$_SG_OUT" ] && ! allow_hook_allows "$_SG_PR"; then
+          # Only an agent Kosmos started (it has the allow hook): in the person's own Claude Code, where this hook also
+          # runs, the prompt is theirs to answer at their own screen, so nothing is refused there (review round 1).
+          if [ -n "$_SG_WHY" ] && [ "$_SG_PR" != "$_SG_OUT" ] && allow_hook_present && ! allow_hook_allows "$_SG_PR"; then
             case "$_SG_WHY" in
               pid)
-                printf '%s\n' 'Kosmos stopped this Bash command before it ran: it contains the three characters $$( (as in page.$$( ). Claude Code'"'"'s own safety check refuses any shell command holding them, even inside quotes, a comment or a quoted heredoc: it would show the person you work for a permission prompt they cannot usefully answer, then decline by itself (kosmos#9001). Write the code to a file with the Write or Edit tool and run that file, or write it as \$\$( inside an unquoted heredoc.' >&2
+                printf '%s\n' 'Kosmos stopped this Bash command before it ran: it contains the three characters $$( (as in page.$$( ). Claude Code'"'"'s own safety check refuses any shell command holding them, even inside quotes, a comment or a quoted heredoc: it would show the person you work for a permission prompt they cannot usefully answer, then decline by itself (kosmos#9001). Write the code to a file with the Write or Edit tool and run that file.' >&2
                 exit 2 ;;
               zsh)
-                printf '%s\n' 'Kosmos stopped this Bash command before it ran: it uses a zsh expansion flag, ${(...)...} (such as ${(f)x} to split lines or ${(u)x} for unique values). Claude Code cannot read it, so its own safety check would show the person you work for a permission prompt they cannot usefully answer, then decline by itself (kosmos#9001). Write it the plain way: while IFS= read -r line; do ...; done <<< "$x" to go line by line, or sort -u for unique values. The same text inside single quotes or a quoted heredoc (<<'"'"'EOF'"'"') is fine.' >&2
+                printf '%s\n' 'Kosmos stopped this Bash command before it ran: it uses a zsh expansion flag, ${(...)...} (such as ${(f)x} to split lines or ${(u)x} for unique values). Claude Code cannot read it, so its own safety check would show the person you work for a permission prompt they cannot usefully answer, then decline by itself (kosmos#9001). Write it the plain way: while IFS= read -r line; do ...; done <<< "$x" to go line by line, sort -u for unique values, paste -sd, - to join lines with commas. The same text inside single quotes or a quoted heredoc (<<'"'"'EOF'"'"') is fine.' >&2
                 exit 2 ;;
             esac
           fi ;;

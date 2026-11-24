@@ -31,6 +31,19 @@ person still runs.
 - A fleet hook in ~/.claude: reaches only this Mac; the report hook reaches every Kosmos install.
 - Refusing rm on a variable path or a cd into a variable folder (the card's guesses): Claude Code 2.1.331 runs them.
 
+## Round 1 (opus, blind) fixes
+- BLOCKER fixed: setup wires this hook into the person's own Claude Code too, where there is no allow hook and the
+  prompt is theirs to answer; the first version refused there. Now only an agent with Kosmos's allow hook present
+  (allow_hook_present, split out of allow_hook_allows) whose allow hook steps aside is refused. Tests: the person's own
+  session runs, naming .claude or not; a fake allow-hook path is no hook. This drops the one real refusal from an
+  agent with no allow hook (11-09): that prompt still shows, as today.
+- `<<<` was read as a heredoc (its quoted word became a delimiter that swallowed later lines; failed open). Fixed.
+- Backticks are now their own unquoted level, also inside double quotes. Remaining misreads documented in the header.
+- JSON::PP in UTF-8 both ways (a non-ASCII command is re-encoded intact for the allow hook; tested).
+- Messages: the $$( one keeps only the Write/Edit-a-file way (an unquoted heredoc expands every other $); the zsh one
+  adds `paste -sd, -` for a join.
+- Mutations checked: no own-session gate, no here-string rule, no backtick level: each turns the suite red.
+
 ## Weakest premise
 The shapes are Claude Code 2.1.331's. A later version may refuse more (those still prompt, as today) or fewer (the
 guard then refuses a command that would have run with a prompt the allow hook steps aside from; the message names the

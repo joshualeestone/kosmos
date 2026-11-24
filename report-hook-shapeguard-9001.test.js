@@ -33,8 +33,12 @@ test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 
 const d = (s) => s.replace(/PID\(/g, '$$$$(').replace(/ZF\(/g, '${(');
 
-function run(command, { tool = 'Bash', allowHook = false, env: extra = {}, input } = {}) {
-  const toolInput = input || { command: d(command) };
+// By default each call is a Kosmos agent's (the allow hook is present) naming a plan file under .claude in its
+// description, so the allow hook steps aside: the one case where Claude Code's prompt reaches the person, and so the
+// one case the guard judges. The allow-hook test below takes each of those away in turn.
+const PLAN = 'edits /tmp/w/.claude/plans/x.md';
+function run(command, { tool = 'Bash', allowHook = true, protectedName = true, env: extra = {}, input } = {}) {
+  const toolInput = input || { command: d(command), ...(protectedName ? { description: PLAN } : {}) };
   const payload = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: toolInput, session_id: 's' });
   const env = { ...process.env, KOSMOS_REPORT_CLI: STUB, TMPDIR: SANDBOX, HOME: SANDBOX, ...extra };
   for (const k of ['TMUX_PANE', 'KOSMOS_AGENT_SESSION', 'KOSMOS_AGENT_TOKEN', 'KOSMOS_SHAPE_GUARD', 'KOSMOS_KILL_GUARD',
@@ -106,19 +110,27 @@ test('every command Claude Code ran (measured) runs: no refusal, no message', { 
   }
 });
 
-test('where Kosmos\'s allow hook would answer the prompt, the shape runs (it does today); naming .claude, it is refused',
+test('only where the prompt would reach the person: the allow hook answers, it runs (as today); it steps aside, refused',
   { skip: SKIP_POSIX_SHELL }, () => {
     const plain = "cat <<'PY'\nx = page.PID('a')\nPY";
-    assert.equal(run(plain, { allowHook: true }).code, 0, 'the allow hook answers: it runs, as today');
-    assert.equal(run('x=a; echo "ZF(f)x}"', { allowHook: true }).code, 0, 'zsh, allow hook answers');
-    // The allow hook steps aside for a protected place, so the self-declining prompt would show: refused.
+    assert.equal(run(plain).code, 2, 'premise: a Kosmos agent, naming .claude: refused');
+    assert.equal(run(plain, { protectedName: false }).code, 0, 'the allow hook answers: it runs, as today');
+    assert.equal(run('x=a; echo "ZF(f)x}"', { protectedName: false }).code, 0, 'zsh, the allow hook answers');
+    // The allow hook steps aside for a protected place named in the command itself, too.
     const plan = "python3 - /tmp/w/.claude/plans/x.md <<'PY'\nx = page.PID('a')\nPY";
-    assert.equal(run(plan, { allowHook: true }).code, 2, 'names .claude: the allow hook steps aside, so refused');
-    assert.equal(run('for f in ZF(f)x}; do git -C /tmp/w/.git log; done', { allowHook: true }).code, 2, '.git, zsh');
-    assert.equal(run('echo ZF(f)x} > ~/.claude.json.bak', { allowHook: true }).code, 2, '.claude.json');
-    // A broken allow hook path is not a hook: refused, as for an agent with none.
-    assert.equal(run(plain, { env: { KOSMOS_PERMISSION_ALLOW_NODE: process.execPath, KOSMOS_PERMISSION_ALLOW_SCRIPT: path.join(SANDBOX, 'kosmos-permission-allow.js') } }).code, 2,
-      'an allow-hook script that does not exist answers nothing');
+    assert.equal(run(plan, { protectedName: false }).code, 2, '.claude in the command');
+    assert.equal(run('for f in ZF(f)x}; do git -C /tmp/w/.git log; done', { protectedName: false }).code, 2, '.git, zsh');
+    assert.equal(run('echo ZF(f)x} > ~/.claude.json.bak', { protectedName: false }).code, 2, '.claude.json');
+    // No allow hook: the person's own Claude Code (setup wires this hook there too), where the prompt is theirs to
+    // answer at their own screen. Left alone, even naming .claude (review round 1).
+    assert.equal(run(plain, { allowHook: false }).code, 0, "the person's own session: runs, the prompt is theirs");
+    assert.equal(run('x=a; echo "ZF(f)x}"', { allowHook: false }).code, 0, "the person's own session, zsh");
+    // An allow-hook path that is not the allow hook is no hook: left alone too.
+    assert.equal(run(plain, { allowHook: false, env: { KOSMOS_PERMISSION_ALLOW_NODE: process.execPath, KOSMOS_PERMISSION_ALLOW_SCRIPT: path.join(SANDBOX, 'kosmos-permission-allow.js') } }).code, 0,
+      'an allow-hook script that does not exist: not a Kosmos agent');
+    // Text beyond ASCII survives the rename to PermissionRequest (the allow hook still reads it).
+    assert.equal(run("cat <<'PY'\nx = page.PID('café ✓')\nPY", { protectedName: false }).code, 0, 'non-ASCII, the allow hook answers');
+    assert.equal(run("cat <<'PY'\nx = page.PID('café ✓')\nPY").code, 2, 'non-ASCII, naming .claude');
   });
 
 test('controls: switched off, no perl, another tool, another event, unreadable input: all run', { skip: SKIP_POSIX_SHELL }, () => {
@@ -147,4 +159,12 @@ test('the reader: quotes, escapes, $\'...\', nested $( ) in double quotes, <<- h
   assert.equal(run('cat <<\\EOF\nZF(f)x}\nEOF').code, 0, '<<\\EOF is a quoted delimiter');
   assert.equal(run('cat <<EOF\n\\ZF(f)x}\nEOF').code, 0, 'an escaped dollar in an unquoted heredoc');
   assert.equal(run("x=1 # it's\necho ZF(f)x}").code, 2, 'an apostrophe in a comment does not open a quote');
+  // review round 1: <<< is a here-string, not a heredoc that swallows the lines after it
+  assert.equal(run('cat <<< "ZF(f)x}"').code, 2, 'a flag in a here-string, double quoted');
+  assert.equal(run('cat <<< "a"\necho ZF(f)x}').code, 2, 'a here-string does not hide the next line');
+  assert.equal(run(`while IFS= read -r l; do echo "$l"; done <<< "$(printf 'a')"`).code, 0, 'the suggested form itself runs');
+  // review round 1: backticks are their own unquoted level, also inside double quotes
+  assert.equal(run("echo \"`echo 'ZF(f)x}'`\"").code, 0, 'single quotes inside backticks inside double quotes');
+  assert.equal(run('echo `echo ZF(f)x}`').code, 2, 'a flag inside backticks');
+  assert.equal(run("echo `echo 'a'` ZF(f)x}").code, 2, 'a flag after backticks close');
 });
