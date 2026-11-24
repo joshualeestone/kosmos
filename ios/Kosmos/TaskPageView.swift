@@ -96,14 +96,14 @@ struct TaskPageView: View {
             .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.switchControlStatusDidChangeNotification)) { _ in
                 model.assistive = UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning
             }
-            .onDisappear { visible = false; model.onScreen = false; loop?.cancel(); loop = nil }
+            .onDisappear { visible = false; model.onScreen = false; loop?.cancel(); loop = nil; model.stopReceipt() }
             .onChange(of: scenePhase) { phase in
                 model.appActive = phase == .active
                 guard visible else { return }
                 if phase == .active {
                     model.touched()
                     startReading(returning: true)
-                } else { loop?.cancel(); loop = nil }
+                } else { loop?.cancel(); loop = nil; model.stopReceipt() }
             }
             .onChange(of: model.activityKey) { _ in Task { await model.markSeen() } }
     }
@@ -134,7 +134,7 @@ struct TaskPageView: View {
                     // has no return key.
                     .scrollDismissesKeyboard(.interactively)
             }
-                .dotsRefresh { await model.read(); model.syncReceipt(); await model.readActivity(names: names) }
+                .dotsRefresh { await model.read(); await model.readActivity(names: names) }
         } else if model.gone {
             message("This task is not on your computer any more", "It may have been deleted, or its project moved.")
         } else if model.readFailed {

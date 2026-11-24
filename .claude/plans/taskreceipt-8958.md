@@ -23,8 +23,9 @@ Stacked on B3b (taskreview-8958); rebased onto main once A, B1, B2, B3 and B3b m
 - engine/receipt.js withCost(receipt): a copy with each read agent's cost. server.js: the task receipt route sends it.
 - TaskPageLogic: TaskPage.receiptKey (the board's key: closed, and the close time, the task's own or its newest part's)
   and closedUnrun; taskReceiptRequest, parseReceipt, and the words (abbreviated tokens, dollars, the JS toFixed rounding).
-- TaskPageModel.syncReceipt: asked when the key changes, after a tick's read and after a press; off the tick (a first
-  read of long transcripts can take seconds); only the newest ask draws; a failed read is asked again after 30 s.
+- TaskPageModel.syncReceipt: run by every read of the task, asked when the key changes; off the tick (a first read of long
+  transcripts can take seconds); one read at a time, a superseded one cancelled; only the newest ask draws; a failed read
+  is asked again after 30 s. stopReceipt: leaving the page or the app cancels the read in the air, with no failure recorded.
 - TaskPageView: the receipt between the activity and the message box; files open and close per agent, and close when
   another receipt is drawn (one read again and found the same keeps them, where the board closes them).
 - The request waits 120 s: the Mac answers only once the whole receipt is worked out (a round 1 finding; that a request's

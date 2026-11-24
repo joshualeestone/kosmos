@@ -60,7 +60,7 @@ final class TaskPageModel: ObservableObject {
     private var receiptAsked: String?
     private var receiptFailed: (key: String, at: Date)?
     private var receiptReads = 0
-    // The read in the air, so a test can wait for it.
+    // The read in the air, nil when there is none.
     private(set) var receiptReading: Task<Void, Never>?
     static let receiptRetry: TimeInterval = 30
     // The title and detail being saved, and the line for the last save (the board's tk-msg for the form).
@@ -169,6 +169,7 @@ final class TaskPageModel: ObservableObject {
             if reviewerRefused && (p.closed || p.repeatRow == nil) { reviewerSay = nil; reviewerRefused = false }
             set(\.gone, false)
             set(\.readFailed, false)
+            syncReceipt()
         case .gone:
             if holdSaySig != nil { holdSay = nil; holdSaySig = nil }
             set(\.gone, true)
@@ -230,7 +231,7 @@ final class TaskPageModel: ObservableObject {
     // more, as the board's tkTabReturn does, but only the state this tick just read: a read that fails records nothing,
     // so a nudge that arrived while they were away is never marked before it is shown.
     func tick(first: Bool, returning: Bool, names: [String: String]) async {
-        if first || shouldReadTask { await read(); syncReceipt() }
+        if first || shouldReadTask { await read() }
         guard shouldReadActivity(first: first) else { return }
         if await readActivity(names: names) { await markSeen(again: first && returning) }
     }
@@ -249,25 +250,38 @@ final class TaskPageModel: ObservableObject {
         guard current else { return }
         if case .refused(let why) = Board.taskActResult(status: answer?.1.statusCode ?? 0, body: answer?.0) { refusal = why }
         await read()
-        syncReceipt()
         await readActivity(names: names)
         guard current else { return }
         pressing = false
     }
 
-    // kosmos#8958 slice B4: the board's tkReceiptSync and paintTaskReceipt. Asked only when the closed state changed since it
-    // was last asked, and again 30 s after a read that failed. Not awaited: the Mac's first read of long
-    // transcripts can take seconds, and the page's own tick must not wait for it. Only the newest ask draws.
+    // The receipt's read in the air is given up: another is wanted, the task is open, or the page left the screen or the app
+    // the front. A read cut short is no failure, and is asked for again on the next read of the task (the Mac goes on working
+    // it out meanwhile, and shares it).
+    func stopReceipt() {
+        guard let reading = receiptReading else { return }
+        reading.cancel()
+        receiptReading = nil
+        receiptReads += 1
+        receiptAsked = nil
+    }
+
+    // kosmos#8958 slice B4: the board's tkReceiptSync and paintTaskReceipt, after every read of the task. Asked only when the
+    // closed state changed since it was last asked, and again 30 s after a read that failed. Not awaited: the Mac's first
+    // read of long transcripts can take seconds, and the page's own tick must not wait for it. One read at a time: an
+    // older one is cancelled (it would hold one of the few connections every call to the Mac shares), and only the newest
+    // ask draws.
     func syncReceipt() {
         guard current, let page, !gone else { return }
         guard let key = page.receiptKey else {
             // Open: no receipt, and one still in the air draws nothing.
-            receiptReads += 1
+            stopReceipt()
             receiptAsked = nil
             if receipt != nil { receipt = nil }
             return
         }
         guard key != receiptAsked else { return }
+        stopReceipt()   // one still out is for another close
         if let f = receiptFailed, f.key == key, now().timeIntervalSince(f.at) < Self.receiptRetry { return }
         receiptAsked = key
         receiptReads += 1
@@ -275,7 +289,9 @@ final class TaskPageModel: ObservableObject {
         let (project, number) = (self.project, self.number)
         receiptReading = Task { [weak self, send] in
             let answer = await send { Board.taskReceiptRequest(mac: $0, project: project, number: number) }
-            guard let self, self.current, mine == self.receiptReads else { return }
+            guard let self, mine == self.receiptReads else { return }
+            self.receiptReading = nil
+            guard self.current else { return }
             var read = Board.ReceiptRead.unreadable
             if let (data, response) = answer, (200...299).contains(response.statusCode) {
                 // Replaced or never run as the task reads now, not as it did when this was asked.

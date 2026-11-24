@@ -1524,6 +1524,11 @@ func b4ModelTests() async {
     mac.receipt = answer("ann")
     await tick()
     check(m.page != nil && m.receipt == nil && asksReceipt(mac) == 0, "an open task asks for no receipt")
+    var openRedraws = 0
+    let watchOpen = m.objectWillChange.sink { openRedraws += 1 }
+    await tick()
+    watchOpen.cancel()
+    check(openRedraws == 0, "a quiet tick of an open task redraws nothing")
     mac.projects = with(closedAt: at1)
     await tick()
     check(m.receipt?.agents.map(\.who) == ["ann"] && asksReceipt(mac) == 1, "closed: its receipt is read and drawn")
@@ -1595,77 +1600,77 @@ func b4ModelTests() async {
     let late = FakeMac()
     let l = TaskPageModel(project: "springcatalogue", number: 3, send: { await late.asyncSend($0) }, sleep: { _ in }, epoch: { late.epoch })
     l.onScreen = true
+    // Reads the task with its receipt's answer held: the task's own read is released, the receipt's stays queued.
+    func readHolding(_ model: TaskPageModel, _ mac: FakeMac) async {
+        mac.queueing = true
+        let reading = Task { await model.read() }
+        await waitUntil({ mac.queuedCount == 1 }, "the task's read")
+        mac.release(at: 0)
+        await reading.value
+        await waitUntil({ mac.queuedCount == 1 }, "the receipt ask")
+        mac.queueing = false
+    }
     late.projects = with(closedAt: at1)
-    await l.read()
-    late.queueing = true
     late.receipt = answer("old")
-    l.syncReceipt()
+    await readHolding(l, late)
     let first = l.receiptReading
-    await waitUntil({ late.queuedCount == 1 }, "the first receipt ask")
-    late.queueing = false
     late.projects = with(closedAt: at2)
-    await l.read()
     late.receipt = answer("new")
-    l.syncReceipt()
+    await l.read()
+    check(first?.isCancelled == true, "an older ask still out is cancelled by a newer one")
     await l.receiptReading?.value
     check(l.receipt?.agents.map(\.who) == ["new"], "the newer ask draws")
     late.release(at: 0)
     await first?.value
     check(l.receipt?.agents.map(\.who) == ["new"], "an older ask answered after it draws nothing")
     late.projects = with(closedAt: at1)
-    await l.read()
-    late.queueing = true
-    l.syncReceipt()
+    await readHolding(l, late)
     let beforePutBack = l.receiptReading
-    await waitUntil({ late.queuedCount == 1 }, "the receipt ask before the put-back")
-    late.queueing = false
     late.projects = with(closedAt: nil)
     await l.read()
-    l.syncReceipt()
+    check(beforePutBack?.isCancelled == true && l.receipt == nil, "put back: the ask still out is cancelled, and the receipt shown goes with the same read")
     late.release(at: 0)
     await beforePutBack?.value
     check(l.receipt == nil, "an ask answered after the task was put back draws nothing")
     // Another account or Mac meanwhile: the page is about nothing, and its receipt is not drawn.
     late.projects = with(closedAt: at2)
-    await l.read()
-    late.queueing = true
-    l.syncReceipt()
+    await readHolding(l, late)
     let beforeSwitch = l.receiptReading
-    await waitUntil({ late.queuedCount == 1 }, "the receipt ask before the switch")
-    late.queueing = false
     late.epoch += 1
     late.release(at: 0)
     await beforeSwitch?.value
     check(l.receipt == nil, "an answer landing after the Mac was switched draws nothing")
     let gone = FakeMac()
-    let g = TaskPageModel(project: "springcatalogue", number: 3, send: { await gone.asyncSend($0) }, sleep: { _ in }, epoch: { gone.epoch })
+    let g = TaskPageModel(project: "springcatalogue", number: 3, send: { await gone.asyncSend($0) }, sleep: { _ in }, epoch: { gone.epoch }, now: { clock })
     gone.projects = with(closedAt: at1)
+    gone.receipt = (500, Data())
     await g.read()
+    await g.receiptReading?.value
+    clock.addTimeInterval(60)
     gone.epoch += 1
     g.syncReceipt()
     await g.receiptReading?.value
-    check(g.page != nil && asksReceipt(gone) == 0, "after a switch, no receipt is asked for")
+    check(g.page != nil && asksReceipt(gone) == 1, "after a switch, no receipt is asked for again")
 
     // A task no longer on the computer: its page is a message, and nothing is asked for.
     let off = FakeMac()
-    let o = TaskPageModel(project: "springcatalogue", number: 3, send: { await off.asyncSend($0) }, sleep: { _ in }, epoch: { off.epoch })
+    let o = TaskPageModel(project: "springcatalogue", number: 3, send: { await off.asyncSend($0) }, sleep: { _ in }, epoch: { off.epoch }, now: { clock })
     off.projects = with(closedAt: at1)
+    off.receipt = (500, Data())
     await o.read()
+    await o.receiptReading?.value
     off.projects = (200, Data(#"{"projects":[]}"#.utf8))
     await o.read()
+    clock.addTimeInterval(60)
     o.syncReceipt()
     await o.receiptReading?.value
-    check(o.gone && o.page != nil && asksReceipt(off) == 0, "a task no longer on the computer asks for no receipt")
+    check(o.gone && o.page != nil && asksReceipt(off) == 1, "a task no longer on the computer asks for no receipt again")
 
     // Marked replaced while the receipt was out: said as the task reads when it lands.
     let mid = FakeMac()
     let r = TaskPageModel(project: "springcatalogue", number: 3, send: { await mid.asyncSend($0) }, sleep: { _ in }, epoch: { mid.epoch })
     mid.projects = with(closedAt: at1)
-    await r.read()
-    mid.queueing = true
-    r.syncReceipt()
-    await waitUntil({ mid.queuedCount == 1 }, "the receipt ask before the replace")
-    mid.queueing = false
+    await readHolding(r, mid)
     mid.projects = with(closedAt: at1, ["replacedBy": 4])
     await r.read()
     mid.release(at: 0)
@@ -1677,16 +1682,31 @@ func b4ModelTests() async {
     let s = TaskPageModel(project: "springcatalogue", number: 3, send: { await slow.asyncSend($0) }, sleep: { _ in }, epoch: { slow.epoch })
     s.onScreen = true
     slow.projects = with(closedAt: at1)
-    await s.read()
-    slow.queueing = true
-    s.syncReceipt()
-    await waitUntil({ slow.queuedCount == 1 }, "the slow receipt ask")
-    slow.queueing = false
+    await readHolding(s, slow)
     await s.tick(first: false, returning: false, names: [:])
     check(slow.asked.filter { $0 == "GET /api/projects" }.count == 2 && asksReceipt(slow) == 1, "a tick finishes while the receipt is out, and does not ask for it twice")
     slow.release(at: 0)
     await s.receiptReading?.value
     check(s.receipt != nil, "and the receipt is drawn when it lands")
+
+    // The page leaves the screen with its receipt still out: cancelled, no failure (no 30 s wait), asked for on the next read.
+    let left = FakeMac()
+    let x = TaskPageModel(project: "springcatalogue", number: 3, send: { await left.asyncSend($0) }, sleep: { _ in }, epoch: { left.epoch }, now: { clock })
+    left.projects = with(closedAt: at1)
+    await readHolding(x, left)
+    let leaving = x.receiptReading
+    x.stopReceipt()
+    check(leaving?.isCancelled == true && x.receiptReading == nil, "leaving the page cancels the read still out")
+    left.release(at: 0)
+    await leaving?.value
+    check(x.receipt == nil, "and its answer draws nothing")
+    await x.read()
+    await x.receiptReading?.value
+    check(asksReceipt(left) == 2 && x.receipt != nil, "back on the page: asked for again at once, and drawn")
+    x.stopReceipt()
+    await x.read()
+    await x.receiptReading?.value
+    check(asksReceipt(left) == 2 && x.receipt != nil, "leaving with the receipt drawn keeps it, and asks nothing more")
 
     // Mark as done: its receipt is asked for at once, not at the next tick.
     let done = FakeMac()
