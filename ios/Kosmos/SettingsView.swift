@@ -3,14 +3,17 @@ import SwiftUI
 
 // kosmos#7010 (slice 10 of #6838): the native Settings tab. The phone switches (the computer's own setting, read and
 // written as the board's Settings does), the computer this phone shows, Face ID (only while the app asks for it), the
-// Kosmos+ account (its own pages, opened in the app's web view), and a row to the board's own Settings for everything
-// else. The logic is SettingsLogic.swift.
+// Kosmos+ account (native since kosmos#8959 slice B1a, AccountView; the delete flow is still its web page), and a row to
+// the board's own Settings for everything else. The logic is SettingsLogic.swift.
 struct SettingsView: View {
     let coordinator: URL
     // A Kosmos+ page (the account, the delete flow), opened in the app's web view.
     let openPage: (URL) -> Void
     // The board's own Settings, shown under Today (AppTabs.barTab).
     let openBoardSettings: () -> Void
+    // kosmos#8959 slice B1a: the account screen signed this iPhone out (already ended on Kosmos+, or the person chose
+    // this iPhone only), with the session it held.
+    var signedOut: (String) -> Void = { _ in }
     // kosmos#7266 slice B: the person on the shown computer, for the page's top (BoardClient.youName / youPicture).
     var youName: String? = nil
     var youPicture: Data? = nil
@@ -244,9 +247,13 @@ struct SettingsView: View {
 
     @ViewBuilder private var account: some View {
         Section {
-            Button { openPage(Settings.accountURL(coordinator: coordinator)) } label: {
-                row("Your Kosmos+ account", detail: "Sign out here")
+            // kosmos#8959 slice B1a: native, where the web page used to open.
+            NavigationLink {
+                AccountView(coordinator: coordinator, openPage: openPage, signedOut: signedOut, sample: Self.sample)
+            } label: {
+                Text("Your Kosmos+ account").foregroundColor(Palette.primary)
             }
+            .accessibilityIdentifier("settings-account")
             Button { openPage(Settings.deleteAccountURL(coordinator: coordinator)) } label: {
                 Text("Delete account").foregroundColor(Palette.dangerWord)
             }
