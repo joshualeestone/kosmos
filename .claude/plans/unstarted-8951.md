@@ -125,3 +125,11 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 ## Challenge loop iteration 14 (sonnet)
 - Fixed (WARNING): a reported message that started late stayed in the report's count, so the card (and a restart's carried report) still said it had not started. Its start now takes it out of the count.
 - Mutation red: the decrement. Neighbours run BEFORE this push: 961 pass, 0 fail.
+
+## Challenge loop iteration 15 (opus, the whole diff and the whole test file)
+- Fixed (WARNING): since iteration 14 a reported message that started late left the count, and a stop then skipped it (reported ones were taken to be in the carried report), so one that died within seconds of its late start was counted nowhere: the 11-23 silence again. A stop now counts every message that started within LOST_WINDOW_MS, reported or not; it cannot double count, since a started one has left the report's count.
+- Fixed (WARNING), and a correction to iteration 13's decided cost: crediting a turn to the oldest ready message gave a resend's own turn to the reported message it replaced, so the resend (the card's own advice) was then falsely reported, and every resend after it. A turn now opens on the oldest ready message NOT yet reported, and a reported one is credited only when none other is ready. Iteration 13 recorded only one cost of crediting; this was the second, and the worse one.
+- Fixed (NIT): after a reported message starts, `since` names the oldest one still waiting.
+- Fixed (NIT): the board log says an unstarted report again only when it grows or turns into a stop, not when it shrinks.
+- Fixed (NIT): the PigeonPete test asserted a truthy record that could not fail once the count reaches 0; it now asserts the count.
+- Mutations red: resend first, the reported late start counted, the shrink not said. Neighbours before push: 964 pass, 0 fail.
