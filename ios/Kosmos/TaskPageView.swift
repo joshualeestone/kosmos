@@ -580,6 +580,7 @@ struct TaskPageView: View {
                 .frame(minWidth: 44, minHeight: 44)
                 .disabled(model.reviewerSaving != nil || model.repeatSaving || model.pressing)
                 .accessibilityIdentifier("taskpage.repeat.reviewer")
+                .accessibilityValue(model.reviewerSaving != nil ? "In progress" : "")
                 if model.reviewerSaving != nil { SweepDots(scales: false) }
             }
             if let say = model.reviewerSay {

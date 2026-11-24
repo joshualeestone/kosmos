@@ -246,6 +246,12 @@ final class FakeMac {
         holdNext = true
     }
     func release() { let h = held; held = nil; h?.resume() }
+    // kosmos#8958 slice B3b: holds EVERY request while set, in the order sent, so two can be out at once and answered in
+    // any order (release(at:)): a tick read started before a save, landing while the save's own read is still out.
+    var queueing = false
+    private var queued: [CheckedContinuation<Void, Never>] = []
+    var queuedCount: Int { queued.count }
+    func release(at i: Int) { queued.remove(at: i).resume() }
     func asyncSend(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         let answer = send(build)
         if holdNext {
@@ -254,6 +260,7 @@ final class FakeMac {
             if held != nil { endRun("a second request was held while one already was") }
             await withCheckedContinuation { held = $0 }
         }
+        if queueing { await withCheckedContinuation { queued.append($0) } }
         // As URLSession: a request whose task was cancelled gives no answer.
         return Task.isCancelled ? nil : answer
     }
@@ -1157,6 +1164,8 @@ do {
     }
     check(pageWith(["repeat": rule, "repeatReviewerPerson": true])?.repeatReviewer == "me", "the person as reviewer reads as me")
     check(pageWith(["repeat": rule, "repeatReviewer": "eli"])?.repeatReviewer == "eli", "an agent as reviewer reads as its session")
+    check(pageWith(["repeat": rule, "repeatReviewerPerson": true, "repeatReviewer": "eli"])?.repeatReviewer == "me",
+          "the person's mark wins over an agent's name, as the board's tkReviewerOf")
     if let pg = pageWith(["repeat": rule, "repeatReviewer": "eli"]) {
         check(Board.reviewerOptions(pg, roster: roster).map(\.words) == ["Nobody", "Me", "Dana", "Eli"]
               && Board.reviewerOptions(pg, roster: roster).map(\.value) == ["none", "me", "dana", "eli"], "Nobody, Me, then the project's agents by name")
@@ -1331,6 +1340,26 @@ func b3bModelTests() async {
     mac.projects = (200, with(["repeat": rule, "repeatReviewer": "dana"]))
     await m.read()
     check(m.reviewerShown == nil && m.page?.repeatReviewer == "dana", "the next read that lands shows the page")
+    // A tick read started BEFORE the save, landing (with the old reviewer) while the save's own read is still out, and
+    // that own read then failing: the tick is not the save's read, so the saved reviewer still shows.
+    mac.queueing = true
+    let tick = Task { await m.read() }
+    await waitUntil({ mac.queuedCount == 1 }, "the tick read queued")
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    let racing = Task { await m.saveReviewer("me", names: nm) }
+    await waitUntil({ mac.queuedCount == 2 }, "the save's post queued")
+    mac.projects = (500, Data())
+    mac.release(at: 1)                                   // the post is recorded; the save's own read is sent and fails
+    await waitUntil({ mac.queuedCount == 2 }, "the save's own read queued")
+    mac.release(at: 0)                                   // the older tick lands, with the old reviewer
+    await tick.value
+    mac.queueing = false
+    mac.release(at: 0)                                   // the save's own read answers, failed
+    _ = await racing.value
+    check(m.page?.repeatReviewer == "dana" && m.reviewerShown == "me",
+          "a tick read started before the save and landing during it does not stand for the save's own read")
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "me"]))
+    await m.read()
     mac.projects = (200, with(["repeat": NSNull()]))
     await m.read()
     check(m.reviewerSay == nil, "Saved. goes when the task stops repeating")
@@ -1357,6 +1386,15 @@ func b3bModelTests() async {
     mac.projects = (200, with(["repeat": NSNull()]))
     await m.read()
     check(m.reviewerSay == nil && !m.reviewerRefused, "a refusal goes when the task stops repeating")
+    mac.projects = (200, with(["repeat": rule]))
+    await m.read()
+    mac.actAnswers = [(403, #"{"error":"only the person can name themselves as the reviewer"}"#)]
+    _ = await m.saveReviewer("dana", names: nm)
+    mac.projects = (200, with(["repeat": rule], closed: true))
+    await m.read()
+    check(m.reviewerSay == nil && !m.reviewerRefused, "a refusal goes when the task is finished")
+    mac.projects = (200, with(["repeat": NSNull()]))
+    await m.read()
     mac.projects = (200, with(["repeat": rule]))
     await m.read()
 
