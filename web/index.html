@@ -27643,7 +27643,7 @@ function setAgentsGrouped(on) {
 /* #3387: the "Other Agents" sub-header drawn between the project's members and the
    rest, in place of the old plain rule. It reuses the rail-head grammar (.railname
    label + a square .fold.plus) so it matches the top head; its + is the New-agent
-   action, reached by delegation off #alist since the list is rebuilt each poll. */
+   action, reached by delegation off #alist since a poll that changes the list rebuilds it. */
 function otherAgentsHeaderHtml() {
   return '<div class="alist-grouphdr">'
     + '<span class="railname">Other Agents</span>'
@@ -27699,8 +27699,8 @@ function paintAgentList() {
 /* kosmos#8990: the markup this function last wrote into #alist, so a poll that changes nothing writes nothing.
    Rewriting identical rows rebuilt every avatar <img>, and agent avatars are served no-store, so each rebuild fetched
    the picture again. Compared against the string last WRITTEN, never innerHTML, which the browser reserializes (the
-   compare MY_AGENTS_HTML uses). null means "write next time": the empty-board branch builds the list in pieces, and
-   the failed-poll path and a failed avatar load write or need a write behind this memo, so they clear it. */
+   compare MY_AGENTS_HTML uses). null means "write next time": the empty-board branch and the failed-poll path write the
+   list behind this memo, so they clear it. */
 let ALIST_HTML = null;
 function paintAgentListNow() {
   const alist = document.getElementById('alist');
@@ -27713,7 +27713,7 @@ function paintAgentListNow() {
      project is open or in the tab layout (its own notice speaks there). Before the empty-board return, so
      leaving the project always clears it. */
   paintRailPjNotice();
-  /* kosmos#4649 slice B: the rail is rebuilt on every status poll, and now holds focusable outside actions, so a
+  /* kosmos#4649 slice B: a status poll that changes the rail rebuilds it, and it holds focusable outside actions, so a
      focused one is found again by its row key after the rebuild instead of dropping to <body>. */
   const ae = document.activeElement;
   const fedFocusKey = (ae && ae.closest && ae.closest('#alist .fedout-act[data-fed-key]')) ? ae.dataset.fedKey : null;
@@ -42681,15 +42681,25 @@ function setGridHtml(html) {
   GRID_HTML = html;
   grid.innerHTML = html;
 }
-/* kosmos#8990: an agent avatar that failed to load is tried again at the next poll. Rebuilding every poll used to do
-   that by accident; with the memos above, a picture that failed once would stay broken until the card changed. So a
-   failed avatar in the grid or the rail forgets that container's memo. Captured, because a load error does not bubble. */
+/* kosmos#8990: an agent avatar in the grid or the list that fails to load is asked for again, by itself, after 5, 10,
+   20 and 40 s, then left. Rebuilding every poll used to retry a failed picture by accident; with the memos above it would
+   stay broken until the card changed. Only the failed element is retried, never the container, so one broken picture
+   cannot bring back the every-poll rebuild for everybody else. Captured, because a load error does not bubble. */
+const AVATAR_RETRY_MS = [5000, 10000, 20000, 40000];
+const AVATAR_RETRY_PARAM = /([?&])retry=\d+/;
 document.addEventListener('error', (e) => {
   const t = e.target;
   if (!t || typeof t.getAttribute !== 'function' || typeof t.closest !== 'function') return;
-  if (!/^\/api\/agent\/[^/]+\/avatar(\?|$)/.test(t.getAttribute('src') || t.getAttribute('href') || '')) return;
-  if (t.closest('#grid')) GRID_HTML = null;
-  else if (t.closest('#alist')) ALIST_HTML = null;
+  const attr = t.hasAttribute('src') ? 'src' : 'href';
+  const url = t.getAttribute(attr) || '';
+  if (!/^\/api\/agent\/[^/]+\/avatar(\?|$)/.test(url) || !t.closest('#grid, #alist')) return;
+  const n = t.__avatarRetries || 0;
+  if (n >= AVATAR_RETRY_MS.length) return;
+  t.__avatarRetries = n + 1;
+  /* A new URL each time (the retry count rides it), so an SVG <image>, which does not reload for the same href, loads too. */
+  const next = AVATAR_RETRY_PARAM.test(url) ? url.replace(AVATAR_RETRY_PARAM, '$1retry=' + (n + 1))
+    : url + (url.indexOf('?') > -1 ? '&' : '?') + 'retry=' + (n + 1);
+  setTimeout(() => { if (t.isConnected && t.getAttribute(attr) === url) t.setAttribute(attr, next); }, AVATAR_RETRY_MS[n]);
 }, true);
 /* The grid and the list in the chosen order, now. Shared by the sort control, a star and the stars' reload, so they
    cannot disagree about what "the board's order" is. A focused star keeps its focus (keepStarFocus). */
@@ -56858,7 +56868,7 @@ function myAgentsResized() { cancelAnimationFrame(MY_AGENTS_RAF); MY_AGENTS_RAF 
 window.addEventListener('resize', myAgentsResized);
 if (typeof ResizeObserver === 'function') new ResizeObserver(paintMyAgents).observe(document.querySelector('.apphead'));   // a taller header moves the column's top
 /* #3387: the "Other Agents" sub-header's + is the New-agent action. Delegated off #alist
-   because the list is rebuilt on every poll, so a bound listener would not survive. */
+   because a poll that changes the list rebuilds it, so a bound listener would not survive. */
 document.getElementById('alist').addEventListener('click', (e) => {
   if (e.target.closest('.alist-newagent')) document.getElementById('new-agent').click();
 });
@@ -66328,11 +66338,11 @@ function tcGoToTeam(auto) {
       if (again && (!at || at === document.body)) { const t = again.querySelector('.namego') || again; if (t === again) { again.tabIndex = -1; tabbed.add(again); } t.focus({ preventScroll: true }); first = again; }
       else if (again) focused = false;
     }
-    if (live) setTimeout(mark, 150);
+    if (live) setTimeout(mark, 150);   // review 16: a poll that changes a card redraws it; put the mark back quickly
     else {
       for (const ev of ['pointerdown', 'keydown', 'wheel']) document.removeEventListener(ev, theirs, { capture: true });
       for (const el of tabbed) if (el.isConnected && el !== document.activeElement) el.removeAttribute('tabindex');
-    }   // review 16: a poll that changes a card redraws it; put the mark back quickly
+    }
   };
   mark();
   // The step's live region went with the step: say it where a screen reader hears it.
@@ -89513,7 +89523,7 @@ function fedInviteClose(force) {
   FEDINV_SEQ++;
   FEDINV_SAY++;
   document.getElementById('fedinv-modal').hidden = true;
-  // slice B: a From outside row's "Make a new code" opened it, and a repaint (the rail rebuilds on every poll) has
+  // slice B: a From outside row's "Make a new code" opened it, and a repaint (a poll that changes the rail) may have
   // replaced that button since: its row key finds the new one, so focus goes back to the row, not to the "+".
   const k = FEDINV_OPENER && !FEDINV_OPENER.isConnected && FEDINV_OPENER.dataset ? FEDINV_OPENER.dataset.fedKey : null;
   // Visible only: the tab view's list is filled in every layout, and in the consolidated one its hidden copy of the
