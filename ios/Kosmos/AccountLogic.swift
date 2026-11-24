@@ -4,7 +4,7 @@ import Foundation
 // account" row opens instead of the web page. This file is its logic, UIKit-free so LogicTests/run-account.sh compiles it
 // for macOS: the computers on the account and the words for each (the web page's macWhen, signin.html), Retire with the
 // four characters Kosmos+ shows, Sign out (ended on Kosmos+ too, as the page's signOut does since kosmos-relay#795) and
-// Sign out everywhere. Billing, passkeys, the second step and the rest stay on the web page for now (slices B1b, B1c, B2).
+// Sign out everywhere. The second step (B1b) and passkeys (B1c) have their own files; the plan line (B2) is below.
 enum Account {
 
     // MARK: - The computers
@@ -211,4 +211,40 @@ enum Account {
     }
 
     static let forgetFailed = "Kosmos+ could not end this sign-in on its side. Try again, or sign out on this iPhone only."
+
+    // MARK: - The plan (slice B2)
+
+    // kosmos#8959 slice B2: the plan line the web account page shows inside the app (signin.html #plan-line, #3479), and
+    // nothing more. Billing, the subscription and the cloud machine are never on the phone and never linked to from it:
+    // the page's ONE SWITCH (CAN_BUY_HERE, kosmos#718) keeps selling out of the apps, and only Josh changes that.
+    static let mePath = "/v1/account/me"
+    static let planActive = "Kosmos+ \u{00B7} Active"
+
+    static func meRequest(coordinator: URL, session: String) -> URLRequest {
+        var r = URLRequest(url: coordinator.appendingPathComponent(String(mePath.dropFirst())))
+        r.timeoutInterval = 15
+        r.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")
+        r.httpShouldHandleCookies = false
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+
+    // The page's test, word for word: `body.kosmos_plus === true && (!body.standing || body.standing === "good")`. Only a
+    // real JSON true counts (a 1 or a "true" does not, as BoardLogic.fedGateMode reads it); a standing that is absent,
+    // null, false, 0 or empty is JavaScript-falsy and passes, as does "good"; anything else hides the line.
+    static func planLine(_ data: Data?) -> String? {
+        guard let data, let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        guard let plus = obj["kosmos_plus"] as? NSNumber, CFGetTypeID(plus) == CFBooleanGetTypeID(), plus.boolValue
+        else { return nil }
+        return standingFalsy(obj["standing"]) || (obj["standing"] as? String) == "good" ? planActive : nil
+    }
+
+    private static func standingFalsy(_ v: Any?) -> Bool {
+        switch v {
+        case nil, is NSNull: return true
+        case let s as String: return s.isEmpty
+        case let n as NSNumber: return n.doubleValue == 0 || n.doubleValue.isNaN
+        default: return false
+        }
+    }
 }
