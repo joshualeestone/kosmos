@@ -1029,7 +1029,8 @@ function publisher(name, opts) {
       if (opener) { startMsgs([m]); current.emptyOpenAt = null; }
       current.lastWriteAt = nowMs();   // review 3: whether a death soon after is this message's doing
       /* kosmos#7368: written into a busy agent, it waits for the agent's next boundary; into an idle one, it starts the turn. */
-      if (current.state === BUSY) { if (!opener) current.queued = (current.queued || 0) + 1; }
+      /* #7368's queue is its own display, counted as before; the opener rule above changes only this module's records. */
+      if (current.state === BUSY) current.queued = (current.queued || 0) + 1;
       else setState(BUSY);
       /* kosmos#8951: with no main turn open it must start one; if no sign of one arrives by the deadline, it is reported
          rather than left reading busy. */
