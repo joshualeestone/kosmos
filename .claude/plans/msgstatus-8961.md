@@ -61,7 +61,7 @@ the answer unknown unless a whole turn was still seen.
   refusals (say vs ctx.err), not something this verb should change alone.
 
 ## Tests
-- engine/msgstatus-8961.test.js (31, pure; failing control: dropping the between-turns rule fails one)
+- engine/msgstatus-8961.test.js (30, pure; failing control: dropping the between-turns rule fails one)
 - server.msg-status-8961.test.js (7: real server, the bash CLI and the Windows CLI main(), an enforcing board;
   control: removing the bash dispatch fails one)
 - pinned lists updated: server.agent-token-sender-570.test.js, tools/windows-tests.js HOST_BRANCH_EXCLUDED
