@@ -133,3 +133,7 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 - Fixed (NIT): the board log says an unstarted report again only when it grows or turns into a stop, not when it shrinks.
 - Fixed (NIT): the PigeonPete test asserted a truthy record that could not fail once the count reaches 0; it now asserts the count.
 - Mutations red: resend first, the reported late start counted, the shrink not said. Neighbours before push: 964 pass, 0 fail.
+
+## Challenge loop iteration 16 (sonnet)
+- Fixed (WARNING): iteration 15's board-log rule kept the last report said after the report cleared, so a second loss no larger than the first was never logged. A card that reads clear (idle or working, no turn stall, the same clear rule unstartedGone uses) now forgets it; a restarting card does not, so a report is not said twice across a Restart.
+- Mutation red: forgetting on clear. Neighbours before push: 965 pass, 0 fail.
