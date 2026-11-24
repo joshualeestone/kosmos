@@ -268,7 +268,7 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
   that is.
   The phone's own tabs (Agents, Projects, Tasks) offer only Try again when your computer or Kosmos+ is not answering
   (kosmos#8957: "Back to Kosmos" there opened the board, which was not answering either), with the computer switcher at
-  the top when the account has another computer.
+  the top when it is the computer that is not answering and the account has another one.
 - **A tapped notification** opens the agent that asked
   (`?tab=detail&agent=<session>`, the session checked against the board's agent-name rule), or
   the board home when the push carries no usable session.

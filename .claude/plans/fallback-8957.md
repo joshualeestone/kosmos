@@ -36,6 +36,13 @@ keep their current words and icons here; their part-2 cards (#8953, #8955, #8956
 native screens. Exception: project info's "Open on your computer's board" row takes the board icon, since a member row
 on the same screen now carries it.
 
+## Known, recorded (review 7)
+- #8954 (PigeonPete, makeagent-8954) makes "Make an agent" native when the computer is connected with an AI account.
+  When it lands, its note must show only when the tap still goes to the board (told in Fleet Builders).
+- The not-answering tab's computer switcher has no UI test or shot: the sample board has one computer. Checked by
+  reading; it shares MacSwitcher's own row rule.
+- Row 30 ("Use text messages instead") is native since #8959, so it needs no note.
+
 ## Weakest premise
 That announcing the board is enough. If Josh wants none of these to open the board at all, each needs a native
 screen (part-2 cards).

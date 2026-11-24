@@ -708,7 +708,7 @@ struct RoomView: View {
             HStack(spacing: 8) {
                 // An agent the status does not list (rare): the project's page on the computer's board, never a dead button.
                 // kosmos#8957: that fallback says so, with the board icon and the note under the row.
-                let onBoard = store.agent(row.session) == nil
+                let onBoard = store.agent(row.session) == nil && store.macURL != nil   // review 7: only when the page can open
                 Button { if let a = store.agent(row.session) { chatAgent = a } else { openBoardPage() } } label: {
                     (onBoard ? Text(row.act) + Text(" ") + Text(Image(systemName: Board.boardIcon)) : Text(row.act))
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
@@ -724,7 +724,7 @@ struct RoomView: View {
                 .accessibilityFocused($needsFocus, equals: row.session)
             }
             .font(.footnote.weight(.semibold))
-            if store.agent(row.session) == nil { OpensOnBoardNote() }   // kosmos#8957: said in words, not only the icon
+            if store.agent(row.session) == nil && store.macURL != nil { OpensOnBoardNote() }   // kosmos#8957: said in words, not only the icon
         }
         .accessibilityElement(children: .contain)
     }
