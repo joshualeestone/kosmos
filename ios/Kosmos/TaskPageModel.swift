@@ -257,17 +257,22 @@ final class TaskPageModel: ObservableObject {
         let wire = Board.taskTextBody(body)
         let answer = await send { Board.taskTextRequest(mac: $0, project: project, number: number, body: wire) }
         guard current else { return false }
-        editSaving = false
         if case .refused(let why) = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0,
                                                           failed: Board.taskEditFailed, unreached: Board.taskEditFailed) {
             editRefusal = why
+            editSaving = false
             return false
         }
+        // Locked until the page is read again, as the board's form stays locked through its reload: a second Save in
+        // between would send the same change again.
         await read()
         await readActivity(names: names)
+        guard current else { return false }
+        editSaving = false
         return true
     }
     func clearEditRefusal() { editRefusal = nil }
+    func clearDueRefusal() { dueRefusal = nil }
 
     // POST .../seen for the activity state on screen, once per state, only while the person is there (present); a 5xx
     // or no answer is tried once more 3 s later, only if that state is still the one shown and they are still there

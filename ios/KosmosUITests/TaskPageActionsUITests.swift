@@ -21,6 +21,8 @@ final class TaskPageActionsUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 20), "no sample task 4 on Tasks")
         row.tap()
         XCTAssertTrue(app.navigationBars["Task 4"].waitForExistence(timeout: 20), "task 4's page did not open")
+        // The page drawn (the task read), not only its bar, before anything swipes or looks.
+        XCTAssertTrue(app.buttons["Edit title or detail"].waitForExistence(timeout: 20), "task 4's page did not draw")
         return app
     }
 
@@ -40,14 +42,14 @@ final class TaskPageActionsUITests: XCTestCase {
             XCTAssertTrue(app.buttons["Clear the due date"].exists, "no due date to clear on a task that has one")
             let say = box(app)
             for _ in 0..<6 where !say.isHittable { app.swipeUp() }
-            XCTAssertTrue(say.exists, "no message box on the task")
+            XCTAssertTrue(say.isHittable, "no message box within reach on the task")
             XCTAssertTrue(app.buttons["Send"].exists, "no Send")
             shot(app, "task page actions, \(dark ? "dark" : "light")")
             app.terminate()
         }
     }
 
-    // A message: typed, sent, and the box is empty again on the sample Mac's 2xx.
+    // A message: typed, sent, the box empty again, and the message in the task's activity (the sample Mac records it).
     func testAMessageIsSent() throws {
         let app = try openTask()
         let say = box(app)
@@ -59,6 +61,9 @@ final class TaskPageActionsUITests: XCTestCase {
         let empty = NSPredicate(format: "NOT (value CONTAINS %@)", "Check the captions")
         expectation(for: empty, evaluatedWith: say)
         waitForExpectations(timeout: 10)
+        let inActivity = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Check the captions")).firstMatch
+        for _ in 0..<4 where !inActivity.exists { app.swipeDown() }
+        XCTAssertTrue(inActivity.waitForExistence(timeout: 15), "the message is not in the task's activity")
         shot(app, "message sent")
     }
 

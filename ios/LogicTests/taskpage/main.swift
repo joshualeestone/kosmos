@@ -710,6 +710,8 @@ check(said(#"{"delivered":[null]}"#) == nil, "a list with no usable entry: no li
 check(Board.capped(String(repeating: "\u{1F600}", count: 3), 4).utf16.count == 4 && Board.capped("abc", 4) == "abc",
       "the caps count UTF-16 units, as the board's maxlength")
 check(Board.boardLineEnds("a\rb\r\nc") == "a\nb\nc", "a lone CR and a CRLF are both line ends, as the board's form")
+check(Board.taskEdit(title: "Pages 1\nto 9", detail: "", openedTitle: "Pages 1 to 8", openedDetail: nil) == .send(["sentence": "Pages 1 to 9"]),
+      "a line break in a title is a space (one line, as the board's text input)")
 
 await b1ModelTests()
 
@@ -754,9 +756,13 @@ func b1ModelTests() async {
     var sent: [String: Any]?
     mac.onSend = { r in if r.url!.path.hasSuffix("/text") { sent = r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } } }
     mac.actAnswers = [(200, #"{"task":{},"changed":true}"#)]
+    var lockedThroughRead: Bool?
+    let earlier = mac.onSend
+    mac.onSend = { r in earlier?(r); if r.url!.path == "/api/projects" { lockedThroughRead = m.editSaving } }
     let saved = await m.saveText(title: "Pages 9 to 13", detail: "", openedTitle: "Pages 9 to 12", openedDetail: nil, names: nm)
     check(saved && m.editRefusal == nil && sent?["sentence"] as? String == "Pages 9 to 13" && sent?["detail"] == nil,
           "a changed title is saved alone, and the form closes")
+    check(lockedThroughRead == true && !m.editSaving, "the form stays locked through the page's re-read, then unlocks")
     mac.onSend = nil
     mac.actAnswers = [(400, #"{"error":"say what needs doing in 200 characters or fewer; the detail has the room"}"#)]
     let long = await m.saveText(title: String(repeating: "a", count: 201), detail: "", openedTitle: "Pages 9 to 12", openedDetail: nil, names: nm)

@@ -629,7 +629,8 @@ extension Board {
     // The board's Save: both trimmed; a title is needed; only what differs from what the form opened with is sent, and
     // an emptied detail goes as null (cleared). Line ends compared as a textarea gives them back.
     static func taskEdit(title: String, detail: String, openedTitle: String, openedDetail: String?) -> TaskEdit {
-        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A title is one line, as the board's text input: a line break in it is a space.
+        let t = boardLineEnds(title).replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         let d = detail.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return .needsTitle }
         var body: [String: String?] = [:]
