@@ -125,9 +125,11 @@ function pageFile(page) { return '.pdf-page-' + page + '.png'; }
 const ZIP_HEAD = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 const ZIP_EMPTY = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
 const ZIP_END = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
+const ZIP_CENTRAL = Buffer.from([0x50, 0x4b, 0x01, 0x02]);
 const ZIP_TAIL = 22 + 0xffff;
 function incompleteZip(file) {
   let fd = null;
+  const centralAt = (off) => { const b = Buffer.alloc(4); return fs.readSync(fd, b, 0, 4, off) === 4 && b.equals(ZIP_CENTRAL); };
   try {
     fd = fs.openSync(file, 'r');
     const size = fs.fstatSync(fd).size;
@@ -138,12 +140,21 @@ function incompleteZip(file) {
     const tail = Buffer.alloc(n);
     let got = 0;
     while (got < n) { const k = fs.readSync(fd, tail, got, n - got, size - n + got); if (k === 0) return false; got += k; }
-    const at = tail.lastIndexOf(ZIP_END);
-    if (at < 0 || at + 22 > n) return true;
-    const dirSize = tail.readUInt32LE(at + 12);
-    const dirAt = tail.readUInt32LE(at + 16);
-    if (dirSize === 0xffffffff || dirAt === 0xffffffff) return false;
-    return dirAt + dirSize > size - n + at;
+    /* Every end record in the tail, the last first, since a comment can hold its bytes. One is the file's own when its
+       comment fits before the end, and its directory lies before it at the place it says, starting as a directory does
+       (an inner zip's record, left by a cut file that holds one, says a place where no directory is). */
+    for (let at = tail.lastIndexOf(ZIP_END); at >= 0; at = at > 0 ? tail.lastIndexOf(ZIP_END, at - 1) : -1) {
+      if (at + 22 > n) continue;
+      const commentLen = tail.readUInt16LE(at + 20);
+      const entries = tail.readUInt16LE(at + 10);
+      const dirSize = tail.readUInt32LE(at + 12);
+      const dirAt = tail.readUInt32LE(at + 16);
+      if (dirSize === 0xffffffff || dirAt === 0xffffffff || entries === 0xffff) return false;   // the zip64 form is not judged
+      const absolute = size - n + at;
+      if (absolute + 22 + commentLen > size || dirAt + dirSize > absolute) continue;
+      if (entries === 0 || centralAt(dirAt)) return false;
+    }
+    return true;
   } catch { return false; } finally { if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ } }
 }
 
@@ -297,8 +308,12 @@ function saveStream(scope, owner, { name, type, by, fileSize }, source) {
       if (settled) return;
       detach();
       if (!size) { fail(new Error('there is nothing in that file')); return; }
-      // kosmos#9016: the size the sender's own file has, when it said one.
-      if (Number.isInteger(fileSize) && fileSize >= 0 && size !== fileSize) { fail(new Error(NOT_WHOLE + ' (' + sizeWords(size) + ' of ' + sizeWords(fileSize) + ' arrived)')); return; }
+      // kosmos#9016: the size the sender's own file has, when it said one (0 is "not stated": an empty file is refused above).
+      if (Number.isInteger(fileSize) && fileSize > 0 && size !== fileSize) {
+        const exact = (b) => b.toLocaleString('en-US');
+        fail(new Error(NOT_WHOLE + (size < fileSize ? ' (' + exact(size) + ' of ' + exact(fileSize) + ' bytes arrived)' : ' (' + exact(size) + ' bytes arrived, and the file is ' + exact(fileSize) + ')')));
+        return;
+      }
       /* Renamed into place only once the descriptor is closed: every byte is on disk and nothing is left open. */
       out.once('close', () => {
         if (settled) return;

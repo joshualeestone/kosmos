@@ -17,7 +17,6 @@ const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 const crypto = require('node:crypto');
-const zlib = require('node:zlib');
 const { test } = require('node:test');
 const assert = require('node:assert');
 
@@ -59,7 +58,6 @@ const download = (id) => new Promise((resolve, reject) => {
   }).on('error', reject);
 });
 const headers = (name, extra) => ({ 'content-type': 'application/octet-stream', 'x-attachment-name': encodeURIComponent(name), ...extra });
-const send = (buf, headerSize) => (r) => r.end(buf);
 
 /** A real zip of one stored entry, so truncation is of a real one. */
 function zipOf(name, data) {
@@ -79,7 +77,8 @@ const SIZES = [65535, 65536, 65537, 1024 * 1024];
 const WAYS = {
   declared: (b, r) => r.end(b),
   chunked: (b, r) => r.end(b),
-  paused: (b, r) => { r.write(b.subarray(0, 65536)); setTimeout(() => r.end(b.subarray(65536)), 150); },
+  /* Half the body, then the rest after a pause, so bytes really arrive after it at every size. */
+  paused: (b, r) => { const at = Math.floor(b.length / 2); r.write(b.subarray(0, at)); setTimeout(() => r.end(b.subarray(at)), 150); },
 };
 for (const [way, write] of Object.entries(WAYS)) for (const n of SIZES) {
   test('#9016 boundary: ' + n + ' bytes sent ' + way + ' are stored byte-identical', async () => {
@@ -100,6 +99,7 @@ test('#9016 size: a body short of, or long past, the sender\'s own file is refus
     assert.equal(r.status, 400, said + ' vs ' + sent + ': ' + r.body);
     const said_ = JSON.parse(r.body).error;
     assert.match(said_, /^that file did not arrive whole; please send it again \(/, said_);
+    assert.ok(said_.includes(sent < said ? sent.toLocaleString('en-US') + ' of ' + said.toLocaleString('en-US') + ' bytes' : sent.toLocaleString('en-US') + ' bytes arrived, and the file is ' + said.toLocaleString('en-US')), 'exact counts, said for what they are: ' + said_);
     await new Promise((res) => setTimeout(res, 100));
     assert.equal(stored().length, before, 'nothing kept (' + said + ' vs ' + sent + ')');
   }
@@ -142,6 +142,18 @@ test('#9016 zip: what is and is not judged', () => {
   assert.equal(attachments.incompleteZip(at('whole.zip', whole)), false);
   assert.equal(attachments.incompleteZip(at('empty.zip', Buffer.from([0x50, 0x4b, 0x05, 0x06, ...new Array(18).fill(0)]))), false, 'an empty zip is whole');
   assert.equal(attachments.incompleteZip(at('head-only.zip', whole.subarray(0, 30))), true);
+  /* Review 1: a cut file that holds a whole inner zip (an office file embeds one) has the INNER end record in its tail. */
+  const outer = zipOf('inner.zip', whole);
+  assert.equal(attachments.incompleteZip(at('outer.zip', outer)), false);
+  const cutAfterInner = outer.subarray(0, outer.length - 22 - 46 - 9 - 1);   // the outer directory and end are gone, the inner zip's are in
+  assert.ok(cutAfterInner.includes(Buffer.from([0x50, 0x4b, 0x05, 0x06])), 'precondition: the inner end record is there');
+  assert.equal(attachments.incompleteZip(at('cut-inner.zip', cutAfterInner)), true, 'the inner zip is not the outer one');
+  /* A comment that holds the end signature is not an end record. */
+  const comment = Buffer.from('PK\x05\x06 noted here');
+  const withComment = Buffer.concat([whole, comment]);
+  withComment.writeUInt16LE(comment.length, whole.length - 2);
+  assert.equal(attachments.incompleteZip(at('comment.zip', withComment)), false, 'a whole zip with such a comment');
+  assert.equal(attachments.incompleteZip(at('comment-cut.zip', withComment.subarray(0, withComment.length - 3))), true, 'its comment cut short');
   const dirBad = Buffer.from(whole);
   dirBad.writeUInt32LE(whole.length, dirBad.length - 6 /* the directory offset of the end record */);
   assert.equal(attachments.incompleteZip(at('dirbad.zip', dirBad)), true, 'a directory past the end of the file');
@@ -180,4 +192,40 @@ test('#9016 the page says it beside the file, and sends the file\'s own size', (
   assert.match(fn({ url, name: 'book.xlsx', kind: 'other', size: 65536, incomplete: true }), /incomplete upload, please send again/);
   assert.doesNotMatch(fn({ url, name: 'book.xlsx', kind: 'other', size: 65536 }), /incomplete/, 'CONTROL');
   assert.match(SCRIPT, /'x-attachment-size': String\(file\.size\)/, 'the page sends the size the browser read');
+});
+
+test('#9016 the mark survives being saved: a direct conversation keeps it', () => {
+  const chat = require('./engine/chat');
+  const rec = { id: 'b'.repeat(24), name: 'book.xlsx', type: 'application/zip', size: 10, kind: 'other', url: '/api/attachment/' + 'b'.repeat(24), preview: null, incomplete: true };
+  const kept = chat.appendMessage(chat.DIRECT, 'whole9016', { text: 'here it is', at: new Date().toISOString(), delivery: 'person', attachment: rec, attachments: [rec] });
+  assert.equal(kept && kept.recorded, true, JSON.stringify(kept));
+  const thread = chat.readThread(chat.DIRECT, 'whole9016');
+  const rows = (thread.rows || thread.messages || thread).filter((m) => m && m.attachment);
+  assert.ok(rows.length >= 1, 'precondition: the message is kept');
+  assert.equal(rows[rows.length - 1].attachment.incomplete, true, 'kept beside the file');
+  assert.equal(rows[rows.length - 1].attachments[0].incomplete, true);
+  const plainRec = { ...rec };
+  delete plainRec.incomplete;
+  chat.appendMessage(chat.DIRECT, 'plain9016', { text: 'whole', at: new Date().toISOString(), delivery: 'person', attachment: plainRec });
+  const pr = chat.readThread(chat.DIRECT, 'plain9016');
+  const plainRows = (pr.messages || pr.rows || pr).filter((m) => m && m.attachment);
+  assert.equal(plainRows[plainRows.length - 1].attachment.incomplete, undefined, 'CONTROL: a whole file is not marked');
+});
+
+test('#9016 an agent that attaches its own cut file is told, and nothing is kept', () => {
+  const replyfile = require('./engine/replyfile');
+  const files = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'cut9016', 'Files');
+  fs.mkdirSync(files, { recursive: true });
+  const whole = zipOf('a.txt', crypto.randomBytes(5000));
+  fs.writeFileSync(path.join(files, 'whole.zip'), whole);
+  fs.writeFileSync(path.join(files, 'cut.xlsx'), whole.subarray(0, 3000));
+  const roster = [{ session: 'cut9016', workdir: path.join(process.env.AGENT_WORKFORCE_WORKERS, 'cut9016') }];
+  const ok = replyfile.attach('cut9016', path.join(files, 'whole.zip'), { roster });
+  const bad = replyfile.attach('cut9016', path.join(files, 'cut.xlsx'), { roster });
+  if (ok.ok) {
+    assert.equal(ok.rec.incomplete, undefined, 'CONTROL: a whole one is attached');
+    assert.equal(bad.ok, false);
+    assert.match(bad.because, /not whole/);
+    assert.equal(fs.existsSync(path.join(attachments.ROOT, 'agent', store.safeKey('cut9016'))) && fs.readdirSync(path.join(attachments.ROOT, 'agent', store.safeKey('cut9016'))).length, 1, 'only the whole file is kept');
+  } else { assert.fail('this environment did not let an agent attach its own file: ' + ok.because); }
 });

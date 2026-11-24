@@ -804,6 +804,8 @@ function attach(sessionName, given, { roster, platform = process.platform } = {}
     const kept = attachments.saveFilled('agent', sessionName, { name, type: typeOf(name), by: 'agent' }, (out) => readOwn(real, st, given, out, { recheck: win ? () => winLinkRefusal(given, roots) : null }));
     if (!kept.ok) return kept;
     const rec = kept.rec;
+    /* kosmos#9016: an agent is told to make it again, rather than handing a person a file that is not whole. */
+    if (rec.incomplete === true) { attachments.discardStored(rec); return { ok: false, because: 'that file is not whole: it is a zip-based file (a spreadsheet, a document, a zip) whose end is missing; make it again and attach it' }; }
     ledgerAdd(sessionName, rec.id, Date.parse(rec.at), rec.size);
     return { ok: true, rec };
   } catch (err) {

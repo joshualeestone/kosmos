@@ -78485,7 +78485,7 @@ async function openDocsView() {
         b.className = 'pj-doc'; b.href = a.url; b.target = '_blank'; b.rel = 'noopener';
         b.insertAdjacentHTML('afterbegin', fileIcon(a.name || ''));
         const n = document.createElement('span'); n.className = 'pj-doc-n'; n.textContent = a.name || 'a file';
-        const w = document.createElement('span'); w.className = 'pj-doc-w'; w.textContent = pjSize(a.size);
+        const w = document.createElement('span'); w.className = 'pj-doc-w'; w.textContent = pjSize(a.size) + (a.incomplete === true ? ' · incomplete upload, please send again' : '');   // kosmos#9016
         b.append(n, w); convo.append(b);
       }
       document.getElementById('docs-seg').hidden = false;      // #4937: the switch names the two sources
@@ -79658,7 +79658,7 @@ function pjAttachmentCard(att) {
     ? '<span class="att-pic"><img src="' + esc(preview) + '" alt="" loading="lazy"></span>' : '';
   /* #4930: a click opens the full-page preview (pvOpen); the card stays a download link for a modifier-click. */
   const id = (a.url.match(/^\/api\/attachment\/([0-9a-f]{24})$/) || [])[1];
-  if (id) PV_ATTS.set(id, { id, name, kind, meta, url: a.url, preview: a.preview });
+  if (id) PV_ATTS.set(id, { id, name, kind, meta: a.incomplete === true ? [meta, 'incomplete upload, please send again'].filter(Boolean).join(' · ') : meta, url: a.url, preview: a.preview });   // kosmos#9016: the full-page view says it too
   return '<a class="att att-' + kind + (pic ? ' haspic' : '') + '" href="' + esc(a.url) + '" download="' + esc(name) + '"'
     + (id ? ' data-att="' + id + '" aria-haspopup="dialog"' : '') + '>'
     + pic
@@ -85613,8 +85613,9 @@ async function attachUpload(file, where) {
        as one message. The first version sent on pick, which left no room for
        a caption, and an agent answered "I got the screenshot but no note came
        with it. What is it for?" */
-    attachAdd(where, { id: body.attachment.id, name: body.attachment.name });
-    msg.textContent = '';
+    const cut = body.attachment.incomplete === true;   // kosmos#9016: its end is missing; said now, while it can still be taken off and sent again
+    attachAdd(where, { id: body.attachment.id, name: body.attachment.name, ...(cut ? { incomplete: true } : {}) });
+    msg.textContent = cut ? file.name + ' did not arrive whole: its end is missing. Remove it and send it again.' : '';
     if (input) input.focus();
     if (where.after) where.after();
   } catch {
@@ -85673,7 +85674,7 @@ function attachPaint(where) {
   if (!box) return;
   const list = attachList(where);
   box.hidden = list.length === 0;
-  box.innerHTML = list.map((r, i) => '<span class="attach-chip"><span class="attach-chip-name">' + esc(r.name) + '</span>'
+  box.innerHTML = list.map((r, i) => '<span class="attach-chip"><span class="attach-chip-name">' + esc(r.name) + '</span>' + (r.incomplete === true ? '<span class="att-bad">incomplete upload, please send again</span>' : '')
     + '<button type="button" class="attach-chip-x" data-i="' + i + '" aria-label="Remove ' + esc(r.name) + '">&times;</button></span>').join('');
 }
 function attachAdd(where, rec) {
