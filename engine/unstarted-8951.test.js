@@ -229,11 +229,13 @@ test('#8951: CONTROL: a process that ends after its turn finished, or mid-turn w
   r.pub.stopped(); r.pub.started(7001, 'sid-1');
   assert.equal(r.last().unstarted, undefined, 'the message ran');
   r.pub.wrote(); r.pub.event(init);
+  r.clock.t += ss.LOST_WINDOW_MS + 1;   // review 7: long after the write (a Restart mid-turn), not within seconds
   r.pub.stopped(); r.pub.started(7002, 'sid-1');
-  assert.equal(r.last().unstarted, undefined, 'mid-turn, the message is under way, not unread');
+  assert.equal(r.last().unstarted, undefined, 'mid-turn and long after the write, the message ran as far as it got');
   assert.deepEqual(r.told, []);
   // A message written behind a running turn is not yet taken: it is lost with the process.
   r.pub.wrote(); r.pub.event(init); r.pub.wrote();
+  r.clock.t += ss.LOST_WINDOW_MS + 1;
   r.pub.stopped(); r.pub.started(7003, 'sid-1');
   assert.equal(r.last().unstarted && r.last().unstarted.count, 1, 'the one written behind the turn');
 });
@@ -500,4 +502,45 @@ test('#8951 review 6: a write queued behind a turn nobody wrote ends a carried r
   q.pub.event({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'w1', content: 'ok' }] } });
   q.pub.event({ type: 'assistant', message: { content: [] } });
   assert.equal(q.last().unstarted, undefined, 'taken when the call returned: it ran');
+});
+
+test('#8951 review 7: a message whose turn opened, then the process died within seconds, is reported as what stopped it', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote();                       // 21:40:12.905Z
+  r.clock.t += 50;
+  r.pub.event(init);                   // the turn opens ~50 ms later, as measured
+  r.clock.t += 550;
+  r.pub.stopped();                     // and the process dies at 0.6 s
+  r.pub.started(7001, 'sid-1');
+  assert.deepEqual(r.last().unstarted, { since: new Date(T0).toISOString(), count: 1, lost: true }, 'either order of the 11-23 deaths is reported');
+  assert.deepEqual(r.told, [{ since: new Date(T0).toISOString(), count: 1, lost: true }]);
+  // With one waiting behind it, both are counted once.
+  const q = recording();
+  q.pub.started(6368, 'sid-1');
+  q.pub.wrote(); q.pub.event(init); q.pub.wrote();
+  q.pub.stopped(); q.pub.started(7001, 'sid-1');
+  assert.equal(q.last().unstarted.count, 2);
+  // CONTROL: a turn that reached its result is not counted, however soon the process then ends.
+  const p = recording();
+  p.pub.started(6368, 'sid-1');
+  p.pub.wrote(); p.pub.event(init); p.pub.event(result);
+  p.pub.stopped(); p.pub.started(7001, 'sid-1');
+  assert.equal(p.last().unstarted, undefined);
+});
+
+test('#8951 review 7: a deadline merge clears the busy-write marker, so a turn nobody wrote cannot end the merged report', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.stopped(); r.pub.started(7001, 'sid-1');   // carried
+  r.clock.t += HOLD;
+  r.pub.wrote();                                                  // into idle
+  r.pub.wrote();                                                  // behind it, busy
+  r.fire();                                                       // neither starts: merged, count 3
+  assert.equal(r.last().unstarted.count, 3);
+  r.clock.t += HOLD;
+  r.pub.event({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'w1', name: 'Bash', input: { command: 'x' } }] } });
+  r.pub.event({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'w1', content: 'ok' }] } });
+  r.pub.event({ type: 'assistant', message: { content: [] } });
+  assert.ok(r.last().unstarted, 'a wake-up turn\'s calls returning is not the merged messages running');
 });
