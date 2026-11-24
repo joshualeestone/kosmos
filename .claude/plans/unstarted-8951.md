@@ -83,3 +83,9 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 - Fixed (WARNING): turnMsg was counted when the stop came soon after the LAST write, so a long-run turn plus one write just before a Restart read as lost. turnMsg now carries its own open time, and only a stop within LOST_WINDOW_MS of the turn opening counts it.
 - Accepted: a Restart within 10 s of a write still words the waiting message as "stopped right after it reached it". A stop that soon cannot be told apart from a crash by timing, and the message did not run either way.
 - Mutations red: the opener rule, the turn's own clock.
+
+## Challenge loop iteration 9 (opus, the whole diff plus a state table)
+- Fixed (WARNING): a message taken into a running turn when its calls returned dropped out of tracking when a written message had opened that turn. It is now kept as `takenMsg` on its own clock (when it joined) until the turn's result, and is no longer in flight, so it is counted once.
+- Fixed (WARNING): `lost` still keyed on the last write, so a message counted because its turn opened within seconds of the stop was worded "never started". Any counted open turn (turnMsg or takenMsg within the window) is now `lost`.
+- Every other cell, and the other files' agreement with the record, traced sound by the reviewer.
+- Mutations red: counting the taken message, wording an open turn as lost, not double counting at the boundary.
