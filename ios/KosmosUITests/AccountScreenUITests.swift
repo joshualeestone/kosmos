@@ -82,6 +82,50 @@ final class AccountScreenUITests: XCTestCase {
         shot(app, "account-second-on")
     }
 
+    // kosmos#8959 slice B1c: the sample lists two passkeys, each with Remove (which asks first, in the page's words), and
+    // Add a passkey; and one sign-in from a new place, with Not me (which asks first). A sample never asks Kosmos+ or
+    // Apple's sheet, so Add shows the page's "Passkey added." and nothing is removed or signed out.
+    func testPasskeysAndNewPlaces() {
+        let app = XCUIApplication()
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "settings", "KOSMOS_SAMPLE_SCROLL": "account"]
+        app.launch()
+        defer { app.terminate() }
+        let row = app.buttons["settings-account"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "no Your Kosmos+ account row in Settings")
+        for _ in 0..<6 where !row.isHittable { app.swipeUp() }
+        row.tap()
+        XCTAssertTrue(app.navigationBars["Kosmos+ account"].waitForExistence(timeout: 10), "the native account screen did not open")
+
+        let add = app.buttons["account-passkey-add"]
+        XCTAssertTrue(add.waitForExistence(timeout: 5), "no Add a passkey")
+        for _ in 0..<6 where !add.isHittable { app.swipeUp() }
+        XCTAssertTrue(app.buttons["Remove iPhone"].exists && app.buttons["Remove MacBook"].exists, "a passkey is listed without Remove")
+        XCTAssertTrue(app.staticTexts["Not used yet."].exists || app.staticTexts.containing(NSPredicate(format: "label ENDSWITH 'Not used yet.'")).count == 1,
+                      "the never-used passkey does not say so")
+        shot(app, "account-passkeys")
+
+        app.buttons["Remove iPhone"].tap()
+        XCTAssertTrue(app.staticTexts["Press it again to remove iPhone."].waitForExistence(timeout: 5), "Remove does not ask first, in the page's words")
+        shot(app, "account-passkey-remove")
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["Remove iPhone"].waitForExistence(timeout: 5), "Cancel removed the passkey")
+
+        add.tap()
+        XCTAssertTrue(app.staticTexts["Passkey added."].waitForExistence(timeout: 5), "Add does not say the passkey was added")
+
+        let notMe = app.buttons["Not me: sign out everywhere"]
+        for _ in 0..<6 where !notMe.isHittable { app.swipeUp() }
+        XCTAssertTrue(notMe.exists, "the new place has no Not me")
+        XCTAssertTrue(app.staticTexts["Safari on a Mac"].exists, "the new place is not listed")
+        shot(app, "account-new-places")
+        notMe.tap()
+        XCTAssertTrue(app.staticTexts["Press it again to sign your account out everywhere, this sign-in included."].waitForExistence(timeout: 5),
+                      "Not me does not ask first, in the page's words")
+        shot(app, "account-not-me")
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.navigationBars["Kosmos+ account"].exists, "Cancel left the account screen")
+    }
+
     private func shot(_ app: XCUIApplication, _ name: String) {
         let a = XCTAttachment(screenshot: app.screenshot())
         a.name = name
