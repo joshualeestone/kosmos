@@ -1,6 +1,10 @@
 /* kosmos#8990: a poll that changes nothing rebuilds no avatar, in a real browser.
  *
- * The report: agent avatars "seem to reload continuously" in a project room. Measured on main 87918b0c75 with a
+ * The report: agent avatars "seem to reload continuously" in a project room.
+ *
+ * ⚠️ SCOPE: this proves the IDLE case (two idle agents, nothing on the board changing). The grid and the list are each
+ * one write, so when any card or row changes (a working agent's memory reading or task line) the whole container is
+ * still rewritten and every avatar in it fetched again. That case is kosmos#9004. Measured on main 87918b0c75 with a
  * project room open: every status poll rewrote the board's card grid (#grid, painted even while hidden behind the
  * room) and the agents rail (#alist) with innerHTML, so each member's avatar node was destroyed and rebuilt every
  * poll, and agent avatars are served no-store, so each rebuild fetched the picture again (32 rebuilds and 16 fetches
@@ -22,7 +26,7 @@
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-avatar-steady-8990.js
  * Self-contained: a throwaway board (sandboxed data, fake tmux) on a free port, killed at the end.
  */
-// Browser-check-surface: setGridHtml ALIST_HTML paintAgentListNow repaintAgentOrder
+// Browser-check-surface: setGridHtml ALIST_HTML paintAgentListNow repaintAgentOrder AVATAR_RETRY_FIRST_MS AVATAR_RETRY_MAX_MS __avatarRetryFor
 require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
