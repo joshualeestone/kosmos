@@ -103,3 +103,8 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
   - capped at MSGS_MAX (500) records.
 - All 30 earlier tests pass unchanged on the new model; a new test covers the two joins a minute apart.
 - Mutations red: the per-message window, the ready gate, joining starts them, a result removes what ran, afterReport.
+
+## Challenge loop iteration 11 (opus)
+- Fixed (WARNING): iteration 10's "start every ready message when a turn opens" contradicted this module's own measurement (each message is its own turn, never batched), so a second waiting message was marked started and dropped at the next result, and could be lost in silence. A turn now opens on the oldest ready message only; the comment says so. My weakest premise in iteration 10 was exactly that guess, and the measured header settled it.
+- Fixed (NIT): a message written after a carried report that joins a turn when its calls return set the flag after that event's reportRan had run, so a stop before the next event carried the report again. reportRan now runs again after the join.
+- Mutations red: oldest only, the join ending the report.
