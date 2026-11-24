@@ -1706,9 +1706,10 @@ do {
           "bareType drops the parameters and the case")
     check(Board.bareType("a;b;c") == "a", "bareType takes what is before the FIRST ';'")
     check(!Board.isWebDocument(name: "x.dat", type: "text/plain; x=text/html"), "CONTROL: a page type after the ';' is a parameter, not the type")
-    check(Board.isWebDocument(name: "x.dat", type: ";text/html")
-          && !Board.fileAnswerAccepted(webDocument: false, contentType: ";text/html", disposition: ""),
-          "a malformed type starting with ';' reads as what follows: a page to the viewer, and a refused answer to the fetch")
+    check(Board.isWebDocument(name: "x.dat", type: ";text/html") && Board.bareType(" ; ;;text/html") == "text/html"
+          && !Board.fileAnswerAccepted(webDocument: false, contentType: ";text/html", disposition: "")
+          && !Board.fileAnswerAccepted(webDocument: false, contentType: ";;;text/html", disposition: ""),
+          "a malformed type starting with ';' (any number) reads as what follows: a page to the viewer, and a refused answer to the fetch")
     check(Board.savedName("report", type: "application/pdf; charset=binary") == "report.pdf"
           && Board.fileWord(type: "application/pdf; x=y", name: "report", kind: "file") == "PDF"
           && Board.isPreviewableImage(type: "image/jpeg; q=1", name: "x.bin"),
