@@ -320,6 +320,14 @@ check(heldParsed.map { Board.projectWord($0, agentsUnreadable: false) } == [.que
       "summary.needsYouHeld is read; a board older than #7916 (no field) and a non-number read the plain Question: \(heldParsed.map { Board.projectWord($0, agentsUnreadable: false) })")
 check(Board.projectWord(proj(working: 1, restarting: 1), agentsUnreadable: false) == .working, "Working above Restarting")
 check(Board.projectWord(proj(restarting: 1), agentsUnreadable: false) == .restarting, "Restarting")
+// kosmos#9011 (pjPillOf): built tasks waiting say so, last of all, and need no roster.
+func built(working w: Int = 0, needs: Int = 0, paused: Bool = false) -> Board.ProjectRow { var p = proj(needs, working: w, paused: paused); p.builtWaiting = 2; return p }
+check(Board.projectWord(built(), agentsUnreadable: false) == .builtWaiting && Board.projectWordText(.builtWaiting) == "Built but waiting", "built work waiting: Built but waiting")
+check(Board.projectWord(built(), agentsUnreadable: true) == .builtWaiting, "and with the agents unreadable (the count needs none)")
+check(Board.projectWord(built(working: 1), agentsUnreadable: false) == .working && Board.projectWord(built(needs: 1), agentsUnreadable: false) == .issue
+      && Board.projectWord(built(paused: true), agentsUnreadable: false) == .paused, "control: Working, Issue and Paused outrank it")
+let builtParsed = Board.parseProjects(Data(#"{"projects":[{"id":"b","name":"B","summary":{"builtWaiting":3}},{"id":"o","name":"O","summary":{}}]}"#.utf8))?.projects ?? []
+check(builtParsed.count == 2 && builtParsed.map { Board.projectWord($0, agentsUnreadable: false) } == [.builtWaiting, nil], "summary.builtWaiting is read; a board that never sent it shows no word (#4730)")
 check(Board.projectWord(proj(2, working: 1), agentsUnreadable: true) == nil, "agents unreadable: no word that could not be read")
 check(Board.projectWord(proj(working: 1, paused: true), agentsUnreadable: true) == .paused, "a pause is the person's own setting, still shown")
 check(Board.unreadBubble(nil) == nil && Board.unreadBubble(0) == nil && Board.unreadBubble(7) == "7" && Board.unreadBubble(150) == "99+", "the unread bubble's words")

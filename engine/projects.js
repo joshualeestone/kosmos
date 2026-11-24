@@ -1546,10 +1546,12 @@ function describe(project, roster, all) {
          there, so the pill and the need-you tile never disagree. */
       heldForYou: project.archived === true ? 0 : (Array.isArray(project.tasks) ? project.tasks : []).filter((t) => t && require('./tasks').isOnHold(t)
         && t.onHoldForPerson === true && !require('./tasks').progressOf(t).closed).length,
-      /* kosmos#9011 part 2: open tasks of this project marked built (`kosmos task built`) and waiting on the person to check
-         them: Josh's "Built but waiting" (#3951, the task state of the same name). A project whose queue is all built
-         read as idle; its card says so instead when nothing outranks it. No roster needed, as heldForYou; none on an
-         archived project. A task's own hold outranks built (taskState), so a held one is not counted. */
+      /* kosmos#9011 part 2: open tasks of this project marked built (`kosmos task built`): Josh's "Built but waiting"
+         (#3951, the task state of the same name), waiting on a review, a release (#8934) or the person. A project whose
+         queue is all built read as idle; its card says so instead when nothing outranks it. No roster needed, as
+         heldForYou; none on an archived project. A task's own hold outranks built (taskState), and a hold an agent set
+         for the person reads decision, so neither is counted; built work in a paused project is (#5864). A built parent
+         and its built subtasks each count: only > 0 is read today, so this is not a number to show as it stands. */
       builtWaiting: project.archived === true ? 0 : (Array.isArray(project.tasks) ? project.tasks : []).filter((t) => t
         && require('./tasks').taskState(t) === 'built').length,
       /* #6483: of needsYou, how many are an agent's own question about this project (reported by the agent, #2808 class

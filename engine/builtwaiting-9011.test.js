@@ -47,6 +47,15 @@ test('#9011 the summary counts open tasks marked built; held, closed, unbuilt an
   assert.equal(summary(a.id).builtWaiting, 0, 'none on an archived project');
 });
 
+test('#9011 built work in a paused project still counts (#5864); a task an agent held for the person does not', () => {
+  const p = project('bw two', 2);
+  for (const n of p.nums) assert.ok(tasks.setBuilt(p.id, n, { by: 'ada' }), 'fixture: setBuilt refused');
+  projects.edit(p.id, { paused: true });
+  assert.equal(summary(p.id).builtWaiting, 2, 'a paused project\'s built work is waiting, not stalled');
+  tasks.setOnHold(p.id, p.nums[0], true, { forPerson: true });
+  assert.equal(summary(p.id).builtWaiting, 1, 'a hold for the person is its own Question (heldForYou), not counted twice');
+});
+
 test('#9011 the project card says "Built but waiting" only when nothing outranks it', () => {
   const PAGE = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   const at = PAGE.indexOf('function pjPillOf(p, unreadable) {');
