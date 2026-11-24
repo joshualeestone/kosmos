@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: permgrow-8952
-diff_hash: 1ae56ab701fd527dc63a1e4c35486161ddc94469e5773c1226112596b55422f6
-validation: passed (Mortals at d8357c54b4 after the rebase onto main 7f2f2ee9ff, status clean, 2026-11-24T19:19:10Z)
+diff_hash: 01df8a9d7c1a98583bf872c78953f587b40e34b4fda03916d8d50c0e085e138d
+validation: passed (Mortals at d8357c54b4 after the rebase onto main 7f2f2ee9ff, status clean, 2026-11-24T19:19:10Z); rebased again onto 7624b4e6aa (17:25 CST): one conflict, the status.js export line beside kosmos#9001's names, both kept; the branch's tests plus status and selfexpiring suites (254) pass; CI re-runs the full suite
 subdir_audit: passed
 timestamp: 2026-11-24T19:19:10Z
 iterations: 8
