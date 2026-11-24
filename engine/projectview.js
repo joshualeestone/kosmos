@@ -535,7 +535,11 @@ function activityOf(p, o) {
   if (Number.isFinite(room)) add(room, 'post');
   for (const t of Array.isArray(p.tasks) ? p.tasks : []) add(Date.parse(taskAt(p.id, t)), 'task');
   add(Date.parse(p.createdAt), 'made');
-  const paused = p.paused === true || p.archived === true;
+  /* Review 3: a test project (#8236: its agents do only what they are asked) and the starter project Kosmos seeded
+     (#8832) are quiet by design, as a paused one is. */
+  let byDesign = false;
+  try { const pj = require('./projects'); byDesign = pj.isTestOnly(p) || pj.isStarter(p) || p.starter === true; } catch { byDesign = p.testOnly === true; }
+  const paused = p.paused === true || p.archived === true || byDesign;
   /* Review 1: a project whose every unfinished task is on hold, or built and waiting on a release or a check, is parked
      on purpose, and its quiet is expected too (#6341 removed that kind of flag). At least one such task, none in work. */
   let parked = false;
@@ -731,6 +735,8 @@ function activityLine(a, id) {
   if (!a || typeof a !== 'object') return null;
   const n = (x) => Math.max(0, Math.floor(Number(x) || 0));
   const days = (d) => (d === 1 ? '1 day' : d + ' days');
+  // Review 3: a pause is known without the room, so it is said first.
+  if (a.unknown === true && a.paused === true) return 'Last activity: Kosmos could not read the project\'s room just now. The project is paused, archived, a test project or the starter project, so quiet is expected.';
   if (a.unknown === true) return 'Last activity: Kosmos could not read the project\'s room just now, so it cannot say how long the project has been quiet.';
   if (!a.at) return 'Last activity: none Kosmos can date.';
   const what = a.kind === 'post' ? 'a post in its room' : a.kind === 'task' ? 'work on a task' : 'the project was made';
@@ -740,15 +746,16 @@ function activityLine(a, id) {
   const pad = (x) => String(x).padStart(2, '0');
   const local = Number.isFinite(ms) ? (() => { const d = new Date(ms); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); })() : '';
   const head = 'Last activity: ' + what + ', ' + when + (local ? ' (' + local + ')' : '') + '.';
-  if (a.paused === true) return head + ' The project is paused or archived, so quiet is expected.';
+  if (a.paused === true) return head + ' The project is paused, archived, a test project or the starter project, so quiet is expected.';
   if (a.parked === true) return head + ' Every unfinished task is on hold or built and waiting, so quiet is expected.';
   /* Review 1: said in the room, so every member sees it was said (and the post restarts this clock): six members do not
      each tell the person, and a restarted agent does not tell them again. Review 2: with the command that shows whether
      someone already has, since `project show` prints no room. The post then counts as activity, so this verdict goes
      quiet for every member: once said, it is said. */
   const room = typeof id === 'string' && id ? 'kosmos room ' + one(id) : 'its room';
-  if (a.quiet === true) return head + ' That is past the ' + days(n(a.quietDays)) + ' Kosmos counts as normal quiet. Read ' + room
-    + ': if nobody has said so there, post it there once, for your person.';
+  // Review 3: only a member can read or post in the room, and the person may run this too.
+  if (a.quiet === true) return head + ' That is past the ' + days(n(a.quietDays)) + ' Kosmos counts as normal quiet. If you are on'
+    + ' the project, read ' + room + ': if nobody has said so there, post it there once.';
   if (a.kind === 'made') return head + ' Nothing has been posted or moved since it was made; quiet is normal until ' + days(n(a.quietDays)) + '.';
   return head + ' Quiet is normal until ' + days(n(a.quietDays)) + '.';
 }

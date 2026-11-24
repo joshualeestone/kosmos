@@ -31,6 +31,18 @@ Review 2: an expired hold (its date passed, its task closed) is not parked. The 
 agent can see whether someone already said it, and says "post it there once": the post counts as activity, so once
 said, the verdict goes quiet for every member. The injected task reader is guarded like the default one.
 
+Review 3: the quiet verdict starts "If you are on the project" (a non-member cannot read or post in the room, and the
+person may run show too). A test project (#8236) and the starter project (#8832) are quiet by design, like a pause. A
+pause known without the room is said even when the room cannot be read. Both CLIs' help lines name "last activity".
+KNOWN LIMITS, stated not fixed:
+- The one quiet notice is itself a post, so it restarts the clock: a project dead for months reads "a post, 3 days ago"
+  and gets one notice every 14 days. Telling notices from work would need a marked post kind; the room shows both.
+- Each show reads every open task's chat (lastActivityOf), as `task list --stale` already does. Fine at today's sizes;
+  a cache by file mtime if show ends up in a polling loop.
+- Nothing yet teaches agents this line exists; an agent that never runs show still picks its own threshold. Slice 2:
+  one sentence in the projects block (it owes every agent a re-read, so it waits until the words settle), and a board
+  line, and a person-set threshold if 14 days is wrong in practice.
+
 Weakest premise: that 14 days is the right default. It is twice the reread give-up (7 days) and matches the records'
 staleness scale; nothing measured says it is right for every project.
 
