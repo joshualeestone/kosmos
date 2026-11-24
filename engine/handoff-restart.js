@@ -112,4 +112,11 @@ function carryOnPrompt() {
     + ' Carry on with your work. Your handoff stays where you wrote it.';
 }
 
-module.exports = { handoffForRestartPrompt, pickupPrompt, handoffIsFresh, carryOnPrompt };
+/* kosmos#9010 review 2: after a saved handoff, a restart that did not answer RESTARTED (it ran out of time, or came back
+   partial) may or may not have happened, so this line is true either way: it reaches the old session or the new one. */
+function maybeRestartedPrompt(path) {
+  return 'Your restart for the account move may not have finished. If you are still in the same session as before, carry'
+    + ' on with your work. If you have just started, read your handoff at ' + path + ' first, then continue from where it says.';
+}
+
+module.exports = { handoffForRestartPrompt, pickupPrompt, handoffIsFresh, carryOnPrompt, maybeRestartedPrompt };

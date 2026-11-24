@@ -48,7 +48,8 @@ test('a handoff written in time: asked, then restarted, then the new session is 
   assert.equal(a.outcome, 'changed');
   assert.deepEqual(a.handoff, { asked: true, saved: true, pickup: true }, 'the record says the handoff was saved and picked up');
   assert.match(a.because, /It is starting again, and it picks up from its handoff once its new session is up\./);
-  assert.match(a.because, /It wrote a handoff first, and its new session is pointed at it\.$/);
+  await until(() => /is pointed at it\.$/.test(accountmove.read(out.body.id).agents[0].because));
+  assert.match(accountmove.read(out.body.id).agents[0].because, /It wrote a handoff first, and its new session is pointed at it\.$/);
 });
 
 test('a handoff not written in time: the move goes ahead, says so, and sends no pickup', async () => {
@@ -145,16 +146,39 @@ test('a pickup that does not land is written back to the record', async () => {
   assert.match(accountmove.read(out.body.id).agents[0].because, /It wrote a handoff first, but we could not point its new session at it: tell it to read its handoff\.$/);
 });
 
-test('a restart that did not happen after a saved handoff: no pickup, honest words, and told to carry on', async () => {
+test('a restart that did not answer RESTARTED after a saved handoff: no pickup, honest words, a line true either way', async () => {
   const d = deps({ handoff: (events) => ({
     ask: async (n) => ({ asked: true, path: '/h/' + n, before: { exists: false } }),
     isFresh: () => true,
     pickup: async (n) => { events.push(['pickup', n]); return { ok: true }; },
     carryOn: async (n) => { events.push(['carryOn', n]); },
+    maybeRestarted: async (n, p) => { events.push(['maybeRestarted', n, p]); },
   }) });
   d.restartAsync = async (name) => { d.events.push(['restart', name]); return { outcome: 'partial', because: 'its window could not be closed.', steps: [] }; };
   const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
   await out.done; await tick();
-  assert.deepEqual(d.events, [['restart', 'al'], ['carryOn', 'al']]);
+  assert.deepEqual(d.events, [['restart', 'al'], ['maybeRestarted', 'al', '/h/al']], 'not "carry on": the restart may have happened');
   assert.match(accountmove.read(out.body.id).agents[0].because, /It wrote a handoff first; when it starts again, tell it to read its handoff\.$/);
+});
+
+test('fresh at the deadline but not yet seen settled still counts as saved', async () => {
+  let n = 0;
+  const d = deps({ handoff: () => ({
+    ask: async (x) => ({ asked: true, path: '/h/' + x, before: { exists: false } }),
+    isFresh: () => { n += 1; return n === 1 ? false : 100 + n; },   // fresh only from the second look, never settled
+    pickup: async () => ({ ok: true }),
+    waitMs: 30, pollMs: 20,
+  }) });
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
+  await out.done;
+  assert.equal(accountmove.read(out.body.id).agents[0].handoff.saved, true);
+});
+
+test('an ask that never answers is bounded: the move goes on, not asked', async () => {
+  const d = deps({ handoff: () => ({ ask: () => new Promise(() => {}), isFresh: () => true, pickup: async () => ({ ok: true }), askMs: 30 }) });
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
+  await out.done;
+  const a = accountmove.read(out.body.id).agents[0];
+  assert.equal(a.outcome, 'changed');
+  assert.deepEqual(a.handoff, { asked: false, saved: false, why: 'we could not reach it.' });
 });
