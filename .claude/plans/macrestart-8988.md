@@ -23,11 +23,13 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
     `@kosmos_agent_pane`), `remain-on-exit on` and a pane `pane-died` hook that writes "<epoch> status <N>" or
     "<epoch> signal <name>" and kills the session. Never the window or session: a pane a person splits off and closes
     must neither end the agent nor be recorded (review 1 reproduced that). If the hook cannot be set, remain-on-exit goes
-    back off. A path or name with a single quote, a # (run-shell reads # as a format), a ; or a \ gets no hook.
+    back off. A path or name with a single quote, a # (run-shell reads # as a format), a ; or a \ gets no hook (a % is literal there, measured).
+    The HASH arm pins it.
   - `agent_dead` (that pane's `#{pane_dead}` is 1; with no pane id, every pane's must be exactly 1) and
     `record_dead_pane` (that pane's exit).
   - The wait loop: a dead session is recorded and killed (then the usual sleep), so a missing hook cannot hold it.
-    It is the real safety net: `remain-on-exit` is on before the hook is set, and a hook tmux later drops would leave
+    With the supervisor gone and the hook gone, the dead pane is kept until launchd starts the supervisor again,
+    which replaces it (the RETURN arm). It is the real safety net: `remain-on-exit` is on before the hook is set, and a hook tmux later drops would leave
     the pane kept with nothing to end it but this (the WAIT arm).
   - When the agent's pane is dead, the whole session ends, including a pane a person split off and left running. That
     is the crash path today too (startup's "every pane is a shell: it crashed"), and before this change such a split
@@ -41,7 +43,8 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
   restart, switch or change Kosmos made itself, crashloop.noteDeliberate), with no start between, is Kosmos's own and
   shows nothing (a switch whose new process crashed is still said). A death before this boot is a shutdown's. An exit with code 0 shows nothing: Claude closed on purpose
   (a person typing /exit), not a crash to explain. Cleared by a turn end (the report hook's Stop, as
-  `selfreport.history` marks it: `turn: 'end'`) at or after that start. Words from `win32streamstate.restartWhy`.
+  `selfreport.history` marks it: `turn: 'end'`) at or after that start. A turn that ended in an API error reports
+  StopFailure instead, so it does not clear the line, as on Windows. Words from `win32streamstate.restartWhy`.
 - engine/crashloop.js `forget`: removes the death file with the run file, so a re-made agent does not inherit it.
 - engine/status.js `restartedOf`: Windows as before; a Mac pane that is ours and runs Claude reads macrestart.
 

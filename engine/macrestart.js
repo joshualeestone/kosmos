@@ -33,8 +33,9 @@ function parseDied(text) {
   return { atMs, code: null, signal: name.startsWith('SIG') ? name : 'SIG' + name };
 }
 
-/** Did a turn finish at or after `sinceMs`? The report hook's Stop, as selfreport.history marks it (turn 'end', its
-    `at` in ms). null when the record could not be read. */
+/** Did a turn end at or after `sinceMs`? The report hook's Stop, as selfreport.history marks it (turn 'end', its `at` in
+    ms). A turn that ended in an API error reports StopFailure (a blocked row), which is no turn end, so it does not
+    clear the line. null when reading the record threw; no record at all is no turn (false). */
 function finishedSince(sessionName, sinceMs, history) {
   let rows;
   try { rows = history(sessionName); } catch { return null; }

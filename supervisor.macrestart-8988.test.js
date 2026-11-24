@@ -10,6 +10,7 @@
  *   STOP      a deliberate kill-session records nothing (the death file is unchanged).
  *   SIGNAL    the runner is ended by SIGTERM: "signal term", read as "(signal SIGTERM)".
  *   SPLIT     a pane a person split off ending neither ends the agent nor is recorded.
+ *   HASH      a data folder with a # in it gets no hook (run-shell reads # as a format): nothing is kept or recorded.
  *   GROUP     a session a person grouped with the agent's is not left holding its dead pane.
  *   WAIT      the hook is gone (unset by the test): the supervisor's own wait loop finds the dead pane, records it
  *             and ends the session.
@@ -39,9 +40,9 @@ const REAL_TMUX = (() => {
 const SKIP = SKIP_POSIX_SHELL || (REAL_TMUX ? false : 'no tmux on this machine');
 const NAME = 'macrestart8988';
 
-function fixture() {
+function fixture(tag = '') {
   /* A short root: a tmux socket path must fit in sun_path (104 bytes on macOS). */
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mr8988-')));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mr8988-' + tag)));
   for (const dir of ['bin', 'data', 'work', 'shim', 'home', 'ctl']) fs.mkdirSync(path.join(root, dir), { recursive: true });
   fs.symlinkSync(SHIPPED, path.join(root, 'bin', 'agent-supervisor.sh'));
   fs.symlinkSync(path.join(REPO, 'engine'), path.join(root, 'engine'));
@@ -246,6 +247,22 @@ test('#8988 GROUP: a session a person grouped with the agent\'s does not keep th
     assert.match(String(f.died()), /^\d{9,11} status 6\n$/);
     const left = (f.tx('list-panes', '-a', '-F', '#{session_name} #{pane_dead}').stdout || '').split('\n').filter((l) => / 1$/.test(l));
     assert.deepEqual(left, [], 'no dead pane is left in the grouped session');
+    assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
+  } finally { f.cleanup(); }
+});
+
+test('#8988 HASH: a data folder with a # in it gets no hook, so nothing is kept dead or recorded', { skip: SKIP }, async () => {
+  const f = fixture('#');
+  try {
+    const one = f.start();
+    await f.until(f.alive, 'the session');
+    await f.until(() => fs.readdirSync(path.join(f.root, 'work')).length >= 0 && f.tx('list-panes', '-s', '-t', '=' + NAME).status === 0, 'the pane');
+    await new Promise((r) => setTimeout(r, 1500));   // well past arm_death_record
+    assert.equal(f.agentPane(), '', 'no pane id was recorded: the hook was never armed');
+    f.tell('exit 4');
+    await f.ends(one);
+    assert.equal(f.alive(), false, 'the session ended as it does today');
+    assert.equal(f.died(), null, 'nothing recorded, nothing kept');
     assert.equal(f.noisy(), '', 'the supervisor printed a shell error');
   } finally { f.cleanup(); }
 });

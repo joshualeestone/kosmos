@@ -151,8 +151,11 @@ test('#5154: read() takes the run file and the disruption record from the store,
 /* The supervisor's writer, lifted from the real script and run by bash. */
 function supervisorRecordRun() {
   const src = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
-  const m = /\nrecord_run\(\) \{\n[\s\S]*?\n\}\n/.exec(src);
-  assert.ok(m, 'record_run is gone from bin/agent-supervisor.sh');
+  /* kosmos#8988: record_run's folder rule is runs_file now (shared with the death record), so it is lifted with it. */
+  const h = /\nruns_file\(\) \{\n[\s\S]*?\n\}\n/.exec(src);
+  const r = /\nrecord_run\(\) \{\n[\s\S]*?\n\}\n/.exec(src);
+  assert.ok(h && r, 'record_run or its runs_file is gone from bin/agent-supervisor.sh');
+  const m = [h[0] + r[0]];
   return { src, fn: m[0] };
 }
 
