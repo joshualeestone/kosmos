@@ -7,7 +7,8 @@
  * permission prompt, or anything else it waits on the person for. Fixed words; the agent's own `because` never shows.
  *
  * Drives the real card() builder with the golden card shape, in Chromium and WebKit, at desktop and phone width.
- * NEGATIVE ARM: an idle card says none of these sentences.
+ * NEGATIVE ARMS: an idle, a working and a usage-limited card say none of these sentences (each carrying the fields
+ * that pick a sentence, so only the needs_you guard keeps them out).
  *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-waitwhy-8991.js
@@ -29,7 +30,7 @@ const WANT = {
   question: 'It has asked you a question and is waiting for your answer. Open it to answer.',
   held: 'It has a question for you and is holding it until you are back. Open it to answer.',
   permission: 'It is waiting for your permission to go on. Open it to answer.',
-  other: 'It is waiting for you. Open it to see what it is asking.',
+  other: 'It is waiting for you. Open it to see what it needs.',
 };
 
 (async () => {
@@ -58,6 +59,8 @@ const WANT = {
           ['permission', { awaitingApproval: true }],
           ['other', {}],
           ['idle', { state: 'idle', because: null }],
+          ['working', { state: 'working', because: null, stateReportedBy: 'agent', awaitingApproval: true }],
+          ['limited', { state: 'rate_limited', because: null, stateReportedBy: 'agent' }],
         ];
         const host = document.createElement('div');
         host.style.width = '320px';
@@ -76,9 +79,9 @@ const WANT = {
       }, { base: BASE, want: WANT });
       if (r.error) { chk(false, tag + ' ' + r.error); await page.close(); continue; }
       for (const row of r.rows) {
-        if (row.id === 'idle') {
+        if (!(row.id in WANT)) {
           const said = Object.values(WANT).filter((s) => row.title.includes(s) || row.text.includes(s));
-          chk(said.length === 0, tag + ' NEGATIVE: an idle card says none of the waiting-on-you sentences', said.join(' | '));
+          chk(said.length === 0, tag + ' NEGATIVE: a ' + row.id + ' card says none of the waiting-on-you sentences', said.join(' | '));
           continue;
         }
         chk(row.title.includes(WANT[row.id]), tag + ' ' + row.id + ': the pill hover says why it waits', row.title);
