@@ -23585,6 +23585,17 @@ function stateReason(a, opts) {
     if (a.deliveryStall.lost === true) return who + ' stopped right after ' + what + ' reached it, ' + when + ' ago, and never ran ' + them + '. ' + next + '.';
     return who + ' took in ' + what + ' ' + when + ' ago but never started on ' + them + '. ' + next + '.';
   }
+  /* kosmos#8979: its process stopped and Kosmos started it again; said until a turn on the new process ends well. After
+     the sentences above, which say something the person must act on; ahead of #7368's step and the plain states. Idle or
+     working only: a stopped, signed-out or limited card says itself. */
+  if (a && (a.state === 'idle' || a.state === 'working') && a.restarted && typeof a.restarted.at === 'string' && typeof a.restarted.why === 'string' && a.restarted.why) {
+    const at = new Date(a.restarted.at);
+    if (Number.isFinite(at.getTime())) {
+      const clock = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const when = at.toDateString() === new Date().toDateString() ? clock : at.toLocaleDateString([], { weekday: 'short' }) + ' ' + clock;
+      return 'Restarted at ' + when + ': ' + a.restarted.why;
+    }
+  }
   /* kosmos#7368 (Mona Lisa's design): a Windows agent on one step for over an hour with messages waiting behind it. The
      messages did arrive, so this is not "no message has reached it": it names the step and how many wait. */
   if (a && a.deliveryStall && a.deliveryStall.lastWhy === 'turn' && typeof a.deliveryStall.since === 'string') {

@@ -1899,6 +1899,15 @@ function deliveryStallOf(pane, status) {
     return ds.stallOf(pane && pane.name, { limitShown });
   } catch { return null; }
 }
+/* kosmos#8979: { at, why } while a Windows Claude agent's process was restarted by its supervisor and no turn on the new
+   process has ended well (engine/win32streamstate.restartedFor), else null. Windows Claude panes only: no other runner's
+   supervisor records it. Never throws. */
+function restartedOf(pane) {
+  try {
+    if (!pane || !pane.name || !require('./win32roster').isWin32Pane(pane) || (pane.runner && pane.runner !== 'claude')) return null;
+    return require('./win32streamstate').restartedFor(pane.name);
+  } catch { return null; }
+}
 /* kosmos#8286: one tool call running for minutes ({ tool, since }), from the agent's own transcript (engine/onestep.js).
    Review 1: only for a WORKING card (the only one the page says it for, and the cheap way to skip the transcript lookup on
    most cards), only for a pane tied to one of our agents (as readModel and readContext, which never read another agent's
@@ -9397,6 +9406,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     oneStep: null,   // kosmos#8286: no pane, so no Claude Code transcript is tied to it here
     neverTurned: false,   // #7786: a paneless card has no runner whose hook vouches for its record (see neverTurnedOf)
     deliveryStall: null,   // #7212 slice 2: carried only while a pane card reads idle or working
+    restarted: null,   // kosmos#8979: no pane, no supervised process to have restarted
     task: null,
     state: status.state,
     stateConfidence: status.confidence,
@@ -10330,6 +10340,8 @@ function snapshot() {
       /* #7212 slice 2: no message has been seen to reach it for half an hour, whatever the cause ({ since, count,
          lastWhy }), else null. A run of usage-limit holds alone is not said while the card shows the limit itself. */
       deliveryStall: deliveryStallOf(pane, status),
+      /* kosmos#8979: its process ended and the supervisor started it again ({ at, why }), until a turn ends well; else null. */
+      restarted: restartedOf(pane),
       /* #5959 slice 2: when it was last seen working, for the health line on its page (see lastWorkedOf). */
       lastWorked: lastWorkedOf(pane),
       /* kosmos#8286: one tool call running for minutes ({ tool, since }), from its transcript, else null (see oneStepOf). */
@@ -10759,7 +10771,7 @@ function sessionStartIn(text, want) {
 }
 
 module.exports = { panesWithCommands /* kosmos#8719 */, boardTmux /* kosmos#8719 */, isClaudeCommand /* kosmos#8719 */, paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, win32ReadText, win32LongForm, win32Powershell, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
-  backgroundShellsIn, backgroundShellsOf /* kosmos#8846 */, composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
+  backgroundShellsIn, backgroundShellsOf /* kosmos#8846 */, composerText, unsentInputOf, deliveryStallOf, restartedOf /* kosmos#8979 */, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
   waitingTotal,   // #3996: the Dock badge's number
