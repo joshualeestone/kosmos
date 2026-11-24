@@ -126,6 +126,58 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$Sh" --fo
 has "$out" "run the check it could not: KOSMOS_GATE_EXPECT_VERSION=$V bash $(cd "$(dirname "$PROMOTE")/.." && pwd)/tools/staging-experience-check.sh" && pass "#5084: a forced cannot-tell prints the exact re-run for after the deploy" || bad "#5084: forced cannot-tell, no re-run line (out=$out)"
 has "$out" "this agent-spawn pass is not a check of $V" && pass "#5084: after a forced cannot-tell, the agent-spawn pass says it is not a check of $V" || bad "#5084: forced cannot-tell, agent pass not qualified (out=$out)"
 
+# ---- kosmos#8960: the board wait before the gates ----
+# A stub version reader plays a script of looks, one line per call, "rc:version"; the last line repeats. It logs each
+# call, so a case can count the looks. A fresh site per case.
+BV_STUB="$T/stub-board-version.sh"
+printf '#!/usr/bin/env bash\nn=$(( $(wc -l < "$BV_LOG" 2>/dev/null || echo 0) + 1 )); echo "look $n port:${1:-}" >> "$BV_LOG"\nl="$(sed -n "${n}p" "$BV_SCRIPT")"; [ -n "$l" ] || l="$(tail -1 "$BV_SCRIPT")"\nprintf "%%s\\n" "${l#*:}"; exit "${l%%%%:*}"\n' > "$BV_STUB"; chmod +x "$BV_STUB"
+bw() {   # $1 the script of looks (lines), $2 gate rc, then promote args; sets out, rc, looks
+  printf '%s\n' "$1" > "$T/bv-script"; rm -f "$T/bv-log"; local g="$2"; shift 2
+  out="$(BV_SCRIPT="$T/bv-script" BV_LOG="$T/bv-log" KOSMOS_PROMOTE_BOARD_VERSION_CMD="bash $BV_STUB" KOSMOS_PROMOTE_BOARD_WAIT="${BW_WAIT:-10}" KOSMOS_PROMOTE_BOARD_WAIT_STEP=1 \
+    KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT="$g" bash "$PROMOTE" "$@" 2>&1)"; rc=$?
+  looks=0; [ ! -f "$T/bv-log" ] || looks="$(wc -l < "$T/bv-log" | tr -d ' ')"
+}
+Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
+bw "0:$V" 0 "$Sw" 16555
+[ "$rc" = 0 ] && [ "$looks" = 1 ] && has "$out" "the board on :16555 runs $V: the gates check $V itself" && ! has "$out" "waiting for the board" \
+  && pass "#8960: a board already on V: one look, no wait, the gates run and promote" || bad "#8960 board on V (rc=$rc looks=$looks out=$out)"
+grep -q "port:16555" "$T/bv-log" && pass "#8960: the version reader is asked about the gate's port" || bad "#8960: the reader was not handed the port ($(cat "$T/bv-log"))"
+Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
+bw "$(printf '1:\n0:9.9.8\n0:%s' "$V")" 0 "$Sw"
+[ "$rc" = 0 ] && [ "$looks" = 3 ] && has "$out" "waiting for the board on :16180 to run $V before the gates: nothing answers on :16180" && has "$out" "runs $V: the gates check" && [ -f "$Sw/dist/latest.json" ] \
+  && pass "#8960: installing (no answer), then the old release, then V: waits through both and promotes" || bad "#8960 install then V (rc=$rc looks=$looks out=$out)"
+case "$out" in *"waiting for the board"*"the board on :16180 runs $V"*"running the experience gate"*) pass "#8960: the wait comes BEFORE the experience gate" ;; *) bad "#8960: the wait is not before the gate (out=$out)" ;; esac
+Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
+bw "0:9.9.10" 2 "$Sw"
+[ "$rc" = 2 ] && [ "$looks" = 1 ] && has "$out" "runs 9.9.10, later than $V" && [ ! -f "$Sw/dist/latest.json" ] \
+  && pass "#8960: a board on a LATER release (9.9.10 > 9.9.9, not by string) is not waited for; the gate still holds" || bad "#8960 later board (rc=$rc looks=$looks out=$out)"
+Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
+bw "2:" 2 "$Sw"
+[ "$rc" = 2 ] && [ "$looks" = 1 ] && has "$out" "no board wait: cannot read which version" \
+  && pass "#8960: a board whose version cannot be read is not waited for (the gate says why)" || bad "#8960 unreadable (rc=$rc looks=$looks out=$out)"
+# The wait runs out: the gates run anyway and are NOT loosened. Still on the old release -> cannot-tell HOLDS (2);
+# nothing ever answers -> the gate's exit 1 still REFUSES, --force or not.
+Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
+BW_WAIT=2 bw "0:9.9.8" 2 "$Sw"
+[ "$rc" = 2 ] && [ "$looks" = 3 ] && has "$out" "stopped waiting after 2s: it runs 9.9.8, older than $V" && [ ! -f "$Sw/dist/latest.json" ] \
+  && pass "#8960: the wait is bounded: after it runs out the gate runs and its cannot-tell still HOLDS" || bad "#8960 timeout hold (rc=$rc looks=$looks out=$out)"
+BW_WAIT=2 bw "1:" 1 "$Sw" --force --hand-check "$HC8960"
+[ "$rc" = 1 ] && has "$out" "stopped waiting after 2s: nothing answers" && has "$out" "does not override" && [ ! -f "$Sw/dist/latest.json" ] \
+  && pass "#8960: a board that never answers still REFUSES after the wait (exit 1 not loosened, even with --force)" || bad "#8960 timeout refuse (rc=$rc looks=$looks out=$out)"
+Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
+BW_WAIT=0 bw "0:9.9.8" 0 "$Sw"
+[ "$rc" = 0 ] && [ "$looks" = 0 ] && has "$out" "board wait off (KOSMOS_PROMOTE_BOARD_WAIT=0)" \
+  && pass "#8960: KOSMOS_PROMOTE_BOARD_WAIT=0 turns the wait off (no look)" || bad "#8960 wait off (rc=$rc looks=$looks out=$out)"
+Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
+BW_WAIT=soon bw "0:$V" 0 "$Sw"
+[ "$rc" = 1 ] && [ "$looks" = 0 ] && has "$out" "KOSMOS_PROMOTE_BOARD_WAIT must be a number" && [ ! -f "$Sw/dist/latest.json" ] \
+  && pass "#8960: an unusable KOSMOS_PROMOTE_BOARD_WAIT refuses, prod untouched" || bad "#8960 bad wait (rc=$rc looks=$looks out=$out)"
+# With the gate overridden and no reader named, which board the gate checks is unknown: no wait (every case above
+# that sets only KOSMOS_PROMOTE_GATE_CMD relies on this, so none of them looks at a real board on this machine).
+Sw="$(make_site)"; bash "$PUBLISH" "$Sw" >/dev/null 2>&1
+out="$(env -u KOSMOS_PROMOTE_BOARD_VERSION_CMD KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sw" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "no board wait: KOSMOS_PROMOTE_GATE_CMD is set" && pass "#8960: an overridden gate with no reader named gets no wait" || bad "#8960 overridden gate (rc=$rc out=$out)"
+
 # same-bytes invariant: a staging pointer whose sha does not match the served artifact is refused BEFORE the gate
 Sm="$(make_site)"; bash "$PUBLISH" "$Sm" >/dev/null 2>&1
 # rewrite the staging pointer's sha to a wrong value

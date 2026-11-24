@@ -92,6 +92,19 @@
 # Overrides (mainly for the test):
 #   KOSMOS_PROMOTE_GATE_CMD   the experience gate to run (default: bash <repo>/tools/staging-experience-check.sh)
 #   KOSMOS_PROMOTE_LINUX_CHECK_CMD   the Linux check-runs lookup (default: bash <repo>/tools/linux-check-runs.sh)
+#   KOSMOS_PROMOTE_BOARD_WAIT   seconds to wait for the gate's board to run V before the Mac gates (default 1800; 0 = no wait)
+#   KOSMOS_PROMOTE_BOARD_WAIT_STEP   seconds between looks (default 30)
+#   KOSMOS_PROMOTE_BOARD_VERSION_CMD  prints the version the board runs (default: bash <repo>/tools/staging-experience-check.sh
+#             --print-version). When KOSMOS_PROMOTE_GATE_CMD is set and this is not, there is no wait: the board is not known.
+#
+# THE BOARD WAIT (kosmos#8960). A board on the staging channel updates itself to V a few minutes after staging serves V.
+# Run the gates before that and the experience gate either refuses (exit 1: nothing answers on the port while the board
+# installs) or cannot tell (the board still runs the release before V), which is how 0.8.19 ended up forced. So before
+# the gates, promote waits, up to KOSMOS_PROMOTE_BOARD_WAIT seconds, while nothing answers on the gate's port or the
+# board answers with a version older than V, and prints what it is waiting for. It does not wait for a board that runs
+# V, a later release (a named promote after staging moved on), or one whose version it cannot read. When the time runs
+# out it says so and runs the gates anyway, which then hold or refuse exactly as they would have. The gates are not
+# loosened: exit 1 still refuses.
 #
 # THE LINUX CHECK RUNS (kosmos#7942). When the promote moves latest-linux.json, both Linux workflows must be green for
 # that exact Linux build (version and sha256), or the promote refuses before any gate or write: this Mac cannot boot
@@ -472,6 +485,60 @@ elif [ "$FAMILY" = mac ] && [ -f "$SITE/setup" ]; then
 fi
 
 
+# kosmos#8960: is version $1 older than $2? Dotted numbers compared field by field; anything after a "-" or "+" is
+# ignored (a pre-release reads as its release). Not numeric: rc 2, so the caller can treat it as "cannot tell".
+version_older() {
+  local a="${1%%[-+]*}" b="${2%%[-+]*}" x y
+  case "$a.$b" in *[!0-9.]*|.*|*..*) return 2 ;; esac
+  while [ -n "$a" ] || [ -n "$b" ]; do
+    x="${a%%.*}"; y="${b%%.*}"; x="${x:-0}"; y="${y:-0}"
+    [ "$((10#$x))" -lt "$((10#$y))" ] && return 0
+    [ "$((10#$x))" -gt "$((10#$y))" ] && return 1
+    case "$a" in *.*) a="${a#*.}" ;; *) a="" ;; esac
+    case "$b" in *.*) b="${b#*.}" ;; *) b="" ;; esac
+  done
+  return 1
+}
+
+# kosmos#8960: THE BOARD WAIT (see the header). Returns 0 to go on to the gates; 1 only when the settings are unusable.
+wait_for_board_on_v() {
+  local want="$1" limit="${KOSMOS_PROMOTE_BOARD_WAIT:-1800}" step="${KOSMOS_PROMOTE_BOARD_WAIT_STEP:-30}" cmd port_words
+  case "$limit" in ''|*[!0-9]*) echo "promote-channel: KOSMOS_PROMOTE_BOARD_WAIT must be a number of seconds, not '$limit' - refusing" >&2; return 1 ;; esac
+  case "$step" in ''|*[!0-9]*|0) echo "promote-channel: KOSMOS_PROMOTE_BOARD_WAIT_STEP must be a number of seconds above 0, not '$step' - refusing" >&2; return 1 ;; esac
+  port_words=":${PORT:-${KOSMOS_PORT:-16180}}"
+  if [ "$limit" = 0 ]; then echo "promote-channel: board wait off (KOSMOS_PROMOTE_BOARD_WAIT=0): the gates run now, whatever the board on $port_words runs."; return 0; fi
+  if [ -n "${KOSMOS_PROMOTE_BOARD_VERSION_CMD:-}" ]; then cmd="$KOSMOS_PROMOTE_BOARD_VERSION_CMD"
+  elif [ -n "${KOSMOS_PROMOTE_GATE_CMD:-}" ]; then
+    echo "promote-channel: no board wait: KOSMOS_PROMOTE_GATE_CMD is set, so which board the gate checks is not known here."; return 0
+  else cmd="bash $(cd "$(dirname "$0")/.." && pwd)/tools/staging-experience-check.sh --print-version"; fi
+  local waited=0 bv rc why last_said=-1
+  while :; do
+    rc=0; bv="$($cmd ${PORT:+"$PORT"} 2>/dev/null)" || rc=$?
+    bv="$(printf '%s' "$bv" | head -1 | tr -d '[:space:]')"
+    if [ "$rc" = 0 ] && [ -n "$bv" ]; then
+      if [ "$bv" = "$want" ]; then echo "promote-channel: the board on $port_words runs $want: the gates check $want itself."; return 0; fi
+      local o=0; version_older "$bv" "$want" || o=$?
+      case "$o" in
+        0) why="it runs $bv, older than $want (still to update)" ;;
+        1) echo "promote-channel: no board wait: the board on $port_words runs $bv, later than $want, and will not run $want again; the gates say what that means."; return 0 ;;
+        *) echo "promote-channel: no board wait: the board on $port_words reports '$bv', which cannot be compared with $want; the gates say what that means."; return 0 ;;
+      esac
+    elif [ "$rc" = 1 ]; then why="nothing answers on $port_words (a board installing an update, or down)"
+    else echo "promote-channel: no board wait: cannot read which version the board on $port_words runs (version reader exit $rc); the gates say why."; return 0
+    fi
+    if [ "$waited" -ge "$limit" ]; then
+      echo "promote-channel: stopped waiting after ${waited}s: $why. Running the gates anyway; they hold or refuse as they would have." >&2
+      return 0
+    fi
+    # Say it on the first look and about every five minutes, not on every look.
+    if [ "$last_said" -lt 0 ] || [ $((waited - last_said)) -ge 300 ]; then
+      echo "promote-channel: waiting for the board on $port_words to run $want before the gates: $why (${waited}s of ${limit}s; KOSMOS_PROMOTE_BOARD_WAIT=0 skips this)"
+      last_said="$waited"
+    fi
+    sleep "$step"; waited=$((waited + step))
+  done
+}
+
 if [ "$FAMILY" = mac ]; then
   # The pointer promote is about to copy to latest.json also advertises the manifest; do not
   # promote a prod pointer to a manifest that has gone missing since publish.
@@ -538,6 +605,7 @@ if [ "$FAMILY" = mac ]; then
   # Forward [port] to the gate as its arg1 (the gate reads arg1 -> KOSMOS_PORT -> 16180). Giving
   # the fresh staging board's real port here is what keeps a wrong-port HOLD from pushing an
   # operator toward --force. When no port is given the gate falls back to KOSMOS_PORT/16180.
+  wait_for_board_on_v "$V" || exit 1
   echo "promote-channel: running the experience gate: $GATE_CMD${PORT:+ (port $PORT)}"
   # #5084: the gate refuses to speak for $V from a board on another version (cannot-tell, exit 2).
   BOARD_OTHER=""
