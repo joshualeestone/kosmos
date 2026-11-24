@@ -23645,6 +23645,20 @@ function stateReason(a, opts) {
   if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true && a.because) {
     return a.because + '.';   // the engine's one sentence (status.js), not a second copy of it
   }
+  /* kosmos#8991: an agent waiting on the person says so in plain words: the pill's hover and hidden text, like #8979's
+     restart line (no sentence on a tile, #6716; its own page hides this line for needs_you, where the question shows).
+     Fixed words chosen by what it waits on, in stateCopyOf's order (held, question, permission), so the sentence and the
+     pill word agree. Never the agent's own `because` (#986, #3043, #3271: its words stay off these surfaces). After
+     #4006's failed restart above, which says what to do. A sign-in or a usage limit has its sentence below. */
+  if (a && a.state === 'needs_you') {
+    if (a.stateReportedBy === 'agent') {
+      return a.stateHeld === true
+        ? 'It has a question for you and is holding it until you are back. Open it to answer.'
+        : 'It has asked you a question and is waiting for your answer. Open it to answer.';
+    }
+    if (a.awaitingApproval === true) return 'It is waiting for your permission to go on. Open it to answer.';
+    return 'It is waiting for you. Open it to see what it is asking.';
+  }
   if (a && a.state === 'restarting') {
     /* #2019 timedOut: an OVERRUN restart must not still promise "a few seconds"
        -- the label already says "not back yet", and a card that says both reads
