@@ -28,8 +28,13 @@ A file that arrived whole looks and works exactly as before.
   many the file has); nothing is stored.
   `incompleteZip(file)`: a file starting as a zip is incomplete when no end record in its tail is its own: its comment must
   fit before the end, and its directory must lie before it, starting as a directory does (an inner zip's record in a cut file
-  says a place that is not one). zip64, and any read that fails, are not judged. finish() records `incomplete: true`; rowField carries it;
+  says a place that is not one; an inner empty archive's record counts only when the file itself is one). The last 1 MiB is searched,
+  so data appended after the end does not read as a cut. zip64, and any read that fails, are not judged. finish() records `incomplete: true`; rowField carries it;
   the agent's note says so; the page's file card says "incomplete upload, please send again" (.att-bad).
+
+## Read, not run
+- The Kosmos+ tunnel (kosmos-relay proxy.rs) forwards request headers except hop-by-hop ones and Host, so the size header reaches the
+  board through it. Not tested through a real relay (Homer's run is on the card).
 
 ## Rejected
 - Refusing an incomplete zip outright: the person's bytes would be lost, and a rare legitimate file could be refused.

@@ -118,15 +118,17 @@ const PART = '.upload.part';
 const PAGES_FILE = '.pdf-pages';
 function pageFile(page) { return '.pdf-page-' + page + '.png'; }
 
-/* kosmos#9016: whether a zip-based file is cut short. A zip ends with its directory (the End Of Central Directory record,
-   at most 65,557 bytes from the end: 22 bytes and a comment of up to 65,535), and the directory's own offset and size must
-   lie inside the file. A file that does not start as a zip, or that says its directory is in the zip64 form (the 32-bit
-   figures are all ones), is not judged here. Any read that fails says nothing: the file is as it was. */
+/* kosmos#9016: whether a zip-based file is cut short. A zip ends with its End Of Central Directory record, which comes after the
+   directory it points to and may be followed by a comment of up to 65,535 bytes (and, in some files, by data appended after
+   that). The record is searched in the last 1 MiB; it is the file's own when its comment fits before the end and its directory
+   lies before it at the place it says, starting as a directory does. A file that does not start as a zip, or whose directory
+   figures are in the zip64 form (the 32-bit ones all ones), is not judged here. Any read that fails says nothing: the
+   file is as it was. */
 const ZIP_HEAD = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
-const ZIP_EMPTY = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
 const ZIP_END = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
 const ZIP_CENTRAL = Buffer.from([0x50, 0x4b, 0x01, 0x02]);
-const ZIP_TAIL = 22 + 0xffff;
+/* The last 1 MiB: an end record may sit before data somebody appended after it, and a comment adds up to 65,535 bytes. */
+const ZIP_TAIL = 1024 * 1024;
 function incompleteZip(file) {
   let fd = null;
   const centralAt = (off) => { const b = Buffer.alloc(4); return fs.readSync(fd, b, 0, 4, off) === 4 && b.equals(ZIP_CENTRAL); };
@@ -135,7 +137,8 @@ function incompleteZip(file) {
     const size = fs.fstatSync(fd).size;
     const head = Buffer.alloc(4);
     if (size < 4 || fs.readSync(fd, head, 0, 4, 0) !== 4) return false;
-    if (!head.equals(ZIP_HEAD) && !head.equals(ZIP_EMPTY)) return false;
+    const emptyZip = head.equals(ZIP_END);   // an archive with nothing in it is its end record alone
+    if (!head.equals(ZIP_HEAD) && !emptyZip) return false;
     const n = Math.min(size, ZIP_TAIL);
     const tail = Buffer.alloc(n);
     let got = 0;
@@ -152,7 +155,8 @@ function incompleteZip(file) {
       if (dirSize === 0xffffffff || dirAt === 0xffffffff || entries === 0xffff) return false;   // the zip64 form is not judged
       const absolute = size - n + at;
       if (absolute + 22 + commentLen > size || dirAt + dirSize > absolute) continue;
-      if (entries === 0 || centralAt(dirAt)) return false;
+      /* No entries is a whole archive only when the file IS that: otherwise the record is an inner one, or noise. */
+      if (entries === 0 ? emptyZip : centralAt(dirAt)) return false;
     }
     return true;
   } catch { return false; } finally { if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ } }
