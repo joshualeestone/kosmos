@@ -119,6 +119,7 @@ final class WebFileUITests: XCTestCase {
         shot(app, "svg-open")
         svg.images.firstMatch.tap()
         XCTAssertTrue(probe.stays(at: baseline, for: 2), "the SVG reached the network")
+        XCTAssertTrue(svg.exists, "the SVG is no longer shown after a tap")
         app.buttons["Done"].tap()
         probe.listener.cancel()
     }

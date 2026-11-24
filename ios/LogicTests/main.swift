@@ -1704,7 +1704,19 @@ do {
           "kosmos#8966: a type with parameters is judged as its bare type, so a page sent as one opens in WebFileView")
     check(Board.bareType(" Text/HTML; charset=utf-8") == "text/html" && Board.bareType("application/pdf") == "application/pdf" && Board.bareType("") == "",
           "bareType drops the parameters and the case")
-    check(!Board.isWebDocument(name: "x.dat", type: "application/pdf; name=a.html"), "CONTROL: a parameter that names a page does not make a PDF one")
+    check(Board.bareType("a;b;c") == "a" && Board.bareType(";text/html") == "", "bareType takes what is before the FIRST ';', even nothing")
+    check(!Board.isWebDocument(name: "x.dat", type: "text/plain; x=text/html") && !Board.isWebDocument(name: "x.dat", type: ";text/html"),
+          "CONTROL: a page type after the ';' is a parameter, not the type")
+    check(Board.savedName("report", type: "application/pdf; charset=binary") == "report.pdf"
+          && Board.fileWord(type: "application/pdf; x=y", name: "report", kind: "file") == "PDF"
+          && Board.isPreviewableImage(type: "image/jpeg; q=1", name: "x.bin"),
+          "kosmos#8966: savedName, fileWord and isPreviewableImage read a type with parameters as its bare type too")
+    check(Board.isDeliberateCancel(domain: NSURLErrorDomain, code: NSURLErrorCancelled) && Board.isDeliberateCancel(domain: "WebKitErrorDomain", code: 102),
+          "kosmos#8966: a cancelled navigation and WebKit's frame-load-interrupted are not a failed page")
+    check(!Board.isDeliberateCancel(domain: NSURLErrorDomain, code: NSURLErrorCannotDecodeContentData)
+          && !Board.isDeliberateCancel(domain: "WebKitErrorDomain", code: 101) && !Board.isDeliberateCancel(domain: "WebKitErrorDomain", code: NSURLErrorCancelled)
+          && !Board.isDeliberateCancel(domain: NSURLErrorDomain, code: 102),
+          "CONTROL: any other error, or a matching code in the other domain, is a failed page")
     check(Board.inertPage(pageBytes, kind: .page) == Board.withoutLinks(pageBytes), "a page is drawn with its links taken out")
     // A UTF-16 page (its byte order mark wins over the UTF-8 the web view is told) is converted, so its links are found too.
     var utf16 = Data([0xFF, 0xFE]); utf16.append("<a href=x>go</a>".data(using: .utf16LittleEndian)!)

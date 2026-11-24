@@ -99,7 +99,7 @@ struct WebFileView: View {
 
 // A web view that draws a page's bytes (Board.inertPage) and loads nothing else: no JavaScript, a data store that is not
 // kept, a content rule that blocks every load, and every navigation after the first cancelled (a refresh, a frame). If the
-// rule cannot be compiled the page is not drawn, and `failed` says so.
+// rule cannot be compiled, the page fails to load, or the web view's page process ends, `failed` says so (kosmos#8966).
 struct LockedWebView: UIViewRepresentable {
     let page: Data
     let failed: () -> Void
@@ -152,13 +152,14 @@ struct LockedWebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { Self.untappable(webView) }
 
         // kosmos#8966: the page itself failing to draw shows the can't-show card, not a blank page. A navigation this
-        // delegate cancelled also ends here (NSURLErrorCancelled, or WebKit's 102 "frame load interrupted"), and is not one.
+        // delegate cancelled also ends here, and is not one (Board.isDeliberateCancel).
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failIfReal(error) }
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failIfReal(error) }
+        // The page's process ended (a page too big for memory, say): what was drawn is gone, so the same card.
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { failed() }
         private func failIfReal(_ error: Error) {
             let e = error as NSError
-            if e.code == NSURLErrorCancelled || (e.domain == "WebKitErrorDomain" && e.code == 102) { return }
-            failed()
+            if !Board.isDeliberateCancel(domain: e.domain, code: e.code) { failed() }
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
