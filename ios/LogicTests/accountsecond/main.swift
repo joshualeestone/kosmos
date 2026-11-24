@@ -62,9 +62,17 @@ check(A.confirmed(status: 200, json: ["ok": true, "kind": "totp"]) == .on(kind: 
 check(A.confirmed(status: 200, json: ["ok": true]) == .on(kind: "totp", fresh: nil), "no kind reads as the authenticator, as the page")
 check(A.confirmed(status: 200, json: ["ok": true, "kind": "sms", "token": ""]) == .onSignInAgain(kind: "sms"), "an empty token is not none sent")
 check(A.confirmed(status: 200, json: ["ok": true, "kind": "sms", "token": 7]) == .onSignInAgain(kind: "sms"), "an unreadable token is not none sent")
-check(A.confirmed(status: 400, json: ["error": "that code is not right or has expired"]) == .refused("That code is not right or has expired."), "Kosmos+'s own sentence")
+// Kosmos+'s real answers (kosmos-relay second.rs confirm): a wrong code is a 401, and it is NOT signed out.
+check(A.confirmed(status: 401, json: ["error": "that code is not what the app shows right now; wait for the next one and try again"])
+      == .refused("That code is not what the app shows right now; wait for the next one and try again."), "a wrong app code stays, with its sentence")
+check(A.confirmed(status: 401, json: ["error": "that code is not the one we texted"]) == .refused("That code is not the one we texted."), "a wrong texted code stays")
+check(A.confirmed(status: 401, json: nil) == .refused(A.codeRefused), "a 401 with no sentence is not read as signed out")
 check(A.confirmed(status: 400, json: nil) == .refused(A.codeRefused), "the page's line with none")
-check(A.confirmed(status: 401, json: nil) == .signedOut, "401 is signed out")
+// CONTROLS: a 401 whose sentence ends the sign-in is signed out; a 400 that says start again closes the setup.
+check(A.confirmed(status: 401, json: ["error": "this account signed out everywhere since; sign in again"]) == .signedOut("This account signed out everywhere since; sign in again."), "signed out everywhere is signed out")
+check(A.confirmed(status: 401, json: ["error": "this Kosmos+ account no longer exists"]) == .signedOut("This Kosmos+ account no longer exists."), "a gone account is signed out")
+check(A.confirmed(status: 400, json: ["error": "nothing is being enrolled; start again"]) == .startOver("Nothing is being enrolled; start again."), "an expired setup starts over")
+check(A.confirmed(status: 400, json: ["error": "the enrolment is damaged; start again"]) == .startOver("The enrolment is damaged; start again."), "a damaged setup starts over")
 check(A.signInAgainWords(kind: "sms").hasPrefix(A.onTitle + ". "), "it still says the step is on")
 check(A.signInAgainWords(kind: "sms").hasSuffix("Sign in again on this iPhone to keep going."), "and what to do")
 

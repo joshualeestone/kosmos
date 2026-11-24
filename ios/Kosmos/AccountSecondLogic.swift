@@ -72,7 +72,13 @@ enum AccountSecond {
         // `enrolled` must be present: a missing key and null are not the same answer, and only null means none.
         guard let value = body["enrolled"] else { return .unreadable(unreadableWords) }
         let kind: String?
-        if value is NSNull { kind = nil } else if let s = value as? String, !s.isEmpty { kind = s } else { return .unreadable(unreadableWords) }
+        if value is NSNull {
+            kind = nil
+        } else if let s = value as? String, !s.isEmpty {
+            kind = s
+        } else {
+            return .unreadable(unreadableWords)
+        }
         return .status(Status(enrolled: kind, smsAvailable: body["sms_available"] as? Bool == true))
     }
 
@@ -118,8 +124,13 @@ enum AccountSecond {
         /// The step is on, but the fresh session Kosmos+ sent cannot be read. The old one will be refused, so the person
         /// is told to sign in again rather than finding out on the next tap.
         case onSignInAgain(kind: String)
+        /// A wrong or expired code: the sheet stays, with Kosmos+'s sentence under the field.
         case refused(String)
-        case signedOut
+        /// A refusal no new code can fix (nothing is being set up any more, the setup is damaged): the sheet closes and
+        /// the screen shows the sentence, so the person starts again from the offer.
+        case startOver(String)
+        /// The sign-in itself is over (signed out everywhere, this device removed, the account gone).
+        case signedOut(String)
     }
 
     static func signInAgainWords(kind: String) -> String {
@@ -129,9 +140,15 @@ enum AccountSecond {
     static let codeRefused = "That code is not right."
 
     static func confirmed(status: Int, json: Any?) -> Confirmed {
-        if status == 401 { return .signedOut }
         let body = json as? [String: Any] ?? [:]
-        guard (200..<300).contains(status) else { return .refused(SignIn.refusal(body["error"]) ?? codeRefused) }
+        guard (200..<300).contains(status) else {
+            let sentence = SignIn.refusal(body["error"])
+            // Kosmos+ answers a wrong code with 401 too (second.rs confirm), so the status alone never means signed out:
+            // only a sentence slice A's sign-in also reads as "start over" does. A 401 says the sign-in ended; any other
+            // status says the setup did.
+            if let sentence, SignIn.startsOver(sentence) { return status == 401 ? .signedOut(sentence) : .startOver(sentence) }
+            return .refused(sentence ?? codeRefused)
+        }
         let kind = (body["kind"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "totp"
         // The same session shape a sign-in answers with, read by sign-in's own reader.
         if case .signedIn(let session) = SignIn.answer(status: status, json: json) { return .on(kind: kind, fresh: session.token) }
