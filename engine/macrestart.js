@@ -37,18 +37,13 @@ function lastStartMs(runText) {
   return runs.length ? runs[runs.length - 1].start : null;
 }
 
-/** Did a turn finish (the report hook's Stop row) at or after `sinceMs`? null when the record cannot say. */
+/** Did a turn finish at or after `sinceMs`? The report hook's Stop, as selfreport.history marks it (turn 'end', its
+    `at` in ms). null when the record could not be read. */
 function finishedSince(sessionName, sinceMs, history) {
   let rows;
   try { rows = history(sessionName); } catch { return null; }
   if (!rows) return false;
-  for (const row of rows) {
-    if (!row || row.by === 'operator' || row.state !== 'idle') continue;
-    if (!/finished responding/.test(String(row.because || ''))) continue;
-    const at = Date.parse(row.at || '');
-    if (Number.isFinite(at) && at >= sinceMs) return true;
-  }
-  return false;
+  return rows.some((row) => !!row && row.turn === 'end' && Number.isFinite(row.at) && row.at >= sinceMs);
 }
 
 /**

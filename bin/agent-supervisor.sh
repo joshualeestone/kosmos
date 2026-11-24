@@ -246,6 +246,16 @@ record_run() {
   return 0
 }
 
+# This session's id, found by EXACT name. tmux resolves a plain -t by prefix when the
+# exact session is gone (measured: an option read on `foo` answered from `foo-discord`),
+# and `=name` is refused by set-option and show-options (measured), so the instance is
+# written through the id, which names one session or fails. Empty when there is none.
+# kosmos#8988: defined here, above the startup loop, which now reads it (agent_dead).
+session_id_exact() {
+  "$TMUX_BIN" list-sessions -F '#{session_name}	#{session_id}' 2>/dev/null \
+    | awk -F '\t' -v n="$SESSION" '$1 == n { print $2; exit }'
+}
+
 # kosmos#8988: how this agent's last process ended, one line "<epoch> status <N>" or "<epoch> signal <name>", beside
 # the run file above (same folder, same key), so the card can say "Restarted at <time>: <why>" after the restart
 # (engine/macrestart.js). Written by the session's pane-died hook (arm_death_record) or, when that hook never ran, by
@@ -551,15 +561,6 @@ retire_run_token() {
   [ -n "$_why" ] && say "$SESSION: the ended run's sender token could not be retired ($_why); the next launch retires it"
   RUN_INSTANCE=""
   unset _why
-}
-
-# This session's id, found by EXACT name. tmux resolves a plain -t by prefix when the
-# exact session is gone (measured: an option read on `foo` answered from `foo-discord`),
-# and `=name` is refused by set-option and show-options (measured), so the instance is
-# written through the id, which names one session or fails. Empty when there is none.
-session_id_exact() {
-  "$TMUX_BIN" list-sessions -F '#{session_name}	#{session_id}' 2>/dev/null \
-    | awk -F '\t' -v n="$SESSION" '$1 == n { print $2; exit }'
 }
 
 # --dangerously-skip-permissions is not optional for an unattended agent.
