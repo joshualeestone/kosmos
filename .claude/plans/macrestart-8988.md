@@ -14,7 +14,7 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
 - `kill-session` fires no `pane-died`, so a stop is never recorded.
 - A failing command in a hook is a tmux error with no client. It opens over the pane of whoever attaches next, in
   view-mode, where Enter goes to tmux: that pane hears nothing. Measured on tmux 3.6a (MODE's control does it). The
-  shipped 3.5a is reported to do the same; not measured here.
+  shipped 3.5a records the death and ends the session with the same hook (measured on a private server).
 - `run-shell` gives its shell `$TMUX`, so a kill inside it reaches its own server.
 - A dead pane still reports its last command in `#{pane_current_command}`, so the startup allowlist would read a dead
   Claude as alive and adopt it forever. Hence the startup check.
@@ -38,7 +38,7 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
     `record_dead_pane` (that pane's exit; a dead pane with no exit yet gets one more look).
   - The wait loop: a dead session is recorded and killed (then the usual sleep), so a missing hook cannot hold it.
     With the supervisor gone and the hook gone, the dead pane is kept until launchd starts the supervisor again,
-    which replaces it (the RETURN arm). It is the real safety net: `remain-on-exit` is on before the hook is set, and a hook tmux later drops would leave
+    which replaces it (the RETURN arm). The wait loop is the real safety net: `remain-on-exit` is on before the hook is set, and a hook tmux later drops would leave
     the pane kept with nothing to end it but this (the WAIT arm).
   - When the agent's pane is dead, the whole session ends, including a pane a person split off and left running. That
     is the crash path today too (startup's "every pane is a shell: it crashed"), and before this change such a split
@@ -85,7 +85,7 @@ until the next turn's Stop. It fails toward showing a restart a little too long,
 ## Tests
 - supervisor.macrestart-8988.test.js: the shipped supervisor, a real tmux on a private socket in the test's folder.
   Arms: CRASH (exit 7 recorded, read after the relaunch) and STOP (nothing recorded), SIGNAL, SPLIT, LIVE, WAIT,
-  STARTUP, RETURN, GROUP, HASH, NOLANG, MODE (with its control), RACE and SPACE; the header of the file says what each
+  STARTUP, ADOPT, RETURN, GROUP, HASH, NOLANG, MODE (with its control), RACE and SPACE; the header of the file says what each
   proves. Each supervisor piece was removed in turn and its arm failed, and the supervisor's stderr must carry no
   shell error (it caught `session_id_exact` defined after its caller).
 - engine/macrestart-8988.test.js: parsing, the window, a later start, exit 0, the clearer over real self-report files read

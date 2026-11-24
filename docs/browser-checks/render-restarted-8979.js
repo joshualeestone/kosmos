@@ -2,7 +2,7 @@
 // Browser-check-functions: stateReason, card
 
 /**
- * kosmos#8979: a Windows Claude agent whose process stopped and was started again by its supervisor says so on its
+ * kosmos#8979 (and #8988 on a Mac): a Claude agent whose process stopped and was started again by its supervisor says so on its
  * card's pill (its hover and a screen reader's hidden text, never a line on the tile, #6716): "Restarted at <time>:
  * <why>." (engine/status.js restartedOf sets the card's restarted { at, why }; a good turn clears it).
  *
