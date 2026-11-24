@@ -15,8 +15,9 @@ any text/html answer because the computer's sign-in gate can answer with its own
   - A page (.html .htm .xhtml .shtml) and a web archive's own page: drawn by LockedWebView. JavaScript off, a data store
     that is not kept, a content rule that blocks every load, only the first navigation allowed.
   - An SVG: drawn only as a picture (base64 in an <img>), which can neither load nor link.
-  - XML: shown as text (the first 256 KB, read off the main thread once).
-  - A page larger than 8 MB, a page whose bytes are not ASCII-compatible text (zero bytes with no UTF-16 mark; a UTF-16
+  - XML: shown as text (the first 256 KB, read off the main thread once; a line says when it was cut).
+  - A page larger than 8 MB (checked by its size before it is read): "This page is too large to show on iPhone".
+  - A page whose bytes are not ASCII-compatible text (zero bytes with no UTF-16 mark; a UTF-16
     page is converted to UTF-8 first, so its links are found), nothing to draw (a damaged web archive) or a content rule
     that will not compile: "This page can't be shown on
     iPhone", with Share. MHTML and a compressed SVG: no reader; the sheet says so and offers Share.
@@ -46,6 +47,12 @@ CSS background and a link ping. iOS 27 simulator: 0 connections on load. Control
 rule not applied: 40 connections on load. So the listener sees them and the rule stops them. (DNS prefetch cannot show
 on a 127.0.0.1 probe.) The relay's tunnel drops only hop-by-hop headers (crates/tunnel/src/proxy.rs is_hop_by_hop), so
 Content-Disposition reaches the phone on the remote path too (read, not measured).
+
+## Left as they are (review round 3 nits)
+- No Content-Security-Policy meta as a fourth layer: the content rule already blocks every load, and placing a meta tag
+  means editing the page's head.
+- The sheet's title is the saved name, so a page sent as "x.dat" typed text/html reads "x.dat.html".
+- UI coverage is the chat's list; the room and Files screens route through the same filePreview and fetchFile.
 
 ## Weakest premise
 That nothing else in WebKit opens a connection for a page drawn from bytes with touches off: preconnect for prefetch

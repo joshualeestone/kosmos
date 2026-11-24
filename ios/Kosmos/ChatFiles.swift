@@ -244,7 +244,6 @@ struct FileCard: View {
     // accessibility sizes.
     private var lines: Int { typeSize.isAccessibilitySize ? 3 : typeSize >= .xLarge ? 2 : 1 }
 
-
     var body: some View {
         Button(action: open) {
             HStack(spacing: 12) {
