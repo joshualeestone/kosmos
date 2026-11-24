@@ -485,8 +485,9 @@ elif [ "$FAMILY" = mac ] && [ -f "$SITE/setup" ]; then
 fi
 
 
-# kosmos#8960: is version $1 older than $2? Dotted numbers compared field by field; anything after a "-" or "+" is
-# ignored (a pre-release reads as its release). Not numeric: rc 2, so the caller can treat it as "cannot tell".
+# kosmos#8960: is version $1 older than $2? rc 0 older, 1 not older, 2 cannot compare. Dotted numbers are compared field
+# by field, ignoring anything after a "-" or "+"; equal numbers written differently (0.8.20-rc1 against 0.8.20), or
+# a version that is not dotted numbers, are rc 2.
 version_older() {
   local a="${1%%[-+]*}" b="${2%%[-+]*}" x y
   case "$a.$b" in *[!0-9.]*|.*|*..*) return 2 ;; esac
@@ -497,7 +498,8 @@ version_older() {
     case "$a" in *.*) a="${a#*.}" ;; *) a="" ;; esac
     case "$b" in *.*) b="${b#*.}" ;; *) b="" ;; esac
   done
-  return 1
+  [ "$1" = "$2" ] && return 1
+  return 2
 }
 
 # kosmos#8960: THE BOARD WAIT (see the header). Returns 0 to go on to the gates; 1 only when the settings are unusable.
@@ -511,7 +513,7 @@ wait_for_board_on_v() {
   elif [ -n "${KOSMOS_PROMOTE_GATE_CMD:-}" ]; then
     echo "promote-channel: no board wait: KOSMOS_PROMOTE_GATE_CMD is set, so which board the gate checks is not known here."; return 0
   else cmd="bash $(cd "$(dirname "$0")/.." && pwd)/tools/staging-experience-check.sh --print-version"; fi
-  local waited=0 bv rc why last_said=-1
+  local start=$SECONDS waited=0 bv rc why last_why="" last_said=-1
   while :; do
     rc=0; bv="$($cmd ${PORT:+"$PORT"} 2>/dev/null)" || rc=$?
     bv="$(printf '%s' "$bv" | head -1 | tr -d '[:space:]')"
@@ -526,16 +528,18 @@ wait_for_board_on_v() {
     elif [ "$rc" = 1 ]; then why="nothing answers on $port_words (a board installing an update, or down)"
     else echo "promote-channel: no board wait: cannot read which version the board on $port_words runs (version reader exit $rc); the gates say why."; return 0
     fi
+    waited=$((SECONDS - start))   # real time: a look itself can take 15 s or more
     if [ "$waited" -ge "$limit" ]; then
       echo "promote-channel: stopped waiting after ${waited}s: $why. Running the gates anyway; they hold or refuse as they would have." >&2
       return 0
     fi
-    # Say it on the first look and about every five minutes, not on every look.
-    if [ "$last_said" -lt 0 ] || [ $((waited - last_said)) -ge 300 ]; then
+    # Say it on the first look, when the reason changes, and about every five minutes; not on every look.
+    if [ "$last_said" -lt 0 ] || [ "$why" != "$last_why" ] || [ $((waited - last_said)) -ge 300 ]; then
       echo "promote-channel: waiting for the board on $port_words to run $want before the gates: $why (${waited}s of ${limit}s; KOSMOS_PROMOTE_BOARD_WAIT=0 skips this)"
-      last_said="$waited"
+      last_said="$waited"; last_why="$why"
     fi
-    sleep "$step"; waited=$((waited + step))
+    # Never sleep past the limit, so the last look lands on it.
+    [ $((limit - waited)) -lt "$step" ] && sleep "$((limit - waited))" || sleep "$step"
   done
 }
 

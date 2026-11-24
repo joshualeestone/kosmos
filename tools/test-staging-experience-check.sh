@@ -107,6 +107,20 @@ cport="$(head -1 "$FAKE/port")"
 [ -n "$cport" ] && KOSMOS_STORE_ROOT="$FAKE" bash "$CHECK" "$cport" >/dev/null 2>&1
 kill "$cpid" 2>/dev/null; wait "$cpid" 2>/dev/null; rm -f "$FAKE/port"
 [ -n "$cport" ] && [ -s "$FAKE/nonces-control" ] && pass "#8960 control: the nonce log records the full gate's mint" || bad "#8960 control: the nonce log recorded nothing for the full gate (port=$cport)"
+# No node to read the answer with is cannot-tell (2), never "nothing answered" (1), which would make a promote wait
+# out its whole limit. Run with a PATH that has curl but no node, against a board that is up.
+if PATH=/usr/bin:/bin command -v node >/dev/null 2>&1; then
+  printf 'NOTE  skipped the no-node case: /usr/bin or /bin has a node here\n'
+else
+  NODEBIN="$(command -v node)"
+  "$NODEBIN" "$FAKE/board.js" feedfacefeedface 0.8.20 "$FAKE/forbidden" > "$FAKE/port" 2>/dev/null & npid=$!
+  i=0; while [ ! -s "$FAKE/port" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+  nport="$(head -1 "$FAKE/port")"
+  out="$(PATH=/usr/bin:/bin KOSMOS_STORE_ROOT="$FAKE" /bin/bash "$CHECK" --print-version "$nport" 2>&1)"; rc=$?
+  kill "$npid" 2>/dev/null; wait "$npid" 2>/dev/null; rm -f "$FAKE/port"
+  [ -n "$nport" ] && [ "$rc" = 2 ] && case "$out" in *"no node on this machine"*) true;; *) false;; esac \
+    && pass "#8960: --print-version with no node to read the answer is cannot-tell (exit 2), not 'nothing answered'" || bad "#8960 no node: rc=$rc port=$nport out=$out"
+fi
 [ ! -s "$FAKE/forbidden" ] && pass "#8960: --print-version never sent POST /api/update/check" || bad "#8960: --print-version sent $(cat "$FAKE/forbidden")"
 NOBOARD="$(mktemp -d "${TMPDIR:-/tmp}/staging-exp-test.XXXXXXXX")"; printf 'deadbeefdeadbeef\n' > "$NOBOARD/board.token"
 out="$(KOSMOS_STORE_ROOT="$NOBOARD" bash "$CHECK" --print-version 19998 2>/dev/null)"; rc=$?
