@@ -140,7 +140,7 @@ new8960() { local s; s="$(make_site)"; bash "$PUBLISH" "$s" >/dev/null 2>&1; pri
 S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "--force needs --hand-check" && has "$out" "Nothing was written" && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 --force with no --hand-check refuses before writing" || bad "promote 8960 no-hand-check (rc=$rc, out=$out)"
 S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "  looked   at it  " 2>&1)"; rc=$?
-[ "$rc" = 1 ] && has "$out" "--force needs --hand-check" && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 a hand check under 20 characters (spaces squeezed) refuses" || bad "promote 8960 short hand-check (rc=$rc, out=$out)"
+[ "$rc" = 1 ] && has "$out" "--force needs --hand-check" && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 a hand check under 20 bytes (spaces squeezed) refuses" || bad "promote 8960 short hand-check (rc=$rc, out=$out)"
 S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "--hand-check goes with --force" && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 --hand-check without --force refuses" || bad "promote 8960 hand-check alone (rc=$rc, out=$out)"
 S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check="$HC8960" 2>&1)"; rc=$?
@@ -148,9 +148,9 @@ S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash 
 
 # the boundary, exactly: 19 bytes refuses, 20 promotes; then a text of only spaces and control characters, which squeeze to nothing
 S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "1234567890123456789" 2>&1)"; rc=$?
-[ "$rc" = 1 ] && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 a 19-character hand check refuses" || bad "promote 8960 19 chars (rc=$rc, out=$out)"
+[ "$rc" = 1 ] && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 a 19-byte hand check refuses" || bad "promote 8960 19 chars (rc=$rc, out=$out)"
 S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "12345678901234567890" 2>&1)"; rc=$?
-[ "$rc" = 0 ] && [ -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 a 20-character hand check promotes" || bad "promote 8960 20 chars (rc=$rc, out=$out)"
+[ "$rc" = 0 ] && [ -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 a 20-byte hand check promotes" || bad "promote 8960 20 chars (rc=$rc, out=$out)"
 S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "$(printf ' \001%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25)" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ ! -f "$S8960a/dist/latest.json" ] && pass "promote: #8960 spaces and control characters alone are not a hand check" || bad "promote 8960 control-only (rc=$rc, out=$out)"
 
@@ -167,6 +167,11 @@ S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash 
 [ "$rc" = 0 ] && [ -f "$S8960a/dist/latest.json" ] && [ ! -f "$FLOG" ] && pass "promote: #8960 CONTROL an unforced promote writes no forced-promote line" || bad "promote 8960 unforced log (rc=$rc, out=$out)"
 S8960a="$(new8960)"; out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "$HC8960" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ -f "$FLOG" ] && [ "$(wc -l < "$FLOG" | tr -d ' ')" = 1 ] && [ "$(grep -c "version=9.9.9.*hand_check=$HC8960\$" "$FLOG")" = 1 ] && has "$out" "recorded in $FLOG" && pass "promote: #8960 a forced promote leaves one promote-forced.log line naming its hand check" || bad "promote 8960 forced log (rc=$rc, log=$(cat "$FLOG" 2>/dev/null), out=$out)"
+
+# a forced-promote log that cannot be written never stops the promote, and says the check is not in that log
+S8960a="$(new8960)"; FBAD="$T/forced-log-is-a-file"; : > "$FBAD"
+out="$(KOSMOS_PLUS_VERIFY_DIR="$FBAD" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$S8960a" --force --hand-check "$HC8960" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ -f "$S8960a/dist/latest.json" ] && has "$out" "could not append to" && has "$out" "$HC8960" && pass "promote: #8960 an unwritable promote-forced.log never stops the promote, and prints the check" || bad "promote 8960 forced log unwritable (rc=$rc, out=$out)"
 
 # THE load-bearing guarantee: --force overrides ONLY the experience gate, NEVER the
 # same-bytes invariant. Prove it decisively -- a byte-refusal (wrong pointer sha) with
@@ -250,7 +255,7 @@ St1="$(make_site)"; bash "$PUBLISH" "$St1" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=1 bash "$PROMOTE" "$St1" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "tunnel handshake gate FAILED" && [ ! -f "$St1/dist/latest.json" ] && pass "promote: tunnel gate 1 (remote access broken) -> refuse, no promote" || bad "promote tunnel-gate-1 (rc=$rc, out=$out)"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=1 bash "$PROMOTE" "$St1" --force --hand-check "$HC8960" 2>&1)"; rc=$?
-[ "$rc" = 1 ] && [ ! -f "$St1/dist/latest.json" ] && pass "promote: tunnel gate 1 is NOT forceable" || bad "promote tunnel-gate-1-force (rc=$rc, out=$out)"
+[ "$rc" = 1 ] && has "$out" "tunnel handshake gate FAILED (exit 1)" && ! has "$out" "--force needs --hand-check" && [ ! -f "$St1/dist/latest.json" ] && pass "promote: tunnel gate 1 is NOT forceable" || bad "promote tunnel-gate-1-force (rc=$rc, out=$out)"
 St2="$(make_site)"; bash "$PUBLISH" "$St2" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=2 bash "$PROMOTE" "$St2" 2>&1)"; rc=$?
 [ "$rc" = 2 ] && [ ! -f "$St2/dist/latest.json" ] && pass "promote: tunnel gate 2 (cannot-tell) -> HOLD, no promote" || bad "promote tunnel-gate-2 (rc=$rc, out=$out)"
@@ -276,7 +281,7 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=1 bash "$PRO
 
 # --force does NOT override a provably-broken agent gate (1), same as the experience gate.
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=1 bash "$PROMOTE" "$Sa1" --force --hand-check "$HC8960" 2>&1)"; rc=$?
-[ "$rc" = 1 ] && [ ! -f "$Sa1/dist/latest.json" ] && pass "promote: agent gate 1 is NOT forceable" || bad "promote agent-gate-1-force (rc=$rc, out=$out)"
+[ "$rc" = 1 ] && has "$out" "agent-spawn gate FAILED (exit 1)" && ! has "$out" "--force needs --hand-check" && [ ! -f "$Sa1/dist/latest.json" ] && pass "promote: agent gate 1 is NOT forceable" || bad "promote agent-gate-1-force (rc=$rc, out=$out)"
 
 # agent gate cannot-tell (2) -> HOLD (exit 2), no promote; --force promotes on a hand check.
 Sa2="$(make_site)"; bash "$PUBLISH" "$Sa2" >/dev/null 2>&1
@@ -306,11 +311,11 @@ out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" Q
 # Inside a turn that already holds the machine, the queue exec's the gate and prints no END line: its exit IS the gate's.
 QINH="$T/stub-queue-inherited.sh"; printf '#!/usr/bin/env bash\necho "QUEUED-HEAVY 12:00:00 $1 runs now, inside the turn that already holds the box (it claims and releases nothing)"\nexit "${QRC:-0}"\n' > "$QINH"
 out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QINH" QRC=1 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" --force --hand-check "$HC8960" 2>&1)"; rc=$?
-[ "$rc" = 1 ] && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: gate run inside an inherited turn exits 1 -> refuse even with --force" || bad "promote queued-inherited-1 (rc=$rc, out=$out)"
+[ "$rc" = 1 ] && has "$out" "agent-spawn gate FAILED (exit 1)" && ! has "$out" "--force needs --hand-check" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: gate run inside an inherited turn exits 1 -> refuse even with --force" || bad "promote queued-inherited-1 (rc=$rc, out=$out)"
 out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=143 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" 2>&1)"; rc=$?
 [ "$rc" = 2 ] && has "$out" "did not finish with a verdict" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queued gate killed (END rc=143) -> cannot-tell HOLD (2), not a refusal" || bad "promote queued-gate-143 (rc=$rc, out=$out)"
 out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=1 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" --force --hand-check "$HC8960" 2>&1)"; rc=$?
-[ "$rc" = 1 ] && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queued gate END rc=1 -> refuse even with --force" || bad "promote queued-gate-1 (rc=$rc, out=$out)"
+[ "$rc" = 1 ] && has "$out" "agent-spawn gate FAILED (exit 1)" && ! has "$out" "--force needs --hand-check" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queued gate END rc=1 -> refuse even with --force" || bad "promote queued-gate-1 (rc=$rc, out=$out)"
 # kosmos#6922: a gate that ran in the queue and answered PARTIAL (END rc=3) is PARTIAL, as unqueued: held, forceable.
 out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=3 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" 2>&1)"; rc=$?
 [ "$rc" = 3 ] && has "$out" "PARTIAL" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queued gate END rc=3 -> PARTIAL HOLD (3), no promote" || bad "promote queued-gate-3 (rc=$rc, out=$out)"
@@ -349,7 +354,7 @@ Sp1="$(make_site)"; bash "$PUBLISH" "$Sp1" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=1 bash "$PROMOTE" "$Sp1" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "first Kosmos+ sign-in gate FAILED" && [ ! -f "$Sp1/dist/latest.json" ] && pass "promote: plus gate 1 -> refuse, no promote" || bad "promote plus-gate-1 (rc=$rc, out=$out)"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=1 bash "$PROMOTE" "$Sp1" --force --hand-check "$HC8960" 2>&1)"; rc=$?
-[ "$rc" = 1 ] && [ ! -f "$Sp1/dist/latest.json" ] && pass "promote: plus gate 1 is NOT forceable" || bad "promote plus-gate-1-force (rc=$rc, out=$out)"
+[ "$rc" = 1 ] && has "$out" "first Kosmos+ sign-in gate FAILED (exit 1)" && ! has "$out" "--force needs --hand-check" && [ ! -f "$Sp1/dist/latest.json" ] && pass "promote: plus gate 1 is NOT forceable" || bad "promote plus-gate-1-force (rc=$rc, out=$out)"
 # no record (2) -> WARN and promote, WITHOUT --force (#3940, Josh 2026-09-26), and one line in the log.
 Sp2="$(make_site)"; bash "$PUBLISH" "$Sp2" >/dev/null 2>&1
 rm -rf "$KOSMOS_PLUS_VERIFY_DIR"
