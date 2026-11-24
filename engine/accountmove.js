@@ -49,8 +49,18 @@ function boardBusyBecause() { return BOARD_BUSY; }
 function boardGoingBecause() { return BOARD_GOING; }
 
 /* The outcome and sentence for one agent's move: the one place both routes (one agent, several) word it. */
-function sentence(name, wrote, back, RESTARTED) {
+/* kosmos#9010: what the move says about the handoff it asked for before the restart (`handoff`, from saveFirst), or
+   nothing when it asked for none (no handoffFirst dep). Fixed words; the path is never printed here (it is in the
+   agent's own pickup line). */
+function handoffWords(h) {
+  if (!h) return '';
+  if (h.saved) return ' It wrote a handoff first, and its new session is pointed at it.';
+  if (h.asked) return ' It did not write its handoff in time, so its new session starts without one.';
+  return h.why ? ` It was not asked to write a handoff first: ${h.why}` : '';
+}
+function sentence(name, wrote, back, RESTARTED, handoff = null) {
   const ok = !!back && back.outcome === RESTARTED;
+  const picksUp = ok && !!handoff && handoff.saved === true;   // kosmos#9010: it will not look idle, it picks up
   /* #2338: lead with the human-chosen account name (the `.kosmos-name`
      sidecar an OpenAI row carries, #2095), the same value the picker shows,
      falling back to the email/label as before. */
@@ -77,13 +87,15 @@ function sentence(name, wrote, back, RESTARTED) {
          here because it is the one thing a person is right to worry
          about when moving accounts. */
       ? (isPerHomeMove
-        ? `${name} runs on ${who} now. It is starting again, and it will look idle `
-          + 'until you say something to it. Its files and projects come with it; '
-          + `its earlier ${moveChatWord} chat stays with the account it was on.`
-        : `${name} runs on ${who} now. It is starting again, and it will look idle `
-          + 'until you say something to it. Everything it has done comes with it.')
+        ? `${name} runs on ${who} now. It is starting again, `
+          + (picksUp ? 'and it picks up from its handoff. ' : 'and it will look idle until you say something to it. ')
+          + 'Its files and projects come with it; '
+          + `its earlier ${moveChatWord} chat stays with the account it was on.` + handoffWords(handoff)
+        : `${name} runs on ${who} now. It is starting again, `
+          + (picksUp ? 'and it picks up from its handoff. ' : 'and it will look idle until you say something to it. ')
+          + 'Everything it has done comes with it.' + handoffWords(handoff))
       : `We saved ${who}, but could not start it again: ${(back && back.because) || 'the restart did not answer.'} `
-        + 'It is still on the old account until it restarts.',
+        + 'It is still on the old account until it restarts.' + handoffWords(handoff),
     steps: (back && back.steps) || [],
   };
 }
@@ -105,6 +117,32 @@ function view(m) {
     agents: m.agents.map((a) => ({ name: a.name, outcome: a.outcome, ...(a.because ? { because: a.because } : {}),
       ...(a.account ? { account: a.account } : {}) })),
   };
+}
+
+/* kosmos#9010: before a move restarts an agent, ask it to write its handoff and wait (at most HANDOFF_WAIT_MS) for the
+   file to be freshly written, so the work in progress survives the fresh session. The move goes ahead either way (the
+   card: a handoff not written in time is said, never a reason to keep the agent on the account it is leaving).
+   deps.handoffFirst: { ask(name) -> Promise<{ asked: true, path, before } | { asked: false, why }>,
+   isFresh(name, before) -> boolean, pickup(name, path) -> Promise (after the restart), waitMs?, pollMs? }.
+   Every failure here is "not saved"; nothing in it may stop the move. */
+const HANDOFF_WAIT_MS = 2 * 60 * 1000;
+const HANDOFF_POLL_MS = 3000;
+async function saveFirst(deps, name, stopped) {
+  const h = deps && deps.handoffFirst;
+  if (!h || typeof h.ask !== 'function') return null;
+  let asked;
+  try { asked = await h.ask(name); } catch { return { asked: false, saved: false, why: 'we could not reach it.' }; }
+  if (!asked || asked.asked !== true) return { asked: false, saved: false, why: (asked && asked.why) || 'we could not reach it.' };
+  const waitMs = Number.isFinite(h.waitMs) ? h.waitMs : HANDOFF_WAIT_MS;
+  const pollMs = Number.isFinite(h.pollMs) ? h.pollMs : HANDOFF_POLL_MS;
+  const until = Date.now() + waitMs;
+  for (;;) {
+    let fresh = false;
+    try { fresh = h.isFresh(name, asked.before) === true; } catch { fresh = false; }
+    if (fresh) return { asked: true, saved: true, path: asked.path };
+    if (Date.now() >= until || (typeof stopped === 'function' && stopped())) return { asked: true, saved: false, path: asked.path };
+    await new Promise((resolve) => { const t = setTimeout(resolve, pollMs); if (t && typeof t.unref === 'function') t.unref(); });
+  }
 }
 
 /**
@@ -235,6 +273,13 @@ function startSteps(body, deps, step) {
         if (Date.now() - m.startedAt >= moveCap) break;   // the rest are said below as not reached
         m.current = a.name;
         try {
+          /* kosmos#9010: its handoff first (when the board asks for one). A stop during the wait leaves it pending, so
+             the tail below puts it back on its old account rather than restarting it. */
+          a.handoff = null;
+          if (deps.handoffFirst) {   // only then: a move without it starts each restart at once, as before
+            a.handoff = await saveFirst(deps, a.name, () => m.stopped);
+            if (m.stopped) break;
+          }
           let back;
           let timer = null;
           const late = new Promise((resolve) => {
@@ -252,9 +297,14 @@ function startSteps(body, deps, step) {
           finally { clearTimeout(timer); }
           let said;
           /* A sentence that cannot be worded ends this agent as not confirmed and moves on to the next one. */
-          try { said = sentence(a.name, a.wrote, back, deps.RESTARTED); }
+          try { said = sentence(a.name, a.wrote, back, deps.RESTARTED, a.handoff); }
           catch { said = { outcome: 'partial', because: 'We saved the account, but could not say how its restart went.', steps: [] }; }
           a.outcome = said.outcome; a.because = said.because; a.steps = said.steps;
+          /* kosmos#9010: the fresh session is pointed at the handoff it just wrote. Not awaited: the pickup types when
+             the new session is ready, and the move goes on to the next agent meanwhile. */
+          if (back && back.outcome === deps.RESTARTED && a.handoff && a.handoff.saved && deps.handoffFirst && typeof deps.handoffFirst.pickup === 'function') {
+            try { Promise.resolve(deps.handoffFirst.pickup(a.name, a.handoff.path)).catch(() => {}); } catch { /* the pickup is not the move */ }
+          }
         } finally { m.current = null; try { deps.release(a.name); } catch { /* the move must still end */ } }
       }
     } finally {
@@ -412,4 +462,4 @@ function read(id) {
 
 function resetForTests() { moves.clear(); running = null; }
 
-module.exports = { start, stop, read, busy, busyBecause, boardBusyBecause, boardGoingBecause, sentence, resetForTests };
+module.exports = { saveFirst, handoffWords, HANDOFF_WAIT_MS, start, stop, read, busy, busyBecause, boardBusyBecause, boardGoingBecause, sentence, resetForTests };
