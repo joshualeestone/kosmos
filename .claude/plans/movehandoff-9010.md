@@ -33,6 +33,16 @@ those steps; a move restarts on the board, so the steps are driven there:
 KNOWN, stated: a bulk move of many busy agents now spends up to 2 minutes each before its restart, so its 60-minute cap
 reaches fewer agents (about 25 busy ones); the automatic mover moves one per tick and is unaffected.
 
+## Review 2 (sonnet): no BLOCKER
+- A new session is one whose start differs from the ask's AND came after the ask (an unreadable start at the ask cannot
+  let the old session pass; tested, mutant caught). A new session busy from the start is typed to at the deadline.
+- The words say "will be pointed at it once it is up" until the pickup answers, then "is pointed" or "could not point".
+- After a saved handoff, a restart that did not answer RESTARTED gets a line true either way (maybeRestartedPrompt): it
+  may or may not have happened. "Carry on" is only for the person's stop.
+- The ask is bounded (30 s); a file fresh at the deadline but not yet seen settled counts as saved.
+- KNOWN, stated: the agent is released once its restart answers, so the pickup's wait is unheld; moves run one at a time
+  and the automatic mover rests a moved agent for a day, so another restart in that window is a person's own.
+
 ## Rejected
 - Asking an agent that is out of usage: it cannot take a turn to write anything, and the usage mover moves exactly such
   agents. It is moved at once, and the move says why no handoff was asked for.

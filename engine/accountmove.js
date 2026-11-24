@@ -58,7 +58,9 @@ function handoffWords(h, restarted = true) {
   if (h.saved) {
     if (!restarted) return ' It wrote a handoff first; when it starts again, tell it to read its handoff.';   // review 1: no new session yet
     if (h.pickup === false) return ' It wrote a handoff first, but we could not point its new session at it: tell it to read its handoff.';
-    return ' It wrote a handoff first, and its new session is pointed at it.';
+    // Review 2: said before the pickup answers, so it says what will happen; the record is rewritten if it fails.
+    if (h.pickup === true) return ' It wrote a handoff first, and its new session is pointed at it.';
+    return ' It wrote a handoff first, and its new session will be pointed at it once it is up.';
   }
   if (h.asked) return ' It did not write its handoff in time, so its new session starts without one.';
   return h.why ? ` It was not asked to write a handoff first: ${h.why}` : '';
@@ -133,8 +135,10 @@ function view(m) {
    deps.handoffFirst: { ask(name) -> Promise<{ asked: true, path, before } | { asked: false, why }>,
    isFresh(name, before) -> false, or the fresh file's modification time (true is read as fresh at once),
    pickup(name, path) -> Promise<{ ok }> (after the restart; it waits for the new session itself),
-   carryOn(name) -> Promise, optional: told to an agent that was asked and then not restarted (a stop, a failed restart),
-   since the ask said the restart comes as soon as it is written; waitMs?, pollMs? }.
+   carryOn(name) -> Promise, optional: told to an agent that was asked and then not restarted (the person's stop), since
+   the ask said the restart comes as soon as it is written; maybeRestarted(name, path) -> Promise, optional: after a
+   saved handoff, told when the restart did not answer RESTARTED (it may or may not have happened: review 2);
+   askMs?, waitMs?, pollMs? }.
    Review 1: the file counts as written once it is fresh AND has not changed since the previous look, so a handoff
    written in several edits is not cut off after the first. Every failure here is "not saved"; nothing may stop the move. */
 const HANDOFF_WAIT_MS = 2 * 60 * 1000;
@@ -150,7 +154,12 @@ async function saveFirst(deps, name, stopped) {
   const h = deps && deps.handoffFirst;
   if (!h || typeof h.ask !== 'function') return null;
   let asked;
-  try { asked = await h.ask(name); } catch { return { asked: false, saved: false, why: 'we could not reach it.' }; }
+  // Review 2: the ask is bounded too (a stuck delivery must not hold the move before its 2 minutes start).
+  const askMs = Number.isFinite(h.askMs) ? h.askMs : 30000;
+  let askTimer = null;
+  const slow = new Promise((resolve) => { askTimer = setTimeout(() => resolve({ asked: false, why: 'we could not reach it.' }), askMs); if (askTimer && typeof askTimer.unref === 'function') askTimer.unref(); });
+  try { asked = await Promise.race([Promise.resolve(h.ask(name)), slow]); } catch { asked = { asked: false, why: 'we could not reach it.' }; }
+  finally { clearTimeout(askTimer); }
   if (!asked || asked.asked !== true) return { asked: false, saved: false, why: (asked && asked.why) || 'we could not reach it.' };
   const waitMs = Number.isFinite(h.waitMs) ? h.waitMs : HANDOFF_WAIT_MS;
   const pollMs = Number.isFinite(h.pollMs) ? h.pollMs : HANDOFF_POLL_MS;
@@ -162,6 +171,8 @@ async function saveFirst(deps, name, stopped) {
     if (got === true) return { asked: true, saved: true, path: asked.path };
     if (Number.isFinite(got)) {
       if (seen === got) return { asked: true, saved: true, path: asked.path };   // fresh, and settled since the last look
+      // Review 2: fresh at the deadline but not yet seen settled still counts: it exists and is new.
+      if (Date.now() >= until) return { asked: true, saved: true, path: asked.path };
       seen = got;
     } else seen = null;
     if (Date.now() >= until || (typeof stopped === 'function' && stopped())) return { asked: true, saved: false, path: asked.path };
@@ -339,10 +350,14 @@ function startSteps(body, deps, step) {
             try { p = Promise.resolve(deps.handoffFirst.pickup(rec.name, rec.handoff.path)); } catch (err) { p = Promise.reject(err); }
             p.then((r) => r && r.ok === true, () => false).then((ok) => {
               rec.handoff.pickup = ok;
-              if (!ok) { try { rec.because = sentence(rec.name, rec.wrote, back, deps.RESTARTED, rec.handoff).because; } catch { /* keep the words */ } }
+              // Either way the words are rewritten: "will be pointed" becomes "is pointed" or "could not point".
+              try { rec.because = sentence(rec.name, rec.wrote, back, deps.RESTARTED, rec.handoff).because; } catch { /* keep the words */ }
             });
-          } else if (a.handoff && a.handoff.asked && !(back && back.outcome === deps.RESTARTED)) {
-            carryOn(deps, a);   // review 1: asked, then not restarted: it is told to carry on
+          } else if (a.handoff && a.handoff.saved && !(back && back.outcome === deps.RESTARTED)) {
+            /* Review 2: not RESTARTED is not proof the restart did not happen (a late answer, a partial one), so the line
+               it gets is true either way. */
+            const h = deps.handoffFirst;
+            if (h && typeof h.maybeRestarted === 'function') { try { Promise.resolve(h.maybeRestarted(a.name, a.handoff.path)).catch(() => {}); } catch { /* best effort */ } }
           }
         } finally { m.current = null; if (!a.keepHeld) { try { deps.release(a.name); } catch { /* the move must still end */ } } }
       }

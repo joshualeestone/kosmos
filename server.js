@@ -3650,7 +3650,7 @@ function accountMoveDeps() {
 function moveHandoffDeps(o = {}) {
   const startedAt = o.startedAt || ((n) => sessionStartForAsync(n));
   const rosterNow = o.roster || (() => safeRoster());
-  const before = new Map();   // name -> its session's start when it was asked
+  const before = new Map();   // name -> { start: its session's start when it was asked, at: when it was asked }
   const clean = (n) => create.cleanName(n) || n;
   const cannotTurn = (card) => !!card && (card.state === 'rate_limited' || card.state === 'auth_failed'
     || (card.state === 'blocked' && card.limitReported === true));
@@ -3667,7 +3667,9 @@ function moveHandoffDeps(o = {}) {
         return { asked: false, why: card.state === 'auth_failed' ? 'it was signed out, so it could not write one.' : 'it was out of usage, so it could not write one.' };
       }
       const snap = handoffFileSnap(session);
-      try { before.set(name, await startedAt(name)); } catch { before.set(name, null); }
+      let start = null;
+      try { start = await startedAt(name); } catch { start = null; }
+      before.set(name, { start, at: Date.now() });
       let delivery;
       try { delivery = await chat.deliverAsync(name, handoffRestart.handoffForRestartPrompt(snap.path), roster, undefined, undefined, { movedNote: false }); }
       catch { return { asked: false, why: 'we could not reach it.' }; }
@@ -3684,16 +3686,22 @@ function moveHandoffDeps(o = {}) {
     },
     pickup: async (rawName, path) => {
       const name = clean(rawName);
-      const old = before.has(name) ? before.get(name) : null;
+      const was = before.get(name) || { start: null, at: 0 };
       const waitMs = Number.isFinite(o.readyWaitMs) ? o.readyWaitMs : 3 * 60 * 1000;
       const pollMs = Number.isFinite(o.pollMs) ? o.pollMs : 2000;
       const until = Date.now() + waitMs;
+      /* Review 2: a NEW session is one whose start differs from the one read at the ask AND came after the ask (a whole
+         second of margin: tmux reads seconds), so an unread start at the ask cannot let the old session pass. Idle is
+         waited for; a new session that is busy at once (it took up other work) is typed to at the deadline anyway,
+         since a line typed into a busy session is queued and read. */
+      let newUp = false;
       for (;;) {
         let started = null;
         try { started = await startedAt(name); } catch { started = null; }
+        newUp = Number.isFinite(started) && started !== was.start && started + 1000 >= was.at;
         const card = chat.resolveCard(rosterNow(), name);
-        if (Number.isFinite(started) && started !== old && card && card.state === 'idle') break;
-        if (Date.now() >= until) return { ok: false };
+        if (newUp && card && card.state === 'idle') break;
+        if (Date.now() >= until) { if (newUp) break; return { ok: false }; }
         await new Promise((r) => { const t = setTimeout(r, pollMs); if (t && typeof t.unref === 'function') t.unref(); });
       }
       // The restart's own pickup line (the moved note rides it, #5400), through the shared-quota gate as #3492's does.
@@ -3703,6 +3711,7 @@ function moveHandoffDeps(o = {}) {
       return { ok: !!delivery && delivery.state !== chat.DELIVERY.COULD_NOT };
     },
     carryOn: (rawName) => chat.deliverAsync(clean(rawName), handoffRestart.carryOnPrompt(), rosterNow(), undefined, undefined, { movedNote: false }),
+    maybeRestarted: (rawName, p) => chat.deliverAsync(clean(rawName), handoffRestart.maybeRestartedPrompt(p), rosterNow(), undefined, undefined, { movedNote: false }),
   };
 }
 

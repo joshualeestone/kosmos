@@ -96,7 +96,7 @@ test('an idle agent is asked with #3492\'s prompt naming its handoff path, witho
 
 test('the pickup waits for the NEW session to be up and idle, then types the pickup line', async (t) => {
   const sent = recordSends(t);
-  let start = 100;
+  let start = Date.now() - 60 * 60 * 1000;   // the old session, an hour old
   let state = 'working';
   const d = server._moveHandoffDepsForTest({
     roster: () => [{ sessionName: 'mara', isNamedOurs: true, state }],
@@ -109,7 +109,7 @@ test('the pickup waits for the NEW session to be up and idle, then types the pic
   const p = d.pickup('mara', '/h/mara.md');
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(sent.length, 0, 'typed while the old session was still the one up');
-  start = 200;   // the new session is up
+  start = Date.now();   // the new session is up, started after the ask
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(sent.length, 0, 'typed before the new session read idle');
   state = 'idle';
@@ -122,5 +122,39 @@ test('a pickup whose new session never comes up gives up, and says it did not la
   const sent = recordSends(t);
   const d = server._moveHandoffDepsForTest({ roster: () => [], startedAt: async () => null, readyWaitMs: 40, pollMs: 5 });
   assert.deepEqual(await d.pickup('mara', '/h/mara.md'), { ok: false });
+  assert.equal(sent.length, 0);
+});
+
+test('a new session busy from the start is typed to at the deadline; no new session at all is not', async (t) => {
+  const sent = recordSends(t);
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  t.after(() => board.restore());
+  let start = Date.now() - 60 * 60 * 1000;
+  const d = server._moveHandoffDepsForTest({ roster: () => [{ sessionName: 'mara', isNamedOurs: true, state: 'working' }],
+    startedAt: async () => start, readyWaitMs: 60, pollMs: 5 });
+  await d.ask('mara');
+  sent.length = 0;
+  start = Date.now();
+  assert.deepEqual(await d.pickup('mara', '/h/mara.md'), { ok: true }, 'a busy new session still gets the line');
+  // CONTROL: the old session never went away (its start never changed): nothing is typed.
+  const d2 = server._moveHandoffDepsForTest({ roster: () => [{ sessionName: 'mara', isNamedOurs: true, state: 'idle' }],
+    startedAt: async () => 5000, readyWaitMs: 40, pollMs: 5 });
+  await d2.ask('mara');
+  sent.length = 0;
+  assert.deepEqual(await d2.pickup('mara', '/h/mara.md'), { ok: false });
+  assert.equal(sent.length, 0, 'typed into the old session');
+});
+
+test('a start unreadable at the ask cannot let the OLD session pass as new', async (t) => {
+  const sent = recordSends(t);
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  t.after(() => board.restore());
+  let reads = 0;
+  const old = Date.now() - 60 * 60 * 1000;
+  const d = server._moveHandoffDepsForTest({ roster: () => [{ sessionName: 'mara', isNamedOurs: true, state: 'idle' }],
+    startedAt: async () => (reads++ === 0 ? null : old), readyWaitMs: 40, pollMs: 5 });
+  await d.ask('mara');   // the start could not be read here
+  sent.length = 0;
+  assert.deepEqual(await d.pickup('mara', '/h/mara.md'), { ok: false }, 'the old, idle session took the pickup');
   assert.equal(sent.length, 0);
 });
