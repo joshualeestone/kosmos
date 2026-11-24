@@ -50,6 +50,7 @@ test('#8988 the restart is the last start, within the window after the death', (
     'a later start (a person\'s restart) is not that death\'s restart');
   assert.equal(read(T0 + ' status 7\n', 'start ' + (T0 - 30) + '\n'), null, 'the death came after the last start: no restart yet');
   assert.equal(read(undefined, 'start ' + (T0 + 40) + '\n'), null, 'CONTROL: no death recorded, no line');
+  assert.equal(read(T0 + ' status 0\n', 'start ' + (T0 + 40) + '\n'), null, 'exit 0 is Claude closed on purpose (/exit), not a crash');
   assert.equal(read(T0 + ' status 7\n', undefined), null, 'no run file, no line');
 });
 
@@ -64,6 +65,22 @@ test('#8988 a finished answer after the restart clears it; one before it, an ope
   assert.ok(read(T0 + ' status 7\n', runs, [{ state: 'idle', because: 'waiting for direction', at: at(T0 + 100) }]), 'another idle is not a finished answer');
   const unreadable = mr.restartedFor('hal', { read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' status 7\n' : runs), history: () => { throw new Error('x'); } });
   assert.equal(unreadable, null, 'when the record cannot say, no line');
+});
+
+test('#8988 the card carries it for one of our Mac Claude panes only', () => {
+  const status = require('./status');
+  const dir = crashloop.dir();
+  fs.mkdirSync(dir, { recursive: true });
+  const now = Math.floor(Date.now() / 1000);
+  fs.writeFileSync(mr.diedFileFor('hal'), (now - 60) + ' status 2\n');
+  fs.writeFileSync(crashloop.fileFor('hal'), 'start ' + (now - 30) + '\n');
+  const ours = { name: 'hal', session: 'hal', claim: 'hal', command: 'claude' };
+  assert.deepEqual(status.restartedOf(ours), { at: new Date((now - 30) * 1000).toISOString(), why: 'Claude stopped unexpectedly (exit code 2).' });
+  assert.equal(status.restartedOf({ ...ours, claim: null }), null, 'not a pane we can tie to the name');
+  assert.equal(status.restartedOf({ ...ours, runner: 'codex' }), null, 'not another runner');
+  assert.equal(status.restartedOf({ ...ours, command: 'codex' }), null, 'not a codex pane without its tag');
+  fs.rmSync(mr.diedFileFor('hal'));
+  assert.equal(status.restartedOf(ours), null, 'CONTROL: no death, no line');
 });
 
 test('#8988 the files are where the supervisor writes them (the run file\'s folder and key)', () => {

@@ -1497,7 +1497,9 @@ test('the startup script names its session exactly, not by prefix', () => {
       /* #4530: or the session's ID ("$_sid", from session_id_exact). Measured on tmux 3.5a (the one Kosmos ships) and 3.7c: an id
          target names exactly one session, set-option and show-options accept it, and it fails
          cleanly once that session is gone, where the plain name falls back to a prefix match. */
-      assert.match(line, /-t "\$(SESSION|_sid)"/,
+      /* kosmos#8988: or the agent's pane id ("$_p", read from list-panes at launch): a pane id names exactly one pane,
+         and remain-on-exit and the pane-died hook must be on the agent's pane alone, never the window or session. */
+      assert.match(line, /-t "\$(SESSION|_sid|_p)"/,
         `${cmd} rejects the "=name" form outright ("no such session: =name"), so `
         + `this line would fail at runtime: ${line.trim()}`);
     }
