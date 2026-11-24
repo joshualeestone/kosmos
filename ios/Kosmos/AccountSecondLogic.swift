@@ -23,8 +23,9 @@ enum AccountSecond {
 
     enum Read: Equatable {
         case status(Status)
-        /// 401: the session is no longer good. The screen goes the way any signed-out answer goes.
-        case signedOut
+        /// 401: this session is no longer taken, with Kosmos+'s sentence when it sent one (after a second step is set up
+        /// elsewhere, or a confirm whose answer was lost, it says to sign in again with it).
+        case signedOut(String?)
         /// Anything else (a refusal with its sentence, or an answer this app cannot read): the section says it could not
         /// be read, and nothing is offered. Offering a step on an account that may already have one would replace it.
         case unreadable(String)
@@ -66,8 +67,8 @@ enum AccountSecond {
     }
 
     static func read(status: Int, json: Any?) -> Read {
-        if status == 401 { return .signedOut }
         let body = json as? [String: Any] ?? [:]
+        if status == 401 { return .signedOut(SignIn.refusal(body["error"])) }
         guard (200..<300).contains(status) else { return .unreadable(SignIn.refusal(body["error"]) ?? unreadableWords) }
         // `enrolled` must be present: a missing key and null are not the same answer, and only null means none.
         guard let value = body["enrolled"] else { return .unreadable(unreadableWords) }
@@ -129,7 +130,8 @@ enum AccountSecond {
         /// A refusal no new code can fix (nothing is being set up any more, the setup is damaged): the sheet closes and
         /// the screen shows the sentence, so the person starts again from the offer.
         case startOver(String)
-        /// The sign-in itself is over (signed out everywhere, this device removed, the account gone).
+        /// Kosmos+ says the sign-in itself is over (signed out everywhere, this device removed, the account gone). The screen
+        /// shows that sentence; signing this iPhone out is left to the person's own Sign out, as for the computers list.
         case signedOut(String)
     }
 

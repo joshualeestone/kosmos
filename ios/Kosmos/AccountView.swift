@@ -484,8 +484,9 @@ struct AccountView: View {
         guard let status else { if case .reading = second { second = .unreadable(Account.reach) }; return }
         switch AccountSecond.read(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) {
         case .status(let s): second = .known(s); secondNote = nil
-        // A 401 is the computers list's to say (the same session); here the section only cannot tell.
-        case .signedOut: if case .reading = second { second = .unreadable(AccountSecond.unreadableWords) }
+        // This session is refused: what was shown is no longer known, and Kosmos+'s sentence says why (after a step was
+        // turned on by a confirm whose answer was lost, it says to sign in again with it).
+        case .signedOut(let why): second = .unreadable(why ?? AccountSecond.unreadableWords)
         case .unreadable(let why): if case .reading = second { second = .unreadable(why) }
         }
     }
@@ -527,6 +528,7 @@ struct AccountView: View {
             // kosmos#5131, as the page: the text service refused, not the number. The offer turns to the app.
             if AccountSecond.textsUnavailable(status: status, json: json) {
                 closeSetup(force: true)
+                secondTicket += 1
                 if case .known(let s) = second { second = .known(.init(enrolled: s.enrolled, smsAvailable: false)) }
                 secondNote = why
             } else { setupNote = why }
@@ -545,7 +547,11 @@ struct AccountView: View {
         setupBusy = false
         // The step may be on even when the sign-in changed meanwhile; this screen reads it again for whoever is in now.
         guard currentSession() == session else { await readSecond(); return }
-        guard let status else { setupNote = Account.reach; return }
+        // No answer: Kosmos+ may have turned the step on all the same, and then refuses this session from now on. The
+        // section is read again, so it says so rather than offering a step that is on.
+        guard let status else { setupNote = Account.reach; await readSecond(); return }
+        // A read that started before this answer must not overwrite what the answer shows.
+        secondTicket += 1
         switch AccountSecond.confirmed(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) {
         case .on(let kind, let fresh):
             // First, before anything else asks Kosmos+: the old session is refused from now on.
@@ -562,6 +568,9 @@ struct AccountView: View {
         case .startOver(let why):
             closeSetup(force: true)
             secondNote = why
+            // Nothing staged any more may mean an earlier confirm went through: the section is read again.
+            await readSecond()
+            if secondNote == nil { secondNote = why }
         case .signedOut(let why):
             closeSetup(force: true)
             secondNote = why

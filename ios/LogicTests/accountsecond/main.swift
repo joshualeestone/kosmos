@@ -16,7 +16,9 @@ check(A.read(status: 200, json: ["sms_available": true]) == .unreadable(A.unread
 check(A.read(status: 200, json: ["enrolled": ""]) == .unreadable(A.unreadableWords), "an empty kind is unreadable")
 check(A.read(status: 200, json: ["enrolled": 3]) == .unreadable(A.unreadableWords), "a number is unreadable")
 check(A.read(status: 200, json: nil) == .unreadable(A.unreadableWords), "no body is unreadable")
-check(A.read(status: 401, json: ["error": "session expired"]) == .signedOut, "401 is signed out")
+check(A.read(status: 401, json: ["error": "session expired"]) == .signedOut("Session expired."), "401 is signed out, with its sentence")
+check(A.read(status: 401, json: ["error": "this account has a second step now; sign in again with it"]) == .signedOut("This account has a second step now; sign in again with it."), "a session the new step ended says so")
+check(A.read(status: 401, json: nil) == .signedOut(nil), "a 401 with no sentence")
 check(A.read(status: 403, json: ["error": "this device was refused"]) == .unreadable("This device was refused."), "a refusal says its own sentence")
 check(A.read(status: 500, json: nil) == .unreadable(A.unreadableWords), "a failure with no sentence says the screen's")
 
