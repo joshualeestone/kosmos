@@ -890,10 +890,10 @@ extension Board {
         // First as it stands: a draft that IS the stored rule goes (after a save, the rule just saved). Following the
         // others first would rebuild them from the sorted stored list and lose a time the box had moved past.
         if repeatWire(d) == repeatWire(stored) { return nil }
-        if d.every == .day {
-            let list = stored.every == .day ? [stored.at] + stored.others : []
-            d.others = Array(list.dropFirst()).filter { $0 != d.at }
-        }
+        // Whatever frequency the draft shows (the board's keeps its others for every choice): a weekly draft switched
+        // back to daily must carry the new rule's other times, never ones that were removed while it was weekly.
+        let list = stored.every == .day ? [stored.at] + stored.others : []
+        d.others = Array(list.dropFirst()).filter { $0 != d.at }
         return repeatWire(d) == repeatWire(stored) ? nil : d
     }
 

@@ -34,7 +34,7 @@ repeat line, natively. Stacked on B2 (taskhold-8958); rebased onto main once B1 
 ## Tests
 - ios/LogicTests/taskpage: B3 section (stored rules, wire, bodies, drafts, time round trip, request, the line on a
   page read) and b3ModelTests (unchanged sends nothing, a save and its reads, Saved. retired by a change elsewhere,
-  refusal, unreached, Saved. gone on a finished task, a box moved past the other daily time and saved, the guards between Save and Mark as done each way and Save on a finished task, each red when its guard is removed, and the box kept on the saved time). 283/283.
+  refusal, unreached, Saved. gone on a finished task, a box moved past the other daily time and saved, the guards between Save and Mark as done each way and Save on a finished task, each red when its guard is removed, the box kept on the saved time, a weekly draft switched back to daily over a changed rule, a refusal gone on a finished task). 285/285.
 - server.ios-routes-6838: 5/5.
 - UI: TaskPageActionsUITests.testRepeatIsChangedAndSaved (light and dark) against the sample board, which now
   stores a repeat rule (task 4 starts twice a day): the line says the stored rule, Save is off until a change,
@@ -53,6 +53,8 @@ repeat line, natively. Stacked on B2 (taskhold-8958); rebased onto main once B1 
   kept in the view's own state, repeatDraftBase) follows the new one
   (Board.followStored, the board's tkPaintRepeat review 3), so Never is never left showing over a rule an agent set.
   Any other draft stands, its daily other times following the new rule.
+- A draft's daily other times follow a rule changed elsewhere whatever frequency the draft shows, so switching back to
+  daily never resends a time that was removed meanwhile.
 - keptRepeatDraft compares the draft with the stored rule as it stands BEFORE re-deriving a daily rule's other times:
   re-deriving first rebuilt them from the sorted stored list and dropped a time the box had moved past, after a save.
 - After a save the daily box stays on the person's time, whichever place it sorts to (Board.repeatShown, the board's
