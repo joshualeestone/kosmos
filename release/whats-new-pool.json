@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.18",
+  "lastProd": "0.8.19",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -1242,7 +1242,8 @@
       "icon": "tasks",
       "rank": 17.2,
       "since": "0.7.95",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.19"
     },
     {
       "title": "Spreadsheets open in the file viewer",
@@ -1730,7 +1731,8 @@
       ],
       "rank": 12.6,
       "since": "0.8.03",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.19"
     },
     {
       "title": "Windows sessions start with reporting on",
@@ -2649,14 +2651,15 @@
     },
     {
       "since": "0.8.18",
-      "status": "pending",
+      "status": "shown",
       "title": "Agent browsers left running are closed",
       "line": "From now on, a browser an agent's session leaves running is closed when that agent starts again, so they stop piling up.",
       "icon": "swarm",
       "rank": 17.3,
       "platforms": [
         "mac"
-      ]
+      ],
+      "shownIn": "0.8.19"
     },
     {
       "since": "0.8.18",
@@ -2678,19 +2681,21 @@
     },
     {
       "since": "0.8.18",
-      "status": "pending",
+      "status": "shown",
       "title": "Clearer spreadsheets for your agent",
       "line": "Spreadsheets you attach reach your agent row by row, with each value named by its column.",
       "icon": "list",
-      "rank": 12.9
+      "rank": 12.9,
+      "shownIn": "0.8.19"
     },
     {
       "since": "0.8.19",
-      "status": "pending",
+      "status": "shown",
       "title": "Signing in again keeps your invitation",
       "line": "If Kosmos asks you to sign in again while you invite someone outside, you come back with who it is for already filled in.",
       "icon": "shield",
-      "rank": 13
+      "rank": 13,
+      "shownIn": "0.8.19"
     },
     {
       "since": "0.8.19",
@@ -2700,7 +2705,18 @@
       "rank": 147,
       "notesOnly": true,
       "line": "A mistyped kosmos command suggests the right one, and an agent can look back at an earlier day before writing its feedback."
+    },
+    {
+      "since": "0.8.20",
+      "status": "pending",
+      "title": "A message an agent never started is reported",
+      "line": "On Windows, if an agent takes in your message but never starts on it, its card says so instead of looking idle or busy.",
+      "icon": "chat",
+      "rank": 12.95,
+      "platforms": [
+        "windows"
+      ]
     }
   ],
-  "lastProdWin": "0.8.17"
+  "lastProdWin": "0.8.19"
 }
