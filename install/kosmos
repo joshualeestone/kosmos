@@ -2982,7 +2982,7 @@ cmd_msg() {
   fi
   if [ -z "$to" ] || [ -z "$text" ]; then
     say "Usage: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and \$ arrive as written; --no-reply: they are told no answer is wanted)"
-    say "   or: kosmos msg --status <id>  (whether a message you sent was answered, or read with no answer, or not read yet)"   # kosmos#8961
+    say "   or: kosmos msg --status <id>  (whether they replied to a message you sent, read it without replying, or have not read it yet)"   # kosmos#8961
     exit 2
   fi
   # With --stdin the pipe is read BEFORE this check on purpose (as in cmd_post): a live pipe cannot
