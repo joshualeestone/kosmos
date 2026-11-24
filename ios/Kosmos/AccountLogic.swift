@@ -239,6 +239,18 @@ enum Account {
         return standingFalsy(obj["standing"]) || (obj["standing"] as? String) == "good" ? planActive : nil
     }
 
+    // The page's #standing-note (signin.html, kosmos#8022): the server's own sentence when the plan is not good (lapsed,
+    // never paid, a company's seats), shown inside the app too, because the relay cannot explain a refusal and the phone
+    // is where the sentence has to be (signin.rs standing_note). Shown whenever `standing_note` is a non-empty string, in
+    // the calm colour when `standing_note_calm` is truthy, as an error otherwise. The words are the server's, never ours.
+    struct StandingNote: Equatable { let words: String; let calm: Bool }
+
+    static func standingNote(_ data: Data?) -> StandingNote? {
+        guard let data, let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let words = obj["standing_note"] as? String, !words.isEmpty else { return nil }
+        return StandingNote(words: words, calm: truthy(obj["standing_note_calm"]))
+    }
+
     private static func standingFalsy(_ v: Any?) -> Bool {
         switch v {
         case nil, is NSNull: return true
