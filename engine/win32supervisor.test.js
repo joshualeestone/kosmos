@@ -1138,7 +1138,7 @@ test('#8967 a stdout that never ends holds the death for the drain time, then lo
   const t0 = Date.now();
   kids[0].emit('exit', 7, null);
   assert.equal(events.filter((e) => e.action === 'died').length, 0, 'held while stdout is open');
-  await new Promise((r) => setTimeout(r, 400));
+  await new Promise((r) => setTimeout(r, 200));
   const died = events.filter((e) => e.action === 'died');
   assert.equal(died.length, 1, 'the death is still logged when a grandchild keeps the pipe open');
   assert.equal(died[0].code, 7);
@@ -1263,6 +1263,14 @@ test('#8967 stdoutError reads only errors, and clips them', () => {
   const emoji = sup.stdoutError(null, 'x'.repeat(299) + '\u{1F600}' + 'tail');
   assert.equal(emoji, 'a line that was not an event: ' + 'x'.repeat(299) + '\u{1F600}');
   assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(emoji), false, 'no lone high surrogate');
+  /* Bounded work on a huge line (lineReader passes up to 16 MB): cut before collapsing,
+     with the result the same as clipping the whole line. */
+  const huge = 'ab  '.repeat(4 * 1024 * 1024);
+  const t0 = process.hrtime.bigint();
+  const big = sup.stdoutError(null, huge);
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.equal(big, 'a line that was not an event: ' + 'ab '.repeat(100));   // 300 characters of the collapsed line
+  assert.ok(ms < 50, 'a 16 MB line is clipped in bounded time (took ' + ms.toFixed(1) + ' ms)');
   /* The shape claude's error results actually carry: the message in `errors`, as
      saysNothingToResume reads it. */
   assert.equal(sup.stdoutError({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['No conversation found with session ID x', 7, ' '] }, ''),
@@ -1698,4 +1706,13 @@ test('#8928 the default browser config is asked for by the agent\'s name; CONTRO
   assert.equal(sup.endOrphansFor({}), false);
   assert.equal(sup.endOrphansFor({ endOrphans: true }), true, 'CONTROL: the explicit switch still turns it on');
   assert.match(require('./win32anchor').BOOT_JS, /require\(entry\)\.main\(args\);/, 'the boot shim calls main(args) with no deps');
+});
+
+test('#8967 endsLastError: a result or a new turn ends the last error; nothing else does', () => {
+  assert.equal(sup.endsLastError({ type: 'result', subtype: 'success' }), true);
+  assert.equal(sup.endsLastError({ type: 'system', subtype: 'init' }), true);
+  assert.equal(sup.endsLastError({ type: 'system', subtype: 'other' }), false);
+  assert.equal(sup.endsLastError({ type: 'assistant' }), false);
+  assert.equal(sup.endsLastError(null), false);
+  assert.equal(sup.endsLastError(7), false);
 });
