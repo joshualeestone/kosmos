@@ -34,8 +34,10 @@ final class AccountScreenUITests: XCTestCase {
         shot(app, "account-retire")
         app.buttons["Cancel"].tap()
 
-        for _ in 0..<4 where !app.buttons["account-sign-out-everywhere"].isHittable { app.swipeUp() }
+        // A List builds its rows only near the screen (slice B1c added sections above these), so scroll until each shows.
+        reveal(app, app.buttons["account-sign-out-everywhere"])
         XCTAssertTrue(app.buttons["account-sign-out"].exists && app.buttons["account-sign-out-everywhere"].exists, "no sign-out buttons")
+        reveal(app, app.buttons["account-more"])
         XCTAssertTrue(app.buttons["account-more"].exists, "no way to the rest of the account")
         shot(app, "account-sign-out")
     }
@@ -97,8 +99,10 @@ final class AccountScreenUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Kosmos+ account"].waitForExistence(timeout: 10), "the native account screen did not open")
 
         let add = app.buttons["account-passkey-add"]
-        XCTAssertTrue(add.waitForExistence(timeout: 5), "no Add a passkey")
-        for _ in 0..<6 where !add.isHittable { app.swipeUp() }
+        XCTAssertTrue(app.staticTexts["Passkeys"].waitForExistence(timeout: 10), "no Passkeys section")
+        // A List builds its rows only near the screen, so scroll until Add shows (it is below the fold).
+        reveal(app, add)
+        XCTAssertTrue(add.exists, "no Add a passkey")
         XCTAssertTrue(app.buttons["Remove iPhone"].exists && app.buttons["Remove MacBook"].exists, "a passkey is listed without Remove")
         XCTAssertTrue(app.staticTexts["Not used yet."].exists || app.staticTexts.containing(NSPredicate(format: "label ENDSWITH 'Not used yet.'")).count == 1,
                       "the never-used passkey does not say so")
@@ -114,7 +118,7 @@ final class AccountScreenUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Passkey added."].waitForExistence(timeout: 5), "Add does not say the passkey was added")
 
         let notMe = app.buttons["Not me: sign out everywhere"]
-        for _ in 0..<6 where !notMe.isHittable { app.swipeUp() }
+        reveal(app, notMe)
         XCTAssertTrue(notMe.exists, "the new place has no Not me")
         XCTAssertTrue(app.staticTexts["Safari on a Mac"].exists, "the new place is not listed")
         shot(app, "account-new-places")
@@ -124,6 +128,11 @@ final class AccountScreenUITests: XCTestCase {
         shot(app, "account-not-me")
         app.buttons["Cancel"].tap()
         XCTAssertTrue(app.navigationBars["Kosmos+ account"].exists, "Cancel left the account screen")
+    }
+
+    /// Scrolls until `element` exists and can be tapped (rows below the fold are not built until they come near).
+    private func reveal(_ app: XCUIApplication, _ element: XCUIElement, swipes: Int = 8) {
+        for _ in 0..<swipes where !(element.exists && element.isHittable) { app.swipeUp() }
     }
 
     private func shot(_ app: XCUIApplication, _ name: String) {
