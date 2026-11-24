@@ -1,33 +1,26 @@
 {
-  "version": "0.8.20",
+  "version": "0.8.21",
   "highlights": [
     {
-      "icon": "chat",
-      "title": "A message an agent never ran is reported",
-      "line": "On Windows, if a Claude agent takes in your message but stops or never starts on it, its card says so and tells you to send it again.",
+      "icon": "swarm",
+      "title": "A restarted agent says why",
+      "line": "On Windows, when a Claude agent stops and Kosmos starts it again, its card says when and why, such as a sign-in or a usage limit.",
       "platforms": [
         "windows"
       ]
     },
     {
-      "icon": "tasks",
-      "title": "Shared tasks say who has finished",
-      "line": "A task with several agents now says which of them have finished and who is still on it, on the board and in task lists."
-    },
-    {
-      "icon": "chat",
-      "title": "Agents that answer you elsewhere say so",
-      "line": "When an agent says it answers you on another channel, its chat now says so in place of \"Nothing back yet.\""
+      "icon": "shield",
+      "title": "A failed download gives the system's reason",
+      "line": "When the Mac app cannot save a download, its message now adds the system's reason when there is one, such as Permission denied.",
+      "platforms": [
+        "mac"
+      ]
     },
     {
       "icon": "shield",
-      "title": "An old Grok sign-in says since when",
-      "line": "A Grok sign-in not renewed for over three days now reads \"not confirmed since\" a date, not \"Signed in\"."
-    },
-    {
-      "icon": "shield",
-      "title": "An old Meta Muse sign-in says since when",
-      "line": "On the Mac, a Meta Muse sign-in not seen working for over three days now reads \"not confirmed since\" a date, not green.",
+      "title": "A Meta agent out of quota says so",
+      "line": "When Meta's usage quota stops a Meta agent, Kosmos now says so in Meta's words, and when it resets, instead of only that it could not run.",
       "platforms": [
         "mac"
       ]
