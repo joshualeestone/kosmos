@@ -5,8 +5,8 @@ import SwiftUI
 // paintTaskPage) for reading, and its human verbs: Mark as done / Reopen, and (kosmos#8958 slice B1) a message on the
 // task, its due date, and editing its title or detail, (slice B2) Put on hold / Take off hold, and (slice B3) how often
 // it repeats, and (B3b) who is told when a run is missed; (B4) a closed task's receipt; (B5) undoing its file changes; and
-// (B6) its subtasks. What this page does not do yet (the hold form and parts) is on the board's page, one tap away by the
-// info button.
+// (B6) its subtasks; and (B7) who is on each part, Done and Put back, and adding one. What this page does not do yet (the
+// hold form) is on the board's page, one tap away by the info button.
 struct TaskPageRef: Hashable {
     let project: String
     let number: Int
@@ -48,6 +48,8 @@ struct TaskPageView: View {
     @State private var subHeld: NewTask.Held?
     @State private var subAdded: String?
     private static var subKept = NewTask.KeptDrafts()
+    // kosmos#8958 slice B7: the part being typed.
+    @State private var newPart = ""
 
     init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
         self.client = client
@@ -97,7 +99,7 @@ struct TaskPageView: View {
             // Undone, put back, or read again as something else: the list that was open is about nothing any more.
             .onChange(of: model.undoPlan) { _ in undoOpen = false }
             // Another account or Mac: the list is about nothing, and an undo still out would hold it open.
-            .onChange(of: client.chatEpoch) { _ in undoOpen = false; adding = nil; subDraft = NewTask.Draft(); subHeld = nil; subAdded = nil }
+            .onChange(of: client.chatEpoch) { _ in undoOpen = false; newPart = ""; adding = nil; subDraft = NewTask.Draft(); subHeld = nil; subAdded = nil }
             .onChange(of: subDraft) { _ in keepSub() }
             .onChange(of: subHeld) { _ in keepSub() }
             .sheet(item: $adding) { start in
@@ -276,13 +278,14 @@ struct TaskPageView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(model.holding || model.pressing)
-                .opacity(model.holding || model.pressing ? 0.6 : 1)
+                .disabled(model.holding || model.pressing || model.partWriting != nil)
+                .opacity(model.holding || model.pressing || model.partWriting != nil ? 0.6 : 1)
                 .accessibilityValue(model.holding ? "In progress" : "")
                 if let say = model.holdSay {
                     Text(say).font(.footnote).foregroundColor(model.holdRefused ? Palette.dangerWord : Palette.secondary).fixedSize(horizontal: false, vertical: true)
                         .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
                 }
+                if model.holdSay != nil, model.holdChoose { chooseWho(p) }
             }
             if p.allSubtasksDone {
                 Text(Board.subtasksDoneLine(unrun: p.subtasksUnrun)).font(.footnote).foregroundColor(Palette.secondary)
@@ -300,8 +303,8 @@ struct TaskPageView: View {
                     .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil)
-                .opacity(model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil ? 0.6 : 1)
+                .disabled(busy)
+                .opacity(busy ? 0.6 : 1)
                 .accessibilityValue(model.closingSubtasks ? "In progress" : "")
                 .accessibilityIdentifier("taskpage.closeall")
             }
@@ -318,8 +321,8 @@ struct TaskPageView: View {
                 .background(RoundedRectangle(cornerRadius: 10).fill(Palette.primary))
             }
             .buttonStyle(.plain)
-            .disabled(model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil)
-            .opacity(model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil ? 0.6 : 1)
+            .disabled(busy)
+            .opacity(busy ? 0.6 : 1)
             .accessibilityValue(acting ? "In progress" : "")
             if let refusal = model.refusal {
                 Text(refusal).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
@@ -337,20 +340,136 @@ struct TaskPageView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Who is on it")
             ForEach(p.partLines(roster: roster)) { part in
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(part.who).font(.body.weight(.semibold)).foregroundColor(Palette.primary)
-                        if part.done { Text("Done").font(.footnote).foregroundColor(Palette.secondary) }
-                    }
-                    if let line = part.line { Text(line).font(.footnote).foregroundColor(Palette.secondary) }
-                    if let say = part.say { Text(say).font(.footnote.italic()).foregroundColor(Palette.secondary) }
-                }
-                .accessibilityElement(children: .combine)
+                partRow(p, part)
             }
             if let why = p.whyLine(roster: roster) {
                 Text(why).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
             }
+            addPart
+            if let say = model.partSay {
+                Text(say).font(.footnote).foregroundColor(model.partRefused ? Palette.dangerWord : Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .id("part:" + say)
+                    .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
+            }
         }
+    }
+
+    // Any press or save that another must not run beside.
+    private var busy: Bool { model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil || model.partWriting != nil }
+
+    private func write(_ w: Board.PartWrite, _ p: Board.TaskPage) async -> Bool {
+        await model.writePart(w, name: { p.name($0, roster: roster) }, names: names)
+    }
+
+    // kosmos#8958 slice B7: one part. On an open task an open part's name is the menu of who is on it (the board's
+    // tkwho-pick); the Done or Put back beside it is the board's on any task.
+    private func partRow(_ p: Board.TaskPage, _ part: Board.TaskPage.PartLine) -> some View {
+        let what = part.line ?? part.who
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                if part.done || p.closed {
+                    Text(part.who).font(.body.weight(.semibold)).foregroundColor(Palette.primary)
+                } else if p.memberOrder.isEmpty {
+                    // Nobody to pick, and where they come from (the board's line).
+                    Button { model.touched(); model.sayNoMembers(Board.partNoMembers) } label: { partName(part.who) }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Says how to put somebody on this part.")
+                } else {
+                    whoMenu(p, part: part.id, session: part.session) { partName(part.who) }
+                        .accessibilityLabel("Change who is on this part")
+                        .accessibilityValue(part.who)
+                        .accessibilityInputLabels([part.who, "Change who is on this part"])
+                        .accessibilityIdentifier("taskpage.part.who")
+                }
+                if let line = part.line { Text(line).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true) }
+                if let say = part.say { Text(say).font(.footnote.italic()).foregroundColor(Palette.secondary) }
+            }
+            Spacer(minLength: 8)
+            let act: Board.PartWrite = part.done ? .reopen(part: part.id) : .close(part: part.id)
+            Button { model.touched(); Task { _ = await write(act, p) } } label: {
+                HStack(spacing: 8) {
+                    if model.partWriting == act { SweepDots(scales: false) }
+                    Text(Board.partActTitle(done: part.done)).font(.footnote).foregroundColor(Palette.link)
+                }
+                .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(busy)
+            .opacity(busy && model.partWriting != act ? 0.6 : 1)
+            .accessibilityLabel(Board.partActTitle(done: part.done) + ", " + what)
+            .accessibilityValue(model.partWriting == act ? "In progress" : "")
+        }
+    }
+
+    private func partName(_ words: String) -> some View {
+        HStack(spacing: 4) {
+            Text(words).font(.body.weight(.semibold)).foregroundColor(Palette.link)
+            Image(systemName: "chevron.up.chevron.down").font(.footnote).foregroundColor(Palette.link)
+        }
+        .frame(minHeight: 44).contentShape(Rectangle())
+    }
+
+    // Saved on choosing, as the board's; leaving without choosing sends nothing.
+    private func whoMenu<L: View>(_ p: Board.TaskPage, part: String, session: String?, @ViewBuilder label: () -> L) -> some View {
+        Menu {
+            ForEach(Board.partOptions(p, session: session, roster: roster), id: \.self) { o in
+                Button {
+                    model.touched()
+                    Task { _ = await write(.who(part: part, o.value), p) }
+                } label: {
+                    if o.value == session { Label(o.words, systemImage: "checkmark") } else { Text(o.words) }
+                }
+            }
+        } label: { label() }
+        .disabled(busy)
+        .opacity(busy ? 0.6 : 1)
+    }
+
+    // The board's Choose who, under the line after Take off hold: for the first open part nobody is on.
+    @ViewBuilder private func chooseWho(_ p: Board.TaskPage) -> some View {
+        let label = Text(Board.holdChoose).font(.footnote.weight(.semibold)).foregroundColor(Palette.link)
+            .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+        if p.memberOrder.isEmpty {
+            Button { model.touched(); model.sayNoMembersOnHold() } label: { label }.buttonStyle(.plain)
+        } else if let free = p.parts.first(where: { !$0.closed && $0.who == nil }) {
+            whoMenu(p, part: free.id, session: nil) { label }.accessibilityIdentifier("taskpage.hold.choose")
+        }
+    }
+
+    private var addPart: some View {
+        let adding = model.partWriting.map { if case .add = $0 { return true } else { return false } } ?? false
+        let empty = newPart.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return HStack(spacing: 8) {
+            TextField(Board.partAdd, text: $newPart)
+                .padding(.horizontal, 10).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
+                .accessibilityLabel(Board.partAddLabel)
+                .submitLabel(.done)
+                .onSubmit { add() }
+                .onChange(of: newPart) { t in let c = Board.capped(t, Board.partAddMax); if c != t { newPart = c } }
+            Button { add() } label: {
+                HStack(spacing: 8) {
+                    if adding { SweepDots(scales: false) }
+                    Text("Add").font(.body.weight(.semibold)).foregroundColor(Palette.link)
+                }
+                .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(busy || empty)
+            .opacity((busy && !adding) || empty ? 0.6 : 1)
+            .accessibilityLabel("Add this part")
+            .accessibilityInputLabels(["Add", "Add this part"])
+            .accessibilityValue(adding ? "In progress" : "")
+        }
+    }
+
+    // Words typed while it was on its way are the next part's.
+    private func add() {
+        guard let p = model.page else { return }
+        model.touched()
+        let words = newPart
+        Task { if await write(.add(words), p), newPart == words { newPart = "" } }
     }
 
     private func subtasksBlock(_ p: Board.TaskPage) -> some View {
@@ -619,8 +738,8 @@ struct TaskPageView: View {
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .disabled(!ready || model.repeatSaving || model.reviewerSaving != nil || model.pressing)
-                    .opacity(!ready || model.repeatSaving || model.reviewerSaving != nil || model.pressing ? 0.5 : 1)
+                    .disabled(!ready || model.repeatSaving || model.reviewerSaving != nil || model.pressing || model.partWriting != nil)
+                    .opacity(!ready || model.repeatSaving || model.reviewerSaving != nil || model.pressing || model.partWriting != nil ? 0.5 : 1)
                     .accessibilityLabel("Save how this task repeats")
                     .accessibilityIdentifier("taskpage.repeat.save")
                     if repeatDraft != nil && !unchanged {
@@ -686,7 +805,7 @@ struct TaskPageView: View {
                 .tint(Palette.link)
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
-                .disabled(model.reviewerSaving != nil || model.repeatSaving || model.pressing)
+                .disabled(model.reviewerSaving != nil || model.repeatSaving || model.pressing || model.partWriting != nil)
                 .accessibilityIdentifier("taskpage.repeat.reviewer")
                 // The choice itself, said as the value (an empty value would hide it), and that it is saving while it is.
                 .accessibilityValue([options.first { $0.value == shown }?.words ?? shown, model.reviewerSaving != nil ? "in progress" : nil]
@@ -951,6 +1070,15 @@ struct TaskPageView: View {
         default: return nil
         }
     }
+    // kosmos#8958 slice B7: the sample task 4's parts (POST .../parts and .../part/<id>/...), served back by the next read.
+    private static var sampleParts: [(id: Int, who: String?, sentence: String, closed: Bool)] = [(1, "dana", "Pages 1 to 8", false)]
+    private static func samplePart(_ path: String, _ body: [String: Any]) {
+        if path.hasSuffix("/task/4/parts") { sampleParts.append((sampleParts.count + 1, nil, body["sentence"] as? String ?? "", false)) }
+        guard path.contains("/task/4/part/"), let id = Int(URL(fileURLWithPath: path).deletingLastPathComponent().lastPathComponent),
+              let i = sampleParts.firstIndex(where: { $0.id == id }) else { return }
+        if path.hasSuffix("/who") { sampleParts[i].who = body["who"] as? String }
+        else { sampleParts[i].closed = path.hasSuffix("/close") }
+    }
     private static func sampleSend(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         guard let r = build(URL(string: "https://sample.invalid")!), let url = r.url else { return nil }
         let path = url.path
@@ -974,13 +1102,21 @@ struct TaskPageView: View {
            let body = r.httpBody.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) {
             sampleLock.withLock { sampleUndone[n] = (body["paths"] as? [String] ?? []).count }
         }
+        let partsNow: String = sampleLock.withLock {
+            if r.httpMethod == "POST", path.contains("/part") {
+                samplePart(path, r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:])
+            }
+            return sampleParts.map { p in
+                #"{"id":\#(p.id),"who":\#(p.who.map(Self.jsonString) ?? "null"),"sentence":\#(Self.jsonString(p.sentence)),"closedAt":\#(p.closed ? #""2026-11-24T16:00:00.000Z""# : "null")}"#
+            }.joined(separator: ",")
+        }
         let undoneNow: [Int: Int] = sampleLock.withLock { sampleUndone }
         let repeatNow: [Int: (rule: String, words: String)] = sampleLock.withLock { sampleRepeat }
         let dueNow: [Int: String] = sampleLock.withLock { sampleDue }
         let saidNow: [Int: [String]] = sampleLock.withLock { sampleSaid }
         let titleNow: [Int: String] = sampleLock.withLock { sampleTitle }
         let closedNow: [Int: String] = sampleLock.withLock {
-            if path.hasSuffix("/close") || path.hasSuffix("/reopen") {
+            if !path.contains("/part/"), path.hasSuffix("/close") || path.hasSuffix("/reopen") {
                 if let n = Int(url.deletingLastPathComponent().lastPathComponent) {
                     // Closing clears its repeat rule, as the engine does.
                     if path.hasSuffix("/close") { sampleClosed[n] = ISO8601DateFormatter().string(from: Date()); sampleRepeat[n] = nil } else { sampleClosed[n] = nil }
@@ -994,9 +1130,12 @@ struct TaskPageView: View {
         if path.hasSuffix("/projects") {
             body = #"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","paused":false,"agents":[{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"tasks":["#
                 + #"{"number":3,"sentence":"Print-ready catalogue","addedBy":"operator","addedVia":"screen","createdAt":""# + iso(4000) + #"",\#(closed(3, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":null,"sentence":"Print-ready catalogue"}]},"#
-                + #"{"number":4,"sentence":"# + Self.jsonString(titleNow[4] ?? "Pages 1 to 8") + #","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","# + (dueNow[4].map { $0.isEmpty ? "" : #""dueDate":"# + Self.jsonString($0) + "," } ?? #""dueDate":"2026-10-30","#) + (repeatNow[4].map { #""repeat":"# + $0.rule + #","repeatWords":"# + Self.jsonString($0.words) + "," } ?? "") + #""builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 1 to 8"}],"claim":{"claimed":true,"about":"dana"}},"#
+                + #"{"number":4,"sentence":"# + Self.jsonString(titleNow[4] ?? "Pages 1 to 8") + #","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","# + (dueNow[4].map { $0.isEmpty ? "" : #""dueDate":"# + Self.jsonString($0) + "," } ?? #""dueDate":"2026-10-30","#) + (repeatNow[4].map { #""repeat":"# + $0.rule + #","repeatWords":"# + Self.jsonString($0.words) + "," } ?? "") + #""builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":["# + partsNow + #"],"claim":{"claimed":true,"about":"dana"}},"#
                 + #"{"number":8,"sentence":"Pages 9 to 12","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2800) + #"",\#(closed(8, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 9 to 12"}]}"#
                 + #"]}]}"#
+        } else if path.contains("/part"), path.hasSuffix("/who"),
+                  let who = (r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["who"] as? String {
+            body = #"{"heard":{"who":\#(Self.jsonString(who)),"state":"placed"}}"#
         } else if path.hasSuffix("/receipt") {
             // Task 4's, in the shape server.js sends (the price the Mac worked out included); any other task's says nobody held it.
             body = path.contains("/task/4/")

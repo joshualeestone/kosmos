@@ -89,7 +89,7 @@ check(withBuiltWaiting("review")?.stateLine(roster: roster) == "Open, marked bui
 check(withBuiltWaiting("release")?.stateLine(roster: roster) == "Open, marked built by Dana, waiting on a release: captions need a check", "built, waiting on a release")
 check(withBuiltWaiting("__proto__")?.stateLine(roster: roster) == "Open, marked built by Dana: captions need a check", "a value not in the table says nothing")
 check(built?.parentNumber == 1 && built?.parentSentence == "Print-ready catalogue", "the task it is part of")
-check(built?.partLines(roster: roster) == [Board.TaskPage.PartLine(id: "1", who: "Dana", line: nil, say: nil, done: false)],
+check(built?.partLines(roster: roster) == [Board.TaskPage.PartLine(id: "1", who: "Dana", line: nil, say: nil, done: false, session: "dana")],
       "Dana by the project's own name; a could-not-tell claim says nothing on the part")
 check(built?.whyLine(roster: roster) == "We could not check whether Dana is on this: we cannot tell whether this is the same agent, so we cannot say whether it holds this task.",
       "the why line says the reason in full")
@@ -749,15 +749,15 @@ check(hold?.httpMethod == "POST" && hold?.url?.path == "/api/project/springcatal
       "Put on hold posts onHold true to the task's hold route")
 check(bodyOf(Board.taskHoldRequest(mac: macURL, project: "springcatalogue", number: 4, onHold: false))?["onHold"] as? Bool == false, "Take off hold posts false")
 check(Board.holdTitle(onHold: false) == "Put on hold" && Board.holdTitle(onHold: true) == "Take off hold", "the board's two words")
-check(Board.holdNextLine(Data(#"{"task":{},"next":"It stays with Dana."}"#.utf8)) == "It stays with Dana.", "an unhold's next sentence is said")
+check(Board.holdNextLine(Data(#"{"task":{},"next":"It stays with Dana."}"#.utf8)) == Board.HoldNext(words: "It stays with Dana.", choose: false), "an unhold's next sentence is said")
 check(Board.holdNextLine(Data(#"{"next":"Nobody is on it, and the Assigner is off, so it waits for a person. To choose who, assign it now."}"#.utf8))
-      == "Nobody is on it, and the Assigner is off, so it waits for a person. To choose who, open this task on your computer's board.",
-      "the board's assign ask is cut (no picker here yet) and the person told where choosing happens")
+      == Board.HoldNext(words: "Nobody is on it, and the Assigner is off, so it waits for a person.", choose: true),
+      "the board's assign ask is cut, with Choose who")
 let looseBeside = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"dana","sentence":"S"},{"id":2,"sentence":"T"}]}"#)
 let allOn = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"dana","sentence":"S"}]}"#)
-check(Board.holdNextLine(Data(#"{"next":"It stays with Dana."}"#.utf8), page: looseBeside) == "It stays with Dana. To choose who, open this task on your computer's board.",
-      "a free part beside one somebody is on (the board's looseBesideHeld): where to choose is said too")
-check(Board.holdNextLine(Data(#"{"next":"It stays with Dana."}"#.utf8), page: allOn) == "It stays with Dana.", "CONTROL: every open part has somebody: nothing added")
+check(Board.holdNextLine(Data(#"{"next":"It stays with Dana."}"#.utf8), page: looseBeside) == Board.HoldNext(words: "It stays with Dana.", choose: true),
+      "a free part beside one somebody is on (the board's looseBesideHeld): Choose who too")
+check(Board.holdNextLine(Data(#"{"next":"It stays with Dana."}"#.utf8), page: allOn) == Board.HoldNext(words: "It stays with Dana.", choose: false), "CONTROL: every open part has somebody: no Choose who")
 if let a = allOn, let held = synthetic(#"{"number":1,"sentence":"S","onHold":true,"parts":[{"id":1,"who":"dana","sentence":"S"}]}"#),
    let paused = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"dana","sentence":"S"}]}"#, paused: true),
    let other = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"eli","sentence":"S"}]}"#) {
@@ -1315,6 +1315,45 @@ do {
     check(kids(#","subtasks":{"unrun":1}"#, #""closedAt":"2026-11-24T15:00:00.000Z""#)?.subtasksUnrun == true && kids("", #""closedAt":"2026-11-24T15:00:00.000Z""#)?.subtasksUnrun == false, "the engine's count of those not run is read")
 }
 await b6ModelTests()
+
+section("#8958 slice B7: parts")
+do {
+    let pageURL = here.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("web/index.html")
+    let html = (try? String(contentsOf: pageURL, encoding: .utf8)) ?? ""
+    check(html.contains("async function tkPartPost"), "premise: the board's page is there")
+    for words in ["'" + Board.partFailed + "'", "'" + Board.partNoMembers + "'", "'" + Board.holdChooseNobody + "'", ">" + Board.holdChoose + "</button>", "'Put back' : 'Done'",
+                  ">" + Board.partNobody + "</option>", "placeholder=\"" + Board.partAdd + "\" aria-label=\"" + Board.partAddLabel + "\"", "id=\"tk-newpart\" maxlength=\"\(Board.partAddMax)\"",
+                  "'Told ' + heard.who + '.'", "'Could not tell ' + heard.who + ': '", "'Could not confirm ' + heard.who + ' saw it: '"] {
+        check(html.contains(words), "the board says: \(words)")
+    }
+    check(Board.partActTitle(done: true) == "Put back" && Board.partActTitle(done: false) == "Done", "Done on an open part, Put back on a done one")
+    func req(_ w: Board.PartWrite) -> URLRequest? { Board.partRequest(mac: macURL, project: "springcatalogue", number: 4, w) }
+    let at = "/api/project/springcatalogue/task/4/"
+    check(req(.who(part: "2", "eli"))?.url?.path == at + "part/2/who" && bodyOf(req(.who(part: "2", "eli")))?["who"] as? String == "eli" && req(.who(part: "2", "eli"))?.httpMethod == "POST", "who is on a part")
+    check(bodyOf(req(.who(part: "2", nil)))?["who"] is NSNull, "nobody is null")
+    check(req(.close(part: "2"))?.url?.path == at + "part/2/close" && req(.reopen(part: "2"))?.url?.path == at + "part/2/reopen", "Done and Put back")
+    check(req(.add("  Proofread \n"))?.url?.path == at + "parts" && bodyOf(req(.add("  Proofread \n")))?["sentence"] as? String == "Proofread", "an added part, trimmed")
+    check(req(.add(" \n")) == nil && req(.close(part: "x/../1")) == nil && req(.close(part: "")) == nil && req(.close(part: "\u{0661}")) == nil, "nothing for an empty part, or one with no number")
+    func heard(_ s: String) -> String? { Board.heardLine(Data(s.utf8), name: { $0 == "dana" ? "Dana" : $0 }) }
+    check(heard(#"{"heard":{"who":"dana","state":"placed"}}"#) == "Told Dana.", "told")
+    check(heard(#"{"heard":{"who":"dana","state":"could_not","because":"its window is closed"}}"#) == "Could not tell Dana: Its window is closed.", "not told, and why")
+    check(heard(#"{"heard":{"who":"dana","state":"unconfirmed","because":"no echo"}}"#) == "Could not confirm Dana saw it: No echo.", "not confirmed")
+    check(heard("{}") == nil && heard(#"{"heard":{"who":"","state":"placed"}}"#) == nil && heard(#"{"heard":{"who":"dana","state":"held"}}"#) == nil && Board.heardLine(nil, name: { $0 }) == nil, "nobody to tell, or a state the board says nothing for")
+    let two = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"gus","sentence":"S"},{"id":2,"sentence":"T"}]}"#, agents: #"[{"sessionName":"eli","name":"Eli"},{"sessionName":"dana","name":"Dana"}]"#)
+    if let p = two {
+        check(Board.partOptions(p, session: nil, roster: [:]).map(\.words) == ["Nobody yet", "Eli", "Dana"] && Board.partOptions(p, session: nil, roster: [:]).map(\.value) == [nil, "eli", "dana"], "Nobody yet, then the members in the project's order")
+        check(Board.partOptions(p, session: "gus", roster: ["gus": "Gus"]).last?.value == "gus", "whoever is on it and left stays in the list")
+        check(p.partLines(roster: [:]).map(\.session) == ["gus", nil], "each line carries who is on it")
+        check(Board.partWritten(.who(part: "1", "gus"), before: [], now: p.parts) && !Board.partWritten(.who(part: "1", nil), before: [], now: p.parts) && Board.partWritten(.who(part: "2", nil), before: [], now: p.parts)
+              && !Board.partWritten(.who(part: "9", nil), before: [], now: p.parts), "who: written when the part reads so; a part that is gone is not")
+        check(!Board.partWritten(.close(part: "1"), before: [], now: p.parts) && Board.partWritten(.reopen(part: "1"), before: [], now: p.parts)
+              && !Board.partWritten(.reopen(part: "9"), before: [], now: p.parts), "Done and Put back likewise")
+        check(Board.partWritten(.add(" T "), before: [p.parts[0]], now: p.parts) && !Board.partWritten(.add("T"), before: p.parts, now: p.parts) && !Board.partWritten(.add("U"), before: [], now: p.parts),
+              "an added part: a new one with its words, never one that was there")
+    } else { check(false, "the parts fixture parses") }
+    check(Board.unfinished(status: 400, body: nil, failed: Board.partFailed) == .refused(Board.partFailed) && Board.unfinished(status: 0, body: nil, failed: "x") == .unsure, "refused with no words, and no answer")
+}
+await b7ModelTests()
 
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
@@ -2563,5 +2602,144 @@ func b6ModelTests() async {
         check(closes(mac).filter { $0.hasSuffix("/close") }.isEmpty, "nothing while the \(which) save is out")
         mac.release()
         _ = await saving.value
+    }
+}
+
+@MainActor
+func b7ModelTests() async {
+    // Task 1, two parts: 1 on dana, 2 as given; extra parts after.
+    func tasks(_ two: String = #""who":null"#, one: String = #""who":"dana""#, extra: String = "", own: String = "") -> (Int, Data) {
+        (200, Data((#"{"projects":[{"id":"springcatalogue","name":"Spring","agents":[{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"tasks":[{"number":1,"sentence":"All"\#(own),"progress":{"done":0,"total":2,"closed":false},"parts":["#
+            + #"{"id":1,"sentence":"All",\#(one)},{"id":2,"sentence":"Two",\#(two)}\#(extra)]}]}]}"#).utf8))
+    }
+    func model(_ mac: FakeMac) async -> TaskPageModel {
+        let m = TaskPageModel(project: "springcatalogue", number: 1, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch })
+        m.onScreen = true
+        await m.read()
+        mac.asked = []
+        return m
+    }
+    func posts(_ mac: FakeMac) -> [String] { mac.asked.filter { $0.hasPrefix("POST ") }.map { $0.replacingOccurrences(of: "POST /api/project/springcatalogue/task/1/", with: "") } }
+    let name: (String) -> String = { $0 == "eli" ? "Eli" : $0 }
+    func put(_ m: TaskPageModel, _ w: Board.PartWrite) async -> Bool { await m.writePart(w, name: name, names: [:]) }
+    let eli: Board.PartWrite = .who(part: "2", "eli")
+
+    do {
+        let mac = FakeMac(); mac.projects = tasks(); let m = await model(mac)
+        mac.actAnswers = [(200, #"{"heard":{"who":"eli","state":"placed"}}"#)]
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = tasks(#""who":"eli""#) } }
+        let ok = await put(m, eli)
+        check(ok && posts(mac) == ["part/2/who"] && m.page?.parts.last?.who == "eli" && m.partSay == "Told Eli." && !m.partRefused && m.partWriting == nil, "somebody is put on a part, and it says who was told")
+        check(mac.asked == ["POST /api/project/springcatalogue/task/1/part/2/who", "GET /api/projects", "GET /api/project/springcatalogue/task/1/activity"], "then the task and its activity are read")
+        mac.asked = []
+        let again = await put(m, eli)
+        check(!again && mac.asked.isEmpty && m.partSay == "Told Eli.", "choosing who is already on it sends nothing and changes nothing")
+        for w in [Board.PartWrite.reopen(part: "1"), .add("  ")] { _ = await put(m, w) }
+        check(mac.asked.isEmpty, "nor Put back on an open part, nor an empty part")
+        mac.actAnswers = [(400, #"{"error":"no part by that number"}"#)]
+        mac.onSend = nil
+        let refused = await put(m, .close(part: "9"))
+        check(!refused && m.partSay == "no part by that number" && m.partRefused, "a refusal is the Mac's words, as a refusal")
+        mac.actAnswers = [(200, "{}")]
+        let done = await put(m, .close(part: "1"))
+        check(done && m.partSay == nil && !m.partRefused, "the next write starts clean, and nobody to tell says nothing")
+        mac.actAnswers = [(400, "{}")]
+        _ = await put(m, .close(part: "1"))
+        check(m.partSay == Board.partFailed && m.partRefused, "a refusal with no words says the board's")
+    }
+    // An answer lost: the read after it says.
+    for (what, w, now) in [("who", eli, tasks(#""who":"eli""#)), ("Done", .close(part: "2"), tasks(#""who":null,"closedAt":"2026-11-24T16:00:00.000Z""#)),
+                           ("Add", .add("Three"), tasks(extra: #",{"id":3,"sentence":"Three"}"#))] as [(String, Board.PartWrite, (Int, Data))] {
+        for status in [0, 500, 502] {
+            let mac = FakeMac(); mac.projects = tasks(); let m = await model(mac)
+            mac.actAnswers = [status == 0 ? nil : (status, status == 502 ? #"{"error":"bad gateway"}"# : "")]
+            mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = now } }
+            let ok = await put(m, w)
+            check(ok && m.partSay == nil && !m.partRefused && m.partWriting == nil, "\(what), answer \(status): the parts read so, so it was made")
+            let mac2 = FakeMac(); mac2.projects = tasks(); let m2 = await model(mac2)
+            mac2.actAnswers = [status == 0 ? nil : (status, "")]
+            let ok2 = await put(m2, w)
+            check(!ok2 && m2.partSay == Board.partUnsure && m2.partRefused, "\(what), answer \(status): they do not, so it could not tell")
+        }
+    }
+    do {
+        let mac = FakeMac(); mac.projects = tasks(); let m = await model(mac)
+        mac.actAnswers = [nil]
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = (500, Data()) } }
+        let ok = await put(m, eli)
+        check(!ok && m.partSay == Board.partUnsure, "no answer, and the read after it failed: it could not tell")
+    }
+    // One at a time, and not beside another press.
+    do {
+        let mac = FakeMac(); mac.projects = tasks(own: #","repeat":{"every":"hour"},"repeatWords":"every hour""#); let m = await model(mac)
+        mac.holdTheNext()
+        let going = Task { await put(m, eli) }
+        await waitUntil({ mac.holding }, "the part write")
+        check(m.partWriting == eli, "in the air")
+        let second = await put(m, .close(part: "1"))
+        await m.press(.close, names: [:])
+        await m.toggleHold(wasOnHold: false, names: [:])
+        _ = await m.saveRepeat(Board.repeatWire(Board.RepeatChoice(every: .day)), names: [:])
+        _ = await m.saveReviewer("me", names: [:])
+        m.sayNoMembers("x")
+        check(!second && posts(mac) == ["part/2/who"] && m.partSay == nil, "a second part, Mark as done, a hold, and a Repeats or reviewer save send nothing meanwhile")
+        mac.epoch += 1
+        mac.release()
+        let ok = await going.value
+        check(!ok && mac.asked.count == 1, "the Mac switched meanwhile: nothing read, nothing said")
+    }
+    for what in ["done", "hold", "repeat", "reviewer"] {
+        let mac = FakeMac(); mac.projects = tasks(own: #","repeat":{"every":"hour"},"repeatWords":"every hour""#); let m = await model(mac)
+        mac.holdTheNext()
+        let going = Task {
+            switch what {
+            case "done": await m.press(.close, names: [:])
+            case "hold": await m.toggleHold(wasOnHold: false, names: [:])
+            case "repeat": _ = await m.saveRepeat(Board.repeatWire(Board.RepeatChoice(every: .day)), names: [:])
+            default: _ = await m.saveReviewer("me", names: [:])
+            }
+        }
+        await waitUntil({ mac.holding }, what)
+        let ok = await put(m, eli)
+        check(!ok && !posts(mac).contains("part/2/who"), "nothing while \(what) is out")
+        mac.release()
+        await going.value
+    }
+    do {
+        let mac = FakeMac(); mac.projects = tasks(); let m = await model(mac)
+        mac.epoch += 1
+        _ = await put(m, eli)
+        check(mac.asked.isEmpty, "switched before the press: nothing is sent")
+    }
+    // Choose who, under the line after Take off hold.
+    do {
+        let held = tasks(own: #","onHold":true"#)
+        let mac = FakeMac(); mac.projects = held; let m = await model(mac)
+        mac.actAnswers = [(200, #"{"task":{"number":1,"sentence":"All","progress":{"done":0,"total":2,"closed":false},"parts":[{"id":1,"sentence":"All","who":"dana"},{"id":2,"sentence":"Two"}]},"next":"It stays with Dana."}"#)]
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = tasks() } }
+        await m.toggleHold(wasOnHold: true, names: [:])
+        check(m.holdSay == "It stays with Dana." && m.holdChoose, "a free part beside one somebody is on: Choose who")
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = tasks(#""who":"eli""#) } }
+        let ok = await put(m, eli)
+        check(ok && m.holdSay == nil && !m.holdChoose, "chosen: the line and Choose who go")
+        mac.onSend = nil
+        mac.projects = held
+        await m.read()
+        mac.actAnswers = [(200, #"{"task":{"number":1,"sentence":"All","progress":{"done":0,"total":2,"closed":false},"parts":[{"id":1,"sentence":"All","who":"dana"},{"id":2,"sentence":"Two"}]},"next":"It stays with Dana."}"#)]
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = tasks() } }
+        await m.toggleHold(wasOnHold: true, names: [:])
+        check(m.holdChoose, "premise: offered again")
+        m.sayNoMembersOnHold()
+        check(m.holdSay == Board.holdChooseNobody && !m.holdChoose, "nobody on the project: it says where people come from, and the button goes")
+        await m.read()
+        check(m.holdSay == Board.holdChooseNobody, "and that line is not about the task, so a read leaves it")
+        mac.onSend = nil
+        await m.toggleHold(wasOnHold: false, names: [:])
+        check(m.holdSay == nil && !m.holdChoose, "a press starts clean")
+    }
+    do {
+        let mac = FakeMac(); mac.projects = tasks(); let m = await model(mac)
+        m.sayNoMembers(Board.partNoMembers)
+        check(m.partSay == Board.partNoMembers && !m.partRefused, "nobody to pick: it says where people come from, not as a refusal")
     }
 }

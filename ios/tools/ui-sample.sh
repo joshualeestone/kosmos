@@ -90,8 +90,8 @@ classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpen
 #   draft drawn in the chat with Put in the message box and Dismiss, never the board (3 checks). TaskPageActionsUITests, a
 #   task page's message box, due date and Edit title or detail (3), Repeats changed and saved (1), a done task's
 #   receipt (1), its file changes undone (1), and Add subtask
-#   opening New Task for it (1).
-classes="$classes UnsentDraftUITests:3 TaskPageActionsUITests:7"
+#   opening New Task for it (1), and a part added, given and done (1).
+classes="$classes UnsentDraftUITests:3 TaskPageActionsUITests:8"
 skip=""
 arm="lazy"
 if [ "$uikit" = 1 ]; then
