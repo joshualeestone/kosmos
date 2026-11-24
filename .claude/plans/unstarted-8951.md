@@ -72,3 +72,8 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 - Accepted (NIT): a deadline report merged into a carried one keeps needsWrite, so a late start of the merged message does not end it; another write's turn does. Conservative (it keeps saying "not started" a little long), and the carried messages in that report did not run.
 - Every other cell of the table was traced and found sound (listed in the reviewer's report).
 - Mutation red: counting a busy write at once. The round 3 restart test now ends the new process's own turn before the resend, as a real stream does.
+
+## Challenge loop iteration 7 (opus, state table)
+- Fixed (WARNING, the premise): the fix assumed each 11-23 death came before any turn opened. That order is not established: Homer's transcript has no user entry or reply, but a turn's init goes to the stream, not the transcript, and a turn opens ~50 ms after a write while each death came at ~0.6 s. Now a turn still open when the process ends within LOST_WINDOW_MS of the last write carries the message it opened on (turnMsg, kept until that turn's result) as lost, with any written behind it. Either order is reported. A turn that reached its result, or a death long after the write (a Restart mid-turn), is not counted.
+- Fixed (WARNING): a deadline merge left the busy-write marker (queuedAfterReport) armed, so a wake-up turn's returning calls could end a merged report none of whose messages ran. The merge and a result with nothing taken now clear it.
+- Mutations red: carrying the open turn, the merge clearing the marker, the result ending the turn.
