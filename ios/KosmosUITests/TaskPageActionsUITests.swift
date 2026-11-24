@@ -262,6 +262,15 @@ final class TaskPageActionsUITests: XCTestCase {
         XCTAssertTrue(save.isEnabled, "the first time cannot be saved")
         shot(app, "hold until a time")
         save.tap()
+        XCTAssertTrue(app.staticTexts["Saved."].waitForExistence(timeout: 15), "a time does not say it was saved")
+        // The box keeps 200 characters, and shows no more than it keeps.
+        for _ in 0..<4 where !(why.exists && why.isHittable) { app.swipeUp() }
+        why.tap()
+        why.typeText(String(repeating: "x", count: 190) + "\n")
+        XCTAssertEqual((why.value as? String)?.count, 200, "the box shows words it does not keep")
+        app.buttons["Cancel the change to this hold"].tap()
+        XCTAssertEqual(why.value as? String, "Waiting on prices", "Cancel does not bring back what is kept")
+        for _ in 0..<4 where !app.staticTexts["Why: Waiting on prices"].isHittable { app.swipeDown() }
         let until = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Waiting until ")).firstMatch
         XCTAssertTrue(until.waitForExistence(timeout: 15), "the page does not say the time")
         XCTAssertTrue(app.staticTexts["Why: Waiting on prices"].exists, "the reason went when only the wait was changed")

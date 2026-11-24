@@ -27,7 +27,8 @@ The form, on a held, open task only:
 
 ## Call
 - A native sheet or section: a section under the hold button, as Repeats is, so nothing new to learn. DatePicker limited to the
-  board's range. Same model rules as B3/B7: one save at a time, not beside a press, part, hold, repeat or reviewer write.
+  board's range. One save at a time, not beside a press, a part write or the hold button. Beside a Repeats or reviewer save it may be, as the hold
+  button is: the routes change different fields.
 - The lines are drawn by the phone from the board's fields; pin the words to web/index.html as B6 and B7 do.
 
 ## B9, found 2026-11-24 while comparing the whole board page: also missing on the phone

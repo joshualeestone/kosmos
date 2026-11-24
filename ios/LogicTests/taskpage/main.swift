@@ -1373,7 +1373,7 @@ do {
     let html = (try? String(contentsOf: pageURL, encoding: .utf8)) ?? ""
     check(html.contains("function tkPaintHoldUntil"), "premise: the board's page is there")
     for words in Board.HoldFor.allCases.map({ "<option value=\"" + $0.rawValue + "\">" + $0.words + "</option>" })
-        + ["<span>" + Board.holdSection + "</span>", "<span>" + Board.holdForLabel + "</span>", "aria-label=\"" + Board.holdForSpoken + "\"", "aria-label=\"" + Board.holdTaskSpoken + "\"", "aria-label=\"" + Board.holdAtSpoken + "\"",
+        + ["<span>" + Board.holdSection + "</span>", "<span>" + Board.holdForLabel + "</span>", "<span>" + Board.holdUntilLabel + "</span>", "aria-label=\"" + Board.holdForSpoken + "\"", "aria-label=\"" + Board.holdTaskSpoken + "\"", "aria-label=\"" + Board.holdAtSpoken + "\"",
            "<span>" + Board.holdWhyLabel + "</span>", "maxlength=\"\(Board.holdWhyMax)\" aria-label=\"" + Board.holdWhySpoken + "\" placeholder=\"" + Board.holdWhyPrompt + "\"",
            "aria-label=\"" + Board.holdSaveSpoken + "\"", "'<option value=\"\">" + Board.holdChooseTask + "</option>'", "' (no longer on this project)'", "tkHoldSay(key, '" + Board.holdSaved + "')",
            "'" + Board.holdSaveFailed + "'", "'" + Board.holdTakenOff + "'", "'" + Board.holdTakeover(forPerson: false, paused: false) + "'", "'" + Board.holdTakeover(forPerson: true, paused: false) + "'",
@@ -1424,7 +1424,7 @@ do {
         check(o[0].words == "Choose a task" && o[1].words == "#2 Page two" && o[3].words == "#6", "each its number and tidied words, the number alone when it has none")
         check(o[4].words == "#7 " + String(repeating: "x", count: 59) + "\u{2026}" && o[5].words == "#8 " + String(repeating: "y", count: 60), "longer than 60 is cut, 60 is not")
         check(Board.holdOptions(h, chosen: 3).map(\.value) == [nil, 2, 3, 5, 6, 7, 8, 9], "one chosen and closed since stays a choice")
-        check(Board.holdOptions(h, chosen: 4).map(\.value).last == 4 && Board.holdOptions(h, chosen: 99).last?.words == "#99 (no longer on this project)", "one chosen and no longer to be offered is still in the menu")
+        check(Board.holdOptions(h, chosen: 4).first { $0.value == 4 }?.words == "#4 Waits here" && Board.holdOptions(h, chosen: 4).filter { $0.value == 4 }.count == 1 && Board.holdOptions(h, chosen: 99).last?.words == "#99 (no longer on this project)", "one chosen and no longer to be offered is still in the menu, by its own words while it is on the project")
     } else { check(false, "the options fixture parses") }
     if let h = heldPage(#","onHoldUntil":{"task":3}"#, others: others)?.hold {
         check(Board.holdOptions(h, chosen: nil).map(\.value) == [nil, 2, 3, 5, 6, 7, 8, 9], "the stored one stays a choice once closed")
@@ -1469,6 +1469,10 @@ do {
     check(follow(five, none, Board.HoldChoice(why: "theirs")) == Board.HoldChoice(kind: .task, task: 5, why: "theirs"), "a wait chosen stays, and the reason follows")
     check(follow(Board.HoldChoice(kind: .task, task: 5, why: "mine"), none, Board.HoldChoice(kind: .task, task: 6, why: "theirs")) == Board.HoldChoice(kind: .task, task: 5, why: "mine"), "both changed: both stay")
     check(follow(Board.HoldChoice(kind: .nothing, task: 7, why: "mine"), none, Board.HoldChoice(kind: .at, at: nine.at))?.task == 7, "a box that is not shown keeps its value")
+    check(follow(Board.HoldChoice(kind: .nothing, at: nine.at, why: "mine"), none, five)?.at == nine.at, "and the time box its")
+    check(Board.holdAfter(nine, base: none, now: five) == nine, "saved: a time")
+    func late(_ c: Board.HoldChoice, _ s: Board.HoldChoice) -> Bool { Board.holdLate(c, stored: s, now: now) }
+    check(late(passed, none) && !late(passed, passed) && !late(nine, none) && !late(five, none) && !late(Board.HoldChoice(kind: .at), none) && !late(Board.HoldChoice(kind: .nothing, at: passed.at), five), "a chosen time that has passed, and nothing else, is late")
     check(follow(Board.HoldChoice(why: "mine"), nil, five) == Board.HoldChoice(why: "mine"), "with nothing to compare with, the draft stays")
     // What is sent.
     func sent(_ c: Board.HoldChoice, _ b: Board.HoldChoice, _ hold: String) -> String {
@@ -1540,13 +1544,57 @@ func b8ModelTests() async {
         check(!ok && posted(mac) == 0 && m.holdSay == "This was taken off hold, so nothing changed." && !m.holdRefused, "taken off meanwhile: nothing sent, and said")
         check(mac.asked == [list, list, act] && m.page?.onHold == false && !m.holding && !m.holdFormSaving, "and the page shows it off")
         await m.read()
-        check(m.holdSay == Board.holdTakenOff, "that line is of the press, so a read leaves it")
+        check(m.holdSay == Board.holdTakenOff, "a read of it off leaves that line")
+        mac.projects = bare
+        await m.read()
+        check(m.holdSay == nil && !m.holdSayAtForm, "held again, it goes: it is not about the new hold")
     }
     do {
         let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
         mac.projects = (200, Data(#"{"projects":[{"id":"springcatalogue","name":"Spring","tasks":[]}]}"#.utf8))
         let ok = await save(m)
         check(!ok && posted(mac) == 0 && m.holdSay == Board.holdTaskGone && m.gone, "gone: nothing sent, and said")
+    }
+    do {
+        // A time, all the way: sent, read back and said.
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = heldTasks(#","onHoldUntil":{"at":"2026-11-25T09:30:00.000Z"},"holdUntil":{"words":"2026-11-25T09:30:00.000Z","met":false}"#, others: open5) } }
+        let ok = await save(m, Board.HoldChoice(kind: .at, at: Tasks.parseISO("2026-11-25T09:30:20.000Z")))
+        check(ok && m.holdSay == Board.holdSaved && m.page?.hold?.stored.kind == .at, "a time is saved, and said")
+    }
+    do {
+        // A check that failed says so until the hold reads otherwise.
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.projects = nil
+        _ = await save(m)
+        mac.projects = bare
+        await m.read()
+        check(m.holdSay == Board.holdCheckFailed, "the failed check is still said")
+        mac.projects = onFive
+        await m.read()
+        check(m.holdSay == nil, "until the hold reads otherwise")
+    }
+    do {
+        // A tick read that started before the answer, and lands after it with the hold as it was, is not news.
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.queueing = true
+        let tick = Task { await m.read() }
+        await waitUntil({ mac.queuedCount == 1 }, "the tick")
+        mac.projects = onFive
+        mac.actAnswers = [(409, #"{"error":"no"}"#)]
+        let going = Task { await save(m, Board.HoldChoice(why: "x")) }
+        await waitUntil({ mac.queuedCount == 2 }, "the check")
+        mac.release(at: 1)
+        await waitUntil({ mac.queuedCount == 2 }, "the post")
+        mac.release(at: 1)
+        _ = await going.value
+        check(m.holdSay == "no", "premise: refused of the newer hold")
+        mac.queueing = false
+        mac.release(at: 0)
+        await tick.value
+        check(m.holdSay == "no" && m.page?.hold?.stored == none, "an older read landing late leaves the line")
+        await m.read()
+        check(m.holdSay == "no", "and so does the next, which shows the hold it is of")
     }
     for (what, answer) in [("no answer", nil as (Int, Data)?), ("an error", (500, Data("{}".utf8))), ("not a list", (200, Data("{}".utf8)))] {
         let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
@@ -1603,20 +1651,36 @@ func b8ModelTests() async {
         let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
         mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = nil } }
         let ok = await save(m)
-        check(ok && m.holdSay == Board.holdSaved && m.page?.hold?.stored == none, "the read after it failed: Saved.")
+        check(ok && m.holdSay == Board.holdSaved && m.page?.hold?.stored == none && m.holdShown == five, "the read after it failed: Saved., and what was saved is what shows")
         mac.onSend = nil
         mac.projects = onFive
         await m.read()
-        check(m.holdSay == Board.holdSaved, "and the read that shows it leaves it")
+        check(m.holdSay == Board.holdSaved && m.holdShown == nil, "and the read that shows it leaves it, and takes over")
     }
     do {
         let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
-        for c in [none, Board.HoldChoice(kind: .task), Board.HoldChoice(kind: .at), Board.HoldChoice(kind: .at, at: clock)] { _ = await save(m, c) }
+        for c in [none, Board.HoldChoice(kind: .task), Board.HoldChoice(kind: .at)] { _ = await save(m, c) }
         check(mac.asked.isEmpty && m.holdSay == nil, "nothing changed, or not whole: nothing sent")
         let at = Board.HoldChoice(kind: .at, at: clock.addingTimeInterval(600))
         clock = clock.addingTimeInterval(1200)
         _ = await save(m, at)
-        check(mac.asked.isEmpty, "a time that passed while the form was open: nothing sent")
+        check(mac.asked.isEmpty && m.holdSay == Board.holdAhead && m.holdSayAtForm && !m.holdRefused && !m.holding, "a time that passed while the form was open: nothing sent, and said")
+        await m.read()
+        check(m.holdSay == Board.holdAhead, "a read of the same hold leaves it")
+        mac.projects = onFive
+        await m.read()
+        check(m.holdSay == nil, "and it goes with the hold")
+        mac.projects = bare
+        await m.read()
+        mac.asked = []
+        clock = clock.addingTimeInterval(-1200)
+        mac.actAnswers = [(409, #"{"error":"no"}"#)]
+        _ = await save(m, at)
+        check(m.holdRefused, "premise: refused")
+        clock = clock.addingTimeInterval(1200)
+        _ = await save(m, at)
+        check(m.holdSay == Board.holdAhead && !m.holdRefused, "and is not drawn as the last refusal was")
+        mac.asked = []
         mac.epoch += 1
         _ = await save(m)
         check(mac.asked.isEmpty, "switched before the press: nothing sent")

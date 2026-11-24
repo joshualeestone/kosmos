@@ -63,10 +63,14 @@ final class TaskPageModel: ObservableObject {
     // reads otherwise, as the board's repaint takes it down (review 1).
     private var holdSaySig: String?
     // kosmos#8958 slice B8: the hold form's Save is the write in the air (`holding` is set too), and holdSay is about it. The
-    // line goes once the stored hold reads as something other than what it was said of.
+    // line goes once the stored hold reads as something other than what it was said of (nil inside: not on hold), in a read that
+    // started after it was said.
     @Published private(set) var holdFormSaving = false
     @Published private(set) var holdSayAtForm = false
-    private var holdSayOf: Board.HoldChoice?
+    private var holdSayOf: Board.HoldChoice??
+    private var holdSayAfter = 0
+    // A hold the Mac recorded when the read after it failed: shown until a read of the page succeeds (as reviewerShown).
+    @Published private(set) var holdShown: Board.HoldChoice?
     private func clearHoldSay() {
         if holdSay != nil { holdSay = nil }
         if holdChoose { holdChoose = false }
@@ -221,7 +225,11 @@ final class TaskPageModel: ObservableObject {
             if let was = refusalSubtasks, was != p.subtasks { clearRefusal() }
             keepPartLine(p)
             if let sig = holdSaySig, Board.holdNextSig(p) != sig { holdSay = nil; holdChoose = false; holdSaySig = nil }
-            if let of = holdSayOf, p.hold.map({ Board.holdSame($0.stored, of) }) != true { clearHoldSay() }
+            if holdShown != nil { holdShown = nil }
+            if let of = holdSayOf, mine > holdSayAfter {
+                let same = p.hold.map { h in of.map { Board.holdSame(h.stored, $0) } ?? false } ?? (of == nil)
+                if !same { clearHoldSay() }
+            }
             if let w = repeatSavedAs, p.closed || p.repeatStored.map(Board.repeatWire) != w { repeatSay = nil; repeatSavedAs = nil }
             // Nothing about Repeats outlives the task being finished (the board's tkPaintRepeat, review 2).
             if p.closed && repeatRefused { repeatSay = nil; repeatRefused = false }
@@ -734,28 +742,40 @@ final class TaskPageModel: ObservableObject {
     // agent has just taken off, so the task is read first, and nothing is sent unless it is still on hold.
     @discardableResult
     func saveHold(_ choice: Board.HoldChoice, base: Board.HoldChoice, names: [String: String]) async -> Bool {
-        guard !holding, !pressing, partWriting == nil, current, let page, page.hold != nil, Board.holdReady(choice, stored: base, now: now()) else { return false }
+        guard !holding, !pressing, partWriting == nil, current, let page, let held = page.hold else { return false }
+        func said(_ words: String?, refused: Bool = false, of: Board.HoldChoice?? = nil) {
+            holdSay = words
+            holdRefused = refused
+            holdSayAtForm = true
+            holdSayOf = of
+            holdSayAfter = pageReads
+        }
+        guard Board.holdReady(choice, stored: base, now: now()) else {
+            // The time passed under a Save drawn while it was still ahead: said, not left as a press that does nothing.
+            if Board.holdLate(choice, stored: base, now: now()) {
+                clearHoldSay()
+                said(Board.holdAhead, of: .some(held.stored))
+            }
+            return false
+        }
         holding = true
         holdFormSaving = true
         clearPart()
         clearHoldSay()
-        holdSayAtForm = true
-        func done(_ words: String?, refused: Bool = false, of: Board.HoldChoice? = nil) {
-            holdSay = words
-            holdRefused = refused
-            holdSayOf = of
+        func done(_ words: String?, refused: Bool = false, of: Board.HoldChoice?? = nil) {
+            said(words, refused: refused, of: of)
             holding = false
             holdFormSaving = false
         }
         let fresh = await freshRead()
         guard current else { return false }
         guard case .some(.page(let p)) = fresh, let kept = p.hold else {
-            if fresh == nil { done(Board.holdCheckFailed); return false }
-            let words = fresh == .some(.gone) ? Board.holdTaskGone : Board.holdTakenOff
+            if fresh == nil { done(Board.holdCheckFailed, of: .some(held.stored)); return false }
+            let isGone = fresh == .some(.gone)
             await read()
             await readActivity(names: names)
             guard current else { return false }
-            done(words)
+            if isGone { done(Board.holdTaskGone) } else { done(Board.holdTakenOff, of: .some(nil)) }
             return false
         }
         let (project, number) = (self.project, self.number)
@@ -765,7 +785,7 @@ final class TaskPageModel: ObservableObject {
         if case .refused(let why) = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0,
                                                           failed: Board.holdSaveFailed, unreached: Board.holdUnreached) {
             // Said of the hold as it was just read: an answer that was lost, and a hold saved after all, takes it down.
-            done(why, refused: true, of: kept.stored)
+            done(why, refused: true, of: .some(kept.stored))
             return false
         }
         let saved = Board.holdAfter(choice, base: base, now: kept.stored)
@@ -773,11 +793,12 @@ final class TaskPageModel: ObservableObject {
         let ownRead = pageReads + 1
         await read()
         guard current else { return false }
+        if pageReadOK < ownRead { holdShown = saved }
         await readActivity(names: names)
         guard current else { return false }
         // Said only while the form shows what was saved (changed elsewhere in between, it shows that).
-        let shows = pageReadOK < ownRead || self.page?.hold.map { Board.holdSame($0.stored, saved) } == true
-        done(shows ? Board.holdSaved : nil, of: shows ? saved : nil)
+        let shows = (holdShown ?? self.page?.hold?.stored).map { Board.holdSame($0, saved) } == true
+        done(shows ? Board.holdSaved : nil, of: shows ? .some(saved) : nil)
         return true
     }
     // A new choice retires the form's last answer.
