@@ -49,9 +49,9 @@ final class AccountScreenUITests: XCTestCase {
         let plan = app.staticTexts["account-plan"]
         // Review 2: the screen is long by now, so up to 25 swipes, and the row must be on screen, not only built.
         for _ in 0..<25 where !(plan.exists && plan.isHittable) { app.swipeDown(velocity: .slow) }
-        // The sample answers as an active plan; reading /v1/account/me is LogicTests/account's (planLine, standingNote).
+        // The sample answers as an active plan; reading /v1/account/me is LogicTests/account's (planLine, standingNote,
+        // planAnswer). The label is the spoken form, so the drawn words (Account.planActive) are checked there too.
         XCTAssertTrue(plan.exists && plan.isHittable, "the plan section does not show its line")
-        XCTAssertTrue(app.staticTexts["Kosmos+ \u{00B7} Active"].exists, "the plan line's words are not the page's")
         XCTAssertEqual(plan.label, "Kosmos+, Active", "VoiceOver does not read the plan line as words")
         XCTAssertFalse(app.staticTexts["account-standing"].exists, "a standing note for a plan in good standing")
         noSelling(app, "the plan")
@@ -62,7 +62,7 @@ final class AccountScreenUITests: XCTestCase {
     // rows near the screen, so this covers what is built where it is called; the test calls it at the top, the middle and
     // the end. The server's own standing sentence may name a subscription; the sample's plan is good, so it shows none.
     private func noSelling(_ app: XCUIApplication, _ where_: String) {
-        let selling = NSPredicate(format: "label CONTAINS[c] 'billing' OR label CONTAINS[c] 'subscription' OR label CONTAINS[c] 'payment' OR label CONTAINS[c] 'checkout' OR label CONTAINS[c] 'cloud machine' OR label CONTAINS[c] 'upgrade'")
+        let selling = NSPredicate(format: "label CONTAINS[c] 'billing' OR label CONTAINS[c] 'subscription' OR label CONTAINS[c] 'payment' OR label CONTAINS[c] 'checkout' OR label CONTAINS[c] 'cloud machine' OR label CONTAINS[c] 'upgrade' OR label CONTAINS[c] 'buy ' OR label CONTAINS[c] 'renew' OR label CONTAINS[c] 'seats' OR label CONTAINS[c] 'price'")
         XCTAssertEqual(app.descendants(matching: .any).matching(selling).count, 0, "money words on the built rows near \(where_) (kosmos#718)")
     }
 
@@ -80,6 +80,9 @@ final class AccountScreenUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Kosmos+ account"].waitForExistence(timeout: 10), "the native account screen did not open")
 
         let appButton = app.buttons["account-second-app"]
+        // Slice B2 review 3: the plan section above the computers pushes this further down a lazy List; scroll to it first.
+        _ = app.navigationBars["Kosmos+ account"].waitForExistence(timeout: 5)
+        reveal(app, appButton)
         XCTAssertTrue(appButton.waitForExistence(timeout: 5), "no offer to set up an authenticator app")
         for _ in 0..<4 where !appButton.isHittable { app.swipeUp() }
         XCTAssertTrue(app.buttons["account-second-sms"].exists, "texts can be sent in the sample, so they are offered too")

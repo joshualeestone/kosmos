@@ -236,7 +236,8 @@ enum Account {
         return r
     }
 
-    // The page's test, word for word: `body.kosmos_plus === true && (!body.standing || body.standing === "good")`. Only a
+    // The page's test, word for word (the "good" arm adds nothing against today's server, where kosmos_plus is already
+    // standing == "good"; it is kept so this stays the page's test, not a second reading of it): `body.kosmos_plus === true && (!body.standing || body.standing === "good")`. Only a
     // real JSON true counts (a 1 or a "true" does not, as BoardLogic.fedGateMode reads it); a standing that is absent,
     // null, false, 0 or empty is JavaScript-falsy and passes, as does "good"; anything else hides the line.
     static func planLine(_ data: Data?) -> String? {
@@ -256,6 +257,21 @@ enum Account {
         guard let data, let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let words = obj["standing_note"] as? String, !words.isEmpty else { return nil }
         return StandingNote(words: words, calm: truthy(obj["standing_note_calm"]))
+    }
+
+    // What one /v1/account/me answer does to what is shown (review 3). A 2xx with the account's JSON replaces it; a 401
+    // (this sign-in is over, or only an enrol token) clears it; anything else (a 503 maintenance page, a 200 that is not
+    // JSON, no answer) is a failed read and keeps what is shown, as the page keeps its lines.
+    enum PlanAnswer: Equatable {
+        case show(line: String?, note: StandingNote?)
+        case clear
+        case keep
+    }
+
+    static func planAnswer(status: Int?, data: Data?) -> PlanAnswer {
+        guard let status else { return .keep }
+        if (200...299).contains(status), isObject(data) { return .show(line: planLine(data), note: standingNote(data)) }
+        return status == 401 ? .clear : .keep
     }
 
     private static func standingFalsy(_ v: Any?) -> Bool {

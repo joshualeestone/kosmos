@@ -645,10 +645,12 @@ struct AccountView: View {
         let ticket = planTicket
         guard let session = currentSession() else { plan = nil; standing = nil; return }
         let (status, data) = await send(Account.meRequest(coordinator: coordinator, session: session))
-        guard !Task.isCancelled, ticket == planTicket, currentSession() == session, let status else { return }
-        // Review 2: a 200 that is not the account's JSON (a captive page, say) is a failed read, so what is shown stays.
-        if (200...299).contains(status), Account.isObject(data) { plan = Account.planLine(data); standing = Account.standingNote(data) }
-        else if status == 401 { plan = nil; standing = nil }
+        guard !Task.isCancelled, ticket == planTicket, currentSession() == session else { return }
+        switch Account.planAnswer(status: status, data: data) {
+        case .show(let line, let note): plan = line; standing = note
+        case .clear: plan = nil; standing = nil
+        case .keep: break
+        }
     }
 
     // MARK: Two-step sign-in, asking Kosmos+
