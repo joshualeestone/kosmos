@@ -43,3 +43,10 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 - Fixed (PigeonPete, should-fix): a report the deadline made on the same process stayed on the card after the message started late and finished. Now a deadline report ends on any turn the same process opens (after the hold); a report carried from a stopped process (`lost`) still needs a turn opened by a later write. The round 1 test now uses a carried report; a new test covers the late start.
 - Fixed (PigeonPete, nit): the #8951 block in deliveryStallOf sat between #7368's comment and its code.
 - Mutations red: the merge reset, the late-start rule, the lost rule.
+
+## Challenge loop iteration 3 (opus)
+- Fixed (WARNING): a Restart (the stuck-turn advice itself) was reported as "stopped right after a message reached it, the message may be what stops it". `lost` now needs the death within LOST_WINDOW_MS (10 s) of the last write (11-23: 0.6 s each); later, the waiting messages are carried as never started.
+- Fixed (WARNING, in part): a cleared unstarted report never produced an end, so its push was emailed as unanswered. deliverystreak.unstartedGone, called by the server's minute sweep before acksDue, takes a session whose card no longer carries one off the open pushes. The plan's earlier claim that the hold makes the push go out "at least once" is withdrawn: tellStalls's own gaps (one stall push per 15 minutes, each agent once a day) still decide that, as for #7368's stuck step; the hold only gives the card one sweep to show it.
+- Fixed (NIT): the board log says an unstarted report again when it grows (count and lost in its key).
+- Fixed (NIT): the CLI line is counted and says the stopped case apart, as the page does.
+- Mutations red: the lost window, the log key, the ack on clear, the CLI wording. The sweep's one call to unstartedGone is not itself tested; the function is.
