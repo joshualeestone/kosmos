@@ -850,7 +850,7 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, inFlight: null, needsWrite: false, reportRan: false, clearArmedFor: null, queuedAfterReport: false, turnMsg: null };
+      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null, reportAt: null, wroteAfterReport: false, opened: false, inFlight: null, needsWrite: false, reportRan: false, clearArmedFor: null, queuedAfterReport: false, turnMsg: null, takenMsg: null };
       /* kosmos#8951: messages the previous process took in and never ran are this agent's still: said on the new
          process's record, so its card says so, until a turn starts. */
       const lost = lostOnStop;
@@ -909,6 +909,15 @@ function publisher(name, opts) {
         let closed = false;
         for (const c of content) if (c && c.type === 'tool_result' && current.open.delete(c.tool_use_id)) closed = true;
         if (closed && current.open.size === 0) {
+          /* kosmos#8951 review 9: the waiting messages join this turn now: tracked on their own clock until its result, so a
+             death within seconds counts them, and no longer in flight (so they are never counted twice). */
+          const taken = current.queued || 0;
+          if (taken > 0) {
+            const was = current.takenMsg;
+            current.takenMsg = { since: [was && was.since, current.inFlight && current.inFlight.since].filter((x) => typeof x === 'string').sort()[0] || new Date(nowMs()).toISOString(),
+              count: ((was && was.count) || 0) + taken, at: nowMs() };
+            current.inFlight = null;
+          }
           current.queued = 0;
           /* kosmos#8951 review 6: the waiting messages are taken into this turn now, so one written after a report runs. */
           if (current.unstarted && current.queuedAfterReport === true) { current.wroteAfterReport = true; current.queuedAfterReport = false; }
@@ -917,7 +926,7 @@ function publisher(name, opts) {
       if (e && e.type === 'result') {
         const behind = current.queued || 0;
         current.open.clear(); current.queued = 0;
-        if (current.opened === true) current.turnMsg = null;   // review 7: that turn ended
+        if (current.opened === true) { current.turnMsg = null; current.takenMsg = null; }   // review 7, 9: that turn ended
         /* kosmos#8951 review 1 W1: messages written behind the turn are taken at this boundary and start the next turn, so
            they are still in flight, and must now start a turn of their own by the deadline. */
         if (behind > 0 && current.opened === true) {
@@ -1010,10 +1019,13 @@ function publisher(name, opts) {
          anything written since. */
       /* Review 5: a report whose messages are known to have run (still on its hold) is not carried: they ran. */
       const carried = was && was.unstarted && was.reportRan !== true ? was.unstarted : null;
-      if (was && (carried || was.inFlight || was.turnMsg)) {
+      if (was && (carried || was.inFlight || was.turnMsg || was.takenMsg)) {
         /* Review 7: a turn still open when the process ends soon after the write is lost with it, as a message not yet
            taken is. Later than that (a Restart mid-turn), the open turn ran as far as it got and is not counted. */
-        const t = was.turnMsg && Number.isFinite(was.turnMsg.at) && nowMs() - was.turnMsg.at <= LOST_WINDOW_MS ? was.turnMsg : null;   // review 8: its own clock
+        const within = (m) => !!m && Number.isFinite(m.at) && nowMs() - m.at <= LOST_WINDOW_MS;
+        const t0 = within(was.turnMsg) ? was.turnMsg : null;   // review 8: its own clock
+        const t1 = within(was.takenMsg) ? was.takenMsg : null;   // review 9: joined the turn, on their own clock
+        const t = t0 || t1 ? { since: [t0 && t0.since, t1 && t1.since].filter((x) => typeof x === 'string').sort()[0], count: ((t0 && t0.count) || 0) + ((t1 && t1.count) || 0) } : null;
         const w = was.inFlight;
         const b = t || w ? { since: [t && t.since, w && w.since].filter((x) => typeof x === 'string').sort()[0], count: ((t && t.count) || 0) + ((w && w.count) || 0) } : null;
         const a = carried;
@@ -1021,7 +1033,7 @@ function publisher(name, opts) {
         const since = [a && a.since, b && b.since].filter((x) => typeof x === 'string').sort()[0];
         /* `lost`: the process ended with them (review 1 W4: said differently, since the message may be what ended it);
            `fresh`: some of them are newly lost now (the task log says those; a report carried as it was is not said again). */
-        lostOnStop = { since, count: ((a && a.count) || 0) + ((b && b.count) || 0), lost: (!!b && Number.isFinite(was.lastWriteAt) && nowMs() - was.lastWriteAt <= LOST_WINDOW_MS) || !!(a && a.lost), fresh: !!b,
+        lostOnStop = { since, count: ((a && a.count) || 0) + ((b && b.count) || 0), lost: !!t || (!!w && Number.isFinite(was.lastWriteAt) && nowMs() - was.lastWriteAt <= LOST_WINDOW_MS) || !!(a && a.lost), fresh: !!b,
           reportAt: !b && a && Number.isFinite(was.reportAt) ? was.reportAt : nowMs() };   // review 4: a fresh loss gets a fresh hold
         }
       }
