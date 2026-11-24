@@ -1770,6 +1770,13 @@ final class BoardClient: ObservableObject {
                 let extra = Board.parseThread(Data(more.utf8))?.rows ?? []
                 t = Board.Thread(rows: t.rows + extra, olderCount: t.olderCount, choices: t.choices)
             }
+            // kosmos#8958, KOSMOS_SAMPLE_DRAFT=1: an unsent draft Kosmos took out of Dana's input box, as engine/chat.js
+            // serves one, for the design shots of the native row.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_DRAFT"] == "1" {
+                let more = #"{"messages":[{"id":"kosmos-draft:0123456789ab","at":"2026-10-23T13:38:00Z","text":"Also check the shipping weights before you publish","from":null,"delivery":null,"kind":"kosmos","draft":true,"draftId":"0123456789ab"}]}"#
+                let extra = Board.parseThread(Data(more.utf8))?.rows ?? []
+                t = Board.Thread(rows: t.rows + extra, olderCount: t.olderCount, choices: t.choices)
+            }
             sampleThreads["dana"] = t
         }
         // KOSMOS_SAMPLE_LONG=1: Dana's chat is 220 messages with 40 before them, to check that opening a long chat lands on
