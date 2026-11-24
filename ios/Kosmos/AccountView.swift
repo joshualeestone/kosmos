@@ -24,6 +24,8 @@ struct AccountView: View {
     }
 
     @State private var load: Load = .reading
+    // Each read takes the next ticket; only the newest read's answer is shown.
+    @State private var readTicket = 0
     @State private var listNote: String?
     // The computer being retired, the code Kosmos+ gave for it, its sentence, and what the person typed.
     @State private var retiring: (name: String, code: String, words: String)?
@@ -55,7 +57,7 @@ struct AccountView: View {
         .task { await read() }
         .onChange(of: accountGeneration) { _ in
             // A sheet, a choice or a note belonged to the sign-in that just changed.
-            retireBusy = false; closeRetire(); offerLocalOnly = nil; signOutNote = nil; listNote = nil
+            retireBusy = false; closeRetire(); offerLocalOnly = nil; signOutNote = nil; listNote = nil; busy = nil
             load = .reading
             Task { await read() }
         }
@@ -172,8 +174,10 @@ struct AccountView: View {
                     Text("More on Kosmos+").foregroundColor(Palette.primary)
                     Spacer()
                     Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundColor(Palette.tertiary)
+                        .accessibilityHidden(true)
                 }
             }
+            .accessibilityIdentifier("account-more")
         } footer: {
             Text("Your plan and billing, passkeys, the second sign-in step and adding a computer are on your Kosmos+ account page.")
                 .font(.footnote).foregroundColor(Palette.secondary)
@@ -190,8 +194,12 @@ struct AccountView: View {
 
     private func read() async {
         if sample { load = .loaded(Self.sampleRows); return }
+        readTicket += 1
+        let ticket = readTicket
         guard let session = currentSession() else { load = .failed("You are signed out."); return }
         let (status, data) = await send(Board.macsRequest(coordinator: coordinator, session: session))
+        // A newer read was started meanwhile (a pull, a retire, a sign-in change): its answer is the one shown.
+        guard ticket == readTicket else { return }
         // The answer belongs to the sign-in that asked. One that changed meanwhile is not shown; the change itself
         // (accountGeneration) clears the list and reads it again.
         guard currentSession() == session else { return }
