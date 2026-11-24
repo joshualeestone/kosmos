@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: permno-8952
-diff_hash: c1607a3e95d2977241f63f31bc23f975a4d050e0a0c3acf33378380e404e1032
-validation: passed (Mortals, 30,248 node tests 0 failed, entry 2026-11-24T10:49:01Z)
+diff_hash: d5321b96cccaa4b762c76158c8f10c7507b1ea0edd50306b28ebb88fbfa7cf41
+validation: passed (Mortals after rebase onto fd53853c0f, 30,289 node tests 0 failed, entry 2026-11-24T11:29:07Z)
 subdir_audit: passed
-timestamp: 2026-11-24T10:49:16Z
-iterations: 8
+timestamp: 2026-11-24T11:29:18Z
+iterations: 9
 converged: true
 ---
 
@@ -93,6 +93,14 @@ Validation between rounds was targeted (server.permdeny-8952.test.js, server.per
 - [WARNING] server.js — deduped live row --> DEFERRED: withQuestionRow dedupes only against a trailing stored row with the same question, so that row is the live question
 - [WARNING] engine/chat.js — engine One-No check --> DEFERRED: menu.permission already guarantees exactly one /^No\b/ option
 - [NIT] ChatView.swift VoiceOver grouping; BoardLogic.swift same-tail key --> noted
+**Converged.**
+
+#### Iteration 9 (after rebase onto main fd53853c0f, which carried #8957)
+**Reviewer model:** opus (whole branch, nothing marked settled)
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 4 NITs
+**Self-generated:** 0 of the above
+- Conflicts in ios/Kosmos/BoardLogic.swift and ios/LogicTests/main.swift were both additive (#8957's board words and tests beside this slice's); both kept, no line of main's removed. LogicTests 2243/2243, every run-*.sh green, app builds.
+- [NIT] engine/chat.js comment wording "can only refuse"; [NIT] where Yes is given on the computer; [NIT] sample switch for the Deny card's states; [NIT] base drift --> noted
 **Converged.**
 
 ### Final Ledger
