@@ -45,6 +45,14 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
      version it promotes), a board on another version, or one too old to report it, is cannot-tell
      (exit 2): it cannot speak for the candidate. On the 0.7.19 promote a board still on 0.7.18
      passed and the line read "a fresh session can use 0.7.19".
+     **promote-channel waits for that board first (#8960):** a board on the staging channel updates
+     itself to V a few minutes after staging serves V, and a gate run before then refuses (nothing
+     answers while it installs) or cannot tell (the old release). So before the gates the promote
+     looks at the board with the same reader (`staging-experience-check.sh --print-version`, which
+     mints no nonce) and waits while nothing answers or it runs a release older than V, up to
+     `KOSMOS_PROMOTE_BOARD_WAIT` seconds (default 1800; 0 turns it off). It does not wait for a board
+     on V, on a later release, or one it cannot read. When the time runs out the gates run anyway
+     and hold or refuse as before; no gate is loosened. 0.8.19 was forced for lack of this wait.
    - **Agent spawn (#2129), `tools/staging-agent-online-check.sh`:** the board gate does NOT
      exercise agent spawn, and #2129 was exactly that gap -- spawned agents wedged at the Claude
      Code trust prompt while the board served fine, so the board gate alone would PASS a #2129
