@@ -14,7 +14,11 @@ const FIXTURE = nodePath.join(__dirname, 'ios', 'LogicTests', 'taskpage', 'recei
 const SCRIPT = page.scriptOf(fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8'));
 
 function pageFns() {
-  const lift = (n) => page.lift(SCRIPT, n);
+  /* usageNum groups digits as the browser's own locale does; the phone always as en-US, so the page is asked in en-US here
+     whatever locale this runs under. */
+  const num = page.lift(SCRIPT, 'usageNum');
+  if (num.split('toLocaleString()').length !== 2) throw new Error('usageNum no longer calls toLocaleString() once; pin its locale here another way');
+  const lift = (n) => (n === 'usageNum' ? num.replace('toLocaleString()', "toLocaleString('en-US')") : page.lift(SCRIPT, n));
   // eslint-disable-next-line no-new-func
   return new Function(page.liftConst(SCRIPT, 'USAGE_MODEL_PRICES') + '\n' + page.liftConst(SCRIPT, 'TKR_PROVIDER') + '\n'
     + ['esc', 'usageNum', 'usageAbbr', 'usageUsd', 'usageRowTokenTotal', 'usageModelPrice', 'usageApiCost', 'tkReceiptPrsHtml',
