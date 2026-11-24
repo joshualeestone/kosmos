@@ -333,3 +333,59 @@ test('#8951: the page, the CLI list and the board log each say it in its own wor
   assert.equal(ds.turnsToSay([card], said).length, 0, 'said once');
   assert.equal(ds.stallEvent(card).kind, 'needs_you', 'the person is told, as for a stuck step');
 });
+
+test('#8951 review 3: a process that ends long after the last write (a Restart) carries them as never started, not as what stopped it', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.event(init); r.pub.wrote(); r.pub.wrote();   // a stuck turn with two waiting behind it
+  r.clock.t += 70 * MIN;
+  r.pub.stopped(); r.pub.started(7001, 'sid-1');                     // the person presses Restart
+  assert.deepEqual(r.last().unstarted, { since: new Date(T0).toISOString(), count: 2 }, 'not lost');
+  assert.deepEqual(r.told, [{ since: new Date(T0).toISOString(), count: 2, lost: false }]);
+  const q = recording();
+  q.pub.started(6368, 'sid-1');
+  q.pub.wrote();
+  q.clock.t += ss.LOST_WINDOW_MS;
+  q.pub.stopped(); q.pub.started(7001, 'sid-1');
+  assert.equal(q.last().unstarted.lost, true, 'CONTROL: at the edge of the window it is the message\'s doing');
+  const p = recording();
+  p.pub.started(6368, 'sid-1');
+  p.pub.wrote();
+  p.clock.t += ss.LOST_WINDOW_MS + 1;
+  p.pub.stopped(); p.pub.started(7001, 'sid-1');
+  assert.equal(p.last().unstarted.lost, undefined, 'just past it, it is not');
+});
+
+test('#8951 review 3: the board log says a report again when it grows; the CLI line is counted and worded per case', (t) => {
+  const since = new Date(Date.now() - 10 * MIN).toISOString();
+  const board = fleet.install([fleet.agent('homer', { state: 'idle' })]);
+  t.after(() => board.restore());
+  const said = new Map();
+  const card = (count, lost) => ({ ...board.card('homer'), deliveryStall: ds.unstartedOf('homer', { since, count, lost }) });
+  assert.equal(ds.turnsToSay([card(1, true)], said).length, 1);
+  assert.equal(ds.turnsToSay([card(1, true)], said).length, 0, 'the same report: said once');
+  assert.match(ds.turnsToSay([card(3, true)], said)[0] || '', /3 messages/, 'a second and third loss are said');
+  const { agentLines, rosterRow } = require('./clilists');
+  const one = agentLines([rosterRow({ name: 'Homer', state: 'idle', deliveryStall: ds.unstartedOf('homer', { since, count: 1, lost: true }) })]).lines.join('\n');
+  assert.match(one, /stopped right after a message reached it at .+, before running it: send it again/);
+  const three = agentLines([rosterRow({ name: 'Homer', state: 'idle', deliveryStall: ds.unstartedOf('homer', { since, count: 3 }) })]).lines.join('\n');
+  assert.match(three, /took in 3 messages from .+ and never started on them: send them again/);
+});
+
+test('#8951 review 3: once the report clears from the card, its push is no longer waited on, so it is acked, not emailed', (t) => {
+  ds.resetForTests();
+  const board = fleet.install([fleet.agent('homer', { state: 'idle' })]);
+  t.after(() => { board.restore(); ds.resetForTests(); });
+  const now = Date.now();
+  const withStall = { ...board.card('homer'), deliveryStall: ds.unstartedOf('homer', { since: new Date(now - 2 * MIN).toISOString(), count: 1, lost: true }) };
+  const sent = [];
+  ds.tellStalls([withStall], { now, send: (ev) => { sent.push(ev); return true; } });
+  assert.equal(sent.length, 1, 'premise: the person was pushed');
+  ds.unstartedGone([withStall], now);
+  const later = now + 26 * MIN;
+  assert.deepEqual(ds.acksDue([], later), [], 'CONTROL: still on the card, the push stays open');
+  assert.deepEqual(ds.unstartedGone([{ ...board.card('homer'), deliveryStall: null }], later), ['homer']);
+  const acks = ds.acksDue([], later);
+  assert.equal(acks.length, 1, 'acked once the report cleared');
+  assert.equal(acks[0].id, sent[0].id);
+});
