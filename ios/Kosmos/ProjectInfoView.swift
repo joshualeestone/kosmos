@@ -257,10 +257,10 @@ struct ProjectInfoView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(Board.projectOutsideMembers).foregroundColor(Palette.primary)
-                        Text("Opens on your computer's board").font(.footnote).foregroundColor(Palette.secondary)
+                        Text(Board.opensOnBoard).font(.footnote).foregroundColor(Palette.secondary)
                     }
                     Spacer()
-                    Image(systemName: "arrow.up.forward.square").foregroundColor(Palette.secondary).accessibilityHidden(true)
+                    Image(systemName: Board.boardIcon).foregroundColor(Palette.secondary).accessibilityHidden(true)
                 }
                 .frame(minHeight: 44).contentShape(Rectangle())
             }
