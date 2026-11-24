@@ -1074,6 +1074,12 @@ do {
     check(Board.repeatWire(past) == .day("17:00,20:00") && Board.keptRepeatDraft(past, stored: savedPast) == nil,
           "a box moved past the other time and saved: the read of the saved rule ends the draft (no time dropped)")
     check(Board.followStored(past, old: stored, new: savedPast) == nil, "and so does the change the save itself caused")
+    check(Board.repeatShown(savedPast, box: "20:00") == C(every: .day, at: "20:00", others: ["17:00"]),
+          "and the box stays on the time the person saved, though it sorts second")
+    check(Board.repeatShown(savedPast, box: "17:00") == savedPast && Board.repeatShown(savedPast, box: "06:00") == savedPast
+          && Board.repeatShown(savedPast, box: nil) == savedPast && Board.repeatShown(C(every: .hour), box: "20:00") == C(every: .hour),
+          "a box the list does not hold, none, or a rule that is not daily: shown as stored")
+    check(Board.repeatShown(savedPast, box: "20:00").map(Board.repeatWire) == Board.repeatWire(savedPast), "showing the box there changes nothing that would be sent")
     let never = C(every: .never), hourly = C(every: .hour)
     check(Board.followStored(never, old: never, new: stored) == nil,
           "a draft put back on the old rule follows a rule changed elsewhere (never left showing Never over a daily rule)")

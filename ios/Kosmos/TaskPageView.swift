@@ -32,6 +32,8 @@ struct TaskPageView: View {
     @State private var repeatDraft: Board.RepeatChoice?
     // The stored rule the draft was started from, or last followed: what a change to the stored rule is compared with.
     @State private var repeatDraftBase: Board.RepeatChoice?
+    // The daily time the person had in the box when they last saved (Board.repeatShown).
+    @State private var repeatBox: String?
 
     init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
         self.client = client
@@ -421,11 +423,12 @@ struct TaskPageView: View {
     // is missed (tk-review-who) is still on the board's page.
     private func repeatBlock(_ p: Board.TaskPage) -> some View {
         let stored = p.repeatStored
-        let shown = repeatDraft ?? stored
+        let storedShown = Board.repeatShown(stored, box: repeatBox)
+        let shown = repeatDraft ?? storedShown
         let wire = shown.map(Board.repeatWire)
         let unchanged = wire == stored.map(Board.repeatWire)
         let edit = { (change: (inout Board.RepeatChoice) -> Void) in
-            guard var c = repeatDraft ?? stored else { return }
+            guard var c = repeatDraft ?? storedShown else { return }
             if repeatDraft == nil { repeatDraftBase = stored }
             model.touched()
             model.clearRepeatSay()
@@ -495,7 +498,11 @@ struct TaskPageView: View {
                         Task {
                             // Saved: the draft goes once the page reads the saved rule; if that read failed, the controls
                             // keep showing what was saved rather than the rule from before it.
-                            if await model.saveRepeat(wire, names: names) { repeatDraft = Board.keptRepeatDraft(repeatDraft, stored: model.page?.repeatStored) }
+                            let box: String? = shown.every == .day ? shown.at : nil
+                            if await model.saveRepeat(wire, names: names) {
+                                repeatBox = box
+                                repeatDraft = Board.keptRepeatDraft(repeatDraft, stored: model.page?.repeatStored)
+                            }
                         }
                     } label: {
                         HStack(spacing: 8) {
@@ -509,7 +516,7 @@ struct TaskPageView: View {
                     .opacity(!ready || model.repeatSaving || model.pressing ? 0.5 : 1)
                     .accessibilityLabel("Save how this task repeats")
                     .accessibilityIdentifier("taskpage.repeat.save")
-                    if repeatDraft != nil {
+                    if repeatDraft != nil && !unchanged {
                         dueAction("Cancel", label: "Cancel the change to how this task repeats", busy: model.repeatSaving) { model.clearRepeatSay(); repeatDraft = nil }
                     }
                 }

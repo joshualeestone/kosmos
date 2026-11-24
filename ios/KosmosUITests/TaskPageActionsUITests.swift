@@ -112,13 +112,15 @@ final class TaskPageActionsUITests: XCTestCase {
             let hourly = app.buttons["Every hour"]
             XCTAssertTrue(hourly.waitForExistence(timeout: 5), "the How often menu did not open")
             hourly.tap()
-            XCTAssertTrue(save.isEnabled, "Save did not turn on for a new choice")
+            expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: save)
+            waitForExpectations(timeout: 5)
             save.tap()
-            let saved = NSPredicate(format: "label CONTAINS %@", "Repeats every hour")
-            expectation(for: saved, evaluatedWith: line)
+            expectation(for: NSPredicate(format: "label CONTAINS %@", "Repeats every hour"), evaluatedWith: line)
             waitForExpectations(timeout: 15)
+            // Saved. is said only once the save and its reads are done, so Save being off after it is the rule being
+            // unchanged, not the save still in flight.
+            XCTAssertTrue(app.staticTexts["Saved."].waitForExistence(timeout: 15), "no Saved. under Repeats")
             XCTAssertFalse(save.isEnabled, "Save is still on after the rule was saved")
-            XCTAssertTrue(app.staticTexts["Saved."].exists, "no Saved. under Repeats")
             shot(app, "repeat saved, \(dark ? "dark" : "light")")
             app.terminate()
         }
