@@ -905,7 +905,7 @@ if [ "$FAMILY" != win ] && [ "$FORCE" = 1 ]; then
   FORCED_LOG="${FORCED_DIR:+$FORCED_DIR/promote-forced.log}"
   FORCED_HOST="$(hostname -s 2>/dev/null)"; [ -n "$FORCED_HOST" ] || FORCED_HOST=unknown
   if [ -n "$FORCED_LOG" ] && mkdir -p "$FORCED_DIR" 2>/dev/null \
-     && { printf '%s\thost=%s\tversion=%s\tsha256=%s\tforced past a gate that could not tell\thand_check=%s\n' \
+     && { printf '%s\thost=%s\tversion=%s\tsha256=%s\tpromoted with --force\thand_check=%s\n' \
             "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$FORCED_HOST" "$(printf '%s' "$V" | tr '\t\n' '  ')" "$(printf '%s' "$SHA" | tr '\t\n' '  ')" "$HAND_CHECK" >> "$FORCED_LOG"; } 2>/dev/null; then
     echo "promote-channel: the forced promote and its hand check are recorded in $FORCED_LOG (on this machine, $FORCED_HOST)" >&2
   else
