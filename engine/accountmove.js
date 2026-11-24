@@ -156,10 +156,15 @@ async function saveFirst(deps, name, stopped) {
   const h = deps && deps.handoffFirst;
   if (!h || typeof h.ask !== 'function') return null;
   let asked;
-  // Review 2: the ask is bounded too (a stuck delivery must not hold the move before its 2 minutes start).
-  const askMs = Number.isFinite(h.askMs) ? h.askMs : 30000;
+  /* Review 2/5: the ask comes out of the same budget as the wait (HANDOFF_WAIT_MS from the ask's start), and the move does
+     not restart while the ask is still on its way within it: a delivery cannot be cancelled, so one typed after a
+     restart would ask the NEW session, which has nothing to hand off, and could overwrite a good handoff. Only a
+     delivery slower than the whole budget can still land late (the line true either way follows it). */
+  const waitMs = Number.isFinite(h.waitMs) ? h.waitMs : HANDOFF_WAIT_MS;
+  const pollMs = Number.isFinite(h.pollMs) ? h.pollMs : HANDOFF_POLL_MS;
+  const until = Date.now() + waitMs;
   let askTimer = null;
-  const slow = new Promise((resolve) => { askTimer = setTimeout(() => resolve({ asked: false, why: 'we could not reach it.' }), askMs); if (askTimer && typeof askTimer.unref === 'function') askTimer.unref(); });
+  const slow = new Promise((resolve) => { askTimer = setTimeout(() => resolve({ asked: false, why: 'we could not reach it.' }), waitMs); if (askTimer && typeof askTimer.unref === 'function') askTimer.unref(); });
   let real;
   try { real = Promise.resolve(h.ask(name)); } catch (err) { real = Promise.reject(err); }
   try { asked = await Promise.race([real, slow]); } catch { asked = { asked: false, why: 'we could not reach it.' }; }
@@ -172,9 +177,6 @@ async function saveFirst(deps, name, stopped) {
     }, () => {});
   }
   if (!asked || asked.asked !== true) return { asked: false, saved: false, why: (asked && asked.why) || 'we could not reach it.' };
-  const waitMs = Number.isFinite(h.waitMs) ? h.waitMs : HANDOFF_WAIT_MS;
-  const pollMs = Number.isFinite(h.pollMs) ? h.pollMs : HANDOFF_POLL_MS;
-  const until = Date.now() + waitMs;
   let seen = null;
   for (;;) {
     let got = false;

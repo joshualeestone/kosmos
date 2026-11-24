@@ -119,4 +119,11 @@ function maybeRestartedPrompt(path) {
     + ' on with your work.' + (path ? ' If you have just started, read your handoff at ' + path + ' first, then continue from where it says.' : '');
 }
 
-module.exports = { handoffForRestartPrompt, pickupPrompt, handoffIsFresh, carryOnPrompt, maybeRestartedPrompt };
+/* kosmos#9010 review 5: written where the person reads the agent when the move could not point its new session at the
+   handoff it wrote (the new session never came up idle in time, or the line could not be typed). */
+function pickupMissedNote() {
+  return 'Kosmos moved this agent to another account. It wrote a handoff first, but Kosmos could not point its new'
+    + ' session at it. Ask it to read its handoff before it carries on.';
+}
+
+module.exports = { handoffForRestartPrompt, pickupPrompt, handoffIsFresh, carryOnPrompt, maybeRestartedPrompt, pickupMissedNote };

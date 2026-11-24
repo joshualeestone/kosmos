@@ -176,7 +176,7 @@ test('fresh at the deadline but not yet seen settled still counts as saved', asy
 });
 
 test('an ask that never answers is bounded: the move goes on, not asked', async () => {
-  const d = deps({ handoff: () => ({ ask: () => new Promise(() => {}), isFresh: () => true, pickup: async () => ({ ok: true }), askMs: 30 }) });
+  const d = deps({ handoff: () => ({ ask: () => new Promise(() => {}), isFresh: () => true, pickup: async () => ({ ok: true }), waitMs: 30 }) });
   const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
   await out.done;
   const a = accountmove.read(out.body.id).agents[0];
@@ -220,11 +220,25 @@ test('an ask that answers after its bound is told the line true either way', asy
     ask: () => new Promise((r) => { answer = r; }),
     isFresh: () => true, pickup: async () => ({ ok: true }),
     maybeRestarted: async (n, p) => { events.push(['maybeRestarted', n, p]); },
-    askMs: 20,
+    waitMs: 20,
   }) });
   const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
   await out.done;
   answer({ asked: true, path: '/h/al', before: { exists: false } });   // it was typed after all
   await until(() => d.events.some((e) => e[0] === 'maybeRestarted'));
   assert.deepEqual(d.events.filter((e) => e[0] === 'maybeRestarted'), [['maybeRestarted', 'al', null]]);
+});
+
+test('the move does not restart while the ask is still on its way within the budget', async () => {
+  let answer;
+  const d = deps({ handoff: (events) => ({
+    ask: (n) => new Promise((r) => { answer = () => { events.push(['asked', n]); r({ asked: true, path: '/h/' + n, before: { exists: false } }); }; }),
+    isFresh: () => 50, pickup: async () => ({ ok: true }), waitMs: 2000, pollMs: 5,
+  }) });
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
+  await new Promise((r) => setTimeout(r, 40));
+  assert.deepEqual(d.events, [], 'restarted while the ask was still on its way');
+  answer();
+  await out.done;
+  assert.deepEqual(d.events.slice(0, 2), [['asked', 'al'], ['restart', 'al']]);
 });
