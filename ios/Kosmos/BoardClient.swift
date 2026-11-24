@@ -1377,8 +1377,8 @@ final class BoardClient: ObservableObject {
         let folder = env.files.appendingPathComponent(a.id, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            // The name written is savedName's, the same one isWebDocument judged before the fetch.
-            let file = folder.appendingPathComponent(Board.savedName(a.name, type: a.type))
+            // kosmos#8953: fileName, so a page sent under a plain name is saved as the page it is and opens in WebFileView.
+            let file = folder.appendingPathComponent(Board.fileName(a.name, type: a.type))
             // Encrypted while the phone is locked. macOS refuses the option (ios/LogicTests run there), so iOS only.
             #if os(iOS)
             try data.write(to: file, options: [.atomic, .completeFileProtection])

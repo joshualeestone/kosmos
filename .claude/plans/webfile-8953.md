@@ -16,15 +16,20 @@ any text/html answer because the computer's sign-in gate can answer with its own
     that is not kept, a content rule that blocks every load, only the first navigation allowed.
   - An SVG: drawn only as a picture (base64 in an <img>), which can neither load nor link.
   - XML: shown as text (the first 256 KB, read off the main thread once).
-  - Nothing to draw (a damaged web archive) or a content rule that will not compile: "This page can't be shown on
+  - A page larger than 8 MB, a page whose bytes are not ASCII-compatible text (zero bytes with no UTF-16 mark; a UTF-16
+    page is converted to UTF-8 first, so its links are found), nothing to draw (a damaged web archive) or a content rule
+    that will not compile: "This page can't be shown on
     iPhone", with Share. MHTML and a compressed SVG: no reader; the sheet says so and offers Share.
 - A page has no links, image maps, forms or <link> elements: they are renamed (<a> to <x-a>, Board.withoutLinks)
   before drawing, so nothing navigates, submits or preconnects whatever reaches it: a finger, VoiceOver's activate or a
-  keyboard (review round 1). Their text stays.
+  keyboard (review round 1). Their text stays. Not covered: an href on other elements (MathML), which the content rule,
+  the cancelled navigations and the touch block still stand behind.
 - No touch reaches the page's content either (kept as a second layer): every view inside the web view's scroll view takes no touches; the scroll view
   still scrolls and zooms. Measured necessary: tapping a link had WebKit open a TCP connection to the link's host before
   the navigation was refused (no request sent, one connection), and a CSS rule making links inert (even first, in its own
   cascade layer) was overridden by the page's own !important rule.
+- A page or markup file whose name does not say so ("x.dat" typed text/html) is saved under its type's extension
+  (Board.fileName), so the screens route it to WebFileView by name and Quick Look never draws it (review round 2).
 - The captions and VoiceOver hints that said "Opens on your computer's board" go; the cards say what the file is.
 - The dead openOnBoard plumbing through FilesView / FilesSection / FilesOpener is removed.
 
