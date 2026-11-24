@@ -1954,7 +1954,7 @@ enum Board {
 
     // What a business person calls the file (pjFileWord).
     static func fileWord(type: String, name: String, kind: String) -> String {
-        let t = type.lowercased()
+        let t = bareType(type)
         let ext = name.range(of: #"\.([A-Za-z0-9]+)$"#, options: .regularExpression).map { String(name[$0].dropFirst()).lowercased() } ?? ""
         if t == "application/pdf" || ext == "pdf" { return "PDF" }
         if t.range(of: "wordprocessingml|msword", options: .regularExpression) != nil || ["doc", "docx"].contains(ext) { return "Word document" }
@@ -1989,17 +1989,26 @@ enum Board {
         !names.isEmpty && text.trimmingCharacters(in: .whitespacesAndNewlines) == names.joined(separator: ", ") ? "" : text
     }
 
+    // kosmos#8966: a MIME type without its parameters ("text/html; charset=utf-8" is "text/html"), lowercased, so a file is
+    // judged the same whether or not its sender named a charset. Everything before the first ";", even when that is
+    // nothing (";text/html" has no type).
+    static func bareType(_ type: String) -> String {
+        (type.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? "")
+            .trimmingCharacters(in: .whitespaces).lowercased()
+    }
+
+    // kosmos#8966: whether a web view's navigation error is one it was meant to have: a navigation the delegate cancelled
+    // (NSURLErrorCancelled) or WebKit's "frame load interrupted" (102), as a page's own refresh reports. Any other error
+    // means the page did not draw.
+    static func isDeliberateCancel(domain: String, code: Int) -> Bool {
+        (domain == NSURLErrorDomain && code == NSURLErrorCancelled) || (domain == "WebKitErrorDomain" && code == 102)
+    }
+
     // A file Quick Look would draw as a web page or a markup document, which can load from elsewhere. Judged by its name
     // as well as its type: the Mac keeps whatever type the sender gave (engine/attachments.js), and Quick Look picks
     // its viewer by the extension. Such a file is shown by WebFileView, never by Quick Look (kosmos#8953).
     // Judged on the name the file is saved under (savedName), since that is what Quick Look sees: "page.html." is saved
     // as "page.html" (#7016 review 3).
-    // kosmos#8966: a MIME type without its parameters ("text/html; charset=utf-8" is "text/html"), lowercased, so a page is
-    // judged the same whether or not its sender named a charset.
-    static func bareType(_ type: String) -> String {
-        (type.split(separator: ";", maxSplits: 1).first.map(String.init) ?? "").trimmingCharacters(in: .whitespaces).lowercased()
-    }
-
     static func isWebDocument(name: String, type: String) -> Bool {
         let ext = (savedName(name, type: type) as NSString).pathExtension.lowercased()
         let named = ["html", "htm", "xhtml", "shtml", "svg", "svgz", "xml", "webarchive", "mht", "mhtml"].contains(ext)
@@ -2137,7 +2146,7 @@ enum Board {
     // never does; any other file is refused when the answer is a page, as before (the gate's sign-in page can stand in
     // for it).
     static func fileAnswerAccepted(webDocument: Bool, contentType: String, disposition: String) -> Bool {
-        let type = (contentType.split(separator: ";").first.map(String.init) ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+        let type = bareType(contentType)
         let download = disposition.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("attachment")
         if webDocument { return download }
         return !(type.hasPrefix("text/html") || isWebDocument(name: "", type: type))
@@ -2175,7 +2184,7 @@ enum Board {
     // waiting files get a picture. The phone's own copy goes once the Mac has it, so a small JPEG of it is kept for the
     // composer instead. By type, or by the name's ending when the type is the generic one.
     static func isPreviewableImage(type: String, name: String) -> Bool {
-        let t = type.lowercased()
+        let t = bareType(type)
         if ["image/jpeg", "image/png", "image/heic", "image/heif", "image/gif", "image/webp", "image/tiff", "image/bmp",
           "image/avif", "image/x-adobe-dng"].contains(t) { return true }
         if !t.isEmpty && t != "application/octet-stream" { return false }
@@ -2459,7 +2468,7 @@ enum Board {
         // No extension, or one no app knows ("Q3.final", "v1.2 report"): Apple's lookup makes up a dynamic type for those.
         let known = UTType(filenameExtension: (base as NSString).pathExtension).map { !$0.isDynamic } ?? false
         if (base as NSString).pathExtension.isEmpty || !known,
-           let ext = UTType(mimeType: type.lowercased())?.preferredFilenameExtension { base += "." + ext }
+           let ext = UTType(mimeType: bareType(type))?.preferredFilenameExtension { base += "." + ext }
         return base
     }
 
