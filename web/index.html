@@ -23657,7 +23657,7 @@ function stateReason(a, opts) {
         : 'It has asked you a question and is waiting for your answer. Open it to answer.';
     }
     if (a.awaitingApproval === true) return 'It is waiting for your permission to go on. Open it to answer.';
-    return 'It is waiting for you. Open it to see what it is asking.';
+    return 'It is waiting for you. Open it to see what it needs.';
   }
   if (a && a.state === 'restarting') {
     /* #2019 timedOut: an OVERRUN restart must not still promise "a few seconds"

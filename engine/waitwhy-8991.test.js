@@ -20,7 +20,7 @@ const stateReason = new Function(page.lift(SCRIPT, 'stateReason') + '\nreturn st
 const QUESTION = 'It has asked you a question and is waiting for your answer. Open it to answer.';
 const HELD = 'It has a question for you and is holding it until you are back. Open it to answer.';
 const PERMISSION = 'It is waiting for your permission to go on. Open it to answer.';
-const OTHER = 'It is waiting for you. Open it to see what it is asking.';
+const OTHER = 'It is waiting for you. Open it to see what it needs.';
 const SECRET = 'May I push to the branch named secret-plan?';
 
 test('#8991 each way of waiting on the person has its own plain sentence', () => {

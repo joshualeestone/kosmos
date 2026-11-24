@@ -20,13 +20,13 @@ this branch):
   - held question: "It has a question for you and is holding it until you are back. Open it to answer."
   - question: "It has asked you a question and is waiting for your answer. Open it to answer."
   - permission prompt: "It is waiting for your permission to go on. Open it to answer."
-  - anything else: "It is waiting for you. Open it to see what it is asking."
+  - anything else: "It is waiting for you. Open it to see what it needs."
   Never the agent's own `because` (#986, #3043, #3271). Earlier arms still lead: #8719 untied window, #5154 crash loop,
   #4006 failed restart.
 - engine/waitwhy-8991.test.js: each sentence; pill word and sentence agree (stateCopyOf lifted); the agent's words
   never show; the sentences that say more still lead; no other state borrows these words; the tile stays empty.
 - docs/browser-checks/render-waitwhy-8991.js (+ gated.txt, README row): the real card() in Chromium and WebKit at
-  1100 and 390 px: hover and hidden text per kind, the agent's words absent, nothing drawn on the tile; idle control.
+  1100 and 390 px: hover and hidden text per kind, the agent's words absent, nothing drawn on the tile; idle, working and usage-limited controls.
 - web.pane-title-status.test.js and web.said-line.test.js: two checks asserted taskLine(needs_you) === ''. Their purpose
   is that the frozen pane title (#209) and the agent's quoted question (#6118) never show; both now assert that
   directly, plus the exact fixed sentence and, for #209, an empty tile.

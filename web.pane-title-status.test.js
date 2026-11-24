@@ -65,7 +65,7 @@ test('#209: needs_you no longer borrows the title as its qualifier', () => {
      hover and the agent's page, never on the tile. What this test guards is the TITLE: it must not be that sentence. */
   const said = taskLineOf({ state: 'needs_you', task: FROZEN });
   assert.ok(!said.includes(FROZEN), 'needs_you showed the frozen title as the thing it needs you about: ' + said);
-  assert.equal(said, 'It is waiting for you. Open it to see what it is asking.', 'its own fixed words, nothing borrowed');
+  assert.equal(said, 'It is waiting for you. Open it to see what it needs.', 'its own fixed words, nothing borrowed');
   const tile = new Function('a', `${page.lift(SCRIPT, 'stateReason')}\n${page.lift(SCRIPT, 'taskLine')}\nreturn taskLine(a, { card: true });`);
   assert.equal(tile({ state: 'needs_you', task: FROZEN }), '', '#6716: the tile carries no sentence');
 });
