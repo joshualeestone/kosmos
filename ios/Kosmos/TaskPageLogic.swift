@@ -747,11 +747,24 @@ extension Board {
     }
 
     // The board's tkHoldNextSig: what the next sentence was read from (open, held or closed, who is on each open part,
-    // and the project's pause and members). The line goes when the task no longer reads this way.
-    static func holdNextSig(_ t: TaskPage) -> String {
+    // and the project's pause and every member, named or not: review 2). `project` is the shown page, for a task read
+    // out of the hold route's answer, which carries no project.
+    static func holdNextSig(_ t: TaskPage, project: TaskPage? = nil) -> String {
+        let p = project ?? t
         let state = t.closed ? "closed" : t.onHold ? "held" : "open"
         let who = t.parts.filter { !$0.closed }.map { $0.who ?? "" }.joined(separator: ",")
-        let proj = (t.projectPaused ? "paused" : "live") + ":" + t.members.keys.sorted().joined(separator: ",")
+        let proj = (p.projectPaused ? "paused" : "live") + ":" + p.memberSessions.sorted().joined(separator: ",")
         return state + "|" + who + "|" + proj
+    }
+
+    // The task the hold route's answer describes (its `task`), read as a task page; nil when the answer has none. The
+    // board records the next sentence against this task, not against its own read after the post (review 2).
+    static func holdAnswerTask(_ body: Data?, project: String, number: Int) -> TaskPage? {
+        guard let obj = body.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
+              var task = obj["task"] as? [String: Any] else { return nil }
+        task["number"] = number
+        guard let wrapped = try? JSONSerialization.data(withJSONObject: ["projects": [["id": project, "tasks": [task]]]]),
+              case .page(let t) = parseTaskPage(wrapped, project: project, number: number) else { return nil }
+        return t
     }
 }
