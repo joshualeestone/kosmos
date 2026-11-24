@@ -257,17 +257,49 @@ jobs:
   # tests by hand. Its own job, beside the build, so neither waits on the other.
   # The runner's simulator is usually an older iOS than the one the tests were written on, which is a check in itself
   # (#7609 item 1). ui-sample.sh passes only when every expected test ran (a filter matching nothing also exits 0).
+  # kosmos#8993: the app the three UI jobs test, built once per run. Each of them built the same Debug app itself, about 12
+  # of a 40 minute job (measured on run 45384659475: 28.4 min of tests in a 40.5 min test action), on a macOS queue that
+  # held runs for up to 114 minutes on 2026-11-24. They now test these products (ui-sample.sh --products), and a job whose
+  # runner has another Xcode builds for itself, said in its log. If this job fails, the UI jobs do not run, and this red
+  # is the run's red, with xcodebuild's last lines in its log.
+  uibuild:
+    name: ui build (sample board)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the app for the UI tests
+        run: |
+          set -o pipefail
+          ios/tools/ui-sample.sh --build-only "$RUNNER_TEMP/ui-products" | tee "$RUNNER_TEMP/ui-build.log"
+          grep -q '^PASS  ui-sample build:' "$RUNNER_TEMP/ui-build.log"
+
+      # A short life: only this run's UI jobs read it. Sample-board Debug app and test runner; no account, no secrets.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-products-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ui-products
+          retention-days: 1
+          if-no-files-found: error
+
   ui:
     name: ui tests (sample board)
+    needs: uibuild
     runs-on: macos-latest
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-products-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ui-products
+
       - name: UI tests (sample board)
         run: |
           set -o pipefail
-          UI_SAMPLE_FAILED_RESULT="$RUNNER_TEMP/ui-result.xcresult" ios/tools/ui-sample.sh | tee "$RUNNER_TEMP/ui-sample.log"
+          UI_SAMPLE_FAILED_RESULT="$RUNNER_TEMP/ui-result.xcresult" ios/tools/ui-sample.sh --products "$RUNNER_TEMP/ui-products" | tee "$RUNNER_TEMP/ui-sample.log"
           grep -q '^PASS  ui-sample:' "$RUNNER_TEMP/ui-sample.log"
 
       # kosmos#7609: three reds on main in a day left nothing to read. Sample data only: no account, no real messages.
@@ -298,6 +330,7 @@ jobs:
   # minutes. Lower it once runs show the room. A half that fails does not cancel the other (fail-fast off).
   uikit:
     name: uikit list (sample board) ${{ matrix.shard }}
+    needs: uibuild
     runs-on: macos-latest
     timeout-minutes: 75
     strategy:
@@ -307,10 +340,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-products-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ui-products
+
       - name: UI tests on the UIKit list (sample board)
         run: |
           set -o pipefail
-          UI_SAMPLE_FAILED_RESULT="$RUNNER_TEMP/uikit-result.xcresult" ios/tools/ui-sample.sh --uikit --shard "${{ matrix.shard }}" | tee "$RUNNER_TEMP/ui-sample.log"
+          UI_SAMPLE_FAILED_RESULT="$RUNNER_TEMP/uikit-result.xcresult" ios/tools/ui-sample.sh --uikit --shard "${{ matrix.shard }}" --products "$RUNNER_TEMP/ui-products" | tee "$RUNNER_TEMP/ui-sample.log"
           grep -q '^PASS  ui-sample:' "$RUNNER_TEMP/ui-sample.log"
 
       # Sample data only: no account, no real messages. Named per half (no slash in an artifact name), so two cannot clash.

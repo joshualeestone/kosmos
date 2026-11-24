@@ -10,7 +10,14 @@
 # hand. Prints PASS, or FAIL with the failing check's own words.
 #
 #
-#   ios/tools/ui-sample.sh [--keep] [--uikit [--shard 1/2|2/2]]
+#   ios/tools/ui-sample.sh [--keep] [--uikit [--shard 1/2|2/2]] [--products <dir>]
+#   ios/tools/ui-sample.sh --build-only <dir>
+#
+# kosmos#8993: the app is built once per CI run and shared. --build-only <dir> builds for testing (xcodebuild
+# build-for-testing, the same project, scheme and Debug configuration `xcodebuild test` uses) and leaves the products, their
+# .xctestrun and the Xcode that built them (xcode-version) in <dir>, with no simulator. --products <dir> runs the tests from
+# those products (test-without-building) instead of building; products from another Xcode, or none, are built here as
+# before, said in one line, so a runner with another Xcode is slower, never red for it.
 #
 # --uikit (kosmos#8221): the same run on the UIKit chat list (TEST_RUNNER_KOSMOS_UIKITLIST=1), the list a phone draws only
 # with Settings' "New chat list" switch on (slice 5). Only classes that switch lists; the full list and each slice's reason
@@ -29,6 +36,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 keep=0
 uikit=0
 shard=""
+build_only=""
+products=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep) keep=1; shift ;;
@@ -37,6 +46,9 @@ while [ $# -gt 0 ]; do
     --shard) shard="${2:-}"; case "$shard" in 1/2|2/2) ;; *) echo "ui-sample: --shard takes 1/2 or 2/2" >&2; exit 2 ;; esac; shift 2 ;;
     # The header comment, however long it grows: a fixed line range has to be raised each time the header grows, and
     # #7690's longer header would have cut its last line.
+    # kosmos#8993: build once, test from the products (see the header).
+    --build-only) build_only="${2:-}"; [ -n "$build_only" ] || { echo "ui-sample: --build-only takes a folder" >&2; exit 2; }; shift 2 ;;
+    --products) products="${2:-}"; [ -n "$products" ] || { echo "ui-sample: --products takes a folder" >&2; exit 2; }; shift 2 ;;
     -h|--help) awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) echo "ui-sample: unknown argument $1" >&2; exit 2 ;;
   esac
@@ -123,6 +135,40 @@ if [ -n "$shard" ]; then
 fi
 # UI_SAMPLE_PRINT_CLASSES=1: print the classes this run would take and stop (ios.ui-sample-shard-8453.test.js).
 if [ "${UI_SAMPLE_PRINT_CLASSES:-}" = 1 ]; then printf '%s\n' $classes; exit 0; fi
+# kosmos#8993: build for testing and stop. A generic simulator destination, so the products run on whichever simulator the
+# test job makes. The products folder is replaced whole, so a half-written earlier one is never used.
+if [ -n "$build_only" ]; then
+  [ -z "$products$shard" ] && [ "$uikit" = 0 ] || { echo "ui-sample: --build-only takes no other option" >&2; exit 2; }
+  bwork="$(mktemp -d)"
+  blog="$bwork/build.log"
+  if ( cd "$here/.." && xcodebuild build-for-testing -project Kosmos.xcodeproj -scheme Kosmos -configuration Debug \
+         -destination 'generic/platform=iOS Simulator' -derivedDataPath "$bwork/dd" > "$blog" 2>&1 ); then
+    rm -rf "${build_only:?}"; mkdir -p "$build_only"
+    cp -R "$bwork/dd/Build/Products/." "$build_only/"
+    xcodebuild -version > "$build_only/xcode-version"
+    run_file="$(find "$build_only" -maxdepth 1 -name '*.xctestrun' | head -1)"
+    if [ -z "$run_file" ]; then echo "FAIL  ui-sample build: no .xctestrun in the products" >&2; rm -rf "${bwork:?}"; exit 1; fi
+    echo "PASS  ui-sample build: $(basename "$run_file"), $(head -1 "$build_only/xcode-version")"
+    rm -rf "${bwork:?}"
+    exit 0
+  fi
+  echo "FAIL  ui-sample build: xcodebuild build-for-testing failed; its last lines:" >&2
+  tail -40 "$blog" >&2
+  rm -rf "${bwork:?}"
+  exit 1
+fi
+# kosmos#8993: products from this same Xcode are tested without building; anything else is built here.
+run_file=""
+if [ -n "$products" ]; then
+  cand="$(find "$products" -maxdepth 1 -name '*.xctestrun' 2>/dev/null | head -1)"
+  if [ -z "$cand" ]; then
+    echo "ui-sample: no built products in $products, so the app is built here"
+  elif [ "$(cat "$products/xcode-version" 2>/dev/null)" != "$(xcodebuild -version 2>/dev/null)" ]; then
+    echo "ui-sample: the products were built by another Xcode ($(head -1 "$products/xcode-version" 2>/dev/null || echo unknown)), so the app is built here"
+  else
+    run_file="$cand"
+  fi
+fi
 if [ "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" = 1 ]; then
   echo "FAIL  ui-sample: the Simulator's hardware keyboard is on (ConnectHardwareKeyboard), which hides the on-screen keyboard" >&2
   exit 1
@@ -162,8 +208,15 @@ log="$work/xcodebuild.log"
 allow=""
 if [ "$uikit" = 1 ]; then allow="-test-timeouts-enabled YES -default-test-execution-time-allowance 420 -maximum-test-execution-time-allowance 420"; fi
 # shellcheck disable=SC2086  # $only, $skip and $allow are lists of separate arguments
-( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 TEST_RUNNER_KOSMOS_UI_SAMPLE=1 TEST_RUNNER_KOSMOS_UIKITLIST="$uikit" xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
-    -retry-tests-on-failure -test-iterations 2 $only $skip $allow -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
+# kosmos#8993: the same test arguments either way; only how the app is had differs (built here, or the shared products).
+if [ -n "$run_file" ]; then
+  echo "ui-sample: testing the shared build ($(basename "$run_file"))"
+  ( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 TEST_RUNNER_KOSMOS_UI_SAMPLE=1 TEST_RUNNER_KOSMOS_UIKITLIST="$uikit" xcodebuild test-without-building -xctestrun "$run_file" -destination "id=$udid" \
+      -retry-tests-on-failure -test-iterations 2 $only $skip $allow -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
+else
+  ( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 TEST_RUNNER_KOSMOS_UI_SAMPLE=1 TEST_RUNNER_KOSMOS_UIKITLIST="$uikit" xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
+      -retry-tests-on-failure -test-iterations 2 $only $skip $allow -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
+fi
 rc=$?
 # kosmos#7609: a failed test gets one more try, because this job runs on GitHub's slower runners and waits run out there. So a test
 # counts once, by its last result, and one that failed then passed is FLAKY: named below, a warning on the run, and countable across runs.
