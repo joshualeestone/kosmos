@@ -115,7 +115,7 @@ test('CONTROL: a prompt that waits for a person (a permission rule) still record
 test('only the hook\'s own permission wait from a Claude agent is read this way', async () => {
   // An agent's own question, even with the safety screen up, is the agent asking: kept and pushed.
   await withAgent(SELF_EXPIRING, async (pushes) => {
-    await report({ state: 'needs_you', text: 'Which folder should I clear?' });
+    await report({ state: 'needs_you', text: HOOK_TEXT });   // the hook's words, but sent by the agent itself (no auto)
     assert.equal(selfreport.read(WHO).state, 'needs_you');
     assert.equal(pushes.length, 1);
   });

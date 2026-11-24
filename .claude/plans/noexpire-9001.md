@@ -2,7 +2,7 @@
 
 Finished means: when Claude Code shows its own safety check ("Dangerous rm operation not ruled out ...", "Claude Code
 will automatically block this request in 1:59"), Kosmos sends no phone push and shows no "Needs permission"; the agent's
-card says "Claude Code declined a shell command it could not read safely; the agent will retry it in a safe form". A
+card says "Claude Code is declining a shell command it could not read safely, by itself; nothing for you to do". A
 prompt that waits for a person still pushes, as today. Part 2 (a hook rejecting the trigger shapes) is a later slice.
 
 ## Measured (Claude Code 2.1.331, a throwaway session on a private tmux socket, user settings left out)
@@ -62,3 +62,12 @@ push again (the old behaviour), never the reverse; the fixture pins the wording 
   prompt at all, so the exact trigger was not reproduced; the long-command path is tested from the real capture instead.
 - Residuals (all fail to the old push, never silence): no jq on the machine (the hook's sed fallback mangles quotes); a
   UTF-8 character cut at byte 200; a word wider than the pane broken inside the box.
+
+## Round 4 (sonnet): nothing serious; limits stated, nits fixed
+- KNOWN GAP (fails to the old push): if the report reaches the board before Claude Code draws the box, the screen shows
+  no prompt and the push goes out, as today. Measured on 2.1.331 the box is drawn first; not measured on other versions.
+- KNOWN GAP (fails to the old push): the fix needs jq where the agent runs (the hook's sed fallback mangles quoted and
+  multi-line commands, so they never match). macOS ships /usr/bin/jq on this Mac; an install without it is unchanged.
+- The new sentence sits above the #5754 comment, not between it and its constant; this plan's line text corrected; the
+  "own question" test now sends the hook's own text without auto (so dropping the auto check goes red).
+Converged: round 4 found no blocker and no warning that silences a real prompt.
