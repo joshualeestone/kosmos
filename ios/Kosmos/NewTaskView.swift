@@ -15,6 +15,7 @@ struct NewTaskView: View {
     @Binding var held: NewTask.Held?
     let heldFound: (Board.TasksRead) -> Void   // the Tasks tab's one handler for a held task found in a read
     let added: (String) -> Void        // the line the Tasks tab shows after a create
+    var under: NewTask.Under? = nil    // kosmos#8958 slice B6: a task page's "+ Add subtask": Project and Part of are fixed
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -84,7 +85,10 @@ struct NewTaskView: View {
     private func form(_ list: Board.ProjectList) -> some View {
         let offered = NewTask.projects(list)
         return ScrollViewReader { scroller in Form {
-            if offered.isEmpty {
+            if let under, let p = list.projects.first(where: { $0.id == under.project }) {
+                // Fixed whatever the sheet offers elsewhere: a task page opens in an archived project too.
+                Section { LabeledContent("Project") { Text(offered.first { $0.project.id == p.id }.map { NewTask.projectWords($0, in: list) } ?? p.name) } }
+            } else if offered.isEmpty {
                 // Every project archived is not "no project": say which.
                 Section { Text(list.projects.isEmpty ? "Make a project on your computer first, then add tasks to it here."
                                : "Your projects are all archived. Bring one back on your computer to add tasks to it.")
@@ -113,13 +117,17 @@ struct NewTaskView: View {
                 field(NewTask.Words.detail, example: NewTask.Words.detailExample, text: $draft.detail, lines: 2...6)
             }
             Section {
-                Picker("Part of", selection: $draft.parent) {
-                    Text("None").tag(Int?.none)
-                    ForEach(NewTask.parents(of: draft.project, in: shownTasks)) { t in
-                        Text("#\(t.number) \(t.sentence)").lineLimit(typeSize.isAccessibilitySize ? nil : 1).tag(Optional(t.number))
+                if let under {
+                    LabeledContent("Part of") { Text("#\(under.number) \(under.sentence)").lineLimit(typeSize.isAccessibilitySize ? nil : 2) }
+                } else {
+                    Picker("Part of", selection: $draft.parent) {
+                        Text("None").tag(Int?.none)
+                        ForEach(NewTask.parents(of: draft.project, in: shownTasks)) { t in
+                            Text("#\(t.number) \(t.sentence)").lineLimit(typeSize.isAccessibilitySize ? nil : 1).tag(Optional(t.number))
+                        }
                     }
+                    .large(typeSize)
                 }
-                .large(typeSize)
                 Picker("Who is on it", selection: $draft.who) {
                     Text("Nobody yet").tag(String?.none)
                     ForEach(NewTask.members(of: draft.project, in: list), id: \.session) { m in Text(m.name).tag(Optional(m.session)) }
@@ -193,7 +201,7 @@ struct NewTaskView: View {
 
     private func made(number: Int?, sent: NewTask.Draft) {
         let name = list?.projects.first { $0.id == sent.project }?.name ?? "the project"
-        let line = NewTask.addedLine(number: number, projectName: name)
+        let line = under == nil ? NewTask.addedLine(number: number, projectName: name) : Board.subtaskAddedLine(number: number)
         held = nil
         // Cleared by the hold's own test, so a changed pick or a stray space does not leave the same words behind with
         // Create on; words typed since are someone's next task, not this one's.
@@ -241,7 +249,7 @@ struct NewTaskView: View {
 
     private func took(_ parsed: Board.ProjectList) {
         list = parsed
-        draft = NewTask.settled(draft, picked: picked, offered: NewTask.projects(parsed))
+        draft = NewTask.under(NewTask.settled(draft, picked: picked, offered: NewTask.projects(parsed)), under)
         dropUnoffered()
     }
 
@@ -275,7 +283,7 @@ struct NewTaskView: View {
     private func dropUnoffered() {
         guard let list else { return }
         draft = NewTask.keepingOffered(draft, members: NewTask.members(of: draft.project, in: list),
-                                       parents: tasks.map { NewTask.parents(of: draft.project, in: $0) })
+                                       parents: under != nil ? nil : tasks.map { NewTask.parents(of: draft.project, in: $0) })
     }
 
     // Latched here, before the Task starts: a second tap in between would send a second create. The hold is lifted
