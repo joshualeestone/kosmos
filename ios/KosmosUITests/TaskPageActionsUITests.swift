@@ -3,7 +3,9 @@ import XCTest
 // kosmos#8958 slice B1: a task's page says something on the task, sets its due date, and edits its title or detail
 // natively (the board's tk-say, Due and tk-editform), never through the board. Sample agents only (a Debug build): the
 // sample Mac's task 4, "Pages 1 to 8", from the Tasks tab. Opt-in with TEST_RUNNER_KOSMOS_UI_PLUS=1, as the other
-// sample-board UI tests are (ios/tools/ui-sample.sh runs them). Screenshots in light and dark are the design shots.
+// sample-board UI tests are (ios/tools/ui-sample.sh runs them). On an iOS 27.0 simulator
+// XCUIDevice.shared.appearance changes nothing (TextSetupUITests), so there the "dark" pass and its shots are light: dark
+// design shots come from `xcrun simctl ui <device> appearance dark` before the run.
 final class TaskPageActionsUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
     override func tearDown() { XCUIDevice.shared.appearance = .light; super.tearDown() }

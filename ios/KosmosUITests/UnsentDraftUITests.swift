@@ -3,7 +3,9 @@ import XCTest
 // kosmos#8958 slice A: an unsent draft (text Kosmos took out of the agent's input box) is drawn in the chat itself, with
 // the board's "Put in the message box" and "Dismiss", and no longer opens the computer's board. Sample agents only (a
 // Debug build): Dana's chat with KOSMOS_SAMPLE_DRAFT=1. Opt-in with TEST_RUNNER_KOSMOS_UI_PLUS=1, as the other
-// sample-board UI tests are (ios/tools/ui-sample.sh runs them). Screenshots in light and dark are the design shots.
+// sample-board UI tests are (ios/tools/ui-sample.sh runs them). On an iOS 27.0 simulator
+// XCUIDevice.shared.appearance changes nothing (TextSetupUITests), so there the "dark" pass and its shots are light: dark
+// design shots come from `xcrun simctl ui <device> appearance dark` before the run.
 final class UnsentDraftUITests: XCTestCase {
     private let words = "Also check the shipping weights before you publish"
     private let band = "This text sat unsent in its input box and kept messages from reaching it, so Kosmos took it out and saved it here. It was not sent."
