@@ -32,6 +32,39 @@ enum AccountSecond {
 
     static let unreadableWords = "Kosmos+ could not say whether two-step sign-in is on just now."
 
+    // MARK: - Requests (built as AccountLogic builds its own: server.ios-routes-6838 reads this form)
+
+    private static func request(_ path: String, coordinator: URL, session: String, body: [String: Any]? = nil) -> URLRequest {
+        var r = URLRequest(url: coordinator.appendingPathComponent(String(path.dropFirst())))
+        r.httpMethod = body == nil ? "GET" : "POST"
+        r.timeoutInterval = 15
+        r.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")
+        if let body {
+            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            r.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        }
+        r.httpShouldHandleCookies = false
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+
+    static func statusRequest(coordinator: URL, session: String) -> URLRequest {
+        request(statusPath, coordinator: coordinator, session: session)
+    }
+
+    /// Slice A's own bodies. A text waits as long as slice A's does (SignIn.textSendTimeout): Kosmos+ answers once the
+    /// text is handed to the sender.
+    static func enrolRequest(coordinator: URL, session: String, phone: String?) -> URLRequest {
+        var r = request(SignIn.enrolPath, coordinator: coordinator, session: session,
+                        body: phone.map { SignIn.enrolBody(phone: $0) } ?? SignIn.enrolBody())
+        if let wait = SignIn.enrolTimeout(phone: phone) { r.timeoutInterval = wait }
+        return r
+    }
+
+    static func confirmRequest(coordinator: URL, session: String, code: String) -> URLRequest {
+        request(SignIn.confirmPath, coordinator: coordinator, session: session, body: SignIn.confirmBody(code: code))
+    }
+
     static func read(status: Int, json: Any?) -> Read {
         if status == 401 { return .signedOut }
         let body = json as? [String: Any] ?? [:]

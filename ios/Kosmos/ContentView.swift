@@ -688,7 +688,11 @@ struct ContentView: View {
                 // view drops the session too, since its page keeps a copy (ContentView's forget, kosmos#7042).
                 pushManager.signedOutInSettings()
                 web.forget(token)
-            }, currentSession: { pushManager.currentSession }, accountGeneration: pushManager.accountChanges,
+            }, currentSession: { pushManager.currentSession }, renewed: { old, fresh in
+                // kosmos#8959 slice B1b: the same account's fresh session (a second step was just set up). Kept, then
+                // the web view drops the old one, which Kosmos+ now refuses, and starts its page with the fresh one.
+                if pushManager.sessionRenewed(from: old, to: fresh) { web.forget(old) }
+            }, accountGeneration: pushManager.accountChanges,
             youName: youName, youPicture: youPicture)
         } else {
             webBoard(which)
@@ -858,9 +862,11 @@ final class BoardWeb: ObservableObject {
 
     /// A dropped session also lives in the page's own memory (its `session`, its Allow watch, which can open the Mac
     /// signed in as it), which no script reaches, so the hidden web view starts a fresh document on the sign-in page,
-    /// whose start removes it (review round 8). Called after a sign-out only: from the native sign-in (backing out), and
+    /// whose start removes it (review round 8). Called after a sign-out: from the native sign-in (backing out), and
     /// from Settings' account screen (kosmos#8959 slice B1a). The page is reloaded either way. Its loss is not felt because
-    /// nobody is signed in to use it. Recorded gap: in a store-shots build (KOSMOS_STORE_SHOTS) the native sign-in does not
+    /// nobody is signed in to use it. Also called when a second step set up on the account screen renewed the session
+    /// (kosmos#8959 slice B1b): the old one is refused by Kosmos+ from then on, and the reloaded page starts with the
+    /// fresh one; what the hidden page was showing is lost, a cost the person meets only by going back to it. Recorded gap: in a store-shots build (KOSMOS_STORE_SHOTS) the native sign-in does not
     /// come up after a Settings sign-out, so the reloaded page shows.
     func forget(_ token: String) {
         forgotten.append(token)
