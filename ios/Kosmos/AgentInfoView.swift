@@ -33,6 +33,16 @@ struct AgentInfoView: View {
     @State private var asking: Board.FreshStart?
     @State private var freshLine: (text: String, ok: Bool)?
     @State private var freshBusy = false
+    // kosmos#8955: Restart and Remove, as the board's agent page has them.
+    @State private var restartAsking = false
+    @State private var restartBusy = false
+    @State private var restartLine: (text: String, ok: Bool)?
+    @State private var restartSeq = 0   // the newest restart; an older one's wait stands down (RESTART_HELLO_SEQ)
+    @State private var removal: Board.RemovalPlan?   // nil until the first plan is read
+    @State private var removeAsk: Board.RemovalAsk?
+    @State private var removeBusy = false
+    @State private var removeLine: (text: String, ok: Bool)?
+    @State private var removed = false
     // kosmos#8626: the provider switch. The accounts are /api/accounts (nil until read, the board's ACCOUNTS_LOADED;
     // accountsFailed is its ACCOUNTS_UNREADABLE), Claude's models ride the /api/roles read the page already makes.
     @State private var accountRows: [[String: Any]]?
@@ -103,6 +113,22 @@ struct AgentInfoView: View {
             Button("Cancel", role: .cancel) {}
         } message: { which in
             Text(Board.freshConfirm(which, name: live.name).small)
+        }
+        // kosmos#8955: the board's restart dialog (openRestartModal): its cost line in the agent's own record's words.
+        .confirmationDialog(Board.restartTitle(live.name), isPresented: $restartAsking, titleVisibility: .visible) {
+            Button(Board.restartGo(live.name)) { Task { await restart() } }
+            Button(Board.restartKeep, role: .cancel) {}
+        } message: {
+            let cost = Board.restartCost(live.name, live.commitments)
+            Text(([cost.small] + cost.list.map { "\u{2022} " + $0 }).joined(separator: "\n"))
+        }
+        // kosmos#8955: the board's removal dialog (openRemoveModal): the engine's question, reassurance, Loses and Keeps.
+        .confirmationDialog(removeAsk?.question ?? "", isPresented: Binding(get: { removeAsk != nil }, set: { if !$0 { removeAsk = nil } }),
+                            titleVisibility: .visible, presenting: removeAsk) { ask in
+            Button(Board.removeGo(ask), role: .destructive) { Task { await remove(ask) } }
+            Button(Board.removeKeep(ask), role: .cancel) {}
+        } message: { ask in
+            Text(Board.removeMessage(ask))
         }
     }
 
@@ -257,15 +283,23 @@ struct AgentInfoView: View {
         } header: { label("Memory") }
         Section {
             Button { asking = .compact } label: { Text("Compact: summarise and keep going") }
-                .disabled(freshBusy)
+                .disabled(freshBusy || removed)
             Button(role: .destructive) { asking = .clear } label: { Text("Clear: start over, loses what it is holding") }
-                .disabled(freshBusy)
+                .disabled(freshBusy || removed)
             if let freshLine {
                 Text(freshLine.text).font(.footnote).foregroundColor(freshLine.ok ? Palette.secondary : Palette.dangerWord)
+            }
+            // kosmos#8955: the board's third (d-restart-start), after Compact and Clear as the pack draws it.
+            Button { restartAsking = true } label: { Text(Board.restartLabel(live.name)) }
+                .disabled(restartBusy || removed)
+                .accessibilityLabel("Fresh start: " + Board.restartLabel(live.name))
+            if let restartLine {
+                Text(restartLine.text).font(.footnote).foregroundColor(restartLine.ok ? Palette.secondary : Palette.dangerWord)
             }
         } header: { label("Fresh start") } footer: {
             Text("Each one shows what it stands to lose before you choose.")
         }
+        removeSection
         moreRow
     }
 
@@ -500,6 +534,103 @@ struct AgentInfoView: View {
         }
     }
 
+    // MARK: Remove (kosmos#8955: the board's d-remove-agent, at the foot of the page, below the fresh start)
+
+    @ViewBuilder private var removeSection: some View {
+        Section {
+            if removed, let removeLine {
+                Text(removeLine.text).foregroundColor(Palette.secondary)
+            } else {
+                switch removal {
+                case .none:
+                    Text("Reading whether it can be removed\u{2026}").foregroundColor(Palette.secondary)
+                case .unreached?:
+                    Text(Board.removalUnreached).foregroundColor(Palette.secondary)
+                case .cannot(let because, let untied)?:
+                    Text(because).foregroundColor(Palette.secondary)
+                    if untied { Text(Board.removalUntiedOnBoard).font(.footnote).foregroundColor(Palette.secondary) }
+                case .can(let ask)?:
+                    if !ask.hint.isEmpty { Text(ask.hint).font(.footnote).foregroundColor(Palette.secondary) }
+                    Button(role: .destructive) { removeAsk = ask } label: { Text("Remove this agent\u{2026}") }
+                        .disabled(removeBusy)
+                }
+                if let removeLine {
+                    Text(removeLine.text).font(.footnote).foregroundColor(removeLine.ok ? Palette.secondary : Palette.dangerWord)
+                }
+            }
+        } header: { label("Remove this agent") }
+    }
+
+    private func loadRemoval(_ session: String) async {
+        let res = await client.throughMac { Board.removalPlanRequest(mac: $0, session: session) }
+        guard !removed else { return }
+        let plan = Board.removalPlan(status: res?.1.statusCode ?? 0, body: res?.0, session: session)
+        // A read that did not answer keeps a plan already shown (the next refresh asks again).
+        if plan == .unreached, case .can? = removal { return }
+        removal = plan
+    }
+
+    private func remove(_ ask: Board.RemovalAsk) async {
+        let session = agent.session
+        removeBusy = true
+        removeLine = ("Removing\u{2026}", true)
+        let res = await client.throughMac { Board.removeRequest(mac: $0, session: session) }
+        let done = Board.removeResult(status: res?.1.statusCode ?? 0, body: res?.0)
+        removeBusy = false
+        switch done {
+        case .removed:
+            removed = true
+            removeLine = (Board.removedLine(ask.label), true)
+        case .partial(let why), .refused(let why):
+            removeLine = (why, false)
+        }
+        UIAccessibility.post(notification: .announcement, argument: removeLine?.text ?? "")
+        await client.refreshNow()
+        if !removed { await loadRemoval(session) }
+    }
+
+    // MARK: Restart (kosmos#8955: the board's rst-go, then its wake hello)
+
+    private func restart() async {
+        let session = agent.session
+        restartSeq += 1
+        let mine = restartSeq
+        restartBusy = true
+        restartLine = nil
+        let res = await client.throughMac { Board.restartRequest(mac: $0, session: session) }
+        let said = Board.restartResult(status: res?.1.statusCode ?? 0, body: res?.0)
+        guard mine == restartSeq else { return }
+        guard said.ok else {
+            restartBusy = false
+            restartLine = (said.sentence ?? "We could not restart them.", false)
+            UIAccessibility.post(notification: .announcement, argument: restartLine?.text ?? "")
+            return
+        }
+        restartLine = (Board.restartWaking, true)
+        UIAccessibility.post(notification: .announcement, argument: Board.restartWaking)
+        // restartReadyWait: seen down, then up, within the window; otherwise the person says hello themselves.
+        var sawUnready = false
+        var ready = false
+        let until = Date().addingTimeInterval(Board.restartReadyWindow)
+        while Date() < until {
+            try? await Task.sleep(nanoseconds: UInt64(Board.restartReadyPoll * 1_000_000_000))
+            guard mine == restartSeq else { return }
+            await client.refreshNow()
+            guard mine == restartSeq else { return }
+            if Board.readyStep(client.agents.first { $0.session == session }, sawUnready: &sawUnready) { ready = true; break }
+        }
+        var line = Board.restartManual
+        if ready {
+            let r = await client.throughMac { Board.wakeHelloRequest(mac: $0, session: session) }
+            line = Board.wakeLine(status: r?.1.statusCode ?? 0, body: r?.0)
+        }
+        guard mine == restartSeq else { return }
+        restartBusy = false
+        restartLine = (line, true)
+        UIAccessibility.post(notification: .announcement, argument: line)
+        await load()
+    }
+
     @ViewBuilder private var moreRow: some View {
         Section {
             Button {
@@ -519,8 +650,10 @@ struct AgentInfoView: View {
             // #7280: the row opens the board on this agent's AI Settings (an older board ignores sec and opens the
             // conversation, with AI Settings beside it).
             // Review 6: only for an agent the link can name; otherwise it opens the board's home, so promise nothing.
+            // kosmos#8955: Restart and Remove are here now, so the footer says only what is left there, and that it is a
+            // web page.
             if Board.isAgentSession(agent.session) {
-                Text("Its AI Settings there change the model or the account it runs on, restart it, or remove it.")
+                Text(Board.boardOnlyFooter)
             }
         }
     }
@@ -572,6 +705,7 @@ struct AgentInfoView: View {
         // kosmos#7679 review 1: Files is applied as soon as its own read is back, not after the slowest of the others,
         // since it is a segment of its own now.
         async let filesDone: Void = loadFiles(session)
+        async let removalDone: Void = loadRemoval(session)   // kosmos#8955
         async let status = client.throughMac { Board.statusRequest(mac: $0) }
         async let instr = client.throughMac { Board.instructionsRequest(mac: $0, session: session) }
         async let sk = client.throughMac { Board.skillsRequest(mac: $0, session: session) }
@@ -591,6 +725,7 @@ struct AgentInfoView: View {
         (skills, skillsWhy) = Board.profileNext(shown: skills, read: Board.skillsRead(k))
         readFailed = d == nil   // the details' own read (the name footer and Runs on); each section says its own why
         await filesDone
+        await removalDone
         // kosmos#8626: last, as it can take a while (one live check per account, as on the board); a list already
         // read is kept through a read that fails, as the other sections keep theirs.
         // Review 1: only for an agent the section is shown for, as each read costs a live check per account.
@@ -663,6 +798,12 @@ struct AgentInfoView: View {
         fill(d)
         instructions = "You look after the spring catalogue: the cover, the order of the pages, and getting proofs to the printer on time.\n\nAsk before you spend money or send anything outside the team."
         skills = [Board.Skill(key: "meeting-minutes", name: "Meeting minutes"), Board.Skill(key: "proof-checklist", name: "Proof checklist")]
+        // kosmos#8955: the engine's own plan words for an agent with a startup job (engine/remove.js plan), for the shots.
+        removal = .can(Board.RemovalAsk(question: "Are you sure you want to remove \(live.name) from Kosmos?",
+                                        reassurance: "Removing is not deleting. Its files will not be deleted.", label: live.name,
+                                        hint: "It stops running and leaves the board, and Kosmos stops it starting again; you can put it back. Its folder, its instructions and everything it has written stay on this computer. Removing is not deleting.",
+                                        loses: ["Its place on the board", "Starting again on its own, until you put it back"],
+                                        keeps: ["Its folder, on this computer", "Its instructions", "Everything it has written"]))
         switch ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_INFO"] { case "ai": part = .ai; case "files": part = .files; default: break }
         // kosmos#8626: KOSMOS_SAMPLE_SWITCH=openai (or google, xai) opens AI Settings with that provider picked, for the
         // store screen that shows a switch.

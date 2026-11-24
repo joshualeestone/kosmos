@@ -512,6 +512,8 @@ enum Board {
         // kosmos#7488: the desktop's boardCanSeeIt (a live session that is ours, not stopped). /api/status also lists an
         // agent whose folder or job exists with no session yet; a just-made agent is that first.
         var boardSeesIt = false
+        // kosmos#8955: what it said it is part way through (/api/status commitments), for the restart dialog's cost line.
+        var commitments: Commitments? = nil
         var id: String { session }
     }
 
@@ -935,7 +937,8 @@ enum Board {
                          model: Board.sortModel(row),
                          profileRole: ((row["profile"] as? [String: Any])?["role"] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 },
                          deliveryStall: row["deliveryStall"] is [String: Any] || (row["deliveryStall"] as? Bool) == true,
-                         boardSeesIt: (row["isAgentSession"] as? Bool) == true && (row["isNamedOurs"] as? Bool) == true && state != "stopped")
+                         boardSeesIt: (row["isAgentSession"] as? Bool) == true && (row["isNamedOurs"] as? Bool) == true && state != "stopped",
+                         commitments: Board.parseCommitments(row["commitments"]))
         }
     }
 
@@ -3447,4 +3450,26 @@ extension Board {
         f.timeStyle = .short
         return f
     }()
+}
+
+// kosmos#8955: here, not in AgentInfoLogic, because Agent carries it and every suite compiles this file.
+extension Board {
+    // The agent's own record of what it is part way through (/api/status `commitments`, engine/commitments.js), as the
+    // board's restartCost reads it: a record whose list is not an array is not understood, and so reads as unknown.
+    struct Commitments: Equatable {
+        var state: String
+        var items: [String]
+        var because: String?
+    }
+    static func parseCommitments(_ v: Any?) -> Commitments? {
+        guard let o = v as? [String: Any] else { return nil }
+        guard let list = o["commitments"] as? [Any] else {
+            return Commitments(state: "unknown", items: [], because: o["because"] as? String)
+        }
+        let items = list.compactMap { c -> String? in
+            if let s = c as? String { return s }
+            return (c as? [String: Any])?["text"] as? String ?? ""
+        }
+        return Commitments(state: (o["state"] as? String) ?? "unknown", items: items, because: o["because"] as? String)
+    }
 }

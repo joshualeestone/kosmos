@@ -280,5 +280,88 @@ check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(4
 check(Board.profileNext(shown: nil, read: Board.instructionsRead(answer(400, #"{"error":"bad request"}"#))) == (nil, "Bad request."), "CONTROL: with nothing shown, a 400 says the board's words")
 check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(409, #"{"error":"busy"}"#))) == ("Old text", nil), "a 409 keeps it")
 check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(404, #"{"error":"no such agent"}"#))) == (nil, "No such agent."), "CONTROL: a 404 replaces what was shown")
+
+section("restart (kosmos#8955)")
+func j(_ s: String) -> Data { Data(s.utf8) }
+// The cost line: only an earned clear says nothing is held (restartCost).
+let holding = Board.parseCommitments(["state": "holding", "commitments": ["Ship the deck", ["text": "Reply to Dana"]]])
+check(holding?.items == ["Ship the deck", "Reply to Dana"], "a list of strings and {text}")
+check(Board.restartCost("Cleo", holding).small == "Cleo is part way through 2 things. Restarting ends them, and they will not be picked up again.", "holding two")
+check(Board.restartCost("Cleo", Board.parseCommitments(["state": "holding", "commitments": ["One"]])).small.hasPrefix("Cleo is part way through one thing."), "holding one")
+check(Board.restartCost("Cleo", Board.parseCommitments(["state": "clear", "commitments": []])) == ("Cleo is not part way through anything.", []), "an earned clear")
+check(Board.restartCost("Cleo", Board.parseCommitments(["state": "clear", "commitments": "none"])).small.hasPrefix("We cannot tell what Cleo is part way through"), "CONTROL: clear on a malformed list is not believed")
+check(Board.restartCost("Cleo", nil).small == "We cannot tell what Cleo is part way through, because we have not heard from them. Restarting ends anything they had in flight.", "no record: unknown, the board's fallback reason")
+check(Board.restartCost("Cleo", Board.parseCommitments(["state": "unknown", "commitments": ["Old"], "because": "it last said so 40 minutes ago"])) == ("We cannot tell what Cleo is part way through, because it last said so 40 minutes ago. Restarting ends anything they had in flight.", ["Old"]), "stale: the engine's reason, and the old list still shown")
+let agentRow = Board.parseAgents(j(#"{"agents":[{"sessionName":"cleo","name":"Cleo","state":"idle","isAgentSession":true,"isNamedOurs":true,"commitments":{"state":"clear","commitments":[]}}]}"#))?.first
+check(agentRow?.commitments == Board.Commitments(state: "clear", items: [], because: nil), "/api/status carries it onto the agent")
+for w in ["is part way through ", ". Restarting ends them, and they will not be picked up again.", " is not part way through anything.", "'We cannot tell what ' + shown + ' is part way through, because '", "'. Restarting ends anything they had in flight.'", "|| 'we have not heard from them'", "'Restart: stop and start ' + (n || 'it')", "('Restart ' + shown + '?')", "go.textContent = 'Restart ' + shown;", ">Leave it running</button>"] {
+    check(boardPage.contains(w), "the board still says: \(w)")
+}
+// The request and what came back (restartTook, restartFailureLine).
+let rr = Board.restartRequest(mac: mac, session: "cleo")
+check(rr?.httpMethod == "POST" && rr?.url?.path == "/api/agent/cleo/restart" && rr?.httpBody == j("{}"), "POST .../restart with an empty body")
+check(Board.restartRequest(mac: mac, session: "../x") == nil, "CONTROL: a name the link cannot carry sends nothing")
+check(Board.restartResult(status: 200, body: j(#"{"outcome":"restarted","steps":[]}"#)) == (true, nil), "restarted: it took")
+check(Board.restartResult(status: 200, body: j(#"{"outcome":"partial","because":"we could not close its window","steps":[{"label":"closed its window","ok":false},{"label":"checked the job","ok":true}]}"#)) == (false, "We could not close its window. What failed: closed its window. What worked: checked the job."), "a 200 PARTIAL is not a restart, and both lists are said")
+check(Board.restartResult(status: 400, body: j(#"{"outcome":"refused","steps":[],"because":"cleo was removed, so it is not restarted; put it back from the board first"}"#)).sentence == "Cleo was removed, so it is not restarted; put it back from the board first.", "a refusal: the engine's reason")
+check(Board.restartResult(status: 500, body: j(#"{"error":"we could not restart this agent"}"#)) == (false, "We could not restart this agent."), "a thrown restart: its error")
+check(Board.restartResult(status: 0, body: nil) == (false, "We could not reach Kosmos to restart them."), "no answer: the board's words")
+check(boardPage.contains("'We could not reach Kosmos to restart them.'") && boardPage.contains("return Boolean(ok && out && out.outcome === 'restarted');"), "the board still says so, and still takes only restarted")
+// The wait (restartReadyWait): ready only after seeing it not ready.
+func ag(_ state: String, seen: Bool = true) -> Board.Agent { var a = Board.Agent(session: "cleo", name: "Cleo", role: nil, state: state, task: nil, needsYou: false); a.boardSeesIt = seen; return a }
+var saw = false
+check(Board.readyStep(ag("idle"), sawUnready: &saw) == false && saw == false, "a first look showing it idle is the old session: not ready")
+check(Board.readyStep(ag("restarting"), sawUnready: &saw) == false && saw == true, "restarting: not ready, and now the gap was seen")
+check(Board.readyStep(ag("idle"), sawUnready: &saw) == true, "then idle: ready")
+var saw2 = false
+check(Board.readyStep(nil, sawUnready: &saw2) == false && saw2 && Board.readyStep(ag("working", seen: false), sawUnready: &saw2) == false, "gone, or not yet seen: not ready")
+check(Board.restartReadyWindow == 30 && Board.restartReadyPoll == 2 && boardPage.contains("let RESTART_READY_WINDOW_MS = 30000;") && boardPage.contains("let RESTART_READY_POLL_MS = 2000;"), "the board's 30 s and 2 s")
+check(boardPage.contains("return boardCanSeeIt(a) && a.state !== 'restarting';") && boardPage.contains("if (sawUnready) return true;"), "the board's ready rule still")
+// The wake hello.
+let wh = Board.wakeHelloRequest(mac: mac, session: "cleo")
+let whBody = wh?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+check(wh?.url?.path == "/api/agent/cleo/thread" && whBody?["text"] as? String == "hello" && whBody?["automatic"] as? Bool == true, "hello, automatic, to its thread")
+check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"state":"placed"}}"#)) == Board.restartSaidHello, "placed: said hello")
+check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"state":"recorded"}}"#)) == Board.restartManual, "recorded is not placed: the person says hello")
+check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"state":"could_not","held":true,"heldBy":"menu"}}"#)) == Board.restartManual + " It is waiting for an answer on its screen, so Kosmos sent nothing; answer it in its window first.", "held by a menu: why")
+check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"held":true,"heldFor":"signin"}}"#)).hasSuffix("It is signed out, so Kosmos sent nothing. Sign it in again first."), "held for sign-in")
+check(Board.wakeLine(status: 200, body: j(#"{"delivery":{"held":true}}"#)).hasSuffix("This computer\u{2019}s shared Google quota is out, so Kosmos sent nothing."), "held, no reason: the quota line, untimed")
+check(Board.wakeLine(status: 0, body: nil) == Board.restartManual, "no answer: the person says hello")
+for w in ["'Restarted, and said hello to wake them. Say hello when you want to talk to them.'", "'Restarted. You will need to say ‘hello’ to wake them.'", "showNote('Restarted. Waking them…');", "' It is waiting for an answer on its screen, so Kosmos sent nothing; answer it in its window first.'", "' Its input box holds text that has not been sent, so Kosmos sent nothing; send or clear that in its window first.'", "' It is signed out, so Kosmos sent nothing. Sign it in again first.'", "' It is out of usage, so Kosmos sent nothing.'", "\"This computer's shared Google quota is out, so Kosmos sent nothing.\"", "' The Gemini subscription agents on this computer are at the limit you set for working at once, so Kosmos sent nothing.'", "body: JSON.stringify({ text: 'hello', automatic: true })"] {
+    check(boardPage.contains(w), "the board still says: \(w.prefix(60))")
+}
+
+section("remove (kosmos#8955)")
+let planOK = #"{"ok":true,"label":"Cleo","question":"Remove Cleo from this computer?","reassurance":"You can put Cleo back.","hint":"Stops it and keeps its files.","loses":["its session"],"keeps":["its files"]}"#
+guard case .can(let ask)? = Optional(Board.removalPlan(status: 200, body: j(planOK), session: "cleo")) else { fatalError("plan") }
+check(ask.question == "Remove Cleo from this computer?" && ask.hint == "Stops it and keeps its files." && Board.removeGo(ask) == "Remove Cleo" && Board.removeKeep(ask) == "Leave Cleo running", "a plan: the engine's words, and answers that name it")
+check(Board.removeMessage(ask) == "You can put Cleo back.\n\nLoses: its session\nKeeps: its files", "Loses and Keeps, when both have something")
+var half = ask; half.keeps = []
+check(Board.removeMessage(half) == "You can put Cleo back.", "CONTROL: one list empty: neither shown (rm-cols)")
+if case .can(let a2) = Board.removalPlan(status: 200, body: j(#"{"ok":true,"question":"Q"}"#), session: "cleo") { check(a2.label == "cleo", "no label: the session name") } else { check(false, "no label: still a plan") }
+check(Board.removalPlan(status: 400, body: j(#"{"ok":false,"because":"we cannot tie this session to cleo","untied":true}"#), session: "cleo") == .cannot(because: "We cannot tie this session to cleo.", untied: true), "untied: the reason, and the board keeps the override")
+check(Board.removalPlan(status: 400, body: j(#"{"ok":false}"#), session: "cleo") == .cannot(because: "We cannot remove this agent right now.", untied: false), "a refusal with no reason: the board's fallback")
+check(Board.removalPlan(status: 500, body: j(#"{"error":"we could not work out whether this agent can be removed"}"#), session: "cleo") == .unreached, "a 5xx is not a fact about the agent")
+check(Board.removalPlan(status: 200, body: j("<html>"), session: "cleo") == .unreached && Board.removalPlan(status: 0, body: nil, session: "cleo") == .unreached, "unparsed or no answer: unreached")
+check(Board.removalPlan(status: 403, body: j(#"{"error":"sign in"}"#), session: "cleo") == .unreached, "the phone not let in: unreached, never a refusal")
+check(Board.removalPlanRequest(mac: mac, session: "cleo")?.url?.path == "/api/agent/cleo/removal" && Board.removalPlanRequest(mac: mac, session: "cleo")?.httpMethod == "GET", "GET .../removal")
+let del = Board.removeRequest(mac: mac, session: "cleo")
+check(del?.httpMethod == "DELETE" && del?.url?.path == "/api/agent/cleo/removal" && del?.url?.query == nil, "DELETE .../removal, never ?force")
+check(Board.removeResult(status: 200, body: j(#"{"outcome":"removed"}"#)) == .removed, "removed")
+check(Board.removeResult(status: 200, body: j(#"{"outcome":"partial","because":"we stopped it starting again but could not end its session"}"#)) == .partial("We stopped it starting again but could not end its session."), "partial is not success")
+check(Board.removeResult(status: 400, body: j(#"{"outcome":"refused","because":"it is already removed"}"#)) == .refused("It is already removed."), "refused: the reason")
+check(Board.removeResult(status: 500, body: j(#"{"error":"the removal failed partway and we cannot tell you how far it got"}"#)) == .refused("The removal failed partway and we cannot tell you how far it got."), "thrown: its error, never 'nothing happened'")
+check(Board.removeResult(status: 200, body: j("{}")) == .removed, "a 200 with no outcome is the board's success too")
+check(Board.removeResult(status: 0, body: nil) == .refused("We could not reach Kosmos, so nothing was removed."), "no answer: nothing was removed")
+for w in ["'We cannot remove this agent right now.'", ">Remove this agent…</button>", "'Remove ' + shown;", "keep.textContent = 'Leave ' + shown + ' running';", "<h3 class=\"rm-colhead\">Loses</h3>", "<h3 class=\"rm-colhead\">Keeps</h3>", "|| 'we could not remove it, and we cannot tell you why'", "if (done.outcome === 'partial') {", "cols.hidden = !((ask.loses || []).length && (ask.keeps || []).length);"] {
+    check(boardPage.contains(w), "the board still says: \(w.prefix(60))")
+}
+check(Board.removedLine("Cleo") == "Removed. Cleo has left your board." && !Board.removedLine("Cleo").contains("back"), "removed: never promises putting it back (a jobless agent cannot be)")
+let removeJs = (try? String(contentsOf: repo.appendingPathComponent("engine/remove.js"), encoding: .utf8)) ?? ""
+check(removeJs.contains("so Kosmos cannot start it again for you"), "the engine still has the jobless arm that makes that promise false")
+let infoView = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AgentInfoView.swift"), encoding: .utf8)) ?? ""
+check(!infoView.contains("restart it, or remove it."), "the board row no longer promises restart and remove")
+check(infoView.contains("Text(Board.boardOnlyFooter)") && infoView.contains("removeSection") && infoView.contains("Board.restartLabel(live.name)"), "the page draws Restart, Remove and the new footer")
+
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
