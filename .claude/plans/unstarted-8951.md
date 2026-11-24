@@ -77,3 +77,9 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 - Fixed (WARNING, the premise): the fix assumed each 11-23 death came before any turn opened. That order is not established: Homer's transcript has no user entry or reply, but a turn's init goes to the stream, not the transcript, and a turn opens ~50 ms after a write while each death came at ~0.6 s. Now a turn still open when the process ends within LOST_WINDOW_MS of the last write carries the message it opened on (turnMsg, kept until that turn's result) as lost, with any written behind it. Either order is reported. A turn that reached its result, or a death long after the write (a Restart mid-turn), is not counted.
 - Fixed (WARNING): a deadline merge left the busy-write marker (queuedAfterReport) armed, so a wake-up turn's returning calls could end a merged report none of whose messages ran. The merge and a result with nothing taken now clear it.
 - Mutations red: carrying the open turn, the merge clearing the marker, the result ending the turn.
+
+## Challenge loop iteration 8 (sonnet, state table)
+- Fixed (WARNING): a wake-up turn with a message written behind it set turnMsg (count clamped to 1), so one message was counted twice. turnMsg is set only when more is in flight than waits behind (a written message opened the turn), with no clamp.
+- Fixed (WARNING): turnMsg was counted when the stop came soon after the LAST write, so a long-run turn plus one write just before a Restart read as lost. turnMsg now carries its own open time, and only a stop within LOST_WINDOW_MS of the turn opening counts it.
+- Accepted: a Restart within 10 s of a write still words the waiting message as "stopped right after it reached it". A stop that soon cannot be told apart from a crash by timing, and the message did not run either way.
+- Mutations red: the opener rule, the turn's own clock.
