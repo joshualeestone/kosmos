@@ -45,8 +45,9 @@ test('#8988 parseDied: a status, a signal (named as tmux prints it), and nothing
   assert.deepEqual(mr.parseDied(T0 + ' status 7\n'), { atMs: T0 * 1000, code: 7, signal: null });
   assert.deepEqual(mr.parseDied(T0 + ' signal term'), { atMs: T0 * 1000, code: null, signal: 'SIGTERM' });
   assert.deepEqual(mr.parseDied(T0 + ' signal SIGKILL'), { atMs: T0 * 1000, code: null, signal: 'SIGKILL' });
+  assert.deepEqual(mr.parseDied(T0 + ' signal 9'), { atMs: T0 * 1000, code: null, signal: '9' }, 'a system that names no signals prints the number');
   assert.equal(mr.parseDied(T0 + ' status 0').code, 0, 'CONTROL: the parser keeps an exit 0; the reader is what hides it');
-  for (const bad of ['', 'x status 7', T0 + ' status', T0 + ' status -1', T0 + ' signal 9x', T0 + ' exit 7', null]) {
+  for (const bad of ['', 'x status 7', T0 + ' status', T0 + ' status -1', T0 + ' signal 9x!', T0 + ' exit 7', null]) {
     assert.equal(mr.parseDied(bad), null, JSON.stringify(bad));
   }
 });
@@ -87,6 +88,19 @@ test('#8988 a finished answer after the restart clears it; one before it, an ope
   assert.ok(read(T0 + ' status 7\n', runs, [{ state: 'idle', because: 'waiting for direction', at: at(T0 + 100) }]), 'another idle is not a finished answer');
   assert.ok(read(T0 + ' status 7\n', runs, [{ state: 'blocked', because: 'provider api (rate_limit)', by: 'auto', on: 'provider api (rate_limit)', at: at(T0 + 100) }]),
     'a turn that ended in an API error (StopFailure) does not clear it');
+  /* Review 7: a turn that heartbeats past 64 KB keeps its Stop out of the default reading, and the line must not come
+     back (the real record, the real reader). */
+  const beats = [done(T0 + 50)];
+  for (let i = 0; i < 2500; i++) beats.push({ state: 'working', because: 'answering a prompt', by: 'auto', at: at(T0 + 60 + i) });
+  reports(beats);
+  assert.ok(fs.statSync(selfreport.fileFor('hal')).size > 64 * 1024, 'precondition: more than the default reading');
+  assert.equal(read(T0 + ' status 7\n', runs, beats), null, 'a finished turn long before a long turn of heartbeats still clears it');
+  const cut = [{ state: 'working', at: T0 * 1000 + 90000, by: 'auto' }]; cut.truncated = true;
+  assert.equal(mr.restartedFor('hal', { bootMs: 0, history: () => cut, read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' status 7\n' : runs) }), null,
+    'a record cut short before the restart cannot say: no line');
+  const reached = [{ state: 'working', at: T0 * 1000 - 1000, by: 'auto' }]; reached.truncated = true;
+  assert.ok(mr.restartedFor('hal', { bootMs: 0, history: () => reached, read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' status 7\n' : runs) }),
+    'CONTROL: a cut record that reaches back past the restart, with no finished turn, keeps the line');
   const unreadable = mr.restartedFor('hal', { read: (f) => (f === mr.diedFileFor('hal') ? T0 + ' status 7\n' : runs), history: () => { throw new Error('x'); } });
   assert.equal(unreadable, null, 'when the record cannot say, no line');
 });
@@ -120,4 +134,17 @@ test('#8988 a removed or re-made agent carries no death from its last life', () 
   crashloop.forget('hal');
   assert.equal(fs.existsSync(mr.diedFileFor('hal')), false);
   assert.equal(fs.existsSync(crashloop.fileFor('hal')), false);
+});
+
+test('#8988 the supervisor writes no death file for an agent in a named Kosmos', { skip: process.platform === 'win32' && 'it runs a bash function' }, () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
+  const take = (name) => { const m = new RegExp('\\n' + name + '\\(\\) \\{\\n[\\s\\S]*?\\n\\}\\n').exec(src); assert.ok(m, name + ' is gone from bin/agent-supervisor.sh'); return m[0]; };
+  const data = path.join(SANDBOX, 'world');
+  fs.mkdirSync(data, { recursive: true });
+  const { spawnSync } = require('node:child_process');
+  const run = (world) => spawnSync('/bin/bash', ['-c', 'set -u\n' + take('runs_file') + take('died_file') + '\nSESSION=ava\ndied_file'],
+    { encoding: 'utf8', env: { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_DATA: data, ...(world === undefined ? {} : { KOSMOS_WORLD: world }) } });
+  assert.match(run(undefined).stdout, /\/Kosmos\/runs\/ava\.died$/m, 'CONTROL: the default Kosmos has one');
+  assert.match(run('default').stdout, /\/Kosmos\/runs\/ava\.died$/m);
+  assert.equal(run('qa').stdout, '', 'a named Kosmos has none');
 });

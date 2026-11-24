@@ -224,11 +224,6 @@ say() {
   echo "$(date): $*" >&2
 }
 
-# #5154 (bounded retries, slice A): one line per run of this agent, so the board can tell a crash LOOP (runs that end
-# on their own within minutes, again and again) from a healthy agent. The log above is trimmed at every start, so it
-# cannot carry this. Lines: "start <epoch>" when this supervisor launches a session, "end <epoch>" when that session
-# is confirmed gone. Kept to the last 40 lines. engine/crashloop.js reads it (same root and the same key rule as
-# store.safeKey). Best-effort: a write that fails changes nothing about the run.
 # The file this agent's runs are kept in, `runs/<key>.<ext>` (engine/crashloop.js dir() and the key rule of
 # store.safeKey): the store's root is $AGENT_WORKFORCE_DATA/Kosmos when set, else this install's own folder (the
 # installed supervisor lives in <store root>/bin). Prints the path, or nothing when it cannot be made.
@@ -241,6 +236,11 @@ runs_file() {
   mkdir -p "$_dir" 2>/dev/null || return 1
   printf '%s\n' "$_dir/$_key.$1"
 }
+# #5154 (bounded retries, slice A): one line per run of this agent, so the board can tell a crash LOOP (runs that end
+# on their own within minutes, again and again) from a healthy agent. The log above is trimmed at every start, so it
+# cannot carry this. Lines: "start <epoch>" when this supervisor launches a session, "end <epoch>" when that session
+# is confirmed gone. Kept to the last 40 lines. engine/crashloop.js reads it (same root and the same key rule as
+# store.safeKey). Best-effort: a write that fails changes nothing about the run.
 record_run() {
   local _f
   _f="$(runs_file log)" || return 0
@@ -265,7 +265,11 @@ session_id_exact() {
 # the run file above (same folder, same key), so the card can say "Restarted at <time>: <why>" after the restart
 # (engine/macrestart.js). Written by the agent pane's pane-died hook (arm_death_record) or, when that hook never ran, by
 # the supervisor itself when it finds the pane dead (record_dead_pane). Prints the path, or nothing.
+# Only for the default Kosmos: an agent in a named one (KOSMOS_WORLD) is filed under another name and data folder than
+# the board's card reads (the run file has the same split today, #5154), so it gets no death record rather than one read
+# on another agent's card.
 died_file() {
+  if [ -n "${KOSMOS_WORLD:-}" ] && [ "${KOSMOS_WORLD}" != default ]; then return 0; fi
   runs_file died
   return 0
 }
@@ -325,7 +329,7 @@ record_dead_pane() {
   done <<EOF
 $_all
 EOF
-  case "$_line" in [0-9]*' status '[0-9]*|[0-9]*' signal '[a-zA-Z]*) { printf '%s\n' "$_line" > "$_f"; } 2>/dev/null ;; esac
+  case "$_line" in [0-9]*' status '[0-9]*|[0-9]*' signal '[a-zA-Z0-9]*) { printf '%s\n' "$_line" > "$_f"; } 2>/dev/null ;; esac
   return 0
 }
 
@@ -906,7 +910,7 @@ if [ -z "$adopt" ]; then
     _inner="printf '%s %s %s\\n' '#{pane_dead_time}' '#{?pane_dead_signal,signal,status}' '#{?pane_dead_signal,#{pane_dead_signal},#{pane_dead_status}}' > '$_f' 2>/dev/null; true"
     _q="'$(printf '%s' "$_inner" | sed "s/'/'\\\\''/g")'"
     "$TMUX_BIN" set-hook -p -t "$_p" pane-died "run-shell $_q ; kill-pane -t '$_p' ; kill-session -t '=$SESSION'" 2>/dev/null \
-      || "$TMUX_BIN" set-option -p -t "$_p" remain-on-exit off 2>/dev/null
+      || "$TMUX_BIN" set-option -pu -t "$_p" remain-on-exit 2>/dev/null   # back to what it was (a person's own setting)
     return 0
   }
 

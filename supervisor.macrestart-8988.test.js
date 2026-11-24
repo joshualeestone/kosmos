@@ -256,8 +256,7 @@ test('#8988 HASH: a data folder with a # in it gets no hook, so nothing is kept 
   try {
     const one = f.start();
     await f.until(f.alive, 'the session');
-    await f.until(() => fs.readdirSync(path.join(f.root, 'work')).length >= 0 && f.tx('list-panes', '-s', '-t', '=' + NAME).status === 0, 'the pane');
-    await new Promise((r) => setTimeout(r, 1500));   // well past arm_death_record
+    await f.until(() => f.tx('show-options', '-t', NAME, '-v', '@kosmos_runner').stdout.trim() === 'claude', 'the launch to be past arming');
     assert.equal(f.agentPane(), '', 'no pane id was recorded: the hook was never armed');
     f.tell('exit 4');
     await f.ends(one);

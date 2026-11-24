@@ -54,8 +54,14 @@ deliberate stop (kill-session) records nothing. A dead pane can never hold the a
 - The hook alone: a hook that does not run would leave a dead pane holding the agent forever.
 
 ## Weakest premises
-The 5-minute window: a person's own stop and start within 5 minutes of a crash reads as that crash's restart. It fails
-toward showing the line, never hiding a real one.
+The 5-minute window: a person's own stop and start within 5 minutes of a crash reads as that crash's restart, and a
+crash whose relaunch came later than 5 minutes (the Mac asleep, the supervisor gone for a while) is not said.
+
+An agent in a named Kosmos (KOSMOS_WORLD) gets no death record: its run file is filed under another name and data
+folder than the board's card reads (as it is today, #5154), so a record could be read on another agent's card.
+
+The whole self-report record (up to 4 MB) is read for an agent with a death in the window; when even that is cut short
+before the restart, the line is hidden rather than shown stale.
 
 That the finished-answer row is a reliable clearer. A Stop report lost while the board was down leaves the line up
 until the next turn's Stop. It fails toward showing a restart a little too long, never toward hiding one.
