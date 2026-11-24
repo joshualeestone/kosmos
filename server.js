@@ -3645,8 +3645,7 @@ function accountMoveDeps() {
 }
 /* kosmos#9010: the move's handoff steps, from #3492's pieces (handoffFileSnap, handoffRestart's prompts and freshness
    test, chat's delivery). Not asked: an agent that is not running (no session to write it), and one that cannot take a
-   turn (review 1: out of usage, as a rate_limited card or Claude Code's own usage-limit report, autobalance's
-   stoppedAtLimit; or signed out). The pickup waits for the NEW session (review 1: RESTARTED only means its launch job
+   turn now (out of usage or signed out: cannotTurn below). The pickup waits for the NEW session (review 1: RESTARTED only means its launch job
    loaded): a session start other than the one read at the ask, and a card that reads idle, as #3492's restartReadyWait
    waits for the page. `o` is for tests: { readyWaitMs, pollMs, startedAt(name), roster() }. */
 function moveHandoffDeps(o = {}) {
@@ -3660,8 +3659,12 @@ function moveHandoffDeps(o = {}) {
     try { (o.tell || ((n, text) => keepAgentReply(n, text, undefined, { kosmos: true })))(name, handoffRestart.pickupMissedNote()); }
     catch { /* best effort */ }
   };
-  const cannotTurn = (card) => !!card && (card.state === 'rate_limited' || card.state === 'auth_failed'
-    || (card.state === 'blocked' && card.limitReported === true));
+  /* Can it take a turn NOW? Not when its card reads rate_limited (out of usage) or auth_failed (signed out). Review 7:
+     deliberately NOT autobalance's stoppedAtLimit, which answers a different question (is the limit long enough to be
+     worth a move: false when the reset is soon or unknown, though the agent still cannot take a turn). A blocked card
+     with a usage-limit report is asked: that report stays on the card for hours after the reset, and a wrong ask costs
+     at most the 2-minute wait, where a wrong skip loses a handoff it could have written. */
+  const cannotTurn = (card) => !!card && (card.state === 'rate_limited' || card.state === 'auth_failed');
   return {
     ask: async (rawName) => {
       const name = clean(rawName);

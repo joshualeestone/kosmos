@@ -114,3 +114,14 @@ test('#6173 Liu Kang m5486: an agent that stopped after the click is said as not
   assert.doesNotMatch(note, /Moved/);
   assert.match(note, /^Not restarted yet \(Al\): We saved spare, but could not start it again: Al is not running/);
 });
+
+// kosmos#9010: what happened to each moved agent's handoff, said on the page (review 7: these words were untested).
+test('#9010: a moved agent with no handoff written in time, and one not asked, are said', async () => {
+  const done = { name: 'al', outcome: 'changed', because: 'Al runs on spare now.', handoff: { asked: true, saved: false } };
+  const out = { name: 'bo', outcome: 'changed', because: 'Bo runs on spare now.', handoff: { asked: false, saved: false, why: 'it was out of usage, so it could not write one.' } };
+  const fine = { name: 'cy', outcome: 'changed', because: 'Cy runs on spare now.', handoff: { asked: true, saved: true, pickup: true } };
+  const { fn } = moveWith([{ status: 202, body: { id: 'm9', done: true, agents: [done, out, fine] } }]);
+  const note = await fn('/acct/busy', '/acct/spare', ['al', 'bo', 'cy'], () => {}, new Set());
+  assert.equal(note, 'Moved 3 agents. They restart on the new account. No handoff written in time (Al): it starts without one. '
+    + 'Not asked for a handoff (Bo): it was out of usage, so it could not write one.');
+});
