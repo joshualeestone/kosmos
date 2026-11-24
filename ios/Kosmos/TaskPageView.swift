@@ -90,6 +90,8 @@ struct TaskPageView: View {
             }) { undoSheet }
             // Undone, put back, or read again as something else: the list that was open is about nothing any more.
             .onChange(of: model.undoPlan) { _ in undoOpen = false }
+            // Another account or Mac: the list is about nothing, and an undo still out would hold it open.
+            .onChange(of: client.chatEpoch) { _ in undoOpen = false }
             // The person in front of it (the board's tkPresent): on screen, the app in front, and a touch (or a key press
             // that reaches the window) in the last two minutes (PresenceProbe); opening the page or coming back counts.
             .background(PresenceProbe { model.touched() })
