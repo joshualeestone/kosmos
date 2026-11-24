@@ -468,7 +468,11 @@ function stdoutError(e, line) {
      saysNothingToResume reads); `result` is the fallback some results use. */
   const listed = Array.isArray(e.errors) ? e.errors.filter((m) => typeof m === 'string' && m.trim()) : [];
   const text = (listed.length ? listed.join(' | ') : (typeof e.result === 'string' ? e.result : '')).trim();
-  return clip((subtype || 'error') + (text ? ': ' + text : ''));
+  /* The label is the subtype only when it names an error. Claude Code reports an API
+     failure (a usage limit, credit, auth) as `subtype: 'success'` with is_error true,
+     and a death reason that reads "success: usage limit reached" says the opposite. */
+  const label = subtype.startsWith('error') ? subtype : 'error' + (subtype ? ' (' + subtype + ')' : '');
+  return clip(label + (text ? ': ' + text : ''));
 }
 
 /** kosmos#8967: does this event close the story of the last stdout error? A result
@@ -720,15 +724,17 @@ function superviseStreaming(spec, opts) {
        result also CLEARS it, so an error turn hours before does not ride on an
        unrelated death. The death waits for stdout to end (see `gone`). */
     let stdoutSaid = '';
+    let saidIsResult = false;   // an error result outranks any non-event line after it in the same turn
     if (c.stdout && typeof c.stdout.on === 'function') {
       const feed = lineReader((line) => {
         const e = parseEvent(line);
         const err = stdoutError(e, line);
-        if (err) stdoutSaid = err;
+        const isEvent = Boolean(e) && typeof e === 'object' && !Array.isArray(e);
+        if (err && (isEvent || !saidIsResult)) { stdoutSaid = err; saidIsResult = isEvent; }
         /* A success, or the start of a new turn, ends the last error's story (an
            error result, or a non-event line, alike): "its last error" means this
            turn's, never one from hours before. */
-        else if (endsLastError(e)) stdoutSaid = '';
+        else if (endsLastError(e)) { stdoutSaid = ''; saidIsResult = false; }
         /* The record above is this child's own, so it is kept even once the child is
            replaced or has exited (its death's line still needs it); what follows
            publishes, and only the CURRENT child may. An exited child is no longer
@@ -792,6 +798,8 @@ function superviseStreaming(spec, opts) {
         if (done) return;
         done = true;
         if (drainTimer !== null) clearTimeout(drainTimer);   // a stream that ended does not hold the loop the full wait
+        out.removeListener('end', once);                     // and nothing is left listening on a dead child's stdout
+        out.removeListener('close', once);
         finish(code, signal, wasCurrent);
       };
       out.once('end', once);
