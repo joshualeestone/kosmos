@@ -23655,7 +23655,8 @@ function stateReason(a, opts) {
      keeps every task line empty for needs_you, the agent's own page included. Fixed words chosen by what it waits on,
      in stateCopyOf's order (held, question, permission), so the sentence and the pill word agree. Never the agent's own
      `because` (#986, #3043, #3271: its words stay off these surfaces). A screen read is hedged "Looks like", as the
-     sign-in and limit sentences below are (#874): needs_you's screen phrases can occur in an agent's ordinary prose.
+     sign-in and limit sentences below are (#874): needs_you's screen phrases can occur in an agent's ordinary prose. A
+     permission prompt is always a screen read; anything else is one when the state is scraped.
      After #4006's failed restart above, which says what to do. */
   if (a && a.state === 'needs_you') {
     if (a.stateReportedBy === 'agent') {
@@ -23663,9 +23664,9 @@ function stateReason(a, opts) {
         ? 'It has a question for you and is holding it until you are back. Open it to answer.'
         : 'It has asked you a question and is waiting for your answer. Open it to answer.';
     }
-    const seen = a.stateConfidence === 'scraped' ? 'Looks like it is' : 'It is';
-    if (a.awaitingApproval === true) return seen + ' waiting for your permission to go on. Open it to answer.';
-    return seen + ' waiting for you. Open it to see what it needs.';
+    /* awaitingApproval is itself read off the screen (status.js awaitingApprovalOf), whatever the state's confidence. */
+    if (a.awaitingApproval === true) return 'Looks like it is waiting for your permission to go on. Open it to answer.';
+    return (a.stateConfidence === 'scraped' ? 'Looks like it is' : 'It is') + ' waiting for you. Open it to see what it needs.';
   }
   if (a && a.state === 'restarting') {
     /* #2019 timedOut: an OVERRUN restart must not still promise "a few seconds"

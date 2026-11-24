@@ -19,7 +19,6 @@ const stateReason = new Function(page.lift(SCRIPT, 'stateReason') + '\nreturn st
 
 const QUESTION = 'It has asked you a question and is waiting for your answer. Open it to answer.';
 const HELD = 'It has a question for you and is holding it until you are back. Open it to answer.';
-const PERMISSION = 'It is waiting for your permission to go on. Open it to answer.';
 const OTHER = 'It is waiting for you. Open it to see what it needs.';
 /* #874's hedge: a needs_you read off the screen says "Looks like", as the sign-in and limit sentences do. */
 const SEEN_PERMISSION = 'Looks like it is waiting for your permission to go on. Open it to answer.';
@@ -29,7 +28,9 @@ const SECRET = 'May I push to the branch named secret-plan?';
 test('#8991 each way of waiting on the person has its own plain sentence', () => {
   assert.equal(stateReason({ name: 'Ada', state: 'needs_you', stateReportedBy: 'agent', because: SECRET }), QUESTION);
   assert.equal(stateReason({ name: 'Ada', state: 'needs_you', stateReportedBy: 'agent', stateHeld: true, because: SECRET }), HELD);
-  assert.equal(stateReason({ name: 'Ada', state: 'needs_you', stateReportedBy: 'auto', awaitingApproval: true, because: 'asking permission to use Bash: rm x' }), PERMISSION);
+  /* awaitingApproval is read off the screen even when the state was reported (a needs_you does not decay, and an agent's
+     prose can match the permission wording), so the permission sentence is always hedged. */
+  assert.equal(stateReason({ name: 'Ada', state: 'needs_you', stateReportedBy: 'auto', stateConfidence: 'structured', awaitingApproval: true, because: 'asking permission to use Bash: rm x' }), SEEN_PERMISSION);
   assert.equal(stateReason({ name: 'Ada', state: 'needs_you', stateConfidence: 'scraped', because: 'it is asking you something' }), SEEN_OTHER);
   assert.equal(stateReason({ name: 'Ada', state: 'needs_you', stateConfidence: 'scraped', awaitingApproval: true }), SEEN_PERMISSION);
   /* A question the agent reported itself is not a screen read, so it is never hedged, whatever the confidence field says. */
@@ -43,7 +44,7 @@ test('#8991 the pill word and the sentence come from the same order (held, quest
   const cases = [
     [{ state: 'needs_you', stateReportedBy: 'agent', stateHeld: true, awaitingApproval: true }, 'Question held', HELD],
     [{ state: 'needs_you', stateReportedBy: 'agent', awaitingApproval: true }, 'Question', QUESTION],
-    [{ state: 'needs_you', awaitingApproval: true }, 'Needs permission', PERMISSION],
+    [{ state: 'needs_you', awaitingApproval: true }, 'Needs permission', SEEN_PERMISSION],
     [{ state: 'needs_you' }, 'Issue', OTHER],
   ];
   for (const [a, label, words] of cases) {
@@ -72,7 +73,7 @@ test('#8991 a sentence that says more still wins, and other states are untouched
   /* CONTROLS: no state that is not waiting on the person borrows these words. */
   for (const state of ['idle', 'working', 'stopped', 'restarting', 'rate_limited', 'auth_failed', 'connection_lost', 'unknown']) {
     const said = String(stateReason({ name: 'Ada', state, stateReportedBy: 'agent', awaitingApproval: true }));
-    assert.ok(![QUESTION, HELD, PERMISSION, OTHER, SEEN_PERMISSION, SEEN_OTHER].includes(said), state + ' said a waiting-on-you sentence: ' + said);
+    assert.ok(![QUESTION, HELD, OTHER, SEEN_PERMISSION, SEEN_OTHER].includes(said), state + ' said a waiting-on-you sentence: ' + said);
   }
   /* #6716: the tile itself still carries no sentence. */
   assert.equal(stateReason({ state: 'needs_you', stateReportedBy: 'agent' }, { card: true }), '');
@@ -82,7 +83,7 @@ test('#8991 the sentence is the pill\'s words only: every task line (tile, list 
   const lifted = (name) => page.lift(SCRIPT, name);
   const taskLine = new Function(lifted('stateReason') + '\n' + lifted('taskLine') + '\nreturn taskLine;')();
   const pillSay = new Function(lifted('stateReason') + '\n' + lifted('rulesBehindLine') + '\n' + lifted('pillSay') + '\nreturn pillSay;')();
-  for (const [a, words] of [[{ state: 'needs_you', stateReportedBy: 'agent' }, QUESTION], [{ state: 'needs_you', awaitingApproval: true }, PERMISSION], [{ state: 'needs_you', task: 'Project 821226pmtest m54' }, OTHER]]) {
+  for (const [a, words] of [[{ state: 'needs_you', stateReportedBy: 'agent' }, QUESTION], [{ state: 'needs_you', awaitingApproval: true }, SEEN_PERMISSION], [{ state: 'needs_you', task: 'Project 821226pmtest m54' }, OTHER]]) {
     assert.equal(pillSay(a), words, 'the pill says it: ' + JSON.stringify(a));
     assert.equal(taskLine(a), '', 'the agent\'s page line stays empty (#209): ' + JSON.stringify(a));
     assert.equal(taskLine(a, { card: true }), '', 'the tile stays empty (#6716): ' + JSON.stringify(a));
