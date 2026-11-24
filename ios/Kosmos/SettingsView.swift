@@ -16,6 +16,8 @@ struct SettingsView: View {
     let signedOut: (String) -> Void
     // The session signed in now, and a count bumped on every sign-in change (AccountView reads both).
     let currentSession: () -> String?
+    // kosmos#8959 slice B1b: setting up a second step renewed the session (old, fresh); the app keeps the fresh one.
+    let renewed: (String, String) -> Void
     let accountGeneration: Int
     // kosmos#7266 slice B: the person on the shown computer, for the page's top (BoardClient.youName / youPicture).
     var youName: String? = nil
@@ -252,7 +254,7 @@ struct SettingsView: View {
         Section {
             // kosmos#8959 slice B1a: native, where the web page used to open.
             NavigationLink {
-                AccountView(coordinator: coordinator, openPage: openPage, signedOut: signedOut, currentSession: currentSession,
+                AccountView(coordinator: coordinator, openPage: openPage, signedOut: signedOut, currentSession: currentSession, renewed: renewed,
                             accountGeneration: accountGeneration, sample: Self.sample)
             } label: {
                 Text("Your Kosmos+ account").foregroundColor(Palette.primary)

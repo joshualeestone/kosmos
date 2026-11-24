@@ -207,6 +207,18 @@ final class PushNotificationManager: NSObject, ObservableObject {
     // kosmos#8959 slice B1a: Sign out (or Sign out everywhere) on the native account screen.
     func signedOutInSettings() { take(.signedOut, from: "Sign out in Settings on this iPhone") }
 
+    /// kosmos#8959 slice B1b: setting up a second step on the account screen hands back a fresh session for the SAME
+    /// account (kosmos-relay second.rs confirm, kosmos#3860), and Kosmos+ refuses the old one from then on. It is kept
+    /// through the registrar alone (the keychain, and push registered under it), never through take(): this is not an
+    /// account change, so nothing is counted, no reason is written for the Agents list, and the Mac's own session stays.
+    /// Only while `old` is still the session held: a sign-in that changed meanwhile is left alone. Says whether it kept it.
+    @discardableResult
+    func sessionRenewed(from old: String, to fresh: String) -> Bool {
+        guard !fresh.isEmpty, fresh != old, currentSession == old else { return false }
+        registrar.didReceive(.signedIn(fresh))
+        return true
+    }
+
     private func take(_ message: PushBridge.SessionMessage, from source: String) {
         // kosmos#6838: a sign-out, or a sign-in as someone else, also makes the Agents tab forget its kept Mac session,
         // at once rather than at the next visit. (Forgotten on this iPhone; the Mac ends the session on its own

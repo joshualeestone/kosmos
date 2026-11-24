@@ -68,5 +68,21 @@ check(A.confirmed(status: 401, json: nil) == .signedOut, "401 is signed out")
 check(A.signInAgainWords(kind: "sms").hasPrefix(A.onTitle + ". "), "it still says the step is on")
 check(A.signInAgainWords(kind: "sms").hasSuffix("Sign in again on this iPhone to keep going."), "and what to do")
 
+// Requests: the coordinator's own routes, the session as the bearer, never a cookie or a cached answer.
+let coord = URL(string: "https://kosmos.example")!
+let st = A.statusRequest(coordinator: coord, session: "S1")
+check(st.url?.absoluteString == "https://kosmos.example/v1/second" && st.httpMethod == "GET" && st.httpBody == nil, "status is a GET of /v1/second")
+check(st.value(forHTTPHeaderField: "Authorization") == "Bearer S1" && !st.httpShouldHandleCookies, "bearer, no cookies")
+let en = A.enrolRequest(coordinator: coord, session: "S1", phone: " +1 214 555 1234 ")
+let enBody = (try? JSONSerialization.jsonObject(with: en.httpBody ?? Data())) as? [String: String]
+check(en.url?.path == "/v1/second/enrol" && en.httpMethod == "POST", "enrol posts")
+check(enBody == ["kind": "sms", "phone": "+1 214 555 1234"], "a text enrol carries the number as typed, trimmed")
+check(en.timeoutInterval == SignIn.textSendTimeout, "a text waits as long as slice A's")
+let ea = A.enrolRequest(coordinator: coord, session: "S1", phone: nil)
+check(((try? JSONSerialization.jsonObject(with: ea.httpBody ?? Data())) as? [String: String]) == ["kind": "totp"], "an app enrol")
+check(ea.timeoutInterval == 15, "the app's keeps the usual wait")
+let cf = A.confirmRequest(coordinator: coord, session: "S1", code: "123456")
+check(cf.url?.path == "/v1/second/confirm" && ((try? JSONSerialization.jsonObject(with: cf.httpBody ?? Data())) as? [String: String]) == ["code": "123456"], "confirm sends the code")
+
 print(failures == 0 ? "VERDICT: PASS \(total)/\(total)" : "VERDICT: FAIL \(total - failures)/\(total)")
 exit(failures == 0 ? 0 : 1)

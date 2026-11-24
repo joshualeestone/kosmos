@@ -1,9 +1,10 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // kosmos#8959 slice B1a: the Kosmos+ account, native. Opened from the Settings tab's "Your Kosmos+ account" row, where
 // the web page used to open. The computers on the account (each with the web page's words, and Retire), Sign out and
 // Sign out everywhere; everything else on the account (billing, passkeys, the second step) is one row away on the web
-// page, until slices B1b, B1c and B2. The logic is AccountLogic.swift.
+// page, until slices B1b, B1c and B2. The logic is AccountLogic.swift; the second step (slice B1b) is AccountSecondLogic.swift.
 struct AccountView: View {
     let coordinator: URL
     // The account's web page, for what is not here yet.
@@ -13,6 +14,9 @@ struct AccountView: View {
     // The session signed in now: the keychain's, or the one the app holds in memory when the keychain could not save it
     // (PushNotificationManager.currentSession, kosmos#7042 review round 8).
     let currentSession: () -> String?
+    // kosmos#8959 slice B1b: setting up a second step hands back a fresh session for this account (old, fresh); the app
+    // keeps it (PushNotificationManager.sessionRenewed), because Kosmos+ refuses the old one from then on.
+    let renewed: (String, String) -> Void
     // Bumped on every sign-in change (PushNotificationManager.accountChanges): the list is read again for the new one.
     var accountGeneration = 0
     var sample = false
@@ -47,9 +51,25 @@ struct AccountView: View {
 
     private enum Busy { case signOut, everywhere }
 
+    // kosmos#8959 slice B1b: the second step. What GET /v1/second said, the setup sheet's screen, and the sign-in each
+    // answer belongs to (an answer for another sign-in is dropped, as above).
+    private enum SecondLoad: Equatable { case reading, known(AccountSecond.Status), unreadable(String) }
+    private enum Setup: Equatable { case phone, textCode(sentTo: String), app(otpauth: String, secret: String) }
+    @State private var second: SecondLoad = .reading
+    @State private var secondTicket = 0
+    @State private var secondNote: String?
+    @State private var setup: Setup?
+    @State private var setupFor: String?
+    @State private var setupBusy = false
+    @State private var setupNote: String?
+    @State private var phone = ""
+    @State private var code = ""
+    @Environment(\.openURL) private var openURL
+
     var body: some View {
         List {
             computers
+            secondSection
             signOutSection
             more
         }
@@ -65,10 +85,13 @@ struct AccountView: View {
             // A sheet, a choice or a note belonged to the sign-in that just changed.
             retireBusy = false; retireFor = nil; closeRetire(); offerLocalOnly = nil; signOutNote = nil; listNote = nil
             busy = nil; busyFor = nil; askEverywhere = false; everywhereFor = nil; askLocalOnly = false
+            setupBusy = false; setup = nil; setupFor = nil; setupNote = nil; secondNote = nil; phone = ""; code = ""
+            second = .reading
             load = .reading
             Task { await read() }
         }
         .sheet(isPresented: Binding(get: { retiring != nil }, set: { if !$0 { closeRetire() } })) { retireSheet }
+        .sheet(isPresented: Binding(get: { setup != nil }, set: { if !$0 { closeSetup() } })) { setupSheet }
         .confirmationDialog("Sign out everywhere?", isPresented: $askEverywhere, titleVisibility: .visible) {
             Button("Sign out everywhere", role: .destructive) { Task { await signOutEverywhere(for: everywhereFor) } }
             Button("Cancel", role: .cancel) {}
@@ -147,6 +170,136 @@ struct AccountView: View {
         .interactiveDismissDisabled(retireBusy)
     }
 
+    // MARK: Two-step sign-in (kosmos#8959 slice B1b)
+
+    @ViewBuilder private var secondSection: some View {
+        Section {
+            switch second {
+            case .reading:
+                HStack { SweepDots(label: "Reading two-step sign-in", scales: false); Text("Reading two-step sign-in").foregroundColor(Palette.secondary) }
+            case .unreadable(let why):
+                Text(why).foregroundColor(Palette.secondary)
+            case .known(let status):
+                if let kind = status.enrolled {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(AccountSecond.onTitle).foregroundColor(Palette.primary)
+                        Text(AccountSecond.onWords(kind: kind)).font(.footnote).foregroundColor(Palette.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("account-second-on")
+                    DisclosureGroup(AccountSecond.lostPhoneTitle) {
+                        Text(AccountSecond.lostPhoneWords).font(.footnote).foregroundColor(Palette.secondary)
+                    }
+                } else {
+                    Text(AccountSecond.offerWords).font(.footnote).foregroundColor(Palette.secondary)
+                    ForEach(AccountSecond.choices(status), id: \.self) { kind in
+                        Button(kind == .sms ? "Set up text messages" : "Set up an authenticator app") { Task { await startSetup(kind) } }
+                            .disabled(setupBusy || busy != nil)
+                            .accessibilityIdentifier(kind == .sms ? "account-second-sms" : "account-second-app")
+                    }
+                }
+            }
+        } header: {
+            Text(secondHeader)
+        } footer: {
+            if let secondNote {
+                Text(secondNote).font(.footnote).foregroundColor(Palette.dangerWord)
+            } else if case .known(let status) = second {
+                Text(status.enrolled != nil ? AccountSecond.resetWords : (status.smsAvailable ? "" : AccountSecond.noTextsWords))
+                    .font(.footnote).foregroundColor(Palette.secondary)
+            }
+        }
+    }
+
+    private var secondHeader: String {
+        if case .known(let status) = second, status.enrolled == nil { return AccountSecond.offerTitle }
+        return "Two-step sign-in"
+    }
+
+    private var setupSheet: some View {
+        NavigationView {
+            Form {
+                switch setup {
+                case .phone:
+                    Section {
+                        Text(SignIn.phoneWords)
+                        TextField("Mobile number", text: $phone)
+                            .textContentType(.telephoneNumber).keyboardType(.phonePad)
+                            .disabled(setupBusy)
+                            .onChange(of: phone) { _ in setupNote = nil }
+                            .accessibilityIdentifier("account-second-phone")
+                    } footer: { setupFooter }
+                    Section {
+                        Button(setupBusy ? "Texting a code" : "Text me a code") { Task { await sendText() } }.disabled(setupBusy)
+                        if setupNote == SignIn.textMayBeComing {
+                            Button("I got a code") { code = ""; setupNote = nil; setup = .textCode(sentTo: "your phone") }.disabled(setupBusy)
+                        }
+                    }
+                case .textCode(let sentTo):
+                    Section {
+                        Text(SignIn.secondWords(kind: "sms", sentTo: sentTo))
+                        codeField
+                    } footer: { setupFooter }
+                    Section {
+                        Button(setupBusy ? "Confirming" : "Confirm") { Task { await confirmSetup() } }.disabled(setupBusy)
+                        Button("Use a different number") { code = ""; setupNote = nil; setup = .phone }.disabled(setupBusy)
+                    }
+                case .app(let otpauth, let secret):
+                    Section {
+                        Text("Add Kosmos to your authenticator app with the button, or type this key into the app yourself. Then type the six-digit code it shows.")
+                        if let url = URL(string: otpauth) {
+                            Button("Add to my authenticator app") { openURL(url) }
+                        }
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(SignIn.grouped(secret: secret)).font(.system(.body, design: .monospaced)).foregroundColor(Palette.primary)
+                                .textSelection(.enabled).accessibilityLabel("Key: \(secret.map { String($0) }.joined(separator: " "))")
+                                .accessibilityIdentifier("account-second-key")
+                            Spacer()
+                            // As slice A's: the key is the second step itself, so it stays on this iPhone, for two minutes.
+                            Button("Copy") {
+                                UIPasteboard.general.setItems([[UTType.plainText.identifier: secret]],
+                                                              options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
+                            }.buttonStyle(.borderless).foregroundColor(Palette.link)
+                        }
+                        codeField
+                    } footer: { setupFooter }
+                    Section {
+                        Button(setupBusy ? "Confirming" : "Confirm") { Task { await confirmSetup() } }.disabled(setupBusy)
+                    }
+                case nil:
+                    EmptyView()
+                }
+            }
+            .navigationTitle(setupTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { closeSetup() }.disabled(setupBusy) } }
+        }
+        .navigationViewStyle(.stack)
+        .interactiveDismissDisabled(setupBusy)
+    }
+
+    private var setupTitle: String {
+        switch setup {
+        case .phone: return "Your mobile number"
+        case .textCode: return "Type the code"
+        case .app: return "Add your key"
+        case nil: return ""
+        }
+    }
+
+    @ViewBuilder private var setupFooter: some View {
+        if let setupNote { Text(setupNote).foregroundColor(Palette.dangerWord) }
+    }
+
+    private var codeField: some View {
+        TextField("Six-digit code", text: $code)
+            .textContentType(.oneTimeCode).keyboardType(.numberPad)
+            .font(code.isEmpty ? .body : .system(.title2, design: .monospaced))
+            .disabled(setupBusy)
+            .onSubmit { Task { await confirmSetup() } }
+            .accessibilityIdentifier("account-second-code")
+    }
+
     // MARK: Sign out
 
     private var signOutSection: some View {
@@ -194,7 +347,7 @@ struct AccountView: View {
             }
             .accessibilityIdentifier("account-more")
         } footer: {
-            Text("Your plan and billing, passkeys, the second sign-in step and adding a computer are on your Kosmos+ account page.")
+            Text("Your plan and billing, passkeys and adding a computer are on your Kosmos+ account page.")
                 .font(.footnote).foregroundColor(Palette.secondary)
         }
     }
@@ -213,6 +366,11 @@ struct AccountView: View {
 
     // `again`: this read follows one whose sign-in changed while it was out; it is not repeated a second time.
     @MainActor private func read(again: Bool = false) async {
+        if !again { async let s: Void = readSecond(); await readComputers(again: again); await s; return }
+        await readComputers(again: again)
+    }
+
+    @MainActor private func readComputers(again: Bool) async {
         if sample { load = .loaded(Self.sampleRows); return }
         readTicket += 1
         let ticket = readTicket
@@ -306,6 +464,108 @@ struct AccountView: View {
         case .signOutHere: signedOut(session)
         case .stay(let why): signOutNote = why
         }
+    }
+
+    // MARK: Two-step sign-in, asking Kosmos+
+
+    @MainActor private func readSecond() async {
+        if sample { second = .known(.init(enrolled: nil, smsAvailable: true)); return }
+        secondTicket += 1
+        let ticket = secondTicket
+        guard let session = currentSession() else { second = .unreadable("You are signed out."); return }
+        let (status, data) = await send(AccountSecond.statusRequest(coordinator: coordinator, session: session))
+        guard !Task.isCancelled, ticket == secondTicket, currentSession() == session else {
+            if ticket == secondTicket, case .reading = second { second = .unreadable(AccountSecond.unreadableWords) }
+            return
+        }
+        // A failure leaves a state already shown as it is; only a first read says it could not tell.
+        guard let status else { if case .reading = second { second = .unreadable(Account.reach) }; return }
+        switch AccountSecond.read(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) {
+        case .status(let s): second = .known(s); secondNote = nil
+        // A 401 is the computers list's to say (the same session); here the section only cannot tell.
+        case .signedOut: if case .reading = second { second = .unreadable(AccountSecond.unreadableWords) }
+        case .unreadable(let why): if case .reading = second { second = .unreadable(why) }
+        }
+    }
+
+    @MainActor private func startSetup(_ kind: AccountSecond.Kind) async {
+        guard !setupBusy, let session = sample ? "sample" : currentSession() else { return }
+        secondNote = nil; setupNote = nil; code = ""
+        setupFor = session
+        if kind == .sms { setup = .phone; return }
+        if sample { setup = .app(otpauth: "otpauth://totp/Kosmos:ada%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Kosmos", secret: "JBSWY3DPEHPK3PXP"); return }
+        setupBusy = true
+        let (status, data) = await send(AccountSecond.enrolRequest(coordinator: coordinator, session: session, phone: nil))
+        setupBusy = false
+        guard currentSession() == session else { return }
+        guard let status else { secondNote = Account.reach; return }
+        switch SignIn.enrolled(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) {
+        case .totp(let link, let secret): setup = .app(otpauth: link, secret: secret)
+        case .sms: secondNote = "That did not work. Try again."
+        case .refused(let why): secondNote = why
+        }
+    }
+
+    @MainActor private func sendText() async {
+        guard !setupBusy, setup == .phone, let session = setupFor else { return }
+        guard phone.contains(where: { $0.isASCII && $0.isNumber }) else { setupNote = "Type your mobile number first."; return }
+        if sample { setup = .textCode(sentTo: "\u{2022}\u{2022}\u{2022} 1234"); return }
+        guard currentSession() == session else { closeSetup(force: true); return }
+        setupBusy = true; setupNote = nil
+        let (status, data) = await send(AccountSecond.enrolRequest(coordinator: coordinator, session: session, phone: phone))
+        setupBusy = false
+        guard currentSession() == session, setup == .phone else { return }
+        // No answer: Kosmos+ may have sent the text all the same (slice A's words, and its "I got a code").
+        guard let status else { setupNote = SignIn.textMayBeComing; return }
+        let json = data.flatMap { try? JSONSerialization.jsonObject(with: $0) }
+        switch SignIn.enrolled(status: status, json: json) {
+        case .sms(let sentTo): code = ""; setup = .textCode(sentTo: sentTo)
+        case .totp: setupNote = "That did not work. Try again."
+        case .refused(let why):
+            // kosmos#5131, as the page: the text service refused, not the number. The offer turns to the app.
+            if AccountSecond.textsUnavailable(status: status, json: json) {
+                closeSetup(force: true)
+                if case .known(let s) = second { second = .known(.init(enrolled: s.enrolled, smsAvailable: false)) }
+                secondNote = why
+            } else { setupNote = why }
+        }
+    }
+
+    @MainActor private func confirmSetup() async {
+        guard !setupBusy, let shown = setup, shown != .phone, let session = setupFor else { return }
+        guard let typed = AccountSecond.code(code) else { setupNote = AccountSecond.codeNotSix; return }
+        let texted: Bool
+        if case .textCode = shown { texted = true } else { texted = false }
+        if sample { closeSetup(force: true); second = .known(.init(enrolled: texted ? "sms" : "totp", smsAvailable: true)); return }
+        guard currentSession() == session else { closeSetup(force: true); return }
+        setupBusy = true; setupNote = nil
+        let (status, data) = await send(AccountSecond.confirmRequest(coordinator: coordinator, session: session, code: typed))
+        setupBusy = false
+        // The step may be on even when the sign-in changed meanwhile; this screen reads it again for whoever is in now.
+        guard currentSession() == session else { await readSecond(); return }
+        guard let status else { setupNote = Account.reach; return }
+        switch AccountSecond.confirmed(status: status, json: data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) {
+        case .on(let kind, let fresh):
+            // First, before anything else asks Kosmos+: the old session is refused from now on.
+            if let fresh { renewed(session, fresh) }
+            closeSetup(force: true)
+            second = .known(.init(enrolled: kind, smsAvailable: { if case .known(let s) = second { return s.smsAvailable }; return false }()))
+            secondNote = nil
+        case .onSignInAgain(let kind):
+            closeSetup(force: true)
+            second = .known(.init(enrolled: kind, smsAvailable: false))
+            secondNote = AccountSecond.signInAgainWords(kind: kind)
+        case .refused(let why):
+            setupNote = why == AccountSecond.codeRefused ? SignIn.setupCodeRefused(texted: texted) : why
+        case .signedOut:
+            closeSetup(force: true)
+            secondNote = "Kosmos+ no longer takes this sign-in. Sign out, then sign in again."
+        }
+    }
+
+    private func closeSetup(force: Bool = false) {
+        guard force || !setupBusy else { return }
+        setup = nil; setupFor = nil; setupNote = nil; code = ""
     }
 
     private static let sampleRows: [Account.Computer] = {
