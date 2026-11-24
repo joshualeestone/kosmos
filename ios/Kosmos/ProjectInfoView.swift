@@ -299,9 +299,6 @@ struct ProjectInfoView: View {
                 if m.needsYouHere != nil {
                     Text("Needs you").font(.footnote.weight(.semibold)).foregroundColor(Palette.dangerWord)
                 }
-                if agent == nil {   // kosmos#8957: this tap opens the computer's board, and says so
-                    Image(systemName: Board.boardIcon).foregroundColor(Palette.secondary).accessibilityHidden(true)
-                }
             }
             .frame(minHeight: 44).contentShape(Rectangle())
         }

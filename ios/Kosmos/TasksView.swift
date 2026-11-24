@@ -472,12 +472,12 @@ struct TasksView: View {
     }
 }
 
-// A decision row's Answer, also as a custom accessibility action (the spec), only on a row that has one.
 // kosmos#8957: "Answer", with the board icon when it opens the computer's board.
 private func answerWord(onBoard: Bool) -> Text {
     onBoard ? Text("Answer") + Text(" ") + Text(Image(systemName: Board.boardIcon)) : Text("Answer")
 }
 
+// A decision row's Answer, also as a custom accessibility action (the spec), only on a row that has one.
 private struct AnswerAction: ViewModifier {
     let on: Bool
     let run: () -> Void

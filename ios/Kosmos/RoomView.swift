@@ -707,7 +707,7 @@ struct RoomView: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 // An agent the status does not list (rare): the project's page on the computer's board, never a dead button.
-                // kosmos#8957: that fallback says so, with the board icon and hint.
+                // kosmos#8957: that fallback says so, with the board icon and the note under the row.
                 let onBoard = store.agent(row.session) == nil
                 Button { if let a = store.agent(row.session) { chatAgent = a } else { openBoardPage() } } label: {
                     (onBoard ? Text(row.act) + Text(" ") + Text(Image(systemName: Board.boardIcon)) : Text(row.act))

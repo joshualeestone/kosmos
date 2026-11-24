@@ -564,6 +564,11 @@ struct BoardStates<Empty: View>: View {
                             lastHeard: client.lastHeard(address: client.failingAddress, name: mac))
                 .onAppear { client.refreshLastSeen() }   // kosmos#7416 review 2: the list's time, read afresh
                 .navigationBarHidden(true)
+                // kosmos#8957: with Back to Kosmos gone (it opened the board, whose page offered another computer), the
+                // switcher itself, light on the navy page, when the account has another computer to show.
+                .overlay(alignment: .topLeading) {
+                    if client.macs.count > 1 { MacSwitcher(client: client).environment(\.colorScheme, .dark).padding(16) }
+                }
         case .kosmosPlusDown:
             LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: nil)
                 .navigationBarHidden(true)
