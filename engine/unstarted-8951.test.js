@@ -696,15 +696,16 @@ test('#8951 review 13: a reported message that starts late is matched to itself,
   assert.deepEqual(r.last().unstarted && { count: r.last().unstarted.count, lost: r.last().unstarted.lost }, { count: 1, lost: true }, 'm2, not silence');
 });
 
-test('#8951 review 13: a write whose callback comes just after a main turn opened on no message is that turn\'s opener', () => {
+test('#8951 review 18: a write just after a turn opened on no message waits behind it (no guess that it opened it)', () => {
+  // Review 13 guessed such a write was the turn's opener; review 18 found the guess can lose a message queued behind a
+  // wake-up. Without it, the rare race can only over-report (the plan's rule), which this pins.
   const r = recording();
   r.pub.started(6368, 'sid-1');
-  r.pub.event(init);                                        // the turn opens before the write callback
+  r.pub.event(init);
   r.clock.t += 200;
   r.pub.wrote();
-  r.pub.event(result);
-  r.fire();
-  assert.equal(r.last().unstarted, undefined, 'it ran in that turn');
+  r.pub.event(result); r.timers.splice(0, r.timers.length - 1); r.fire();
+  assert.equal(r.last().unstarted && r.last().unstarted.count, 1, 'reported, never silently dropped');
   const q = recording();
   q.pub.started(6368, 'sid-1');
   q.pub.event(init);
@@ -832,4 +833,17 @@ test('#8951: the push for an unstarted report is a turn push, one per report', (
   assert.equal(ev.kind, 'needs_you');
   assert.match(ev.id, /^turn:\d+:/, 'the turn kind, so phonenotify treats it as a stuck turn, not a streak');
   assert.ok(ev.id.endsWith(':' + board.card('homer').sessionName));
+});
+
+test('#8951 review 18: a message written before a turn opened does not join it when its calls return; its own turn is next', () => {
+  const r = recording();
+  r.pub.started(6368, 'sid-1');
+  r.pub.wrote(); r.pub.wrote();                       // A and B, back to back, before any turn
+  r.pub.event(init);                                  // A's turn
+  r.pub.event({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'x' } }] } });
+  r.pub.event({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } });
+  r.pub.event(result);                                // A done
+  r.timers.splice(0, r.timers.length - 1);
+  r.fire();                                           // B's turn never opens
+  assert.equal(r.last().unstarted && r.last().unstarted.count, 1, 'B is reported');
 });
