@@ -25,7 +25,7 @@ the log: a death is now written up to 500 ms later (the drain below), so the res
   kept. A successful result or a new turn (`system/init`) clears an earlier error, so an old error never rides on an
   unrelated death. The record is the child's own, kept even after the child is replaced.
 - The `died` reason joins `it said: <stderr tail>` and `its stdout said: <...>` with `; `.
-- `taskLogLine(at, name, e)` builds every task-log line; only a `died` line adds `(exit code N)` (with
+- `taskLogLine(at, name, e)` builds every supervisor-event line (`onEvent`; the few lines `main()` writes by hand for its own conditions, such as host-gone or channel-refused, are untouched); only a `died` line adds `(exit code N)` (with
   `= 0xXXXXXXXX` for a Windows code past 255 or below 0, an NTSTATUS) or `(signal S)`. A death with neither reads as
   before. Every other line is byte-identical to before.
 - The death waits for stdout to end (`end` or `close`), at most `STDOUT_DRAIN_MS` = 500 ms (option `stdoutDrainMs`
@@ -42,7 +42,7 @@ the log: a death is now written up to 500 ms later (the drain below), so the res
   dropped. Only the reason gathering, the `died` line and the restart decision wait.
 
 ## Tests (engine/win32supervisor.test.js)
-Thirteen `#8967` tests: code and signal on the event; error vs successful result vs non-event line on the reason, and an
+Fourteen `#8967` tests: code and signal on the event; error vs successful result vs non-event line on the reason, and an
 old error cleared by a success and by a new turn; the death waiting for stdout in the real-world order (exit first);
 the drain bound when stdout never ends, a death released by close alone, and no wait for a stdout already destroyed or closed; process state settled at exit (stopped at once, a late flush not counted); a late line publishing nothing; a send during the drain; stdoutError (including a 16 MB line in bounded time) and
 taskLogLine directly. Each was run against the code before its fix and failed there (control runs on the box).
