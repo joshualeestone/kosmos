@@ -8001,6 +8001,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .att-txt { display: flex; flex-direction: column; gap: 2px; padding: 9px 12px; min-width: 0; }
 .att-name { font: 600 .9375rem var(--font-ui); color: var(--k-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .att-meta { font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
+.att-bad { font: 600 var(--text-caption) var(--font-ui); color: var(--warn-ink); }   /* kosmos#9016 */
 
 /* #4930: the full-page preview of a file a message carries. Very dark, the file fitted to the screen, X top right.
    #8122 (Josh 11-06: "maybe we put the download button right below it ... so it's not hidden off in the corner like it
@@ -79662,7 +79663,10 @@ function pjAttachmentCard(att) {
     + (id ? ' data-att="' + id + '" aria-haspopup="dialog"' : '') + '>'
     + pic
     + '<span class="att-txt"><span class="att-name">' + esc(name) + '</span>'
-    + (meta ? '<span class="att-meta">' + esc(meta) + '</span>' : '') + '</span></a>';
+    + (meta ? '<span class="att-meta">' + esc(meta) + '</span>' : '')
+    /* kosmos#9016: the board kept a zip-based file (a spreadsheet, a document) whose end is missing; said beside it, never
+       as if it were whole. */
+    + (a.incomplete === true ? '<span class="att-bad">incomplete upload, please send again</span>' : '') + '</span></a>';
 }
 
 /* #4930 (Josh, 2026-10-01 20:17: "if I clicked on a image (or even possibly a document) it zoomed up and rendered it
@@ -85586,7 +85590,9 @@ async function attachUpload(file, where) {
   try {
     const res = await fetch(where.url(), {
       method: 'PUT',
-      headers: { 'content-type': file.type || 'application/octet-stream', 'x-attachment-name': encodeURIComponent(file.name) },
+      headers: { 'content-type': file.type || 'application/octet-stream', 'x-attachment-name': encodeURIComponent(file.name),
+        /* kosmos#9016: what the file is, as this browser read it, so the board can tell a body that arrived short or long of it. */
+        'x-attachment-size': String(file.size) },
       body: file,
     });
     const body = await res.json().catch(() => null);

@@ -23026,7 +23026,13 @@ const server = http.createServer(async (req, res) => {
     if (Number.isFinite(declared) && declared > attachments.MAX_BYTES) { refuseUpload(req, res, attachments.TOO_LARGE); return; }
     let name = '';
     try { name = decodeURIComponent(String(req.headers['x-attachment-name'] || '')); } catch { name = String(req.headers['x-attachment-name'] || ''); }
-    attachments.saveStream(scope, owner, { name, type: req.headers['content-type'] }, req)
+    /* kosmos#9016: the size the sender's own file has, as the sender read it. Not the same claim as Content-Length, which
+       a chunked or forwarded body need not carry and which is about the bytes on the wire: this is about the file, so
+       a body that arrived short or long of it is refused in words, never stored as if it were whole. */
+    const sent = req.headers['x-attachment-size'];
+    const sizeOf = typeof sent === 'string' && /^\d{1,12}$/.test(sent.trim()) ? Number(sent.trim()) : null;
+    if (sizeOf !== null && sizeOf > attachments.MAX_BYTES) { refuseUpload(req, res, attachments.TOO_LARGE); return; }
+    attachments.saveStream(scope, owner, { name, type: req.headers['content-type'], ...(sizeOf === null ? {} : { fileSize: sizeOf }) }, req)
       .then((rec) => {
         /* #6098: an office file gets its text rendering before the answer, so the message that carries it can name
            it. The conversion runs in a worker thread with a memory and a time limit (attachtext.js), so a hostile
