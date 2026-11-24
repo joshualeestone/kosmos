@@ -5,6 +5,10 @@ require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, remo
  * board followed by process.exit died on a libuv assertion (exit 127); the entry now lets the process end on its own.
  * Checks the exit code, that the hook JSON is printed whole, that the run ends well before the 2 s backstop, and that
  * a stdin that never closes still ends shortly after the 5 s stdin backstop.
+ * kosmos#8968: no bound here is a total wall-clock time, which a loaded Mac doubled (10.4 s against a 7 s ceiling, the
+ * same file passing alone). The 2 s backstop is armed only after the hook's last request is answered, so a run that
+ * waits for it ends 2 s or more after the board saw that request: the bound is on that tail. The 5 s stdin backstop
+ * is timed from when node starts the hook (a preload's mark), so a slow start is not counted against it.
  *   node --test engine/kosmos-report-hook.exit-8014.test.js */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -21,9 +25,10 @@ const HOOK_JSON = '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","ad
 
 function fakeBoard(stall) {
   const seen = [];
+  const at = [];   // kosmos#8968: when each request arrived (ms), in the order of `seen`
   const server = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://127.0.0.1');
-    seen.push(u.pathname);
+    seen.push(u.pathname); at.push(Date.now());
     req.resume();
     req.on('end', () => {
       if (u.pathname === boardproof.PROOF_PATH) {
@@ -36,14 +41,17 @@ function fakeBoard(stall) {
       res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"recorded":true}');
     });
   });
-  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port, seen })));
+  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port, seen, at })));
 }
 
 function runHook(port, evt, { closeStdin = true } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rhk8014x-'));
   const env = { ...process.env, KOSMOS_PORT: String(port), KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_AGENT_TOKEN_ONLY: '1', TEMP: tmp, TMP: tmp, TMPDIR: tmp };
+  // kosmos#8968: the preload runs just before the hook's own code, so its mark is when the hook's timers start.
+  const preload = path.join(tmp, 'mark.js');
+  fs.writeFileSync(preload, "process.stderr.write('KOSMOS-8968-START ' + Date.now() + '\\n');\n");
   const t0 = Date.now();
-  const child = spawn(process.execPath, [HOOK], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['-r', preload, HOOK], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   let out = ''; let err = '';
   child.stdout.on('data', (d) => { out += d; });
   child.stderr.on('data', (d) => { err += d; });
@@ -51,8 +59,19 @@ function runHook(port, evt, { closeStdin = true } = {}) {
   if (closeStdin) child.stdin.end();
   return new Promise((resolve) => child.on('close', (code) => {
     if (!closeStdin) { try { child.stdin.destroy(); } catch { /* gone */ } }
-    resolve({ code, out, err, ms: Date.now() - t0 });
+    const closedAt = Date.now();
+    const m = /KOSMOS-8968-START (\d+)/.exec(err);
+    resolve({ code, out, err, ms: closedAt - t0, closedAt, startedAt: m ? Number(m[1]) : null });
   }));
+}
+
+// kosmos#8968: how long the hook ran on after the board saw its last request. A run held open until the 2 s exit
+// backstop cannot be under 2000 here, because that timer is set only after the last answer; a loaded machine adds
+// far less than the 2 s to a run that ends on its own.
+const TAIL_MS = 1950;
+function tail(b, r) {
+  assert.ok(b.at.length > 0, 'the hook never reached the board');
+  return r.closedAt - b.at[b.at.length - 1];
 }
 
 test('a UserPromptSubmit that reports and takes its notices exits 0 on its own, printing the hook JSON whole', async () => {
@@ -62,7 +81,7 @@ test('a UserPromptSubmit that reports and takes its notices exits 0 on its own, 
     assert.equal(r.code, 0, 'exit ' + r.code + ': ' + r.err);
     assert.equal(r.out, HOOK_JSON + '\n');
     assert.ok(b.seen.includes('/api/report') && b.seen.includes('/api/file-notices/take'), 'both requests reached the board: ' + b.seen.join(' '));
-    assert.ok(r.ms < 2000, 'the run waited for the 2 s backstop (' + r.ms + ' ms)');
+    assert.ok(tail(b, r) < TAIL_MS, 'the run waited for the 2 s backstop (' + tail(b, r) + ' ms after the last request, ' + r.ms + ' ms in all)');
   } finally { b.server.close(); }
 });
 
@@ -71,7 +90,11 @@ test('a stdin that never closes still ends shortly after the 5 s stdin backstop,
   try {
     const r = await runHook(b.port, { hook_event_name: 'Stop', session_id: 's' }, { closeStdin: false });
     assert.equal(r.code, 0, 'exit ' + r.code + ': ' + r.err);
-    assert.ok(r.ms >= 4500 && r.ms < 6990, 'ended at ' + r.ms + ' ms');
+    assert.ok(r.ms >= 4500, 'ended before the stdin backstop, at ' + r.ms + ' ms');
+    assert.ok(r.startedAt, 'the start mark is missing: ' + r.err);
+    const fired = b.at[0] - r.startedAt;   // the first request goes out once the stdin backstop has run the hook
+    assert.ok(fired >= 4500 && fired < 8000, 'the stdin backstop ran the hook ' + fired + ' ms after it started (5 s expected)');
+    assert.ok(tail(b, r) < TAIL_MS, 'the run waited 2 s more after the backstop (' + tail(b, r) + ' ms after the last request, ' + r.ms + ' ms in all)');
   } finally { b.server.close(); }
 });
 
@@ -81,6 +104,6 @@ test('an answer whose body never finishes (keep-copy on an edit) does not hold t
     const r = await runHook(b.port, { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: path.join(os.tmpdir(), 'x8014.md'), old_string: 'a', new_string: 'b' }, cwd: os.tmpdir(), session_id: 's' });
     assert.equal(r.code, 0, 'exit ' + r.code + ': ' + r.err);
     assert.ok(b.seen.includes('/api/undo/keep'), 'the edit never asked for a copy: ' + b.seen.join(' '));
-    assert.ok(r.ms < 1500, 'the unfinished body held the run (' + r.ms + ' ms)');
+    assert.ok(tail(b, r) < TAIL_MS, 'the unfinished body held the run (' + tail(b, r) + ' ms after the last request, ' + r.ms + ' ms in all)');
   } finally { b.server.closeAllConnections(); b.server.close(); }
 });
