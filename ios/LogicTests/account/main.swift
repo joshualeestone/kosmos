@@ -126,6 +126,8 @@ check(Account.standingNote(json(#"{"standing_note":null}"#)) == nil && Account.s
 check(Account.standingNote(json(#"{"standing_note":5}"#)) == nil, "not a string: nothing")
 check(Account.standingNote(nil) == nil && Account.standingNote(json("no")) == nil, "no answer or unreadable: nothing")
 check(Account.planLine(json(#"{"kosmos_plus":true,"standing":"good"}"#)) != nil && Account.standingNote(json(#"{"kosmos_plus":true,"standing":"good"}"#)) == nil, "a good plan: the line and no note")
+check(Account.isObject(json(#"{"kosmos_plus":true}"#)) && !Account.isObject(json("<html>")) && !Account.isObject(json("[1]")) && !Account.isObject(nil), "isObject: only a JSON object is an account answer")
+check(Account.planSpoken == "Kosmos+, Active", "VoiceOver: the plan line as words")
 let me = Account.meRequest(coordinator: coordinator, session: "tok")
 check(me.url?.absoluteString == "https://login.kosmosplus.com/v1/account/me", "me: the account route")
 check(me.httpMethod == "GET" && me.httpBody == nil, "me: a GET with no body")
