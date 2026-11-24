@@ -43,6 +43,12 @@ struct ProjectInfoView: View {
     private var shownPaused: Bool { pendingPaused ?? project.paused }
     // Review 1: a read was asked for and came back with no list (the Mac not admitted, say): say so, not "Reading".
     @State private var tasksTried = false
+    // kosmos#8956: adding and removing members, and archiving, natively.
+    @State private var addingMember = false
+    @State private var memberBusy: String?   // "add", or the session being removed
+    @State private var memberLine: (text: String, ok: Bool)?
+    @State private var archiving = false
+    @State private var archiveLine: (text: String, ok: Bool)?
 
     private var roles: [String: String] {
         Dictionary(client.agents.compactMap { a in a.role.map { (a.session, $0) } }, uniquingKeysWith: { a, _ in a })
@@ -108,17 +114,7 @@ struct ProjectInfoView: View {
 
             tasksSection
 
-            Section {
-                Button(action: openOnBoard) {
-                    HStack {
-                        Text(Board.projectMoreOnBoard).foregroundColor(Palette.primary)
-                        Spacer()
-                        Image(systemName: Board.boardIcon).foregroundColor(Palette.secondary).accessibilityHidden(true)   // kosmos#8957: the one board icon
-                    }
-                    .frame(minHeight: 44).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            } footer: { Text(Board.projectMoreOnBoardWhy) }
+            outsideMembersSection
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
@@ -189,20 +185,34 @@ struct ProjectInfoView: View {
             } header: { label(shownPaused ? "This project is paused" : "Pause this project") } footer: {
                 Text(shownPaused ? Board.projectPausedWhat(byPerson: pendingPaused == true || project.pausedByPerson) : Board.projectPauseWhat)
             }
+            // kosmos#8956: members, added and removed here; each Remove asks first, on its own button (Renet, #8955).
             Section {
-                Button(action: openOnBoard) {
-                    HStack {
-                        Text(Board.projectMoreOnBoard).foregroundColor(Palette.primary)
-                        Spacer()
-                        Image(systemName: Board.boardIcon).foregroundColor(Palette.secondary).accessibilityHidden(true)   // kosmos#8957: the one board icon
-                    }
-                    .frame(minHeight: 44).contentShape(Rectangle())
+                ForEach(project.members, id: \.session) { m in
+                    RemoveMemberRow(member: m, busy: memberBusy != nil) { Task { await changeMember(session: m.session, name: m.name, add: false) } }
                 }
-                .buttonStyle(.plain)
-            } footer: { Text(Board.projectSettingsOnBoardWhy) }
+                Button { addingMember = true } label: {
+                    HStack { Text(Board.projectAddMemberTitle).foregroundColor(Palette.primary); if memberBusy == "add" { Spacer(); SweepDots(label: "Loading", scales: false) } }
+                        .frame(minHeight: 44).contentShape(Rectangle())
+                }
+                .disabled(memberBusy != nil)
+                .accessibilityIdentifier("project-add-member")
+                if let memberLine { Text(memberLine.text).font(.footnote).foregroundColor(memberLine.ok ? Palette.secondary : Palette.dangerWord) }
+            } header: { label("Members") }
+            outsideMembersSection
+            // kosmos#8956: archiving, asked first (the board's pj-one-archive).
+            Section {
+                ArchiveProjectRow(name: project.name, busy: archiving) { Task { await archive() } }
+                if let archiveLine { Text(archiveLine.text).font(.footnote).foregroundColor(archiveLine.ok ? Palette.secondary : Palette.dangerWord) }
+            }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
+        .sheet(isPresented: $addingMember) {
+            AddMemberSheet(agents: Board.projectAddable(client.agents, members: project.members)) { a in
+                addingMember = false
+                Task { await changeMember(session: a.session, name: a.name, add: true) }
+            }
+        }
         // Review 1: on every appearance, not only the first (a rename on the computer while About was open), each box apart.
         .onAppear { refillIfUntouched(project) }
         .onChange(of: project.name) { _ in refillIfUntouched(project) }
@@ -226,6 +236,54 @@ struct ProjectInfoView: View {
         if !filled { filled = true; nameText = row.name; filledName = row.name; descText = row.description; filledDesc = row.description; return }
         if nameText == filledName { nameText = row.name; filledName = row.name }
         if descText == filledDesc { descText = row.description; filledDesc = row.description }
+    }
+
+    // kosmos#8956: the one hand-off left, labelled for what it is (Mona Lisa's #8957 words and icon).
+    private var outsideMembersSection: some View {
+        Section {
+            Button(action: openOnBoard) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(Board.projectOutsideMembers).foregroundColor(Palette.primary)
+                        Text("Opens on your computer's board").font(.footnote).foregroundColor(Palette.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "arrow.up.forward.square").foregroundColor(Palette.secondary).accessibilityHidden(true)
+                }
+                .frame(minHeight: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("project-outside-members")
+        }
+    }
+
+    // kosmos#8956: add (POST) or remove (DELETE) one member, then read the projects again so every list shows it.
+    private func changeMember(session: String, name: String, add: Bool) async {
+        memberBusy = add ? "add" : session
+        memberLine = nil
+        defer { memberBusy = nil }
+        let id = project.id
+        let res = await client.throughMac { Board.projectMemberRequest(mac: $0, project: id, session: session, add: add) }
+        let result = Board.projectMemberResult(status: res?.1.statusCode ?? 0, body: res?.0)
+        let ok: Bool
+        switch result { case .done: ok = true; default: ok = false }
+        memberLine = (Board.projectMemberLine(result, add: add, name: name), ok)
+        if result != .noAnswer { await reload() }   // done, refused or cannot tell: the list says what is true now
+    }
+
+    // kosmos#8956: archive with the board's own PUT; asked first by ArchiveProjectRow.
+    private func archive() async {
+        archiving = true
+        archiveLine = nil
+        defer { archiving = false }
+        let id = project.id
+        let body = Board.projectArchiveBody()
+        let res = await client.throughMac { Board.projectChangeRequest(mac: $0, project: id, body: body) }
+        let saved = Board.projectSaveResult(status: res?.1.statusCode ?? 0, body: res?.0)
+        let ok: Bool
+        if case .saved = saved { ok = true } else { ok = false }
+        archiveLine = (Board.projectArchiveLine(saved), ok)
+        if ok { await reload() }
     }
 
     private func save(_ change: Board.ProjectChange) async {
@@ -331,6 +389,85 @@ struct ProjectInfoView: View {
             }
         } header: { label("Open tasks") } footer: {
             if let open, let f = Board.projectTasksFooter(total: open.total, shown: open.rows.count) { Text(f) }
+        }
+    }
+}
+
+// kosmos#8956: one member's Remove, which asks first. The dialog sits on its own button (Renet, #8955: on iOS 26 a
+// confirmationDialog draws as a popover anchored to the button that opened it).
+private struct RemoveMemberRow: View {
+    let member: Board.ProjectMember
+    let busy: Bool
+    let remove: () -> Void
+    @State private var asking = false
+
+    var body: some View {
+        Button { asking = true } label: {
+            HStack {
+                Text(member.name).foregroundColor(Palette.primary)
+                Spacer()
+                Text("Remove").foregroundColor(Palette.dangerWord)
+            }
+            .frame(minHeight: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .accessibilityLabel(Board.projectRemoveMemberTitle + ": " + member.name)
+        .accessibilityIdentifier("project-remove-member")
+        .confirmationDialog(Board.projectRemoveAsk(member.name), isPresented: $asking, titleVisibility: .visible) {
+            Button(Board.projectRemoveMemberTitle, role: .destructive, action: remove)
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+}
+
+// kosmos#8956: Archive project, which asks first.
+private struct ArchiveProjectRow: View {
+    let name: String
+    let busy: Bool
+    let archive: () -> Void
+    @State private var asking = false
+
+    var body: some View {
+        Button { asking = true } label: {
+            HStack {
+                Text(Board.projectArchiveTitle).foregroundColor(Palette.dangerWord)
+                if busy { Spacer(); SweepDots(label: "Loading", scales: false) }
+            }
+            .frame(minHeight: 44).contentShape(Rectangle())
+        }
+        .disabled(busy)
+        .accessibilityIdentifier("project-archive")
+        .confirmationDialog(Board.projectArchiveAsk(name), isPresented: $asking, titleVisibility: .visible) {
+            Button(Board.projectArchiveTitle, role: .destructive, action: archive)
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+}
+
+// kosmos#8956: the agents that can be added (Board.projectAddable), one tap each; Cancel closes it.
+private struct AddMemberSheet: View {
+    let agents: [Board.Agent]
+    let pick: (Board.Agent) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            List {
+                if agents.isEmpty {
+                    Text("Every one of your agents is on this project already.").foregroundColor(Palette.secondary)
+                }
+                ForEach(agents, id: \.session) { a in
+                    Button { pick(a) } label: {
+                        Text(a.name).foregroundColor(Palette.primary).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle(Board.projectAddMemberTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
     }
 }

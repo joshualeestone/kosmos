@@ -1446,6 +1446,78 @@ extension Board {
         case .paused(let on): return on ? "Paused." : "Resumed."
         }
     }
+
+    // MARK: kosmos#8956: members and archiving, natively (the board's pj-one-archive and its member + and -).
+
+    /* The board archives with the same PUT as every other project change: { archived: true }. Asked first on the
+       phone, as the board's own button is one click from a hidden project. */
+    static func projectArchiveBody() -> [String: Any] { ["archived": true] }
+    static let projectArchiveTitle = "Archive project"
+    static func projectArchiveAsk(_ name: String) -> String {
+        "Archive \(name)? It leaves your project list and its agents stop being told about it. You can restore it from Archived projects on your computer's board."
+    }
+    static let projectArchivedLine = "Archived."
+
+    static let projectAddMemberTitle = "Add a member"
+    static let projectRemoveMemberTitle = "Remove from this project"
+    static func projectRemoveAsk(_ name: String) -> String {
+        "Remove \(name) from this project? It stops being told about the project's room and tasks. You can add it back."
+    }
+    /* Outside members (people and agents on other computers, #5287 federation) stay on the board for now. */
+    static let projectOutsideMembers = "Members from other computers"
+
+    /* The agents that can be added: the person's own agents not on the project yet, in the agents list's order.
+       Guide agents and agents shown as gone are left out, as the board's add list leaves them out. */
+    static func projectAddable(_ agents: [Agent], members: [ProjectMember]) -> [Agent] {
+        let on = Set(members.map(\.session))
+        return agents.filter { !on.contains($0.session) && !$0.session.isEmpty && !$0.isGuide }
+    }
+
+    /* POST adds, DELETE removes (the board's addMemberToProject and dropMember). */
+    static func projectMemberRequest(mac: URL, project: String, session: String, add: Bool) -> URLRequest? {
+        guard isProjectId(project), !session.isEmpty,
+              let s = session.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-_."))),
+              let url = URL(string: "/api/project/\(project)/agent/\(s)", relativeTo: mac) else { return nil }
+        var r = URLRequest(url: url.absoluteURL)
+        r.httpMethod = add ? "POST" : "DELETE"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        return r
+    }
+
+    /* What a member change came to. `told` is the board's own verdict that the agent was told now; a 200 without it is
+       still done (the agent reads it the next time it looks). Renet's rule (#8955): a 5xx with no JSON body may come
+       from the relay after the computer acted, so it is "cannot tell", never a refusal; a 4xx or 5xx that says why is
+       the board's own reason. No answer at all is no answer. */
+    enum ProjectMemberResult: Equatable { case done(told: Bool), refused(String), cannotTell, noAnswer }
+    static func projectMemberResult(status: Int, body: Data?) -> ProjectMemberResult {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if status == 200 {
+            guard let obj else { return .cannotTell }
+            let told = (obj["told"] as? [String: Any])?["state"] as? String == "told"
+            return .done(told: told)
+        }
+        if status == 0 { return .noAnswer }
+        if let e = obj?["error"] as? String, !e.isEmpty { return .refused(sentence(e)) }
+        return status >= 500 ? .cannotTell : .refused("We could not change that project.")
+    }
+    static func projectMemberLine(_ r: ProjectMemberResult, add: Bool, name: String) -> String {
+        switch r {
+        case .done(let told):
+            let what = add ? "Added \(name)." : "Removed \(name)."
+            return told ? what : what + " It reads the change the next time it looks."
+        case .refused(let why): return why
+        case .cannotTell: return "We could not tell whether that changed. Look again in a moment."
+        case .noAnswer: return "We could not reach your computer, so nothing changed."
+        }
+    }
+    /* The archive's answer reads as a project save; it is worded for the archive. */
+    static func projectArchiveLine(_ s: ProjectSave) -> String {
+        switch s {
+        case .saved: return projectArchivedLine
+        case .refused(let why): return why
+        case .noAnswer: return "We could not reach your computer, so it was not archived."
+        }
+    }
 }
 
 // #8625: posted by Settings when an Unblock was taken, so the rooms stop keeping that person's hidden messages out.
