@@ -79,7 +79,8 @@
 #             Give the port so a wrong-port HOLD does not push you toward --force, which
 #             bypasses the gate entirely.
 #     --hand-check "<text>"  required with --force (kosmos#8960), 20 or more characters: the check of THIS build you
-#             did by hand, which the forced promote rests on. It is printed beside every gate --force passes.
+#             did by hand, which the forced promote rests on. It is printed beside every gate --force passes, and
+#             recorded on the promote-plus-unverified.log line when the Kosmos+ check could not confirm the build.
 #             It is not proof a check happened: it makes the operator write one down, and puts it in the log.
 #   tools/promote-channel.sh <site-checkout> [port] --version <V> [--sha <sha256 prefix>] [--commit <site sha>]
 #                            [--allow-older] [--force --hand-check "<text>"] [--skip-linux-check]
@@ -155,9 +156,11 @@ esac
 # kosmos#8960: --force promotes past a gate that could not tell "on the strength of a HAND verification", so it must name
 # that verification. On 0.8.19 (11-23) a wrapper script forced on its own whenever a gate held, and the log claimed a hand
 # check nobody had done. Checked here, before anything is read or written, so no wrapper can skip it.
+case "$HAND_CHECK" in -*) echo "promote-channel: --hand-check needs the text of the check, not another option (got '$HAND_CHECK'). Nothing was written." >&2; exit 1 ;; esac
 if [ "$FORCE" = 1 ]; then
-  _hc="$(printf '%s' "$HAND_CHECK" | tr '[:space:]' ' ' | tr -d '[:cntrl:]' | tr -s ' ' | sed 's/^ //; s/ $//')"
-  [ "${#_hc}" -ge 20 ] || { echo "promote-channel: --force needs --hand-check \"<what you checked on this build, and how>\" (20 or more characters): --force promotes past a gate that could not tell, on a hand check, so name the check you did. Nothing was written." >&2; exit 1; }
+  _hc="$(printf '%s' "$HAND_CHECK" | LC_ALL=C tr '[:space:]' ' ' | LC_ALL=C tr -d '[:cntrl:]' | LC_ALL=C tr -s ' ' | LC_ALL=C sed 's/^ //; s/ $//')"
+  _hcn="$(printf '%s' "$_hc" | LC_ALL=C wc -c | tr -d ' ')"   # bytes, in every locale (a ${#} count follows LANG)
+  [ "${_hcn:-0}" -ge 20 ] || { echo "promote-channel: --force needs --hand-check \"<what you checked on this build, and how>\" (20 or more characters): --force promotes past a gate that could not tell, on a hand check, so name the check you did. Nothing was written." >&2; exit 1; }
   HAND_CHECK="$_hc"
 else
   [ -z "$HAND_CHECK" ] || { echo "promote-channel: --hand-check goes with --force (it names the hand check a forced promote rests on)" >&2; exit 1; }
