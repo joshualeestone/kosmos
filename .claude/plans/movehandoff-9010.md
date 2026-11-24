@@ -73,6 +73,11 @@ reaches fewer agents (about 25 busy ones); the automatic mover moves one per tic
 - KNOWN: the ask's own turn end lets held room posts be typed into the old session just before its restart, as any
   restart after a turn end does (#3492's too).
 
+## Review 6 (sonnet): no BLOCKER
+- isFresh answers the file's time AND whether the agent is busy (any state but idle). The engine settles it only when
+  not busy, and counts a fresh file at the deadline either way (busy hid a written handoff before: it read as not
+  written in time). The pickup loop's reads are guarded, so its note to the person cannot be skipped by a throw.
+
 ## Rejected
 - Asking an agent that is out of usage: it cannot take a turn to write anything, and the usage mover moves exactly such
   agents. It is moved at once, and the move says why no handoff was asked for.

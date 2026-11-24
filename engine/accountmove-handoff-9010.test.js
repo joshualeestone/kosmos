@@ -242,3 +242,16 @@ test('the move does not restart while the ask is still on its way within the bud
   await out.done;
   assert.deepEqual(d.events.slice(0, 2), [['asked', 'al'], ['restart', 'al']]);
 });
+
+test('busy: never settled while busy, but a written handoff still counts at the deadline', async () => {
+  let looks = 0;
+  const d = deps({ handoff: () => ({
+    ask: async (n) => ({ asked: true, path: '/h/' + n, before: { exists: false } }),
+    isFresh: () => { looks += 1; return { mtimeMs: 50, busy: true }; },   // written, and the agent never goes idle
+    pickup: async () => ({ ok: true }), waitMs: 60, pollMs: 5,
+  }) });
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
+  await out.done;
+  assert.ok(looks >= 3, 'settled while the agent was busy (' + looks + ' looks)');
+  assert.equal(accountmove.read(out.body.id).agents[0].handoff.saved, true, 'a written handoff read as not written in time');
+});

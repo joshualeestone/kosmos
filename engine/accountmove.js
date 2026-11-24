@@ -135,7 +135,8 @@ function view(m) {
    file to be freshly written, so the work in progress survives the fresh session. The move goes ahead either way (the
    card: a handoff not written in time is said, never a reason to keep the agent on the account it is leaving).
    deps.handoffFirst: { ask(name) -> Promise<{ asked: true, path, before } | { asked: false, why }>,
-   isFresh(name, before) -> false, or the fresh file's modification time (true is read as fresh at once),
+   isFresh(name, before) -> false, or the fresh file's modification time, or { mtimeMs, busy } when the board also says
+   whether the agent is still busy (review 6); true is read as fresh at once,
    pickup(name, path) -> Promise<{ ok }> (after the restart; it waits for the new session itself),
    carryOn(name) -> Promise, optional: told to an agent that was asked and then not restarted (the person's stop), since
    the ask said the restart comes as soon as it is written; maybeRestarted(name, path) -> Promise, optional: after a
@@ -182,11 +183,15 @@ async function saveFirst(deps, name, stopped) {
     let got = false;
     try { got = h.isFresh(name, asked.before); } catch { got = false; }
     if (got === true) return { asked: true, saved: true, path: asked.path };
-    if (Number.isFinite(got)) {
-      if (seen === got) return { asked: true, saved: true, path: asked.path };   // fresh, and settled since the last look
-      // Review 2: fresh at the deadline but not yet seen settled still counts: it exists and is new.
+    /* Review 6: the board may also say the agent is still busy (its turn may still be writing the file). Busy never
+       settles it, but a fresh file at the deadline counts either way: it exists and is new. */
+    const mtime = got && typeof got === 'object' ? got.mtimeMs : got;
+    const busy = !!(got && typeof got === 'object' && got.busy);
+    if (Number.isFinite(mtime)) {
+      if (seen === mtime && !busy) return { asked: true, saved: true, path: asked.path };   // fresh, settled, and its turn ended
+      // Review 2: fresh at the deadline but not yet seen settled still counts.
       if (Date.now() >= until) return { asked: true, saved: true, path: asked.path };
-      seen = got;
+      seen = mtime;
     } else seen = null;
     if (Date.now() >= until || (typeof stopped === 'function' && stopped())) return { asked: true, saved: false, path: asked.path };
     await new Promise((resolve) => { const t = setTimeout(resolve, pollMs); if (t && typeof t.unref === 'function') t.unref(); });

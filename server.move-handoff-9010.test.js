@@ -91,7 +91,8 @@ test('an idle agent is asked with #3492\'s prompt naming its handoff path, witho
   assert.equal(d.isFresh('mara', got.before), false);
   fs.mkdirSync(path.dirname(got.path), { recursive: true });
   fs.writeFileSync(got.path, '# handoff\n');
-  assert.ok(Number.isFinite(d.isFresh('mara', got.before)), 'a written handoff answers its modification time');
+  const fresh = d.isFresh('mara', got.before);
+  assert.ok(fresh && Number.isFinite(fresh.mtimeMs) && fresh.busy === false, 'a written handoff answers its time, and that the agent is idle');
 });
 
 test('the pickup waits for the NEW session to be up and idle, then types the pickup line', async (t) => {
@@ -211,7 +212,7 @@ test('at the deadline a new session that cannot take a turn (out of usage) is no
   assert.equal(sent.length, 0);
 });
 
-test('a handoff is not taken as settled while the agent still reads working', async (t) => {
+test('the board says whether the agent is still busy beside the fresh file', async (t) => {
   const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
   t.after(() => board.restore());
   recordSends(t);
@@ -221,7 +222,9 @@ test('a handoff is not taken as settled while the agent still reads working', as
   fs.mkdirSync(path.dirname(got.path), { recursive: true });
   fs.writeFileSync(got.path, '# half\n');
   state = 'working';
-  assert.equal(d.isFresh('mara', got.before), false, 'counted while its turn was still writing it');
+  assert.equal(d.isFresh('mara', got.before).busy, true, 'not said to be busy while its turn was still writing it');
+  state = 'needs_you';
+  assert.equal(d.isFresh('mara', got.before).busy, true, 'a permission prompt mid-write is busy too');
   state = 'idle';
-  assert.ok(Number.isFinite(d.isFresh('mara', got.before)));
+  assert.equal(d.isFresh('mara', got.before).busy, false);
 });
