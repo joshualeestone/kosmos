@@ -3017,6 +3017,7 @@ section("native board loop: connecting")
         let keptDeny = c.keptThread(for: "dana")
         check(keptDeny != nil && keptDeny!.rows.allSatisfy { $0.denyOnly == nil } && keptDeny!.rows.compactMap { Board.choices(for: $0, in: keptDeny!) }.isEmpty,
               "the kept copy never carries a row's Deny")
+        check(keptDeny?.rows.last?.wayThrough == .permission, "a kept cut prompt's row is still a permission row")
         w.threadAnswer = (200, body)
         let full = await c.threadRead(for: "dana")
         check(full.tag == #""t1""#, "the whole window comes with its ETag")

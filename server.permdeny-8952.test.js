@@ -164,3 +164,22 @@ test('#8952 (c): a denyOnly press at an ordinary question menu sends nothing; CO
     assert.deepEqual(calls.keys(), ['2']);
   });
 });
+
+/* The setup guide's thread is masked (#3769) and denyOnly.asked is unmasked screen text, so the guide never gets one. */
+test('#8952 (c): the setup guide\'s thread serves no denyOnly; CONTROL: without the guide marker the same thread does', async () => {
+  const instructions = require('./engine/instructions');
+  const setupAssistant = require('./engine/setup-assistant');
+  await withPrompt(CUT, async () => {
+    const dir = path.dirname(instructions.fileFor('casey'));
+    fs.mkdirSync(dir, { recursive: true });
+    const marker = path.join(dir, setupAssistant.GUIDE_MARKER);
+    fs.writeFileSync(marker, 'casey\n');
+    try {
+      const guided = await getThread();
+      const leaked = (guided.messages || []).filter((m) => m && m.denyOnly);
+      assert.deepEqual(leaked, [], 'unmasked screen text left the guide\'s thread');
+    } finally { fs.rmSync(marker, { force: true }); }
+    const row = questionRow(await getThread());
+    assert.ok(row && row.denyOnly, 'CONTROL: no denyOnly without the marker: ' + JSON.stringify(row));
+  });
+});

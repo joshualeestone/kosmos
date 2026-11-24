@@ -27,7 +27,7 @@ instead, which is still a refusal.
 
 ## Tests
 server.permdeny-8952.test.js (real routes, whole-box control, both gate halves mutation-checked),
-server.permscroll-8952.test.js unchanged, LogicTests 2228/2228 + 12 run-*.sh, simulator build, light/dark shots.
+server.permscroll-8952.test.js unchanged, LogicTests 2234/2234 + 12 run-*.sh, simulator build, light/dark shots.
 
 ## Not covered
 A plan-mode prompt never gets this card: status.claudePermissionPrompt requires the first option to be exactly "Yes",

@@ -3499,7 +3499,7 @@ function permissionDenyOnly(text) {
   const pp = status.claudePermissionPrompt(text);
   if (!pp || permissionAnswerable(text)) return null;
   const no = pp.options.filter((o) => /^No\b/.test(o.label));
-  if (no.length !== 1 || no[0].lasting) return null;
+  if (no.length !== 1 || no[0].lasting) return null;   // claudePermissionPrompt already ensures both; kept as a guard
   return { n: no[0].n, label: no[0].label };
 }
 /* kosmos#6727 (Josh, 10-20): the permission prompt as a short card instead of its screen. Read from the box, only where
