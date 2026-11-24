@@ -21,13 +21,19 @@ const QUESTION = 'It has asked you a question and is waiting for your answer. Op
 const HELD = 'It has a question for you and is holding it until you are back. Open it to answer.';
 const PERMISSION = 'It is waiting for your permission to go on. Open it to answer.';
 const OTHER = 'It is waiting for you. Open it to see what it needs.';
+/* #874's hedge: a needs_you read off the screen says "Looks like", as the sign-in and limit sentences do. */
+const SEEN_PERMISSION = 'Looks like it is waiting for your permission to go on. Open it to answer.';
+const SEEN_OTHER = 'Looks like it is waiting for you. Open it to see what it needs.';
 const SECRET = 'May I push to the branch named secret-plan?';
 
 test('#8991 each way of waiting on the person has its own plain sentence', () => {
   assert.equal(stateReason({ name: 'Ada', state: 'needs_you', stateReportedBy: 'agent', because: SECRET }), QUESTION);
   assert.equal(stateReason({ name: 'Ada', state: 'needs_you', stateReportedBy: 'agent', stateHeld: true, because: SECRET }), HELD);
   assert.equal(stateReason({ name: 'Ada', state: 'needs_you', stateReportedBy: 'auto', awaitingApproval: true, because: 'asking permission to use Bash: rm x' }), PERMISSION);
-  assert.equal(stateReason({ name: 'Ada', state: 'needs_you', stateConfidence: 'scraped', because: 'it is asking you something' }), OTHER);
+  assert.equal(stateReason({ name: 'Ada', state: 'needs_you', stateConfidence: 'scraped', because: 'it is asking you something' }), SEEN_OTHER);
+  assert.equal(stateReason({ name: 'Ada', state: 'needs_you', stateConfidence: 'scraped', awaitingApproval: true }), SEEN_PERMISSION);
+  /* A question the agent reported itself is not a screen read, so it is never hedged, whatever the confidence field says. */
+  assert.equal(stateReason({ name: 'Ada', state: 'needs_you', stateReportedBy: 'agent', stateConfidence: 'scraped' }), QUESTION);
   assert.equal(stateReason({ name: 'Ada', state: 'needs_you' }), OTHER, 'a bare needs_you with no fields still says it waits on the person');
 });
 
@@ -66,7 +72,7 @@ test('#8991 a sentence that says more still wins, and other states are untouched
   /* CONTROLS: no state that is not waiting on the person borrows these words. */
   for (const state of ['idle', 'working', 'stopped', 'restarting', 'rate_limited', 'auth_failed', 'connection_lost', 'unknown']) {
     const said = String(stateReason({ name: 'Ada', state, stateReportedBy: 'agent', awaitingApproval: true }));
-    assert.ok(![QUESTION, HELD, PERMISSION, OTHER].includes(said), state + ' said a waiting-on-you sentence: ' + said);
+    assert.ok(![QUESTION, HELD, PERMISSION, OTHER, SEEN_PERMISSION, SEEN_OTHER].includes(said), state + ' said a waiting-on-you sentence: ' + said);
   }
   /* #6716: the tile itself still carries no sentence. */
   assert.equal(stateReason({ state: 'needs_you', stateReportedBy: 'agent' }, { card: true }), '');
