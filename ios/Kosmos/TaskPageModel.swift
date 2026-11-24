@@ -186,7 +186,11 @@ final class TaskPageModel: ObservableObject {
             // A refusal is about the press it answered: once the task reads otherwise (another device did it), it goes.
             if refusal != nil, let was = page, was.act != p.act { clearRefusal() }
             if p != page { page = p }
-            if refusalAwaits { refusalAwaits = false; refusalSubtasks = p.subtasks }
+            if refusalAwaits {
+                refusalAwaits = false
+                refusalSubtasks = p.subtasks
+                if refusal == Board.subtasksCloseUnsureUnread { refusal = Board.subtasksCloseUnsure }   // the list is read now
+            }
             if let was = refusalSubtasks, was != p.subtasks { clearRefusal() }
             if let sig = holdSaySig, Board.holdNextSig(p) != sig { holdSay = nil; holdSaySig = nil }
             if let w = repeatSavedAs, p.closed || p.repeatStored.map(Board.repeatWire) != w { repeatSay = nil; repeatSavedAs = nil }

@@ -109,6 +109,7 @@ enum NewTask {
     struct KeptDrafts {
         private var epoch: Int?
         private var kept: [String: Kept] = [:]
+        var count: Int { kept.count }
         static func key(_ project: String, _ number: Int) -> String { project + "#" + String(number) }
         mutating func get(_ project: String, _ number: Int, epoch e: Int) -> Kept {
             if epoch != e { epoch = e; kept = [:] }
@@ -116,7 +117,10 @@ enum NewTask {
         }
         mutating func set(_ project: String, _ number: Int, epoch e: Int, _ k: Kept) {
             if epoch != e { epoch = e; kept = [:] }
-            kept[Self.key(project, number)] = k == Kept() ? nil : k
+            // Its project and Part of are the page's, not something typed.
+            var typed = k
+            typed.draft.project = nil; typed.draft.parent = nil
+            kept[Self.key(project, number)] = typed == Kept() ? nil : k
         }
     }
 
@@ -143,14 +147,14 @@ enum NewTask {
     static let anyway = "Create it anyway"
 
     // After "could not tell", a Tasks read that came back: the open task in the project it was sent to, with the
-    // sentence and the Part of it was sent with, that was not there when it was sent. Nil when the read cannot say (no list from before
+    // sentence and the Part of (or none) it was sent with, that was not there when it was sent. Nil when the read cannot say (no list from before
     // the send, so an older task with the same words could not be told apart).
     static func found(_ sent: Draft, in read: Board.TasksRead, before: Set<Int>?) -> Int? {
         guard let before, let project = sent.project else { return nil }
         let words = trimmed(sent.what)
         return read.tasks.first {
             $0.projectId == project && $0.state != "closed" && !before.contains($0.number) && trimmed($0.sentence) == words
-                && (sent.parent == nil || $0.parent == sent.parent)
+                && $0.parent == sent.parent
         }?.number
     }
 
