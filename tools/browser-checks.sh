@@ -1872,6 +1872,11 @@ fi
 # everything else rather than only when somebody remembers it (#1072).
 run_one "render-update-toast" env SHOT_DIR="$RUN_DIR/shots-toast" node docs/browser-checks/render-update-toast.js
 
+# --- render-avatar-steady-8990: SELF-CONTAINED too (its own sandboxed board on a free port, two avatar agents in a
+# project room, fake tmux). A poll that changes nothing rebuilds no avatar in the grid or the rail and fetches none
+# again, and a session that ends still repaints both. RED on 87918b0c75 (12 + 12 rebuilds, 6 fetches in 16 s).
+run_one "render-avatar-steady-8990" node docs/browser-checks/render-avatar-steady-8990.js
+
 # --- click-first-run: the whole wizard, clicked like a person -------------
 # 🛑 ITS OWN BOARD, NOT THE SHARED RICH ONE. `fresh()` deletes the first-run
 # flag and the you.json before EVERY section, and the walk completes onboarding
