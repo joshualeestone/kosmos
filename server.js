@@ -5068,14 +5068,16 @@ function isSetupGuide(name) {
 /* #5406 slice C: may this screen's options be offered as buttons? Every condition must hold. kosmos#7017: one answer
    for the thread route (the board's buttons) and the phone's notification (its Allow and Deny), never two. `options` is
    chat.optionsIn(question.text); `view` the fresh capture the question was read from. */
-function dmPressable({ guideThread, card, options, question, view }) {
+function dmPressable({ guideThread, card, options, question, view, cutVerified }) {
   const cqNow = view && view.text ? require('./engine/status').claudeAnswerableMenu(view.text) : null;   // #6054: a permission prompt too
   return !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude'
     && Array.isArray(options) && Boolean(question) && typeof question.text === 'string'
     && options.every((o) => o && typeof o.label === 'string' && !chat.messageProblem(o.label))   // a label a press could never carry
     && Boolean(cqNow)
     // #6054 review 3: a permission prompt only with its whole box on screen (its identity must be the whole request).
-    && (!cqNow.permission || chat.permissionAnswerable(view.text))
+    && (!cqNow.permission || chat.permissionAnswerable(view.text) || cutVerified === true)
+    /* kosmos#8952 slice (d): or its box is cut but the agent's transcript gives the whole request and the screen agrees
+       (chat.permissionCutCardNow, read by the thread route only; the phone's notification never passes it). */
     // Both menu readers agree on the options, so a drawn button is one the key path will accept (review 21).
     && cqNow.options.length === options.length
     && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
@@ -21734,13 +21736,20 @@ const server = http.createServer(async (req, res) => {
     const servedRows = dmServeRows(servedMessages, name, card);   // kosmos#5841: shared with the older route
     /* #5406 slice C: may this screen's options be offered as buttons (see `asked` below)? kosmos#7017: decided by
        dmPressable, which the phone's notification asks too, so a phone button is offered exactly where a board one is. */
-    const pressable = dmPressable({ guideThread, card, options, question, view });
+    /* kosmos#8952 slice (d): a permission prompt whose box top scrolled away, read against the agent's own transcript:
+       where the screen agrees with its one pending Bash call, the card is built from that call (the whole command) and
+       its buttons are offered like any whole box's. Only on a Claude card, never in the setup guide's thread, for the
+       live pane question. Read only while such a prompt is up, so an ordinary poll reads no transcript. */
+    const cutRead = (!guideThread && card && String(card.runner || 'claude') === 'claude' && question && question === paneQuestion
+      && view && typeof view.text === 'string' && chat.permissionDenyOnly(view.text))
+      ? await chat.permissionCutCardNow(card.sessionName || name, view.text).catch(() => null) : null;
+    const pressable = dmPressable({ guideThread, card, options, question, view, cutVerified: Boolean(cutRead) });
     /* kosmos#6727: a permission prompt read off the screen is served as a short card (what the agent wants to do,
        Allow, Deny, the raw request under Show details), not as its screen. Only where its buttons are offered
        (`pressable`, which also keeps it out of the setup guide's masked thread, review 1): a card with no Allow or Deny
        would promise an action it cannot take, so there the old text stays. Only the live pane question. */
     const permRead = (pressable && question === paneQuestion && view && typeof view.text === 'string')
-      ? chat.permissionCard(view.text) : null;
+      ? (chat.permissionCard(view.text) || cutRead) : null;
     // kosmos#7017 part 2: with its fingerprint, which a phone's lock-screen press is checked against before it sends.
     const permCard = permRead ? { ...permRead, request: chat.permissionRequestId(permRead) } : null;
     /* kosmos#8952 slice (c): a permission prompt whose box top scrolled away gets no card above (nobody may approve what
@@ -22164,7 +22173,11 @@ const server = http.createServer(async (req, res) => {
            * too, since the press was for one. After the checks above, so their more specific sentences win.
            */
           if (requestGiven) {
-            const permLive = (seen && typeof seen.text === 'string') ? chat.permissionCard(seen.text) : null;
+            // kosmos#8952 slice (d): or a cut box's card from the agent's transcript, read again now (null on any doubt).
+            const permLive = (seen && typeof seen.text === 'string')
+              ? (chat.permissionCard(seen.text) || (body.denyOnly === true ? null
+                : await chat.permissionCutCardNow((card && card.sessionName) || name, seen.text).catch(() => null)))
+              : null;
             if (!permLive || chat.permissionRequestId(permLive) !== body.request) {
               const moved = new Error('its screen moved between drawing that button and sending it, '
                 + 'so we did not send the answer. What is on this page now is current: press again '

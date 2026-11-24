@@ -1,0 +1,40 @@
+ │ mkdir -p /tmp/probe/e30
+ │ mkdir -p /tmp/probe/e31
+ │ mkdir -p /tmp/probe/e32
+ │ mkdir -p /tmp/probe/e33   
+ │ mkdir -p /tmp/probe/e34
+ │ mkdir -p /tmp/probe/e35                                                                                                                  
+ │ mkdir -p /tmp/probe/e36                                                                         
+ │ mkdir -p /tmp/probe/e37                                                                                                                   
+ │ mkdir -p /tmp/probe/e38                                             
+ │ mkdir -p /tmp/probe/e39                                                                                                                
+ │ mkdir -p /tmp/probe/e40                                           
+ │ mkdir -p /tmp/probe/e41                                                                                                                  
+ │ mkdir -p /tmp/probe/e42                                                                         
+ │ mkdir -p /tmp/probe/e43                                                                                                                  
+ │ mkdir -p /tmp/probe/e44                                                                         
+ │ mkdir -p /tmp/probe/e45
+ │ mkdir -p /tmp/probe/e46                                                                                      
+ │ mkdir -p /tmp/probe/e47
+ │ mkdir -p /tmp/probe/e48                                                                                                                       
+ │ mkdir -p /tmp/probe/e49                                                                                                                       
+ │ mkdir -p /tmp/probe/e50
+ │ mkdir -p /tmp/probe/e51      
+ │ mkdir -p /tmp/probe/e52    
+ │ mkdir -p /tmp/probe/e53  
+ │ mkdir -p /tmp/probe/e54  
+ │ mkdir -p /tmp/probe/e55  
+ │ mkdir -p /tmp/probe/e56   
+ │ mkdir -p /tmp/probe/e57
+ │ mkdir -p /tmp/probe/e58
+ │ mkdir -p /tmp/probe/e59
+ │ mkdir -p /tmp/probe/e60
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Rule Bash from command line arguments says to ask.
+ /permissions to update rules                                                                                                                                 
+
+ Do you want to proceed?                                                                                                                                        
+ ❯ 1. Yes                  
+   2. No                                                                                                                                                        
+ ↑ 33 more lines      
+ Esc to cancel · Tab to amend        

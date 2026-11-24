@@ -210,6 +210,8 @@ function setDryRun(on) {
  */
 const CODEX_ENTER_GAP_MS = 500;
 let pauser = null;
+/* kosmos#8952 slice (d): who reads an agent's pending Bash calls (permtranscript.pendingCommands by its folder); tests set it. */
+let pendingReader = null;
 const deliveryQueues = new Map();
 /* #6249: per pane, the last line the board typed and saw left unsent in the box (its wire), so the next delivery can
    press Enter on THAT line, which is ours, rather than leave the agent blocked until a person clears it.
@@ -316,6 +318,20 @@ function setUnsentRetryScheduler(fn) { unsentRetryScheduler = typeof fn === 'fun
 let rosterSource = null;
 function setRosterSource(fn) { rosterSource = typeof fn === 'function' ? fn : null; }
 
+/* kosmos#8952 slice (d): tests replace the transcript read (async (sessionName) => { ok, pending }). */
+function setPendingReader(fn) { pendingReader = typeof fn === 'function' ? fn : null; }
+async function pendingCommandsOf(sessionName) {
+  if (pendingReader) { try { return await pendingReader(sessionName); } catch { return { ok: false }; } }
+  let dir = null;
+  try { dir = require('./create').workerDir(sessionName); } catch { dir = null; }
+  return dir ? require('./permtranscript').pendingCommands(dir) : { ok: false };
+}
+/* The cut-box card for this screen (permissionCutCard), read against the transcript now; null on any doubt. */
+async function permissionCutCardNow(sessionName, text) {
+  if (!text || permissionAnswerable(text) || !permissionDenyOnly(text)) return null;
+  const got = await pendingCommandsOf(sessionName);
+  return got && got.ok === true ? permissionCutCard(text, got.pending) : null;
+}
 function setPauser(fn) {
   pauser = typeof fn === 'function' ? fn : null;
 }
@@ -341,6 +357,7 @@ function resetForTests() {
   QMENU_BUSY.clear();
   runner = null;
   pauser = null;
+  pendingReader = null;
   channel = null;
   DRY_RUN = true;
   deliveryQueues.clear();
@@ -2064,7 +2081,13 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   if (denyOnly && (!menu.permission || !opt || !/^No\b/.test(opt.label) || opt.lasting || e.request)) {
     return { ok: false, because: 'only No can be sent for a request too long to show in full, so nothing was sent' };
   }
-  const idBefore = menu.permission && (permissionAnswerable(before) || denyOnly) ? idOf(before) : null;
+  /* kosmos#8952 slice (d): a box whose top scrolled away may be approved only as the card the thread served from the agent's
+     transcript (permissionCutCard), read again here on this last look; so only a press that names that card's request, and
+     never a deny-only press (which needs no transcript). No card now (a transcript that changed or cannot be read, a screen
+     that no longer agrees with it): the identity below is null and nothing is sent. */
+  const cutBefore = menu.permission && !denyOnly && e.request && !permissionAnswerable(before)
+    ? await permissionCutCardNow(sessionName, before) : null;
+  const idBefore = menu.permission && (permissionAnswerable(before) || denyOnly || cutBefore) ? idOf(before) : null;
   if (menu.permission && (!e.identity || !idBefore)) {
     return { ok: false, because: 'we could not tell which request its screen is asking about, so nothing was sent; look at this page again in a moment' };
   }
@@ -2074,12 +2097,12 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   /* kosmos#7020: and the request, on this same last look. The identity above is compared after cleanMessage, which folds
      runs of spaces, so `rm -rf "/tmp/old  build"` and `rm -rf "/tmp/old build"` share it; only the card's reading
      (permissionRequestId) tells them apart. A press that named its request is sent only at that request. */
-  const reqOf = (text) => { const c = permissionCard(text); return c ? permissionRequestId(c) : null; };
+  const reqOf = (text, cut) => { const c = permissionCard(text) || cut || null; return c ? permissionRequestId(c) : null; };
   // Review 2: a press that named a permission request is typed only at a permission prompt, never at another menu.
   if (e.request && !menu.permission) {
     return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
   }
-  const reqBefore = menu.permission && e.request ? reqOf(before) : null;
+  const reqBefore = menu.permission && e.request ? reqOf(before, cutBefore) : null;
   if (menu.permission && e.request && reqBefore !== e.request) {
     return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
   }
@@ -2097,7 +2120,9 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
      that changes the box's text reads as answered too: the safe direction, since "unconfirmed" invites a second press,
      though the record then says placed for a prompt that may still be pending. */
   // kosmos#7020: another request under the same identity is the next prompt, so it reads answered (the direction above).
-  const same = still && (menu.permission ? (still.permission && idOf(after) === idBefore && (!reqBefore || reqOf(after) === reqBefore))
+  // Slice (d): a cut box after the key is read against the transcript again (the call is still pending if the key did not take).
+  const cutAfter = cutBefore && after && still && still.permission ? await permissionCutCardNow(sessionName, after) : null;
+  const same = still && (menu.permission ? (still.permission && idOf(after) === idBefore && (!reqBefore || reqOf(after, cutAfter) === reqBefore))
     : still.question === menu.question);
   return { ok: true, key: String(opt.n), label: opt.label, answered: !!after && !same, screen: after };
 }
@@ -3501,6 +3526,47 @@ function permissionDenyOnly(text) {
   const no = pp.options.filter((o) => /^No\b/.test(o.label));
   if (no.length !== 1 || no[0].lasting) return null;   // claudePermissionPrompt already ensures both; kept as a guard
   return { n: no[0].n, label: no[0].label };
+}
+/* kosmos#8952 slice (d): the card for a permission prompt whose box top has scrolled away (not permissionAnswerable),
+   built from the agent's own transcript (engine/permtranscript.js pendingCommands) instead of the screen, and only where
+   the screen agrees with it. `pending` is that list of pending Bash calls. Agreement: the box's visible body (the lines
+   above its closing dashed rule, from the top of the screen or from an opening dashed rule; this Claude Code draws each
+   command line after a "│" gutter, which is not part of the command) must be a non-empty tail of exactly ONE pending
+   command, compared with all whitespace removed (a long line the pane wraps cannot then split a word), and the WHOLE
+   command when the opening rule is on screen too. A visible body holding anything but the request (an agent's output
+   line, a box rule) is not one. The command shown, and approved, is the transcript's: the same call Claude Code will run.
+   Returns permissionCard's shape (kind 'command' or 'delete', title "Bash command", says = the call's description,
+   detail = the whole command, reason from the screen), or null, and a null keeps slice (c)'s deny-only card. */
+function permissionCutCard(text, pending) {
+  const box = permissionBox(text);
+  if (!box || box.top >= 0 || !Array.isArray(pending) || pending.length === 0) return null;
+  const lines = String(text == null ? '' : text).split('\n').slice(0, box.pp.at);
+  const dashed = [];
+  lines.forEach((l, k) => { if (PERMISSION_DASHED.test(l)) dashed.push(k); });
+  if (dashed.length === 0) return null;
+  const close = dashed[dashed.length - 1];
+  const open = dashed.length >= 2 ? dashed[dashed.length - 2] : -1;
+  const body = lines.slice(open + 1, close);
+  if (body.some((l) => /^\s*[⏺⎿✻]/.test(l) || /^\s*─{8,}\s*$/.test(l))) return null;
+  const squash = (s) => String(s).replace(/\s+/g, '');
+  const seen = squash(body.map((l) => l.replace(/^\s*│ ?/, '')).join('\n'));
+  if (!seen) return null;
+  const fits = pending.filter((p) => p && typeof p.command === 'string'
+    && (open >= 0 ? squash(p.command) === seen : squash(p.command).endsWith(seen)));
+  if (new Set(fits.map((p) => p.command)).size !== 1) return null;
+  const p = fits[0];
+  // eslint-disable-next-line no-control-regex
+  const clean = (l) => l.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  const reason = lines.slice(close + 1).map(clean).filter(Boolean).join(' ');
+  const opts = box.pp.options;
+  const allow = opts.find((o) => o.label === 'Yes');
+  const deny = opts.find((o) => /^No\b/.test(o.label));
+  if (!allow || !deny) return null;
+  const says = new Set(fits.map((f) => String(f.description || ''))).size === 1 ? clean(String(p.description || '')) : '';
+  // eslint-disable-next-line no-control-regex
+  const detail = p.command.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').replace(/\s+$/, '');
+  return { kind: /\brm\b|delet|remov/i.test(reason) ? 'delete' : 'command', title: 'Bash command', says, target: '',
+    detail, reason, allow: allow.n, deny: deny.n };
 }
 /* kosmos#6727 (Josh, 10-20): the permission prompt as a short card instead of its screen. Read from the box, only where
    permissionAnswerable (the whole box on screen, the same gate as the buttons), else null and the old text stays.
@@ -5609,13 +5675,13 @@ module.exports = {
   notPressedLine, composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS, UNSENT_TAIL_MS,   // #6249, kosmos#6436
   setUnsentRetryScheduler, restartUnsentForTests, setRosterSource,   // kosmos#6436
   recoverStuckInput, setDraftSaver, withDraftRows, STUCK_INPUT_MS, stuckShrunk,   // kosmos#6717
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, paneBusyVerdict, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionDenyOnly, permissionCard, permissionRequestId, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, paneBusyVerdict, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionDenyOnly, permissionCutCard, permissionCard, permissionRequestId, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,
   defaultAgentFor, looksLikeManager,
   dmSeenRead, markDmSeen, dmSummaryAll, dmUnreadAll, dmUnread, DM_SEEN,
-  setRunner, setDryRun, setPauser, setChannel, resetForTests, CODEX_ENTER_GAP_MS,
+  setRunner, setDryRun, setPauser, setPendingReader, permissionCutCardNow, setChannel, resetForTests, CODEX_ENTER_GAP_MS,
   chatsDir: DIR,
 };
 
