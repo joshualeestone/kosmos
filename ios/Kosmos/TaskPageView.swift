@@ -578,7 +578,8 @@ struct TaskPageView: View {
                 .labelsHidden()
                 .accessibilityLabel("Who is told if a run is missed")
                 // Voice Control: the words on screen work as well as the spoken label.
-                .accessibilityInputLabels(["If missed, tell", "Who is told if a run is missed"])
+                .accessibilityInputLabels(["If missed, tell", "Who is told if a run is missed"]
+                    + [options.first { $0.value == shown }?.words].compactMap { $0 })   // and the choice the menu shows
                 .tint(Palette.link)
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
