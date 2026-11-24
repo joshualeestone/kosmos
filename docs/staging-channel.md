@@ -56,7 +56,7 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
      nothing answers properly, since an install takes minutes and a wrong port never answers; so a
      board that is down, or stuck on a server error, is refused about ten minutes later than before.
      It does not wait for a board on V, on a later release, one whose version cannot be compared
-     with V, or one it cannot read. When the time runs out the gates run anyway and hold or refuse
+     with V, or one it cannot read (unless that follows a silence: a board still starting). When the time runs out the gates run anyway and hold or refuse
      as before (a HOLD then names `KOSMOS_PROMOTE_BOARD_WAIT=0` for the rerun); no gate is loosened.
    - **Agent spawn (#2129), `tools/staging-agent-online-check.sh`:** the board gate does NOT
      exercise agent spawn, and #2129 was exactly that gap -- spawned agents wedged at the Claude

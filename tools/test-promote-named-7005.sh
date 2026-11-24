@@ -25,6 +25,7 @@ STUB="$T/stub-gate.sh"; printf '#!/usr/bin/env bash\nexit 0\n' > "$STUB"; chmod 
 # The experience gate records the version it was asked to expect.
 EXPECT_LOG="$T/expect.log"
 XGATE="$T/stub-expect-gate.sh"; printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$KOSMOS_GATE_EXPECT_VERSION" >> "%s"\nexit 0\n' "$EXPECT_LOG" > "$XGATE"; chmod +x "$XGATE"
+unset KOSMOS_PROMOTE_BOARD_VERSION_CMD KOSMOS_PROMOTE_BOARD_SILENT_WAIT KOSMOS_PROMOTE_BOARD_WAIT KOSMOS_PROMOTE_BOARD_WAIT_STEP   # kosmos#8960: a caller's board wait must not reach these cases
 export KOSMOS_PROMOTE_GATE_CMD="bash $XGATE" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $STUB" KOSMOS_PROMOTE_PLUS_GATE_CMD="bash $STUB" KOSMOS_PROMOTE_TUNNEL_GATE_CMD="bash $STUB"
 export KOSMOS_PLUS_VERIFY_DIR="$T/plus-verify"
 WR="$HERE/lib/write-latest-pointer.js"

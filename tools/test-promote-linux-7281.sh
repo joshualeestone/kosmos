@@ -6,6 +6,7 @@
 set -u
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
+unset KOSMOS_PROMOTE_BOARD_VERSION_CMD KOSMOS_PROMOTE_BOARD_SILENT_WAIT KOSMOS_PROMOTE_BOARD_WAIT KOSMOS_PROMOTE_BOARD_WAIT_STEP   # kosmos#8960: a caller's board wait must not reach these cases
 T="$(mktemp -d "${TMPDIR:-/tmp}/promote-linux-7281.XXXXXX")"
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/tools/lib"
