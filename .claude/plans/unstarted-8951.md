@@ -89,3 +89,17 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 - Fixed (WARNING): `lost` still keyed on the last write, so a message counted because its turn opened within seconds of the stop was worded "never started". Any counted open turn (turnMsg or takenMsg within the window) is now `lost`.
 - Every other cell, and the other files' agreement with the record, traced sound by the reviewer.
 - Mutations red: counting the taken message, wording an open turn as lost, not double counting at the boundary.
+
+## Challenge loop iteration 10 (sonnet), and a redesign
+- Finding (WARNING): two messages joining a turn a minute apart shared one clock, so a stop just after the second also counted the first, which had run. Iterations 6 to 10 had each found a narrower timing case in the same counters (inFlight, turnMsg, takenMsg, queuedAfterReport): the shape was wrong, not one line.
+- Redesign: one record per message, `msgs: [{ since, ready, startedAt, afterReport }]`, replacing all four counters.
+  - wrote: pushes a record; `ready` when written into an idle agent; `afterReport` when a report was showing.
+  - a turn opening with no message under way starts every ready message (Claude Code may take several into one turn; marking one would later call the rest "never started"). A wake-up starts none.
+  - the main agent's calls all returning starts every waiting message (they join the turn).
+  - a result removes the messages that ran and marks the rest ready (their own turn is next, by the deadline).
+  - the deadline takes the messages not started into the report and drops them from the list.
+  - a stop carries messages started within LOST_WINDOW_MS of it (`lost`) and messages not started.
+  - a carried report ends only when a message with `afterReport` starts.
+  - capped at MSGS_MAX (500) records.
+- All 30 earlier tests pass unchanged on the new model; a new test covers the two joins a minute apart.
+- Mutations red: the per-message window, the ready gate, joining starts them, a result removes what ran, afterReport.
