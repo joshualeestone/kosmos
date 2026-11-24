@@ -23569,6 +23569,18 @@ function stateReason(a, opts) {
     const mins = Number.isFinite(since) ? Math.max(3, Math.round((Date.now() - since) / 60000)) : 3;
     return 'Text has been sitting unsent in its input box for about ' + mins + ' minutes, and Kosmos\'s messages to it may wait behind it. Open it to send it with Enter.';
   }
+  /* kosmos#8951: a Windows agent took messages in and never started on them (no turn opened). Before #7368's sentence,
+     which would wrongly name a step. */
+  if (a && a.deliveryStall && a.deliveryStall.lastWhy === 'turn' && a.deliveryStall.unstarted === true && typeof a.deliveryStall.since === 'string') {
+    const since = Date.parse(a.deliveryStall.since);
+    const mins = Number.isFinite(since) ? Math.max(5, Math.round((Date.now() - since) / 60000)) : 5;
+    const when = mins >= 120 ? 'about ' + Math.round(mins / 60) + ' hours' : 'about ' + mins + ' minutes';
+    const who = (typeof a.name === 'string' && a.name) ? a.name : 'This agent';
+    const n = Number.isInteger(a.deliveryStall.count) && a.deliveryStall.count > 0 ? a.deliveryStall.count : 1;
+    const what = n === 1 ? 'a message' : n + ' messages';
+    const next = typeof a.deliveryStall.next === 'string' && a.deliveryStall.next ? a.deliveryStall.next : 'Send them again, and restart it if they do not start either';
+    return who + ' took in ' + what + ' ' + when + ' ago but never started on ' + (n === 1 ? 'it' : 'them') + '. ' + next + '.';
+  }
   /* kosmos#7368 (Mona Lisa's design): a Windows agent on one step for over an hour with messages waiting behind it. The
      messages did arrive, so this is not "no message has reached it": it names the step and how many wait. */
   if (a && a.deliveryStall && a.deliveryStall.lastWhy === 'turn' && typeof a.deliveryStall.since === 'string') {

@@ -1885,6 +1885,12 @@ function deliveryStallOf(pane, status) {
     /* kosmos#7368: a Windows Claude agent on one step with no activity for over an hour and messages queued behind it.
        It comes first: those messages each landed, so the streak below can never see them, and it names the step
        (PigeonPete, m716: when both apply, show this one). */
+    /* kosmos#8951: messages a Windows Claude agent took in and never started on. First: nothing else can see them (each
+       one landed, and the agent reads idle once its deadline passed). */
+    if (pane && require('./win32roster').isWin32Pane(pane) && (!pane.runner || pane.runner === 'claude')) {
+      const missed = ds.unstartedOf(pane.name, require('./win32streamstate').unstartedFor(pane.name));
+      if (missed) return missed;
+    }
     if (st.state === STATE.WORKING && pane && require('./win32roster').isWin32Pane(pane) && (!pane.runner || pane.runner === 'claude')) {
       const turn = ds.turnStuckOf(pane.name, require('./win32streamstate').turnFor(pane.name));
       if (turn) return turn;

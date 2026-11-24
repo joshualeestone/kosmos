@@ -91,6 +91,13 @@ const MAX_LINE_CHARS = 16 * 1024 * 1024;
     it does not. */
 const WRITE_RETRY_MS = 250;
 
+/* kosmos#8951: how long a message written into an IDLE agent may go with no sign of a turn (system/init, assistant, user or
+   result) before it is reported as taken in but not started. Measured: a turn opens ~50 ms after the write (header
+   above). On 11-23 a Windows agent took three messages off its queue (its transcript: enqueue, then dequeue 1-2 ms later)
+   and never ran them, and the card read busy for 4 hours. Generous against the 50 ms, so a slow first start after a boot
+   is not reported, and still minutes rather than hours. */
+const START_DEADLINE_MS = 5 * 60 * 1000;
+
 function stateDir() { return path.join(store.ROOT, 'win32-state'); }
 /* Same key the rest of the store uses, so this agent's state, pipe, token and
    profile can never be filed under two spellings of one name. */
@@ -267,6 +274,20 @@ function turnFor(name) {
   if (!Number.isInteger(rec.pid) || !processAlive(rec.pid)) return null;
   const queued = Number.isInteger(rec.queued) && rec.queued > 0 ? rec.queued : 0;
   return { since: rec.stepSince, step: typeof rec.step === 'string' && rec.step ? rec.step : null, queued };
+}
+
+/** kosmos#8951: { since (ISO, when the first message it did not start on was written), count } from the agent's state
+    file while messages it took in were never started on (no turn by START_DEADLINE_MS), or null. Only for a file whose
+    process is alive, as turnFor. A turn that starts clears it in the file. */
+function unstartedFor(name) {
+  let rec;
+  try { rec = JSON.parse(fs.readFileSync(statePath(name), 'utf8')); } catch { return null; }
+  if (!rec || typeof rec !== 'object' || rec.v !== STATE_FILE_VERSION) return null;
+  const u = rec.unstarted;
+  if (!u || typeof u !== 'object' || typeof u.since !== 'string' || !Number.isFinite(Date.parse(u.since))) return null;
+  if (!Number.isInteger(u.count) || u.count < 1) return null;
+  if (!Number.isInteger(rec.pid) || !processAlive(rec.pid)) return null;
+  return { since: new Date(Date.parse(u.since)).toISOString(), count: u.count };
 }
 
 /** #5805: an epoch time from `resetsAt` as an ISO string, or null. The schema gives seconds; a value already in
@@ -676,6 +697,9 @@ function publisher(name, opts) {
   const timer = o.setTimer || ((fn, ms) => setTimeout(fn, ms));
   const nowMs = typeof o.now === 'function' ? o.now : Date.now;   // kosmos#7368: the step clock's, injectable for tests
   const onProblem = typeof o.onProblem === 'function' ? o.onProblem : () => {};
+  /* kosmos#8951: told { since, count } when a message written into an idle agent showed no turn by START_DEADLINE_MS. */
+  const onUnstarted = typeof o.onUnstarted === 'function' ? o.onUnstarted : () => {};
+  const startDeadlineMs = Number.isFinite(o.startDeadlineMs) && o.startDeadlineMs > 0 ? o.startDeadlineMs : START_DEADLINE_MS;
   /* kosmos#6570: the agent's Claude account folder (claudeAccountDirFor), where each rate_limit_event's readings are
      recorded the way the status line records them; none, and nothing is. `recordUsage` is injectable for tests. */
   /* A folder, or a function naming it (asked at each event, so an account folder made after the agent started is
@@ -691,6 +715,9 @@ function publisher(name, opts) {
   /* Bumped on every start and stop, so a retry armed for one process can never
      act as the second attempt for the next. */
   let generation = 0;
+  /* kosmos#8951: what the process that just ended had taken in and never run ({ since, count }), carried to the next one
+     (on 11-23 each delivery killed the agent and the resume came back without the message). */
+  let lostOnStop = null;
 
   /* `retrying` is true from a failed write until the next write that SUCCEEDS, so
      the retry below -- or any transition that comes first -- is the second
@@ -704,7 +731,8 @@ function publisher(name, opts) {
     /* Review 3 W3: while something is queued the step IS part of the key, so the card never names a finished step. */
     /* #7369: and the sign-in record, which a result can set or clear while the token stays idle. */
     return c.state + '\u0000' + JSON.stringify(c.limit || null) + '\u0000' + JSON.stringify(c.auth || null) + '\u0000' + clock
-      + '\u0000' + (c.queued || 0) + '\u0000' + ((c.queued || 0) > 0 ? (c.step || '') : '');
+      + '\u0000' + (c.queued || 0) + '\u0000' + ((c.queued || 0) > 0 ? (c.step || '') : '')
+      + '\u0000' + JSON.stringify(c.unstarted || null);   // kosmos#8951
   }
   function setState(next) {
     if (next === BUSY && current.state !== BUSY) { current.step = null; current.stepSince = new Date(nowMs()).toISOString(); }
@@ -720,6 +748,7 @@ function publisher(name, opts) {
     if (current.state === BUSY && current.stepSince) { rec.stepSince = current.stepSince; if (current.step) rec.step = current.step; }
     if (current.queued > 0) rec.queued = current.queued;
     if (current.auth) rec.auth = current.auth;
+    if (current.unstarted) rec.unstarted = current.unstarted;   // kosmos#8951: taken in, never started (unstartedFor)
     const r = write(rec);
     if (r && r.ok) { written = keyOf(current); retrying = false; return; }
     onProblem('we could not record its state (' + ((r && r.because) || 'unknown') + ')');
@@ -737,6 +766,22 @@ function publisher(name, opts) {
     timer(() => { if (retrying && armedFor === generation) flush(); }, WRITE_RETRY_MS);
   }
 
+  /* kosmos#8951: the deadline armed by wrote() came with no sign of a turn. The agent is not working on it, so it stops
+     reading busy; the messages it took in (this one and any written behind it) are recorded as not started, added to an
+     earlier record that no turn has cleared, and said to the supervisor. Only while this same deadline is still armed. */
+  function missedStart(due) {
+    if (!current || current.startDue !== due) return;
+    current.startDue = null;
+    const prev = current.unstarted;
+    const count = (prev && Number.isInteger(prev.count) ? prev.count : 0) + 1 + (current.queued || 0);
+    current.unstarted = { since: prev && typeof prev.since === 'string' ? prev.since : due.at, count };
+    current.inFlight = null;   // now in `unstarted`, so a later death does not count them again
+    current.queued = 0;
+    setState(IDLE);
+    flush();
+    try { onUnstarted({ since: current.unstarted.since, count }); } catch { /* the record is on disk; the log line is extra */ }
+  }
+
   return {
     /** A new agent process is up: idle until it is told something. */
     started(pid, sessionId) {
@@ -752,8 +797,14 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map() };
+      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map(), startDue: null, unstarted: null };
+      /* kosmos#8951: messages the previous process took in and never ran are this agent's still: said on the new
+         process's record, so its card says so, until a turn starts. */
+      const lost = lostOnStop;
+      lostOnStop = null;
+      if (lost) current.unstarted = lost;
       flush();
+      if (lost) { try { onUnstarted({ ...lost, lost: true }); } catch { /* the record is on disk; the log line is extra */ } }
     },
     /** One parsed stream event. */
     event(e) {
@@ -767,6 +818,14 @@ function publisher(name, opts) {
         } catch { /* the next event tries again */ }
       }
       const before = keyOf(current);
+      /* kosmos#8951: any sign of a turn means the message was started on: the deadline is off, and an earlier "taken in, not
+         started" is over (a later message did start a turn, as the 11-23 agent's 19:55 one did). */
+      if (e && (e.type === 'result' || e.type === 'assistant' || e.type === 'user' || (e.type === 'system' && e.subtype === 'init'))) {
+        current.startDue = null;
+        current.unstarted = null;
+        /* The first message is under way; only those written behind it are still not started. */
+        current.inFlight = (current.queued || 0) > 0 && current.inFlight ? { since: current.inFlight.since, count: current.queued } : null;
+      }
       const next = stateAfterEvent(e);
       if (next) setState(next);
       /* kosmos#7368, measured on Claude Code 2.1.311 (reviews 2 to 4): a message written in while the main agent's tool
@@ -784,7 +843,7 @@ function publisher(name, opts) {
         for (const c of content) if (c && c.type === 'tool_result' && current.open.delete(c.tool_use_id)) closed = true;
         if (closed && current.open.size === 0) current.queued = 0;
       }
-      if (e && e.type === 'result') { current.open.clear(); current.queued = 0; }
+      if (e && e.type === 'result') { current.open.clear(); current.queued = 0; current.inFlight = null; }   // kosmos#8951: ended, nothing in flight
       /* kosmos#7368 (review 1): ANY event while busy is activity, so the step clock is the last sign of life, not the
          turn's start: an agent calling a new tool every minute is never on one step for an hour. */
       if (current.state === BUSY && e && (e.type === 'assistant' || e.type === 'user' || e.type === 'system')) current.stepSince = new Date(nowMs()).toISOString();
@@ -840,9 +899,20 @@ function publisher(name, opts) {
     /** A message reached the agent's stdin. */
     wrote() {
       if (!current) return;
+      /* kosmos#8951: written and not yet run, until a turn starts on it (or a result ends the turn). */
+      current.inFlight = current.inFlight ? { since: current.inFlight.since, count: current.inFlight.count + 1 } : { since: new Date(nowMs()).toISOString(), count: 1 };
       /* kosmos#7368: written into a busy agent, it waits for the agent's next boundary; into an idle one, it starts the turn. */
       if (current.state === BUSY) current.queued = (current.queued || 0) + 1;
-      else setState(BUSY);
+      else {
+        setState(BUSY);
+        /* kosmos#8951: into an idle agent it must start a turn; if no sign of one arrives by the deadline, it is reported
+           rather than left reading busy. Armed for this write only: it fires only while `startDue` is still this object, so a
+           turn that started, a stop or a new process (a new `current`) disarms it. */
+        const due = { at: new Date(nowMs()).toISOString() };
+        current.startDue = due;
+        const t = timer(() => missedStart(due), startDeadlineMs);
+        if (t && typeof t.unref === 'function') t.unref();   // never what keeps a process (or a test) alive
+      }
       current.reachedModel = false;
       current.authRefused = false;   // #7369
       flush();
@@ -850,6 +920,13 @@ function publisher(name, opts) {
     /** The agent process is gone. */
     stopped() {
       const was = current;
+      /* kosmos#8951: what it took in and never ran goes to the next process: an earlier report no turn cleared, plus
+         anything written since. */
+      if (was && (was.unstarted || was.inFlight)) {
+        const a = was.unstarted, b = was.inFlight;
+        const since = [a && a.since, b && b.since].filter((x) => typeof x === 'string').sort()[0];
+        lostOnStop = { since, count: ((a && a.count) || 0) + ((b && b.count) || 0) };
+      }
       generation += 1;
       current = null;
       written = null;
@@ -874,4 +951,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { startedAt, STEP_CLOCK_MS, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
+module.exports = { startedAt, STEP_CLOCK_MS, START_DEADLINE_MS, unstartedFor, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
