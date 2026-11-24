@@ -169,7 +169,9 @@ enum Account {
         if (200...299).contains(status), obj?["ok"] as? Bool == true { return .retired }
         if let code = obj?["confirm"] as? String, !code.isEmpty {
             if typed != nil { return .refused("That is not the code shown for \(name). Nothing was retired.") }
-            let words = (obj?["message"] as? String).map(sentence) ?? "Type \(code) to retire \(name)."
+            // Its sentence is written to sit inside a line on the page, so it has no full stop of its own.
+            let words = (obj?["message"] as? String).map { m in sentence(m) + (m.hasSuffix(".") ? "" : ".") }
+                ?? "Type \(code) to retire \(name)."
             return .confirm(code: code, words: words)
         }
         return .refused(errorWords(data) ?? tryAgain)
