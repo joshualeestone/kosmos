@@ -80,7 +80,7 @@ check(Account.retireAnswer(status: 409, data: ask, name: "studio", typed: "ABCD"
 check(Account.retireAnswer(status: 200, data: json(#"{"ok":true,"name":"studio"}"#), name: "studio", typed: "K7QX") == .retired, "200 ok: retired")
 check(Account.retireAnswer(status: 200, data: json(#"{}"#), name: "studio", typed: "K7QX") == .refused(Account.tryAgain), "200 without ok is not taken as retired")
 check(Account.retireAnswer(status: 403, data: json(#"{"error":"that computer has been heard from in the last day; allow this device on one of your computers first, or retire it once it has been silent for a day","code":"recently_online"}"#), name: "studio", typed: nil)
-      == .refused("That computer has been heard from in the last day; allow this device on one of your computers first, or retire it once it has been silent for a day"), "a refusal shows Kosmos+'s reason")
+      == .refused("That computer has been heard from in the last day; allow this device on one of your computers first, or retire it once it has been silent for a day."), "a refusal shows Kosmos+'s reason")
 check(Account.retireAnswer(status: nil, data: nil, name: "studio", typed: nil) == .refused(Account.reach), "no answer: could not reach")
 check(Account.typedCode("  k7qx \n") == "K7QX", "typed: trimmed and upper case, as the page reads it")
 
@@ -88,7 +88,7 @@ section("sign out: this iPhone signs out only once Kosmos+ has ended it, or the 
 check(Account.forgetAnswer(status: 200) == .signOutHere && Account.forgetAnswer(status: 401) == .signOutHere, "200, or 401 (nothing left to end): sign out here")
 check(Account.forgetAnswer(status: 500) == .stay(Account.forgetFailed) && Account.forgetAnswer(status: nil) == .stay(Account.forgetFailed) && Account.forgetAnswer(status: 403) == .stay(Account.forgetFailed), "anything else stays signed in and says so")
 check(Account.everywhereAnswer(status: 200, data: nil) == .signOutHere && Account.everywhereAnswer(status: 401, data: nil) == .signOutHere, "everywhere: 200 or 401 signs out here (the page's rule)")
-check(Account.everywhereAnswer(status: 503, data: json(#"{"error":"try again shortly"}"#)) == .stay("Try again shortly"), "everywhere: a refusal keeps the sign-in and gives the reason")
+check(Account.everywhereAnswer(status: 503, data: json(#"{"error":"try again shortly"}"#)) == .stay("Try again shortly."), "everywhere: a refusal keeps the sign-in and gives the reason")
 check(Account.everywhereAnswer(status: nil, data: nil) == .stay(Account.reach), "everywhere: no answer")
 
 print("")

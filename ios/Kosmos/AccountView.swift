@@ -32,6 +32,9 @@ struct AccountView: View {
     @State private var typed = ""
     @State private var retireNote: String?
     @State private var retireBusy = false
+    // The sign-in each busy flag belongs to: a stale answer clears its flag only if no newer request took it.
+    @State private var retireFor: String?
+    @State private var busyFor: String?
     @State private var askEverywhere = false
     @State private var busy: Busy?
     @State private var signOutNote: String?
@@ -57,7 +60,8 @@ struct AccountView: View {
         .task { await read() }
         .onChange(of: accountGeneration) { _ in
             // A sheet, a choice or a note belonged to the sign-in that just changed.
-            retireBusy = false; closeRetire(); offerLocalOnly = nil; signOutNote = nil; listNote = nil; busy = nil
+            retireBusy = false; retireFor = nil; closeRetire(); offerLocalOnly = nil; signOutNote = nil; listNote = nil
+            busy = nil; busyFor = nil
             load = .reading
             Task { await read() }
         }
@@ -202,11 +206,16 @@ struct AccountView: View {
         let ticket = readTicket
         guard let session = currentSession() else { load = .failed("You are signed out."); return }
         let (status, data) = await send(Board.macsRequest(coordinator: coordinator, session: session))
+        // A cancelled pull or a screen that went away: no answer, so nothing on screen changes.
+        if Task.isCancelled { return }
         // A newer read was started meanwhile (a pull, a retire, a sign-in change): its answer is the one shown.
         guard ticket == readTicket else { return }
         // The answer belongs to the sign-in that asked. One that changed meanwhile is not shown; the change itself
-        // (accountGeneration) clears the list and reads it again.
-        guard currentSession() == session else { return }
+        // (accountGeneration) clears the list and reads it again; without one, this reads again for the sign-in held now.
+        guard currentSession() == session else {
+            if ticket == readTicket { await read() }
+            return
+        }
         guard let status else { if case .loaded = load { listNote = Account.reach } else { load = .failed(Account.reach) }; return }
         if (200...299).contains(status), let rows = Account.parseComputers(data) {
             load = .loaded(rows); listNote = nil
@@ -220,12 +229,12 @@ struct AccountView: View {
         // A sample run (screenshots) has no session and never asks Kosmos+.
         guard let session = sample ? "sample" : currentSession(), !retireBusy else { return }
         listNote = nil
-        retireBusy = true
+        retireBusy = true; retireFor = session
         let (status, data) = sample ? (409, Data(#"{"confirm":"K7QX","message":"type K7QX to retire \#(name); it will stop answering and its name is free again after a day"}"#.utf8))
             : await send(Account.retireRequest(coordinator: coordinator, session: session, name: name))
-        // A sign-in change meanwhile already cleared the flag (onChange); a request started since then keeps its own.
+        // A request started since then (after a sign-in change cleared the flag) keeps its own flag.
+        if retireFor == session { retireBusy = false; retireFor = nil }
         guard sample || currentSession() == session else { return }
-        retireBusy = false
         switch Account.retireAnswer(status: status, data: data, name: name, typed: nil) {
         case .confirm(let code, let words): typed = ""; retireNote = nil; retiring = (name, code, words)
         case .retired: await read()
@@ -239,10 +248,10 @@ struct AccountView: View {
         let code = Account.typedCode(typed)
         guard !code.isEmpty else { retireNote = "Type the four characters shown above."; return }
         retireNote = nil
-        retireBusy = true
+        retireBusy = true; retireFor = session
         let (status, data) = await send(Account.retireRequest(coordinator: coordinator, session: session, name: r.name, confirm: code))
+        if retireFor == session { retireBusy = false; retireFor = nil }
         guard currentSession() == session else { return }
-        retireBusy = false
         switch Account.retireAnswer(status: status, data: data, name: r.name, typed: code) {
         case .retired: closeRetire(); await read()
         // With a typed code retireAnswer never asks again (.confirm); a wrong code comes back as .refused.
@@ -259,11 +268,11 @@ struct AccountView: View {
         guard busy == nil, !sample else { return }
         guard let session = currentSession() else { signOutNote = "You are already signed out."; return }
         signOutNote = nil
-        busy = .signOut
+        busy = .signOut; busyFor = session
         let (status, _) = await send(Account.forgetRequest(coordinator: coordinator, session: session))
+        if busyFor == session { busy = nil; busyFor = nil }
         // An answer for a sign-in that changed meanwhile signs out nothing: it would end the newer one here.
         guard currentSession() == session else { return }
-        busy = nil
         switch Account.forgetAnswer(status: status) {
         case .signOutHere: signedOut(session)
         case .stay(let why): signOutNote = why; offerLocalOnly = session
@@ -274,10 +283,10 @@ struct AccountView: View {
         guard busy == nil, !sample else { return }
         guard let session = currentSession() else { signOutNote = "You are already signed out."; return }
         signOutNote = nil
-        busy = .everywhere
+        busy = .everywhere; busyFor = session
         let (status, data) = await send(Account.signOutEverywhereRequest(coordinator: coordinator, session: session))
+        if busyFor == session { busy = nil; busyFor = nil }
         guard currentSession() == session else { return }
-        busy = nil
         switch Account.everywhereAnswer(status: status, data: data) {
         case .signOutHere: signedOut(session)
         case .stay(let why): signOutNote = why
