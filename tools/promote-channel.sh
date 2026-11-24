@@ -547,7 +547,7 @@ wait_for_board_on_v() {
       [ -n "$silent_since" ] || silent_since=$SECONDS
       if [ $((SECONDS - silent_since)) -ge "$silent_limit" ]; then
         BOARD_WAIT_RAN_OUT=1
-        echo "promote-channel: stopped waiting: nothing has answered on $port_words for $((SECONDS - silent_since))s (KOSMOS_PROMOTE_BOARD_SILENT_WAIT=$silent_limit), longer than an install takes: a wrong port, or a board that is not running. Running the gates anyway." >&2
+        echo "promote-channel: stopped waiting after $((SECONDS - silent_since))s with no version from the board (KOSMOS_PROMOTE_BOARD_SILENT_WAIT=$silent_limit), longer than an install takes: $why. A wrong port, or a board that is not running, looks like this. Running the gates anyway." >&2
         return 0
       fi
     else echo "promote-channel: no board wait: cannot read which version the board on $port_words runs (version reader exit $rc); the gates say why."; return 0
