@@ -412,6 +412,7 @@ struct TaskPageView: View {
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Send this message on the task")
                 .disabled(model.saying || sayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             Text(Board.taskSayNote).font(.caption).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
@@ -459,6 +460,8 @@ struct TaskPageView: View {
     private static var sampleSaid: [Int: [String]] = [:]
     // A title edited on a sample task (POST .../text), served back by the next read.
     private static var sampleTitle: [Int: String] = [:]
+    // A due date set or cleared on a sample task (POST .../due), served back by the next read ("" for cleared).
+    private static var sampleDue: [Int: String] = [:]
     private static func sampleSend(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         guard let r = build(URL(string: "https://sample.invalid")!), let url = r.url else { return nil }
         let path = url.path
@@ -470,6 +473,11 @@ struct TaskPageView: View {
            let title = (r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["sentence"] as? String {
             sampleLock.withLock { sampleTitle[n] = title }
         }
+        if path.hasSuffix("/due"), let n = Int(url.deletingLastPathComponent().lastPathComponent),
+           let body = r.httpBody.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) {
+            sampleLock.withLock { sampleDue[n] = body["dueDate"] as? String ?? "" }
+        }
+        let dueNow: [Int: String] = sampleLock.withLock { sampleDue }
         let saidNow: [Int: [String]] = sampleLock.withLock { sampleSaid }
         let titleNow: [Int: String] = sampleLock.withLock { sampleTitle }
         let closedNow: Set<Int> = sampleLock.withLock {
@@ -486,7 +494,7 @@ struct TaskPageView: View {
         if path.hasSuffix("/projects") {
             body = #"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","paused":false,"agents":[{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"tasks":["#
                 + #"{"number":3,"sentence":"Print-ready catalogue","addedBy":"operator","addedVia":"screen","createdAt":""# + iso(4000) + #"",\#(closed(3, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":null,"sentence":"Print-ready catalogue"}]},"#
-                + #"{"number":4,"sentence":"# + Self.jsonString(titleNow[4] ?? "Pages 1 to 8") + #","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","dueDate":"2026-10-30","builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 1 to 8"}],"claim":{"claimed":true,"about":"dana"}},"#
+                + #"{"number":4,"sentence":"# + Self.jsonString(titleNow[4] ?? "Pages 1 to 8") + #","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","# + (dueNow[4].map { $0.isEmpty ? "" : #""dueDate":"# + Self.jsonString($0) + "," } ?? #""dueDate":"2026-10-30","#) + #""builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 1 to 8"}],"claim":{"claimed":true,"about":"dana"}},"#
                 + #"{"number":8,"sentence":"Pages 9 to 12","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2800) + #"",\#(closed(8, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 9 to 12"}]}"#
                 + #"]}]}"#
         } else if path.hasSuffix("/activity") && !path.contains("/task/4/") {
