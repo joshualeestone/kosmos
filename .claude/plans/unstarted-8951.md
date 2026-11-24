@@ -147,3 +147,8 @@ turnStuckOf needs BUSY for over an hour AND at least one message queued behind i
 
 ## Decided cost, stated once for the reviewers
 - The stream carries no message id, so which waiting message a turn belongs to is inferred from order and timing. Where two orders are equally possible, the rules prefer the one that can only over-report (a message said not started that did run, which costs the person one resend of a message they can see) over the one that can under-report (a lost message never said). Over-reports of that kind in rare interleavings are accepted, not bugs.
+
+## Challenge loop iteration 18 (sonnet)
+- Fixed (WARNING, an under-report): the join started every waiting message, so of two messages written back to back before a turn opened, the second was marked started when the first turn's call returned and dropped at its result, though its own turn was next (measured: back-to-back writes run as two turns). Only messages written behind an open turn (not ready) join it now; a reported one joins only a turn that is a reported one's.
+- Removed (was an under-report, a NIT): iteration 13's guess that a write landing within 1 s of a turn opened on no message is that turn's opener. It could lose a message queued behind a wake-up. Without it, the rare race (a turn's init before the write's callback) can only over-report, which the stated cost accepts; its test now pins that.
+- Mutation red: the join taking only messages behind the turn. Neighbours before push: as below.
