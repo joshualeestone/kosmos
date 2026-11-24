@@ -42682,10 +42682,14 @@ function setGridHtml(html) {
   grid.innerHTML = html;
 }
 /* kosmos#8990: an agent avatar in the grid, the list or My Agents (all three skip identical markup) that fails to load
-   is asked for again, by itself, after 5, 10, 20 and 40 s, then left. Rebuilding every poll used to retry a failed picture by accident; with the memos above it would
+   is asked for again, by itself, after 5 s, then 10, 20, 40 and every 60 s while it keeps failing. Rebuilding every poll
+   used to retry a failed picture by accident (every 5 s, and every other picture with it); with the memos above it would
    stay broken until the card changed. Only the failed element is retried, never the container, so one broken picture
-   cannot bring back the every-poll rebuild for everybody else. Captured, because a load error does not bubble. */
-const AVATAR_RETRY_MS = [5000, 10000, 20000, 40000];
+   cannot bring back the every-poll rebuild for everybody else. An error that arrives while a retry of that URL is
+   already waiting (the #8790 listener above re-sets a failed picture once) is not counted twice. Captured, because a
+   load error does not bubble. */
+const AVATAR_RETRY_FIRST_MS = 5000;
+const AVATAR_RETRY_MAX_MS = 60000;
 const AVATAR_RETRY_PARAM = /([?&])retry=\d+/;
 document.addEventListener('error', (e) => {
   const t = e.target;
@@ -42693,13 +42697,15 @@ document.addEventListener('error', (e) => {
   const attr = t.hasAttribute('src') ? 'src' : 'href';
   const url = t.getAttribute(attr) || '';
   if (!/^\/api\/agent\/[^/]+\/avatar(\?|$)/.test(url) || !t.closest('#grid, #alist, #my-agents-list')) return;
+  if (t.__avatarRetryFor === url) return;
+  t.__avatarRetryFor = url;
   const n = t.__avatarRetries || 0;
-  if (n >= AVATAR_RETRY_MS.length) return;
   t.__avatarRetries = n + 1;
   /* A new URL each time (the retry count rides it), so an SVG <image>, which does not reload for the same href, loads too. */
   const next = AVATAR_RETRY_PARAM.test(url) ? url.replace(AVATAR_RETRY_PARAM, '$1retry=' + (n + 1))
     : url + (url.indexOf('?') > -1 ? '&' : '?') + 'retry=' + (n + 1);
-  setTimeout(() => { if (t.isConnected && t.getAttribute(attr) === url) t.setAttribute(attr, next); }, AVATAR_RETRY_MS[n]);
+  const wait = Math.min(AVATAR_RETRY_FIRST_MS * 2 ** n, AVATAR_RETRY_MAX_MS);
+  setTimeout(() => { if (t.isConnected && t.getAttribute(attr) === url) t.setAttribute(attr, next); }, wait);
 }, true);
 /* The grid and the list in the chosen order, now. Shared by the sort control, a star and the stars' reload, so they
    cannot disagree about what "the board's order" is. A focused star keeps its focus (keepStarFocus). */

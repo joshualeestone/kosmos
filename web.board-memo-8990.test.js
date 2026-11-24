@@ -34,10 +34,11 @@ test('neither container is written by getElementById', () => {
   assert.equal(count(/getElementById\('grid'\)\.(insertAdjacentHTML\(|replaceChildren\()/g), 0, 'a direct write to #grid by id bypasses GRID_HTML');
 });
 
-test('a failed avatar is retried by itself, with a backoff, a bounded number of times', () => {
-  assert.match(PAGE, /const AVATAR_RETRY_MS = \[5000, 10000, 20000, 40000\];/, 'the retry delays changed; re-check the browser check\'s timing window');
-  assert.match(PAGE, /if \(n >= AVATAR_RETRY_MS\.length\) return;/, 'the retry is no longer capped');
-  const at = PAGE.indexOf('const AVATAR_RETRY_MS');
+test('a failed avatar is retried by itself, with a backoff that levels off at a minute', () => {
+  assert.match(PAGE, /const AVATAR_RETRY_FIRST_MS = 5000;\s*const AVATAR_RETRY_MAX_MS = 60000;/, 'the retry delays changed; re-check the browser check\'s timing window');
+  assert.match(PAGE, /const wait = Math\.min\(AVATAR_RETRY_FIRST_MS \* 2 \*\* n, AVATAR_RETRY_MAX_MS\);/, 'the retry no longer backs off to a ceiling');
+  assert.match(PAGE, /if \(t\.__avatarRetryFor === url\) return;\s*t\.__avatarRetryFor = url;/, 'a second error for a URL already waiting to be retried is counted twice');
+  const at = PAGE.indexOf('const AVATAR_RETRY_FIRST_MS');
   const body = PAGE.slice(at, at + 1500);
   assert.doesNotMatch(body, /GRID_HTML|ALIST_HTML|MY_AGENTS_HTML/, 'the retry touches a container memo, so one broken picture rebuilds the whole container every time');
 });
