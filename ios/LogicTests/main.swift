@@ -4226,6 +4226,9 @@ section("native board loop: connecting")
         c.start()
         _ = await settle { isLive(c) }
         c.drafts["dana"] = "half a thought"
+        w.threadAnswer = (200, #"{"messages":[{"at":"2026-11-02T20:00:01.000Z","text":"Morning Dana","from":null}],"olderCount":3}"#)
+        _ = await c.threadRead(for: "dana")
+        check(c.keptThread(for: "dana")?.rows.first?.text == "Morning Dana", "CONTROL: a thread is kept before the renewal")
         let admissionsBefore = c.admissions, handoffsBefore = w.count("/v1/account/handoff")
         c.sessionRenewed(from: "kst9", to: "kst2")   // not the session held: nothing moves
         check(Board.usableSaved(macs.value, session: "kst1", coordinator: coordinator) != nil, "CONTROL: a renewal from a session not held moves nothing")
@@ -4239,6 +4242,7 @@ section("native board loop: connecting")
         _ = await settle { isLive(c) }
         check(w.count("/v1/account/handoff") == handoffsBefore, "no new sign-in to the Mac")
         check(c.admittedUnder == "kst2", "the board is held under the fresh session")
+        check(c.keptThread(for: "dana")?.rows.first?.text == "Morning Dana", "the kept thread is found under the fresh session")
         c.stop()
     }
     section("native board loop: sign-out and another account")
