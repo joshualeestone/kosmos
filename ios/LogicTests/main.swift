@@ -1714,6 +1714,12 @@ do {
     check(Board.fileName("page.html", type: "text/plain") == "page.html" && Board.fileName("plan.pdf", type: "application/pdf") == "plan.pdf"
           && Board.fileName("notes", type: "") == "notes", "CONTROL: a page named as one, and any other file, keeps savedName's name")
     check(Board.isWebDocument(name: Board.fileName("x.dat", type: "text/html"), type: ""), "and the saved name alone routes it to WebFileView")
+    var xml16 = Data([0xFF, 0xFE]); xml16.append("<a>z</a>".data(using: .utf16LittleEndian)!)
+    check(Board.shownText(xml16, limit: 9)?.text == "<a>" && Board.shownText(xml16, limit: 9)?.cut == true,
+          "UTF-16 text cut at an odd byte is cut to whole characters and converted, and says it was cut")
+    check(Board.shownText(Data("bplist00".utf8) + Data([0, 1, 2]), limit: 100) == nil, "a binary property list is not shown as text")
+    check(Board.shownText(Data("<r>ok</r>".utf8), limit: 100).map { $0.text == "<r>ok</r>" && !$0.cut } == true
+          && Board.shownText(Data("<r>ok</r>".utf8), limit: 3).map { $0.text == "<r>" && $0.cut } == true, "CONTROL: plain text, whole and cut")
     let svgBytes = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"><a href=\"http://x/\"><rect width=\"1\" height=\"1\"/></a></svg>".utf8)
     let drawnSvg = Board.inertPage(svgBytes, kind: .svg).map { String(decoding: $0, as: UTF8.self) } ?? ""
     check(drawnSvg.contains("<img alt=\"\" src=\"data:image/svg+xml;base64," + svgBytes.base64EncodedString() + "\">") && !drawnSvg.contains("<svg"),

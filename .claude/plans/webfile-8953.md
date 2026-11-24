@@ -1,7 +1,7 @@
 # webfile-8953: a web-page file opens on the iPhone itself, never on the board (kosmos#8953, a slice of #8952)
 
 ## Problem
-A web page or markup file an agent or a room made (.html, .htm, .xhtml, .shtml, .svg, .xml, .webarchive, .mht) opened
+A web page or markup file an agent or a room made (.html, .htm, .xhtml, .shtml, .svg, .svgz, .xml, .webarchive, .mht) opened
 the whole computer board on the chat or project page, not the file. Board.isWebDocument sent it there on purpose
 (#7016 part 2 review 2): Quick Look draws such a file as a web page that can load from elsewhere, and fetchFile refused
 any text/html answer because the computer's sign-in gate can answer with its own page.
@@ -15,7 +15,9 @@ any text/html answer because the computer's sign-in gate can answer with its own
   - A page (.html .htm .xhtml .shtml) and a web archive's own page: drawn by LockedWebView. JavaScript off, a data store
     that is not kept, a content rule that blocks every load, only the first navigation allowed.
   - An SVG: drawn only as a picture (base64 in an <img>), which can neither load nor link.
-  - XML: shown as text (the first 256 KB, read off the main thread once; a line says when it was cut).
+  - XML: shown as text (the first 256 KB, read off the main thread once; a line says when it was cut). UTF-16 is cut to
+    whole characters and converted; anything with zero bytes and no UTF-16 mark (a binary property list, which counts
+    as XML) is offered to Share (review round 6).
   - A page larger than 8 MB (checked by its size before it is read): "This page is too large to show on iPhone".
   - A page whose bytes are not ASCII-compatible text (zero bytes with no UTF-16 mark; a UTF-16
     page is converted to UTF-8 first, so its links are found), nothing to draw (a damaged web archive) or a content rule
