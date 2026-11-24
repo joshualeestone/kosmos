@@ -117,7 +117,7 @@ test('#9011 the pill says what ended the wait, after #8979\'s restart line, on a
   assert.equal(say('agent'), 'Its question for you was closed at ' + clock + ' by the agent itself.');
   assert.equal(say('person'), 'Its question for you was closed at ' + clock + ' by you.');
   assert.equal(say('left'), 'Its question for you was closed at ' + clock + ' when it left the project.');
-  assert.equal(say('restart'), 'Its question for you was set aside at ' + clock + ' when it started a new session.');
+  assert.equal(say('restart'), 'Its question for you was set aside at ' + clock + ' when it started again.');
   assert.equal(say('ended'), 'Its question for you was set aside at ' + clock + ' when its session ended.');
   assert.equal(stateReason({ state: 'working', waitCleared: wc('agent', 'blocked') }), 'What it was waiting on was closed at ' + clock + ' by the agent itself.');
   /* Every sentence that asks the person to act, or says more, leads (review round 2); each with a control that the same

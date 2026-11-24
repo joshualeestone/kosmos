@@ -23733,15 +23733,16 @@ function stateReason(a, opts) {
     if (it.cls === 'firstreply') return 'It has not answered its first message. Kosmos tried to remind it and stopped ' + ago + '. Open it to see what it shows, or send it a message.';
   }
   /* kosmos#9011: the agent's own question (or what it was blocked on) was ended recently, and by what (engine/status.js
-     waitClearedOf: the agent itself, the person, leaving the project, a new session or the session ending), so a wait
+     waitClearedOf: the agent itself, the person, leaving the project, starting again or the session ending), so a wait
      does not vanish from the card unexplained. Low, after #8979's restart line and after #5154's give-up below them (review round
      2): every sentence that asks the person to act leads. Idle or working only, like #8979's: a new wait, a stop or a limit says itself. Fixed words, never the old question's. A new
-     session retiring the old wait is Josh's design (#5943); this only says it happened. Literals: tests lift stateReason
+     session retiring the old wait is Josh's design (#5943); this only says it happened. "Started again", not "a new
+     session": the Grok and Gemini bridges report `started` on a resume too (review round 3). Literals: tests lift stateReason
      alone, so the time words repeat #8979's today-or-weekday rule; the 12-hour span makes its date arm unneeded. */
   if (a && (a.state === 'idle' || a.state === 'working') && a.waitCleared && typeof a.waitCleared.at === 'string') {
     const at = new Date(a.waitCleared.at);
     const by = { agent: ' by the agent itself', person: ' by you', left: ' when it left the project',
-      restart: ' when it started a new session', ended: ' when its session ended' }[a.waitCleared.by];
+      restart: ' when it started again', ended: ' when its session ended' }[a.waitCleared.by];
     if (Number.isFinite(at.getTime()) && by) {
       const clock = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       const now = new Date();
