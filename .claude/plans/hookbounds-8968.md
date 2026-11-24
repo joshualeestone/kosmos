@@ -15,7 +15,8 @@ when the guarded slowness returns and do not red under load, and says not to wid
   request (it would sit until the 3 s keep abort, then report). So that arm also bounds the gap from the board seeing
   /api/undo/keep to the hook's next request or close, below 1950 ms, beside the tail bound.
 - exit-8014 stdin arm: keeps "ended no earlier than 4500 ms"; the 5 s stdin backstop is timed from a preload's start
-  mark (node -r, a file in the test's temp dir) to the first board request, between 4500 and 8000 ms, so a slow node
+  mark (node -r, a file in the test's temp dir) to the first board request, between 4500 and 9000 ms (review round 2: 8000 left
+  3 s for a stall inside the child), so a slow node
   start does not count and a 10 s backstop still reds.
 - win32-killguard-8406 "long lines stay fast": process.cpuUsage (user + system) instead of Date.now, as
   engine/backupscan.test.js already does. A runaway pattern spends CPU; load only stretches wall time.
@@ -34,4 +35,8 @@ when the guarded slowness returns and do not red under load, and says not to wid
 The tail bound has only 50 ms of headroom on the red side by design (the regression is at least 2000 ms) and about
 1.9 s on the green side; a machine that takes almost 2 s to tear a node process down after its last answer would red
 it. That is far beyond the 10 s run that prompted this card, which had a 5 s backstop plus about 5 s of slow start.
-cpuUsage counts every thread in the test process (GC included), which a loaded machine inflates a little, not 2x.
+The keep gap is the tighter of the exit-8014 arms: its regression sits at the 3 s keep abort (about 2985 ms measured,
+from the board seeing the request) against a 1950 ms bound, and the gap also holds the hook's proof for its next send.
+The stdin arm allows 4 s of stall inside the child before it reds (9000 against a 10 s regression).
+cpuUsage counts every thread in the test process (GC included). That load inflates it only a little is reasoned, not
+measured at load 22: the sleep control shows wall time no longer counts, nothing measured CPU under that load.
