@@ -102,6 +102,26 @@ test('a cut history whose first mark is a start is not read as a fresh turn', ()
   assert.equal(run([sent()], quiet).status, STATUS.UNKNOWN);
 });
 
+test('a history with no turn mark at all is unknown, not "not read yet"', () => {
+  const s = run([sent()], [beat(-60), { state: 'working', at: ms(-50), by: 'agent' }]);
+  assert.equal(s.status, STATUS.UNKNOWN);
+  assert.match(sentence(s), /no turn reports from the report hook of mara are recorded/);
+});
+
+test('a held reply counts as an answer only once it was typed', () => {
+  const reply = { kind: 'message', id: 'm11', from: 'mara', to: 'leo', at: at(3), state: 'held', in_reply_to: 'm10' };
+  assert.equal(run([sent(), reply], [end(-60), start(2), end(5)]).status, STATUS.READ_NO_ANSWER);
+  const typed = { kind: 'held-delivered', of: 'm11', from: 'mara', to: 'leo', at: at(9), state: 'placed' };
+  assert.equal(run([sent(), reply, typed], [end(-60), start(2), end(5)]).status, STATUS.ANSWERED);
+});
+
+test('a session restart ends a standing wait: the new session\'s turns count', () => {
+  const ask = { state: 'needs_you', at: ms(-30), by: 'agent' };
+  const restart = { state: 'started', at: ms(-20), by: 'auto' };
+  assert.equal(run([sent()], [end(-60), ask, restart, end(-10)]).status, STATUS.NOT_YET);
+  assert.equal(run([sent()], [end(-60), ask, restart, start(2), end(5)]).status, STATUS.READ_NO_ANSWER);
+});
+
 test('an unsent line in the input box is said', () => {
   assert.match(sentence(run([sent({ unsubmitted: true })], [end(-60)])), /left unsent in its input box/);
 });

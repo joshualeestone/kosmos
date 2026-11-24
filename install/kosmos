@@ -2883,7 +2883,7 @@ EOF
 _msg_status() {
   local id="${1:-}" body rc=0 sentence because
   case "$id" in
-    m[123456789]*) case "${id#m}" in *[!0123456789]*) id="" ;; esac ;;
+    m[123456789]*) case "${id#m}" in *[!0123456789]*) id="" ;; esac; [ "${#id}" -le 17 ] || id="" ;;   # the board's ID_RE: m and 1 to 16 digits
     *) id="" ;;
   esac
   if [ -z "$id" ] || [ $# -ne 1 ]; then say "Usage: kosmos msg --status <message id>, like: kosmos msg --status m12"; exit 2; fi

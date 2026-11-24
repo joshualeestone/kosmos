@@ -41,6 +41,15 @@ the answer unknown unless a whole turn was still seen.
 - One refusal for a missing id and for another pair's message.
 - The turn sentences are exported from selfreport and pinned against both hooks' text.
 
+## Review changes (iteration 2)
+- No turn mark anywhere in the kept history is unknown (a hook that sends none), not not_yet.
+- A held reply is an answer only once its held-delivered row says it was typed.
+- A session start or stop ends a standing wait.
+- Both CLIs check the id against the board's ID_RE length; the sentence strips any quote or backslash from the name.
+- Deferred: times stay ISO UTC (the readers are agents, which compare them to other board stamps, not a person).
+- Deferred: the Windows exclusion has no follow-up card, as none of its sibling rows do; the reason in the row says
+  what would change it (the arms run on Windows).
+
 ## Tests
 - engine/msgstatus-8961.test.js (16, pure; failing control: dropping the between-turns rule fails one)
 - server.msg-status-8961.test.js (5, real server + bash CLI + Windows CLI main(); control: removing the bash

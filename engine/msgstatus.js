@@ -104,9 +104,11 @@ function status(id, o) {
      says so (`cites: false`). */
   const to = canon(msg.to);
   const from = canon(msg.from);
+  // A held reply counts only once the sweep typed it (its held-delivered row): kept, it has not reached the sender.
+  const typedLater = (r) => rows.some((d) => d && d.kind === 'held-delivered' && d.of === r.id && (d.state === 'placed' || d.state === 'unconfirmed'));
   const back = rows.filter((r) => r && r.kind === 'message' && typeof r.to === 'string' && r.id !== key
     && canon(r.from) === to && canon(r.to) === from
-    && (r.state === 'placed' || r.state === 'unconfirmed' || r.state === 'held')
+    && (r.state === 'placed' || r.state === 'unconfirmed' || (r.state === 'held' && typedLater(r)))
     && Number.isFinite(Date.parse(r.at || '')) && Date.parse(r.at) >= Date.parse(msg.at));
   const cited = back.find((r) => r.in_reply_to === key);
   const answer = cited || back[0];
@@ -137,14 +139,17 @@ function status(id, o) {
   let before = last;   // the last mark before the message arrived
   let waitStood = false;
   let waiting = false;
+  let sawMark = false;
   for (const row of hist) {
     if (!row) continue;
     if (row.at >= sentAt && waiting) waitStood = true;   // standing when this row came, so possibly at the send
     if (row.state === 'needs_you' || row.state === 'blocked') waiting = row.by !== 'auto';
-    else if (row.state !== 'stopped' && row.state !== 'started' && row.by !== 'auto') waiting = false;   // the agent's or a person's other report ends it
+    // The agent's or a person's other report ends it, and so does a session's start or stop (a new session's hook rows are recorded).
+    else if (row.state === 'stopped' || row.state === 'started' || row.by !== 'auto') waiting = false;
     if (row.at >= sentAt && waiting) waitStood = true;
     const mark = turnMark(row);
     if (!mark) continue;
+    sawMark = true;
     const prev = last;
     last = mark;
     if (!(row.at >= sentAt)) { before = mark; continue; }
@@ -161,6 +166,9 @@ function status(id, o) {
   }
   if (started !== null) return { ...base, status: STATUS.READING, turnStartedAt: iso(started) };
   if (before === 'start') return { ...base, status: STATUS.IN_TURN };
+  /* No turn mark anywhere in what is kept: the hook sends none (another provider, or none installed), so "between
+     turns" was never seen and "not read yet" would be a guess. */
+  if (!sawMark) return { ...base, status: STATUS.UNKNOWN, because: 'no turn reports from the report hook of ' + msg.to + ' are recorded' };
   if (before === 'cut') return { ...base, status: STATUS.UNKNOWN, because: 'the report history kept for ' + msg.to + ' does not show whether it was in a turn when your message arrived' };
   return { ...base, status: STATUS.NOT_YET };
 }
@@ -169,7 +177,7 @@ function status(id, o) {
    as the board's ISO stamps; the CLI prints them as given. */
 function sentence(s) {
   if (!s || s.found !== true) return (s && s.because) || 'we could not read that message';
-  const who = s.to;
+  const who = String(s.to).replace(/["\\]/g, '');   // the name as typed: never a quote or backslash in the sentence
   const fyi = (s.replyExpected === false ? ' It was sent with --no-reply, so no answer was asked for.' : '')
     + (s.unsubmitted === true ? ' When it was typed, Kosmos saw it left unsent in its input box.' : '');
   switch (s.status) {
