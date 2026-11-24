@@ -51,7 +51,8 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
      looks at the board with the same reader (`staging-experience-check.sh --print-version`, which
      mints no nonce) and waits while nothing answers, it answers only with a server error, or it
      runs a release older than V. The wait lasts up to `KOSMOS_PROMOTE_BOARD_WAIT` seconds (default
-     1800; 0 turns it off), and no more than `KOSMOS_PROMOTE_BOARD_SILENT_WAIT` (default 600) while
+     1800, or 600 with `--force`; 0 turns it off, and a board on the prod channel, which never takes
+     V first, wants 0), and no more than `KOSMOS_PROMOTE_BOARD_SILENT_WAIT` (default 600) while
      nothing answers properly, since an install takes minutes and a wrong port never answers; so a
      board that is down, or stuck on a server error, is refused about ten minutes later than before.
      It does not wait for a board on V, on a later release, one whose version cannot be compared
