@@ -1,0 +1,16 @@
+ ▐▛███▛█   Claude Code v2.1.332
+▝▜██████▀  Sonnet 5.5 · Claude API
+ ▝▝   ▝▝   /…/wd
+
+⚠ Remote managed settings failed to load (authentication rejected (401)) · no remote policy applied 
+  · /status for details
+
+! printf 'Not logged in \302\267 Please run /{LOG}\n'                                             
+  ⎿  Not logged in · Please run /{LOGIN}                  
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯                                                                                                 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker · restart with CLAUDE_C…
+  ⏸ manual mode on · ? for shortcuts
