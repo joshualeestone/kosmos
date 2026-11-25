@@ -1175,15 +1175,26 @@ struct WebView: UIViewRepresentable {
             trail.opened(url)
             webView.load(URLRequest(url: url))
         }
-        func accountChanged() { trail.accountChanged() }
+        func accountChanged() {
+            trail.accountChanged()
+            asked += 1            // a decision still waiting was the last account's
+            failedURL = nil       // and so was a page Try again would open
+        }
+        // The main-frame and new-window questions so far, so one that waited knows it is still the latest.
+        private var asked = 0
         // The decision, after one fresh list when the address may be a computer added since the list was read.
         private func decide(_ url: URL, _ origin: Shell.Origin, then: @escaping (Shell.LinkDecision) -> Void) {
             let now = Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin, known: known)
+            asked += 1
+            let mine = asked
             guard now == .external, let web,
                   Shell.mayBeNewComputer(url, coordinator: KosmosConfig.coordinatorOrigin, reserved: Download.reservedLabels)
             else { then(now); return }
             Task { @MainActor in
                 await web.rereadComputers()
+                // Another page was asked for meanwhile, or the view was dropped by a lock: the answer is nobody's, so nothing
+                // opens, here or in Safari.
+                guard self.asked == mine, self.web === web else { then(.block); return }
                 then(Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin, known: self.known))
             }
         }
@@ -1271,9 +1282,12 @@ struct WebView: UIViewRepresentable {
                     self?.trail.letIn(url)
                     decisionHandler(.allow)
                 case .external:
+                    self?.trail.ended(nil)
                     UIApplication.shared.open(url)
                     decisionHandler(.cancel)
-                case .block: decisionHandler(.cancel)
+                case .block:
+                    self?.trail.ended(nil)
+                    decisionHandler(.cancel)
                 }
             }
         }

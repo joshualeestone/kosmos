@@ -13,8 +13,8 @@ rating says social media No and that nothing is public. Splinter (11-24 20:30): 
 - ShellLogic.swift `linkDecision` takes `Known`. Under https and the Kosmos+ domain, in this order: the coordinator is in the app; a
   reserved name never is; one of the person's own computers, the page showing (a reload is that) or on its way, or back/forward
   to a host this web view has shown; or, only while the account's list is not read, an address a Kosmos+ page is sending it to
-  (a sign-in, a cloud machine's opening). Everything else is Safari.
-- `Shell.LinkTrail` (pure, tested): the page showing, the one on its way (cleared when it shows, fails or becomes a download), the
+  (a sign-in, a cloud machine's opening). Everything else is Safari; a step back onto such an address does nothing.
+- `Shell.LinkTrail` (pure, tested): the page showing, the one on its way (cleared when it shows, fails, becomes a download, or is refused here), the
   one the app itself opened, and the hosts shown. Another account forgets the last two.
 - ContentView.swift: the delegate feeds the trail; `BoardWeb.ownComputers` gives the account's list and the connected computer
   (held on BoardWeb, since a lock replaces the coordinator); the app's own loads of a computer go through `Coordinator.open`.
@@ -34,8 +34,9 @@ kind. Once the list is read it no longer applies, so a service Kosmos+ adds late
   could come in from a Kosmos+ page until the app's reserved list has it.
 - A board page could send itself to Kosmos+ and at once on to another address while the list is unread. The board is the person's
   own code, and Kosmos+ decides who that computer lets in.
-- A computer added since the list was read waits for one fresh list (BoardClient.rereadMacs) before it is judged; if that read fails, it
-  opens in Safari.
+- A computer added since the list was read waits for one fresh list (BoardClient.rereadMacs, one read shared) before it is judged; if that read fails, it
+  opens in Safari. While it waits, nothing on screen says so; another page asked for, a lock or another account ends the wait and
+  nothing opens.
 - Not run in a simulator yet: sign-in, a notification on a cold launch, the switcher, back, and the community link.
 
 ## Tests

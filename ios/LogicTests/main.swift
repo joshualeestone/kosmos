@@ -222,19 +222,20 @@ for label in reserved9028.sorted() where label != "login" {
 }
 check(reserved9028.contains("community"), "the community is one of them")
 for o in every9028 {
-    check(link("https://stranger.kosmosplus.com/", o) == .external, "a computer that is not the person's: Safari")
-    check(link("https://stranger.kosmosplus.com/", o, known9028(pages: [board9028])) == .external, "and before the list is read, from a board")
-    check(link("https://stranger.kosmosplus.com/", o, known9028(own: ["hers.kosmosplus.com"], read: true, pages: [signIn9028])) == .external, "and from a Kosmos+ page once the list is read")
+    let out: Shell.LinkDecision = o == .history ? .block : .external   // a step back never opens Safari on a computer
+    check(link("https://stranger.kosmosplus.com/", o) == out, "a computer that is not the person's: Safari")
+    check(link("https://stranger.kosmosplus.com/", o, known9028(pages: [board9028])) == out, "and before the list is read, from a board")
+    check(link("https://stranger.kosmosplus.com/", o, known9028(own: ["hers.kosmosplus.com"], read: true, pages: [signIn9028])) == out, "and from a Kosmos+ page once the list is read")
     check(link("https://hers.kosmosplus.com/x", o, known9028(pages: [board9028])) == .inApp, "the page showing stays in, list read or not (a reload too)")
     check(link("https://hers.kosmosplus.com/x", o, known9028(own: ["hers.kosmosplus.com"], read: true)) == .inApp, "the person's own computer with no page showing")
     check(link("https://new-mac.kosmosplus.com/", o, known9028(pages: [signIn9028])) == .inApp, "where a Kosmos+ page sends it before the list is read")
-    check(link("https://new-mac.kosmosplus.com/", o, known9028(pages: [URL(string: "http://login.kosmosplus.com/")!])) == .external, "not from a plain http page of that name")
-    check(link("https://new-mac.kosmosplus.com/", o, known9028()) == .external, "no page and not the person's: Safari")
+    check(link("https://new-mac.kosmosplus.com/", o, known9028(pages: [URL(string: "http://login.kosmosplus.com/")!])) == out, "not from a plain http page of that name")
+    check(link("https://new-mac.kosmosplus.com/", o, known9028()) == out, "no page and not the person's: Safari")
     check(link("https://evil.example.com/", o, known9028(own: ["evil.example.com"], pages: [URL(string: "https://evil.example.com/")!], shown: ["evil.example.com"])) == .external, "another site is never in the app")
 }
 check(link("https://was-shown.kosmosplus.com/", .history, known9028(read: true, pages: [board9028], shown: ["was-shown.kosmosplus.com"])) == .inApp, "back to a page that was shown")
 for o in [Shell.Origin.tapped, .newWindow, .pageFlow] { check(link("https://was-shown.kosmosplus.com/", o, known9028(read: true, pages: [board9028], shown: ["was-shown.kosmosplus.com"])) == .external, "shown once is not a reason for a link") }
-check(link("https://stranger.kosmosplus.com/", .history, known9028(read: true, pages: [board9028], shown: ["was-shown.kosmosplus.com"])) == .external, "a redirect of a back step to a stranger: Safari")
+check(link("https://stranger.kosmosplus.com/", .history, known9028(read: true, pages: [board9028], shown: ["was-shown.kosmosplus.com"])) == .block, "a redirect of a back step to a stranger: nothing opens")
 // The bookkeeping.
 func trail9028(_ steps: (inout Shell.LinkTrail) -> Void) -> Shell.LinkTrail { var t = Shell.LinkTrail(); steps(&t); return t }
 func knows9028(_ t: Shell.LinkTrail, _ addresses: [String] = []) -> Shell.Known { t.known(addresses: addresses, connected: nil, remembered: nil, reserved: reserved9028) }
@@ -3047,6 +3048,17 @@ section("native board loop: connecting")
         c.refreshLastSeen()
         _ = await settle { w.count("/v1/account/macs") > lists0 + 1 }
         check(w.count("/v1/account/macs") == lists0 + 1, "kosmos#7416: and not again within the minute")
+        // kosmos#9028: a page opened a computer the list does not have: one fresh list, at once, shared by two who ask together.
+        let macs0 = w.macsBody, lists9028 = w.count("/v1/account/macs")
+        w.macsBody = w.macsBody.replacingOccurrences(of: #"{"macs":["#, with: #"{"macs":[{"name":"Added","address":"added.kosmosplus.com","last_seen":400},"#)
+        check(!c.macs.contains { $0.address == "added.kosmosplus.com" }, "kosmos#9028 CONTROL: not on the list yet")
+        async let one: Void = c.rereadMacs()
+        async let two: Void = c.rereadMacs()
+        _ = await (one, two)
+        check(c.macs.contains { $0.address == "added.kosmosplus.com" } && w.count("/v1/account/macs") == lists9028 + 1, "kosmos#9028: on it once the read is awaited, with one read for both")
+        w.macsBody = macs0
+        await c.rereadMacs()
+        check(!c.macs.contains { $0.address == "added.kosmosplus.com" } && w.count("/v1/account/macs") == lists9028 + 2, "kosmos#9028: and asked again the next time")
         // The bug review 1 found: any later start restored Studio's kept session and undid the choice.
         c.retry()
         _ = await settle { if case .unreachable = c.phase { return true }; return false }

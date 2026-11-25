@@ -22,7 +22,8 @@ enum Download {
 
     /// The names Kosmos+ keeps for itself, so a page under one is a Kosmos+ service, not a board. A COPY of
     /// RESERVED_NAMES in kosmos-relay coordinator/src/signin.rs, as native-app/main.swift kosmosPlusReservedLabels is;
-    /// add a name there, add it in both.
+    /// add a name there, add it in both. kosmos#9028: also what keeps those services (the public community) out of the app's web
+    /// view (Shell.linkDecision), so a missing name matters beyond saving files.
     static let reservedLabels: Set<String> = [
         "www", "api", "app", "relay", "coordinator", "admin", "mail", "smtp", "mx", "ns", "ns1", "ns2", "dns",
         "status", "help", "support", "kosmos", "billing", "community", "docs", "forum", "blog", "news", "cdn", "static",
