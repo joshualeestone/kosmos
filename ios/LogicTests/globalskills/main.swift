@@ -102,6 +102,14 @@ for w in [W.title, W.hint, W.addLabel, W.addHint, W.namePlaceholder, W.bodyPlace
 }
 check(repoText("engine/skills.js").contains("'" + G.sampleBlankName.dropLast().lowercased() + "'"),
       "the sample's blank-name sentence is the engine's own (engine/skills.js)")
+let engine = repoText("engine/skills.js")
+check(engine.contains("'" + G.sampleBlankWords.dropLast().lowercased() + "'"), "the sample's blank-words sentence is the engine's")
+check(engine.contains("there is already a skill called ${slug}; pick another name rather than replacing it"), "and its taken-name sentence")
+check(G.slug("  How we write EMAILS!! ") == "how-we-write-emails" && G.slug("--a__b--") == "a-b" && G.slug("éé") == "" && G.slug(String(repeating: "a", count: 70)).count == 64,
+      "the key is the engine's slugFor (a-z and 0-9, dashes between, trimmed, 64 at most)")
+check(G.sampleRefusal(name: "!!", body: "x", taken: []) == G.sampleBlankName && G.sampleRefusal(name: "A", body: "  ", taken: []) == G.sampleBlankWords
+      && G.sampleRefusal(name: "Release notes", body: "x", taken: ["release-notes"]) == "There is already a skill called release-notes; pick another name rather than replacing it."
+      && G.sampleRefusal(name: "New one", body: "x", taken: ["release-notes"]) == nil, "the sample refuses as the engine, in that order")
 check(script.contains("rm.textContent = 'Remove';"), "the Remove button's own word in the script (review 2: the bare word is in other sentences)")
 for w in [W.none, W.added, W.removeArmed, W.listFailed, W.addFailed, W.removeFailed, W.addRefusedDefault,
           W.removeRefusedDefault, W.listRefusedDefault, "Looking…"] {
