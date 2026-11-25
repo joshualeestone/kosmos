@@ -21,13 +21,18 @@ list the name is still 404 "no agent by that name". The sender keeps the message
 - A send-only card built from the supervisor's presence (win32roster.supervisedPane + status.paneRosterFrom).
   paneRosterFrom gives a bare {sessionName, session, isNamedOurs}. The fields chat.deliver needs (target,
   isAgentPane, reachedByChannel) are only built inside status.snapshot's per-pane closure, which has side effects
-  (sweeps, transitions). Taking that out of snapshot is its own card: delivering DURING an outage. Follow-up filed.
+  (sweeps, transitions). Taking that out of snapshot is its own card, kosmos#9087: delivering DURING an outage.
 - A longer lastGood hold: it would keep listing agents stopped since the last good read.
 
 ## Weakest premise
 That the chat listener retries a 409 'unreadable' as it retried the 404 (218 retries on 11-25). It lives outside this repo, and
 I have not read it. If it gives up on a 409, this change still makes the reason honest but could lose a retry; the
-follow-up card says to check it.
+follow-up card (#9087) says to check it.
+
+## Known gap, not this card
+Three other routes that type into an agent still answer an unreadable roster with a bare 404 "no agent by that
+name": /api/agent/<n>/handoff-restart/ask, /api/agent/<n>/compact and /clear, and /handoff-restart/pickup (server.js,
+each `if (!knownAgent(name))`). Listed on #9087.
 
 ## Tests
 server.dm-listfail-9085.test.js: a failing source gives 409 unreadable with retry and the log line; CONTROLS: a roster that reads

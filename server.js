@@ -22156,14 +22156,19 @@ const server = http.createServer(async (req, res) => {
         // a tmux fan-out.
         // (`chat.deliver` refuses on its own too — exact match to permit, tied,
         // and a pane with Claude in it. This one is about the NAME.)
-        if (!knownAgent(name)) {
+        /* kosmos#9085: ONE roster read decides both "is it ours" and "could we look at all", so a read that fails and
+           a second that succeeds cannot answer one send two ways (knownAgent and nameRefusal each read it). */
+        let rosterUnreadable = false;
+        let known = false;
+        try { const card = claimantFor(name); known = Boolean(card) && card.isNamedOurs === true; } catch { rosterUnreadable = true; }
+        if (!known) {
           /* kosmos#9085: a roster that cannot be READ is not "no agent by that name". On Windows a `claude agents --json`
              that kept failing (five hours on 11-25) made the roster refuse, and every message to a running agent was
              answered 404 as if the agent did not exist. Unknown is answered as unknown: a 409 with `because`
              'unreadable' (nameRefusal's reason) and `retry`, and a line in the board's log. A 4xx, not a 503, for the
              #8652 reason below: the page and the iPhone read a 5xx on a send as "it may have gone", and nothing was
              typed. A roster that reads and does not list the name stays a 404 below. */
-          if (nameRefusal(name) === 'unreadable') {
+          if (rosterUnreadable) {
             noteUnreadableSend(name);
             const unknown = new Error('we could not check which agents are running, so nothing was sent. Try again in a moment.');
             unknown.status = 409;

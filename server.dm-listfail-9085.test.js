@@ -95,6 +95,5 @@ test('#9085 CONTROL: a roster that READS and does not list the name is still a 4
 test('#9085 CONTROL: a roster that reads and lists the agent is not refused at the gate', async () => {
   source = () => fleet.line({ session: 'raph', claim: 'raph' }) + '\n';
   const r = await send('raph', 'hello');
-  assert.notEqual(r.status, 404, JSON.stringify(r.json));
-  assert.notEqual(r.json && r.json.because, 'unreadable', JSON.stringify(r.json));
+  assert.equal(r.status, 200, 'the gate let it through and it was sent: ' + JSON.stringify(r.json));
 });
