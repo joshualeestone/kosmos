@@ -18,3 +18,9 @@ submission build (stacked on #9063, which changed the "no computer yet" line; me
 
 ## Checked
 Every iOS logic suite passes; every ios/Kosmos source typechecks at iOS 16.
+
+## Review round 2 (PigeonPete, fresh, read-only): no BLOCKER
+- Taken: the ShellLogic comment and two LogicTests check labels still described the old "Your Mac" wording.
+- Checked: the not-updating banner (5 characters longer) has no line limit, so it wraps at large text.
+- Not this card, said on it: engine/projects.js's refusal "a folder your Mac hides" (the board's words, which know
+  the platform); ios/store/privacy-label.md says "the person's own Mac" (the #7352 submission text, Angel's).

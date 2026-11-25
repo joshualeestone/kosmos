@@ -138,7 +138,7 @@ enum Shell {
 
     // kosmos#7197 (Josh, 10-26 08:29, with two Macs): a Mac that is not answering is named, so the person knows which
     // one to wake. The name is the Mac's address label (the first part of its host), as Kosmos+ lists it; with no
-    // name the wording is the old "Your Mac".
+    // name the wording is "Your computer" (kosmos#9064: Kosmos runs on Windows too).
     static func macName(fromHost host: String?) -> String? {
         guard let first = host?.split(separator: ".").first, !first.isEmpty else { return nil }
         return String(first)

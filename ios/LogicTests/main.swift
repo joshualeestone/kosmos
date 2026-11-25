@@ -316,7 +316,7 @@ check(Shell.macName(fromHost: nil) == nil && Shell.macName(fromHost: "") == nil,
 check(Shell.macUnreachableTitle("10102026") == "10102026 isn't answering", "the title names the Mac")
 check(Shell.macUnreachableMessage("tmnt").contains("the computer called tmnt didn't reply"), "the message names the Mac")
 check(Shell.macUnreachableTitle(nil) == "Your computer isn't answering" && Shell.macUnreachableTitle("  ") == "Your computer isn't answering",
-      "CONTROL: no name keeps the old wording")
+      "CONTROL: no name says \"Your computer\" (kosmos#9064)")
 check(Shell.macUnreachableMessage(nil) == "Your phone is online, but your computer didn't reply. It may be asleep, off or offline. Wake it, then try again.",
       "kosmos#7416: the unnamed message with no time, word for word (Mona Lisa's first sentence)")
 // kosmos#7416 slice 2: when Kosmos+ last heard from the Mac, in the person's clock and Mona Lisa's words. A fixed
@@ -404,7 +404,7 @@ do {
           "CONTROL: with no time the list's line is as before")
 }
 check(Shell.notUpdatingLine("tmnt") == "Not updating. tmnt isn't answering." && Shell.notUpdatingLine(nil) == "Not updating. Your computer isn't answering.",
-      "the banner over a list names the Mac, and keeps the old words with no name")
+      "the banner over a list names the computer, and says \"Your computer\" with no name (kosmos#9064)")
 check(BoardClient.Phase.unreachable(mac: "10102026").macName == "10102026" && BoardClient.Phase.live(mac: Board.Mac(name: "tmnt", address: "tmnt.kosmosplus.com", usable: true)).macName == "tmnt"
       && BoardClient.Phase.starting.macName == nil, "a phase names its Mac, or none")
 check(Board.sessionRequest(mac: URL(string: "https://studio.kosmosplus.com")!, handoffToken: "t").timeoutInterval == 8, "a session request waits 8 s, so three tries take about 30 s")
