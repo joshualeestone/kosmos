@@ -88,11 +88,32 @@ function sandboxCred(service) {
   return JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: until, expiresAt: until } });
 }
 
-/* Default keychain reader. Returns the raw credential body (JSON string) or null.
- * NEVER logs it; stderr is discarded so a "not found" is a quiet null. */
-function readCredDefault(service) {
+/* kosmos#9097: off macOS there is no Keychain, and Claude Code keeps the login in its config folder's
+ * `.credentials.json` (measured on the Windows box 11-25, Claude Code 2.1.319: C:\\Users\\<user>\\.claude\\.credentials.json
+ * carries claudeAiOauth.refreshTokenExpiresAt, the same instant `claude auth status` reports). The folder is the agent's
+ * CLAUDE_CONFIG_DIR, or <home>/.claude when it is unset. Like usagepoll.readCredFor (review 14 there), a folder outside
+ * the real home is never read: a sandboxed board's folders are not the operator's. null for any doubt. */
+function realHome() { try { return os.userInfo().homedir; } catch { return null; } }
+function credFileFor(ccd, home = realHome()) {
+  if (!home) return null;
+  const v = ccd == null ? '' : String(ccd).replace(/[\r\n]+$/, '');
+  const dir = path.resolve(v === '' ? path.join(home, '.claude') : v);
+  const rel = path.relative(home, dir);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  return path.join(dir, '.credentials.json');
+}
+
+/* Default credential reader. macOS: the Keychain entry `service`. Elsewhere (kosmos#9097): the credentials file of the
+ * folder `ccd` names. Returns the raw body (JSON string) or null. NEVER logs it; stderr is discarded so a "not found"
+ * is a quiet null. */
+function readCredDefault(service, ccd, { platform = process.platform, home } = {}) {
   const sandbox = sandboxCred(service);
   if (sandbox !== undefined) return sandbox;
+  if (platform !== 'darwin') {
+    const f = credFileFor(ccd, home === undefined ? realHome() : home);
+    if (!f) return null;
+    try { return fs.readFileSync(f, 'utf8'); } catch { return null; }
+  }
   try {
     // 🛑 timeout is load-bearing, not tidiness. `security find-generic-password` can raise a
     // Keychain GUI consent prompt when the calling binary is not yet on the item's ACL, and this
@@ -107,9 +128,14 @@ function readCredDefault(service) {
 
 /* The same read, asynchronous, for a caller that must not block the board (#3997, claudeloginlive): one
  * definition of the command and its timeout. Resolves the raw body or null; never rejects. */
-function readCredAsync(service) {
+function readCredAsync(service, ccd, { platform = process.platform, home } = {}) {
   const sandbox = sandboxCred(service);
   if (sandbox !== undefined) return Promise.resolve(sandbox);
+  if (platform !== 'darwin') {   // kosmos#9097: the credentials file, as readCredDefault
+    const f = credFileFor(ccd, home === undefined ? realHome() : home);
+    if (!f) return Promise.resolve(null);
+    return new Promise((resolve) => { fs.readFile(f, 'utf8', (err, body) => resolve(err ? null : body)); });
+  }
   return new Promise((resolve) => {
     execFile('security', KEYCHAIN_READ(service), KEYCHAIN_OPTS, (err, stdout) => resolve(err ? null : stdout));
   });
@@ -126,7 +152,7 @@ function loginTimesFor(ccd, { readCred = readCredDefault } = {}) {
   const none = { refreshExpiresAt: null, accessExpiresAt: null };
   const service = serviceNameFor(ccd);
   let raw;
-  try { raw = readCred(service); } catch { return none; }
+  try { raw = readCred(service, ccd); } catch { return none; }   // kosmos#9097: the folder too, for the file read off macOS
   if (!raw) return none;
   let obj;
   try { obj = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return none; }
@@ -256,7 +282,7 @@ function loginChanged() { loginGen += 1; }
 function loginGeneration() { return loginGen; }
 
 module.exports = {
-  serviceNameFor, refreshExpiryFor, loginTimesFor, readCredAsync, advisoriesFor, severityFor, ccdFromPsEnv, agentAdvisories,
+  serviceNameFor, refreshExpiryFor, loginTimesFor, readCredAsync, readCredDefault, advisoriesFor, severityFor, ccdFromPsEnv, agentAdvisories,
   cachedAdvisories, loginChanged, loginGeneration, DEFAULT_SERVICE, DAY_MS, URGENT_DAYS, WARN_DAYS, WARN_WITHIN_DAYS,
   daysLeftOf, daysLeftInWindow,
 };
