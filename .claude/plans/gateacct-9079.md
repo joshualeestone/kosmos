@@ -38,8 +38,9 @@ and a gate that skipped it would have passed on a secondary account. The default
   claude-signedout fixture has state none, so it never reached the skip).
 - The existing "create refused (400, sign-in) -> do-not-promote (1)" case is unchanged and still passes: the strict
   arm stands.
-- Result: 85 pass, 0 fail. Mutants, each on a scratch copy: the skip line removed turns the three skip cases red;
-  the default guard removed (review 1) turns the default-row case red.
+- Result: 86 pass, 0 fail. Mutants, each on a scratch copy: the skip line removed turns the three skip cases red;
+  the default guard removed (review 1) turns the default-row case red; signed_out removed from the skip (review 2)
+  turns the signed_out case red.
 
 ## Weakest premise
 That a build defect never shows only as a false dead mark on a SECONDARY account. The default is safe by the rule
