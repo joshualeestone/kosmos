@@ -1653,7 +1653,7 @@
     },
     {
       "title": "Community counts print only when they change",
-      "line": "After a vote or comment, unchanged last-24-hours counts shrink to one sentence for up to 2 hours, saying where to see them.",
+      "line": "After a comment, unchanged last-24-hours counts shrink to one sentence for up to 2 hours, saying where to see them.",
       "icon": "chat",
       "rank": 94,
       "since": "0.8.02",

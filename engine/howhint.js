@@ -15,15 +15,17 @@
  * Kosmos did not start in its own pane) is minted per launch, so it is looked up in the board's own token files
  * (sendertokens/, readable only by this account, read and never written here) for the name it was minted for. A token
  * not found there (one from another computer, an old one) is its own key, as a hash, so there it is once per launch. The
- * token is never stored. A token file that cannot be read leaves who it is unknown, so nothing is shown or marked. A
- * person in their own Terminal has neither. One agent has one key however it is spelled: lower case, without the
- * "-discord" or "+world" the supervisor's session name carries (token_roster_name there).
+ * token is never stored. A token file that cannot be read just now leaves who it is unknown, so nothing is shown or marked.
+ * A person in their own Terminal has neither. One agent has one key: lower case, and a session name without the "-discord"
+ * or "+world" the supervisor's carries (token_roster_name there, which names its tokens). When an agent is removed, or a
+ * name is made again, its marks go with its tokens (sendertoken.revoke calls forget), so a new agent is pointed.
  *
  * WHAT IS KEPT: one empty file per agent and command in the data folder's how-hints/ (and one per launch and command, "l-",
  * so a launch looks its token up once a command), made only if it is not there yet. The
  * one JSON file this replaced was read, changed and written back, so two agents at once could lose a mark and see a
  * pointer again in the same conversation; it is still read (how-hints.json), never written. A pointer that cannot be
- * recorded is not shown: unrecorded, it would show at every call.
+ * recorded is not shown: unrecorded, it would show at every call. An agent whose sandbox may not write the data folder
+ * (setup-assistant.js's token-only agents) is therefore never pointed: its instructions name the guides.
  *
  * Both CLIs call this one module (install/kosmos through `node howhint.js <command> [args]`, the Windows CLI through
  * require), so the rule and the record are the same everywhere. The data folder is store.currentDataRoot(). Never throws.
@@ -71,18 +73,28 @@ function nameOfToken(root, token) {
   catch (e) { return e && e.code === 'ENOENT' ? '' : null; }
   let unread = false;
   for (const f of files) {
+    const file = path.join(dir, f);
+    let raw = null;
+    for (let k = 0; k < 2 && raw === null; k += 1) {   // twice: a file being replaced can be gone for an instant (Windows)
+      try { raw = fs.readFileSync(file, 'utf8'); } catch (e) { if (!e || e.code !== 'ENOENT') unread = true; }
+    }
+    if (raw === null) continue;
     try {
-      const kept = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+      const kept = JSON.parse(raw);
       const list = kept && Array.isArray(kept.tokens) ? kept.tokens : kept && typeof kept.token === 'string' ? [kept] : [];
       const hit = list.find((t) => t && t.token === token);
       if (hit) return typeof hit.name === 'string' && hit.name ? hit.name : f.slice(0, -'.json'.length);
-    } catch (e) { if (!e || e.code !== 'ENOENT') unread = true; }   // look at the others; one gone meanwhile held nobody
+    } catch {
+      /* Not JSON: being written now, it may hold this token; left broken, it holds nobody (as sendertoken reads it). */
+      try { if (Date.now() - fs.statSync(file).mtimeMs < BEING_WRITTEN_MS) unread = true; } catch { unread = true; }
+    }
   }
   return unread ? null : '';
 }
-/* One spelling for one agent. */
-function spelled(name, env) {
-  let n = String(name);
+const BEING_WRITTEN_MS = 10 * 1000;
+/* One spelling for one agent: a token's name is the agent's own; a session's carries what the supervisor added. */
+function spelled(session, env) {
+  let n = String(session);
   const world = String(env.KOSMOS_WORLD || '');
   if (world && n.endsWith('+' + world)) n = n.slice(0, -(world.length + 1));
   return n.replace(/-discord$/, '').toLowerCase();
@@ -97,17 +109,20 @@ function agentKeyOf(env, root) {
   if (!token) return '';
   const name = root ? nameOfToken(root, token) : '';
   if (name === null) return '';
-  return name ? spelled(name, env) : 'launch:' + short(token);
+  return name ? name.toLowerCase() : 'launch:' + short(token);
 }
 /* Seen in the one JSON record kept before kosmos#9015, under the agent's name or this launch's hash. */
-function seenBefore(root, keys, command) {
+function seenBefore(root, keys, command, env) {
   try {
-    const v = JSON.parse(fs.readFileSync(path.join(root, 'how-hints.json'), 'utf8'));
-    return keys.some((k) => Object.prototype.hasOwnProperty.call(v, k) && Array.isArray(v[k]) && v[k].includes(command));
+    const file = path.join(root, 'how-hints.json');
+    if (!fs.lstatSync(file).isFile()) return false;   // never wait on something that is not a file
+    const v = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return Object.keys(v).some((k) => Array.isArray(v[k]) && v[k].includes(command) && (keys.includes(k) || keys.includes(spelled(k, env))));
   } catch { return false; }
 }
 /* An agent's mark for a command, and a launch's. */
-const markName = (agent, command) => (agent.startsWith('launch:') ? 'l-' + agent.slice('launch:'.length) : short(agent)) + '-' + command;
+const LAUNCH = /^launch:([0-9a-f]{16})$/;   // only what this module makes; any other name is hashed, so no name is ever a path
+const markName = (agent, command) => { const l = LAUNCH.exec(agent); return (l ? 'l-' + l[1] : short(agent)) + '-' + command; };
 /* The folder the marks are in: a real folder, made here if it is not there, never one a link leads to. null when there is none. */
 function marksDir(root) {
   const dir = path.join(root, 'how-hints');
@@ -160,7 +175,7 @@ function hint(command, args, opts) {
     if (!session && fs.existsSync(path.join(dir, markName(launch, command)))) return '';   // seen in this launch: no look-up
     const agent = agentKeyOf(env, root);
     if (!agent) return '';
-    const before = seenBefore(root, [session, agent, launch].filter(Boolean), command);
+    const before = seenBefore(root, [session, agent, launch].filter(Boolean), command, env);
     const first = mark(dir, agent, command);   // also when the old record had it: the next launch has another token
     if (!session && agent !== launch) mark(dir, launch, command);
     if (!session) prune(dir);
@@ -169,7 +184,16 @@ function hint(command, args, opts) {
   } catch { return ''; }
 }
 
-module.exports = { GUIDES, classify, hint, agentKeyOf, MARKS_MAX };
+/* The marks of an agent that was removed, or whose name is being made again: gone, so whoever has the name next is pointed. */
+function forget(name, root) {
+  try {
+    for (const agent of new Set([String(name).toLowerCase(), spelled(name, {})])) {
+      for (const command of Object.keys(GUIDES)) { try { fs.unlinkSync(path.join(root, 'how-hints', markName(agent, command))); } catch { /* none */ } }
+    }
+  } catch { /* a pointer, never the removal */ }
+}
+
+module.exports = { GUIDES, classify, hint, forget, agentKeyOf, MARKS_MAX };
 
 /* install/kosmos runs this as a program: prints the line (or nothing) and always exits 0. */
 if (require.main === module) {

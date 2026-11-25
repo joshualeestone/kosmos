@@ -67,12 +67,13 @@ test('#8935 never throws; #9015 a pointer that cannot be recorded is not shown, 
   assert.equal(fs.existsSync(path.join(SANDBOX, 'no-such-folder')), false, 'the hint made the data folder');
   assert.equal(hh.hint(undefined, undefined, { env: envFor('mona', root) }), '');
   /* An agent named like an Object key, or like a path, is recorded like any other. */
-  for (const odd of ['__proto__', '../../up', 'a/b']) {
+  for (const odd of ['__proto__', '../../up', 'a/b', 'launch:../../up', 'launch:0123456789abcdeg']) {
     const r = fresh();
     fs.writeFileSync(path.join(r, 'how-hints.json'), '{}');
     assert.match(hh.hint('claim', ['p'], { env: envFor(odd, r) }), /kosmos claim --how/);
     assert.equal(hh.hint('claim', ['p'], { env: envFor(odd, r) }), '', odd + ' was pointed twice');
     assert.match(marks(r).join(), /^[0-9a-f]{16}-claim$/);
+    assert.deepEqual(fs.readdirSync(r).sort(), ['how-hints', 'how-hints.json'], odd + ' made a file outside the marks');
   }
 });
 
@@ -108,6 +109,10 @@ test('#9015 review 1: a token file that cannot be read leaves who it is unknown:
   fs.writeFileSync(path.join(root, 'sendertokens', 'mona.json'), '{ torn');
   assert.equal(hh.hint('claim', ['p'], { env: tokenEnv('tok-mona', root) }), '');
   assert.deepEqual(marks(root), [], 'marked as somebody else');
+  /* Left broken (not being written now), it holds nobody: an agent with no name here is still pointed, once per launch. */
+  const old = new Date(Date.now() - 3600000);
+  fs.utimesSync(path.join(root, 'sendertokens', 'mona.json'), old, old);
+  assert.match(hh.hint('task', ['list'], { env: tokenEnv('tok-elsewhere', root) }), /kosmos task --how/);
   assert.match(hh.hint('claim', ['p'], { env: tokenEnv('tok-pete', root) }), /kosmos claim --how/, 'CONTROL: one whose own file reads');
   giveToken(root, 'mona', [{ token: 'tok-mona', name: 'Mona' }]);
   assert.match(hh.hint('claim', ['p'], { env: tokenEnv('tok-mona', root) }), /kosmos claim --how/);
@@ -119,6 +124,8 @@ test('#9015 review 1: one agent, however it is spelled; CONTROL: another agent w
   assert.match(hh.hint('claim', ['p'], { env: tokenEnv('tok-mona', root) }), /kosmos claim --how/);
   for (const s of ['mona', 'Mona', 'mona-discord']) assert.equal(hh.hint('claim', ['p'], { env: envFor(s, root) }), '', s + ' was pointed again');
   assert.equal(hh.hint('claim', ['p'], { env: { ...envFor('mona-discord+lab', root), KOSMOS_WORLD: 'lab' } }), '', 'in a named Kosmos');
+  giveToken(root, 'mona-discord', [{ token: 'tok-other', name: 'mona-discord' }]);
+  assert.match(hh.hint('claim', ['p'], { env: tokenEnv('tok-other', root) }), /kosmos claim --how/, 'a token\'s name is the agent\'s own: mona-discord is another agent');
   for (const s of ['mona-discord-2', 'mona+lab']) assert.match(hh.hint('claim', ['p'], { env: envFor(s, root) }), /kosmos claim --how/, s);
 });
 
@@ -133,6 +140,38 @@ test('#9015 review 1: a launch looks its token up once a command', (t) => {
   assert.ok(looked.mock.calls.length > 0, 'CONTROL: a first use of another command reads it');
   t.mock.restoreAll();
   assert.equal(marks(root).length, 4, 'the agent\'s marks and the launch\'s');
+});
+
+test('#9015 review 2: a name that is removed or made again is pointed; CONTROL: another agent\'s marks stay', () => {
+  const root = fresh();
+  for (const a of ['mona', 'pete']) assert.match(hh.hint('claim', ['p'], { env: envFor(a, root) }), /kosmos claim --how/);
+  hh.hint('post', ['p', 'x'], { env: envFor('mona-discord', root) });
+  hh.forget('Mona', root);
+  for (const c of ['claim', 'post']) assert.match(hh.hint(c, ['p', 'x'], { env: envFor('mona', root) }), /First use of/, c);
+  assert.equal(hh.hint('claim', ['p'], { env: envFor('pete', root) }), '', 'another agent\'s mark went');
+  hh.forget('mona', path.join(SANDBOX, 'no-such-root'));   // never throws
+});
+
+test('#9015 review 2: revoking a name\'s tokens takes its marks', { skip: process.platform === 'win32' && 'the folder the store makes is named for the Mac and Linux here' }, () => {
+  const data = fresh();
+  const root = path.join(data, 'Kosmos');   // where the store puts its folder in AGENT_WORKFORCE_DATA
+  fs.mkdirSync(root);
+  assert.match(hh.hint('claim', ['p'], { env: envFor('mona', root) }), /kosmos claim --how/);
+  const r = require('node:child_process').spawnSync(process.execPath, ['-e', 'require(' + JSON.stringify(path.join(__dirname, 'sendertoken.js')) + ').revoke("mona")'],
+    { env: { ...process.env, AGENT_WORKFORCE_DATA: data, HOME: fresh() }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(marks(root), [], 'its mark stayed');
+});
+
+test('#9015 review 2: the old record is read under any of an agent\'s spellings, and never waited on when it is not a file', () => {
+  const root = fresh();
+  fs.writeFileSync(path.join(root, 'how-hints.json'), JSON.stringify({ 'mona-discord': ['claim'], Pete: ['claim'] }));
+  giveToken(root, 'mona', [{ token: 'tok-mona', name: 'Mona' }]);
+  assert.equal(hh.hint('claim', ['p'], { env: tokenEnv('tok-mona', root) }), '');
+  assert.equal(hh.hint('claim', ['p'], { env: envFor('pete', root) }), '');
+  const odd = fresh();
+  fs.mkdirSync(path.join(odd, 'how-hints.json'));
+  assert.match(hh.hint('claim', ['p'], { env: envFor('mona', odd) }), /kosmos claim --how/);
 });
 
 test('#9015 review 1: marks are only made in a real folder, owner only', { skip: process.platform === 'win32' && 'links and modes are POSIX here' }, () => {
