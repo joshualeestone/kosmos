@@ -494,7 +494,8 @@ struct TaskPageView: View {
                     // A correction the keyboard still holds is written as the box is left, before what is sent is read.
                     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                     Task {
-                        let choice = holdDraft ?? stored
+                        // Read together: a read landing between the two would leave the choice against another hold.
+                        let (choice, base) = (holdDraft ?? stored, holdBase ?? stored)
                         // Saved: the form shows what is stored, or what was saved while that has not been read (holdShown).
                         if await model.saveHold(choice, base: base, names: names), holdDraft == choice { holdDraft = nil; holdBase = nil }
                     }
