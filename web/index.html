@@ -64998,8 +64998,7 @@ async function memoryCommand(which, say) {
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     const d = out && out.delivery;
     /* kosmos#9087: a refusal before any delivery (no such agent, or the running agents could not be read) carries the
-       route's own words and no delivery; it was shown as "Asked it to compact." The phone already reads it this way
-       (AgentInfoLogic.freshResult). */
+       route's own words and no delivery; it was shown as "Asked it to compact." */
     const refused = !d && !res.ok;
     const sentence = refused
       ? (out && typeof out.error === 'string' && out.error ? out.error.charAt(0).toUpperCase() + out.error.slice(1) : 'It could not be done just now.')

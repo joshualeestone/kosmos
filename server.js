@@ -4750,7 +4750,7 @@ function sendGate(name) {
    a card state this card cannot have, so the message is not typed into a session that cannot answer it. Then the one
    card it needs (status.channelCardFor), never added to the roster. The pipe answers for itself if the agent is gone
    (chat.js deliverThroughChannel). null when any of that is missing. Never throws. The seam is for tests:
-   { win32, liveNames, owned, identity, isAlive, streamToken }. */
+   { win32, liveNames, owned, identity, bootMs, isAlive, streamToken }; a seamed identity has no file, so no boot check. */
 let outageChannelSeam = null;
 function _setOutageChannelForTest(seam) { outageChannelSeam = seam && typeof seam === 'object' ? seam : null; }
 function outageChannelCard(name) {
@@ -4772,8 +4772,11 @@ function outageChannelCard(name) {
     const stream = require('./engine/win32streamstate');
     const id = typeof seam.identity === 'function' ? seam.identity(name) : stream.liveIdentity(name);
     if (!id || !Object.prototype.hasOwnProperty.call(owned, id.sessionId) || !sessions.rowIsUnder(owned[id.sessionId], name)) return null;
-    /* And the process the file names is alive (as liveNames asks of a file with no presence record): a file left by a
-       child that died is refused. */
+    /* And, as liveNames asks of a file with no presence record: written since this boot, and the pid it names alive. */
+    const bootMs = typeof seam.bootMs === 'number' ? seam.bootMs : Date.now() - require('node:os').uptime() * 1000;
+    let mtime = NaN;
+    try { mtime = fs.statSync(stream.statePath(name)).mtimeMs; } catch { mtime = NaN; }
+    if (!(typeof seam.identity === 'function') && !(mtime >= bootMs)) return null;
     const alive = typeof seam.isAlive === 'function' ? seam.isAlive : require('./engine/win32orphan').pidAlive;
     if (alive(id.pid) !== true) return null;
     const token = typeof seam.streamToken === 'function' ? seam.streamToken(name) : stream.stateFor(name, id, Date.now());

@@ -134,6 +134,11 @@ test('#9087 the real state file decides: a busy file for the recorded session se
     const limited = await send('raph', 'hello');
     assert.equal(limited.status, 409, 'CONTROL: the real file read as a usage limit: ' + JSON.stringify(limited.json));
     assert.equal(said.length, 1);
+    fs.writeFileSync(file, JSON.stringify({ v: 1, pid: 4242, sessionId: 's1', state: 'busy', at: new Date().toISOString() }));
+    app._setOutageChannelForTest({ win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), isAlive: (pid) => pid === 4242, bootMs: Date.now() + 60000 });
+    const lastBoot = await send('raph', 'hello');
+    assert.equal(lastBoot.status, 409, 'CONTROL: a file written before this boot: ' + JSON.stringify(lastBoot.json));
+    assert.equal(said.length, 1);
   } finally { fs.rmSync(file, { force: true }); }
 });
 
