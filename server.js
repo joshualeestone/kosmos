@@ -9437,6 +9437,10 @@ const server = http.createServer(async (req, res) => {
            network hiccup. */
         updateLog: updates.installLog(),
         bootedAt: BOOTED_AT,
+        /* kosmos#8959 slice D1c1: the two facts the page reads from its own <meta> tags (kosmos-platform,
+           kosmos-cloud-machine), for a client with no page: the iPhone's Updates screen picks the card's arms and the
+           automatic-updates switch by them, as the page does. isCloudMachine is one lstat on Linux, false elsewhere. */
+        platform: process.platform, cloudMachine: cloudMachine.isCloudMachine(),
         /* #2238: the world the LIVE board booted into (captured at boot in
            engine/worldenv, NOT a live registry read). A world-switch reconnect
            poll keys on this: it stays the OLD id through the restart window and

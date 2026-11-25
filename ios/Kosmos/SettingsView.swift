@@ -355,6 +355,13 @@ struct SettingsView: View {
                 Text(AIPolicies.Words.title).foregroundColor(Palette.primary)
             }
             .accessibilityIdentifier("settings-ai-policies")
+            // kosmos#8959 slice D1c1: the board's Updates card, native.
+            NavigationLink {
+                UpdatesView(mac: mac, sample: Self.sample, finding: load == .reading, signedOut: load == .signedOut)
+            } label: {
+                Text(Updates.Words.title).foregroundColor(Palette.primary)
+            }
+            .accessibilityIdentifier("settings-updates")
             Button(action: openBoardSettings) { row("Settings on your computer's board", detail: nil) }
         } footer: {
             Text("Agents, AI models, connections and the rest of your computer's settings are there.")
