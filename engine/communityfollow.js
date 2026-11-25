@@ -259,11 +259,11 @@ async function listFollowing(agentKey) {
   const seenIds = new Set();   // review 1: a page read twice (a repeated cursor, a cache) lists nobody twice; by id only,
                                // so an older service that sends none is covered by the repeated-cursor stop alone
   let unnamed = 0;             // review 2: an agent whose name cannot be shown is still counted
-  let cursor = null, pages = 0, cut = false, capped = false;
+  let cursor = null, pages = 0, cut = false, capped = false, cutBy = '';
   for (;;) {
     // Review 1 and 2: every page, the first too, starts only with time left for its own wait (the name refresh before it
     // can take some), so the answer stays inside the CLIs' 30 s.
-    if (Date.now() - began > listWaitMs - LIST_PAGE_ROOM_MS) { cut = true; break; }
+    if (Date.now() - began > listWaitMs - LIST_PAGE_ROOM_MS) { cut = true; cutBy = 'time'; break; }
     const q = '/agents/by-name/' + enc + '/following?limit=' + LIST_PAGE + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
     const r = await communityread.getJson(q, null, null, { retry: pages === 0 && Date.now() - began < LIST_RETRY_BEFORE_MS });
     pages += 1;
@@ -273,7 +273,7 @@ async function listFollowing(agentKey) {
       if (r.status === 404) return { ok: false, upstream: true, because: 'the community does not know the name this board holds for you (' + communityread.authorOf({ name: myName }) + '); try again in a few minutes' };
     }
     const list = r.status === 200 && r.json && Array.isArray(r.json.agents) ? r.json.agents : null;
-    if (!list) { if (pages === 1) return unreadable; cut = true; break; }
+    if (!list) { if (pages === 1) return unreadable; cut = true; cutBy = 'page'; break; }
     list.forEach((a) => {
       if (!a || typeof a !== 'object') return;
       const idKey = typeof a.id === 'string' && a.id ? a.id.toLowerCase() : '';
@@ -285,14 +285,20 @@ async function listFollowing(agentKey) {
                   noPosts: a.last_post_at === null });   // review 1: only a real null is "no posts yet"; a bad value says nothing
     });
     const next = r.json.next_cursor;
-    if (!(typeof next === 'string' && communityread.CURSOR_RE.test(next))) { if (next) cut = true; break; }
-    if (next === cursor) { cut = true; break; }   // review 1: the same page again would loop
+    if (!(typeof next === 'string' && communityread.CURSOR_RE.test(next))) { if (next) { cut = true; cutBy = 'page'; } break; }
+    if (next === cursor) { cut = true; cutBy = 'page'; break; }   // review 1: the same page again would loop
     if (pages >= LIST_PAGES_MAX) { capped = true; break; }
     cursor = next;
   }
   if (!rows.length && !unnamed) {
-    return { ok: true, count: 0, text: cut ? 'The community did not finish answering, so who you follow is not known right now. Try again in a moment.'
-      : 'You follow no agents yet. Follow one with: kosmos community follow <name>' };
+    /* Review 3: a list cut before anyone came back is not an answer, so it is a failure (502, exit 1, kept seconds, not
+       half a minute), in words true to where it stopped: before any page was asked, the time went on Kosmos's side. */
+    if (cut) {
+      return { ok: false, upstream: true, because: pages
+        ? 'the community did not finish answering, so who you follow is not known right now; try again in a moment'
+        : 'Kosmos could not ask the community in time, so who you follow is not known right now; try again in a moment' };
+    }
+    return { ok: true, count: 0, text: 'You follow no agents yet. Follow one with: kosmos community follow <name>' };
   }
   const dated = rows.some((x) => x.followed || x.posted || x.noPosts);
   const lines = rows.map((x) => {
@@ -307,7 +313,7 @@ async function listFollowing(agentKey) {
   if (unnamed) lines.push('- and ' + unnamed + ' more whose ' + (unnamed === 1 ? 'name' : 'names') + ' cannot be shown here');
   const tail = [];
   if (capped) tail.push('Kosmos lists at most ' + (LIST_PAGE * LIST_PAGES_MAX) + ' follows; this is the newest ' + total + '.');
-  else if (cut) tail.push('The list stopped after ' + total + '; the community did not give the rest in time.');
+  else if (cut) tail.push('The list stopped after ' + total + (cutBy === 'time' ? '; the community did not give the rest in time.' : '; the community did not give the rest.'));   // review 3: words by the reason
   if (!dated) tail.push('When you followed each one, and their last post, are not available from the community yet.');
   tail.push('Unfollow one with: kosmos community unfollow <name>');
   return { ok: true, count: total, cut: cut || capped, text: [head, ...lines, '', ...tail].join('\n') };

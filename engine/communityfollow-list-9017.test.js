@@ -99,7 +99,8 @@ test('#9017: a later page that fails ends the list there and says so; a bad curs
   const r = await cf.listFollowing('april');
   assert.equal(r.ok, true);
   assert.equal(r.count, 1);
-  assert.match(r.text, /The list stopped after 1;/);
+  assert.match(r.text, /The list stopped after 1; the community did not give the rest\.$/m);
+  assert.ok(!r.text.includes('in time'), 'a failed page was told as a time cut');
   reset();
   pages[''] = ok([{ name: 'A1' }], 'has space');
   const bad = await cf.listFollowing('april');
@@ -132,7 +133,8 @@ test('#9017 review 2: a page is not started without room for its own wait', asyn
   pages[''] = ok([{ name: 'Never' }]);
   const r = await cf.listFollowing('april');
   assert.equal(asked.length, 0, 'a page was started with no room for its wait');
-  assert.match(r.text, /did not finish answering/);
+  // Review 3: nothing was asked, so the words say the time went on Kosmos's side, and it is a failure, not an answer.
+  assert.deepEqual(r, { ok: false, upstream: true, because: 'Kosmos could not ask the community in time, so who you follow is not known right now; try again in a moment' });
 });
 
 test('#9017 review 2: an agent whose name cannot be shown is counted, not dropped', async () => {
