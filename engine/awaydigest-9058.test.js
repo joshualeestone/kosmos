@@ -84,3 +84,9 @@ test('kosmos#9058 review 5: a crash relaunched with --resume (no stopped, no sta
   const st = [WAIT, r('stopped', 1, 'a'), r('working', 2, 'b'), r('started', 3, 'c'), r('working', 4, 'c')];
   assert.equal(away.sessionsSinceWait(st, WAIT.at), 1);
 });
+
+test('kosmos#9058 review 6: the wait\'s own run is known, so a crash straight after it starts a session at the new run', () => {
+  const r = (state, min, instance, by) => ({ state, by: by || 'auto', at: T0 + min * M, instance });
+  const h = [r('needs_you', 0, 'a', 'agent'), r('working', 2, 'b'), r('idle', 3, 'b'), r('working', 4, 'c')];
+  assert.equal(away.sessionsSinceWait(h, T0), 1, 'run b (after run a crashed with the wait standing) is a worked session');
+});

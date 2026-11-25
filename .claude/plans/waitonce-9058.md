@@ -79,3 +79,10 @@ rule; the wording test fails with the old phrase. #9049's own tests unchanged an
 - NIT: after the limit, a racing /clear still answers pending, costing one 0.8 s retry --> LEFT (correct answer).
 - NIT: the first unit case puts auto rows in the wait's own session, which selfreport never stores --> LEFT (the
   assertion holds either way; the route tests use realistic rows).
+
+## Review round 6 (sonnet): 0 BLOCKERs, 0 SHOULDs, 3 NITs -> CONVERGED
+- Verified from source: a row's instance is its launch token's; every Mac and Windows (re)launch mints a fresh one; it
+  stays fixed inside a live session (/clear and in-session /resume keep the environment).
+- NIT: `run` was not seeded from the wait's own run --> FIXED (+ test).
+- NIT: two live runs alternating, or a re-issued token, also split sessions --> stated in the comment (fails silent).
+- NIT: instance only unit-tested, not through the route --> LEFT (the logic is in the pure function the route calls).

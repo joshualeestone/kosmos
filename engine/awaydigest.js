@@ -125,13 +125,16 @@ function sessionsSinceWait(history, atMs, opts) {
   let open = false;     // inside a session that began at a started/stopped after the wait
   let turned = false;   // and the agent took a turn in it
   let count = 0;
-  let run = null;       // the newest run instance seen after the wait
+  let run = null;       // the newest run instance seen, from the wait's own run on (review 6)
   for (const r of rows) {
-    if (!r || !Number.isFinite(r.at) || r.at <= atMs) continue;
+    if (!r || !Number.isFinite(r.at)) continue;
+    if (r.at <= atMs) { if (typeof r.instance === 'string' && r.instance) run = r.instance; continue; }
     /* Review 5: a run that crashed and was relaunched with --resume (the Windows supervisor does; so can a person)
        writes neither a `stopped` (no SessionEnd) nor a `started` (a resume is not a startup), so its sessions ran
        together. Each row carries its run's `instance`, and a relaunch is a new run: a change of instance between two
-       rows that both carry one ends the session too (seen 11-25: it changes at every `started` in the selfreports). */
+       rows that both carry one ends the session too (seen 11-25: it changes at every `started` in the selfreports).
+       The cost, accepted: two live runs of one agent reporting in turn, or a token issued again mid-session, also
+       change it, so reminders can stop early there; that fails silent, as above, never false. */
     const inst = typeof r.instance === 'string' && r.instance ? r.instance : null;
     const newRun = inst !== null && run !== null && inst !== run;
     if (inst !== null) run = inst;
