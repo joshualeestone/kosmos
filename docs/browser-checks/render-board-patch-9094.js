@@ -10,9 +10,11 @@
  *      Within a few polls alpha's row in #alist and its card in #grid are new nodes carrying the new version, and beta's
  *      row and card are the SAME nodes as before (a marker property set on them survives). The polls are counted, so a
  *      page that never repainted cannot pass.
- *   2. A NEW AGENT STILL PAINTS WHOLE: gamma appears (the number of pieces changes), and the list and grid then show
- *      alpha, beta and gamma, each once.
- * RED with the fix off (setGridHtml and paintAgentListNow writing innerHTML whole): arm 1's beta assertions fail.
+ *   2. A STAR MOVES ONE ROW, NOT THE ROWS IT PASSES: gamma is starred, so it moves above alpha and beta. The list and
+ *      grid then show gamma first, and alpha's and beta's rows and cards are still the same nodes. (Gamma's own row
+ *      is redrawn: its star is part of its markup.)
+ *   3. A NEW AGENT STILL PAINTS: delta appears, and the list and grid then show all four, each once.
+ * RED with patchBoardHtml forced to write whole: arms 1 and 2's same-node assertions fail.
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-board-patch-9094.js
  * Self-contained: a throwaway board (sandboxed data, fake tmux) on a free port, killed at the end.
@@ -65,7 +67,7 @@ const say = (n, cond, note) => {
     fs.writeFileSync(panes, names.map((n) => fleet.line({ session: n + '-discord', claim: n, title: '✳ idle' })).join('\n'));
     fs.writeFileSync(sessions, names.map((n) => n + '-discord\n').join(''));
   };
-  setFleet(['alpha', 'beta']);
+  setFleet(['alpha', 'beta', 'gamma']);
   process.env.AGENT_WORKFORCE_DATA = roots.DATA;
   const store = require(path.join(REPO, 'engine', 'store'));
   store.saveAvatar('alpha', 'image/png', solidPng(220, 20, 20));
@@ -79,8 +81,7 @@ const say = (n, cond, note) => {
   for (let i = 0; i < 50; i++) { try { if ((await fetch(BASE + '/api/status')).ok) break; } catch { /* not up yet */ } await new Promise((r) => setTimeout(r, 200)); }
 
   const b = await chromium.launch();
-  /* serviceWorkers: 'block', as sibling checks do: the page registers web/sw.js, which answers /api/ pictures itself, and
-     page.route() does not see a request a service worker handles, so arm 4's forced 500 would never apply. */
+  /* serviceWorkers: 'block', as sibling checks do: the page registers web/sw.js, which answers /api/ pictures itself. */
   const ctx = await b.newContext({ viewport: { width: 1400, height: 900 }, serviceWorkers: 'block' });
   const p = await ctx.newPage();
   p.on('pageerror', (e) => say('no page error', false, e.message));
@@ -126,7 +127,8 @@ const say = (n, cond, note) => {
     await p.waitForTimeout(5500);   // one more poll after the change landed, so a later whole write would show
     const after = await p.evaluate(() => {
       const one = (sel, a) => document.querySelector(sel + '[data-agent="' + a + '"]');
-      return { rowBetaKept: !!one('#alist .lrow', 'beta') && one('#alist .lrow', 'beta').__m9094 === true,
+      const img = one('#alist .lrow', 'alpha') && one('#alist .lrow', 'alpha').querySelector('img');
+      return { decoded: !!img && img.complete && img.naturalWidth > 0, rowBetaKept: !!one('#alist .lrow', 'beta') && one('#alist .lrow', 'beta').__m9094 === true,
         cardBetaKept: !!one('#grid .acard', 'beta') && one('#grid .acard', 'beta').__m9094 === true };
     });
     const polls = statusPolls.length - pollsBefore;
@@ -135,9 +137,34 @@ const say = (n, cond, note) => {
     say('arm 1: alpha\'s card was redrawn with its new picture', !!(seen && seen.cardAlphaNew && seen.cardAlphaV), JSON.stringify(seen));
     say('arm 1: beta\'s row is the same node (not redrawn)', after.rowBetaKept, JSON.stringify(after));
     say('arm 1: beta\'s card is the same node (not redrawn)', after.cardBetaKept, JSON.stringify(after));
+    say('arm 1: alpha\'s new row picture decoded (built in a template, then moved into the page)', after.decoded, JSON.stringify(after));
 
-    // Arm 2: a new agent changes the number of pieces, so the list and grid are written whole and stay right.
-    setFleet(['alpha', 'beta', 'gamma']);
+    // Arm 2: star gamma, so it moves above alpha and beta; those two stay the same nodes.
+    await p.evaluate(() => {
+      for (const sel of ['#alist .lrow', '#grid .acard']) for (const a of ['alpha', 'beta']) {
+        const el = document.querySelector(sel + '[data-agent="' + a + '"]'); if (el) el.__m9094b = true;
+      }
+    });
+    const star = await p.evaluate(async () => (await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'gamma', on: true }) })).status);
+    say('fixture: gamma\'s star was accepted', star >= 200 && star < 300, 'PUT ' + star);
+    await p.evaluate(() => (typeof loadStars === 'function' ? loadStars() : null));   // eslint-disable-line no-undef
+    let moved = null;
+    for (let i = 0; i < 30; i++) {
+      await p.waitForTimeout(500);
+      moved = await p.evaluate(() => {
+        const order = (sel) => [...document.querySelectorAll(sel)].map((e) => e.dataset.agent).join(',');
+        const kept = (sel) => ['alpha', 'beta'].every((a) => { const el = document.querySelector(sel + '[data-agent="' + a + '"]'); return !!el && el.__m9094b === true; });
+        return { rows: order('#alist .lrow'), cards: order('#grid .acard'), rowsKept: kept('#alist .lrow'), cardsKept: kept('#grid .acard') };
+      });
+      if (moved.rows === 'gamma,alpha,beta' && moved.cards === 'gamma,alpha,beta') break;
+    }
+    say('arm 2: the starred gamma now comes first in the list and the grid', !!moved && moved.rows === 'gamma,alpha,beta' && moved.cards === 'gamma,alpha,beta', JSON.stringify(moved));
+    say('arm 2: alpha\'s and beta\'s rows were not redrawn when gamma passed them', !!moved && moved.rowsKept, JSON.stringify(moved));
+    say('arm 2: alpha\'s and beta\'s cards were not redrawn when gamma passed them', !!moved && moved.cardsKept, JSON.stringify(moved));
+
+    // Arm 3: a new agent still paints, once each.
+    setFleet(['alpha', 'beta', 'gamma', 'delta']);
     let three = null;
     for (let i = 0; i < 40; i++) {
       await p.waitForTimeout(500);
@@ -145,10 +172,10 @@ const say = (n, cond, note) => {
         rows: [...document.querySelectorAll('#alist .lrow')].map((e) => e.dataset.agent).sort().join(','),
         cards: [...document.querySelectorAll('#grid .acard')].map((e) => e.dataset.agent).sort().join(','),
       }));
-      if (three.rows === 'alpha,beta,gamma' && three.cards === 'alpha,beta,gamma') break;
+      if (three.rows === 'alpha,beta,delta,gamma' && three.cards === 'alpha,beta,delta,gamma') break;
     }
-    say('arm 2: the list shows alpha, beta and gamma once each', !!three && three.rows === 'alpha,beta,gamma', JSON.stringify(three));
-    say('arm 2: the grid shows alpha, beta and gamma once each', !!three && three.cards === 'alpha,beta,gamma', JSON.stringify(three));
+    say('arm 3: the list shows all four agents once each', !!three && three.rows === 'alpha,beta,delta,gamma', JSON.stringify(three));
+    say('arm 3: the grid shows all four agents once each', !!three && three.cards === 'alpha,beta,delta,gamma', JSON.stringify(three));
   } catch (e) {
     say('the check ran to the end', false, String(e && e.stack || e));
   } finally {

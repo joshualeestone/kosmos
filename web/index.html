@@ -27754,25 +27754,43 @@ function paintAgentList() {
    list behind this memo, so they clear it. */
 let ALIST_HTML = null;
 let ALIST_PARTS = null;   // kosmos#9094: its top-level pieces as last written (patchBoardHtml)
-/* kosmos#9094: write a board container's new markup, replacing only the top-level pieces (rows, cards, headers) whose
+/* kosmos#9094: write a board container's new markup, touching only the top-level pieces (rows, cards, headers) whose
    markup changed since the last write. A rewrite of the whole container replaced every row when one agent's state or
    memory ring moved: on a live board of 20 agents, 3 whole-list rewrites a minute, 20 rows replaced for 1 that changed.
-   The new markup is parsed into a template and each piece serialised there, so both sides of the comparison come from
-   the same parser (never the live innerHTML, which the page may have touched). A whole write when the last write is
-   unknown (prevHtml null: the empty-board and failed-poll paths), when the number of pieces changed, or when the
-   container no longer holds the pieces we wrote. Returns the pieces to remember for the next call. */
+   Pieces are matched by their data-agent, so an agent that changes place under a sort or a star moves alone; pieces
+   with none (headers, notes) are matched by their order among such pieces. A matched piece whose markup is the same
+   keeps its node; out-of-place nodes are moved with insertBefore, so the rows between are not touched. The new markup
+   is parsed into a template and each piece serialised there, so both sides of the comparison come from the same parser
+   (never the live innerHTML, which the page may have touched). Written whole when the last write is unknown (prevHtml
+   null: the empty-board and failed-poll paths), when the container no longer holds the pieces we wrote, or when an
+   agent key repeats. prevParts is the last call's return: [{ key, ser }] in order. */
 function patchBoardHtml(el, html, prevHtml, prevParts) {
   const t = document.createElement('template');
   t.innerHTML = html;
   const next = [...t.content.childNodes];
-  const ser = (n) => (n.nodeType === 1 ? n.outerHTML : n.nodeType === 3 ? '#' + n.nodeValue : '?' + n.nodeType);
-  const parts = next.map(ser);
+  const ser = (n) => (n.nodeType === 1 ? n.outerHTML : n.nodeType === 3 ? '#' + n.nodeValue : '!' + n.nodeType + ':' + n.nodeValue);
+  const keyOf = (n) => (n.nodeType === 1 && n.dataset && n.dataset.agent ? 'a:' + n.dataset.agent : null);
+  const parts = next.map((n) => ({ key: keyOf(n), ser: ser(n) }));
   const live = [...el.childNodes];
-  if (prevHtml === null || !prevParts || prevParts.length !== parts.length || live.length !== prevParts.length) {
+  const keys = parts.filter((x) => x.key).map((x) => x.key);
+  if (prevHtml === null || !prevParts || live.length !== prevParts.length || new Set(keys).size !== keys.length) {
     el.replaceChildren(...next);
     return parts;
   }
-  for (let i = 0; i < parts.length; i += 1) if (parts[i] !== prevParts[i]) live[i].replaceWith(next[i]);
+  const byKey = new Map(); const loose = [];
+  prevParts.forEach((x, i) => { if (x.key) byKey.set(x.key, { node: live[i], ser: x.ser }); else loose.push({ node: live[i], ser: x.ser }); });
+  let li = 0;
+  const want = next.map((n, i) => {
+    const x = parts[i];
+    const old = x.key ? byKey.get(x.key) : loose[li++];
+    return old && old.ser === x.ser ? old.node : n;
+  });
+  const keep = new Set(want);
+  for (const n of live) if (!keep.has(n)) n.remove();
+  for (let i = 0; i < want.length; i += 1) {
+    const at = el.childNodes[i] || null;
+    if (at !== want[i]) el.insertBefore(want[i], at);
+  }
   return parts;
 }
 function paintAgentListNow() {
@@ -27863,6 +27881,7 @@ function paintAgentListNow() {
    Wide windows only: a narrow one has no room and keeps its link back to All agents. */
 const MY_AGENTS_MIN_WIDTH = 1160;   // keeps the agent page's two columns at the width they had before this
 let MY_AGENTS_HTML = null;
+let MY_AGENTS_PARTS = null;   // kosmos#9094, as ALIST_PARTS
 let MY_AGENTS_FOLDED = null;   // what this page last set, for a browser that will not store it
 let MY_AGENTS_OPEN = null;
 function myAgentsFolded() {
@@ -27904,8 +27923,8 @@ function paintMyAgents() {
     const ae = document.activeElement;
     const nameOf = ae && list.contains(ae) && ae.classList.contains('namego') ? ae.closest('.lrow').dataset.agent : null;
     const top = list.scrollTop;
+    MY_AGENTS_PARTS = patchBoardHtml(list, html, MY_AGENTS_HTML, MY_AGENTS_PARTS);   // kosmos#9094: only the rows that changed
     MY_AGENTS_HTML = html;
-    list.innerHTML = html;
     list.scrollTop = top;
     if (nameOf) { const back = [...list.querySelectorAll('.lrow')].find((r) => r.dataset.agent === nameOf); if (back) back.querySelector('.namego').focus({ preventScroll: true }); }
   }
