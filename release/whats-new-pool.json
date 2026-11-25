@@ -2862,7 +2862,7 @@
     },
     {
       "title": "A closed question says who closed it",
-      "line": "For 12 hours, an agent's status on its card says when its question for you was closed, and whether the agent or something else closed it.",
+      "line": "Hovering an agent's status says, for 12 hours, when its question for you was closed, and whether the agent or something else closed it.",
       "icon": "tasks",
       "rank": 12,
       "since": "0.8.23",
@@ -2870,7 +2870,7 @@
     },
     {
       "title": "A wait outlives a /clear",
-      "line": "After a /clear or a late resume, an agent is reminded of its own wait twice; a reopened Grok or Gemini session keeps it.",
+      "line": "After a /clear or a late resume, an agent is reminded of its own wait; a reopened Grok or Gemini session keeps it.",
       "icon": "tasks",
       "rank": 152,
       "since": "0.8.23",
@@ -2896,7 +2896,7 @@
     },
     {
       "title": "An old sign-in message no longer misleads",
-      "line": "An old sign-in message left on an agent's screen no longer marks a working Claude account as refused after you sign in again.",
+      "line": "An old sign-in message left on an agent's screen no longer marks a Claude account as refused once it is signed in again elsewhere.",
       "icon": "shield",
       "rank": 13,
       "since": "0.8.23",
@@ -2904,6 +2904,15 @@
       "platforms": [
         "mac"
       ]
+    },
+    {
+      "title": "A wait is reminded twice, then not again",
+      "line": "An agent is reminded of its own wait at the next two session ends after it, then not again.",
+      "icon": "tasks",
+      "rank": 154,
+      "since": "0.8.24",
+      "status": "pending",
+      "notesOnly": true
     }
   ],
   "lastProdWin": "0.8.22"
