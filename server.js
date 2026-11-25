@@ -4745,9 +4745,12 @@ function sendGate(name) {
    through its supervisor's pipe instead of being refused. The evidence is the two things that do not come from that
    read: its supervisor is up (win32streamstate.liveNames, the presence pipe of kosmos#8415) and the ownership record
    files a session under exactly this name, every such row with a Claude runner (a per-turn runner, codex and the
-   like, is listed through the read and never reaches here). Then the one card it needs (status.channelCardFor), never
-   added to the roster. The pipe answers for itself if the agent is gone (chat.js deliverThroughChannel). null when
-   any of that is missing. Never throws. The seam is for tests: { win32, liveNames, owned }. */
+   like, is listed through the read and never reaches here), and its supervisor's state file reads a plain busy or
+   idle. A usage-limit or sign-in mark there, or a file that does not read, is null: the limit and sign-in holds key on
+   a card state this card cannot have, so the message is not typed into a session that cannot answer it. Then the one
+   card it needs (status.channelCardFor), never added to the roster. The pipe answers for itself if the agent is gone
+   (chat.js deliverThroughChannel). null when any of that is missing. Never throws. The seam is for tests:
+   { win32, liveNames, owned, streamToken }. */
 let outageChannelSeam = null;
 function _setOutageChannelForTest(seam) { outageChannelSeam = seam && typeof seam === 'object' ? seam : null; }
 function outageChannelCard(name) {
@@ -4763,7 +4766,11 @@ function outageChannelCard(name) {
     if (!rows.length) return null;
     const runnerOf = (row) => String((row && row.runner) || 'claude');
     if (!rows.every((row) => runnerOf(row) === 'claude')) return null;
-    return require('./engine/status').channelCardFor(name, '');
+    const stream = require('./engine/win32streamstate');
+    const token = typeof seam.streamToken === 'function' ? seam.streamToken(name)
+      : stream.stateFor(name, stream.liveIdentity(name), Date.now());
+    if (token !== stream.BUSY && token !== stream.IDLE) return null;
+    return require('./engine/status').channelCardFor(name, String(rows[0].runner || ''));   // the recorded runner, as make passes it
   } catch { return null; }
 }
 /* kosmos#9087: the log line for a message sent through the pipe while the roster could not be read. Never throws. */
@@ -4771,7 +4778,7 @@ function noteOutageSend(name) {
   const why = claudeReadProblem();
   try {
     console.error('[kosmos#9087] the running agents could not all be read' + (why ? ' (' + why + ')' : '')
-      + '; a message to ' + JSON.stringify(String(name)) + ' goes through its supervisor, which is up');
+      + '; a message to ' + JSON.stringify(String(name)) + ' is checked against its supervisor, which is up, instead');
   } catch { /* never fatal */ }
 }
 /* The 409 body for a send the gate found unreadable: nothing was sent, and the same thing can be sent again. */
@@ -4864,11 +4871,9 @@ function clearLeftovers(name, projectId, why) {
 }
 
 // ⚠️ Two roster reads per request is two SNAPSHOTS: the gate can be decided
-// against one and the session resolved against another, which is the same
-// one-fact-two-derivations problem one level up. Both callers below run
-// `knownAgent` first, so this is noted rather than fixed here — the shape that
-// removes it is a single `claimantFor` whose card both the gate and the session
-// come from, and that is a change to how every name-keyed route resolves.
+// against one and the session resolved against another. A route that runs
+// `knownAgent` and then `sessionOf` reads twice; the command routes take the
+// session from `commandGate`'s card instead (kosmos#9087).
 
 /* kosmos#8719: what a person is told when a message to, or a read of, an agent whose window Kosmos cannot tie to it is
    refused: the reason. (The remedy is an action, reclaiming the window, which part 2 of #8719 adds; no sentence here

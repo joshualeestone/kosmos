@@ -1,15 +1,12 @@
 'use strict';
 
 /**
- * kosmos#9085: on Windows `claude agents --json` crashed about once a minute for five hours, the roster refused once
- * win32roster's hold ran out, and POST /api/agent/<name>/thread answered every message to a running agent 404 "no
- * agent by that name". A roster that cannot be READ is now answered as unknown: 409, `because: 'unreadable'`, `retry`,
- * nothing sent. A roster that reads and does not list the name is still a 404.
+ * kosmos#9087 Part B: on Windows, while `claude agents --json` cannot be read, a message to an agent of ours whose
+ * supervisor is up, whose ownership rows are all Claude, and whose supervisor's state file reads busy or idle goes
+ * through its pipe (chat's channel seam here). Everything else keeps #9085's 409 unreadable. The roster is fed
+ * through status.setPaneSource, and the Windows evidence through server's outage seam. Runs on every platform.
  *
- * The roster is fed through status.setPaneSource, the seam the Windows board uses. A source that answers null is
- * what a refused read hands the roster ("we could not look"), on every platform. Runs on every platform.
- *
- *   node --test server.dm-listfail-9085.test.js
+ *   node --test server.dm-outage-send-9087.test.js
  */
 require('./test-support/tmpscope');
 const os = require('node:os');
@@ -74,7 +71,7 @@ let said = [];
 test.beforeEach(() => {
   said = [];
   chat.setChannel((session, wire) => { said.push({ session, wire }); return { ok: true }; });
-  app._setOutageChannelForTest({ win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '', at: '2026-11-25T00:00:00Z' } }) });
+  app._setOutageChannelForTest({ win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '', at: '2026-11-25T00:00:00Z' } }), streamToken: () => 'idle' });
 });
 test.afterEach(() => { chat.setChannel(null); app._setOutageChannelForTest(null); });
 
@@ -93,8 +90,28 @@ test('#9087 an unreadable roster on Windows: a supervised agent of ours is hande
   assert.equal(said.length, 1, 'handed over once');
   assert.equal(said[0].session, 'raph');
   assert.match(String(said[0].wire), /hello during the outage/);
-  assert.ok(logged.some((l) => /kosmos#9087/.test(l) && /"raph" goes through its supervisor/.test(l)), JSON.stringify(logged));
+  assert.ok(logged.some((l) => /kosmos#9087/.test(l) && /"raph" is checked against its supervisor/.test(l)), JSON.stringify(logged));
   assert.throws(() => status.paneRoster(), 'the roster is never padded: it still refuses after the send');
+});
+
+test('#9087 a busy state file is sent through the pipe too (a message to a working agent queues there)', async () => {
+  app._setOutageChannelForTest({ win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), streamToken: () => 'busy' });
+  const r = await send('raph', 'hello');
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(said.length, 1);
+});
+
+test('#9087 CONTROL: a removed agent whose folder is still here is never sent through the pipe or told to retry', async () => {
+  const removal = require('./engine/remove');
+  const realIsRemoved = removal.isRemoved;
+  removal.isRemoved = (n) => n === 'raph' || realIsRemoved(n);
+  try {
+    assert.ok(fs.existsSync(create.workerDir('raph')), 'CONTROL: the folder is here');
+    const r = await send('raph', 'hello');
+    assert.equal(r.status, 404, JSON.stringify(r.json));
+    assert.equal(r.json.retry, undefined);
+    assert.equal(said.length, 0);
+  } finally { removal.isRemoved = realIsRemoved; }
 });
 
 test('#9087 the Windows arm behind a readable roster (a codex agent up, the Claude read failing) sends through the pipe too', async () => {
@@ -111,6 +128,9 @@ const REFUSED = [
   ['no ownership row under the name', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'someone', runner: '' } }) }],
   ['a per-turn runner', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: 'codex' } }) }],
   ['one of two rows per-turn', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' }, s2: { name: 'raph', runner: 'gemini' } }) }],
+  ['its state file reads a usage limit', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), streamToken: () => 'limit 2026-11-26T00:00:00.000Z - - weekly' }],
+  ['its state file reads a refused sign-in', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), streamToken: () => 'auth 2026-11-25T00:00:00.000Z idle' }],
+  ['its state file does not read', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), streamToken: () => null }],
 ];
 for (const [why, seam] of REFUSED) {
   test(`#9087 CONTROL: ${why}: still #9085's 409 unreadable, nothing handed over`, async () => {
