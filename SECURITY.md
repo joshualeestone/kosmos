@@ -32,5 +32,3 @@ Please give us a reasonable chance to fix a problem before you talk about it in 
 
 Fixes go into the newest release. Before you report, please check the problem is
 still there in the newest version.
-
-The same address is published at https://installkosmos.com/.well-known/security.txt.
