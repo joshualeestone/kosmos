@@ -24,7 +24,8 @@ struct UpdatesView: View {
     @State private var auto: Updates.Auto?
     @State private var autoSaving = false
     @State private var autoPending: Bool?   // the value being saved, shown until the computer answers
-    @State private var installing: Task<Void, Never>?   // the install and its wait, cancelled when the screen goes
+    @State private var installing: Task<Void, Never>?
+    @State private var acting: UUID?   // the check or install that set busy; only it clears it   // the install and its wait, cancelled when the screen goes
     @State private var autoNote: String?
     @State private var generation = 0
     @State private var shownURL: URL?
@@ -60,12 +61,16 @@ struct UpdatesView: View {
                 shownURL = mac?.url
                 state = nil; failed = false; asked = false; busy = false; confirming = false; note = nil; checkSaid = nil
                 waitLead = nil; settled = nil; doneLine = nil; auto = nil; autoSaving = false; autoPending = nil; autoNote = nil
-                installing?.cancel(); installing = nil
+                installing?.cancel(); installing = nil; acting = nil
                 generation += 1
             }
             await load()
         }
-        .onDisappear { installing?.cancel(); installing = nil; waitLead = nil }
+        .onDisappear {
+            // A wait that is cancelled takes its sentence with it.
+            if waitLead != nil { note = nil }
+            installing?.cancel(); installing = nil; waitLead = nil
+        }
         .alert(Updates.Words.confirmTitle, isPresented: $confirming) {
             Button(Updates.Words.confirmNo, role: .cancel) {}
             Button(Updates.Words.confirmGo) { installing?.cancel(); installing = Task { await install() } }
@@ -91,17 +96,20 @@ struct UpdatesView: View {
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("updates-waiting")
-                } else if let st = settled {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(st.lead).font(.subheadline.weight(.semibold)).foregroundColor(Palette.dangerWord)
-                        if !st.rest.isEmpty { Text(st.rest).font(.footnote).foregroundColor(Palette.secondary).textSelection(.enabled) }
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("updates-settled")
                 } else if let said = checkSaid {
                     Text(said).font(.subheadline).foregroundColor(Palette.primary).accessibilityIdentifier("updates-line")
                     Button(Updates.Words.tryAgain) { press(.check) }.disabled(busy).accessibilityIdentifier("updates-button")
                 } else {
+                    // How the last install ended, above the card, whose button stays (the page's Reload leads back
+                    // to a fresh card; here the card is already fresh).
+                    if let st = settled {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(st.lead).font(.subheadline.weight(.semibold)).foregroundColor(Palette.dangerWord)
+                            if !st.rest.isEmpty { Text(st.rest).font(.footnote).foregroundColor(Palette.secondary).textSelection(.enabled) }
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("updates-settled")
+                    }
                     let c = Updates.card(s, asked: asked)
                     if let line = doneLine ?? (c.line.isEmpty ? nil : c.line) {
                         Text(line).font(.subheadline).foregroundColor(Palette.primary).accessibilityIdentifier("updates-line")
@@ -194,7 +202,7 @@ struct UpdatesView: View {
     }
 
     private func press(_ act: Updates.Act) {
-        note = nil; doneLine = nil; checkSaid = nil
+        note = nil; doneLine = nil; checkSaid = nil; settled = nil
         switch act {
         case .update: confirming = true
         case .check: Task { await check() }
@@ -208,7 +216,8 @@ struct UpdatesView: View {
         if sample { state?.offer = nil; return }
         guard let mac else { return }
         busy = true
-        defer { busy = false }
+        let me = UUID(); acting = me
+        defer { if acting == me { busy = false; acting = nil } }
         let sentTo = mac.url
         // The page's "Checking." while it asks.
         state?.look = Updates.Look(looked: false, reached: nil, readable: nil)
@@ -227,7 +236,8 @@ struct UpdatesView: View {
         if sample { doneLine = Updates.Words.done(shown.offer ?? ""); state?.version = shown.offer; state?.offer = nil; return }
         guard let mac else { return }
         busy = true
-        defer { busy = false }
+        let me = UUID(); acting = me
+        defer { if acting == me { busy = false; acting = nil } }
         let sentTo = mac.url
         let (status, data) = await send(Updates.installRequest(mac))
         guard sentTo == shownURL else { return }
@@ -235,16 +245,17 @@ struct UpdatesView: View {
         switch Updates.started(status: status, data: data, version: shown.version) {
         case .refused(let said):
             note = said
-        case .started(let myStart):
-            await wait(mac, before: shown, myStart: myStart)
+        case .started(let myStart, let updating):
+            await wait(mac, before: shown, myStart: myStart, updating: updating)
         case .unanswered:
             await waitUnanswered(mac, before: shown)
         }
     }
 
     // The page's overlay loop: read the status every 2 s and judge it as updateVerdict does.
-    @MainActor private func wait(_ mac: Settings.Mac, before: Updates.State, myStart: String?) async {
-        waitLead = Updates.Words.updating
+    @MainActor private func wait(_ mac: Settings.Mac, before: Updates.State, myStart: String?, updating: String?) async {
+        let windows = Updates.onWindows(before)
+        waitLead = Updates.overlayLead(reached: true, version: updating, windows: windows)
         settled = nil
         let t0 = Date()
         var log = before.log
@@ -256,11 +267,12 @@ struct UpdatesView: View {
             let now = Updates.state(status: status, data: data)
             if let l = now?.log { log = l }
             // Reached is any answer, as the page's ping.ok, even one whose body does not read.
+            if windows { waitLead = Updates.overlayLead(reached: status == 200, version: updating, windows: true) }
             let v = Updates.verdict(elapsed: Date().timeIntervalSince(t0), reached: status == 200, before: before.version, now: now?.version,
                                     attempt: now?.attempt, myStart: myStart, bootBefore: before.bootedAt, bootNow: now?.bootedAt)
             switch v {
             case .waiting: continue
-            case .slow: waitLead = Updates.Words.stillUpdating; continue
+            case .slow: if !windows { waitLead = Updates.Words.stillUpdating }; continue   // Windows keeps its two-state lead
             case .done:
                 waitLead = nil
                 if let now { state = now; doneLine = Updates.Words.done(now.version ?? "") }

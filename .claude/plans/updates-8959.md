@@ -47,3 +47,11 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7154958
 - M6 a 200 whose body did not read counted as not reached: reached is now status 200, as the page's ping.ok.
 - Kept: "Checking." without the version (the version is on the row above, and the page's own card arm has none); the Windows "Downloading X." lead (the phone's download arm is done at the computer, so a phone never starts a Windows download wait it could lead).
 - Measured: run-updates.sh PASS 115/115; app and UI-test typecheck 0 errors.
+- Correction to round 1's "kept" line: a Windows computer whose updater is armed DOES get the [Update] offer, so the phone can start a Windows install. Round 2's MAJOR 2 below is that case.
+
+### Round 2 (sonnet, 01:02 CST): no BLOCKER, 2 MAJOR, 2 MINOR
+- MAJOR 1 a settled failure replaced the card and nothing cleared it: it now shows above the card arm, whose button stays (Update or Check), and any press clears it.
+- MAJOR 2 the Windows install wait did not lead as the page's overlay: updateOverlayLead ported ("Downloading X." while the board answers, "Updating." once it goes; "Updating." elsewhere), the version from the install's own answer (`updating`, measured in server.js's POST /api/update answers), and no "Still updating." relabel on Windows. One deliberate difference: with no version named, "Updating.", where the page would print "Downloading .".
+- M3 a cancelled wait left "This screen will wait" up, and its defer could clear a newer action's busy: the note goes with a cancelled wait, and busy is held by a token (`acting`), cleared only by the action that set it, reset on a computer change.
+- M4 no retry for an unanswered switch other than pull to refresh: kept, as the page (it has none at all).
+- Measured: run-updates.sh PASS 118/118; typecheck 0 errors.
