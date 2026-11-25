@@ -1305,6 +1305,7 @@ struct TaskPageView: View {
     // screenshot never shows a real account. A press closes or reopens the sample task for real (in memory).
     // Locked: the sample Mac is called off the main actor, by the loop, a press and a seen mark at once.
     private static let sampleLock = NSLock()
+    private static let sampleBegan = Date()   // what the sample Mac's dates count back from
     private static var sampleClosed: [Int: String] = [:]   // when, so its receipt is asked for once
     // kosmos#8958 slice B1: messages said on the sample tasks, shown in their activity as the Mac records them.
     private static var sampleSaid: [Int: [String]] = [:]
@@ -1406,7 +1407,9 @@ struct TaskPageView: View {
             }
             return sampleClosed
         }
-        let iso = { (m: Double) in ISO8601DateFormatter().string(from: Date().addingTimeInterval(-m * 60)) }
+        // Dates that do not move, as a Mac's do not: a new one at each read gave every activity row another id every 5 seconds,
+        // and a fold a person had opened closed by itself (CI, 2026-11-25).
+        let iso = { (m: Double) in ISO8601DateFormatter().string(from: Self.sampleBegan.addingTimeInterval(-m * 60)) }
         func closed(_ n: Int, _ open: String) -> String { closedNow[n] != nil ? #""closedAt":""# + closedNow[n]! + #"","progress":{"done":1,"total":1,"closed":true}"# : open }
         let body: String
         if path.hasSuffix("/projects") {
