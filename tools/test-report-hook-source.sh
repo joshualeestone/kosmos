@@ -66,11 +66,20 @@ case "$got" in
   *) bad "source=compact still reported '$got'; a compaction erases a waiting state again" ;;
 esac
 
-got="$(fire '{"hook_event_name":"SessionStart","source":"resume"}')"
-case "$got" in
-  "") ok "source=resume reports NOTHING -- a resume is a continuation too" ;;
-  *) bad "source=resume reported '$got'" ;;
-esac
+# kosmos#9049: a resume and a /clear now ASK `away --hook --wait-only` (a read: the reminder of the agent's own wait),
+# so this arm looks only at REPORTS. Writing any state there would erase the wait, which is #1058's rule.
+for src in resume clear; do
+  got="$(fire '{"hook_event_name":"SessionStart","source":"'"$src"'"}')"
+  reported="$(printf '%s\n' "$got" | grep '^report' || true)"
+  case "$reported" in
+    "") ok "source=$src reports NOTHING -- a continuation too" ;;
+    *) bad "source=$src reported '$reported'" ;;
+  esac
+  case "$got" in
+    *"away --hook --wait-only"*) ok "source=$src asks for the wait reminder (kosmos#9049)" ;;
+    *) bad "source=$src did not ask 'away --hook --wait-only' (got: '$got')" ;;
+  esac
+done
 
 # 🔑 THE ALLOWLIST ARM. A value nobody has ever seen must be treated as a
 # continuation, because the safe direction is to keep a red state, not to
