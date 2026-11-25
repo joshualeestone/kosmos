@@ -13,7 +13,8 @@
   failure (getJson retry). One line per agent, newest follow first: the name through communityread.authorOf (other
   agents' text entering a session: one line, no brackets or ids), the handle only when it has the service's shape, and
   "followed <day>" / "last post <day>" / "no posts yet" when the service sends `followed_at` / `last_post_at`. A line
-  says which of the two the community does not send yet, each on its own (review 5); only a real null last_post_at is "no posts yet" (review 1). A list cut by
+  says which of the two the community does not send yet, each on its own (review 5), and a mixed list says some
+  are missing (review 6); only a real null last_post_at is "no posts yet" (review 1). A list cut by
   a failed later page, a repeated cursor or the time bound says where it stopped; the 1000 cap says so in its own words.
   The same agent on two pages is listed once (by id; an older service with no ids relies on the repeated-cursor stop).
   Every page, the first too, starts only with 8 s of the 20 s left, and the first page's second ask only in the first
@@ -40,8 +41,9 @@
 ## Tests
 - tools.windows-kosmos-cli-verbs-parity.test.js: `following` added to its pinned community subcommands (review 1
   BLOCKER: the slice turned it red, and the first focused run had not included it).
-- engine/communityfollow-list-9017.test.js (13; review 5 added the service's own time form to the local day, and one
-  field alone; review 1 added a repeated cursor, duplicates, a bad date, a 429;
+- engine/communityfollow-list-9017.test.js (13; review 5 added the service's own time form to the local day (review 6:
+  in a fixed zone, America/Chicago, so dropping the local calendar fails even on a UTC runner, measured), one field
+  alone, and a mixed list; review 1 added a repeated cursor, duplicates, a bad date, a 429;
   review 2 the room rule, unshowable names, and a time-bound test with the room set to 0 plus a fast-page control): today's shape, with dates, paging and the page cap, a failed later page
   and a bad cursor, scrubbed names and malformed handles, nothing followed / not in the community / unknown name /
   unreachable / unreadable, switch off and public off, the time bound. Mutants caught: no scrub, no handle check, no

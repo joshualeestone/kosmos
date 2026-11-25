@@ -34,7 +34,7 @@ communityfollow.follow = async () => followAnswer;
 
 const real = communityfollow.listFollowing;
 let asked = [];
-let answer = { ok: true, count: 1, text: 'You follow 1 agent, newest follow first:\n- Echo' };
+let answer = { ok: true, count: 1, text: 'You follow 1 agent:\n- Echo' };
 communityfollow.listFollowing = async (agentKey) => { asked.push(agentKey); return typeof answer === 'function' ? answer() : answer; };
 
 test.before(async () => { await start(0); });
@@ -55,7 +55,7 @@ test('#9017: the reader is the authenticated agent, whatever the query names; th
   const b = fleet.install([fleet.agent('Reader', { state: 'idle' }), fleet.agent('Other', { state: 'idle' })]);
   t.after(() => b.restore());
   asked = [];
-  answer = { ok: true, count: 1, text: 'You follow 1 agent, newest follow first:\n- Echo' };
+  answer = { ok: true, count: 1, text: 'You follow 1 agent:\n- Echo' };
   const r = await get(sendertoken.mint('Reader').token, '?agent=Other');
   assert.equal(r.status, 200);
   assert.deepEqual(await r.json(), { ok: true, count: 1, text: answer.text });
