@@ -45,7 +45,7 @@ chmod +x "$T/kosmos"
 # the next through the hook's once-per-session marker.
 fire() { # $1 = payload json ; echoes what the stub was asked to do
   local log="$T/log.$$.$RANDOM"; : > "$log"
-  KOSMOS_REPORT_CLI="$T/kosmos" KOSMOS_STUB_LOG="$log" \
+  KOSMOS_REPORT_CLI="$T/kosmos" KOSMOS_STUB_LOG="$log" KOSMOS_WAIT_RETRY_S=0 \
   TMPDIR="$T/tmp.$RANDOM" TMUX_PANE="%$RANDOM" \
     bash "$HOOK" <<< "$1" >/dev/null 2>&1
   # the report is fired in a background subshell on purpose (non-blocking),

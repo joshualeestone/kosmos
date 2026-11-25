@@ -33,7 +33,7 @@ function run(event, answer, rc = 0, pane = '%aw' + (paneN++)) {
   fs.writeFileSync(ANSWER, answer);
   fs.writeFileSync(RC, String(rc));
   const r = cp.spawnSync('bash', [HOOK], { input: JSON.stringify(event), encoding: 'utf8', timeout: 20000,
-    env: { ...process.env, KOSMOS_REPORT_CLI: CLI, TMPDIR: SB, KOSMOS_KILL_GUARD: 'off', TMUX_PANE: pane, KOSMOS_AGENT_TOKEN: '' } });
+    env: { ...process.env, KOSMOS_REPORT_CLI: CLI, TMPDIR: SB, KOSMOS_KILL_GUARD: 'off', TMUX_PANE: pane, KOSMOS_AGENT_TOKEN: '', KOSMOS_WAIT_RETRY_S: '0' } });
   assert.equal(r.status, 0, 'the hook always exits 0: ' + r.stderr);
   const calls = fs.readFileSync(LOG, 'utf8').split('\n').filter((l) => l.startsWith('away|') || l.startsWith('report|started|'));
   return { out: r.stdout, calls };

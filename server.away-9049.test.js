@@ -108,6 +108,23 @@ test('a wait with no stopped after it (a resume after a crash: no SessionEnd) ge
   });
 });
 
+test('a wait a startup already reminded of (a started after it) is not repeated at a later /clear', async () => {
+  await withBoard(async () => {
+    const t = now();
+    writeHistory([
+      { state: 'needs_you', by: 'agent', because: 'may I merge', at: t - 40 * M },
+      { state: 'stopped', by: 'auto', because: '', at: t - 39 * M },
+      { state: 'started', by: 'auto', because: '', at: t - 30 * M },
+      { state: 'working', by: 'auto', because: 'answering a prompt', at: t - 29 * M },
+      { state: 'stopped', by: 'auto', because: '', at: t - 28 * M },
+    ]);
+    const tok = sendertoken.mint('leo').token;
+    try {
+      assert.equal((await ask(tok, 'as=hook&wait=only')).text, '', '#8634 reminded at that startup; every later /clear would nag');
+    } finally { sendertoken.revoke('leo'); }
+  });
+});
+
 test('a wait the agent itself ended, or no wait at all, gets nothing even after a stopped', async () => {
   await withBoard(async () => {
     const t = now();
@@ -124,7 +141,7 @@ test('a wait the agent itself ended, or no wait at all, gets nothing even after 
         { state: 'stopped', by: 'auto', because: '', at: t - 28 * M },
       ]);
       assert.equal((await ask(tok, 'as=hook&wait=only')).text, '');
-      assert.match((await ask(tok, 'as=text&wait=only')).text, /nothing to remind you of/);
+      assert.match((await ask(tok, 'as=text&wait=only')).text, /no wait of yours to remind you of/);
     } finally { sendertoken.revoke('leo'); }
   });
 });

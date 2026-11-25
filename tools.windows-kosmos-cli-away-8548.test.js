@@ -46,11 +46,21 @@ test('Windows --hook asks for the startup window, prints only the hook JSON on a
   }
 });
 
+/* kosmos#9049: --hook --wait-only, as the Mac CLI; --wait-only alone is a usage error. */
+test('Windows --hook --wait-only asks for the wait alone; --wait-only alone sends nothing', async () => {
+  const ok = await run(['away', '--hook', '--wait-only'], () => ({ body: HOOKJSON }));
+  assert.deepEqual([ok.code, ok.out], [0, HOOKJSON]);
+  assert.equal(ok.calls[0].route, '/api/away?as=hook&wait=only&from_pane=');
+  const bad = await run(['away', '--wait-only'], () => ({ body: '' }));
+  assert.equal(bad.code, 2);
+  assert.equal(bad.calls.length, 0);
+});
+
 test('Windows kosmos away --help prints the usage and sends nothing; a refusal exits 1; an unknown argument sends nothing', async () => {
   for (const args of [['away', '--help'], ['away', '-h']]) {
     const r = await run(args, () => ({ body: '' }));
     assert.equal(r.calls.length, 0, args.join(' '));
-    assert.match(r.out + r.err, /Usage: kosmos away \[--hook\]/, args.join(' '));
+    assert.match(r.out + r.err, /Usage: kosmos away \[--hook \[--wait-only\]\]/, args.join(' '));
   }
   assert.equal((await run(['away'], () => ({ status: 403, body: 'refused\n' }))).code, 1);
   const bad = await run(['away', '--all'], () => ({ body: '' }));

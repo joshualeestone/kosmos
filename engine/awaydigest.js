@@ -65,7 +65,7 @@ function windowFrom(history, { startup, nowMs }) {
 }
 
 /* kosmos#8634: a wait the agent reported before it went down. A new run's `started` replaces a deliberate wait on the
-   board by design (#1058: only a real startup does; a compaction keeps it, and so does a resume after a crash, while a resume after a quit or a /clear follows a SessionEnd's `stopped`, #9049), and the startup turn then reads
+   board by design (#1058: only a real startup does; a compaction or a resume keeps it), and the startup turn then reads
    "working", then idle, so nothing on the board says the agent is still waiting. Nothing told the agent so either.
    The board does not put the old report back: the agent may have been unblocked while it was down, and only it can tell.
    It is reminded instead, with the state and the time only, never the report's words (the same rule as the digest:
@@ -74,7 +74,8 @@ function windowFrom(history, { startup, nowMs }) {
    made is a needs_you or blocked by the agent, newer than MAX_WINDOW_MS; otherwise null. Automatic reports (the hook's
    started, working, idle, and a permission prompt's needs_you) neither make a wait nor end one. Any other row the agent
    made, whatever its state, ends it, and so do a person's clear and a row with no author (written before authors were
-   kept). A held question (#7915) comes back as { held: true }, so the reminder says --held. */
+   kept). A held question (#7915) comes back as { held: true }, so the reminder says --held. A /clear or a resume after
+   a quit follows a SessionEnd's `stopped`, which also sets the wait aside: that case is endedAfter's (#9049). */
 const WAIT_STATES = new Set(['needs_you', 'blocked']);
 function lastWait(history, { nowMs }) {
   const rows = Array.isArray(history) ? history : [];
@@ -88,10 +89,14 @@ function lastWait(history, { nowMs }) {
   return null;
 }
 
-/* kosmos#9049: true when a `stopped` was recorded after atMs (a SessionEnd set the wait aside). */
+/* kosmos#9049: whether a /clear or a resume should be reminded of the wait at atMs. True when a `stopped` was recorded
+   after it (a SessionEnd set it aside) and no `started` was: a `started` after the wait means a real startup came in
+   between, and #8634 reminded the agent there, so a later /clear or resume would only repeat it (and a resume after a
+   crash that followed that startup is not told again either). */
 function endedAfter(history, atMs) {
   const rows = Array.isArray(history) ? history : [];
-  return rows.some((r) => r && Number.isFinite(r.at) && r.at > atMs && r.state === 'stopped');
+  const after = rows.filter((r) => r && Number.isFinite(r.at) && r.at > atMs);
+  return after.some((r) => r.state === 'stopped') && !after.some((r) => r.state === 'started');
 }
 
 /** Pure. rows: the message log (engine/messages.readLog). direct: the person's direct thread messages
