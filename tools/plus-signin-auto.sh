@@ -102,7 +102,9 @@ node -e '
   const f = require(process.argv[1]).recordPath(process.argv[2]).replace(/\.json$/, ".progress.json");
   let p; try { p = JSON.parse(fs.readFileSync(f, "utf8")); } catch { process.exit(0); }
   process.exit(Date.now() - Date.parse(p.startedAt) < 15 * 60 * 1000 ? 3 : 0);
-' "$HERE/lib/plus-signin-record.js" "$SHA" || die "a sign-in run for this build started under 15 minutes ago and has not finished (its progress file is beside the records): refused, so the two do not take over each other's progress"
+' "$HERE/lib/plus-signin-record.js" "$SHA"; rc=$?
+[ "$rc" = 0 ] || [ "$rc" = 3 ] || die "could not read the record spec $HERE/lib/plus-signin-record.js (exit $rc)"
+[ "$rc" = 0 ] || die "a sign-in run for this build started under 15 minutes ago and has not finished (its progress file is beside the records): refused, so the two do not take over each other's progress"
 if (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; then die "something already answers on port $PORT: pick another with --port"; fi
 
 # 2. The pointer's own bytes, in a fresh work folder.
@@ -156,13 +158,13 @@ mkdir -p "$WORK/tree" && tar -xzf "$T" -C "$WORK/tree" || die "could not unpack 
 # 3. The fully sandboxed throwaway board. Auto-update is switched off BEFORE it first starts (no file means on).
 #    The agents' own browser is switched off too: a board fetches it at start (about 100 MB, engine/agentbrowser.js),
 #    and its download outlived a stopped board and wrote into a removed work folder (measured, 0.8.21 run).
-D="$WORK/data"; mkdir -p "$D/Kosmos" "$WORK/runners" "$WORK/home" "$WORK/awhome" "$WORK/launch" "$WORK/workers" "$WORK/projects"
+D="$WORK/data"; mkdir -p "$D/Kosmos" "$WORK/tmp" "$WORK/runners" "$WORK/home" "$WORK/awhome" "$WORK/launch" "$WORK/workers" "$WORK/projects"
 printf '{"on":false}\n' > "$D/Kosmos/autoupdate.json"
 printf '#!/bin/sh\nexec "%s" -L "%s" "$@"\n' "$TMUX_REAL" "$SOCK" > "$WORK/tmux"; chmod +x "$WORK/tmux"
 ( cd "$WORK/tree/app" && exec env -i HOME="$WORK/home" PATH=/usr/bin:/bin:/usr/sbin:/sbin LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
     AGENT_WORKFORCE_DATA="$D" AGENT_WORKFORCE_HOME="$WORK/awhome" AGENT_WORKFORCE_LAUNCH="$WORK/launch" \
     AGENT_WORKFORCE_WORKERS="$WORK/workers" AGENT_WORKFORCE_PROJECTS="$WORK/projects" AGENT_WORKFORCE_TMUX_BIN="$WORK/tmux" \
-    AGENT_WORKFORCE_RUNNERS_DIR="$WORK/runners" KOSMOS_AGENT_BROWSER=off PORT="$PORT" "$WORK/tree/runtime/bin/node" server.js ) > "$WORK/board.log" 2>&1 &
+    AGENT_WORKFORCE_RUNNERS_DIR="$WORK/runners" KOSMOS_AGENT_BROWSER=off TMPDIR="$WORK/tmp/" PORT="$PORT" "$WORK/tree/runtime/bin/node" server.js ) > "$WORK/board.log" 2>&1 &
 BOARD_PID=$!
 UP_S="${KOSMOS_PLUS_BOARD_UP_S:-90}"; up=""; i=0
 while [ "$i" -lt "$UP_S" ]; do
@@ -173,6 +175,9 @@ while [ "$i" -lt "$UP_S" ]; do
   sleep 1
 done
 [ -n "$up" ] || { tail -5 "$WORK/board.log" | sed 's/^/  board: /'; die "the throwaway board did not come up on port $PORT"; }
+# The answer must be from the board this run booted, not another that took the port first.
+LISTENER="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | tr '\n' ' ')"
+[ "$LISTENER" = "$BOARD_PID " ] || die "port $PORT is answered by pid(s) ${LISTENER:-none}, not the throwaway board (pid $BOARD_PID): refused"
 say "throwaway board up on :$PORT as $up (from the pointer's $V tarball, sha256 ${SHA:0:12})"
 
 # 4. The sign-in, through the record writer.
