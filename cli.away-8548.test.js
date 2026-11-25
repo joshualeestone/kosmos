@@ -98,6 +98,21 @@ test('--hook says nothing and exits 0 on a refusal, other words, an empty answer
   }, { hang: true });
 });
 
+/* kosmos#9049: the hook's ask at a /clear or a resume: only the wait reminder, no startup window. */
+test('--hook --wait-only asks for the wait alone and prints only the JSON on a 200, exit 0', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['away', '--hook', '--wait-only'], envFor(port));
+  assert.equal(out.code, 0);
+  assert.match(seen[0].url, /^\/api\/away\?as=hook&wait=only&from_pane=%257$/);
+  assert.doesNotMatch(seen[0].url, /at=startup/);
+  assert.equal(out.stdout, HOOKJSON + '\n');
+  assert.equal(out.stderr, '');
+}, { status: 200, text: HOOKJSON }));
+
+test('--wait-only without --hook is a usage error and never asks the board', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+  assert.equal((await runCli(['away', '--wait-only'], envFor(port))).code, 2);
+  assert.equal(seen.length, 0);
+}, { status: 200, text: '' }));
+
 test('--help prints the usage and never asks the board; an unknown argument is a usage error', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   for (const args of [['away', '--help'], ['away', '-h']]) {
     const out = await runCli(args, envFor(port));
