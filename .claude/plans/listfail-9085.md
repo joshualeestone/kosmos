@@ -7,10 +7,12 @@ refuses, server.js knownAgent (through claimantFor and status.paneRoster) reads 
 POST /api/agent/<name>/thread answered 404 "no agent by that name". Messages to running agents arrived 4 h late.
 
 ## Decision (after blind review 1 rejected the first design)
-The DM send gate answers an UNREADABLE roster as unknown: 503 with `because: 'unreadable'` and "we could not check
-which agents are running, so nothing was sent. Try again in a moment.", plus a board log line
-([kosmos#9085] ... answered 503, not 404) carrying the Windows reader's own reason. A roster that reads and does not
-list the name is still 404 "no agent by that name". The sender keeps the message and retries; the 503 says why.
+The DM send gate answers an UNREADABLE roster as unknown: 409 with `because: 'unreadable'`, `retry: true` and "we
+could not check which agents are running, so nothing was sent. Try again in a moment.", plus a board log line
+([kosmos#9085] ... answered 409 unreadable, not 404) carrying the Windows reader's own reason. A 4xx, not a 503
+(review 2): the board page and the iPhone read a 5xx on a send, and on a button press, as "it may have gone", which is
+false here; the #8652 starting refusal is a 409 for the same reason. The iPhone shows a 4xx's own sentence. A roster that reads and does not
+list the name is still 404 "no agent by that name". The sender keeps the message and retries; the 409 says why.
 
 ## Rejected
 - The first design (commit edcc3a5a7b) listed a supervised agent inside win32roster.make when the read failed.
@@ -23,11 +25,11 @@ list the name is still 404 "no agent by that name". The sender keeps the message
 - A longer lastGood hold: it would keep listing agents stopped since the last good read.
 
 ## Weakest premise
-That the chat listener retries a 503 as it retried the 404 (218 retries on 11-25). It lives outside this repo, and
-I have not read it. If it gives up on a 5xx, this change still makes the reason honest but could lose a retry; the
+That the chat listener retries a 409 'unreadable' as it retried the 404 (218 retries on 11-25). It lives outside this repo, and
+I have not read it. If it gives up on a 409, this change still makes the reason honest but could lose a retry; the
 follow-up card says to check it.
 
 ## Tests
-server.dm-listfail-9085.test.js: a failing source gives 503 unreadable and the log line; CONTROLS: a roster that reads
-without the name is 404, and one that lists the agent is not refused at the gate. With the 503 branch switched off,
+server.dm-listfail-9085.test.js: a failing source gives 409 unreadable with retry and the log line; CONTROLS: a roster that reads
+without the name is 404, and one that lists the agent is not refused at the gate. With the unreadable branch switched off,
 the first test goes red.

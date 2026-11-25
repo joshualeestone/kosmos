@@ -3,7 +3,7 @@
 /**
  * kosmos#9085: on Windows `claude agents --json` crashed about once a minute for five hours, the roster refused once
  * win32roster's hold ran out, and POST /api/agent/<name>/thread answered every message to a running agent 404 "no
- * agent by that name". A roster that cannot be READ is now answered as unknown: 503, `because: 'unreadable'`,
+ * agent by that name". A roster that cannot be READ is now answered as unknown: 409, `because: 'unreadable'`, `retry`,
  * nothing sent. A roster that reads and does not list the name is still a 404.
  *
  * The roster is fed through status.setPaneSource, the seam the Windows board uses. A source that answers null is
@@ -71,15 +71,15 @@ async function send(name, text) {
   return { status: res.status, json: await res.json().catch(() => null) };
 }
 
-test('#9085 a roster that cannot be read answers 503 unreadable, never 404 "no agent", and says so in the log', async () => {
+test('#9085 a roster that cannot be read answers 409 unreadable, never 404 "no agent", and says so in the log', async () => {
   assert.throws(() => status.paneRoster(), 'CONTROL: the roster really refuses, as it does on Windows when the read fails');
   const r = await send('raph', 'hello');
   assert.notEqual(r.status, 404, 'a message to an agent nobody could look for was refused as missing: ' + JSON.stringify(r.json));
-  assert.equal(r.status, 503, JSON.stringify(r.json));
+  assert.equal(r.status, 409, 'a 4xx: the page and the iPhone read a 5xx on a send as "it may have gone": ' + JSON.stringify(r.json));
   assert.equal(r.json.because, 'unreadable');
   assert.equal(r.json.retry, true, 'the body says plainly to try again');
   assert.match(r.json.error, /could not check which agents are running, so nothing was sent/);
-  assert.ok(logged.some((l) => /kosmos#9085/.test(l) && /"raph" was not sent/.test(l) && /answered 503, not 404/.test(l)),
+  assert.ok(logged.some((l) => /kosmos#9085/.test(l) && /"raph" was not sent/.test(l) && /answered 409 unreadable, not 404/.test(l)),
     'the board log names the agent and why: ' + JSON.stringify(logged));
 });
 
@@ -96,5 +96,5 @@ test('#9085 CONTROL: a roster that reads and lists the agent is not refused at t
   source = () => fleet.line({ session: 'raph', claim: 'raph' }) + '\n';
   const r = await send('raph', 'hello');
   assert.notEqual(r.status, 404, JSON.stringify(r.json));
-  assert.notEqual(r.status, 503, JSON.stringify(r.json));
+  assert.notEqual(r.json && r.json.because, 'unreadable', JSON.stringify(r.json));
 });

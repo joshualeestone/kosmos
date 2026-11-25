@@ -4703,7 +4703,7 @@ function noteUnreadableSend(name) {
   if (process.platform === 'win32') { try { why = require('./engine/win32roster').cachedRun.problem() || null; } catch { why = null; } }
   try {
     console.error('[kosmos#9085] a message to ' + JSON.stringify(String(name)) + ' was not sent: the list of running agents could not be read'
-      + (why ? ' (' + why + ')' : '') + '; answered 503, not 404');
+      + (why ? ' (' + why + ')' : '') + '; answered 409 unreadable, not 404');
   } catch { /* never fatal */ }
 }
 
@@ -22159,15 +22159,16 @@ const server = http.createServer(async (req, res) => {
         if (!knownAgent(name)) {
           /* kosmos#9085: a roster that cannot be READ is not "no agent by that name". On Windows a `claude agents --json`
              that kept failing (five hours on 11-25) made the roster refuse, and every message to a running agent was
-             answered 404 as if the agent did not exist. Unknown is answered as unknown: a 503 with `because`
-             'unreadable' (nameRefusal's reason), and a line in the board's log. A roster that reads and does not list
-             the name stays a 404 below. */
+             answered 404 as if the agent did not exist. Unknown is answered as unknown: a 409 with `because`
+             'unreadable' (nameRefusal's reason) and `retry`, and a line in the board's log. A 4xx, not a 503, for the
+             #8652 reason below: the page and the iPhone read a 5xx on a send as "it may have gone", and nothing was
+             typed. A roster that reads and does not list the name stays a 404 below. */
           if (nameRefusal(name) === 'unreadable') {
             noteUnreadableSend(name);
             const unknown = new Error('we could not check which agents are running, so nothing was sent. Try again in a moment.');
-            unknown.status = 503;
+            unknown.status = 409;
             unknown.because = 'unreadable';
-            unknown.retry = true;   // said plainly, for a sender that keeps the message and tries again (Homer's listener)
+            unknown.retry = true;   // said plainly: nothing was sent, and the same message can be sent again
             throw unknown;
           }
           /* kosmos#8652: a just-created or just-restored agent is waited for briefly, then refused as starting
