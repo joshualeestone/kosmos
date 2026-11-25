@@ -307,6 +307,14 @@ jobs:
           ios/LogicTests/run-usage.sh | tee "$RUNNER_TEMP/usage.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/usage.log"
 
+      # kosmos#8959 slice D1d1: the Prompter's check-ins under the Automation screen's Prompter box, its questions
+      # compared with web/index.html's prompterCheckinQuestion.
+      - name: Prompter check-ins logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-checkins.sh | tee "$RUNNER_TEMP/checkins.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/checkins.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build

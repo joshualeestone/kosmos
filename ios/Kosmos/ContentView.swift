@@ -787,7 +787,8 @@ struct ContentView: View {
                 web.forget(old)
                 return SessionKeychain.live.load() == fresh
             }, accountGeneration: pushManager.accountChanges,
-            youName: youName, youPicture: youPicture)
+            youName: youName, youPicture: youPicture,
+            openAgent: { target in pushManager.agentToOpen = target })
         } else {
             webBoard(which)
         }

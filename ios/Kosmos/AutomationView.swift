@@ -12,6 +12,12 @@ struct AutomationView: View {
     var finding = false
     // Signed out of Kosmos+: what is needed is a sign-in, not a computer (review 7), as Settings itself says.
     var signedOut = false
+    // kosmos#8959 slice D1d1: opens an agent's chat, as a push tap does (ContentView, through Settings).
+    var openAgent: (PushBridge.AgentTarget) -> Void = { _ in }
+
+    // The Prompter's check-ins (the page's #hb-nudges): nil hides them, as any failure does on the page.
+    @State private var checkins: [Checkins.Row]?
+    @State private var checkinsGeneration = 0
 
     private enum Load: Equatable {
         case reading
@@ -71,7 +77,7 @@ struct AutomationView: View {
             if shownURL != mac?.url {
                 // Another computer: nothing from the last one may show or be saved as this one's.
                 shownURL = mac?.url
-                loads = [:]; notes = [:]; pending = [:]
+                loads = [:]; notes = [:]; pending = [:]; checkins = nil; checkinsGeneration += 1
                 for box in Automation.Box.allCases { generations[box, default: 0] += 1 }
             }
             await readAll(keepNotes: true)
@@ -145,6 +151,20 @@ struct AutomationView: View {
             if p.on {
                 picker(box, key: "minutes", label: Automation.Words.prompterEvery, choices: Automation.choices(p.choices, keeping: p.minutes),
                        value: p.minutes, name: Automation.minutesLabel) { .prompterMinutes($0) }
+            }
+            // The check-ins, under the box's controls as on the page; hidden while there are none.
+            if let rows = checkins, !rows.isEmpty {
+                Text(Checkins.Words.heading).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
+                    .accessibilityAddTraits(.isHeader)
+                ForEach(rows) { r in
+                    Button { open(r.session) } label: {
+                        (Text(r.session).bold().foregroundColor(Palette.primary) + Text(" " + r.question).foregroundColor(Palette.secondary))
+                            .font(.subheadline)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("automation-checkin-" + r.session)
+                }
             }
         case .cap(let c):
             picker(box, key: "max", label: Automation.Words.capLabel, choices: Automation.choices(c.choices, keeping: c.max),
@@ -268,10 +288,44 @@ struct AutomationView: View {
         return (answer.statusCode, data)
     }
 
+    // A read that is no box's (the check-ins).
+    private func fetch(_ request: URLRequest) async -> (Int, Data) {
+        guard let (data, response) = try? await Self.http.data(for: request), let answer = response as? HTTPURLResponse else { return (0, Data()) }
+        return (answer.statusCode, data)
+    }
+
     @MainActor private func readAll(keepNotes: Bool) async {
         await withTaskGroup(of: Void.self) { group in
             for box in Automation.Box.allCases { group.addTask { await read(box, keepNote: keepNotes) } }
+            group.addTask { await readCheckins() }
         }
+    }
+
+    // paintPrompterNudges: the check-ins, and only when a lost connection needs it, each agent's reconnect phase.
+    @MainActor private func readCheckins() async {
+        if sample {
+            let ns = Checkins.nudges(status: 200, data: Data(Checkins.sampleNudges.utf8)) ?? []
+            checkins = Checkins.rows(ns, phases: Checkins.samplePhases)
+            return
+        }
+        guard let mac, mac.url == shownURL else { return }
+        checkinsGeneration += 1
+        let mine = checkinsGeneration
+        let (status, data) = await fetch(Checkins.nudgesRequest(mac))
+        guard mine == checkinsGeneration, mac.url == shownURL else { return }
+        guard let ns = Checkins.nudges(status: status, data: data) else { checkins = nil; return }
+        var phases: [String: String] = [:]
+        if Checkins.needsPhases(ns) {
+            let (s2, d2) = await fetch(Checkins.statusRequest(mac))
+            guard mine == checkinsGeneration, mac.url == shownURL else { return }
+            phases = Checkins.phases(status: s2, data: d2)
+        }
+        checkins = Checkins.rows(ns, phases: phases)
+    }
+
+    private func open(_ session: String) {
+        let mac = mac ?? (sample ? Settings.Mac(name: "Studio Mac", url: URL(string: "https://studio.kosmosplus.com/")!, cookie: "sample") : nil)
+        if let mac, let t = Checkins.target(mac, session: session) { openAgent(t) }
     }
 
     // keepNote: a read that follows a save keeps the save's line under the box.
