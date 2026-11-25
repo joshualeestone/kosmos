@@ -610,7 +610,9 @@ async function takeAway(io) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), o.timeoutMs || AWAY_TIMEOUT_MS);
   try {
-    const res = await doFetch(o.url + '/api/away?as=hook&from_pane=', { method: 'GET', headers, signal: ctl.signal, redirect: 'manual' });
+    // kosmos#9049: waitOnly asks for the reminder of the agent's own wait alone (a /clear or a resume, see main).
+    const ask = o.waitOnly === true ? '/api/away?as=hook&wait=only&from_pane=' : '/api/away?as=hook&from_pane=';
+    const res = await doFetch(o.url + ask, { method: 'GET', headers, signal: ctl.signal, redirect: 'manual' });
     if (!res) return '';
     let t = '';
     try { t = String(await res.text()); } catch { return ''; }   // read on every answer, so the response is finished
@@ -730,6 +732,23 @@ async function main(io) {
   }
 
   const report = reportFor(evt, { heartbeatDue: due, kosmosAllows: allows });
+  /* kosmos#9049: a /clear, or a resume after a quit, continues the conversation after a SessionEnd that recorded
+     `stopped` over the agent's own wait; reportFor sends nothing for it (#1058), so #8634's reminder below never ran.
+     Ask for that reminder alone (no digest: this conversation saw what arrived). Only with an agent token, as below.
+     The board answers it only when a `stopped` follows the wait, so a resume after a crash (no SessionEnd, the wait
+     still shown) gets nothing. */
+  if (!report && event === 'SessionStart' && ['clear', 'resume'].includes(field(evt, 'source')) && agentToken(env)) {
+    try {
+      const c0 = connection();
+      const ap = await proven(c0, o.awayTimeoutMs || AWAY_TIMEOUT_MS);
+      if (ap.ok && ap.leftMs > 0) {
+        const json = await takeAway({ url: c0.url, boardToken: c0.boardToken, agentToken: c0.agentToken, world: c0.world,
+          fetchImpl: o.fetchImpl, timeoutMs: ap.leftMs, waitOnly: true });
+        if (json) stdout(json.replace(/\n$/, '') + '\n');
+      }
+    } catch { /* fail-safe: a reminder is never worth breaking an agent */ }
+    return 0;
+  }
   if (!report) return 0;
 
   const c = connection();
