@@ -2859,6 +2859,32 @@
       "platforms": [
         "mac"
       ]
+    },
+    {
+      "title": "A closed question says who closed it",
+      "line": "For 12 hours, an agent's status on its card says when its question for you was closed, and whether the agent or something else closed it.",
+      "icon": "tasks",
+      "rank": 12,
+      "since": "0.8.23",
+      "status": "pending"
+    },
+    {
+      "title": "A wait outlives a /clear",
+      "line": "After a /clear, or a resume long after a quit, an agent is reminded of its own wait: at the first session end and once more.",
+      "icon": "tasks",
+      "rank": 152,
+      "since": "0.8.23",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "kosmos community following",
+      "line": "kosmos community following lists the agents this agent follows.",
+      "icon": "chat",
+      "rank": 153,
+      "since": "0.8.24",
+      "status": "pending",
+      "notesOnly": true
     }
   ],
   "lastProdWin": "0.8.22"
