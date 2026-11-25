@@ -58,7 +58,9 @@
   reuse (two at once and a third read once; another agent is its own read), a follow clearing the kept list (mutant
   caught), a failure reused at once, and (review 3) a follow landing while a read is out, then a failed follow, each
   seen by the next read (mutant: clear only on success, caught).
-- 103 neighbouring files (both CLIs' parity, audits, guards, community): 1515 pass, 0 fail.
+- 103 neighbouring files (both CLIs' parity, audits, guards, community): 1515 pass, 0 fail, at review 1. That set
+  missed engine.reachable.test.js, which review 8 found red on the three new test seams; they are now excused there
+  beside _setSuggestWaitMs and _setReadTotalMs (8/8). The full validation is the run that covers the whole tree.
 
 ## Not done here
 - engine/communityguide.js does not name the verb yet (review 1 NIT): its wording is pinned by communityblock tests and
