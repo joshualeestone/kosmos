@@ -74,7 +74,14 @@ let unreadCap = state(.accountCap, #"{"maxWorking":0,"choices":[0,1,2],"ok":fals
 check(unreadCap == .cap(.init(max: 0, choices: [0, 1, 2], savedUnread: true)) && unreadCap.map(Automation.notes) == [Automation.Words.capUnreadSaved],
       "a saved limit the computer could not read says so, not a quiet No limit")
 check(state(.messages, #"{"on":true,"perHour":40,"ok":true,"tiers":[20,40,100]}"#) == .messages(.init(on: true, perHour: 40, tiers: [20, 40, 100])), "the messages limit")
-check(state(.dailyReport, #"{"on":true,"ok":true}"#) == .dailyReport(true), "Daily report")
+if case .messages(let m)? = state(.messages, #"{"on":true,"perHour":40,"ok":false,"tiers":[20,40,100]}"#) {
+    check(m.defaultInUse && Automation.notes(.messages(m)) == [Automation.Words.messagesDefault], "a default in use says so, not as the person's choice")
+} else { check(false, "a default limit parses") }
+check(state(.dailyReport, #"{"on":true,"ok":true}"#) == .dailyReport(on: true, damaged: false), "Daily report")
+check(state(.dailyReport, #"{"on":false,"ok":false}"#) == .dailyReport(on: false, damaged: true), "a damaged file is Off, and said so")
+check(Automation.notes(.dailyReport(on: false, damaged: true)) == [Automation.Words.dailyReportDamaged], "the damaged file's sentence")
+check(state(.dailyReport, #"{"on":true}"#) == nil && state(.dailyReport, #"{"on":true,"ok":false}"#) == nil,
+      "no ok, or ok:false with on:true, is unread: never a position on this privacy switch")
 check(state(.dailyReport, #"{"on":"yes"}"#) == nil, "a string is not a switch")
 check(state(.dailyReport, #"{"on":1}"#) == nil, "a number is not a switch")
 check(state(.community, #"{"on":true,"ok":true,"share":null,"stopped":null}"#) == .community(.init(on: true, stopped: nil)), "Community")
@@ -87,7 +94,11 @@ if case .language(let l)? = lang {
 if case .language(let l)? = state(.language, #"{"choice":"auto","ok":true,"options":[],"automatic":{"tag":null,"name":null,"sure":false}}"#) {
     check(l.automaticLabel == "Automatic: English for now" && Automation.notes(.language(l)) == [Automation.Words.languageAutoUnsure], "an unsure Automatic says English for now, and why")
 } else { check(false, "an unsure Automatic parses") }
-check(state(.language, #"{"choice":null,"ok":false,"options":[]}"#) == nil, "a language the computer could not read is unread")
+if case .language(let l)? = state(.language, #"{"choice":"en","ok":false,"options":[{"tag":"en","name":"English"}],"automatic":{"tag":"en","name":"English","sure":true}}"#) {
+    check(l.choice == nil && l.options.count == 1 && Automation.notes(.language(l)) == [Automation.Words.languageUnread],
+          "a choice the computer could not read still shows the list, with no choice and the page's sentence")
+} else { check(false, "an unread choice still parses its list") }
+check(state(.language, #"{"choice":null,"ok":false}"#) == nil, "no list at all is unread")
 if case .recommender(let r)? = state(.recommender, #"{"on":true,"guards":{"money":false},"guardKeys":["money","public","delete"],"ok":true}"#) {
     check(r.guards[.money] == false && r.guards[.public] == true && r.guards[.delete] == true, "a guard is on unless the computer says false")
 } else { check(false, "Recommender parses") }
@@ -111,7 +122,8 @@ check(Automation.applying(.recommenderGuard(.delete, false), to: r0) == .recomme
       "one guard changes, the others stay")
 check(Automation.applying(.prompterMinutes(30), to: .prompter(.init(on: true, minutes: 15, choices: [15, 30]))) == .prompter(.init(on: true, minutes: 30, choices: [15, 30])),
       "the interval changes, the switch stays")
-check(Automation.applying(.community(false), to: .dailyReport(true)) == .dailyReport(true), "another box's change leaves the state as it was")
+check(Automation.applying(.community(false), to: .dailyReport(on: true, damaged: false)) == .dailyReport(on: true, damaged: false), "another box's change leaves the state as it was")
+check(Automation.applying(.dailyReport(true), to: .dailyReport(on: false, damaged: true)) == .dailyReport(on: true, damaged: false), "turning a damaged Daily report on sets it again")
 check(Automation.applying(.failover(true), to: .assigner(.init(on: true, failover: false))) == .assigner(.init(on: true, failover: true)), "failover")
 
 section("the notes under each box follow the state, as the board's")
@@ -121,6 +133,25 @@ check(Automation.notes(.messages(.init(on: true, perHour: 40, tiers: [40]))).isE
 check(Automation.notes(.community(.init(on: true, stopped: "a policy keeps agents out"))) == ["A policy keeps agents out."], "a policy stop is said under the switch")
 check(Automation.notes(.community(.init(on: false, stopped: nil))) == [Automation.Words.communityOff], "Community off")
 check(Automation.notes(.recommender(.init(on: false, guards: [:]))) == [Automation.Words.recommenderOff], "Recommender off")
+
+section("what a save's answer means")
+check(Automation.writeOutcome(.dailyReport, status: 200, data: json(#"{"on":true,"ok":true}"#)) == .saved(.dailyReport(on: true, damaged: false)), "saved, with the new state")
+check(Automation.writeOutcome(.prompter, status: 200, data: json("{}")) == .savedUnread, "a 200 the box cannot read is saved, not failed")
+check(Automation.writeOutcome(.language, status: 200, data: json(#"{"choice":null,"ok":false,"options":[],"changed":0,"removed":0,"couldNot":0}"#)) == .savedUnread,
+      "a Language save the computer could not read back is saved, unread (the page's first case)")
+check(Automation.writeOutcome(.geminiCap, status: 403, data: json(#"{"error":"only you can change this, from Settings"}"#)) == .refused("Only you can change this, from Settings."),
+      "a refusal, with the computer's sentence")
+check(Automation.writeOutcome(.assigner, status: 0, data: json("")) == .refused("Your computer is not answering. Try again in a moment."), "no answer is a refusal (and the screen reads again)")
+func lang(_ s: String) -> String? { Automation.languageSaved(status: 200, data: json(s)) }
+check(lang(#"{"ok":true,"changed":3,"removed":0,"couldNot":0}"#) == "Saved. Your agents switch to it once they finish what they are doing.", "agents told")
+check(lang(#"{"ok":true,"changed":0,"removed":0,"couldNot":0}"#) == "Saved.", "nobody to tell")
+check(lang(#"{"ok":true,"changed":2,"removed":2,"couldNot":0}"#) == "Saved. New agents use it now. Agents already running drop their old language the next time they start.", "all removed")
+check(lang(#"{"ok":true,"changed":3,"removed":1,"couldNot":0}"#) == "Saved. Some agents switch to it once they finish what they are doing; the rest drop their old language the next time they start.", "some removed")
+check(lang(#"{"ok":true,"changed":0,"removed":0,"couldNot":1}"#) == "Saved. 1 agent could not be changed just now and keep the language they have until Kosmos next starts.", "one could not")
+check(lang(#"{"ok":true,"changed":0,"removed":0,"couldNot":-1}"#) == "Saved. Your agents pick it up the next time Kosmos starts.", "none now, all at the next start")
+check(lang(#"{"ok":false}"#) == Automation.Words.savedUnread, "saved, unread")
+check(Automation.readRefusal(.community, status: 200, data: json(#"{"on":true,"ok":false}"#)) == Automation.Words.communityUnread, "Community's own could-not-read sentence")
+check(Automation.readRefusal(.prompter, status: 200, data: json("{}")) == Automation.Words.readFailed, "the others say the page's general one")
 
 section("labels and lists")
 check(Automation.capLabel(0) == "No limit" && Automation.capLabel(1) == "1 agent" && Automation.capLabel(4) == "4 agents", "cap labels, as the board's capLabel")
@@ -144,12 +175,19 @@ let page = repoText("web/index.html")
 let server = repoText("server.js")
 check(page.count > 100_000 && server.count > 100_000, "the page and the server were read (\(page.count), \(server.count) bytes)")
 let W = Automation.Words.self
-let pageWords = [W.autoSaveLabel, W.autoSaveHint, W.autoSaveLevel, W.prompterLabel, W.prompterHint, W.prompterEvery, W.capLabel,
+let pageWords = [W.autoSaveLabel, W.autoSaveHint, W.autoSaveLevel, W.prompterLabel] + W.prompterHintPieces + [W.prompterEvery, W.capLabel,
                  W.geminiCapHint, W.accountCapHint, W.capUnreadSaved, W.messagesLabel, W.messagesHint, W.messagesTier, W.messagesTierUnit,
-                 W.messagesHigh, W.messagesOff, W.dailyReportLabel, W.dailyReportHint, W.communityLabel, W.communityHint, W.communityOff,
+                 W.messagesHigh, W.messagesOff, W.dailyReportLabel, W.dailyReportHint, W.communityLabel] + W.communityHintPieces + [W.communityOff,
                  W.communityUnread, W.languageLabel, W.languageHint, W.languageAutoUnsure, W.languageUnread, W.recommenderLabel,
                  W.recommenderHint, W.recommenderGuardsNote, W.recommenderOff, W.assignerLabel, W.assignerHint, W.failoverLabel,
-                 W.failoverHint, W.failoverOff, W.readFailed + "", W.saveFailed]
+                 W.failoverHint, W.failoverOff, W.readFailed, W.saveFailed, W.recommenderGuardsHead, W.savedUnread, W.dailyReportDamaged,
+                 W.messagesDefault, W.languageCouldNotRead,
+                 "Saved. Your agents pick it up the next time Kosmos starts.", " could not be changed just now and keep the language they have until Kosmos next starts.",
+                 "Saved. New agents use it now. Agents already running drop their old language the next time they start.",
+                 "Saved. Some agents switch to it once they finish what they are doing; the rest drop their old language the next time they start.",
+                 "Saved. Your agents switch to it once they finish what they are doing."]
+check(!W.prompterHint.contains("below") && !W.communityHint.contains("below") && !W.communityOff.contains("below"),
+      "nothing shown points below to a list the phone does not have")
 for w in pageWords { check(page.contains(w), "on the page: \(w.prefix(48))") }
 for b in Automation.Box.allCases { check(page.contains(">\(b.title)<"), "heading on the page: \(b.title)") }
 for g in Automation.Guard.allCases { check(page.contains(g.label), "guard on the page: \(g.label)") }

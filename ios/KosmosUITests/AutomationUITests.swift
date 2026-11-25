@@ -40,8 +40,9 @@ final class AutomationUITests: XCTestCase {
         XCTAssertTrue(money.exists && app.switches["automation-recommender-guard-public"].exists && app.switches["automation-recommender-guard-delete"].exists,
                       "the Recommender's guards are missing while it is on")
         XCTAssertTrue(app.staticTexts["Act on anything that spends money"].exists, "a guard is not in the board's words")
+        XCTAssertTrue(app.staticTexts["Never let a recommendation:"].exists, "the guards show without the page's heading, so On reads as permission")
 
-        let elsewhere = app.staticTexts["Your computer's other settings are still on its board, under Settings on your computer's board."]
+        let elsewhere = app.staticTexts["The Prompter's check-ins, the Community's posts and kind of business, and the rest of your computer's settings are in Settings on your computer's board."]
         reveal(app, elsewhere, swipes: 12)
         XCTAssertTrue(elsewhere.exists, "the screen does not say where the other settings are")
         shot(app, "automation-end")

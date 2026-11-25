@@ -18,7 +18,9 @@ struct AutomationView: View {
     @State private var loads: [Automation.Box: Load] = [:]
     // The control being saved in each box and the value chosen for it, shown until the computer answers.
     @State private var pending: [Automation.Box: (key: String, value: AnyHashable)] = [:]
-    @State private var notes: [Automation.Box: String] = [:]
+    // The line a box's last save left: a refusal (problem) or what the save did ("Saved. ...").
+    private struct Note: Equatable { let text: String; let problem: Bool }
+    @State private var notes: [Automation.Box: Note] = [:]
     // Bumped by every write to a box, so a read that started before it cannot paint the older state over the newer.
     @State private var generations: [Automation.Box: Int] = [:]
 
@@ -76,7 +78,7 @@ struct AutomationView: View {
     @ViewBuilder private func footer(_ box: Automation.Box) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if let note = notes[box] {
-                Text(note).foregroundColor(Palette.dangerWord)
+                Text(note.text).foregroundColor(note.problem ? Palette.dangerWord : Palette.secondary)
             }
             if case .loaded(let state) = loads[box] ?? .reading {
                 ForEach(Automation.notes(state), id: \.self) { Text($0).foregroundColor(Palette.secondary) }
@@ -124,7 +126,7 @@ struct AutomationView: View {
                 picker(box, key: "tier", label: Automation.Words.messagesTier, choices: Automation.choices(m.tiers, keeping: m.perHour),
                        value: m.perHour, name: { "\($0) " + Automation.Words.messagesTierUnit }) { .messages(on: m.on, perHour: $0) }
             }
-        case .dailyReport(let on):
+        case .dailyReport(let on, _):
             switchRow(box, key: "on", label: Automation.Words.dailyReportLabel, hint: Automation.Words.dailyReportHint, value: on) { .dailyReport($0) }
         case .community(let c):
             switchRow(box, key: "on", label: Automation.Words.communityLabel, hint: Automation.Words.communityHint, value: c.on) { .community($0) }
@@ -133,6 +135,9 @@ struct AutomationView: View {
         case .recommender(let r):
             switchRow(box, key: "on", label: Automation.Words.recommenderLabel, hint: Automation.Words.recommenderHint, value: r.on) { .recommenderOn($0) }
             if r.on {
+                // Review 1: the page's heading over the guards. Without it an On guard reads as permission, the opposite.
+                Text(Automation.Words.recommenderGuardsHead).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
+                    .accessibilityAddTraits(.isHeader)
                 ForEach(Automation.Guard.allCases, id: \.self) { g in
                     switchRow(box, key: "guard-" + g.rawValue, label: g.label, hint: nil, value: r.guards[g] ?? true) { .recommenderGuard(g, $0) }
                 }
@@ -192,13 +197,18 @@ struct AutomationView: View {
 
     private func languagePicker(_ box: Automation.Box, _ l: Automation.Language) -> some View {
         let shown = chosen(box, "choice", as: String.self)
-        let tags = ["auto"] + l.options.map(\.tag) + ((l.choice == "auto" || l.options.contains { $0.tag == l.choice }) ? [] : [l.choice])
+        // A choice the computer could not read shows as the page's "Could not be read just now", never picked again.
+        let unknown = "__unknown"
+        let current = l.choice ?? unknown
+        let kept = (current == "auto" || current == unknown || l.options.contains { $0.tag == current }) ? [] : [current]
+        let tags = (l.choice == nil ? [unknown] : []) + ["auto"] + l.options.map(\.tag) + kept
         return Picker(selection: Binding(
-            get: { shown ?? l.choice },
-            set: { c in Task { await write(box, key: "choice", value: c, .language(c)) } }
+            get: { shown ?? current },
+            set: { c in if c != unknown { Task { await write(box, key: "choice", value: c, .language(c)) } } }
         )) {
             ForEach(tags, id: \.self) { tag in
-                Text(tag == "auto" ? l.automaticLabel : (l.options.first { $0.tag == tag }?.name ?? tag)).tag(tag)
+                Text(tag == unknown ? Automation.Words.languageCouldNotRead
+                     : tag == "auto" ? l.automaticLabel : (l.options.first { $0.tag == tag }?.name ?? tag)).tag(tag)
             }
         } label: {
             HStack(spacing: 6) {
@@ -230,8 +240,11 @@ struct AutomationView: View {
         }
     }
 
-    @MainActor private func read(_ box: Automation.Box) async {
+    // keepNote: a read that follows a save keeps the save's line under the box.
+    @MainActor private func read(_ box: Automation.Box, keepNote: Bool = false) async {
         await Task.yield()
+        // Review 1: no read while a save is out; the save reads again itself when it needs to.
+        guard pending[box] == nil else { return }
         guard let mac = mac ?? (sample ? Settings.Mac(name: "Studio Mac", url: URL(string: "https://studio.kosmosplus.com/")!, cookie: "sample") : nil)
         else { return }
         let started = generations[box] ?? 0
@@ -241,9 +254,9 @@ struct AutomationView: View {
         guard started == (generations[box] ?? 0), !Task.isCancelled else { return }
         if let s = Automation.parse(box, status: status, data: data) {
             loads[box] = .loaded(s)
-            notes[box] = nil
+            if !keepNote { notes[box] = nil }
         } else {
-            loads[box] = .failed(Automation.refusal(status: status, data: data, writing: false))
+            loads[box] = .failed(Automation.readRefusal(box, status: status, data: data))
         }
     }
 
@@ -254,19 +267,29 @@ struct AutomationView: View {
         else { return }
         generations[box, default: 0] += 1
         pending[box] = (key, value)
-        defer { pending[box] = nil }
         if sample {
             // A sample build changes its own copy, as the computer would answer, so the screen moves for screenshots.
             if case .loaded(let s) = loads[box] ?? .reading { loads[box] = .loaded(Automation.applying(change, to: s)) }
+            pending[box] = nil
             return
         }
         let (status, data) = await send(box, request)
-        if let s = Automation.parse(box, status: status, data: data) {
+        // Ends the save and makes any read that started during it stale, so it cannot paint over this answer.
+        generations[box, default: 0] += 1
+        pending[box] = nil
+        switch Automation.writeOutcome(box, status: status, data: data) {
+        case .saved(let s):
             loads[box] = .loaded(s)
-            notes[box] = nil
-        } else {
-            // Nothing changed on the computer: the control goes back to what it says, and the footer says why.
-            notes[box] = Automation.refusal(status: status, data: data, writing: true)
+            let said = box == .language ? Automation.languageSaved(status: status, data: data) : nil
+            notes[box] = said.map { Note(text: $0, problem: false) }
+        case .savedUnread:
+            notes[box] = Note(text: Automation.Words.savedUnread, problem: false)
+            await read(box, keepNote: true)
+        case .refused(let why):
+            // The control goes back to what the computer says, read again (a save with no answer may have landed), and
+            // the footer says why.
+            notes[box] = Note(text: why, problem: true)
+            await read(box, keepNote: true)
         }
     }
 }
