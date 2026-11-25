@@ -22,8 +22,10 @@ test.after(() => create.setClaudeProbe(null));
 const NOW = Date.parse('2026-11-24T22:00:00Z');
 const H = 3600000;
 /* Byte-exact from Claude Code 2.1.332; the first two also from real transcripts (11-22 and 11-24). */
-const LIMIT = 'Login reached its time limit · Please run /login';
-const NONE = 'Not logged in · Please run /login';
+/* Built from two pieces, so an agent reading this file does not show the line the screen reader looks for. */
+const REMEDY = ' · Please run ' + '/login';
+const LIMIT = 'Login reached its time limit' + REMEDY;
+const NONE = 'Not logged in' + REMEDY;
 const HEADLESS_LIMIT = 'Failed to authenticate: this login reached its time limit and cannot be renewed. Run `claude auth login` to sign in again, or use `claude setup-token` and set CLAUDE_CODE_OAUTH_TOKEN for unattended jobs';
 const HEADLESS_REFRESH = 'Failed to authenticate: OAuth session expired and could not be refreshed. Run `claude auth login` to sign in again';
 

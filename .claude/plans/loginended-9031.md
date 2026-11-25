@@ -38,6 +38,8 @@ was 11-22 10:27, so "signed in" may have been true at 20:53 over an old screen. 
 - A login past its date whose access token still works (hours) can still be a target, as on main.
 - `loginEnded` on the row needs only the login's date where the access date cannot be read, as the page shows it now.
 
+- A row quoting a whole sign-in line reads auth_failed, as the lines before these do (#1884's known gap).
+
 ## Weakest premise
 That both tokens emptied means no agent can start a turn. Read in the 2.1.332 binary (it empties them only on a refused
 renewal, and a new sign-in writes new ones); not seen live. On macOS the stored login is read from the Keychain, elsewhere

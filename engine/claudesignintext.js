@@ -21,7 +21,7 @@ const AUTH_FAILED_MARKERS = [
 const AUTH_ENVELOPE = /"type":\s*"error"/i;
 /* status.js #1884: the friendly line is a message AND Claude Code's own remedy on one row.
    #9031: two more of Claude Code's own lines, read from the 2.1.332 binary and from real transcripts: "Login reached its
-   time limit · Please run /login" (a login past its last date, no renewal left) and "Not logged in · Please run /login".
+   time limit" (a login past its last date, no renewal left) and "Not logged in", each with the dot and the remedy after it.
    Without them an agent stopped on either read idle, and its account never got a rejection. The second needs the dot and
    the remedy right after it (an underscore too, as tmux draws the dot without UTF-8), so "Not logged in" alone,
    which other tools print too, is not a sign-in. */
