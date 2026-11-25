@@ -13,7 +13,7 @@ still fails, and the message now says how long the read took.
 
 ## Built
 - A test helper, learnRealTable(letter): setLearnForTests(null) (forgets a failed read, the test-only reset), then
-  infoOf with a 60 s bound, and the time it took. Item 1 uses it in place of its bare infoOf; item 4 calls it first
+  infoOf with a 30 s bound (60 s before review round 1), and the time it took. Item 1 uses it in place of its bare infoOf; item 4 calls it first
   (so it no longer depends on item 1 having run, or on the 10 s bound). Both messages say the read's time; each arm
   has a 120 s timeout.
 
