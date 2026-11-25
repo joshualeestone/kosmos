@@ -66,9 +66,26 @@ test('anything that is not the hook JSON is dropped', () => {
   assert.equal(run(startup, 'Kosmos is not running here\n').out, '');
 });
 
-test('a compaction or a resume asks nothing and prints nothing', () => {
-  for (const source of ['compact', 'resume', 'clear']) {
+test('a compaction asks nothing and prints nothing', () => {
+  const r = run({ ...startup, source: 'compact' }, JSONLINE + '\n');
+  assert.deepEqual(r.calls, []);
+  assert.equal(r.out, '');
+});
+
+/* kosmos#9049: a /clear and a resume after a quit continue the conversation after a SessionEnd that recorded `stopped`
+   over the agent's own wait. They ask for the wait reminder alone, print it, and still send no `started` (#1058). */
+test('a /clear or a resume asks `away --hook --wait-only`, prints its JSON, and reports nothing', () => {
+  for (const source of ['resume', 'clear']) {
     const r = run({ ...startup, source }, JSONLINE + '\n');
+    assert.deepEqual(r.calls, ['away|--hook|--wait-only|'], source);
+    assert.equal(r.out, JSONLINE + '\n', source);
+    assert.equal(run({ ...startup, source }, 'kosmos away takes only --hook.\n').out, '', source + ': an older CLI\'s refusal is dropped');
+  }
+});
+
+test('the person\'s own session is not asked at a /clear or a resume either', () => {
+  for (const source of ['resume', 'clear']) {
+    const r = run({ ...startup, source }, JSONLINE + '\n', 0, '');
     assert.deepEqual(r.calls, [], source);
     assert.equal(r.out, '', source);
   }
