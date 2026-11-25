@@ -233,3 +233,42 @@ test('kosmos#9057: a Windows resume long after a quit is reminded of its own wai
     }
   });
 });
+
+/* kosmos#9058: an agent that was answered in chat and carried on, never reporting otherwise, was reminded at every
+   /clear and resume for 7 days, because automatic turns never end a wait. It is now reminded at the first session end
+   after the wait and once more, then not again. Driven through the route, the hooks' as=waithook form. */
+test('kosmos#9058: a wait is reminded at the first /clear and once more, then not at every later one', async () => {
+  await withBoard(async () => {
+    const t = now();
+    const tok = sendertoken.mint('leo').token;
+    const rows = [
+      { state: 'needs_you', by: 'agent', because: 'may I merge', at: t - 60 * M },
+      { state: 'working', by: 'auto', because: 'answering a prompt', at: t - 59 * M },
+      { state: 'stopped', by: 'auto', because: '', at: t - 58 * M },
+    ];
+    const reminded = async () => (await ask(tok, 'as=waithook')).text.startsWith('{"hookSpecificOutput":');
+    try {
+      writeHistory(rows);
+      assert.equal(await reminded(), true, 'the first /clear after the wait is reminded');
+      rows.push({ state: 'working', by: 'auto', because: 'answering a prompt', at: t - 50 * M },
+        { state: 'idle', by: 'auto', because: 'finished responding', at: t - 49 * M },
+        { state: 'stopped', by: 'auto', because: '', at: t - 48 * M });
+      writeHistory(rows);
+      assert.equal(await reminded(), true, 'one repeat: the /clear wiped the context that held the first reminder');
+      rows.push({ state: 'working', by: 'auto', because: 'answering a prompt', at: t - 40 * M },
+        { state: 'stopped', by: 'auto', because: '', at: t - 38 * M });
+      writeHistory(rows);
+      const r = await ask(tok, 'as=waithook');
+      assert.equal(r.code, 200);
+      assert.equal(r.text, '', 'it worked through two reminded sessions: no reminder, and never {"pending":true}');
+      assert.equal(JSON.parse((await ask(tok, 'wait=only')).text).wait, null);
+      assert.match((await ask(tok, 'as=text&wait=only')).text, /you have worked through two sessions since/);
+      // CONTROL: /clears with no turn between them do not use up the reminders.
+      writeHistory([rows[0], rows[1], rows[2],
+        { state: 'stopped', by: 'auto', because: '', at: t - 30 * M },
+        { state: 'stopped', by: 'auto', because: '', at: t - 20 * M },
+        { state: 'stopped', by: 'auto', because: '', at: t - 10 * M }]);
+      assert.equal(await reminded(), true, 'nothing was worked through, so it is still reminded');
+    } finally { sendertoken.revoke('leo'); }
+  });
+});

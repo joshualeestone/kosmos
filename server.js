@@ -19952,11 +19952,14 @@ const server = http.createServer(async (req, res) => {
         try { w = away.lastWait(hist, { nowMs: now }); } catch { w = null; }
         /* `src=clear`: a /clear ALWAYS follows its own SessionEnd, so a newest `started` there only means that SessionEnd's
            `stopped` has not landed yet (the Mac hook sends it in the background): pending too, not "already reminded". */
-        const after = w ? away.sessionAfter(hist, w.atMs) : null;
+        let after = w ? away.sessionAfter(hist, w.atMs) : null;
+        /* kosmos#9058: a wait is reminded at the first session end and once more, not at every /clear and resume: an
+           agent that has gone on working through that many reminded sessions has moved on (awaydigest.sessionsSinceWait). */
+        if (after === 'stopped' && away.sessionsSinceWait(hist, w.atMs) >= away.REMIND_SESSIONS) { w = null; after = 'reminded'; }
         const pending = !!w && (after === null || (after === 'started' && clearing));
         if (after !== 'stopped') w = null;
         if (as === 'waithook' || as === 'hook') { sendText(res, 200, w ? away.hookJson(null, w, { ended: true }) : pending ? '{"pending":true}' : ''); return; }
-        if (as === 'text') { sendText(res, 200, (away.waitText(w, { ended: true }) || (pending ? 'Your last report was a wait, and Kosmos has not yet heard a session end that would set it aside, so it is still shown on the board.' : 'Kosmos has no wait of yours to remind you of: your last report was not a wait, or you were already reminded of it at a startup.')) + '\n'); return; }
+        if (as === 'text') { sendText(res, 200, (away.waitText(w, { ended: true }) || (pending ? 'Your last report was a wait, and Kosmos has not yet heard a session end that would set it aside, so it is still shown on the board.' : 'Kosmos has no wait of yours to remind you of: your last report was not a wait, or you were already reminded of it (at a startup or a session end), and you have worked through two sessions since.')) + '\n'); return; }
         sendJson(res, 200, { ok: true, wait: w, ...(pending ? { pending: true } : {}) });
         return;
       }
