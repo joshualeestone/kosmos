@@ -2,9 +2,11 @@ import SwiftUI
 
 // kosmos#7074 (a gap in #6838's plan): a task's page, native, opened from Today's Check it and from a Tasks row. It draws
 // what TaskPageLogic.swift says and does what TaskPageModel.swift does: the board's task page (web/index.html,
-// paintTaskPage) for reading, and its one human verb, Mark as done / Reopen. What this page does not do (the task's
-// composer, the due date and hold, parts, Add subtask, Close them and this task, the receipt) is on the board's page,
-// one tap away by the info button.
+// paintTaskPage) for reading, and its human verbs: Mark as done / Reopen, and (kosmos#8958 slice B1) a message on the
+// task, its due date, and editing its title or detail, (slice B2) Put on hold / Take off hold, and (slice B3) how often
+// it repeats, and (B3b) who is told when a run is missed; and (B4) a closed task's receipt. What this page does not do yet
+// (the hold form, parts, Add subtask, Close them and this task, undo) is on the board's page, one tap away by the info
+// button.
 struct TaskPageRef: Hashable {
     let project: String
     let number: Int
@@ -19,6 +21,22 @@ struct TaskPageView: View {
     @State private var visible = false
     @State private var loop: Task<Void, Never>?
     @State private var openSub: Int?
+    // kosmos#8958 slice B1: the message being typed, and the edit form with the words it opened with.
+    @State private var sayText = ""
+    @State private var editing: (title: String, detail: String?)?
+    @State private var editTitle = ""
+    @State private var editDetail = ""
+    // The Due section's picker: the date being chosen, saved only by Set (the board's date field saves once, on change,
+    // when a date is committed, never on each day tapped).
+    @State private var dueDraft: String?
+    // kosmos#8958 slice B3: the Repeats choice being made, nil while the controls show the stored rule.
+    @State private var repeatDraft: Board.RepeatChoice?
+    // The stored rule the draft was started from, or last followed: what a change to the stored rule is compared with.
+    @State private var repeatDraftBase: Board.RepeatChoice?
+    // The daily time the person had in the box when they last saved (Board.repeatShown).
+    @State private var repeatBox: String?
+    // kosmos#8958 slice B4: the receipt's agents whose file list is open.
+    @State private var receiptFilesOpen: Set<Int> = []
 
     init(client: BoardClient, ref: TaskPageRef, openPage: @escaping (URL) -> Void) {
         self.client = client
@@ -60,6 +78,7 @@ struct TaskPageView: View {
                 }
             }
             .background(subLink)
+            .sheet(isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) { editSheet }
             // The person in front of it (the board's tkPresent): on screen, the app in front, and a touch (or a key press
             // that reaches the window) in the last two minutes (PresenceProbe); opening the page or coming back counts.
             .background(PresenceProbe { model.touched() })
@@ -77,14 +96,14 @@ struct TaskPageView: View {
             .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.switchControlStatusDidChangeNotification)) { _ in
                 model.assistive = UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning
             }
-            .onDisappear { visible = false; model.onScreen = false; loop?.cancel(); loop = nil }
+            .onDisappear { visible = false; model.onScreen = false; loop?.cancel(); loop = nil; model.stopReceipt() }
             .onChange(of: scenePhase) { phase in
                 model.appActive = phase == .active
                 guard visible else { return }
                 if phase == .active {
                     model.touched()
                     startReading(returning: true)
-                } else { loop?.cancel(); loop = nil }
+                } else { loop?.cancel(); loop = nil; model.stopReceipt() }
             }
             .onChange(of: model.activityKey) { _ in Task { await model.markSeen() } }
     }
@@ -111,6 +130,9 @@ struct TaskPageView: View {
             // Redrawn every 30 seconds, so "2 minutes ago" and "today" move on while nothing else changes.
             TimelineView(.periodic(from: .now, by: 30)) { _ in
                 ScrollView { pageBody(page).padding(16) }
+                    // A drag closes the keyboard, for every box on the page. The Repeats minutes box needs it most: a number pad
+                    // has no return key.
+                    .scrollDismissesKeyboard(.interactively)
             }
                 .dotsRefresh { await model.read(); await model.readActivity(names: names) }
         } else if model.gone {
@@ -136,11 +158,20 @@ struct TaskPageView: View {
         VStack(alignment: .leading, spacing: 20) {
             header(p)
             doneBlock(p)
+            dueBlock(p)
+            if !p.closed { repeatBlock(p) }
             whoBlock(p)
             subtasksBlock(p)
             activityBlock
+            if let receipt = model.receipt { receiptBlock(receipt, p) }
+            sayBlock(p)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // A finished task has no Repeats section, and an unsaved choice does not come back if it is reopened.
+        .onChange(of: p.closed) { closed in if closed { repeatDraft = nil; repeatDraftBase = nil; repeatBox = nil } }
+        // Another receipt starts with its files closed, as the board's does: which are open is kept by the agent's place in
+        // the list, and another receipt can put another agent there. One read again and found the same keeps them.
+        .onChange(of: model.receipt) { _ in if !receiptFilesOpen.isEmpty { receiptFilesOpen = [] } }
     }
 
     private func header(_ p: Board.TaskPage) -> some View {
@@ -153,6 +184,18 @@ struct TaskPageView: View {
                 Text(Board.messageText(detail)).font(.body).foregroundColor(Palette.primary).tint(Palette.link)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // kosmos#8958 slice B1: the board's "Edit title or detail", on every task (closed ones too, as the board).
+            Button {
+                model.touched()
+                model.clearEditRefusal()
+                editTitle = p.sentence
+                editDetail = Board.boardLineEnds(p.detail ?? "")
+                editing = (p.sentence, p.detail)
+            } label: {
+                Text(Board.taskEditOpen).font(.footnote).foregroundColor(Palette.link)
+                    .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             Text(p.stateLine(roster: roster)).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
                 .padding(.top, 4)
             if let w = p.whoLeftLine(roster: roster) {
@@ -160,7 +203,6 @@ struct TaskPageView: View {
             }
             Group {
                 Text(p.addedLine(now: Date()))
-                if let due = p.dueLine() { Text(due) }
                 if let parent = p.parentNumber, let sentence = p.parentSentence {
                     Button { openSub = parent } label: {
                         Text("Part of #\(parent) " + sentence).foregroundColor(Palette.link)
@@ -184,6 +226,28 @@ struct TaskPageView: View {
             if let hold = p.holdLine {
                 Text(hold).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
             }
+            // kosmos#8958 slice B2: the board's tk-hold, on an open task. What a hold waits for and why are still set on
+            // the board's page (the info button).
+            if !p.closed {
+                let was = p.onHold
+                Button { model.touched(); Task { await model.toggleHold(wasOnHold: was, names: names) } } label: {
+                    HStack(spacing: 8) {
+                        if model.holding { SweepDots(scales: false) }
+                        Text(Board.holdTitle(onHold: was)).font(.body.weight(.semibold)).foregroundColor(Palette.link)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(RoundedRectangle(cornerRadius: 10).stroke(Palette.secondary.opacity(0.4), lineWidth: 1))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(model.holding || model.pressing)
+                .opacity(model.holding || model.pressing ? 0.6 : 1)
+                .accessibilityValue(model.holding ? "In progress" : "")
+                if let say = model.holdSay {
+                    Text(say).font(.footnote).foregroundColor(model.holdRefused ? Palette.dangerWord : Palette.secondary).fixedSize(horizontal: false, vertical: true)
+                        .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
+                }
+            }
             if p.allSubtasksDone {
                 Text("All subtasks done.").font(.footnote).foregroundColor(Palette.secondary)
             } else if p.allSubtasksBuilt {
@@ -200,8 +264,8 @@ struct TaskPageView: View {
                 .background(RoundedRectangle(cornerRadius: 10).fill(Palette.primary))
             }
             .buttonStyle(.plain)
-            .disabled(model.pressing)
-            .opacity(model.pressing ? 0.6 : 1)
+            .disabled(model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil)
+            .opacity(model.pressing || model.holding || model.repeatSaving || model.reviewerSaving != nil ? 0.6 : 1)
             .accessibilityValue(model.pressing ? "In progress" : "")
             if let refusal = model.refusal {
                 Text(refusal).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
@@ -262,6 +326,329 @@ struct TaskPageView: View {
         }
     }
 
+    // kosmos#8958 slice B1: the board's tk-editform. Save sends only what changed from the words the form opened with;
+    // a refusal keeps the form open with the Mac's words.
+    private var editSheet: some View {
+        NavigationView {
+            Form {
+                Section(Board.taskEditTitle) {
+                    // One line, as the board's text input (Return does not add a line break to a title).
+                    TextField(Board.taskEditTitle, text: $editTitle)
+                        .onChange(of: editTitle) { t in let c = Board.capped(t, Board.taskEditTitleMax); if c != t { editTitle = c } }
+                }
+                Section(Board.taskEditDetail) {
+                    TextField(Board.taskEditDetail, text: $editDetail, axis: .vertical)
+                        .lineLimit(3...12)
+                        .onChange(of: editDetail) { t in let c = Board.capped(t, Board.taskEditDetailMax); if c != t { editDetail = c } }
+                }
+                if let why = model.editRefusal {
+                    Text(why).font(.footnote).foregroundColor(Palette.dangerWord)
+                        .onAppear { UIAccessibility.post(notification: .announcement, argument: why) }
+                }
+            }
+            .navigationTitle("Task \(ref.number)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // Off while a save is out, so a late answer can never close a form opened after it (the board's data-gen).
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { model.clearEditRefusal(); editing = nil }.disabled(model.editSaving) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        guard let opened = editing else { return }
+                        let (t, d) = (editTitle, editDetail)
+                        let before = model.editRefusal
+                        Task {
+                            if await model.saveText(title: t, detail: d, openedTitle: opened.title, openedDetail: opened.detail, names: names) { editing = nil }
+                            // An empty title refused while a line already shows never leaves the line (it is set in the
+                            // same turn), so it would not be heard: say it. A refusal from the Mac clears the line first
+                            // and is heard anyway.
+                            else if let why = model.editRefusal, why == Board.taskEditNeedsTitle, before != nil {
+                                UIAccessibility.post(notification: .announcement, argument: why)
+                            }
+                        }
+                    }
+                    .disabled(model.editSaving)
+                    .accessibilityLabel("Save title and detail")
+                }
+            }
+        }
+        .interactiveDismissDisabled(model.editSaving)
+    }
+
+    // kosmos#8958 slice B1: the board's Due row (saveTaskDue). The picker chooses a date; Set saves it, Cancel puts it
+    // back; Clear clears a stored date. With no date, Set a due date opens the picker on a week from today, unsaved.
+    // Which of these shows is Board.dueControls (tested in LogicTests/taskpage). The picker is one view in one place for
+    // every state, so choosing a day (which turns Clear into Set and Cancel) does not rebuild it and close its calendar.
+    private func dueBlock(_ p: Board.TaskPage) -> some View {
+        let controls = Board.dueControls(stored: p.dueDate, draft: dueDraft)
+        let shown: String? = { switch controls { case .choosing(let d), .stored(let d): return d; default: return nil } }()
+        return VStack(alignment: .leading, spacing: 6) {
+            sectionTitle("Due")
+            if let shown {
+                DatePicker("Due date", selection: Binding(get: { Board.dueDay(shown) ?? Date() }, set: { d in
+                    model.touched()
+                    dueDraft = Board.keptDraft(Board.dueString(d), stored: p.dueDate)
+                }), displayedComponents: .date)
+                    .labelsHidden()
+                    .disabled(model.dueSaving)
+            }
+            HStack(spacing: 12) {
+                switch controls {
+                case .choosing(let d):
+                    dueAction("Set", label: "Set the due date", strong: true) {
+                        Task { if await model.setDue(d, names: names) { dueDraft = nil } }
+                    }
+                    dueAction("Cancel", label: "Cancel the new due date") { model.clearDueRefusal(); dueDraft = nil }
+                case .stored:
+                    dueAction("Clear", label: "Clear the due date") { dueDraft = nil; Task { await model.setDue(nil, names: names) } }
+                case .unreadable(let raw):
+                    // A stored date this phone cannot read as a day: said as the Mac keeps it, and it can still be cleared.
+                    Text("Due " + raw).font(.footnote).foregroundColor(Palette.primary)
+                    dueAction("Clear", label: "Clear the due date") { Task { await model.setDue(nil, names: names) } }
+                case .none:
+                    Button {
+                        model.touched()
+                        dueDraft = Board.dueString(Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date())
+                    } label: {
+                        Text("Set a due date").font(.footnote).foregroundColor(Palette.link)
+                            .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            if let why = model.dueRefusal {
+                Text(why).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
+                    .onAppear { UIAccessibility.post(notification: .announcement, argument: why) }
+            }
+        }
+        // The stored day moved (another device): a draft it now equals is dropped.
+        .onChange(of: p.dueDate) { stored in dueDraft = Board.keptDraft(dueDraft, stored: stored) }
+    }
+
+    // kosmos#8958 slice B3: the board's Repeats controls (tk-repeat-*) on an open task: how often, and when (a time, a
+    // day and a time, or a number of minutes); Save sends the choice when it differs from the stored rule. The line
+    // under them is the board's own sentence (Tasks.repeatSentence), red while a run is missed, and under that who is
+    // told when one is (reviewerRow, slice B3b).
+    private func repeatBlock(_ p: Board.TaskPage) -> some View {
+        let stored = p.repeatStored
+        let storedShown = Board.repeatShown(stored, box: repeatBox)
+        let shown = repeatDraft ?? storedShown
+        let wire = shown.map(Board.repeatWire)
+        let unchanged = wire == stored.map(Board.repeatWire)
+        let edit = { (change: (inout Board.RepeatChoice) -> Void) in
+            guard var c = repeatDraft ?? storedShown else { return }
+            if repeatDraft == nil { repeatDraftBase = stored }
+            model.touched()
+            model.clearRepeatSay()
+            change(&c)
+            // Kept as the person set it, even when it is now the stored rule (Save then turns off): dropping it here would
+            // put the stored rule back under their fingers, so typing 60 minutes would become Every hour mid-edit.
+            repeatDraft = c
+        }
+        return VStack(alignment: .leading, spacing: 6) {
+            sectionTitle("Repeats")
+            if let shown {
+                Picker("How often this task repeats", selection: Binding(get: { shown.every }, set: { v in edit { $0.every = v } })) {
+                    ForEach(Board.RepeatEvery.allCases, id: \.self) { Text($0.words).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityLabel("How often this task repeats")
+                .tint(Palette.link)
+                .frame(minHeight: 44)
+                .disabled(model.repeatSaving)
+                .accessibilityIdentifier("taskpage.repeat.every")
+                switch shown.every {
+                case .minutes:
+                    HStack(spacing: 8) {
+                        TextField("30", text: Binding(get: { shown.minutes }, set: { v in edit { $0.minutes = v } }))
+                            .keyboardType(.numberPad)
+                            .frame(minWidth: 80, minHeight: 44)
+                            .fixedSize()
+                            .padding(.horizontal, 8)
+                            .background(RoundedRectangle(cornerRadius: 8).stroke(Palette.secondary.opacity(0.4), lineWidth: 1))
+                            .accessibilityLabel("When: every how many minutes")
+                            .accessibilityIdentifier("taskpage.repeat.minutes")
+                        Text("minutes").font(.footnote).foregroundColor(Palette.secondary)
+                    }
+                    .disabled(model.repeatSaving)
+                case .day, .week:
+                    HStack(spacing: 12) {
+                        if shown.every == .week {
+                            Picker("When: day of the week", selection: Binding(get: { shown.on }, set: { v in edit { $0.on = v } })) {
+                                ForEach(Board.repeatDays, id: \.key) { Text($0.words).tag($0.key) }
+                            }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                            .accessibilityLabel("When: day of the week")
+                            .tint(Palette.link)
+                            .frame(minHeight: 44)
+                            .accessibilityIdentifier("taskpage.repeat.day")
+                        }
+                        DatePicker("When: time of day", selection: Binding(get: { Board.repeatTime(shown.at) }, set: { d in
+                            edit { $0.at = Board.repeatTimeString(d) }
+                        }), displayedComponents: .hourAndMinute)
+                            .labelsHidden()
+                            .frame(minHeight: 44)
+                            .environment(\.timeZone, Board.repeatClock.timeZone)
+                            .accessibilityIdentifier("taskpage.repeat.time")
+                    }
+                    .frame(minHeight: 44)
+                    .disabled(model.repeatSaving)
+                default:
+                    EmptyView()
+                }
+                HStack(spacing: 12) {
+                    let ready = wire.flatMap { Board.repeatBody($0) } != nil && !unchanged
+                    Button {
+                        model.touched()
+                        guard let wire else { return }
+                        Task {
+                            // Saved: the draft goes once the page reads the saved rule; if that read failed, the controls
+                            // keep showing what was saved rather than the rule from before it.
+                            // The box's time is kept before the save's reads, which change the stored rule mid-save, so the
+                            // box never shows the sorted first time in between (the board's tkRepeatSaved runs before its
+                            // reload). A save that was not recorded forgets it again.
+                            repeatBox = shown.every == .day ? shown.at : nil
+                            if await model.saveRepeat(wire, names: names) {
+                                repeatDraft = Board.keptRepeatDraft(repeatDraft, stored: model.page?.repeatStored)
+                            } else {
+                                repeatBox = nil
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if model.repeatSaving { SweepDots(scales: false) }
+                            Text("Save").font(.footnote.weight(.semibold)).foregroundColor(Palette.link)
+                        }
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!ready || model.repeatSaving || model.reviewerSaving != nil || model.pressing)
+                    .opacity(!ready || model.repeatSaving || model.reviewerSaving != nil || model.pressing ? 0.5 : 1)
+                    .accessibilityLabel("Save how this task repeats")
+                    .accessibilityIdentifier("taskpage.repeat.save")
+                    if repeatDraft != nil && !unchanged {
+                        dueAction("Cancel", label: "Cancel the change to how this task repeats", busy: model.repeatSaving) { model.clearRepeatSay(); repeatDraft = nil }
+                    }
+                }
+                if let need = wire.flatMap(Board.repeatNeeds) {
+                    // .id: a changed line is a new view, so it is announced even when no line was gone in between.
+                    Text(need).font(.footnote).foregroundColor(Palette.secondary)
+                        .id("need:" + need)
+                        .onAppear { UIAccessibility.post(notification: .announcement, argument: need) }
+                } else if let say = model.repeatSay {
+                    Text(say).font(.footnote).foregroundColor(model.repeatRefused ? Palette.dangerWord : Palette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .id("say:" + say)
+                        .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
+                }
+            } else {
+                Text(Board.repeatOnBoard).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            if let row = p.repeatRow {
+                Text(Tasks.repeatSentence(row, now: Date()) { p.name($0, roster: roster) })
+                    .font(.footnote)
+                    .foregroundColor(Tasks.repeatMissed(row).isEmpty ? Palette.secondary : Palette.dangerWord)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("taskpage.repeat.line")
+                reviewerRow(p)
+            }
+        }
+        // The stored rule moved (another device, an agent): a draft it now equals is dropped, and a daily edit's other
+        // times follow it.
+        .onChange(of: p.repeatStored) { s in
+            // A rule changed by anything but this phone's own save shows as the board shows it, box on its first time.
+            if !model.repeatSaving { repeatBox = nil }
+            repeatDraft = Board.followStored(repeatDraft, old: repeatDraftBase, new: s)
+            repeatDraftBase = s
+        }
+    }
+
+    // kosmos#8958 slice B3b: the board's "If missed, tell" (tk-review-who), under the repeat line of a task whose rule is
+    // stored: Nobody (nothing is said), Me (the task waits in Needs Your Decision), or an agent on the project (one line
+    // in its session), once per missed run. Saved on change, as the board's; while it is out, the choice sent shows, and
+    // after a save whose read failed, the choice saved (model.reviewerShown).
+    private func reviewerRow(_ p: Board.TaskPage) -> some View {
+        let options = Board.reviewerOptions(p, roster: roster)
+        let shown = model.reviewerSaving ?? model.reviewerShown ?? p.repeatReviewer
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                // Hidden from VoiceOver: the menu's own label says it, so it is not read twice.
+                Text("If missed, tell").font(.footnote).foregroundColor(Palette.secondary).accessibilityHidden(true)
+                Picker("Who is told if a run is missed", selection: Binding(get: { shown }, set: { want in
+                    model.touched()
+                    Task { _ = await model.saveReviewer(want, names: names) }
+                })) {
+                    ForEach(options, id: \.self) { Text($0.words).tag($0.value) }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityLabel("Who is told if a run is missed")
+                // Voice Control: the words on screen work as well as the spoken label.
+                .accessibilityInputLabels(["If missed, tell", "Who is told if a run is missed"]
+                    + [options.first { $0.value == shown }?.words].compactMap { $0 })   // and the choice the menu shows
+                .tint(Palette.link)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+                .disabled(model.reviewerSaving != nil || model.repeatSaving || model.pressing)
+                .accessibilityIdentifier("taskpage.repeat.reviewer")
+                // The choice itself, said as the value (an empty value would hide it), and that it is saving while it is.
+                .accessibilityValue([options.first { $0.value == shown }?.words ?? shown, model.reviewerSaving != nil ? "in progress" : nil]
+                    .compactMap { $0 }.joined(separator: ", "))
+                if model.reviewerSaving != nil { SweepDots(scales: false) }
+            }
+            if let say = model.reviewerSay {
+                Text(say).font(.footnote).foregroundColor(model.reviewerRefused ? Palette.dangerWord : Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .id("reviewer:" + say)
+                    .onAppear { UIAccessibility.post(notification: .announcement, argument: say) }
+            }
+        }
+    }
+
+    // `busy` is the section's own save in flight (the due date's, unless another section names its own).
+    private func dueAction(_ words: String, label: String, strong: Bool = false, busy: Bool? = nil, _ run: @escaping () -> Void) -> some View {
+        Button { model.touched(); run() } label: {
+            Text(words).font(strong ? .footnote.weight(.semibold) : .footnote).foregroundColor(Palette.link)
+                .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(busy ?? model.dueSaving)
+        .accessibilityLabel(label)
+    }
+
+    // kosmos#8958 slice B1: the board's message box under the activity (tk-say): recorded on the task and sent to its
+    // assignees; the line under it says who it did not reach, or why it was not recorded.
+    private func sayBlock(_ p: Board.TaskPage) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField(Board.taskSayPlaceholder, text: $sayText, axis: .vertical)
+                    .lineLimit(1...5)
+                    .padding(.horizontal, 10).padding(.vertical, 8)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
+                    .accessibilityLabel(Board.taskSayLabel)
+                    .onChange(of: sayText) { t in let c = Board.capped(t, Board.taskSayMax); if c != t { sayText = c } }
+                Button {
+                    model.touched()
+                    let words = sayText
+                    Task { if await model.say(words, name: { p.name($0, roster: roster) }, names: names), sayText == words { sayText = "" } }
+                } label: {
+                    Text("Send").font(.body.weight(.semibold)).foregroundColor(Palette.link)
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Send this message on the task")
+                .disabled(model.saying || sayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            Text(Board.taskSayNote).font(.caption).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+            if let line = model.sayLine {
+                Text(line).font(.footnote).foregroundColor(model.sayRefused ? Palette.dangerWord : Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onAppear { UIAccessibility.post(notification: .announcement, argument: line) }
+            }
+        }
+    }
+
     @ViewBuilder private var activityBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Activity")
@@ -288,41 +675,161 @@ struct TaskPageView: View {
         }
     }
 
+    // kosmos#8958 slice B4: the board's tk-receipt, under a closed task's activity. The put-back line ends the history
+    // above it, then the receipt. Undo stays on the board (it changes files on the computer).
+    private func receiptBlock(_ r: Board.Receipt, _ p: Board.TaskPage) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let again = r.again {
+                Text(again).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            sectionTitle("Receipt")
+            Text(Board.receiptIntro).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+            if r.agents.isEmpty {
+                Text(Board.receiptNobody).font(.footnote).foregroundColor(Palette.secondary)
+            }
+            ForEach(r.agents) { receiptAgent($0, name: p.name($0.who, roster: roster)) }
+        }
+    }
+
+    private func receiptAgent(_ a: Board.ReceiptAgent, name: String) -> some View {
+        let open = receiptFilesOpen.contains(a.id)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(name).font(.body.weight(.semibold)).foregroundColor(Palette.primary)
+            Text(a.line).font(.footnote).foregroundColor(a.muted ? Palette.secondary : Palette.primary).fixedSize(horizontal: false, vertical: true)
+            if !a.prs.isEmpty {
+                Text(Self.receiptPRWords(a)).font(.footnote).foregroundColor(Palette.primary).tint(Palette.link)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let title = a.filesTitle {
+                Button {
+                    model.touched()
+                    if open { receiptFilesOpen.remove(a.id) } else { receiptFilesOpen.insert(a.id) }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(title).font(.footnote).foregroundColor(Palette.link)
+                        Image(systemName: open ? "chevron.down" : "chevron.right").font(.caption2).foregroundColor(Palette.link)
+                    }
+                    .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(title + ", " + name)
+                .accessibilityInputLabels([title, title + ", " + name])
+                .accessibilityValue(open ? "expanded" : "collapsed")
+                if open {
+                    ForEach(Array(a.files.enumerated()), id: \.offset) { _, f in
+                        Text(f).font(.footnote).foregroundColor(Palette.primary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            // As the board: the folder is the open list's foot, or the line itself when there is no list.
+            if let folder = a.folder, a.filesTitle == nil || open {
+                Text("In " + folder).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private static func receiptPRWords(_ a: Board.ReceiptAgent) -> AttributedString {
+        var words = AttributedString(a.prsBefore)
+        for (i, pr) in a.prs.enumerated() {
+            if i > 0 { words += AttributedString(", ") }
+            var label = AttributedString(pr.label)
+            label.link = pr.url
+            words += label
+        }
+        return words + AttributedString(a.prsAfter)
+    }
+
     #if DEBUG
     // The sample Mac (KOSMOS_SAMPLE_AGENTS=1, a Debug build only), matching Today's and Tasks' sample tasks, so a
     // screenshot never shows a real account. A press closes or reopens the sample task for real (in memory).
     // Locked: the sample Mac is called off the main actor, by the loop, a press and a seen mark at once.
     private static let sampleLock = NSLock()
-    private static var sampleClosed: Set<Int> = []
+    private static var sampleClosed: [Int: String] = [:]   // when, so its receipt is asked for once
+    // kosmos#8958 slice B1: messages said on the sample tasks, shown in their activity as the Mac records them.
+    private static var sampleSaid: [Int: [String]] = [:]
+    // A title edited on a sample task (POST .../text), served back by the next read.
+    private static var sampleTitle: [Int: String] = [:]
+    // A due date set or cleared on a sample task (POST .../due), served back by the next read ("" for cleared).
+    private static var sampleDue: [Int: String] = [:]
+    // kosmos#8958 slice B3: a sample task's repeat rule and words for it in the board's shape (POST .../repeat; only the
+    // hourly words and task 4's starting words are written as the board's describe says them), served back by
+    // the next read. Task 4 starts on twice a day, the case where the controls keep a second time.
+    private static var sampleRepeat: [Int: (rule: String, words: String)] = [4: (#"{"every":"day","at":["09:00","17:00"]}"#, "every day at 9am and 5pm")]
+    private static func sampleRule(_ body: [String: Any]) -> (rule: String, words: String)? {
+        let at = body["at"] as? String ?? ""
+        switch body["every"] as? String {
+        case "hour": return (#"{"every":"hour"}"#, "every hour")
+        case "minutes": return (#"{"every":"minutes","n":"# + (Int(at).map(String.init) ?? "30") + "}", "every " + at + " minutes")
+        case "day":
+            let list = at.split(separator: ",").map { "\"" + $0 + "\"" }.joined(separator: ",")
+            return (#"{"every":"day","at":["# + list + "]}", "every day at " + at)
+        case "week":
+            let on = body["on"] as? String ?? "mon"
+            let day = Board.repeatDayOfNumber.firstIndex(of: on) ?? 1
+            return (#"{"every":"week","day":"# + String(day) + #","at":""# + at + #""}"#, "every week on " + on + " at " + at)
+        default: return nil
+        }
+    }
     private static func sampleSend(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         guard let r = build(URL(string: "https://sample.invalid")!), let url = r.url else { return nil }
         let path = url.path
-        let closedNow: Set<Int> = sampleLock.withLock {
+        if path.hasSuffix("/message"), let n = Int(url.deletingLastPathComponent().lastPathComponent),
+           let words = (r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["text"] as? String {
+            sampleLock.withLock { sampleSaid[n, default: []].append(words) }
+        }
+        if path.hasSuffix("/text"), let n = Int(url.deletingLastPathComponent().lastPathComponent),
+           let title = (r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["sentence"] as? String {
+            sampleLock.withLock { sampleTitle[n] = title }
+        }
+        if path.hasSuffix("/due"), let n = Int(url.deletingLastPathComponent().lastPathComponent),
+           let body = r.httpBody.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) {
+            sampleLock.withLock { sampleDue[n] = body["dueDate"] as? String ?? "" }
+        }
+        if path.hasSuffix("/repeat"), let n = Int(url.deletingLastPathComponent().lastPathComponent),
+           let body = r.httpBody.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) {
+            sampleLock.withLock { sampleRepeat[n] = body["clear"] as? Bool == true ? nil : sampleRule(body) }
+        }
+        let repeatNow: [Int: (rule: String, words: String)] = sampleLock.withLock { sampleRepeat }
+        let dueNow: [Int: String] = sampleLock.withLock { sampleDue }
+        let saidNow: [Int: [String]] = sampleLock.withLock { sampleSaid }
+        let titleNow: [Int: String] = sampleLock.withLock { sampleTitle }
+        let closedNow: [Int: String] = sampleLock.withLock {
             if path.hasSuffix("/close") || path.hasSuffix("/reopen") {
                 if let n = Int(url.deletingLastPathComponent().lastPathComponent) {
-                    if path.hasSuffix("/close") { sampleClosed.insert(n) } else { sampleClosed.remove(n) }
+                    // Closing clears its repeat rule, as the engine does.
+                    if path.hasSuffix("/close") { sampleClosed[n] = ISO8601DateFormatter().string(from: Date()); sampleRepeat[n] = nil } else { sampleClosed[n] = nil }
                 }
             }
             return sampleClosed
         }
         let iso = { (m: Double) in ISO8601DateFormatter().string(from: Date().addingTimeInterval(-m * 60)) }
-        func closed(_ n: Int, _ open: String) -> String { closedNow.contains(n) ? #""closedAt":""# + iso(0) + #"","progress":{"done":1,"total":1,"closed":true}"# : open }
+        func closed(_ n: Int, _ open: String) -> String { closedNow[n] != nil ? #""closedAt":""# + closedNow[n]! + #"","progress":{"done":1,"total":1,"closed":true}"# : open }
         let body: String
         if path.hasSuffix("/projects") {
             body = #"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","paused":false,"agents":[{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"tasks":["#
                 + #"{"number":3,"sentence":"Print-ready catalogue","addedBy":"operator","addedVia":"screen","createdAt":""# + iso(4000) + #"",\#(closed(3, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":null,"sentence":"Print-ready catalogue"}]},"#
-                + #"{"number":4,"sentence":"Pages 1 to 8","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","dueDate":"2026-10-30","builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 1 to 8"}],"claim":{"claimed":true,"about":"dana"}},"#
+                + #"{"number":4,"sentence":"# + Self.jsonString(titleNow[4] ?? "Pages 1 to 8") + #","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","# + (dueNow[4].map { $0.isEmpty ? "" : #""dueDate":"# + Self.jsonString($0) + "," } ?? #""dueDate":"2026-10-30","#) + (repeatNow[4].map { #""repeat":"# + $0.rule + #","repeatWords":"# + Self.jsonString($0.words) + "," } ?? "") + #""builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 1 to 8"}],"claim":{"claimed":true,"about":"dana"}},"#
                 + #"{"number":8,"sentence":"Pages 9 to 12","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2800) + #"",\#(closed(8, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 9 to 12"}]}"#
                 + #"]}]}"#
+        } else if path.hasSuffix("/receipt") {
+            // Task 4's, in the shape server.js sends (the price the Mac worked out included); any other task's says nobody held it.
+            body = path.contains("/task/4/")
+                ? #"{"version":3,"closedAt":""# + iso(0) + #"","retries":{"reopened":1,"handoffs":0},"agents":[{"who":"dana","available":true,"provider":"claude","folder":"/Users/sam/Kosmos/Dana","models":{"claude-opus-5":{"input_tokens":200000,"output_tokens":40000,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000000,"rows":9}},"files":["captions.md","pages-1-8.md"],"filesMore":0,"commands":12,"prs":[{"repo":"acme/catalogue","number":12,"url":"https://github.com/acme/catalogue/pull/12"}],"prsMore":0,"transcriptsWithWork":1,"cost":{"usd":2.5,"unpriced":[]}},{"who":"eli","available":false,"because":"provider","provider":"grok"}]}"#
+                : #"{"version":3,"retries":{"reopened":0,"handoffs":0},"agents":[]}"#
         } else if path.hasSuffix("/activity") && !path.contains("/task/4/") {
             body = #"{"events":[{"at":""# + iso(4000) + #"","kind":"created"}]}"#
         } else if path.hasSuffix("/activity") {
             body = #"{"events":[{"at":""# + iso(2900) + #"","kind":"created","who":"dana","parent":3},{"at":""# + iso(300) + #"","kind":"said","text":"Use the March photos for the captions."},{"at":""# + iso(40) + #"","kind":"built","by":"dana","note":"captions need a check"}"#
-                + (closedNow.contains(4) ? #",{"at":""# + iso(0) + #"","kind":"closed"}"# : "") + "]}"
+                + (saidNow[4] ?? []).map { #",{"at":""# + iso(0) + #"","kind":"said","text":"# + Self.jsonString($0) + "}" }.joined()
+                + (closedNow[4] != nil ? #",{"at":""# + iso(0) + #"","kind":"closed"}"# : "") + "]}"
         } else {
             body = "{}"
         }
         return (Data(body.utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+    }
+    private static func jsonString(_ s: String) -> String {
+        (try? JSONSerialization.data(withJSONObject: [s])).flatMap { String(data: $0, encoding: .utf8) }.map { String($0.dropFirst().dropLast()) } ?? "\"\""
     }
     #endif
 

@@ -20,6 +20,54 @@ final class TaskPageModel: ObservableObject {
     // A press in the air, and the Mac's sentence for the last one it refused.
     @Published private(set) var pressing = false
     @Published private(set) var refusal: String?
+    // kosmos#8958 slice B1: a message on its way, and the line under the box (who it did not reach, or the refusal).
+    @Published private(set) var saying = false
+    @Published private(set) var sayLine: String?
+    @Published private(set) var sayRefused = false
+    // The due date being saved, and the Mac's refusal of the last one.
+    @Published private(set) var dueSaving = false
+    @Published private(set) var dueRefusal: String?
+    // kosmos#8958 slice B2: Put on hold / Take off hold in the air, and the line under it (the board's tk-hold-msg).
+    @Published private(set) var holding = false
+    @Published private(set) var holdSay: String?
+    // holdSay is the Mac refusing the press (drawn as Mark as done's refusal is), not a line about the task (review 2).
+    @Published private(set) var holdRefused = false
+    // What the task read as when holdSay was the unhold's next sentence (Board.holdNextSig): the line goes once the task
+    // reads otherwise, as the board's repaint takes it down (review 1).
+    private var holdSaySig: String?
+    // kosmos#8958 slice B3: the Repeats Save in the air, and the line under it (the board's tk-repeat-msg): "Saved." or
+    // the Mac's refusal (repeatRefused). "Saved." goes once the stored rule reads as something else (the board's review
+    // 2: a rule changed elsewhere retires it).
+    @Published private(set) var repeatSaving = false
+    @Published private(set) var repeatSay: String?
+    @Published private(set) var repeatRefused = false
+    private var repeatSavedAs: Board.RepeatWire?
+    // kosmos#8958 slice B3b: "If missed, tell" being saved (the choice sent), and the line under it (tk-review-msg).
+    @Published private(set) var reviewerSaving: String?
+    @Published private(set) var reviewerSay: String?
+    @Published private(set) var reviewerRefused = false
+    private var reviewerSavedAs: String?
+    // A reviewer the Mac recorded when the read after it failed: shown until a read of the page succeeds, so the choice
+    // does not jump back to the old reviewer under "Saved." (as the Repeats controls keep what was saved).
+    @Published private(set) var reviewerShown: String?
+    // The number of the newest page read that succeeded (reads are numbered by pageReads), so a save can tell whether a
+    // read that started after it was recorded has landed: a tick read started before it, landing with the old page, does
+    // not count.
+    private var pageReadOK = 0
+    // kosmos#8958 slice B4: a closed task's receipt as last read; nil while there is none to show.
+    @Published private(set) var receipt: Board.Receipt?
+    // The closed state (TaskPage.receiptKey) the receipt was asked for, and the last one whose read failed, with when.
+    private var receiptAsked: String?
+    private var receiptFailed: (key: String, at: Date)?
+    private var receiptReads = 0
+    // The read in the air, nil when there is none.
+    private(set) var receiptReading: Task<Void, Never>?
+    static let receiptRetry: TimeInterval = 30
+    // The title and detail being saved, and the line for the last save (the board's tk-msg for the form).
+    // Like `pressing`, saying, dueSaving and editSaving stay set when the epoch moves mid-request: the page is then about
+    // nothing.
+    @Published private(set) var editSaving = false
+    @Published private(set) var editRefusal: String?
 
     private let send: Send
     // The project list parsed off the main thread (a large fleet's list every 5 seconds must not stall a scroll); a
@@ -105,12 +153,25 @@ final class TaskPageModel: ObservableObject {
         guard !Task.isCancelled, current, mine == pageShown else { return }
         switch parsed {
         case .page(let p):
+            pageReadOK = max(pageReadOK, mine)
+            // Only when set: assigning a published value redraws the page, and a quiet tick must redraw nothing.
+            if reviewerShown != nil { reviewerShown = nil }
             // A refusal is about the press it answered: once the task reads otherwise (another device did it), it goes.
             if refusal != nil, let was = page, was.act != p.act { refusal = nil }
             if p != page { page = p }
+            if let sig = holdSaySig, Board.holdNextSig(p) != sig { holdSay = nil; holdSaySig = nil }
+            if let w = repeatSavedAs, p.closed || p.repeatStored.map(Board.repeatWire) != w { repeatSay = nil; repeatSavedAs = nil }
+            // Nothing about Repeats outlives the task being finished (the board's tkPaintRepeat, review 2).
+            if p.closed && repeatRefused { repeatSay = nil; repeatRefused = false }
+            // "Saved." for the reviewer goes once the stored reviewer reads otherwise, the task finishes or stops repeating;
+            // a refusal goes with the section (the board's review 7).
+            if let w = reviewerSavedAs, p.closed || p.repeatRow == nil || p.repeatReviewer != w { reviewerSay = nil; reviewerSavedAs = nil }
+            if reviewerRefused && (p.closed || p.repeatRow == nil) { reviewerSay = nil; reviewerRefused = false }
             set(\.gone, false)
             set(\.readFailed, false)
+            syncReceipt()
         case .gone:
+            if holdSaySig != nil { holdSay = nil; holdSaySig = nil }
             set(\.gone, true)
             set(\.readFailed, false)
         case .unreadable:
@@ -178,7 +239,10 @@ final class TaskPageModel: ObservableObject {
     // Mark as done or Reopen, as the button showed it. A press whose button no longer matches the task (another
     // device closed it meanwhile) sends nothing: the page already shows the new state. Then both are read again.
     func press(_ shown: Board.TaskAct, names: [String: String]) async {
-        guard !pressing, current, let page, page.act == shown else { return }
+        // Not while a hold is out either (review 1): a close landing between a hold's check and its post would answer the
+        // hold with the Mac's refusal for a closed task.
+        // Nor while a Repeats or reviewer save is out (B3, B3b): its answer would be about a task this press is closing.
+        guard !pressing, !holding, !repeatSaving, reviewerSaving == nil, current, let page, page.act == shown else { return }
         pressing = true
         refusal = nil
         let (project, number) = (self.project, self.number)
@@ -190,6 +254,277 @@ final class TaskPageModel: ObservableObject {
         guard current else { return }
         pressing = false
     }
+
+    // The receipt's read in the air is given up: another is wanted, the task is open, or the page left the screen or the app
+    // the front. A read cut short is no failure, and is asked for again on the next read of the task (the Mac goes on working
+    // it out meanwhile, and shares it).
+    func stopReceipt() {
+        guard let reading = receiptReading else { return }
+        reading.cancel()
+        receiptReading = nil
+        receiptReads += 1
+        receiptAsked = nil
+    }
+
+    // kosmos#8958 slice B4: the board's tkReceiptSync and paintTaskReceipt, after every read of the task. Asked only when the
+    // closed state changed since it was last asked, and again 30 s after a read that failed. Not awaited: the Mac's first
+    // read of long transcripts can take seconds, and the page's own tick must not wait for it. One read at a time: an
+    // older one is cancelled (it would hold one of the few connections every call to the Mac shares), and only the newest
+    // ask draws.
+    func syncReceipt() {
+        guard current, let page, !gone else { return }
+        guard let key = page.receiptKey else {
+            // Open: no receipt, and one still in the air draws nothing.
+            stopReceipt()
+            receiptAsked = nil
+            if receipt != nil { receipt = nil }
+            return
+        }
+        guard key != receiptAsked else { return }
+        stopReceipt()   // one still out is for another close
+        // Only while the page is in front: a press's read landing after the person left asks for nothing; the read on their
+        // return does.
+        guard shouldReadTask else { return }
+        if let f = receiptFailed, f.key == key, now().timeIntervalSince(f.at) < Self.receiptRetry { return }
+        receiptAsked = key
+        receiptReads += 1
+        let mine = receiptReads
+        let (project, number) = (self.project, self.number)
+        receiptReading = Task { [weak self, send] in
+            let answer = await send { Board.taskReceiptRequest(mac: $0, project: project, number: number) }
+            guard let self, mine == self.receiptReads else { return }
+            self.receiptReading = nil
+            guard self.current else { return }
+            var read = Board.ReceiptRead.unreadable
+            if let (data, response) = answer, (200...299).contains(response.statusCode) {
+                // Replaced or never run as the task reads now, not as it did when this was asked.
+                read = Board.parseReceipt(data, replaced: self.page?.replacedBy != nil, unrun: self.page?.closedUnrun == true)
+            }
+            var shown: Board.Receipt?
+            switch read {
+            case .receipt(let r): shown = r; self.receiptFailed = nil
+            case .none: self.receiptFailed = nil
+            // Asked again after receiptRetry, not left hidden while the page stays open.
+            case .unreadable: self.receiptFailed = (key, self.now()); self.receiptAsked = nil
+            }
+            if self.receipt != shown { self.receipt = shown }
+        }
+    }
+
+    // kosmos#8958 slice B2: the board's tk-hold button, as the button showed it (`wasOnHold`). Putting it on hold reads the
+    // task first, because a hold from the screen sets exactly what it sends and would replace what an agent's hold, not
+    // yet shown here, waits for; if it is already on hold, nothing is sent. Then the page and activity are read, and an
+    // unhold's sentence about who has it next is said.
+    // The board's tkHoldFresh: one read of this task for this press alone, so the shared tick's read (numbered, and
+    // dropped when a newer one overtakes it) can never leave the check looking at the task as it was before the press.
+    // nil when the Mac gave no list.
+    private func freshRead() async -> Board.TaskPageRead? {
+        let answer = await send { Board.projectsRequest(mac: $0) }
+        guard let (data, response) = answer, (200...299).contains(response.statusCode) else { return nil }
+        let parsed = await parse(data, project, number)
+        if case .unreadable = parsed { return nil }
+        return parsed
+    }
+
+    func toggleHold(wasOnHold: Bool, names: [String: String]) async {
+        guard !holding, !pressing, current, let page, !page.closed, page.onHold == wasOnHold else { return }
+        holding = true
+        holdSay = nil
+        holdSaySig = nil
+        holdRefused = false
+        if !wasOnHold {
+            // Putting on hold sets exactly what it sends, so it would replace an agent's hold (its until and why) not
+            // yet shown: the task is read fresh first, and nothing is sent if it is already on hold, gone or unread.
+            let fresh = await freshRead()
+            guard current else { return }
+            switch fresh {
+            case .none, .some(.unreadable):
+                holdSay = Board.holdCheckFailed; holding = false; return
+            case .some(.gone):
+                await read()
+                guard current else { return }
+                holdSay = Board.holdTaskGone; holding = false; return
+            case .some(.page(let p)) where p.onHold:
+                await read()
+                await readActivity(names: names)
+                guard current else { return }
+                holdSay = Board.holdAlready
+                holding = false
+                return
+            case .some(.page):
+                break
+            }
+        }
+        let (project, number) = (self.project, self.number)
+        let answer = await send { Board.taskHoldRequest(mac: $0, project: project, number: number, onHold: !wasOnHold) }
+        guard current else { return }
+        if case .refused(let why) = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0,
+                                                          failed: Board.holdFailed, unreached: Board.holdUnreached) {
+            holdSay = why
+            holdRefused = true
+            holding = false
+            return
+        }
+        await read()
+        await readActivity(names: names)
+        guard current else { return }
+        // As the board's tkHoldSayNext: the sentence is about the task in the answer, and is said only while the page
+        // still shows that task as it was (a hand-out landing before the read, or a read that failed, says nothing).
+        if let told = Board.holdAnswerTask(answer?.0, project: project, number: number), let shown = self.page,
+           Board.holdNextSig(told, project: shown) == Board.holdNextSig(shown),
+           let next = Board.holdNextLine(answer?.0, page: told) {
+            holdSay = next
+            holdSaySig = Board.holdNextSig(shown)
+        }
+        holding = false
+    }
+
+    // kosmos#8958 slice B1: a message on the task (the board's tkSayPost). true when the Mac recorded it, so the box can
+    // be emptied; the line under it then says who it did not reach. Nothing is sent for an empty box or while one is
+    // on its way. Then the activity is read again, where the message now shows.
+    func say(_ text: String, name: @escaping (String) -> String, names: [String: String]) async -> Bool {
+        guard !saying, current, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        saying = true
+        sayLine = nil
+        sayRefused = false
+        let (project, number) = (self.project, self.number)
+        let answer = await send { Board.taskMessageRequest(mac: $0, project: project, number: number, text: text) }
+        guard current else { return false }
+        saying = false
+        let status = answer?.1.statusCode ?? 0
+        if case .refused(let why) = Board.taskWriteResult(status: status, body: answer?.0, failed: Board.taskSayFailed, unreached: Board.taskSayUnreached) {
+            sayLine = why
+            sayRefused = true
+            return false
+        }
+        sayLine = Board.taskSaidLine(answer?.0, name: name)
+        await readActivity(names: names)
+        return true
+    }
+
+    // The due date set (a YYYY-MM-DD) or cleared (nil), as the board's saveTaskDue; then the task and activity are read.
+    // true when the Mac recorded it (false when refused, or when nothing was sent).
+    @discardableResult
+    func setDue(_ due: String?, names: [String: String]) async -> Bool {
+        guard !dueSaving, current else { return false }
+        // A date the Mac would refuse is said here, not sent (and never read as the Mac being out of reach).
+        if let due, Board.dueDay(due) == nil { dueRefusal = Board.taskDueFailed; return false }
+        dueSaving = true
+        dueRefusal = nil
+        let (project, number) = (self.project, self.number)
+        let answer = await send { Board.taskDueRequest(mac: $0, project: project, number: number, due: due) }
+        guard current else { return false }
+        var recorded = true
+        if case .refused(let why) = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0,
+                                                          failed: Board.taskDueFailed, unreached: Board.taskDueUnreached) { dueRefusal = why; recorded = false }
+        await read()
+        await readActivity(names: names)
+        guard current else { return false }
+        dueSaving = false
+        return recorded
+    }
+
+    // The board's tk-editform Save: true when the form can close (saved, or nothing changed). The words compared are the
+    // ones the form opened with, so a change made elsewhere meanwhile is never sent back over.
+    func saveText(title: String, detail: String, openedTitle: String, openedDetail: String?, names: [String: String]) async -> Bool {
+        guard !editSaving, current else { return false }
+        editRefusal = nil
+        let body: [String: String?]
+        switch Board.taskEdit(title: title, detail: detail, openedTitle: openedTitle, openedDetail: openedDetail) {
+        case .nothing: return true
+        case .needsTitle: editRefusal = Board.taskEditNeedsTitle; return false
+        case .send(let b): body = b
+        }
+        editSaving = true
+        let (project, number) = (self.project, self.number)
+        let wire = Board.taskTextBody(body)
+        let answer = await send { Board.taskTextRequest(mac: $0, project: project, number: number, body: wire) }
+        guard current else { return false }
+        if case .refused(let why) = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0,
+                                                          failed: Board.taskEditFailed, unreached: Board.taskEditFailed) {
+            editRefusal = why
+            editSaving = false
+            return false
+        }
+        // Locked until the page is read again (the phone's own choice: the board unlocks before its reload), so a second
+        // Save in between cannot send the same change again.
+        await read()
+        await readActivity(names: names)
+        guard current else { return false }
+        editSaving = false
+        return true
+    }
+    // kosmos#8958 slice B3: the board's Repeats Save (tk-repeat-save). Nothing is sent while a box is empty, while one is
+    // on its way, while a reviewer save or Mark as done is out, on a finished task, or for the rule already stored. A
+    // hold in flight does not stop it: the board's repeat and hold routes change different fields, and a held task can
+    // still repeat. true when the Mac recorded it; then the task and activity are read.
+    func saveRepeat(_ wire: Board.RepeatWire, names: [String: String]) async -> Bool {
+        guard !repeatSaving, reviewerSaving == nil, !pressing, current, let page, !page.closed, Board.repeatBody(wire) != nil,
+              page.repeatStored.map(Board.repeatWire) != wire else { return false }
+        repeatSaving = true
+        repeatSay = nil
+        repeatSavedAs = nil
+        repeatRefused = false
+        let (project, number) = (self.project, self.number)
+        let answer = await send { Board.taskRepeatRequest(mac: $0, project: project, number: number, wire: wire) }
+        guard current else { return false }
+        if case .refused(let why) = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0,
+                                                          failed: Board.repeatFailed, unreached: Board.repeatUnreached) {
+            repeatSay = why
+            repeatRefused = true
+            repeatSaving = false
+            return false
+        }
+        await read()
+        await readActivity(names: names)
+        guard current else { return false }
+        repeatSay = Board.repeatSaved
+        repeatSavedAs = wire
+        repeatSaving = false
+        return true
+    }
+    // kosmos#8958 slice B3b: the board's tk-review-who change. Nothing is sent for the reviewer already stored, while one
+    // is on its way, while a Repeats save or Mark as done is out, or on a task that is finished or does not repeat.
+    // true when the Mac recorded it; then the task and activity are read.
+    func saveReviewer(_ want: String, names: [String: String]) async -> Bool {
+        // Compared with what the choice shows: after a save whose read failed that is the saved reviewer, not the page's.
+        guard reviewerSaving == nil, !repeatSaving, !pressing, current, let page, !page.closed, page.repeatRow != nil,
+              (reviewerShown ?? page.repeatReviewer) != want else { return false }
+        reviewerSaving = want
+        reviewerSay = nil
+        reviewerSavedAs = nil
+        reviewerRefused = false
+        let (project, number) = (self.project, self.number)
+        let answer = await send { Board.taskReviewerRequest(mac: $0, project: project, number: number, reviewer: want) }
+        guard current else { return false }
+        if case .refused(let why) = Board.taskWriteResult(status: answer?.1.statusCode ?? 0, body: answer?.0,
+                                                          failed: Board.reviewerFailed, unreached: Board.reviewerUnreached) {
+            reviewerSay = why
+            reviewerRefused = true
+            reviewerSaving = nil
+            return false
+        }
+        // The number read() gives the read below: read() is on the main actor and counts before its first suspension.
+        let ownRead = pageReads + 1
+        await read()
+        guard current else { return false }
+        if pageReadOK < ownRead { reviewerShown = want }
+        await readActivity(names: names)
+        guard current else { return false }
+        // Said only while the choice shows what was saved: a read showing someone else (changed elsewhere in between)
+        // would otherwise put "Saved." under that other name.
+        if (reviewerShown ?? self.page?.repeatReviewer) == want {
+            reviewerSay = Board.repeatSaved   // the same word on purpose: the board says "Saved." for both
+            reviewerSavedAs = want
+        }
+        reviewerSaving = nil
+        return true
+    }
+
+    // A new choice retires the last answer (the board's review 1).
+    func clearRepeatSay() { repeatSay = nil; repeatSavedAs = nil; repeatRefused = false }
+    func clearEditRefusal() { editRefusal = nil }
+    func clearDueRefusal() { dueRefusal = nil }
 
     // POST .../seen for the activity state on screen, once per state, only while the person is there (present); a 5xx
     // or no answer is tried once more 3 s later, only if that state is still the one shown and they are still there

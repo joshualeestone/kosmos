@@ -127,6 +127,8 @@ struct ChatView: View {
     // The words in the box. Kept here while the chat is open (typing redraws only the chat) and given to the client when
     // it goes, so leaving the chat never loses them.
     @State private var draftText = ""
+    // kosmos#8958: unsent drafts whose Dismiss is on its way to the Mac (their buttons are off meanwhile).
+    @State private var dismissingDrafts: Set<String> = []
     // kosmos#7348: the text of the last send and when, so the box filling back with it is cleared again.
     @State private var lastSent: (text: String, at: Date)?
     // Reads are numbered: only one newer than the last shown is shown, so a slow earlier read never undoes a newer one.
@@ -1860,6 +1862,11 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
                 .padding(.top, first ? 10 : 2)
                 .task { for f in row.attachments { await client.loadThumbnail(f) } }
+            } else if row.wayThrough == .draft, let id = row.draftId {
+                // kosmos#8958: the draft itself, with the board's two actions, in place of a link to the board.
+                UnsentDraftRow(words: row.text, busy: dismissingDrafts.contains(id),
+                               use: { useDraft(row) }, dismiss: { dismissDraft(id) })
+                    .padding(.top, 10)
             } else if let way = row.wayThrough {
                 VStack(alignment: .leading, spacing: 4) {
                     // A file that came with words: the words as a bubble, then the way through for the file.
@@ -2736,6 +2743,44 @@ struct ChatView: View {
         }
     }
 
+    // kosmos#8958: the board's dmDraftUse. Nothing is sent; the words wait in the box for the person.
+    private func useDraft(_ row: Board.ChatRow) {
+        draftText = Board.usingDraft(draftText, words: row.text)
+        composerFocused = true
+        // Said now, as the board does, rather than only when Send is pressed; as `blocked`, so an edit takes it away.
+        if Board.overOneMessage(draftText) {
+            if composerNote == Board.draftTooLong { UIAccessibility.post(notification: .announcement, argument: Board.draftTooLong) }
+            composerNote = Board.draftTooLong
+            blocked = (draftText, Board.draftTooLong)
+        }
+    }
+
+    // kosmos#8958: the board's dmDraftDismiss. The row goes once the Mac says it is gone; otherwise it stays and the
+    // composer line says so.
+    private func dismissDraft(_ id: String) {
+        guard !dismissingDrafts.contains(id) else { return }
+        dismissingDrafts.insert(id)
+        let startedIn = client.chatEpoch
+        Task {
+            let gone = await client.dismissDraft(id: id, of: agent)
+            // Review 1: before the epoch check (as reactTo), so a sign-out meanwhile cannot leave Dismiss off for good.
+            dismissingDrafts.remove(id)
+            guard startedIn == client.chatEpoch else { return }
+            if gone {
+                if composerNote == Board.draftDismissFailed { composerNote = nil }
+                // As after a delete: a read already in the air still holds the draft, so it is dropped.
+                readShown = readsStarted
+                if let t = thread { thread = Board.withoutDraft(t, id: id) }
+                Task { await read() }
+            } else {
+                Haptics.failed()
+                // The same refusal twice does not change the line, so it would not be heard again: say it (as Try again).
+                if composerNote == Board.draftDismissFailed { UIAccessibility.post(notification: .announcement, argument: Board.draftDismissFailed) }
+                composerNote = Board.draftDismissFailed
+            }
+        }
+    }
+
     // kosmos#7614: the person's own message deleted for everyone (asked first, in the sheet). The row goes at once; a
     // refusal, or the note that an agent had already read it, is said on the composer line, as a reaction's refusal is.
     private func deleteMine(_ row: Board.ChatRow) {
@@ -3391,6 +3436,49 @@ struct WorkingLine: View {
         .foregroundColor(Palette.secondary)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(name) is working")
+    }
+}
+
+// kosmos#8958: an unsent draft as the board draws it (dm-draft): Kosmos's band, the words quoted, and its two actions.
+struct UnsentDraftRow: View {
+    let words: String
+    let busy: Bool
+    let use: () -> Void
+    let dismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(Board.draftBand).font(.footnote).foregroundColor(Palette.secondary)
+            Text(words).font(.callout).foregroundColor(Palette.primary)
+                .textSelection(.enabled)
+                .padding(.leading, 10)
+                .overlay(Rectangle().fill(Palette.secondary.opacity(0.4)).frame(width: 3), alignment: .leading)
+                .accessibilityLabel(Text("The text that was in its input box: ") + Text(words))
+            // Review 2: side by side where they fit, one above the other at large text sizes.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { buttons }
+                VStack(alignment: .leading, spacing: 8) { buttons }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.pillStroke, lineWidth: 0.5))
+        .accessibilityElement(children: .contain)
+    }
+
+    // Review 1: the frame on the label, so the whole 44 pt is the tap target (as the title's button).
+    @ViewBuilder private var buttons: some View {
+        Button(action: use) { action(Board.draftUse) }.buttonStyle(.plain)
+        Button(action: dismiss) { action(Board.draftDismiss) }.buttonStyle(.plain).disabled(busy).opacity(busy ? 0.5 : 1)
+    }
+
+    private func action(_ words: String) -> some View {
+        Text(words).font(.footnote.weight(.semibold)).foregroundColor(Palette.link)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
+            .background(RoundedRectangle(cornerRadius: 10).stroke(Palette.secondary.opacity(0.4), lineWidth: 1))
+            .contentShape(Rectangle())
     }
 }
 

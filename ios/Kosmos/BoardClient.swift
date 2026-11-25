@@ -1210,6 +1210,22 @@ final class BoardClient: ObservableObject {
         return Board.deleteResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
     }
 
+    // MARK: Dismissing an unsent draft (kosmos#8958, the board's dmDraftDismiss)
+
+    // true when the draft is gone (dismissed now, or already); false when it stays, and the chat says so.
+    func dismissDraft(id: String, of agent: Board.Agent) async -> Bool {
+        #if DEBUG
+        if let sample = sampleThreads[agent.session] {
+            // The sample chats (a Debug build only): removed in memory, as the Mac would.
+            sampleThreads[agent.session] = Board.withoutDraft(sample, id: id)
+            return true
+        }
+        #endif
+        guard let held = admitted, let request = Board.draftDismissRequest(mac: held.url, session: agent.session, id: id) else { return false }
+        let answer = await env.send(request)
+        return Board.draftDismissed(status: answer?.1.statusCode ?? 0)
+    }
+
     // MARK: Answering a question (kosmos#7016, the board's dmChoicePress)
 
     // Agents with a press in the air: their buttons are drawn off, and a typed send waits.
@@ -1751,6 +1767,13 @@ final class BoardClient: ObservableObject {
             // words only under Dana's, as the Mac attaches them (withPreviews), for the design shots.
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PREVIEW"] == "1" {
                 let more = #"{"messages":[{"at":"2026-10-23T13:36:00Z","text":"Here is the studio site for the captions: northfieldstudio.com","from":null,"delivery":{"state":"placed"},"preview":{"url":"https://northfieldstudio.com","site":"northfieldstudio.com","title":"Northfield Studio, product photography","description":"Catalogue and product photography for small brands, shot in natural light.","image":"/api/unfurl/image?url=https%3A%2F%2Fnorthfieldstudio.com%2Fog.jpg"}},{"at":"2026-10-23T13:37:00Z","text":"Got it. I will match their style guide: docs.northfieldstudio.com/style","from":"dana","preview":{"url":"https://docs.northfieldstudio.com/style","site":"docs.northfieldstudio.com","title":"Style guide","description":"How we light, frame and caption a product photograph."}}]}"#
+                let extra = Board.parseThread(Data(more.utf8))?.rows ?? []
+                t = Board.Thread(rows: t.rows + extra, olderCount: t.olderCount, choices: t.choices)
+            }
+            // kosmos#8958, KOSMOS_SAMPLE_DRAFT=1: an unsent draft Kosmos took out of Dana's input box, as engine/chat.js
+            // serves one, for the design shots of the native row.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_DRAFT"] == "1" {
+                let more = #"{"messages":[{"id":"kosmos-draft:0123456789ab","at":"2026-10-23T13:38:00Z","text":"Also check the shipping weights before you publish","from":null,"delivery":null,"kind":"kosmos","draft":true,"draftId":"0123456789ab"}]}"#
                 let extra = Board.parseThread(Data(more.utf8))?.rows ?? []
                 t = Board.Thread(rows: t.rows + extra, olderCount: t.olderCount, choices: t.choices)
             }

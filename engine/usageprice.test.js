@@ -46,3 +46,25 @@ test('#5532: costOf matches the page\'s usageApiCost for a priced model, and is 
   assert.equal(up.costOf('totally-unknown', { output_tokens: 1e9 }), null);
   assert.equal(up.costOf('claude-opus-5', {}), 0, 'a priced model with no tokens costs 0');
 });
+
+test('kosmos#8958 B4: modelsCost says what the page\'s usageApiCost says, for priced, mixed, unpriced and empty maps', () => {
+  const b = { input_tokens: 1234567, output_tokens: 765432, cache_creation_input_tokens: 111111, cache_read_input_tokens: 9999999 };
+  const zero = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+  const maps = [
+    { 'claude-opus-5': b },
+    { 'claude-opus-5': b, 'claude-haiku-4-5-20251001': b },
+    { 'zz-unknown': b, 'claude-opus-5': b, 'aa-unknown': b },
+    { 'zz-unknown': b, 'aa-unknown': b },
+    { 'claude-opus-5': zero },
+    {},
+  ];
+  for (const m of maps) {
+    const eng = up.modelsCost(m);
+    const pg = PAGE.usageApiCost({ receipt: m });
+    assert.deepEqual(eng.unpriced, plain(pg.unpriced), JSON.stringify(Object.keys(m)));
+    if (pg.cost === null) assert.equal(eng.usd, null, JSON.stringify(Object.keys(m)));
+    else assert.ok(eng.usd !== null && Math.abs(eng.usd - pg.cost) < 1e-9, JSON.stringify(Object.keys(m)) + ': ' + eng.usd + ' vs ' + pg.cost);
+  }
+  assert.deepEqual(up.modelsCost(maps[3]), { usd: null, unpriced: ['aa-unknown', 'zz-unknown'] }, 'control: the all-unpriced case is null and sorted');
+  for (const none of [undefined, null]) assert.deepEqual(up.modelsCost(none), { usd: null, unpriced: [] });
+});

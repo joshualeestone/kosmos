@@ -99,8 +99,8 @@ let parts = page(5)
 check(parts?.stateWord == "1 of 2 parts done", "two parts, one done: the count")
 check(parts?.partLines(roster: roster).map { "\($0.who)|\($0.line ?? "")|\($0.done)" } == ["Eli||true", "Dana|Check linen prices|false"],
       "each part: who, its own words when they differ, and done")
-check(parts?.holdLine == "You put this on hold, so only you can take it off, on your computer's board. Kosmos does not nudge anyone about it or hand it out.",
-      "held by the person: said, and where it is taken off (the phone has no control for it)")
+check(parts?.holdLine == "You put this on hold, so only you can take it off, here. Kosmos does not nudge anyone about it or hand it out.",
+      "held by the person: said, and where it is taken off (here, since #8958 slice B2)")
 check(parts?.added(now: createdAt, calendar: cal) == "eli, today", "added by an agent: the board's own words (its session name)")
 
 let replaced = page(6)
@@ -109,8 +109,7 @@ check(replaced?.closeNote(roster: roster) == nil && replaced?.holdLine == nil, "
 check(page(7)?.stateLine(roster: roster) == "Open. Replaces task 6", "the task that replaced it names it")
 check(page(2)?.closed == true && page(2)?.closeNote(roster: roster) == nil && page(2)?.partLines(roster: roster).first?.who == "Dana",
       "a finished task with an agent on it: no close note (closing it again stops nobody)")
-check(page(4)?.dueLine(calendar: cal) == "Due Oct 30", "a due date, read only")
-check(page(1)?.dueLine(calendar: cal) == nil, "no due date: no line")
+check(page(4)?.dueDate == "2026-10-30" && page(1)?.dueDate == nil, "the due date as the Mac keeps it, or none")
 
 check(Board.parseTaskPage(projectsData, project: "springcatalogue", number: 99) == .gone, "a task the list does not have is gone")
 check(Board.parseTaskPage(projectsData, project: "nosuch", number: 1) == .gone, "so is a project it does not have")
@@ -232,6 +231,7 @@ section("the page's model, against a fake Mac")
 final class FakeMac {
     var projects: (Int, Data)? = (200, projectsData)
     var activity: (Int, Data)? = (200, fixture("activity-3.json"))
+    var receipt: (Int, Data)? = (200, Data(#"{"retries":{},"agents":[]}"#.utf8))
     var actAnswers: [(Int, String)?] = []
     var seenAnswers: [(Int, String)?] = []
     var asked: [String] = []
@@ -247,6 +247,12 @@ final class FakeMac {
         holdNext = true
     }
     func release() { let h = held; held = nil; h?.resume() }
+    // kosmos#8958 slice B3b: holds EVERY request while set, in the order sent, so two can be out at once and answered in
+    // any order (release(at:)): a tick read started before a save, landing while the save's own read is still out.
+    var queueing = false
+    private var queued: [CheckedContinuation<Void, Never>] = []
+    var queuedCount: Int { queued.count }
+    func release(at i: Int) { queued.remove(at: i).resume() }
     func asyncSend(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         let answer = send(build)
         if holdNext {
@@ -255,6 +261,7 @@ final class FakeMac {
             if held != nil { endRun("a second request was held while one already was") }
             await withCheckedContinuation { held = $0 }
         }
+        if queueing { await withCheckedContinuation { queued.append($0) } }
         // As URLSession: a request whose task was cancelled gives no answer.
         return Task.isCancelled ? nil : answer
     }
@@ -268,6 +275,7 @@ final class FakeMac {
         let path = r.url!.path
         if path == "/api/projects" { return answer(projects) }
         if path.hasSuffix("/activity") { return answer(activity) }
+        if path.hasSuffix("/receipt") { return answer(receipt) }
         if path.hasSuffix("/seen") { return answer(seenAnswers.isEmpty ? (200, Data("{}".utf8)) : seenAnswers.removeFirst().map { ($0.0, Data($0.1.utf8)) }) }
         return answer(actAnswers.isEmpty ? (200, Data("{}".utf8)) : actAnswers.removeFirst().map { ($0.0, Data($0.1.utf8)) })
     }
@@ -647,6 +655,1084 @@ check(whoPage(8)?.whoLeftLine(roster: roster) == nil, "control: one agent, no li
 
 await modelTests()
 
+section("#8958 slice B1: a message on the task, the due date, and the words")
+let macURL = URL(string: "https://studio.kosmosplus.com")!
+func bodyOf(_ r: URLRequest?) -> [String: Any]? { r?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } }
+let say = Board.taskMessageRequest(mac: macURL, project: "springcatalogue", number: 4, text: "  Use the March photos.\n")
+check(say?.httpMethod == "POST" && say?.url?.path == "/api/project/springcatalogue/task/4/message"
+      && bodyOf(say)?["text"] as? String == "Use the March photos.", "a message posts its trimmed words to the task's message route")
+check(Board.taskMessageRequest(mac: macURL, project: "springcatalogue", number: 4, text: " \n ") == nil, "an empty box sends nothing")
+let due = Board.taskDueRequest(mac: macURL, project: "springcatalogue", number: 4, due: "2026-11-30")
+check(due?.url?.path == "/api/project/springcatalogue/task/4/due" && bodyOf(due)?["dueDate"] as? String == "2026-11-30", "a due date posts the calendar date")
+let clear = Board.taskDueRequest(mac: macURL, project: "springcatalogue", number: 4, due: nil)
+check(bodyOf(clear)?["dueDate"] is NSNull, "clearing the due date sends null")
+check(Board.taskDueRequest(mac: macURL, project: "springcatalogue", number: 4, due: "2026-02-30") == nil
+      && Board.taskDueRequest(mac: macURL, project: "springcatalogue", number: 4, due: "30/11/2026") == nil, "no request for a date that is not a real calendar date")
+var central = Calendar(identifier: .gregorian); central.timeZone = TimeZone(identifier: "America/Chicago")!
+check(Board.dueDay("2026-11-30", calendar: central).map { Board.dueString($0, calendar: central) } == "2026-11-30", "a due date reads and writes back as the same day")
+check(Board.keptDraft("2026-10-30", stored: "2026-10-30") == nil && Board.keptDraft("2026-11-02", stored: "2026-10-30") == "2026-11-02"
+      && Board.keptDraft("2026-02-30", stored: nil) == nil && Board.keptDraft(nil, stored: "2026-10-30") == nil,
+      "a draft is kept only while it is a real day that differs from the stored one")
+check(Board.dueControls(stored: "2026-10-30", draft: "2026-10-30") == .stored("2026-10-30"), "a draft back on the stored day: just the stored date (Clear)")
+check(Board.dueControls(stored: "2026-10-30", draft: "2026-11-02") == .choosing("2026-11-02"), "a different day being chosen: Set and Cancel")
+check(Board.dueControls(stored: nil, draft: "2026-12-01") == .choosing("2026-12-01"), "no stored date, a day being chosen: Set and Cancel")
+check(Board.dueControls(stored: nil, draft: nil) == .none, "no date at all: Set a due date")
+check(Board.dueControls(stored: "soon", draft: nil) == .unreadable("soon"), "a stored date that is not a day: said as kept")
+check(Board.keptDraft("2026-11-02", stored: "2026-11-02") == nil, "the stored day moving to the draft's day drops the draft")
+check(Board.taskEdit(title: "Pages 1 to 8", detail: "", openedTitle: "Pages 1 to 8", openedDetail: nil) == .nothing, "nothing changed: nothing is sent")
+check(Board.taskEdit(title: "  ", detail: "x", openedTitle: "Pages 1 to 8", openedDetail: nil) == .needsTitle, "an empty title is refused before sending")
+check(Board.taskEdit(title: " Pages 1 to 9 ", detail: "keep", openedTitle: "Pages 1 to 8", openedDetail: "keep") == .send(["sentence": "Pages 1 to 9"]),
+      "only the title, when only it changed (trimmed)")
+check(Board.taskEdit(title: "Pages 1 to 8", detail: "  ", openedTitle: "Pages 1 to 8", openedDetail: "old words") == .send(["detail": String?.none]),
+      "an emptied detail is sent as cleared")
+check(Board.taskEdit(title: "Pages 1 to 8", detail: "a\nb", openedTitle: "Pages 1 to 8", openedDetail: "a\r\nb") == .nothing,
+      "line ends compared as the board's textarea gives them back")
+check(bodyOf(Board.taskTextRequest(mac: macURL, project: "springcatalogue", number: 4, body: Board.taskTextBody(["detail": String?.none])))?["detail"] is NSNull,
+      "the cleared detail goes on the wire as null")
+check(Board.taskTextRequest(mac: macURL, project: "springcatalogue", number: 4, body: [:]) == nil, "no request with nothing to say")
+check(Board.taskWriteResult(status: 200, body: nil, failed: "f", unreached: "u") == .done, "a 2xx is done")
+check(Board.taskWriteResult(status: 400, body: Data(#"{"error":"that is not a real date"}"#.utf8), failed: "f", unreached: "u") == .refused("that is not a real date"),
+      "a refusal is the Mac's own words")
+check(Board.taskWriteResult(status: 500, body: nil, failed: "f", unreached: "u") == .refused("f")
+      && Board.taskWriteResult(status: 0, body: nil, failed: "f", unreached: "u") == .refused("u"), "else the board's words, and its could-not-reach words with no answer")
+func said(_ json: String) -> String? { Board.taskSaidLine(Data(json.utf8), name: { ["dana": "Dana", "eli": "Eli"][$0] ?? $0 }) }
+check(said(#"{"delivered":[{"agent":"dana","state":"placed"}]}"#) == nil, "every assignee reached: no line")
+check(said(#"{"delivered":[]}"#) == "No agent is assigned to this task, so nobody was told.", "nobody assigned is said")
+check(said(#"{"ok":true}"#) == nil, "CONTROL: no list, no line")
+check(said(#"{"delivered":[{"agent":"dana","state":"could_not","because":"dana is switched off in this project"}]}"#)
+      == "Dana is switched off in this project, so it was not told. Switch it on in the project's members to send it work here. Your message stays on the task.",
+      "switched off, by its card name, and the message stays")
+check(said(#"{"delivered":[{"agent":"eli","state":"held","heldFor":"signin"}]}"#)
+      == "Eli is signed out. Kosmos will try to send your message to Eli once it is signed in again.", "signed out")
+check(said(#"{"delivered":[{"agent":"eli","state":"held","heldUntil":"2999-01-01T00:00:00Z"}]}"#)
+      == "Eli is out of usage. Kosmos will try to send your message to Eli once its usage resets.", "out of usage, without the board's time")
+check(said(#"{"delivered":[{"agent":"dana","state":"placed"},{"agent":"dana","state":"could_not","because":"x"}]}"#)
+      == "Kosmos could not reach Dana, so it was not told. Your message stays on the task.", "listed twice: its worst outcome")
+check(said(#"{"delivered":[{"agent":"eli","state":"unconfirmed"}]}"#) == "Kosmos could not confirm that Eli got it.", "anything else: not confirmed")
+check(said(#"{"delivered":[{"agent":"eli","state":"could_not","because":"eli is not on this project any more"}]}"#)
+      == "Eli is not on this project any more, so it was not told. Your message stays on the task.", "not on the project any more")
+check(said(#"{"delivered":[{"agent":"eli","state":"could_not","because":"Kosmos could not keep this one"}]}"#)
+      == "Kosmos could not keep your message for Eli, so it was not told. Your message stays on the task.", "could not keep it")
+check(said(#"{"delivered":[{"agent":"eli","state":"held","because":"it still has messages kept"}]}"#)
+      == "Kosmos will try to send your message to Eli after the ones already waiting for it.", "behind messages already kept")
+check(said(#"{"delivered":[{"agent":"eli","state":"held"}]}"#) == "Kosmos is keeping your message and will try to send it to Eli later.",
+      "held with no time known")
+check(said(#"{"delivered":[{"agent":"eli","state":"held","heldUntil":"2000-01-01T00:00:00Z"}]}"#)
+      == "Kosmos is keeping your message and will try to send it to Eli later.", "a reset time already past is not called out of usage")
+check(said(#"{"delivered":[{"agent":null,"state":"could_not","because":"x"}]}"#)
+      == "Kosmos could not reach an agent, so it was not told. Your message stays on the task.", "an agent with no name")
+check(said(#"{"delivered":[{"agent":"","state":"held","heldFor":"signin"}]}"#)
+      == "An agent is signed out. Kosmos will try to send your message to an agent once it is signed in again.", "a sentence opening with no name")
+check(said(#"{"delivered":[null]}"#) == nil, "a list with no usable entry: no line, as the board (its list was not empty)")
+check(Board.capped(String(repeating: "\u{1F600}", count: 3), 4).utf16.count == 4 && Board.capped("abc", 4) == "abc",
+      "the caps count UTF-16 units, as the board's maxlength")
+check(Board.boardLineEnds("a\rb\r\nc") == "a\nb\nc", "a lone CR and a CRLF are both line ends, as the board's form")
+check(Board.taskEdit(title: "Pages 1\nto 9", detail: "", openedTitle: "Pages 1 to 8", openedDetail: nil) == .send(["sentence": "Pages 1 to 9"]),
+      "a line break in a title is a space (one line, as the board's text input)")
+check(Board.taskEdit(title: "Pages 1 to 8", detail: "", openedTitle: "Pages 1\nto 8", openedDetail: nil) == .nothing,
+      "a stored title with a line break is not sent back by a Save that changed nothing")
+
+await b1ModelTests()
+
+section("#8958 slice B2: Put on hold and Take off hold")
+// Declared before the B2 tests run: a main.swift global below its first use is still empty there.
+// The unhold route's answer: the task as it now is (open, Dana on it), and who has it next.
+let unheldAnswer = #"{"task":{"number":3,"sentence":"Pages 9 to 12","parts":[{"id":1,"who":"dana"}]},"next":"It stays with Dana."}"#
+let heldTask3 = Data(#"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","tasks":[{"number":3,"sentence":"Pages 9 to 12","onHold":true,"createdAt":"2026-10-24T12:00:00.000Z","parts":[{"id":1,"who":"dana"}]}]}]}"#.utf8)
+let noTask3 = Data(#"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","tasks":[]}]}"#.utf8)
+let closedTask3 = Data(#"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","tasks":[{"number":3,"sentence":"Pages 9 to 12","closedAt":"2026-10-25T12:00:00.000Z","createdAt":"2026-10-24T12:00:00.000Z","parts":[{"id":1,"who":"dana","closedAt":"2026-10-25T12:00:00.000Z"}],"progress":{"done":1,"total":1,"closed":true}}]}]}"#.utf8)
+let hold = Board.taskHoldRequest(mac: macURL, project: "springcatalogue", number: 4, onHold: true)
+check(hold?.httpMethod == "POST" && hold?.url?.path == "/api/project/springcatalogue/task/4/hold" && bodyOf(hold)?["onHold"] as? Bool == true,
+      "Put on hold posts onHold true to the task's hold route")
+check(bodyOf(Board.taskHoldRequest(mac: macURL, project: "springcatalogue", number: 4, onHold: false))?["onHold"] as? Bool == false, "Take off hold posts false")
+check(Board.holdTitle(onHold: false) == "Put on hold" && Board.holdTitle(onHold: true) == "Take off hold", "the board's two words")
+check(Board.holdNextLine(Data(#"{"task":{},"next":"It stays with Dana."}"#.utf8)) == "It stays with Dana.", "an unhold's next sentence is said")
+check(Board.holdNextLine(Data(#"{"next":"Nobody is on it, and the Assigner is off, so it waits for a person. To choose who, assign it now."}"#.utf8))
+      == "Nobody is on it, and the Assigner is off, so it waits for a person. To choose who, open this task on your computer's board.",
+      "the board's assign ask is cut (no picker here yet) and the person told where choosing happens")
+let looseBeside = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"dana","sentence":"S"},{"id":2,"sentence":"T"}]}"#)
+let allOn = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"dana","sentence":"S"}]}"#)
+check(Board.holdNextLine(Data(#"{"next":"It stays with Dana."}"#.utf8), page: looseBeside) == "It stays with Dana. To choose who, open this task on your computer's board.",
+      "a free part beside one somebody is on (the board's looseBesideHeld): where to choose is said too")
+check(Board.holdNextLine(Data(#"{"next":"It stays with Dana."}"#.utf8), page: allOn) == "It stays with Dana.", "CONTROL: every open part has somebody: nothing added")
+if let a = allOn, let held = synthetic(#"{"number":1,"sentence":"S","onHold":true,"parts":[{"id":1,"who":"dana","sentence":"S"}]}"#),
+   let paused = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"dana","sentence":"S"}]}"#, paused: true),
+   let other = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"eli","sentence":"S"}]}"#) {
+    let nameless = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"dana","sentence":"S"}]}"#,
+                             agents: #"[{"sessionName":"dana","name":"Dana"},{"sessionName":"eli"}]"#)
+    check(nameless.map { Board.holdNextSig($0) != Board.holdNextSig(a) } == true,
+          "a member with no name of its own joining changes the signature (the board's every sessionName)")
+    check(Board.holdNextSig(held) != Board.holdNextSig(a) && Board.holdNextSig(paused) != Board.holdNextSig(a) && Board.holdNextSig(other) != Board.holdNextSig(a),
+          "the signature changes when the task is held again, the project paused, or someone else is on it")
+} else { check(false, "the signature fixtures parse") }
+check(Board.holdNextLine(Data(#"{"task":{}}"#.utf8)) == nil, "a hold answers with no next: nothing said")
+
+await b2ModelTests()
+
+@MainActor
+func b2ModelTests() async {
+    let mac = FakeMac()
+    let m = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch })
+    m.onScreen = true
+    m.touched()
+    let nm = ["dana": "Dana"]
+    await m.read()
+    check(m.page?.onHold == false && m.page?.closed == false, "premise: task 3 is open and not on hold")
+    mac.asked = []
+    await m.toggleHold(wasOnHold: false, names: nm)
+    check(mac.asked == ["GET /api/projects", "POST /api/project/springcatalogue/task/3/hold", "GET /api/projects", "GET /api/project/springcatalogue/task/3/activity"],
+          "Put on hold reads the task first, then posts, then reads the page and activity again")
+    check(!m.holding && m.holdSay == nil && !m.holdRefused, "a hold has no next line")
+    // Already on hold elsewhere: the first read shows it, nothing is posted.
+    let saved = mac.projects
+    mac.projects = (200, Data(#"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","tasks":[{"number":3,"sentence":"Pages 9 to 12","onHold":true,"createdAt":"2026-10-24T12:00:00.000Z","parts":[{"id":1,"who":"dana"}]}]}]}"#.utf8))
+    mac.asked = []
+    await m.toggleHold(wasOnHold: false, names: nm)
+    check(!mac.asked.contains { $0.hasSuffix("/hold") } && m.holdSay == Board.holdAlready, "already on hold: nothing sent, and said so")
+    // Take off hold: posted at once, and the next sentence said.
+    mac.asked = []
+    mac.actAnswers = [(200, unheldAnswer)]
+    mac.projects = saved   // the Mac takes it off: the read after the post shows it open
+    await m.toggleHold(wasOnHold: true, names: nm)
+    check(mac.asked.first == "POST /api/project/springcatalogue/task/3/hold" && m.holdSay == "It stays with Dana.", "Take off hold posts at once and says who has it next")
+    await m.read()
+    mac.actAnswers = [(409, #"{"error":"a finished task cannot be put on hold"}"#)]
+    await m.toggleHold(wasOnHold: false, names: nm)
+    check(m.holdSay == "a finished task cannot be put on hold" && !m.holding && m.holdRefused, "a refusal is the Mac's words, drawn as a refusal")
+    mac.asked = []
+    await m.toggleHold(wasOnHold: true, names: nm)
+    check(mac.asked.isEmpty, "a press whose button no longer matches the task sends nothing")
+    await b2ReviewTests()
+}
+
+
+// kosmos#8958 slice B2 review 1: the guards no check above could tell from their absence.
+@MainActor
+func b2ReviewTests() async {
+    let nm = ["dana": "Dana"]
+    func fresh(_ mac: FakeMac, parse: TaskPageModel.Parse? = nil) async -> TaskPageModel {
+        let m = parse.map { TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch }, parse: $0) }
+            ?? TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch })
+        m.onScreen = true
+        await m.read()
+        return m
+    }
+    let posted: (FakeMac) -> Bool = { $0.asked.contains { $0.hasSuffix("/hold") } }
+
+    // The check is its own read: the tick's read overtaking it cannot leave the check on the task as it was (WARNING 1).
+    do {
+        final class Gate { var armed = false; var held: CheckedContinuation<Void, Never>? }
+        let gate = Gate()
+        let mac = FakeMac()
+        let m = await fresh(mac, parse: { data, project, number in
+            if gate.armed { gate.armed = false; await withCheckedContinuation { gate.held = $0 } }
+            return Board.parseTaskPage(data, project: project, number: number)
+        })
+        check(m.page?.onHold == false, "premise: shown as not on hold")
+        mac.projects = (200, heldTask3)   // an agent has just put it on hold
+        mac.asked = []
+        mac.holdTheNext()
+        let pressing = Task { await m.toggleHold(wasOnHold: false, names: nm) }
+        await waitUntil({ mac.holding }, "the press's check held on the wire")
+        gate.armed = true
+        let tick = Task { await m.read() }
+        await waitUntil({ gate.held != nil }, "the tick's read held in its parse")
+        mac.release()
+        await pressing.value
+        check(!posted(mac) && m.holdSay == Board.holdAlready, "a tick read overtaking the press's check: the agent's hold is seen, nothing is posted")
+        gate.held?.resume(); gate.held = nil
+        await tick.value
+    }
+    // Two presses at once: the second sends nothing.
+    do {
+        let mac = FakeMac(); let m = await fresh(mac)
+        mac.asked = []
+        mac.holdTheNext()
+        let first = Task { await m.toggleHold(wasOnHold: false, names: nm) }
+        await waitUntil({ mac.holding }, "the first press's check held")
+        await m.toggleHold(wasOnHold: false, names: nm)
+        check(mac.asked == ["GET /api/projects"], "a second press while one is out sends nothing")
+        // Mark as done waits for the hold too (WARNING 3).
+        guard let act = m.page?.act else { check(false, "premise: a task to act on"); mac.release(); await first.value; return }
+        await m.press(act, names: nm)
+        check(mac.asked == ["GET /api/projects"], "Mark as done while a hold is out sends nothing")
+        mac.release()
+        await first.value
+        check(mac.asked.filter { $0.hasSuffix("/hold") }.count == 1, "the first press still posts its one hold")
+    }
+    // A closed task: no hold is sent.
+    do {
+        let mac = FakeMac(); mac.projects = (200, closedTask3); let m = await fresh(mac)
+        check(m.page?.closed == true, "premise: task 3 reads closed")
+        mac.asked = []
+        await m.toggleHold(wasOnHold: false, names: nm)
+        check(mac.asked.isEmpty && m.holdSay == nil, "a closed task: nothing sent")
+    }
+    // Gone by the check, and a check that could not read: nothing posted, and the board's words.
+    do {
+        let mac = FakeMac(); let m = await fresh(mac)
+        mac.projects = (200, noTask3); mac.asked = []
+        await m.toggleHold(wasOnHold: false, names: nm)
+        check(!posted(mac) && m.holdSay == Board.holdTaskGone && m.gone, "gone by the check: nothing posted, said so, and the page knows")
+        let mac2 = FakeMac(); let m2 = await fresh(mac2)
+        mac2.projects = (500, Data("{}".utf8)); mac2.asked = []
+        await m2.toggleHold(wasOnHold: false, names: nm)
+        check(!posted(mac2) && m2.holdSay == Board.holdCheckFailed && !m2.holding, "a check that could not read: nothing posted, said so")
+        mac2.projects = nil
+        await m2.toggleHold(wasOnHold: false, names: nm)
+        check(m2.holdSay == Board.holdCheckFailed, "no answer at all: the same")
+    }
+    // Signed out while the hold is in the air: nothing more is read or said.
+    do {
+        let mac = FakeMac(); let m = await fresh(mac)
+        mac.asked = []
+        mac.onSend = { r in if r.url!.path.hasSuffix("/hold") { mac.epoch += 1 } }
+        mac.actAnswers = [(200, unheldAnswer)]
+        mac.projects = (200, heldTask3)
+        await m.read()   // the page shows it held, so Take off hold
+        mac.asked = []
+        await m.toggleHold(wasOnHold: true, names: nm)
+        check(mac.asked == ["POST /api/project/springcatalogue/task/3/hold"] && m.holdSay == nil, "signed out mid-press: no read after, nothing said")
+    }
+    // The next line goes when the task no longer reads as it did (WARNING 2), and stays while it does.
+    do {
+        let mac = FakeMac(); mac.projects = (200, heldTask3); let m = await fresh(mac)
+        mac.projects = (200, projectsData)
+        mac.actAnswers = [(200, unheldAnswer)]
+        await m.toggleHold(wasOnHold: true, names: nm)
+        check(m.holdSay == "It stays with Dana.", "premise: the next line is said")
+        await m.read()
+        check(m.holdSay == "It stays with Dana.", "CONTROL: a tick that reads the same keeps the line")
+        mac.projects = (200, heldTask3)   // an agent holds it again
+        await m.read()
+        check(m.holdSay == nil, "held again elsewhere: the stale next line goes")
+    }
+    // The line is about the task in the answer (review 2): said only while the page shows that task as it was.
+    do {
+        let mac = FakeMac(); mac.projects = (200, heldTask3); let m = await fresh(mac)
+        mac.projects = (200, projectsData)
+        mac.actAnswers = [(200, #"{"task":{"number":3,"sentence":"Pages 9 to 12","parts":[{"id":1,"who":null}]},"next":"Kosmos hands it to the next free agent."}"#)]
+        await m.toggleHold(wasOnHold: true, names: nm)
+        check(m.holdSay == nil && !m.holding, "a hand-out landing before the read (the page shows Dana, the answer nobody): nothing said")
+        let mac2 = FakeMac(); mac2.projects = (200, heldTask3); let m2 = await fresh(mac2)
+        mac2.actAnswers = [(200, unheldAnswer)]
+        mac2.onSend = { r in if r.url!.path.hasSuffix("/hold") { mac2.projects = (500, Data("{}".utf8)) } }
+        await m2.toggleHold(wasOnHold: true, names: nm)
+        check(m2.holdSay == nil && m2.page?.onHold == true, "the read after the post failed (the page still shows it held): nothing said")
+        let mac3 = FakeMac(); mac3.projects = (200, heldTask3); let m3 = await fresh(mac3)
+        mac3.projects = (200, projectsData)
+        mac3.actAnswers = [(200, #"{"next":"It stays with Dana."}"#)]
+        await m3.toggleHold(wasOnHold: true, names: nm)
+        check(m3.holdSay == nil, "an answer with no task: nothing said, as the board's")
+        // CONTROL for all three: the same press with the answer's task matching the page is said.
+        let mac4 = FakeMac(); mac4.projects = (200, heldTask3); let m4 = await fresh(mac4)
+        mac4.projects = (200, projectsData)
+        mac4.actAnswers = [(200, unheldAnswer)]
+        await m4.toggleHold(wasOnHold: true, names: nm)
+        check(m4.holdSay == "It stays with Dana." && !m4.holdRefused, "CONTROL: the answer's task as the page shows it: said")
+    }
+    // The line goes when the task does.
+    do {
+        let mac = FakeMac(); mac.projects = (200, heldTask3); let m = await fresh(mac)
+        mac.projects = (200, projectsData)
+        mac.actAnswers = [(200, unheldAnswer)]
+        await m.toggleHold(wasOnHold: true, names: nm)
+        check(m.holdSay == "It stays with Dana.", "premise: said")
+        mac.projects = (200, noTask3)
+        await m.read()
+        check(m.holdSay == nil && m.gone, "the task gone: the line goes with it")
+    }
+    // Each press starts clean (review 3): a refusal's colour does not carry to the next line, and a next line's
+    // signature does not carry to a refusal (which a later tick would then wipe).
+    do {
+        let mac = FakeMac(); mac.projects = (200, heldTask3); let m = await fresh(mac)
+        mac.actAnswers = [(409, #"{"error":"not now"}"#)]
+        await m.toggleHold(wasOnHold: true, names: nm)
+        check(m.holdRefused && m.holdSay == "not now", "premise: a refusal")
+        mac.projects = (200, projectsData)
+        mac.actAnswers = [(200, unheldAnswer)]
+        await m.toggleHold(wasOnHold: true, names: nm)
+        check(m.holdSay == "It stays with Dana." && !m.holdRefused, "the next press's line is not drawn as a refusal")
+        // Now a next line's signature is recorded; a refusal follows, then the task changes elsewhere.
+        mac.actAnswers = [(409, #"{"error":"a finished task cannot be put on hold"}"#)]
+        await m.toggleHold(wasOnHold: false, names: nm)
+        check(m.holdSay == "a finished task cannot be put on hold", "premise: the refusal replaced the next line")
+        mac.projects = (200, heldTask3)
+        await m.read()
+        check(m.holdSay == "a finished task cannot be put on hold", "a tick after a refusal keeps the refusal (the old line's signature went with it)")
+    }
+    check(Board.holdNextLine(Data(#"{"next":" To choose who, assign it now."}"#.utf8)) == nil, "a next that is only the assign ask: nothing said")
+    // A hold pressed while Mark as done is out sends nothing (review 2: the other direction).
+    do {
+        let mac = FakeMac(); let m = await fresh(mac)
+        mac.asked = []
+        mac.holdTheNext()
+        guard let act = m.page?.act else { check(false, "premise: a task to act on"); return }
+        let pressing = Task { await m.press(act, names: nm) }
+        await waitUntil({ mac.holding }, "Mark as done held on the wire")
+        let before = mac.asked
+        await m.toggleHold(wasOnHold: false, names: nm)
+        check(mac.asked == before, "Put on hold while Mark as done is out sends nothing")
+        mac.release()
+        await pressing.value
+    }
+}
+
+@MainActor
+func b1ModelTests() async {
+    let mac = FakeMac()
+    let m = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch })
+    m.onScreen = true
+    m.touched()
+    let nm = ["dana": "Dana"]
+    await m.read()
+    mac.asked = []
+    mac.actAnswers = [(200, #"{"ok":true,"delivered":[{"agent":"dana","state":"could_not","because":"input box already holds text"}]}"#)]
+    let recorded = await m.say("Check the captions", name: { nm[$0] ?? $0 }, names: nm)
+    check(recorded && mac.asked == ["POST /api/project/springcatalogue/task/3/message", "GET /api/project/springcatalogue/task/3/activity"],
+          "a message is posted, then the activity read again (where it now shows)")
+    check(m.sayLine == "Dana's input box held text that had not been sent, so it was not told. Your message stays on the task." && !m.sayRefused && !m.saying,
+          "the line says who it did not reach")
+    mac.asked = []
+    mac.actAnswers = [(400, #"{"error":"keep the message to 2000 characters or fewer"}"#)]
+    let refused = await m.say("x", name: { $0 }, names: nm)
+    check(!refused && m.sayRefused && m.sayLine == "keep the message to 2000 characters or fewer" && mac.asked.count == 1,
+          "a refusal keeps the box (false), says the Mac's words, and reads nothing more")
+    mac.asked = []
+    let empty = await m.say("   ", name: { $0 }, names: nm)
+    check(!empty && mac.asked.isEmpty, "an empty box sends nothing")
+
+    mac.asked = []
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    await m.setDue("2026-11-30", names: nm)
+    check(mac.asked == ["POST /api/project/springcatalogue/task/3/due", "GET /api/projects", "GET /api/project/springcatalogue/task/3/activity"]
+          && m.dueRefusal == nil && !m.dueSaving, "a due date is saved, then the task and its activity read again")
+    mac.actAnswers = [(400, #"{"error":"that is not a real date"}"#)]
+    await m.setDue("2026-11-29", names: nm)
+    check(m.dueRefusal == "that is not a real date", "a refused date is said")
+    mac.actAnswers = [nil]
+    let unanswered = await m.setDue("2026-11-28", names: nm)
+    check(!unanswered && m.dueRefusal == Board.taskDueUnreached, "no answer: the could-not-reach words, and not recorded")
+    mac.asked = []
+    let badDay = await m.setDue("2026-02-30", names: nm)
+    check(!badDay && m.dueRefusal == Board.taskDueFailed && mac.asked.isEmpty, "a date that is not a day is refused here, never sent")
+
+    mac.asked = []
+    let nothing = await m.saveText(title: "Pages 9 to 12", detail: "", openedTitle: "Pages 9 to 12", openedDetail: nil, names: nm)
+    check(nothing && mac.asked.isEmpty, "Save with nothing changed closes the form and sends nothing")
+    let untitled = await m.saveText(title: " ", detail: "", openedTitle: "Pages 9 to 12", openedDetail: nil, names: nm)
+    check(!untitled && m.editRefusal == Board.taskEditNeedsTitle && mac.asked.isEmpty, "no title: said, nothing sent")
+    var sent: [String: Any]?
+    mac.onSend = { r in if r.url!.path.hasSuffix("/text") { sent = r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } } }
+    mac.actAnswers = [(200, #"{"task":{},"changed":true}"#)]
+    var lockedThroughRead: Bool?
+    let earlier = mac.onSend
+    mac.onSend = { r in earlier?(r); if r.url!.path == "/api/projects" { lockedThroughRead = m.editSaving } }
+    let saved = await m.saveText(title: "Pages 9 to 13", detail: "", openedTitle: "Pages 9 to 12", openedDetail: nil, names: nm)
+    check(saved && m.editRefusal == nil && sent?["sentence"] as? String == "Pages 9 to 13" && sent?["detail"] == nil,
+          "a changed title is saved alone, and the form closes")
+    check(lockedThroughRead == true && !m.editSaving, "the form stays locked through the page's re-read, then unlocks")
+    mac.onSend = nil
+    mac.actAnswers = [(400, #"{"error":"say what needs doing in 200 characters or fewer; the detail has the room"}"#)]
+    let long = await m.saveText(title: String(repeating: "a", count: 201), detail: "", openedTitle: "Pages 9 to 12", openedDetail: nil, names: nm)
+    check(!long && m.editRefusal == "say what needs doing in 200 characters or fewer; the detail has the room", "a refused save keeps the form open with the Mac's words")
+}
+
+section("slice B3: how often it repeats (kosmos#8958)")
+do {
+    typealias C = Board.RepeatChoice
+    check(Board.repeatStored(nil) == C(every: .never) && Board.repeatStored(NSNull()) == C(every: .never), "no rule: Never")
+    check(Board.repeatStored(["every": "hour", "minute": 20]) == C(every: .hour), "an hourly rule an agent set at :20 shows as Every hour")
+    check(Board.repeatStored(["every": "minutes", "n": 45]) == C(every: .minutes, minutes: "45"), "every 45 minutes fills the minutes box")
+    check(Board.repeatStored(["every": "day", "at": "07:30"]) == C(every: .day, at: "07:30"), "a daily time fills the time box")
+    check(Board.repeatStored(["every": "day", "at": ["09:00", "17:00"]]) == C(every: .day, at: "09:00", others: ["17:00"]),
+          "several daily times: the first in the box, the rest kept (kosmos#5752)")
+    check(Board.repeatStored(["every": "week", "day": 1, "at": "09:30"]) == C(every: .week, at: "09:30", on: "mon")
+          && Board.repeatStored(["every": "week", "day": 0, "at": "08:00"])?.on == "sun", "weekly: the engine's day number (Sunday 0) as the route's day")
+    check(Board.repeatStored(["every": "fortnight"]) == nil && Board.repeatStored(["every": "week", "day": 9, "at": "09:00"]) == nil
+          && Board.repeatStored("daily") == nil, "a rule the controls cannot show is nil, never shown as another rule")
+
+    check(Board.repeatWire(C(every: .never)) == .clear && Board.repeatWire(C(every: .hour)) == .hour, "Never clears; Every hour")
+    check(Board.repeatWire(C(every: .minutes, minutes: " 030 ")) == .minutes("30") && Board.repeatWire(C(every: .minutes, minutes: "60")) == .hour,
+          "minutes are sent as the board stores them: 030 is 30, and 60 is hourly")
+    check(Board.repeatWire(C(every: .minutes, minutes: "")) == .needsMinutes && Board.repeatNeeds(.needsMinutes) == "Say how many minutes",
+          "an empty minutes box is no choice yet, said in the board's words")
+    check(Board.repeatWire(C(every: .minutes, minutes: "12x")) == .minutes("12x"), "a minutes box that is not a number is sent for the Mac to refuse")
+    check(Board.repeatWire(C(every: .day, at: "")) == .needsTime && Board.repeatNeeds(.needsTime) == "Choose a time", "an empty time: Choose a time")
+    check(Board.repeatWire(C(every: .day, at: "18:00", others: ["09:00", "18:00"])) == .day("09:00,18:00"),
+          "the box and the other times go as one sorted list, each once")
+    check(Board.repeatWire(C(every: .week, at: "09:00", on: "fri")) == .week(on: "fri", at: "09:00"), "weekly sends its day and time")
+    check(Board.repeatBody(.clear)?["clear"] as? Bool == true && Board.repeatBody(.minutes("30"))?["at"] as? String == "30"
+          && Board.repeatBody(.week(on: "fri", at: "09:00"))?["on"] as? String == "fri" && Board.repeatBody(.needsTime) == nil,
+          "the bodies are the board's: clear, the minutes as at, the day as on; nothing while a box is empty")
+
+    let stored = C(every: .day, at: "09:00", others: ["17:00"])
+    var moved = stored; moved.at = "10:00"
+    check(Board.keptRepeatDraft(stored, stored: stored) == nil, "a draft that is the stored rule is no draft")
+    check(Board.keptRepeatDraft(moved, stored: stored).map(Board.repeatWire) == .day("10:00,17:00"), "moving the box keeps the other time")
+    var onto = stored; onto.at = "17:00"
+    check(Board.keptRepeatDraft(onto, stored: stored).map(Board.repeatWire) == .day("17:00"), "moving the box onto the other time leaves one time")
+    let agentChanged = C(every: .day, at: "08:00", others: ["20:00"])
+    check(Board.keptRepeatDraft(moved, stored: agentChanged).map(Board.repeatWire) == .day("10:00,20:00"),
+          "an edit under a rule changed elsewhere stands, and its other times follow the new rule (round 3 on the board)")
+    var weekly = stored; weekly.every = .week
+    check(Board.keptRepeatDraft(weekly, stored: stored)?.every == .week, "a frequency change is a draft")
+    check(Board.keptRepeatDraft(moved, stored: nil) == nil, "a rule the controls cannot show drops the draft")
+    var past = stored; past.at = "20:00"
+    let savedPast = C(every: .day, at: "17:00", others: ["20:00"])   // as the read after the save gives it, sorted
+    check(Board.repeatWire(past) == .day("17:00,20:00") && Board.keptRepeatDraft(past, stored: savedPast) == nil,
+          "a box moved past the other time and saved: the read of the saved rule ends the draft (no time dropped)")
+    check(Board.followStored(past, old: stored, new: savedPast) == nil, "and so does the change the save itself caused")
+    check(Board.repeatShown(savedPast, box: "20:00") == C(every: .day, at: "20:00", others: ["17:00"]),
+          "and the box stays on the time the person saved, though it sorts second")
+    check(Board.repeatShown(savedPast, box: "17:00") == savedPast && Board.repeatShown(savedPast, box: "06:00") == savedPast
+          && Board.repeatShown(savedPast, box: nil) == savedPast && Board.repeatShown(C(every: .hour), box: "20:00") == C(every: .hour),
+          "a box the list does not hold, none, or a rule that is not daily: shown as stored")
+    check(Board.repeatShown(savedPast, box: "20:00").map(Board.repeatWire) == Board.repeatWire(savedPast), "showing the box there changes nothing that would be sent")
+    var weeklyThenDaily = C(every: .week, at: "09:00", others: ["17:00"], on: "fri")
+    weeklyThenDaily = Board.followStored(weeklyThenDaily, old: stored, new: agentChanged) ?? weeklyThenDaily
+    weeklyThenDaily.every = .day
+    check(Board.repeatWire(weeklyThenDaily) == .day("09:00,20:00"),
+          "a weekly draft over a daily rule changed elsewhere, switched back to daily, sends the new rule's other time, not the removed one")
+    let never = C(every: .never), hourly = C(every: .hour)
+    check(Board.followStored(never, old: never, new: stored) == nil,
+          "a draft put back on the old rule follows a rule changed elsewhere (never left showing Never over a daily rule)")
+    check(Board.followStored(hourly, old: never, new: stored).map(Board.repeatWire) == .hour, "a real edit stands when the rule changes elsewhere")
+    check(Board.followStored(moved, old: stored, new: agentChanged).map(Board.repeatWire) == .day("10:00,20:00"),
+          "an edited daily time stands and takes the new rule's other times")
+    check(Board.followStored(nil, old: never, new: stored) == nil && Board.followStored(hourly, old: never, new: hourly) == nil,
+          "no draft stays none; a draft the new rule now equals goes")
+    check(Board.repeatTimeString(Board.repeatTime("07:05")) == "07:05" && Board.repeatTimeString(Board.repeatTime("23:59")) == "23:59",
+          "a time goes through the picker's Date and back unchanged")
+
+    let req = Board.taskRepeatRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "springcatalogue", number: 3, wire: .day("09:00"))
+    let sentBody = req?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(req?.httpMethod == "POST" && req?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/springcatalogue/task/3/repeat"
+          && sentBody?["every"] as? String == "day" && sentBody?["at"] as? String == "09:00", "POST .../repeat with the board's body")
+    check(Board.taskRepeatRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "x", number: 1, wire: .needsMinutes) == nil,
+          "nothing is built while a box is empty")
+
+    // A task that repeats, read from the projects read: the fields engine/taskrepeat.fieldsOf adds to it.
+    var doc = (try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any]) ?? [:]
+    var projs = doc["projects"] as? [[String: Any]] ?? []
+    var tks = projs.first?["tasks"] as? [[String: Any]] ?? []
+    if let i = tks.firstIndex(where: { ($0["number"] as? NSNumber)?.intValue == 3 }) {
+        tks[i]["repeat"] = ["every": "day", "at": ["09:00", "17:00"]]
+        tks[i]["repeatWords"] = "every day at 9am and 5pm"
+        tks[i]["repeatNextWords"] = "today at 5pm"
+        tks[i]["repeatMissed"] = 1
+        tks[i]["repeatMissedWords"] = "today at 9am"
+    }
+    if !projs.isEmpty { projs[0]["tasks"] = tks }
+    doc["projects"] = projs
+    let repeating = (try? JSONSerialization.data(withJSONObject: doc)).map { Board.parseTaskPage($0, project: "springcatalogue", number: 3) }
+    if case .page(let rp)? = repeating, let row = rp.repeatRow {
+        check(rp.repeatStored == C(every: .day, at: "09:00", others: ["17:00"]), "the page reads the stored rule for its controls")
+        check(Tasks.repeatSentence(row, now: Date()) { $0 } == "Missed the run due today at 9am. Repeats every day at 9am and 5pm. Next today at 5pm.",
+              "the page's line is the board's sentence, the missed run first")
+        check(!Tasks.repeatMissed(row).isEmpty, "a missed run marks the line (drawn red)")
+    } else {
+        check(false, "a repeating task reads as a page with its repeat row")
+    }
+    check(page(3)?.repeatRow == nil && page(3)?.repeatStored == C(every: .never), "a task that does not repeat has no line, and Never")
+}
+await b3ModelTests()
+
+section("slice B3b: who is told when a run is missed (kosmos#8958)")
+do {
+    // The fields engine/tasks.js setReviewer writes, on task 3 of the captured read.
+    func pageWith(_ fields: [String: Any]) -> Board.TaskPage? {
+        var doc = (try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any]) ?? [:]
+        var projs = doc["projects"] as? [[String: Any]] ?? []
+        var tks = projs.first?["tasks"] as? [[String: Any]] ?? []
+        if let i = tks.firstIndex(where: { ($0["number"] as? NSNumber)?.intValue == 3 }) { for (k, v) in fields { tks[i][k] = v } }
+        if !projs.isEmpty { projs[0]["tasks"] = tks }
+        doc["projects"] = projs
+        guard let d = try? JSONSerialization.data(withJSONObject: doc), case .page(let pg) = Board.parseTaskPage(d, project: "springcatalogue", number: 3) else { return nil }
+        return pg
+    }
+    let rule: [String: Any] = ["every": "hour"]
+    check(page(3)?.repeatReviewer == "none" && page(3)?.memberOrder == ["dana", "eli"], "no reviewer reads as none; members in the project's order")
+    do {
+        var doc = (try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any]) ?? [:]
+        var projs = doc["projects"] as? [[String: Any]] ?? []
+        var agents = projs.first?["agents"] as? [[String: Any]] ?? []
+        if let first = agents.first { agents.append(first) }
+        if !projs.isEmpty { projs[0]["agents"] = agents }
+        doc["projects"] = projs
+        if let d = try? JSONSerialization.data(withJSONObject: doc), case .page(let twice) = Board.parseTaskPage(d, project: "springcatalogue", number: 3) {
+            check(twice.memberOrder == ["dana", "eli"], "an agent listed twice is one choice")
+        } else { check(false, "a page with an agent listed twice") }
+    }
+    check(pageWith(["repeat": rule, "repeatReviewerPerson": true])?.repeatReviewer == "me", "the person as reviewer reads as me")
+    check(pageWith(["repeat": rule, "repeatReviewer": "eli"])?.repeatReviewer == "eli", "an agent as reviewer reads as its session")
+    check(pageWith(["repeat": rule, "repeatReviewerPerson": true, "repeatReviewer": "eli"])?.repeatReviewer == "me",
+          "the person's mark wins over an agent's name, as the board's tkReviewerOf")
+    if let pg = pageWith(["repeat": rule, "repeatReviewer": "eli"]) {
+        check(Board.reviewerOptions(pg, roster: roster).map(\.words) == ["Nobody", "Me", "Dana", "Eli"]
+              && Board.reviewerOptions(pg, roster: roster).map(\.value) == ["none", "me", "dana", "eli"], "Nobody, Me, then the project's agents by name")
+    } else { check(false, "a page with a reviewer") }
+    if let gone = pageWith(["repeat": rule, "repeatReviewer": "gus"]) {
+        check(Board.reviewerOptions(gone, roster: roster).last == Board.ReviewerOption(value: "gus", words: "Gus (left the project)"),
+              "a stored reviewer no longer on the project stays listed, and says so")
+    } else { check(false, "a page with a reviewer who left") }
+    let req = Board.taskReviewerRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "springcatalogue", number: 3, reviewer: "me")
+    check(req?.url?.path == "/api/project/springcatalogue/task/3/repeat"
+          && (req?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?.keys.sorted() == ["reviewer"],
+          "POST .../repeat with the reviewer alone, so the rule is left as it is")
+}
+await b3bModelTests()
+
+section("#8958 slice B4: a closed task's receipt")
+// receipt-words.json is what web/index.html's own functions say (ios.receipt-words-8958.test.js writes it and fails when the
+// page no longer says it).
+do {
+    let words = (try? JSONSerialization.jsonObject(with: fixture("receipt-words.json")) as? [String: Any]) ?? [:]
+    let abbr = words["abbr"] as? [[Any]] ?? [], usd = words["usd"] as? [[Any]] ?? []
+    let agents = words["agents"] as? [[String: Any]] ?? [], whole = words["whole"] as? [[String: Any]] ?? []
+    check(abbr.count >= 20 && usd.count >= 20 && agents.count >= 20 && whole.count >= 7, "premise: the page's words are there")
+    for x in abbr { let v = (x[0] as? NSNumber)?.doubleValue ?? -1; check(Board.receiptAbbr(v) == x[1] as? String, "tokens \(v): \(Board.receiptAbbr(v)) as the page's \(x[1])") }
+    for x in usd { let v = (x[0] as? NSNumber)?.doubleValue ?? -1; check(Board.receiptUsd(v) == x[1] as? String, "dollars \(v): \(Board.receiptUsd(v)) as the page's \(x[1])") }
+    func lines(_ a: Board.ReceiptAgent) -> [String] {
+        [a.line] + (a.prs.isEmpty ? [] : [a.prsBefore + a.prs.map(\.label).joined(separator: ", ") + a.prsAfter])
+            + [a.filesTitle].compactMap { $0 } + a.files + (a.folder.map { ["In " + $0] } ?? [])
+    }
+    func read(_ given: Any, replaced: Bool = false, unrun: Bool = false) -> Board.Receipt? {
+        guard let d = try? JSONSerialization.data(withJSONObject: given), case .receipt(let r) = Board.parseReceipt(d, replaced: replaced, unrun: unrun) else { return nil }
+        return r
+    }
+    for (i, x) in agents.enumerated() {
+        let a = read(["agents": [x["given"] ?? [:]]])?.agents.first
+        check(a.map(lines) == x["lines"] as? [String], "agent case \(i): \(a.map(lines) ?? []) as the page's")
+        check(a?.prs.compactMap { $0.url?.absoluteString } == x["links"] as? [String], "agent case \(i): the page's links and no other")
+    }
+    for (i, x) in whole.enumerated() {
+        let r = read(x["given"] ?? [:], replaced: x["replaced"] as? Bool == true, unrun: x["unrun"] as? Bool == true)
+        let said = r.map { r in [r.again].compactMap { $0 } + ["Receipt", Board.receiptIntro] + (r.agents.isEmpty ? [Board.receiptNobody] : r.agents.flatMap(lines)) }
+        check(said == x["lines"] as? [String], "whole receipt \(i): \(said?.first ?? "nothing") as the page's")
+    }
+    check(read(["agents": [["who": "a", "available": true, "transcriptsWithWork": 1, "models": ["claude-opus-5": ["input_tokens": 1500]]]]])?.agents.first?.line
+          == "Edited 0 files, ran 0 commands, 2K tokens.", "a Mac that sends no cost: the cost is left out, never a zero")
+    check(Board.parseReceipt(Data(#"{"ready":false,"because":"open"}"#.utf8), replaced: false, unrun: false) == .none, "an open task's answer is no receipt")
+    for bad in ["null", "[]", "", "<html>"] { check(Board.parseReceipt(Data(bad.utf8), replaced: false, unrun: false) == .unreadable, "an answer that is not a receipt is unreadable: \(bad)") }
+    check(Board.taskReceiptRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "springcatalogue", number: 3)
+        .map { ($0.httpMethod ?? "GET") + " " + ($0.url?.path ?? "") } == "GET /api/project/springcatalogue/task/3/receipt", "GET .../task/<n>/receipt")
+    check(Board.taskReceiptRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "springcatalogue", number: 3)?.timeoutInterval == 120,
+          "it waits longer than the 15 s of other calls: the Mac answers only once the receipt is worked out")
+    check(Board.taskReceiptRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "../x", number: 3) == nil, "no request for a name that is not a project's")
+    // The key the receipt belongs to (the board's tkReceiptSync): the close time, the task's own or its newest part's.
+    func keyed(_ fields: String) -> Board.TaskPage? { synthetic(#"{"number":1,"sentence":"S",\#(fields)}"#) }
+    check(keyed(#""detail":"d""#) != nil, "premise: the page parses")
+    check(keyed(#""progress":{"done":0,"total":1,"closed":false}"#)?.receiptKey == nil, "an open task has no receipt key")
+    check(keyed(#""closedAt":"2026-11-24T15:00:00.000Z""#)?.receiptKey == "2026-11-24T15:00:00.000Z", "a closed task's is its close time")
+    check(keyed(#""progress":{"done":2,"total":2,"closed":true},"parts":[{"id":1,"closedAt":"2026-11-24T15:00:00.000Z"},{"id":2,"closedAt":"2026-11-24T16:00:00.000Z"},{"id":3,"closedAt":"2026-11-24T14:00:00.000Z"}]"#)?.receiptKey
+          == "2026-11-24T16:00:00.000Z", "closed by its last part: the newest part's close")
+    check(keyed(#""progress":{"done":1,"total":1,"closed":true}"#)?.receiptKey == "", "closed with no time on record: still a closed state of its own")
+    check(keyed(#""closedAt":"2026-11-24T15:00:00.000Z","closedUnrun":true"#)?.closedUnrun == true
+          && keyed(#""closedAt":"2026-11-24T15:00:00.000Z""#)?.closedUnrun == false, "closed as never run is read")
+}
+await b4ModelTests()
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
+
+@MainActor
+func b3ModelTests() async {
+    let mac = FakeMac()
+    let m = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch })
+    m.onScreen = true
+    m.touched()
+    let nm = ["dana": "Dana"]
+    await m.read()
+    // The rule the Mac stores once the save lands, so the read after it shows it (as the real board does).
+    func withRule(_ rule: Any, closed: Bool = false) -> Data {
+        var doc = (try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any]) ?? [:]
+        var projs = doc["projects"] as? [[String: Any]] ?? []
+        var tks = projs.first?["tasks"] as? [[String: Any]] ?? []
+        if let i = tks.firstIndex(where: { ($0["number"] as? NSNumber)?.intValue == 3 }) {
+            tks[i]["repeat"] = rule
+            if closed { tks[i]["progress"] = ["done": 1, "total": 1, "closed": true]; tks[i]["closedAt"] = "2026-11-24T15:00:00.000Z" }
+        }
+        if !projs.isEmpty { projs[0]["tasks"] = tks }
+        doc["projects"] = projs
+        return (try? JSONSerialization.data(withJSONObject: doc)) ?? Data()
+    }
+    mac.asked = []
+    let unchanged = await m.saveRepeat(.clear, names: nm)
+    check(!unchanged && mac.asked.isEmpty, "Save of the rule already stored (none) sends nothing")
+    let empty = await m.saveRepeat(.needsTime, names: nm)
+    check(!empty && mac.asked.isEmpty, "nothing is sent while a box is empty")
+    var body: [String: Any]?
+    mac.onSend = { r in if r.url!.path.hasSuffix("/repeat") { body = r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } } }
+    mac.actAnswers = [(200, #"{"task":{},"words":"every week on Friday at 9am"}"#)]
+    mac.projects = (200, withRule(["every": "week", "day": 5, "at": "09:00"]))
+    let saved = await m.saveRepeat(.week(on: "fri", at: "09:00"), names: nm)
+    check(saved && body?["every"] as? String == "week" && body?["on"] as? String == "fri" && body?["at"] as? String == "09:00",
+          "a weekly rule is posted with its day and time")
+    check(mac.asked == ["POST /api/project/springcatalogue/task/3/repeat", "GET /api/projects", "GET /api/project/springcatalogue/task/3/activity"],
+          "then the page and its activity are read again")
+    check(m.repeatSay == Board.repeatSaved && !m.repeatRefused && !m.repeatSaving && m.page?.repeatStored?.on == "fri", "Saved., and the page shows the new rule")
+    mac.asked = []
+    let again = await m.saveRepeat(.week(on: "fri", at: "09:00"), names: nm)
+    check(!again && mac.asked.isEmpty, "the same rule again sends nothing")
+    await m.read()
+    check(m.repeatSay == Board.repeatSaved, "Saved. stays through a read that still shows the saved rule")
+    mac.projects = (200, withRule(["every": "hour"]))
+    await m.read()
+    check(m.repeatSay == nil, "Saved. goes once the rule is changed elsewhere")
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    let toDaily = await m.saveRepeat(.day("08:00"), names: nm)
+    mac.projects = (200, withRule(["every": "day", "at": "08:00"], closed: true))
+    await m.read()
+    check(toDaily && m.page?.closed == true && m.repeatSay == nil, "Saved. goes when the task is finished, even with its rule unchanged")
+    mac.projects = (200, withRule(["every": "hour"]))   // open again for the refusals below
+    await m.read()
+    mac.onSend = nil
+    mac.actAnswers = [(400, #"{"error":"every so many minutes takes a number from 15 to 720"}"#)]
+    let refused = await m.saveRepeat(.minutes("5"), names: nm)
+    check(!refused && m.repeatSay == "every so many minutes takes a number from 15 to 720" && m.repeatRefused && !m.repeatSaving,
+          "a refusal is the Mac's own sentence, marked as a refusal")
+    mac.projects = (200, withRule(["every": "hour"], closed: true))
+    await m.read()
+    check(m.repeatSay == nil && !m.repeatRefused, "a refusal goes when the task is finished")
+    mac.projects = (200, withRule(["every": "hour"]))
+    await m.read()
+    mac.actAnswers = [(400, #"{"error":"every so many minutes takes a number from 15 to 720"}"#)]
+    _ = await m.saveRepeat(.minutes("5"), names: nm)
+    m.clearRepeatSay()
+    check(m.repeatSay == nil && !m.repeatRefused, "a new choice retires the last answer")
+    mac.actAnswers = [nil]
+    let unreached = await m.saveRepeat(.minutes("30"), names: nm)
+    check(!unreached && m.repeatSay == Board.repeatUnreached, "no answer: the could-not-reach words")
+
+    // The guards between Save and Mark as done, each way, and Save on a finished task.
+    mac.actAnswers = []
+    mac.holdTheNext()
+    let saving = Task { await m.saveRepeat(.minutes("45"), names: nm) }
+    await waitUntil({ mac.holding }, "the repeat save held")
+    let duringSave = mac.asked.count
+    if let act = m.page?.act { await m.press(act, names: nm) }
+    check(m.repeatSaving && mac.asked.count == duringSave, "Mark as done sends nothing while a Repeats save is out")
+    mac.release()
+    _ = await saving.value
+    mac.holdTheNext()
+    let pressing = Task { if let act = m.page?.act { await m.press(act, names: nm) } }
+    await waitUntil({ mac.holding }, "the press held")
+    let duringPress = mac.asked.count
+    let savedDuringPress = await m.saveRepeat(.minutes("50"), names: nm)
+    check(!savedDuringPress && mac.asked.count == duringPress, "Save sends nothing while Mark as done is out")
+    mac.release()
+    await pressing.value
+    mac.projects = (200, withRule(["every": "hour"], closed: true))
+    await m.read()
+    mac.asked = []
+    let onClosed = await m.saveRepeat(.minutes("30"), names: nm)
+    check(m.page?.closed == true && !onClosed && mac.asked.isEmpty, "Save on a finished task sends nothing")
+}
+
+@MainActor
+func b3bModelTests() async {
+    let mac = FakeMac()
+    let m = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch })
+    m.onScreen = true
+    m.touched()
+    let nm = ["dana": "Dana"]
+    func with(_ fields: [String: Any], closed: Bool = false) -> Data {
+        var doc = (try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any]) ?? [:]
+        var projs = doc["projects"] as? [[String: Any]] ?? []
+        var tks = projs.first?["tasks"] as? [[String: Any]] ?? []
+        if let i = tks.firstIndex(where: { ($0["number"] as? NSNumber)?.intValue == 3 }) {
+            for (k, v) in fields { tks[i][k] = v }
+            if closed { tks[i]["progress"] = ["done": 1, "total": 1, "closed": true]; tks[i]["closedAt"] = "2026-11-24T15:00:00.000Z" }
+        }
+        if !projs.isEmpty { projs[0]["tasks"] = tks }
+        doc["projects"] = projs
+        return (try? JSONSerialization.data(withJSONObject: doc)) ?? Data()
+    }
+    let rule: [String: Any] = ["every": "hour"]
+    await m.read()
+    mac.asked = []
+    let noRule = await m.saveReviewer("me", names: nm)
+    check(!noRule && mac.asked.isEmpty, "a task that does not repeat sends nothing")
+    mac.projects = (200, with(["repeat": rule]))
+    await m.read()
+    mac.asked = []
+    let same = await m.saveReviewer("none", names: nm)
+    check(!same && mac.asked.isEmpty, "the reviewer already stored sends nothing")
+    var body: [String: Any]?
+    mac.onSend = { r in if r.url!.path.hasSuffix("/repeat") { body = r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } } }
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "dana"]))
+    let saved = await m.saveReviewer("dana", names: nm)
+    check(saved && body?["reviewer"] as? String == "dana" && body?.count == 1, "the reviewer is posted alone")
+    check(mac.asked == ["POST /api/project/springcatalogue/task/3/repeat", "GET /api/projects", "GET /api/project/springcatalogue/task/3/activity"],
+          "then the page and its activity are read")
+    check(m.reviewerSay == Board.repeatSaved && m.reviewerSaving == nil && m.page?.repeatReviewer == "dana", "Saved., and the page shows the new reviewer")
+    await m.read()
+    check(m.reviewerSay == Board.repeatSaved, "Saved. stays through a read that still shows the saved reviewer")
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "eli"]))
+    await m.read()
+    check(m.reviewerSay == nil, "Saved. goes once the reviewer is changed elsewhere")
+    // Recorded, but the read after it failed: the choice keeps showing what was saved until a read succeeds.
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    mac.projects = (500, Data())
+    let unread = await m.saveReviewer("dana", names: nm)
+    check(unread && m.reviewerSay == Board.repeatSaved && m.reviewerShown == "dana" && m.page?.repeatReviewer == "eli",
+          "a save whose read failed: Saved., and the choice shows what was saved, not the old reviewer")
+    // Picking the page's (stale) reviewer back while the saved one shows is a change, and is sent.
+    mac.asked = []
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    let back = await m.saveReviewer("eli", names: nm)
+    check(back && mac.asked.first == "POST /api/project/springcatalogue/task/3/repeat", "choosing the old reviewer back while the saved one shows is sent, not ignored")
+    mac.projects = (500, Data())
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    _ = await m.saveReviewer("dana", names: nm)
+    check(m.reviewerShown == "dana", "premise: the saved reviewer shows again after a second unread save")
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "dana"]))
+    await m.read()
+    check(m.reviewerShown == nil && m.page?.repeatReviewer == "dana", "the next read that lands shows the page")
+    // A tick read started BEFORE the save, landing (with the old reviewer) while the save's own read is still out, and
+    // that own read then failing: the tick is not the save's read, so the saved reviewer still shows.
+    mac.queueing = true
+    let tick = Task { await m.read() }
+    await waitUntil({ mac.queuedCount == 1 }, "the tick read queued")
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    let racing = Task { await m.saveReviewer("me", names: nm) }
+    await waitUntil({ mac.queuedCount == 2 }, "the save's post queued")
+    mac.projects = (500, Data())
+    mac.release(at: 1)                                   // the post is recorded; the save's own read is sent and fails
+    await waitUntil({ mac.queuedCount == 2 }, "the save's own read queued")
+    mac.release(at: 0)                                   // the older tick lands, with the old reviewer
+    await tick.value
+    mac.queueing = false
+    mac.release(at: 0)                                   // the save's own read answers, failed
+    _ = await racing.value
+    check(m.page?.repeatReviewer == "dana" && m.reviewerShown == "me",
+          "a tick read started before the save and landing during it does not stand for the save's own read")
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "me"]))
+    await m.read()
+    check(m.reviewerSay == Board.repeatSaved, "premise: Saved. for me shows")
+    // The reviewer is left as saved, so only the rule being gone can take Saved. down.
+    mac.projects = (200, with(["repeat": NSNull(), "repeatReviewer": "me"]))
+    await m.read()
+    check(m.reviewerSay == nil, "Saved. goes when the task stops repeating")
+    // A save whose own read shows someone else (changed elsewhere in between) says nothing: never Saved. under another name.
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "me"]))
+    await m.read()
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "eli"]))
+    let overtaken = await m.saveReviewer("dana", names: nm)
+    check(overtaken && m.reviewerSay == nil && m.page?.repeatReviewer == "eli", "a save overtaken by another change says no Saved. under that other reviewer")
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "dana"]))
+    await m.read()
+    mac.actAnswers = [(200, #"{"task":{}}"#)]
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "eli"]))
+    _ = await m.saveReviewer("eli", names: nm)
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "eli"], closed: true))
+    await m.read()
+    check(m.reviewerSay == nil, "Saved. goes when the task is finished")
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "eli"]))
+    await m.read()
+    mac.actAnswers = [nil]
+    let unreached = await m.saveReviewer("me", names: nm)
+    check(!unreached && m.reviewerSay == Board.reviewerUnreached && m.reviewerRefused, "no answer: the could-not-reach words")
+    mac.onSend = nil
+    mac.actAnswers = [(403, #"{"error":"only the person can name themselves as the reviewer"}"#)]
+    let refused = await m.saveReviewer("me", names: nm)
+    check(!refused && m.reviewerSay == "only the person can name themselves as the reviewer" && m.reviewerRefused && m.reviewerSaving == nil,
+          "a refusal is the Mac's own sentence, marked as a refusal")
+    await m.read()
+    check(m.reviewerRefused && m.reviewerSay != nil, "a refusal stays through a read that still shows the task repeating")
+    mac.projects = (200, with(["repeat": NSNull()]))
+    await m.read()
+    check(m.reviewerSay == nil && !m.reviewerRefused, "a refusal goes when the task stops repeating")
+    mac.projects = (200, with(["repeat": rule]))
+    await m.read()
+    mac.actAnswers = [(403, #"{"error":"only the person can name themselves as the reviewer"}"#)]
+    _ = await m.saveReviewer("dana", names: nm)
+    mac.projects = (200, with(["repeat": rule], closed: true))
+    await m.read()
+    check(m.reviewerSay == nil && !m.reviewerRefused, "a refusal goes when the task is finished")
+    mac.projects = (200, with(["repeat": NSNull()]))
+    await m.read()
+    mac.projects = (200, with(["repeat": rule]))
+    await m.read()
+
+    // The guards each way: a reviewer save against Mark as done and against a Repeats save.
+    mac.actAnswers = []
+    mac.holdTheNext()
+    let saving = Task { await m.saveReviewer("eli", names: nm) }
+    await waitUntil({ mac.holding }, "the reviewer save held")
+    let during = mac.asked.count
+    if let act = m.page?.act { await m.press(act, names: nm) }
+    let repeatDuring = await m.saveRepeat(.minutes("30"), names: nm)
+    check(m.reviewerSaving == "eli" && !repeatDuring && mac.asked.count == during, "Mark as done and a Repeats save send nothing while a reviewer save is out")
+    mac.release()
+    _ = await saving.value
+    mac.projects = (200, with(["repeat": rule, "repeatReviewer": "eli"]))
+    await m.read()
+    mac.holdTheNext()
+    let repeatSaving = Task { await m.saveRepeat(.minutes("30"), names: nm) }
+    await waitUntil({ mac.holding }, "the repeat save held")
+    let duringRepeat = mac.asked.count
+    let reviewerDuring = await m.saveReviewer("me", names: nm)
+    check(!reviewerDuring && mac.asked.count == duringRepeat, "a reviewer save sends nothing while a Repeats save is out")
+    mac.release()
+    _ = await repeatSaving.value
+    mac.holdTheNext()
+    let pressing = Task { if let act = m.page?.act { await m.press(act, names: nm) } }
+    await waitUntil({ mac.holding }, "the press held")
+    let duringPress = mac.asked.count
+    let reviewerPress = await m.saveReviewer("me", names: nm)
+    check(!reviewerPress && mac.asked.count == duringPress, "a reviewer save sends nothing while Mark as done is out")
+    mac.release()
+    await pressing.value
+    mac.projects = (200, with(["repeat": rule], closed: true))
+    await m.read()
+    mac.asked = []
+    let onClosed = await m.saveReviewer("me", names: nm)
+    check(!onClosed && mac.asked.isEmpty, "a finished task sends nothing")
+}
+
+@MainActor
+func b4ModelTests() async {
+    func with(closedAt: String?, _ fields: [String: Any] = [:]) -> (Int, Data) {
+        var doc = (try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any]) ?? [:]
+        var projs = doc["projects"] as? [[String: Any]] ?? []
+        var tks = projs.first?["tasks"] as? [[String: Any]] ?? []
+        if let i = tks.firstIndex(where: { ($0["number"] as? NSNumber)?.intValue == 3 }) {
+            for (k, v) in fields { tks[i][k] = v }
+            tks[i]["progress"] = ["done": closedAt == nil ? 0 : 1, "total": 1, "closed": closedAt != nil]
+            tks[i]["closedAt"] = closedAt ?? NSNull()
+        }
+        if !projs.isEmpty { projs[0]["tasks"] = tks }
+        doc["projects"] = projs
+        return (200, (try? JSONSerialization.data(withJSONObject: doc)) ?? Data())
+    }
+    func answer(_ who: String) -> (Int, Data) { (200, Data(#"{"retries":{},"agents":[{"who":"\#(who)","available":false,"because":"no-folder"}]}"#.utf8)) }
+    let asksReceipt = { (mac: FakeMac) in mac.asked.filter { $0.hasSuffix("/receipt") }.count }
+    let at1 = "2026-11-24T15:00:00.000Z", at2 = "2026-11-24T16:00:00.000Z"
+    let mac = FakeMac()
+    var clock = Date(timeIntervalSince1970: 1_800_000_000)
+    let m = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch }, now: { clock })
+    m.onScreen = true
+    m.touched()
+    func tick() async { await m.tick(first: false, returning: false, names: [:]); await m.receiptReading?.value }
+
+    mac.projects = with(closedAt: nil)
+    mac.receipt = answer("ann")
+    await tick()
+    check(m.page != nil && m.receipt == nil && asksReceipt(mac) == 0, "an open task asks for no receipt")
+    var openRedraws = 0
+    let watchOpen = m.objectWillChange.sink { openRedraws += 1 }
+    await tick()
+    watchOpen.cancel()
+    check(openRedraws == 0, "a quiet tick of an open task redraws nothing")
+    mac.projects = with(closedAt: at1)
+    await tick()
+    check(m.receipt?.agents.map(\.who) == ["ann"] && asksReceipt(mac) == 1, "closed: its receipt is read and drawn")
+    check(mac.asked.contains("GET /api/project/springcatalogue/task/3/receipt"), "from the task's own receipt route")
+    var redraws = 0
+    let watch = m.objectWillChange.sink { redraws += 1 }
+    await tick()
+    check(asksReceipt(mac) == 1 && redraws == 0, "a quiet tick asks nothing again and redraws nothing")
+    watch.cancel()
+    mac.projects = with(closedAt: at2)
+    mac.receipt = answer("bob")
+    await tick()
+    check(asksReceipt(mac) == 2 && m.receipt?.agents.map(\.who) == ["bob"], "put back and closed again between two reads: asked again")
+    mac.projects = with(closedAt: nil)
+    await tick()
+    check(m.receipt == nil && asksReceipt(mac) == 2, "put back: the receipt goes")
+    mac.projects = with(closedAt: at2)
+    await tick()
+    check(asksReceipt(mac) == 3 && m.receipt != nil, "closed at the same time again: asked again, since putting it back forgot it")
+
+    // A failed read: hidden, then asked again only after 30 s; an unreadable answer is a failure too.
+    for (what, bad) in [("a 500", (500, Data("{}".utf8))), ("an answer that is not a receipt", (200, Data("null".utf8)))] as [(String, (Int, Data))] {
+        mac.projects = with(closedAt: nil); await tick()
+        mac.projects = with(closedAt: at1)
+        mac.receipt = bad
+        let before = asksReceipt(mac)
+        await tick()
+        check(m.receipt == nil && asksReceipt(mac) == before + 1, "\(what): nothing drawn")
+        mac.receipt = answer("ann")
+        clock.addTimeInterval(29); m.touched()
+        await tick()
+        check(asksReceipt(mac) == before + 1, "\(what): not asked again within 30 s")
+        clock.addTimeInterval(1); m.touched()
+        await tick()
+        check(asksReceipt(mac) == before + 2 && m.receipt?.agents.count == 1, "\(what): asked again after 30 s, and drawn")
+    }
+    // A failure that fails again redraws nothing (there is still nothing to draw).
+    mac.projects = with(closedAt: nil); await tick()
+    mac.projects = with(closedAt: at1); mac.receipt = (500, Data()); await tick()
+    let failedOnce = asksReceipt(mac)
+    clock.addTimeInterval(31); m.touched()
+    redraws = 0
+    let watchFailed = m.objectWillChange.sink { redraws += 1 }
+    await tick()
+    watchFailed.cancel()
+    check(asksReceipt(mac) == failedOnce + 1 && redraws == 0, "a read that fails again redraws nothing")
+    // A failure for one close does not hold back another's.
+    mac.projects = with(closedAt: nil); await tick()
+    mac.projects = with(closedAt: at1); mac.receipt = (500, Data()); await tick()
+    let failedAsks = asksReceipt(mac)
+    mac.projects = with(closedAt: at2); mac.receipt = answer("ann"); await tick()
+    check(asksReceipt(mac) == failedAsks + 1 && m.receipt != nil, "another close is asked at once, inside the first one's 30 s")
+    // An answer of { ready: false } is settled, not a failure.
+    mac.projects = with(closedAt: at1); mac.receipt = (200, Data(#"{"ready":false}"#.utf8)); await tick()
+    let notReady = asksReceipt(mac)
+    clock.addTimeInterval(60); m.touched()
+    await tick()
+    check(m.receipt == nil && asksReceipt(mac) == notReady, "not ready: nothing drawn, and not asked again")
+
+    // Replaced, or closed as never run: no line about put-backs when there were none.
+    mac.projects = with(closedAt: at2, ["replacedBy": 4]); mac.receipt = answer("ann"); await tick()
+    check(m.receipt != nil && m.receipt?.again == nil, "a replaced task says nothing about put-backs")
+    mac.projects = with(closedAt: at1, ["closedUnrun": true]); await tick()
+    check(m.receipt != nil && m.receipt?.again == nil, "nor one closed as never run")
+    mac.projects = with(closedAt: at2); await tick()
+    check(m.receipt?.again == "Done without being put back or handed on.", "control: a task simply done does")
+
+    // Out of order: the first ask answered after the second draws nothing; nor one answered after a put-back.
+    let late = FakeMac()
+    let l = TaskPageModel(project: "springcatalogue", number: 3, send: { await late.asyncSend($0) }, sleep: { _ in }, epoch: { late.epoch })
+    l.onScreen = true
+    // Reads the task with its receipt's answer held: the task's own read is released, the receipt's stays queued.
+    func readHolding(_ model: TaskPageModel, _ mac: FakeMac) async {
+        mac.queueing = true
+        let reading = Task { await model.read() }
+        await waitUntil({ mac.queuedCount == 1 }, "the task's read")
+        mac.release(at: 0)
+        await reading.value
+        await waitUntil({ mac.queuedCount == 1 }, "the receipt ask")
+        mac.queueing = false
+    }
+    late.projects = with(closedAt: at1)
+    late.receipt = answer("old")
+    await readHolding(l, late)
+    let first = l.receiptReading
+    late.projects = with(closedAt: at2)
+    late.receipt = answer("new")
+    await l.read()
+    check(first?.isCancelled == true, "an older ask still out is cancelled by a newer one")
+    await l.receiptReading?.value
+    check(l.receipt?.agents.map(\.who) == ["new"], "the newer ask draws")
+    late.release(at: 0)
+    await first?.value
+    check(l.receipt?.agents.map(\.who) == ["new"], "an older ask answered after it draws nothing")
+    late.projects = with(closedAt: at1)
+    await readHolding(l, late)
+    let beforePutBack = l.receiptReading
+    late.projects = with(closedAt: nil)
+    await l.read()
+    check(beforePutBack?.isCancelled == true && l.receipt == nil, "put back: the ask still out is cancelled, and the receipt shown goes with the same read")
+    late.release(at: 0)
+    await beforePutBack?.value
+    check(l.receipt == nil, "an ask answered after the task was put back draws nothing")
+    // Another account or Mac meanwhile: the page is about nothing, and its receipt is not drawn.
+    late.projects = with(closedAt: at2)
+    await readHolding(l, late)
+    let beforeSwitch = l.receiptReading
+    late.epoch += 1
+    late.release(at: 0)
+    await beforeSwitch?.value
+    check(l.receipt == nil, "an answer landing after the Mac was switched draws nothing")
+    let gone = FakeMac()
+    let g = TaskPageModel(project: "springcatalogue", number: 3, send: { await gone.asyncSend($0) }, sleep: { _ in }, epoch: { gone.epoch }, now: { clock })
+    g.onScreen = true
+    gone.projects = with(closedAt: at1)
+    gone.receipt = (500, Data())
+    await g.read()
+    await g.receiptReading?.value
+    clock.addTimeInterval(60)
+    gone.epoch += 1
+    g.syncReceipt()
+    await g.receiptReading?.value
+    check(g.page != nil && asksReceipt(gone) == 1, "after a switch, no receipt is asked for again")
+
+    // A task no longer on the computer: its page is a message, and nothing is asked for.
+    let off = FakeMac()
+    let o = TaskPageModel(project: "springcatalogue", number: 3, send: { await off.asyncSend($0) }, sleep: { _ in }, epoch: { off.epoch }, now: { clock })
+    o.onScreen = true
+    off.projects = with(closedAt: at1)
+    off.receipt = (500, Data())
+    await o.read()
+    await o.receiptReading?.value
+    off.projects = (200, Data(#"{"projects":[]}"#.utf8))
+    await o.read()
+    clock.addTimeInterval(60)
+    o.syncReceipt()
+    await o.receiptReading?.value
+    check(o.gone && o.page != nil && asksReceipt(off) == 1, "a task no longer on the computer asks for no receipt again")
+
+    // Marked replaced while the receipt was out: said as the task reads when it lands.
+    let mid = FakeMac()
+    let r = TaskPageModel(project: "springcatalogue", number: 3, send: { await mid.asyncSend($0) }, sleep: { _ in }, epoch: { mid.epoch })
+    r.onScreen = true
+    mid.projects = with(closedAt: at1)
+    await readHolding(r, mid)
+    mid.projects = with(closedAt: at1, ["replacedBy": 4])
+    await r.read()
+    mid.release(at: 0)
+    await r.receiptReading?.value
+    check(r.receipt != nil && r.receipt?.again == nil, "marked replaced while it was out: no line about put-backs")
+
+    // A tick does not wait for the receipt: the page is read again while the receipt is still out.
+    let slow = FakeMac()
+    let s = TaskPageModel(project: "springcatalogue", number: 3, send: { await slow.asyncSend($0) }, sleep: { _ in }, epoch: { slow.epoch })
+    s.onScreen = true
+    slow.projects = with(closedAt: at1)
+    await readHolding(s, slow)
+    await s.tick(first: false, returning: false, names: [:])
+    check(slow.asked.filter { $0 == "GET /api/projects" }.count == 2 && asksReceipt(slow) == 1, "a tick finishes while the receipt is out, and does not ask for it twice")
+    slow.release(at: 0)
+    await s.receiptReading?.value
+    check(s.receipt != nil, "and the receipt is drawn when it lands")
+
+    // The page leaves the screen with its receipt still out: cancelled, no failure (no 30 s wait), asked for on the next read.
+    let left = FakeMac()
+    let x = TaskPageModel(project: "springcatalogue", number: 3, send: { await left.asyncSend($0) }, sleep: { _ in }, epoch: { left.epoch }, now: { clock })
+    x.onScreen = true
+    left.projects = with(closedAt: at1)
+    await readHolding(x, left)
+    let leaving = x.receiptReading
+    x.stopReceipt()
+    check(leaving?.isCancelled == true && x.receiptReading == nil, "leaving the page cancels the read still out")
+    left.release(at: 0)
+    await leaving?.value
+    check(x.receipt == nil, "and its answer draws nothing")
+    await x.read()
+    await x.receiptReading?.value
+    check(asksReceipt(left) == 2 && x.receipt != nil, "back on the page: asked for again at once, and drawn")
+    x.stopReceipt()
+    await x.read()
+    await x.receiptReading?.value
+    check(asksReceipt(left) == 2 && x.receipt != nil, "leaving with the receipt drawn keeps it, and asks nothing more")
+    // A read landing after the person left, or with the app not in front, asks for no receipt; the read on their return does.
+    for (what, leave, back) in [("off screen", { x.onScreen = false }, { x.onScreen = true }), ("not in front", { x.appActive = false }, { x.appActive = true })] as [(String, () -> Void, () -> Void)] {
+        let before = asksReceipt(left)
+        leave()
+        left.projects = with(closedAt: before == 2 ? at2 : at1)
+        await x.read()
+        await x.receiptReading?.value
+        check(x.page?.receiptKey == (before == 2 ? at2 : at1) && asksReceipt(left) == before, "\(what): a read that lands asks for no receipt")
+        back()
+        await x.read()
+        await x.receiptReading?.value
+        check(asksReceipt(left) == before + 1, "\(what), then back: asked for")
+    }
+
+    // Mark as done: its receipt is asked for at once, not at the next tick.
+    let done = FakeMac()
+    let d = TaskPageModel(project: "springcatalogue", number: 3, send: { await done.asyncSend($0) }, sleep: { _ in }, epoch: { done.epoch })
+    d.onScreen = true
+    done.projects = with(closedAt: nil)
+    await d.read()
+    done.projects = with(closedAt: at1)
+    await d.press(.close, names: [:])
+    await d.receiptReading?.value
+    check(d.page?.closed == true && d.receipt != nil, "Mark as done draws its receipt")
+}

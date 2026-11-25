@@ -659,3 +659,19 @@ test('kosmos#8999: a transcript folder that lists but cannot be resolved is stil
   assert.ok(asked > 0, 'control: the folders are resolved through the call this replaces');
   assert.deepEqual([r.agents[0].transcriptsWithWork, r.agents[0].models['claude-sonnet-5-5'].output_tokens], [1, 7]);
 });
+
+test('kosmos#8958 B4: withCost prices each agent that was read, on a copy; an unread one and a not-ready answer are left as they were', () => {
+  const b = { input_tokens: 1e6, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 };
+  const r = { version: 3, agents: [
+    { who: 'ann', available: true, models: { 'claude-fable-5': b, 'made-up-1': b } },
+    { who: 'bob', available: false, because: 'provider', provider: 'grok' },
+  ] };
+  const was = JSON.parse(JSON.stringify(r));
+  const out = receipt.withCost(r);
+  assert.deepEqual(out.agents[0].cost, { usd: 10, unpriced: ['made-up-1'] });
+  assert.ok(!('cost' in out.agents[1]), 'an agent whose work was not read has no cost, never a zero');
+  assert.deepEqual(r, was, 'the receipt it was given (kept, or shared by two requests) is not written on');
+  const notReady = { ready: false, because: 'open' };
+  assert.deepEqual(receipt.withCost(notReady), notReady);
+  assert.equal(receipt.withCost(null), null);
+});
