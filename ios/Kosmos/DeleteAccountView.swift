@@ -229,8 +229,11 @@ struct DeleteAccountView: View {
                 noteLine
             }
         }
-        Section {
-            Button(DeleteAccount.keepButton) { dismiss() }.disabled(busy).accessibilityIdentifier("delete-keep")
+        // Not after a lost answer: the account may already be gone, and "Keep" would say otherwise.
+        if !answerLost {
+            Section {
+                Button(DeleteAccount.keepButton) { dismiss() }.disabled(busy).accessibilityIdentifier("delete-keep")
+            }
         }
     }
 
@@ -307,9 +310,19 @@ struct DeleteAccountView: View {
     // One ephemeral session refusing redirects, as the account screen uses: nothing is cached to disk.
     private static let http = URLSession(configuration: .ephemeral, delegate: RefuseRedirects(), delegateQueue: nil)
 
-    private func send(_ r: URLRequest) async -> (Int, Any?)? {
-        guard let (data, answer) = try? await Self.http.data(for: r), let http = answer as? HTTPURLResponse else { return nil }
-        return (http.statusCode, try? JSONSerialization.jsonObject(with: data))
+    private func send(_ r: URLRequest) async -> (Int, Any?)? { await sendTelling(r).answer }
+
+    /// The answer, or why there was none (the URLError's code; nil for any other failure).
+    private func sendTelling(_ r: URLRequest) async -> (answer: (Int, Any?)?, error: URLError.Code?) {
+        do {
+            let (data, answer) = try await Self.http.data(for: r)
+            guard let http = answer as? HTTPURLResponse else { return (nil, nil) }
+            return ((http.statusCode, try? JSONSerialization.jsonObject(with: data)), nil)
+        } catch let e as URLError {
+            return (nil, e.code)
+        } catch {
+            return (nil, nil)
+        }
     }
 
     /// The account's own email, when this iPhone is signed in and Kosmos+ says it. The field stays editable.
@@ -407,10 +420,15 @@ struct DeleteAccountView: View {
         // sent away meanwhile, rather than reporting "could not be reached" about a deletion that is going ahead.
         let background = BackgroundTime(name: "delete-account-confirm")
         defer { busy = false; background.end() }
-        let answer: (Int, Any?)? = sample ? (200, ["outcome": "deleted"]) : await send(DeleteAccount.confirmRequest(coordinator: coordinator, grant: grant.token))
+        let sent: (answer: (Int, Any?)?, error: URLError.Code?) = sample ? ((200, ["outcome": "deleted"]), nil)
+            : await sendTelling(DeleteAccount.confirmRequest(coordinator: coordinator, grant: grant.token))
         // Nothing reached Kosmos+, or its answer was lost: the same grant may be sent again, as the page's Try again. If it
-        // did reach Kosmos+, the deletion may be finishing, so a later refusal of this grant reads as unknown.
-        guard let (status, json) = answer else { answerLost = true; note = DeleteAccount.unreachable; return }
+        // may have reached Kosmos+, the deletion may be finishing, so a later refusal of this grant reads as unknown.
+        guard let (status, json) = sent.answer else {
+            if DeleteAccount.mayHaveArrived(sent.error) { answerLost = true }
+            note = answerLost ? DeleteAccount.lostWords : DeleteAccount.unreachable
+            return
+        }
         switch DeleteAccount.outcome(status: status, json: json, answerLost: answerLost) {
         case .deleted:
             let address = grant.preview.email ?? email
@@ -421,9 +439,36 @@ struct DeleteAccountView: View {
             if !visible { signOutIfDeleted() }
         case .stillDeleting: step = .pending; focusAnswer()
         case .nothingChanged: answerLost = false; step = .failed(grant); focusAnswer()
-        case .noAnswer: answerLost = true; note = DeleteAccount.unreachable
-        case .unknown: step = .unknown; focusAnswer()
+        case .retry(let sentence):
+            // No sentence: something other than Kosmos+ answered (a proxy's page), so the request did reach the way in.
+            if sentence == nil { answerLost = true }
+            note = answerLost ? DeleteAccount.lostWords : (sentence ?? DeleteAccount.unreachable)
+        case .unknown:
+            step = .unknown; focusAnswer()
+            await settle(deletedEmail: grant.preview.email ?? email)
         case .startOver(let sentence): startOver(sentence)
+        }
+    }
+
+    /// After "could not tell": one look at this iPhone's own sign-in, when the account in question may be its own.
+    @MainActor private func settle(deletedEmail: String?) async {
+        guard !sample, let session = heldSession, currentSession() == session else { return }
+        if let own = ownEmail?.lowercased(), let gone = deletedEmail?.lowercased(), own != gone { return }
+        var r = URLRequest(url: coordinator.appendingPathComponent(String(SignIn.mePath.dropFirst())))
+        r.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")
+        r.timeoutInterval = 15
+        r.httpShouldHandleCookies = false
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        let answer = await send(r)
+        guard step == .unknown else { return }
+        switch DeleteAccount.settled(meStatus: answer?.0, meEmail: answer.flatMap { SignIn.accountEmail(status: $0.0, json: $0.1) },
+                                     deletedEmail: deletedEmail) {
+        case .stillThere: startOver(DeleteAccount.stillThereWords)
+        case .sessionGone:
+            guard !signedOutDone, currentSession() == session else { return }
+            signedOutDone = true
+            deleted(session)
+        case .unknown: break
         }
     }
 

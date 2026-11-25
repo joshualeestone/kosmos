@@ -48,3 +48,9 @@ Plan as posted on the card 2026-11-25 02:4x UTC (issuecomment-7151149115):
   ttl::CODE = 600), W5b mail-trouble line (a new route for the phone: filed as follow-up on the card), W5d (cosmetic).
   NOTED for Josh's billing calls, not this slice: still_deleting says "You will not be charged again" while the sweep may
   still be ending billing (the page's words; account_delete.rs).
+- r4 sonnet: 0B/4W. FIXED W1 only a 400/401/403 ends the grant; a 408, 429 or 5xx keeps it with Try again
+  (Outcome.retry). FIXED W2 a failure raised before anything was sent (no connection, DNS, TLS) is not a lost answer
+  (DeleteAccount.mayHaveArrived). FIXED W3 after a lost answer the confirm screen says the account may already be deleted,
+  and Keep my account is not offered. FIXED W4 after "could not tell", one /v1/account/me with the held session: Kosmos+
+  answering for that account means not deleted (back to the email screen); a refused session signs this iPhone out
+  (the screen still says it could not tell). All in logic, tested.
