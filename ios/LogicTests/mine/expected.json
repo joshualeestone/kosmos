@@ -1,0 +1,209 @@
+{
+ "rows": [
+  [
+   "p01",
+   "In the community",
+   "A"
+  ],
+  [
+   "p02",
+   "Taken down by a moderator: spam",
+   "Untitled post"
+  ],
+  [
+   "p03",
+   "Taken down by a moderator",
+   "Untitled post"
+  ],
+  [
+   "p04",
+   "Deleted from the community",
+   "Untitled post"
+  ],
+  [
+   "p05",
+   "Taken back, so it won't be sent again. If an earlier try reached the community, that copy may still be up, and Kosmos can no longer take it down.",
+   "Untitled post"
+  ],
+  [
+   "p06",
+   "Taken back, so it won't be sent again. If an earlier try reached the community, that copy may still be up, and Kosmos can no longer take it down.",
+   "Untitled post"
+  ],
+  [
+   "p07",
+   "Taken back, so it won't be sent again. If an earlier try reached the community, that copy may still be up, and Kosmos can no longer take it down.",
+   "Untitled post"
+  ],
+  [
+   "p08",
+   "Sent, not confirmed yet. The community refused this agent, so Kosmos cannot delete its posts.",
+   "Untitled post"
+  ],
+  [
+   "p09",
+   "Deleted before it was sent",
+   "Untitled post"
+  ],
+  [
+   "p10",
+   "Not sent. It stayed on this computer.",
+   "Untitled post"
+  ],
+  [
+   "p11",
+   "Not accepted by the community",
+   "Untitled post"
+  ],
+  [
+   "p12",
+   "Not sent. The community refused this agent, so its posts do not go out.",
+   "Untitled post"
+  ],
+  [
+   "p13",
+   "Sent, not confirmed yet. The community refused this agent, so Kosmos cannot delete its posts.",
+   "Untitled post"
+  ],
+  [
+   "p14",
+   "In the community. The community refused this agent, so Kosmos cannot delete its posts.",
+   "Untitled post"
+  ],
+  [
+   "p15",
+   "Not sent. An earlier try made a community account under a name this agent used, and Kosmos never received its key, so its posts wait rather than go out under a second name.",
+   "Untitled post"
+  ],
+  [
+   "p16",
+   "Deleting. The community has not taken it down yet; Kosmos tries again every few minutes.",
+   "Untitled post"
+  ],
+  [
+   "p17",
+   "Deleting. It comes down from the community within a few minutes.",
+   "Untitled post"
+  ],
+  [
+   "p18",
+   "Sent, not confirmed yet",
+   "Untitled post"
+  ],
+  [
+   "p19",
+   "Not sent yet. Kosmos tries again every few minutes.",
+   "Untitled post"
+  ],
+  [
+   "p20",
+   "",
+   "Untitled post"
+  ],
+  [
+   "p21",
+   "In the community",
+   "Untitled post"
+  ],
+  [
+   "p22",
+   "In the community",
+   "Untitled post"
+  ],
+  [
+   "c01",
+   "Removed from the community",
+   "Comment: t"
+  ],
+  [
+   "c02",
+   "Removed before it was sent",
+   "Comment: (no text)"
+  ],
+  [
+   "c03",
+   "Not accepted by the community",
+   "Comment: (no text)"
+  ],
+  [
+   "c04",
+   "Not sent. It stayed on this computer.",
+   "Comment: (no text)"
+  ],
+  [
+   "c05",
+   "Not sent. The community refused this agent, so its comments do not go out.",
+   "Comment: (no text)"
+  ],
+  [
+   "c06",
+   "Sending. Kosmos is sending it to the community right now.",
+   "Comment: (no text)"
+  ],
+  [
+   "c07",
+   "Sent, not confirmed. Kosmos does not know whether this arrived and cannot look for it, so it cannot remove it.",
+   "Comment: (no text)"
+  ],
+  [
+   "c08",
+   "Sent, not confirmed. Kosmos does not know yet whether this arrived, so it cannot remove it; it keeps looking for it.",
+   "Comment: (no text)"
+  ],
+  [
+   "c09",
+   "Sent, not confirmed. Kosmos does not know yet whether this arrived, so it cannot remove it; it keeps looking for it.",
+   "Comment: (no text)"
+  ],
+  [
+   "c10",
+   "In the community. The community refused this agent, so Kosmos cannot remove its comments.",
+   "Comment: (no text)"
+  ],
+  [
+   "c11",
+   "In the community. Kosmos could not read its community registrations just now.",
+   "Comment: (no text)"
+  ],
+  [
+   "c12",
+   "In the community. Kosmos no longer holds the registration that sent it, so it cannot remove it.",
+   "Comment: (no text)"
+  ],
+  [
+   "c13",
+   "In the community. Kosmos cannot tell whether the registration it holds sent this comment, so it cannot remove it.",
+   "Comment: (no text)"
+  ],
+  [
+   "c14",
+   "In the community. Kosmos has no way to find this comment again, so it cannot remove it.",
+   "Comment: (no text)"
+  ],
+  [
+   "c15",
+   "Removing. The community has not taken it down yet; Kosmos tries again every few minutes.",
+   "Comment: (no text)"
+  ],
+  [
+   "c16",
+   "Removing. It comes down from the community within a few minutes.",
+   "Comment: (no text)"
+  ],
+  [
+   "c17",
+   "In the community",
+   "Comment: hello"
+  ],
+  [
+   "c18",
+   "Not sent yet.",
+   "Comment: (no text)"
+  ],
+  [
+   "c19",
+   "",
+   "Comment: (no text)"
+  ]
+ ]
+}
