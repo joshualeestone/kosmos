@@ -471,7 +471,8 @@ struct TaskPageView: View {
             holdRow(Board.holdWhyLabel) {
                 // Capped after it is written, as the page's other boxes: capped in the setter, nothing changes at the limit, so
                 // nothing is drawn again and the box keeps words that are not sent.
-                TextField(Board.holdWhyPrompt, text: Binding(get: { shown.why }, set: { v in if v != (holdDraft ?? stored).why { edit { $0.why = v } } }))
+                // Read back live, as the minutes box of Repeats is.
+                TextField(Board.holdWhyPrompt, text: Binding(get: { (holdDraft ?? model.holdShown ?? h.stored).why }, set: { v in if v != (holdDraft ?? stored).why { edit { $0.why = v } } }))
                 .onChange(of: shown.why) { v in
                     let kept = Board.capped(v, Board.holdWhyMax)
                     if kept != v, holdDraft != nil { holdDraft?.why = kept }
