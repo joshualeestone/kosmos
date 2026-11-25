@@ -2131,6 +2131,12 @@ final class BoardClient: ObservableObject {
         lastSeenReadAt = env.now()   // kosmos#7416: a list this fresh needs no second read for its time
     }
 
+    // kosmos#9028: the account's computers, read again because a page opened one the list does not have.
+    func rereadMacs() async {
+        guard let session = sessionStore.load() else { return }
+        await readMacs(session: session, nil)
+    }
+
     private func chooseMac(session: String, _ gen: Int) async -> Board.Mac? {
         macsTicket += 1
         let ticket = macsTicket

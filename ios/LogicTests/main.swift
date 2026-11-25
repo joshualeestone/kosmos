@@ -242,7 +242,13 @@ let macC9028 = URL(string: "https://c.kosmosplus.com/")!
 check(knows9028(trail9028 { $0.letIn(signIn9028) }).pages == [signIn9028], "a page on its way is one a redirect leaves")
 check(knows9028(trail9028 { $0.committed(signIn9028); $0.letIn(macC9028) }).pages == [signIn9028, macC9028], "and so is the page still on screen")
 check(link("https://d.kosmosplus.com/", .tapped, knows9028(trail9028 { $0.committed(signIn9028); $0.letIn(macC9028) })) == .inApp, "Open on D while C hangs is judged by the Kosmos+ page on screen")
-check(knows9028(trail9028 { $0.letIn(macC9028); $0.ended() }).pages.isEmpty, "a load that failed is not left behind")
+check(knows9028(trail9028 { $0.letIn(macC9028); $0.ended(macC9028) }).pages.isEmpty && knows9028(trail9028 { $0.letIn(macC9028); $0.ended(nil) }).pages.isEmpty, "a load that failed is not left behind")
+check(knows9028(trail9028 { $0.letIn(macC9028); $0.letIn(signIn9028); $0.ended(macC9028) }).pages == [signIn9028], "a stopped load reported late does not clear the one that replaced it")
+func newOne9028(_ s: String) -> Bool { Shell.mayBeNewComputer(URL(string: s)!, coordinator: coordinator, reserved: reserved9028) }
+check(newOne9028("https://just-added.kosmosplus.com/x") && newOne9028("https://JUST-added.kosmosplus.com/"), "a computer-shaped address is worth a fresh list")
+for s in ["https://community.kosmosplus.com/", "https://login.kosmosplus.com/", "https://evil.example.com/", "http://just-added.kosmosplus.com/", "https://just-added.kosmosplus.com:8443/", "https://a.b.kosmosplus.com/"] {
+    check(!newOne9028(s), "not worth one: " + s)
+}
 check(knows9028(trail9028 { $0.letIn(signIn9028); $0.committed(macC9028) }).pages == [macC9028], "once the next page shows, the Kosmos+ page is no longer being left")
 check(knows9028(trail9028 { $0.committed(macC9028) }).shown == ["c.kosmosplus.com"] && knows9028(trail9028 { $0.committed(nil) }).shown.isEmpty, "a page that shows is remembered for back")
 check(knows9028(trail9028 { $0.opened(macC9028) }).own == ["c.kosmosplus.com"], "the page the app opened is let in before the list is read")
