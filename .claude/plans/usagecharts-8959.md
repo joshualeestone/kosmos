@@ -25,3 +25,9 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7156509
 - M3 the arc's inset was a bare 11 tied to a 22 stroke elsewhere: one constant, DonutArc.ring.
 - M4 the donut's whole-percent band and the single-model circle were untested: the fixture's big day gives 64% and 36% slices, and a unit check covers one model as the whole circle at 100%.
 - Measured: run-usage.sh PASS 75/75; parity 2/2; app and UI-test typecheck 0 errors.
+
+### Round 2 (sonnet, 02:13 CST): no BLOCKER, no MAJOR, 3 MINOR. Loop ends here: rounds with nothing material after round 1's fixes.
+- M2 the UI test's reveal could swipe past the donut (a container may never read as hittable): it now stops once the donut exists.
+- M3 one day of data drew an empty chart: a point mark then.
+- M1 kept: slice angles are pinned for contiguity, not against the page's arcs. The page exposes them only inside its SVG paths, and the legend's percentages, which are pinned to the page, catch a wrong fraction.
+- Measured: run-usage.sh PASS 75/75; typecheck 0 errors (app and UI test).
