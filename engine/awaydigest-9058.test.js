@@ -61,3 +61,12 @@ test('kosmos#9058 review 1: a /clear counts the session it is ending before that
   assert.equal(away.sessionsSinceWait(landed, WAIT.at), 2);
   assert.equal(away.sessionsSinceWait(landed, WAIT.at, { endingNow: true }), 2);
 });
+
+test('kosmos#9058 review 4: a started closes a worked session as a stopped does (a crash leaves no stopped)', () => {
+  const h = [WAIT, row('started', 'auto', 1), row('working', 'auto', 2), row('started', 'auto', 3), row('idle', 'auto', 4), row('started', 'auto', 5)];
+  assert.equal(away.sessionsSinceWait(h, WAIT.at), 2);
+  // the open session before a startup's own started lands (the Mac asks first): counted only with endingNow.
+  const open = h.slice(0, 5);
+  assert.equal(away.sessionsSinceWait(open, WAIT.at), 1);
+  assert.equal(away.sessionsSinceWait(open, WAIT.at, { endingNow: true }), 2);
+});

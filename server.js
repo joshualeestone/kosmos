@@ -19954,12 +19954,16 @@ const server = http.createServer(async (req, res) => {
            `stopped` has not landed yet (the Mac hook sends it in the background): pending too, not "already reminded". */
         let after = w ? away.sessionAfter(hist, w.atMs) : null;
         /* kosmos#9058: a wait is reminded at the first session end and once more, not at every /clear and resume: an
-           agent that has gone on working through that many reminded sessions has moved on (awaydigest.sessionsSinceWait). */
-        if (after === 'stopped' && away.sessionsSinceWait(hist, w.atMs, { endingNow: clearing }) >= away.REMIND_SESSIONS) { w = null; after = 'reminded'; }
+           agent that has gone on working through that many reminded sessions has moved on (awaydigest.sessionsSinceWait).
+           Review 4: the hooks' ask (as=waithook) always comes at a SessionStart right after a SessionEnd, so it counts the
+           session being ended (endingNow) for a /clear and an in-session /resume alike, whose own `stopped` may not have
+           landed; after a quit that `stopped` landed long ago and the open session is the new, empty one, so it adds
+           nothing. A by-hand ask (wait=only) is made inside a live session and does not. */
+        if (after === 'stopped' && away.sessionsSinceWait(hist, w.atMs, { endingNow: as === 'waithook' }) >= away.REMIND_SESSIONS) { w = null; after = 'reminded'; }
         const pending = !!w && (after === null || (after === 'started' && clearing));
         if (after !== 'stopped') w = null;
         if (as === 'waithook' || as === 'hook') { sendText(res, 200, w ? away.hookJson(null, w, { ended: true }) : pending ? '{"pending":true}' : ''); return; }
-        if (as === 'text') { sendText(res, 200, (away.waitText(w, { ended: true }) || (pending ? 'Your last report was a wait, and Kosmos has not yet heard a session end that would set it aside, so it is still shown on the board.' : (after === 'reminded' ? 'Kosmos no longer reminds you of your last wait: you have worked through ' + away.REMIND_SESSIONS + ' sessions since it without reporting again, and it has reminded you already.' : 'Kosmos has no wait of yours to remind you of: your last report was not a wait, or you were already reminded of it at a startup.'))) + '\n'); return; }
+        if (as === 'text') { sendText(res, 200, (away.waitText(w, { ended: true }) || (pending ? 'Your last report was a wait, and Kosmos has not yet heard a session end that would set it aside, so it is still shown on the board.' : (after === 'reminded' ? 'Kosmos no longer reminds you of your last wait: you have worked through at least ' + away.REMIND_SESSIONS + ' sessions since it without reporting again, each begun where a reminder is given.' : 'Kosmos has no wait of yours to remind you of: your last report was not a wait, or you were already reminded of it at a startup.'))) + '\n'); return; }
         sendJson(res, 200, { ok: true, wait: w, ...(pending ? { pending: true } : {}) });
         return;
       }
