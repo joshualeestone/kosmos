@@ -25,6 +25,8 @@ final class AccountScreenUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Retire studio"].exists && app.buttons["Retire laptop"].exists, "Retire missing on a computer that answers")
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == 'Retire old-mini'")).count, 1, "the retired old-mini has a Retire, or the silent one has none")
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Retire '")).count, 3, "Retire on every computer not retired, and only those")
+        // Slice B3 review 4: checked here, where the computers section is on screen (the "Answering now" row is its control).
+        XCTAssertFalse(app.descendants(matching: .any)["account-no-computer"].exists, "no-computer words beside computers that answer")
         shot(app, "account-screen")
 
         app.buttons["Retire studio"].tap()
@@ -38,8 +40,10 @@ final class AccountScreenUITests: XCTestCase {
         noSelling(app, "the plan, computers and second step")
         reveal(app, app.buttons["account-sign-out-everywhere"])
         XCTAssertTrue(app.buttons["account-sign-out"].exists && app.buttons["account-sign-out-everywhere"].exists, "no sign-out buttons")
-        XCTAssertFalse(app.descendants(matching: .any)["account-no-computer"].exists, "no-computer words beside computers that answer")
-        // kosmos#8959 slice B3: nothing on this screen opens the web page any more.
+        // kosmos#8959 slice B3: nothing on this screen opens the web page any more. Review 4: one more swipe so the end of
+        // the List, where that row sat under Sign out, is built; the sign-out buttons are the control.
+        app.swipeUp()
+        XCTAssertTrue(app.buttons["account-sign-out-everywhere"].exists, "the end of the screen is not built")
         XCTAssertFalse(app.buttons["account-more"].exists, "the More on Kosmos+ row is still there")
         XCTAssertFalse(app.staticTexts["Anything not on this screen is on your Kosmos+ account page."].exists, "the More footer is still there")
         noSelling(app, "sign out")
