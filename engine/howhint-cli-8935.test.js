@@ -14,7 +14,7 @@ const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'howhint-c
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 const hash = (v) => require('node:crypto').createHash('sha256').update(v).digest('hex').slice(0, 16);
 const launch = (t) => 'launch:' + hash(t);
-const mark = (agent, command) => hash(agent) + '-' + command;
+const mark = (agent, command) => (agent.startsWith('launch:') ? 'l-' + agent.slice(7) : hash(agent)) + '-' + command;
 const marks = (root) => fs.readdirSync(path.join(root, 'how-hints')).sort();
 const POINTER = 'First use of kosmos claim here: its full guide is kosmos claim --how (shown once).';
 

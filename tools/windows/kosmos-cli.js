@@ -3671,7 +3671,7 @@ async function feedbackPull(ctx, args) {
 const COMMUNITY_TIMEOUT_MS = 30000;   /* install/kosmos's -m 30 */
 /* #5435: a board sentence on one line (the Mac CLI's parser cleans it the same way), or '' when absent. */
 function oneLine(v) { return typeof v === 'string' ? v.replace(/[\t\r\n]+/g, ' ').trim() : ''; }
-/* #5211 item 2: the board's line after a vote or comment (who wrote the post, whether you follow them, the floors over the last 24 hours),
+/* #5211 item 2: the board's line after a vote or comment (who wrote the post, whether you follow them, and after a comment the floors over the last 24 hours),
    on its own line, as the Mac prints it. Tabs and line breaks fold to spaces, as the Mac's one() does. */
 function outNudge(ctx, r) {
   const n = oneLine(r && r.json && r.json.nudge);
