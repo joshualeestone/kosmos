@@ -4,8 +4,8 @@ require('./test-support/tmpscope');
 /**
  * kosmos#9049: a /clear, or a resume after a quit, continues a conversation whose SessionEnd recorded `stopped` over the
  * agent's own wait, and no `started` follows, so #8634's startup reminder never came. GET /api/away?wait=only answers
- * that reminder alone, worded for a session that ended, and only when a `stopped` was recorded after the wait: a resume
- * after a crash sends no SessionEnd, so its wait is still on the board and nothing is said.
+ * that reminder alone (as=waithook for the hooks, wait=only by hand), and only when the newest session event after the
+ * wait is a `stopped`; with none yet it is `pending` (a crash, or a clear whose stopped has not landed).
  *
  *   node --test server.away-9049.test.js
  */
@@ -71,7 +71,7 @@ test('a wait a session END set aside is the whole answer, in the words for a ses
     ]);
     const tok = sendertoken.mint('leo').token;
     try {
-      const r = await ask(tok, 'as=hook&wait=only');
+      const r = await ask(tok, 'as=waithook');
       assert.equal(r.code, 200, r.text);
       const ctx = JSON.parse(r.text).hookSpecificOutput.additionalContext;
       assert.match(ctx, /last reported that it was waiting \(needs_you, at /);
@@ -88,7 +88,7 @@ test('a wait a session END set aside is the whole answer, in the words for a ses
   });
 });
 
-test('a wait with no stopped after it (a resume after a crash: no SessionEnd) gets nothing', async () => {
+test('a wait with no session event after it (a resume after a crash, or a clear whose stopped has not landed) is pending, never a reminder', async () => {
   await withBoard(async () => {
     const t = now();
     writeHistory([
@@ -97,10 +97,12 @@ test('a wait with no stopped after it (a resume after a crash: no SessionEnd) ge
     ]);
     const tok = sendertoken.mint('leo').token;
     try {
-      const r = await ask(tok, 'as=hook&wait=only');
+      const r = await ask(tok, 'as=waithook');
       assert.equal(r.code, 200);
-      assert.equal(r.text, '', 'the wait is still on the board; saying it was set aside would be false');
-      assert.equal(JSON.parse((await ask(tok, 'wait=only')).text).wait, null);
+      assert.equal(r.text, '{"pending":true}', 'no session event after the wait yet: the hook asks once more, and says nothing false');
+      const j = JSON.parse((await ask(tok, 'wait=only')).text);
+      assert.equal(j.wait, null);
+      assert.equal(j.pending, true);
       // CONTROL: the same history at a real startup still reminds, in the startup words.
       const s = await ask(tok, 'as=hook&at=startup');
       assert.match(JSON.parse(s.text).hookSpecificOutput.additionalContext, /A new run replaces a waiting report on the board/);
@@ -108,19 +110,26 @@ test('a wait with no stopped after it (a resume after a crash: no SessionEnd) ge
   });
 });
 
-test('a wait a startup already reminded of (a started after it) is not repeated at a later /clear', async () => {
+test('a /clear after a startup that reminded is reminded again (the clear wiped that context); a crash after the startup is not', async () => {
   await withBoard(async () => {
     const t = now();
-    writeHistory([
-      { state: 'needs_you', by: 'agent', because: 'may I merge', at: t - 40 * M },
-      { state: 'stopped', by: 'auto', because: '', at: t - 39 * M },
-      { state: 'started', by: 'auto', because: '', at: t - 30 * M },
-      { state: 'working', by: 'auto', because: 'answering a prompt', at: t - 29 * M },
-      { state: 'stopped', by: 'auto', because: '', at: t - 28 * M },
-    ]);
     const tok = sendertoken.mint('leo').token;
     try {
-      assert.equal((await ask(tok, 'as=hook&wait=only')).text, '', '#8634 reminded at that startup; every later /clear would nag');
+      writeHistory([
+        { state: 'needs_you', by: 'agent', because: 'may I merge', at: t - 40 * M },
+        { state: 'stopped', by: 'auto', because: '', at: t - 39 * M },
+        { state: 'started', by: 'auto', because: '', at: t - 30 * M },
+        { state: 'working', by: 'auto', because: 'answering a prompt', at: t - 29 * M },
+        { state: 'stopped', by: 'auto', because: '', at: t - 28 * M },
+      ]);
+      assert.match(JSON.parse((await ask(tok, 'as=waithook')).text).hookSpecificOutput.additionalContext, /has since set that waiting report aside/);
+      writeHistory([
+        { state: 'needs_you', by: 'agent', because: 'may I merge', at: t - 40 * M },
+        { state: 'stopped', by: 'auto', because: '', at: t - 39 * M },
+        { state: 'started', by: 'auto', because: '', at: t - 30 * M },
+        { state: 'working', by: 'auto', because: 'answering a prompt', at: t - 29 * M },
+      ]);
+      assert.equal((await ask(tok, 'as=waithook')).text, '', 'the newest session event is the startup, which reminded already');
     } finally { sendertoken.revoke('leo'); }
   });
 });
@@ -135,12 +144,12 @@ test('a wait the agent itself ended, or no wait at all, gets nothing even after 
         { state: 'working', by: 'agent', because: 'merged, carrying on', at: t - 29 * M },
         { state: 'stopped', by: 'auto', because: '', at: t - 28 * M },
       ]);
-      assert.equal((await ask(tok, 'as=hook&wait=only')).text, '');
+      assert.equal((await ask(tok, 'as=waithook')).text, '');
       writeHistory([
         { state: 'working', by: 'auto', because: 'answering a prompt', at: t - 30 * M },
         { state: 'stopped', by: 'auto', because: '', at: t - 28 * M },
       ]);
-      assert.equal((await ask(tok, 'as=hook&wait=only')).text, '');
+      assert.equal((await ask(tok, 'as=waithook')).text, '');
       assert.match((await ask(tok, 'as=text&wait=only')).text, /no wait of yours to remind you of/);
     } finally { sendertoken.revoke('leo'); }
   });

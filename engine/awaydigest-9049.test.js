@@ -1,7 +1,7 @@
 'use strict';
 /**
  * kosmos#9049: the wait reminder for a session that went on after its SessionEnd (a /clear, a resume after a quit),
- * and the test for whether a session end set the wait aside.
+ * and the newest session event after a wait (sessionAfter).
  *
  *   node --test engine/awaydigest-9049.test.js
  */
@@ -27,13 +27,13 @@ test('the ended wording says only that the board set the wait aside; the default
   assert.equal(away.hookJson(null, null, { ended: true }), '', 'no wait, nothing to say');
 });
 
-test('endedAfter: a stopped recorded AFTER the wait, and no started after it', () => {
+test('sessionAfter: the newest stopped or started after the wait, or null', () => {
   const at = W.atMs;
-  assert.equal(away.endedAfter([{ state: 'stopped', at: at + 1 }], at), true);
-  assert.equal(away.endedAfter([{ state: 'stopped', at: at - 1 }], at), false, 'a stopped before the wait did not set it aside');
-  assert.equal(away.endedAfter([{ state: 'stopped', at }], at), false, 'the same instant is not after');
-  assert.equal(away.endedAfter([{ state: 'idle', at: at + 1 }, { state: 'working', at: at + 2 }], at), false);
-  assert.equal(away.endedAfter(null, at), false);
-  assert.equal(away.endedAfter([{ state: 'stopped', at: at + 1 }, { state: 'started', at: at + 2 }], at), false, 'a startup came in between and reminded already');
-  assert.equal(away.endedAfter([{ state: 'started', at: at + 1 }, { state: 'stopped', at: at + 2 }], at), false, 'a started anywhere after the wait');
+  assert.equal(away.sessionAfter([{ state: 'stopped', at: at + 1 }], at), 'stopped');
+  assert.equal(away.sessionAfter([{ state: 'stopped', at: at - 1 }], at), null, 'a stopped before the wait does not count');
+  assert.equal(away.sessionAfter([{ state: 'stopped', at }], at), null, 'the same instant is not after');
+  assert.equal(away.sessionAfter([{ state: 'idle', at: at + 1 }, { state: 'working', at: at + 2 }], at), null, 'other states are not session events');
+  assert.equal(away.sessionAfter([{ state: 'stopped', at: at + 1 }, { state: 'started', at: at + 2 }], at), 'started', 'the newest wins');
+  assert.equal(away.sessionAfter([{ state: 'started', at: at + 1 }, { state: 'stopped', at: at + 2 }, { state: 'working', at: at + 3 }], at), 'stopped');
+  assert.equal(away.sessionAfter(null, at), null);
 });

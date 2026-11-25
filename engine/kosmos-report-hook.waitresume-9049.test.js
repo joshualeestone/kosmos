@@ -22,21 +22,22 @@ test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 const JSONLINE = JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'Kosmos: before this session x' } });
 
 /* Answers /api/away with the hook JSON and every other request as a recorded report, recording each URL. */
-function board(seen) {
+function board(seen, awayAnswers) {
+  const answers = awayAnswers ? awayAnswers.slice() : null;
   return async (url) => {
     seen.push(url);
-    if (/\/api\/away\?/.test(url)) return { ok: true, status: 200, text: async () => JSONLINE };
+    if (/\/api\/away\?/.test(url)) { const a = answers ? (answers.shift() || '') : JSONLINE; return { ok: true, status: 200, text: async () => a }; }
     return { ok: true, status: 200, text: async () => JSON.stringify({ recorded: true }) };
   };
 }
-function start(source, env) {
+function start(source, env, awayAnswers) {
   const seen = []; const printed = [];
   return {
     seen, printed,
     io: {
       input: JSON.stringify({ hook_event_name: 'SessionStart', source }),
       url: 'http://127.0.0.1:1', boardToken: null, throttleDir: path.join(SANDBOX, 'throttle'),
-      now: () => 1000, ppid: 4242, env, fetchImpl: board(seen), stdout: (s) => printed.push(s),
+      now: () => 1000, ppid: 4242, env, fetchImpl: board(seen, awayAnswers), stdout: (s) => printed.push(s), waitRetryMs: 0,
     },
   };
 }
@@ -48,9 +49,22 @@ test('a /clear or a resume asks for the wait reminder alone, prints it, and send
     assert.equal(await hook.main(s.io), 0, source);
     const away = s.seen.filter((u) => /\/api\/away\?/.test(u));
     assert.equal(away.length, 1, source + ': ' + s.seen.join(', '));
-    assert.match(away[0], /[?&]wait=only(&|$)/, source);
+    assert.match(away[0], /\/api\/away\?as=waithook(&|$)/, source);
     assert.equal(s.seen.filter((u) => /\/api\/report$/.test(u)).length, 0, source + ': no started over the wait (#1058)');
     assert.deepEqual(s.printed, [JSONLINE + '\n'], source);
+  }
+});
+
+test('a pending answer is asked once more and the second answer is printed; an empty one is not asked again', async () => {
+  for (const source of ['clear', 'resume']) {
+    const p = start(source, TOKEN, ['{"pending":true}', JSONLINE]);
+    await hook.main(p.io);
+    assert.equal(p.seen.filter((u) => /\/api\/away\?/.test(u)).length, 2, source);
+    assert.deepEqual(p.printed, [JSONLINE + '\n'], source + ': "pending" itself is never printed');
+    const e = start(source, TOKEN, ['']);
+    await hook.main(e.io);
+    assert.equal(e.seen.filter((u) => /\/api\/away\?/.test(u)).length, 1, source);
+    assert.deepEqual(e.printed, [], source);
   }
 });
 
@@ -72,6 +86,6 @@ test('CONTROL: a real startup still asks the full away (no wait=only) after its 
   await hook.main(s.io);
   const away = s.seen.filter((u) => /\/api\/away\?/.test(u));
   assert.equal(away.length, 1, s.seen.join(', '));
-  assert.doesNotMatch(away[0], /wait=only/);
+  assert.doesNotMatch(away[0], /waithook/);
   assert.equal(s.seen.filter((u) => /\/api\/report$/.test(u)).length, 1);
 });

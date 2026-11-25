@@ -12,19 +12,23 @@ it: the board has dropped the question and the agent is not told.
 ## Decision
 The card's first option: give the reminder at SessionStart `clear` and `resume`, the wait only, no digest replay (that
 conversation already saw what arrived).
-- Board: `GET /api/away?wait=only` answers only `awaydigest.lastWait`, worded without naming a cause ("The board has
-  since set that waiting report aside") instead of #8634's "A new run replaces ...". It answers only
-  when a `stopped` was recorded after the wait (`awaydigest.endedAfter`), so a resume after a CRASH (no SessionEnd,
-  the wait still on the board) is not told something false.
-- CLI: `kosmos away --hook --wait-only` (the --hook contract: JSON or nothing, exit 0, 1 s cap). `--wait-only` alone
-  is a usage error.
-- Mac bash hook (install/kosmos-report-hook.sh) and Windows JS hook (engine/kosmos-report-hook.js): at SessionStart
-  `clear` or `resume`, with an agent token (or, on the Mac, a pane), ask and print the JSON. Still no `started`.
-  `compact` sends no SessionEnd, so the wait is still on the board and nothing is asked.
-- Review round 1: on the Mac a /clear can beat its own `stopped` (the SessionEnd hook sends it in the background, and
-  the clear's SessionStart follows at once), so an empty first answer at `clear` is asked once more after 0.8 s
-  (KOSMOS_WAIT_RETRY_S). A resume follows its quit after a person's pause and is asked once; the Windows hook awaits
-  its SessionEnd send, so it does not race.
+- Board: `GET /api/away?as=waithook` (the hooks' form; `wait=only` gives the same answer as JSON or text by hand)
+  answers only `awaydigest.lastWait`, worded without naming a cause ("The board has since set that waiting report
+  aside") instead of #8634's "A new run replaces ...". It reminds only when the NEWEST session event after the wait
+  (`awaydigest.sessionAfter`: a `stopped` or a `started`) is a `stopped`:
+  - `stopped`: a session end set the wait aside, so remind (every /clear does this, and each wipes the context that held
+    the last reminder);
+  - `started`: a startup came after it and #8634 reminded there, so say nothing (a crash-resume after it too);
+  - none yet: answer `{"pending":true}` (a /clear's own `stopped`, sent in the background, has not landed; or a crash
+    left the wait shown). Never a reminder, so nothing false is said.
+  `as=waithook` is new, so a board older than this answers it with plain JSON, which the hooks drop: never the startup
+  digest nor its "a new run replaces" sentence.
+- CLI: `kosmos away --hook --wait-only` (Mac and Windows) asks `as=waithook` and prints the hook JSON, or
+  `{"pending":true}`, or nothing; exit 0, 1 s cap. `--wait-only` alone is a usage error.
+- Mac bash hook and Windows JS hook: at SessionStart `clear` or `resume`, with an agent token (or, on the Mac, a
+  pane), ask; on `pending`, ask once more after 0.8 s (KOSMOS_WAIT_RETRY_S on the Mac); print only the hook JSON. Still
+  no `started`. `compact` sends no SessionEnd, so nothing is asked. The retry is paid only on `pending`, so an ordinary
+  /clear with no wait costs one ask.
 
 Rejected:
 - The card's second option, keeping the wait across a SessionEnd that a resume follows: the board cannot know at
@@ -36,12 +40,14 @@ Rejected:
 Weakest premise: that `lastWait` still finds the wait after SessionEnd. It skips rows with `by: 'auto'`, and both
 hooks send `stopped` with --auto / auto:true (measured in the tests: a needs_you, an auto idle, an auto stopped ->
 reminded).
-Review rounds 1 and 2: `endedAfter` first accepted ANY later `stopped`, so a crash-resume after an earlier quit, and
-every /clear after a startup that had already reminded (#8634), got the reminder again. It now also requires that no
-`started` follows the wait: a startup in between means the agent was reminded there. Several /clears with no startup
-between them are each reminded, which is right: each /clear wipes the context that held the last reminder.
-Accepted: when the board is down, a /clear pays the retry (about 1.8 s worst case, inside the hook's 15 s), because the
-CLI's empty answer cannot tell "no stopped yet" from "no board".
+How the rule got here (review rounds 1 to 3): a first version retried every empty answer at a /clear (nearly every
+/clear paid 0.8 s), gave a resume no retry although an in-session /resume races the same way, accepted any later
+`stopped` (so a crash-resume after an earlier quit was told), and then a `started` rule that could lose the reminder
+for good (wait, quit, startup, /clear before a new report). The newest-session-event rule above replaces all of these.
+Accepted: when the board answers `pending` because the agent crashed with a wait shown, the hook pays the 0.8 s retry
+once; worst case about 3 s (two 1 s asks and the pause), inside the hook's 15 s.
+Not measured: whether Claude Code waits for the SessionEnd hook to finish before the next SessionStart (on Windows the
+hook awaits its send, so it would then not race; the retry covers it either way).
 Not covered: Grok and Gemini bridges, which send `started` on every SessionStart (#9048, a separate card). A real
 Claude Code /clear and resume on a live agent were not driven; the hooks were fed the events.
 

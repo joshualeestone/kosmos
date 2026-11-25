@@ -9,7 +9,9 @@
 # hooks on 2026-08-24):
 #   SessionStart      -> started, but ONLY when `source` is `startup` (#1058):
 #                        a compaction or resume must not clear a waiting state; and, asked before `started`, prints
-#                        what reached the agent while it was not running as additionalContext JSON (kosmos#8548)
+#                        what reached the agent while it was not running as additionalContext JSON (kosmos#8548).
+#                        At `clear` and `resume` it reports nothing and prints only the reminder of the agent's own
+#                        wait that the SessionEnd before it set aside, if any (kosmos#9049)
 #   UserPromptSubmit  -> working  "answering a prompt"; and, at most every 5 minutes, prints the agent's waiting
 #                        file-owner notices as additionalContext JSON on stdout (kosmos#7989)
 #   PreToolUse        -> working  "running <tool>"  (throttled heartbeat)
@@ -701,10 +703,11 @@ case "$EVENT" in
           clear|resume)
             if [ -n "${KOSMOS_AGENT_TOKEN:-}" ] || [ -n "${TMUX_PANE:-}" ]; then
               WAIT_OUT=$("$KOSMOS" away --hook --wait-only </dev/null 2>/dev/null) || WAIT_OUT=""
-              # A /clear follows its own SessionEnd at once, and that hook sent `stopped` in the background, so the ask
-              # can reach the board first and find no `stopped` yet: ask once more after a short pause (a resume comes
-              # a person's time after its quit, so it does not race).
-              if [ "$SRC" = clear ] && [ -z "$WAIT_OUT" ]; then
+              # A /clear (or an in-session /resume) follows its own SessionEnd at once, and that hook sent `stopped` in
+              # the background, so the ask can beat it. The board then answers {"pending":true} (a wait with no session
+              # event after it yet), and only then is it asked once more after a short pause. An empty answer (no wait,
+              # a refusal, no board) is never asked again.
+              if [ "$WAIT_OUT" = '{"pending":true}' ]; then
                 sleep "${KOSMOS_WAIT_RETRY_S:-0.8}"
                 WAIT_OUT=$("$KOSMOS" away --hook --wait-only </dev/null 2>/dev/null) || WAIT_OUT=""
               fi
