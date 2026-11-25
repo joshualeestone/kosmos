@@ -14,7 +14,7 @@ converged: true
 
 **Iterations:** 8 (opus, sonnet, opus, sonnet, opus, sonnet, opus, sonnet)
 **Converged:** Yes, at 8. I first called it converged at 4; removing each piece in turn then found four with no test and real bugs under them, and reviews 5 and 7 found two real defects each.
-**Total findings:** 1 BLOCKER and 18 WARNINGs, plus NITs | **Fixed:** 14 | **Deferred:** 5
+**Total findings:** 1 BLOCKER and 23 WARNINGs, plus NITs | **Fixed:** 19 | **Deferred:** 5
 
 ### Per-Iteration Breakdown
 
