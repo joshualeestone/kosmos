@@ -777,6 +777,8 @@ if [ "$FAMILY" = mac ]; then
   # check ran from a Mac already signed in. An agent takes the fresh staging board through a real
   # first sign-in (tools/plus-signin-fresh.js: the code from the seed inbox via the Gmail
   # connector, #1591) and leaves a record for this sha; this gate reads it from the SNAPSHOT.
+  # tools/plus-signin-auto.sh (kosmos#9018) does that whole run in one command, on a throwaway board
+  # booted from the pointer's own tarball.
   # 0 pass -> promote; 1 fail or ambiguous -> refuse, never forceable; 2 cannot tell -> WARN and
   # promote (#3940, Josh 2026-09-26 11:54 CDT: "I don't need to test that part on staging ... that
   # shouldn't hold us up from pushing this live"). Exit 2 covers no record, an attempt still in
