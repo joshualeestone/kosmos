@@ -126,6 +126,24 @@ check(Automation.applying(.community(false), to: .dailyReport(on: true, damaged:
 check(Automation.applying(.dailyReport(true), to: .dailyReport(on: false, damaged: true)) == .dailyReport(on: true, damaged: false), "turning a damaged Daily report on sets it again")
 check(Automation.applying(.failover(true), to: .assigner(.init(on: true, failover: false))) == .assigner(.init(on: true, failover: true)), "failover")
 
+section("the sample offers only what a computer offers")
+let engineFiles: [Automation.Box: String] = [.prompter: "engine/heartbeat-setting.js", .geminiCap: "engine/agycap-setting.js",
+                                             .accountCap: "engine/workcap-setting.js", .messages: "engine/limits.js"]
+for (box, file) in engineFiles {
+    let src = repoText(file)
+    var list: [Int] = []
+    var current = -1
+    switch Automation.parse(box, status: 200, data: json(Automation.sampleAnswer(box))) {
+    case .prompter(let p)?: list = p.choices; current = p.minutes
+    case .cap(let c)?: list = c.choices; current = c.max
+    case .messages(let m)?: list = m.tiers; current = m.perHour
+    default: break
+    }
+    let literal = "[" + list.map(String.init).joined(separator: ", ") + "]"
+    check(!src.isEmpty && !list.isEmpty && src.contains(literal), "\(box.rawValue): the sample's list \(literal) is \(file)'s own")
+    check(list.contains(current), "\(box.rawValue): the sample's value \(current) is one of them")
+}
+
 section("the notes under each box follow the state, as the board's")
 check(Automation.notes(.messages(.init(on: false, perHour: 40, tiers: [40]))) == [Automation.Words.messagesOff], "off: the off sentence")
 check(Automation.notes(.messages(.init(on: true, perHour: 100, tiers: [100]))) == [Automation.Words.messagesHigh], "top tier: the cost line")

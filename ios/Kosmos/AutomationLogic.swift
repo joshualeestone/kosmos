@@ -382,9 +382,11 @@ enum Automation {
         switch box {
         case .autoSave: return #"{"timezone":null,"autohandoff":{"enabled":true,"threshold":85},"setupAssistant":null,"waitingBadge":true}"#
         case .prompter: return #"{"on":true,"intervalMinutes":15,"intervals":[5,10,15,30,60],"ok":true}"#
-        case .geminiCap: return #"{"maxWorking":0,"choices":[0,1,2,3,4,5],"ok":true}"#
-        case .accountCap: return #"{"maxWorking":3,"choices":[0,1,2,3,4,5,6,8,10],"ok":true}"#
-        case .messages: return #"{"on":true,"perHour":40,"ok":true,"tiers":[20,40,100]}"#
+        // The lists are the engine's own (engine/agycap-setting.js, workcap-setting.js, limits.js, heartbeat-setting.js;
+        // the logic suite compares them), so a screenshot never shows a choice no computer offers.
+        case .geminiCap: return #"{"maxWorking":0,"choices":[0,1,2,3,4],"ok":true}"#
+        case .accountCap: return #"{"maxWorking":4,"choices":[0,2,4,6,8,12,16],"ok":true}"#
+        case .messages: return #"{"on":true,"perHour":40,"ok":true,"tiers":[10,20,40,100]}"#
         case .dailyReport: return #"{"on":false,"ok":true}"#
         case .community: return #"{"on":true,"ok":true,"share":null,"stopped":null}"#
         case .language: return #"{"choice":"auto","ok":true,"options":[{"tag":"en","name":"English"},{"tag":"es-419","name":"Spanish (Latin America)"}],"automatic":{"tag":"en","name":"English","sure":true}}"#

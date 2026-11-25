@@ -83,7 +83,9 @@ struct AutomationView: View {
                 Text(note.text).foregroundColor(note.problem ? Palette.dangerWord : Palette.secondary)
             }
             if case .loaded(let state) = loads[box] ?? .reading {
-                ForEach(Automation.notes(state), id: \.self) { Text($0).foregroundColor(Palette.secondary) }
+                // A save's "Saved, but we could not read it back" stands alone, as the page's one message line does.
+                ForEach(Automation.notes(state).filter { notes[box]?.text != Automation.Words.savedUnread || $0 != Automation.Words.languageUnread },
+                        id: \.self) { Text($0).foregroundColor(Palette.secondary) }
             }
             if let hint = hint(box) { Text(hint).foregroundColor(Palette.secondary) }
         }
@@ -148,7 +150,7 @@ struct AutomationView: View {
             switchRow(box, key: "on", label: Automation.Words.assignerLabel, hint: Automation.Words.assignerHint, value: a.on) { .assignerOn($0) }
             if Automation.failoverShown(a), let fo = a.failover {
                 switchRow(box, key: "failover", label: Automation.Words.failoverLabel,
-                          hint: Automation.Words.failoverHint + (fo ? "" : " " + Automation.Words.failoverOff), value: fo) { .failover($0) }
+                          hint: Automation.Words.failoverHint + " " + Automation.Words.failoverOff, value: fo) { .failover($0) }
             }
         }
     }
@@ -183,7 +185,8 @@ struct AutomationView: View {
         let shown = chosen(box, key, as: Int.self)
         return Picker(selection: Binding(
             get: { shown ?? value },
-            set: { n in Task { await write(box, key: key, value: n, change(n)) } }
+            // Review 3: picking the ticked row hands back the same value; the page sends nothing then, so neither do we.
+            set: { n in if n != (shown ?? value) { Task { await write(box, key: key, value: n, change(n)) } } }
         )) {
             ForEach(choices, id: \.self) { Text(name($0)).tag($0) }
         } label: {
@@ -206,11 +209,13 @@ struct AutomationView: View {
         let tags = (l.choice == nil ? [unknown] : []) + ["auto"] + l.options.map(\.tag) + kept
         return Picker(selection: Binding(
             get: { shown ?? current },
-            set: { c in if c != unknown { Task { await write(box, key: "choice", value: c, .language(c)) } } }
+            set: { c in if c != unknown && c != (shown ?? current) { Task { await write(box, key: "choice", value: c, .language(c)) } } }
         )) {
             ForEach(tags, id: \.self) { tag in
                 Text(tag == unknown ? Automation.Words.languageCouldNotRead
                      : tag == "auto" ? l.automaticLabel : (l.options.first { $0.tag == tag }?.name ?? tag)).tag(tag)
+                    // As the page's disabled option: shown, never picked.
+                    .disabled(tag == unknown)
             }
         } label: {
             HStack(spacing: 6) {
@@ -249,6 +254,8 @@ struct AutomationView: View {
         guard pending[box] == nil else { return }
         guard let mac = mac ?? (sample ? Settings.Mac(name: "Studio Mac", url: URL(string: "https://studio.kosmosplus.com/")!, cookie: "sample") : nil)
         else { return }
+        // Review 3: every read takes its own number too, as the page's ++epoch, so an older read cannot land over a newer.
+        generations[box, default: 0] += 1
         let started = generations[box] ?? 0
         if case .loaded = loads[box] ?? .reading {} else { loads[box] = .reading }
         let (status, data) = await send(box, Automation.readRequest(mac, box))
