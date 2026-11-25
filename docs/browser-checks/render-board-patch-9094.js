@@ -138,7 +138,7 @@ const say = (n, cond, note) => {
     const polls = statusPolls.length - pollsBefore;
     say('arm 1: the polls ran (at least 2 since the change)', polls >= 2, polls + ' polls');
     say('arm 1: alpha\'s row was redrawn with its new picture', !!(seen && seen.rowAlphaNew && seen.rowAlphaV), JSON.stringify(seen));
-    say('arm 1: alpha\'s card was redrawn with its new picture', !!(seen && seen.cardAlphaNew && seen.cardAlphaV), JSON.stringify(seen));
+    say('arm 1: alpha\'s card was redrawn with its new picture\'s URL (an SVG image: decoding is not read here)', !!(seen && seen.cardAlphaNew && seen.cardAlphaV), JSON.stringify(seen));
     say('arm 1: beta\'s row is the same node (not redrawn)', after.rowBetaKept, JSON.stringify(after));
     say('arm 1: beta\'s card is the same node (not redrawn)', after.cardBetaKept, JSON.stringify(after));
     say('arm 1: alpha\'s new row picture decoded (built in a template, then moved into the page)', after.decoded, JSON.stringify(after));

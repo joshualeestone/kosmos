@@ -129,6 +129,7 @@ test('#9094 random sequences: order always right, unchanged pieces keep their no
       else if (r < 0.65) next.splice(Math.floor(rnd() * (next.length + 1)), 0, row('n' + run + 's' + step));
       else if (r < 0.8 && next.length > 2) next.splice(Math.floor(rnd() * next.length), 1);
       else next = next.slice().sort(() => rnd() - 0.5);
+      const prevLoose = b.box.childNodes.filter((n) => !n.dataset.agent);
       const prevNodes = new Map(b.box.childNodes.map((n, i) => [n, i]));
       const byMarkup = new Map(b.box.childNodes.map((n) => [n.outerHTML, n]));
       moves = 0;
@@ -142,6 +143,10 @@ test('#9094 random sequences: order always right, unchanged pieces keep their no
         if (prevNodes.has(n)) keptIdx.push(prevNodes.get(n));
       }
       assert.equal(moves, keptIdx.length - lis(keptIdx), 'run ' + run + ' step ' + step + ': more kept nodes moved than needed');
+      // Unkeyed pieces (headers) are matched by rank among themselves: same rank, same markup, same node.
+      b.box.childNodes.filter((n) => !n.dataset.agent).forEach((n, k) => {
+        if (prevLoose[k] && prevLoose[k].outerHTML === n.outerHTML) assert.equal(n, prevLoose[k], 'run ' + run + ' step ' + step + ': an unchanged header was rebuilt');
+      });
       pieces = next;
     }
   }
