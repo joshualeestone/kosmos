@@ -1,9 +1,11 @@
 'use strict';
-// Browser-check-functions: pjAttachmentCard, pjAttachmentCards
+// Browser-check-functions: pjAttachmentCard, pjAttachmentCards, attachPaint
 
 /**
  * kosmos#9016: a file kept though its end is missing (a zip-based office file) says so beside it: "incomplete upload, please
  * send again", in the file card's own text, in the warning ink, in light and dark. The card still downloads.
+ *
+ * The chip beside the composer says it too, its name keeping room and nothing overlapping (the real attachPaint).
  *
  * Drives the real pjAttachmentCard builder, in Chromium and WebKit, at desktop and phone width.
  * NEGATIVE ARM: the same file without the mark says nothing.
@@ -64,6 +66,29 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       chk(r.contrast >= 4.5, tag + ' they meet AA contrast', r.contrast.toFixed(2) + ' ' + r.color + ' on ' + r.bg);
       chk(r.download === 'book.xlsx', tag + ' the card still downloads');
       chk(!/incomplete/i.test(r.clear), tag + ' NEGATIVE: a whole file says nothing', r.clear);
+      /* The chip beside the composer, where the person sees it first: the real attachPaint, a long name. */
+      const c = await page.evaluate(() => {
+        if (typeof attachPaint !== 'function' || typeof ATTACH_PENDING !== 'object') return { error: 'attachPaint or ATTACH_PENDING is gone (re-anchor this check)' };
+        const box = document.createElement('div');
+        box.id = 'chips9016'; box.className = 'attach-chips'; box.style.width = '320px';
+        document.body.prepend(box);
+        PJ_CURRENT = 'chips9016';
+        ATTACH_PENDING.room.chips9016 = [{ id: 'a', name: 'quarterly-forecast-for-the-whole-region-final.xlsx', incomplete: true }, { id: 'b', name: 'whole.xlsx' }];
+        attachPaint({ key: 'room', chipsId: 'chips9016' });
+        const chips = [...box.querySelectorAll('.attach-chip')];
+        const rect = (e) => { const q = e.getBoundingClientRect(); return { l: q.left, r: q.right, t: q.top, b: q.bottom, w: q.width }; };
+        const bad = chips[0].querySelector('.att-bad');
+        return { n: chips.length, box: rect(box), chip: rect(chips[0]), name: rect(chips[0].querySelector('.attach-chip-name')), bad: bad ? rect(bad) : null,
+          x: rect(chips[0].querySelector('.attach-chip-x')), text: bad ? bad.textContent.trim() : '', scroll: bad ? bad.scrollWidth - bad.clientWidth : 0, other: chips[1].textContent };
+      });
+      if (c.error) chk(false, tag + ' ' + c.error);
+      else {
+        chk(c.n === 2 && c.text === 'incomplete upload, please send again', tag + ' the chip says the words', c.text);
+        chk(!/incomplete/i.test(c.other), tag + ' NEGATIVE: a whole file\'s chip says nothing', c.other);
+        chk(c.chip.r <= c.box.r + 0.5, tag + ' the chip stays inside its row', JSON.stringify(c.chip));
+        chk(c.name.w >= 60, tag + ' the file name keeps room', String(c.name.w));
+        chk(!!c.bad && c.name.r <= c.bad.l + 0.5 && c.bad.r <= c.x.l + 0.5 && c.x.r <= c.chip.r + 0.5, tag + ' name, words and the remove button do not overlap', JSON.stringify([c.name, c.bad, c.x]));
+      }
       chk(errs.length === 0, tag + ' no page errors', errs.join(' | '));
       await page.close();
     }

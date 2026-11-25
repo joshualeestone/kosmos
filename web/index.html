@@ -8002,7 +8002,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .att-name { font: 600 .9375rem var(--font-ui); color: var(--k-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .att-meta { font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
 .att-bad { font: 600 var(--text-caption) var(--font-ui); color: var(--warn-ink); }
-.attach-chip .att-bad { flex: 0 1 auto; white-space: normal; }   /* kosmos#9016 */
+.attach-chip .att-bad { flex: 0 1 auto; white-space: normal; }   /* kosmos#9016: the words wrap, so the name keeps room */
+.attach-chip-name:has(+ .att-bad) { min-width: 5rem; }
 
 /* #4930: the full-page preview of a file a message carries. Very dark, the file fitted to the screen, X top right.
    #8122 (Josh 11-06: "maybe we put the download button right below it ... so it's not hidden off in the corner like it
@@ -85583,15 +85584,15 @@ function attachCutSay(names) {
     ? names[0] + ' may be cut short: its ending could not be found. Remove it and send it again.'
     : names.length + ' files may be cut short (' + names.join(', ') + '): their endings could not be found. Remove them and send them again.';
 }
-/** One file. Answers 'refused' when it was not added (the sentence is on the page) and 'cut' when it was added and may be
-    cut short, which attachUploadAll says. */
+/** One file. Answers 'refused' when it was not added and 'stop' when the next one would not be either (the sentence is on
+    the page for both), and 'cut' when it was added and may be cut short, which attachUploadAll says. */
 async function attachUpload(file, where) {
   const msg = document.getElementById(where.msgId);
   const input = document.getElementById(where.textId);
   if (!file) return;
   if (file.size > ATTACH_MAX_BYTES) { msg.textContent = 'That file is over ' + Math.round(ATTACH_MAX_BYTES / 1048576) + ' MB, which is the most a message can carry.'; return 'refused'; }
-  if (!attachTarget(where)) { msg.textContent = 'Open a conversation first.'; return 'refused'; }
-  if (attachList(where).length >= ATTACH_MAX) { msg.textContent = 'A message can carry ' + ATTACH_MAX + ' files; send these first.'; return 'refused'; }
+  if (!attachTarget(where)) { msg.textContent = 'Open a conversation first.'; return 'stop'; }
+  if (attachList(where).length >= ATTACH_MAX) { msg.textContent = 'A message can carry ' + ATTACH_MAX + ' files; send these first.'; return 'stop'; }
   const btn = document.getElementById(where.btnId);
   if (btn) btn.disabled = true;
   msg.textContent = 'Adding ' + file.name + '\u2026';
@@ -85611,7 +85612,7 @@ async function attachUpload(file, where) {
          two minutes with 502 (504 from a proxy is the same case); for a large file that is said as the network failure is. */
       msg.textContent = res.status === 408
         ? 'We could not finish adding ' + file.name + ': it took too long to arrive. Try again on a faster connection.'
-        : (body && body.error) ? String(body.error).replace(/^that file did not arrive whole/, file.name + ' did not arrive whole')   // kosmos#9016: which one, in a pick of several
+        : (body && body.error) ? String(body.error).replace(/^that file did not arrive whole/, () => file.name + ' did not arrive whole')   // kosmos#9016: which one, in a pick of several
         : ((res.status === 502 || res.status === 504) && file.size > ATTACH_SLOW_BYTES)
           ? 'We could not reach Kosmos to add ' + file.name + '. If your connection is slow, a file this large can take longer than Kosmos waits for one.'
           : 'We could not add that file (status ' + res.status + ').';
@@ -85635,7 +85636,7 @@ async function attachUpload(file, where) {
     msg.textContent = file.size > ATTACH_SLOW_BYTES
       ? 'We could not reach Kosmos to add ' + file.name + '. If your connection is slow, a file this large can take longer than Kosmos waits for one.'
       : 'We could not reach Kosmos to add that file.';
-    return 'refused';
+    return 'stop';
   } finally {
     ATTACH_UPLOADING = Math.max(0, ATTACH_UPLOADING - 1);
     if (btn) btn.disabled = false;
@@ -85698,21 +85699,23 @@ function attachClear(where, target) {
   if (key) delete ATTACH_PENDING[where.key][key];
   attachPaint(where);
 }
-/** Several files at once (a multi-pick or a multi-drop), in order, one upload
-    each, stopping at the first refusal so the sentence is about that file. */
+/** Several files at once (a multi-pick or a multi-drop), in order, one upload each. It goes on past a file that was not
+    added, unless the next would not be either, and says every outcome at the end (kosmos#9016: the next file wiped it). */
 async function attachUploadAll(files, where) {
   const msg = document.getElementById(where.msgId);
-  const cut = [];
-  let stopped = '';
+  const cut = [], said = [], left = [];
   for (let i = 0; i < files.length; i += 1) {
     const how = await attachUpload(files[i], where);
     if (how === 'cut') cut.push(files[i].name);
-    if (how !== 'refused') continue;
-    const left = files.length - i - 1;
-    stopped = msg.textContent.replace(/[^.]$/, '$&.') + (left ? (left === 1 ? ' The file after it was not added.' : ' The ' + left + ' files after it were not added.') : '');
-    break;
+    if (how !== 'refused' && how !== 'stop') continue;
+    const why = msg.textContent.replace(/[^.]$/, '$&.');
+    if (!said.includes(why)) said.push(why);
+    left.push(files[i].name);
+    if (how === 'stop') { for (const f of files.slice(i + 1)) left.push(f.name); break; }
   }
-  if (cut.length || stopped) msg.textContent = [stopped, cut.length ? attachCutSay(cut) : ''].filter(Boolean).join(' ');
+  if (left.length && files.length > 1) said.push('Not added: ' + left.join(', ') + '.');
+  if (cut.length) said.push(attachCutSay(cut));
+  if (said.length) msg.textContent = said.join(' ');
 }
 for (const where of [ATTACH_ROOM, ATTACH_AGENT]) {
   const box = document.getElementById(where.chipsId);

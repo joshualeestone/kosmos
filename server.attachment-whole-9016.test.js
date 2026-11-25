@@ -277,11 +277,11 @@ function uploader(answers) {
   const page = require('./test-support/page');
   const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
   const els = { m: { textContent: '' }, b: { disabled: false } };
-  const list = []; const sent = [];
+  const list = []; const sent = []; const u = { target: 'leo' };
   const src = ['attachCutSay', 'attachUpload', 'attachUploadAll'].map((n) => page.lift(SCRIPT, n)).join('\n');
   const all = new Function('document', 'attachList', 'attachTarget', 'attachAdd', 'fetch', 'ATTACH_MAX', 'ATTACH_MAX_BYTES', 'ATTACH_SLOW_BYTES',
     'let ATTACH_UPLOADING = 0;\n' + src + '\nreturn attachUploadAll;')(
-    { getElementById: (id) => els[id] || null }, () => list, () => 'leo', (w, r) => list.push(r),
+    { getElementById: (id) => els[id] || null }, () => list, () => u.target, (w, r) => list.push(r),
     async (url, opt) => {
       sent.push(opt.headers);
       const a = answers.shift();
@@ -289,7 +289,8 @@ function uploader(answers) {
       return a.error ? { ok: false, status: 400, json: async () => ({ error: a.error }) }
         : { ok: true, status: 200, json: async () => ({ ok: true, attachment: { id: 'i' + sent.length, name: 'n' + sent.length, ...(a.cut ? { incomplete: true } : {}) } }) };
     }, 3, 1000, 5000);
-  return { go: (...files) => all(files, { msgId: 'm', btnId: 'b', textId: 't', url: () => '/x' }), els, list, sent };
+  Object.assign(u, { go: (...files) => all(files, { msgId: 'm', btnId: 'b', textId: 't', url: () => '/x' }), els, list, sent });
+  return u;
 }
 const pick = (name, size = 10) => ({ name, size, type: '' });
 const CUT1 = 'a.xlsx may be cut short: its ending could not be found. Remove it and send it again.';
@@ -313,27 +314,37 @@ test('#9016 a pick of several: every outcome is still said at the end', async ()
   await u.go(pick('a.xlsx'), pick('b.txt'), pick('c.xlsx'));
   assert.equal(u.els.m.textContent, '2 files may be cut short (a.xlsx, c.xlsx): their endings could not be found. Remove them and send them again.');
 
+  u = uploader([{ error: 'that file did not arrive whole; please send it again (5 of 10 bytes arrived)' }]);
+  await u.go(pick('$$a$&.xlsx'));
+  assert.equal(u.els.m.textContent, '$$a$&.xlsx did not arrive whole; please send it again (5 of 10 bytes arrived).', 'one refused file is named, whatever its name holds');
+
   u = uploader([{ error: 'that file did not arrive whole; please send it again (5 of 10 bytes arrived)' }, {}]);
   await u.go(pick('a.xlsx'), pick('b.txt'));
-  assert.equal(u.els.m.textContent, 'a.xlsx did not arrive whole; please send it again (5 of 10 bytes arrived). The file after it was not added.', 'it is named, and it stops');
-  assert.equal(u.sent.length, 1);
+  assert.equal(u.els.m.textContent, 'a.xlsx did not arrive whole; please send it again (5 of 10 bytes arrived). Not added: a.xlsx.', 'a refused file is named');
+  assert.equal(u.list.length, 1, 'and the next one is still added');
 
-  u = uploader([{ cut: true }, { error: 'no' }, {}]);
-  await u.go(pick('a.xlsx'), pick('b.txt'), pick('c.txt'));
-  assert.equal(u.els.m.textContent, 'no. The file after it was not added. ' + CUT1, 'a refusal keeps an earlier cut file\'s sentence');
+  u = uploader([{ cut: true }, { error: 'no' }, { error: 'no' }, {}]);
+  await u.go(pick('a.xlsx'), pick('b.txt'), pick('c.txt'), pick('d.txt'));
+  assert.equal(u.els.m.textContent, 'no. Not added: b.txt, c.txt. ' + CUT1, 'one sentence for one reason, each file named, and the earlier cut file kept');
+  assert.equal(u.list.length, 2);
 
-  u = uploader(['down', {}, {}]);
+  u = uploader([{}, 'down', {}]);
   await u.go(pick('a.xlsx'), pick('b.txt'), pick('c.txt'));
-  assert.equal(u.els.m.textContent, 'We could not reach Kosmos to add that file. The 2 files after it were not added.', 'a lost connection stops it too');
-  assert.equal(u.sent.length, 1);
+  assert.equal(u.els.m.textContent, 'We could not reach Kosmos to add that file. Not added: b.txt, c.txt.', 'a lost connection stops it');
+  assert.equal(u.sent.length, 2);
 
   u = uploader([{}]);
   await u.go(pick('big.bin', 1001), pick('b.txt'));
-  assert.match(u.els.m.textContent, /^That file is over .* The file after it was not added\.$/, 'a file over the cap');
-  assert.equal(u.sent.length, 0);
+  assert.match(u.els.m.textContent, /^That file is over .* Not added: big\.bin\.$/, 'a file over the cap');
+  assert.equal(u.list.length, 1, 'the next one is still added');
 
-  u = uploader([{ cut: true }, {}, {}, {}]);
-  await u.go(pick('a.xlsx'), pick('b'), pick('c'), pick('d'));
-  assert.equal(u.els.m.textContent, 'A message can carry 3 files; send these first. ' + CUT1, 'the limit of files');
-  assert.equal(u.list.length, 3);
+  u = uploader([{ cut: true }, {}, {}]);
+  await u.go(pick('a.xlsx'), pick('b'), pick('c'), pick('d'), pick('e'));
+  assert.equal(u.els.m.textContent, 'A message can carry 3 files; send these first. Not added: d, e. ' + CUT1, 'the limit of files');
+  assert.equal(u.sent.length, 3);
+
+  u = uploader([]);
+  u.target = null;
+  await u.go(pick('a'), pick('b'));
+  assert.equal(u.els.m.textContent, 'Open a conversation first. Not added: a, b.', 'nothing open');
 });
