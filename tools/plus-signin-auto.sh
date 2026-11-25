@@ -86,7 +86,9 @@ case "${KOSMOS_SEED_TOTP:-}" in
   otpauth://*) KOSMOS_SEED_TOTP="$(printf '%s' "$KOSMOS_SEED_TOTP" | sed -n 's/.*[?&]secret=\([A-Za-z2-7=]*\).*/\1/p')" ;;
 esac
 [ -n "${KOSMOS_SEED_TOTP:-}" ] || die "no authenticator secret for $SEED (set KOSMOS_SEED_TOTP, or file it with /add-secret)"
-export KOSMOS_SEED_TOTP
+# Held unexported, and given to the one process that uses it (finish), so the download, the code reader and the
+# board never carry it in their environment.
+SEED_SECRET="$KOSMOS_SEED_TOTP"; unset KOSMOS_SEED_TOTP
 
 field() { node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]]||""))}catch{}' "$POINTER" "$1" 2>/dev/null; }
 V="$(field version)"; SHA="$(field sha256)"; ART="$(field artifact)"
@@ -167,12 +169,12 @@ BASE_BOX="$(printf '%s' "$SEED_LC" | sed 's/+[^@]*@/@/')"
 HID="$("$SC" anchor "$BASE_BOX")" || die "could not anchor the seed mailbox $BASE_BOX"
 FA=(--pointer "$POINTER" --port "$PORT" --board-kind sandboxed)
 START_MS="$(node -e 'process.stdout.write(String(Date.now() - 1000))')"; STARTED=1   # before start: it writes the file
-node "$FRESH" start "${FA[@]}" --seed "$SEED"; rc=$?
+node "$FRESH" start "${FA[@]}" --seed "$SEED_LC"; rc=$?
 [ "$rc" = 0 ] || exit "$rc"   # 1: start was refused and recorded; 2: setup, nothing recorded
-GOTC="$(KOSMOS_SIGNIN_PLACEMENT=1 "$SC" code "$SEED" "$HID" "${KOSMOS_PLUS_CODE_S:-180}")" || die "no sign-in code reached $SEED: nothing recorded"
+GOTC="$(KOSMOS_SIGNIN_PLACEMENT=1 "$SC" code "$SEED_LC" "$HID" "${KOSMOS_PLUS_CODE_S:-180}")" || die "no sign-in code reached $SEED: nothing recorded"
 CODE="${GOTC%% *}"; PLACE="${GOTC#* }"
 printf '%s' "$CODE" | grep -Eq '^[0-9]{6}$' || die "kosmos-signin-code gave no six-digit code: nothing recorded"
 case "$PLACE" in INBOX|SPAM|OTHER) ;; *) die "kosmos-signin-code gave no placement (is it older than kosmos#9018?): nothing recorded" ;; esac
 say "the code arrived (filed in $PLACE)"
-node "$FRESH" finish "${FA[@]}" --code "$CODE" --placement "$PLACE"
+KOSMOS_SEED_TOTP="$SEED_SECRET" node "$FRESH" finish "${FA[@]}" --code "$CODE" --placement "$PLACE"
 exit $?
