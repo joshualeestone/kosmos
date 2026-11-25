@@ -35,6 +35,7 @@ struct AutomationView: View {
     @State private var heldAsking: String?          // the row whose Discard ask is open
     @State private var heldShowWords: Set<String> = []     // stopped rows whose words were asked for
     @State private var heldOpen: Set<String> = []           // long rows read in full
+    @State private var lastCommunity: Automation.Community? // the last Community setting read, kept through a failed read
 
     private enum Load: Equatable {
         case reading
@@ -96,7 +97,7 @@ struct AutomationView: View {
                 shownURL = mac?.url
                 loads = [:]; notes = [:]; pending = [:]; checkins = nil; checkinsGeneration += 1
                 industry = nil; industryRead = false; industryKept = []; industryNote = nil; industrySaving = nil; industryGeneration += 1
-                held = .reading; heldGeneration += 1; heldBusy = nil; heldNotes = [:]; heldSay = nil; heldAsking = nil; heldShowWords = []; heldOpen = []
+                held = .reading; lastCommunity = nil; heldGeneration += 1; heldBusy = nil; heldNotes = [:]; heldSay = nil; heldAsking = nil; heldShowWords = []; heldOpen = []
                 for box in Automation.Box.allCases { generations[box, default: 0] += 1 }
             }
             await readAll(keepNotes: true)
@@ -106,6 +107,7 @@ struct AutomationView: View {
                 if !Task.isCancelled { await readCheckins() }
             }
         }
+        .onChange(of: loads[.community]) { l in if case .loaded(.community(let c))? = l { lastCommunity = c } }
         .accessibilityIdentifier("automation-list")
     }
 
@@ -380,7 +382,9 @@ struct AutomationView: View {
 
     // communityHeldPaint: "Waiting for you", the off line, and each row with Release and Discard.
     @ViewBuilder private func heldRows() -> some View {
-        let community: Automation.Community? = { if case .loaded(.community(let c))? = loads[.community] { return c } else { return nil } }()
+        // The setting as loaded, else the last one read (as the page keeps COMMUNITY_POLICY_STOPPED), so a failed read
+        // never drops the "it stays on this computer" wording.
+        let community: Automation.Community? = { if case .loaded(.community(let c))? = loads[.community] { return c } else { return lastCommunity } }()
         Text(Held.Words.heading).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
         if let off = Held.offLine(on: community?.on, policyStopped: community?.stopped) {
             Text(off).font(.footnote).foregroundColor(Palette.secondary)
@@ -445,20 +449,23 @@ struct AutomationView: View {
                 .buttonStyle(.borderless)
                 .disabled(heldBusy != nil)
             }
-            if let note = heldNotes[row.id] { Text(note).font(.footnote).foregroundColor(Palette.dangerWord) }
+            if let note = heldNotes[row.id] {
+                let working = note == Held.Words.releasing || note == Held.Words.discarding
+                Text(note).font(.footnote).foregroundColor(working ? Palette.secondary : Palette.dangerWord)
+            }
         }
         .padding(.vertical, 4)
     }
 
     // refreshCommunityHeld: both reads must answer.
-    @MainActor private func readHeld() async {
+    @MainActor private func readHeld(during busy: Bool = false) async {
         if sample {
             if case .reading = held {
                 held = Held.read(held: Held.queue(status: 200, data: Data(Held.sampleHeld.utf8)), stopped: Held.queue(status: 200, data: Data(Held.sampleStopped.utf8))).map { .read($0) } ?? .failed
             }
             return
         }
-        guard let mac, mac.url == shownURL, heldBusy == nil else { return }
+        guard let mac, mac.url == shownURL, busy || heldBusy == nil else { return }
         heldGeneration += 1
         let mine = heldGeneration
         async let a = fetch(Held.queueRequest(mac, stopped: false))
@@ -477,11 +484,11 @@ struct AutomationView: View {
         heldNotes[row.id] = Held.Words.releasing
         let (status, data) = await fetch(Held.releaseRequest(mac, id: row.id))
         guard mac.url == shownURL else { return }
-        heldBusy = nil
         switch Held.outcome(status: status, data: data, releasing: true) {
-        case .done: heldNotes[row.id] = nil; await readHeld()
-        case .refused(let said): heldNotes[row.id] = said
-        case .unfinished(let said): heldNotes[row.id] = nil; heldSay = said; await readHeld()
+        // Done: the buttons stay disabled until the list is read again, so a released post never looks untouched.
+        case .done: await readHeld(during: true); heldNotes[row.id] = nil; heldBusy = nil
+        case .refused(let said): heldBusy = nil; heldNotes[row.id] = said
+        case .unfinished(let said): heldNotes[row.id] = nil; await settleUnfinished(said)
         }
     }
 
@@ -494,12 +501,18 @@ struct AutomationView: View {
         heldNotes[row.id] = Held.Words.discarding
         let (status, data) = await fetch(Held.discardRequest(mac, id: row.id))
         guard mac.url == shownURL else { return }
-        heldBusy = nil
         switch Held.outcome(status: status, data: data, releasing: false) {
-        case .done: heldNotes[row.id] = nil; heldAsking = nil; await readHeld()
-        case .refused(let said): heldNotes[row.id] = said
-        case .unfinished(let said): heldNotes[row.id] = nil; heldAsking = nil; heldSay = said; await readHeld()
+        case .done: heldAsking = nil; await readHeld(during: true); heldNotes[row.id] = nil; heldBusy = nil
+        case .refused(let said): heldBusy = nil; heldNotes[row.id] = said
+        case .unfinished(let said): heldNotes[row.id] = nil; heldAsking = nil; await settleUnfinished(said)
         }
+    }
+
+    // A request that could not finish: the list is read again, and "it shows where it stands now" is said only if it does.
+    @MainActor private func settleUnfinished(_ said: String) async {
+        await readHeld(during: true)
+        heldBusy = nil
+        heldSay = held == .failed ? String(said.dropLast(Held.Words.whereNow.count)) : said
     }
 
     private func removeSampleHeld(_ id: String) {
