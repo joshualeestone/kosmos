@@ -4709,13 +4709,49 @@ function claudeReadProblem() {
 }
 
 /* kosmos#9085: the board's log line for a message not sent because the roster could not be read, with the read's own
-   reason where the Windows reader kept one (win32roster's cachedRun). Never throws. */
-function noteUnreadableSend(name) {
+   reason where the Windows reader kept one (win32roster's cachedRun). `what` names what was not sent (kosmos#9087: the
+   compact, clear and handoff routes send a command, not a message). Never throws. */
+function noteUnreadableSend(name, what) {
   const why = claudeReadProblem();
   try {
-    console.error('[kosmos#9085] a message to ' + JSON.stringify(String(name)) + ' was not sent: the running agents could not all be read'
+    console.error('[kosmos#9085] ' + (what || 'a message') + ' to ' + JSON.stringify(String(name)) + ' was not sent: the running agents could not all be read'
       + (why ? ' (' + why + ')' : '') + '; answered 409 unreadable, not 404');
   } catch { /* never fatal */ }
+}
+
+/* kosmos#9085, #9087: the send gate for a name, shared by every route that types into an agent's window (the DM send,
+   compact/clear, handoff-restart ask and pickup). ONE roster read. Its throw means we could not look; a name
+   claimantFrom cannot key (a store.safeKey throw) is only "not ours". On Windows a Claude read that is failing while a
+   codex agent keeps the roster readable (or during win32roster's hold) makes a name no card holds unknown too
+   (claudeReadProblem), so a window Kosmos did not start is still decided by its card. Either way unknown only for a
+   name whose agent folder is on this computer and not removed: a typo stays a 404 and is never told to retry.
+   Returns { known, card, rosterUnreadable }: `card` is the claimant on the roster that was read (null when none, or
+   when it could not be read), so a caller takes the session from the same read as the verdict. Never throws. */
+function sendGate(name) {
+  let couldNotLook = false;
+  let known = false;
+  let card = null;
+  let roster = null;
+  try { roster = paneRoster(); } catch { couldNotLook = true; }
+  if (roster) {
+    try { card = claimantFrom(roster, name); known = Boolean(card) && card.isNamedOurs === true; } catch { card = null; known = false; }
+    if (!known && !card && claudeReadProblem()) couldNotLook = true;
+  }
+  let agentHere = false;
+  if (couldNotLook) { try { agentHere = fs.existsSync(create.workerDir(name)) && !removal.isRemoved(name); } catch { agentHere = false; } }
+  return { known, card, rosterUnreadable: couldNotLook && agentHere };
+}
+/* The 409 body for a send the gate found unreadable: nothing was sent, and the same thing can be sent again. */
+const UNREADABLE_SEND_WORDS = 'we could not check which agents are running, so nothing was sent. Try again in a moment.';
+function unreadableSendBody() { return { error: UNREADABLE_SEND_WORDS, because: 'unreadable', retry: true }; }
+/* kosmos#9087: the gate for the routes that send one command (compact/clear, handoff-restart ask and pickup), which
+   answered a bare 404 from knownAgent. Answers the refusal itself and returns null, or returns the gate's card. */
+function commandGate(res, name, what) {
+  const gate = sendGate(name);
+  if (gate.known) return gate.card;
+  if (gate.rosterUnreadable) { noteUnreadableSend(name, what); sendJson(res, 409, unreadableSendBody()); return null; }
+  sendJson(res, 404, { error: 'no agent by that name' });
+  return null;
 }
 
 /* The 404 body for a `nameRefusal` reason, shared by the DM thread's routes so the two
@@ -11659,7 +11695,7 @@ const server = http.createServer(async (req, res) => {
   if (ctx && req.method === 'POST') {
     const name = decodeSegment(ctx[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    if (!commandGate(res, name, 'a /' + ctx[2])) return;   // kosmos#9087: an unreadable roster is a 409 to retry, not a 404
     /* #3939: a Muse agent's pane takes every line as a prompt, so "/clear" would run a Muse turn and clear nothing. */
     let ctxRunner = null;
     try { ctxRunner = create.recordedRunner(name); } catch { ctxRunner = null; }
@@ -11814,8 +11850,9 @@ const server = http.createServer(async (req, res) => {
   if (hrAsk && req.method === 'POST') {
     const name = decodeSegment(hrAsk[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
-    const session = sessionOf(name);
+    const askCard = commandGate(res, name, 'a handoff request');   // kosmos#9087: an unreadable roster is a 409 to retry
+    if (!askCard) return;
+    const session = askCard.session || undefined;   // the same read as the gate (sessionOf would read the roster again)
     // No live session = nobody to write a handoff. The client should fall back
     // to a plain restart (or not offer this option); 409 is the same "there is
     // nothing to act on here" the /message send route uses for an absent pane.
@@ -11885,8 +11922,9 @@ const server = http.createServer(async (req, res) => {
   if (hrPickup && req.method === 'POST') {
     const name = decodeSegment(hrPickup[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
-    const session = sessionOf(name);
+    const pickupCard = commandGate(res, name, 'a handoff pickup');   // kosmos#9087: an unreadable roster is a 409 to retry
+    if (!pickupCard) return;
+    const session = pickupCard.session || undefined;   // the same read as the gate
     if (!session) { sendJson(res, 409, { error: 'this agent is not running' }); return; }
     const snap = handoffFileSnap(session);
     let delivery;
@@ -22167,24 +22205,9 @@ const server = http.createServer(async (req, res) => {
         // a tmux fan-out.
         // (`chat.deliver` refuses on its own too — exact match to permit, tied,
         // and a pane with Claude in it. This one is about the NAME.)
-        /* kosmos#9085: ONE roster read. Its throw means we could not look; a name claimantFrom cannot key (a
-           store.safeKey throw) is only "not ours". On Windows a Claude read that is failing while a codex agent keeps
-           the roster readable (or during win32roster's hold) makes a name no card holds unknown too
-           (claudeReadProblem), so a window Kosmos did not start keeps the 409 'untied' below. Either way only for a
-           name whose agent folder is on this computer and not removed: a typo stays a 404 and is never told to
-           retry. */
-        let couldNotLook = false;
-        let known = false;
-        let gateRoster = null;
-        try { gateRoster = paneRoster(); } catch { couldNotLook = true; }
-        if (gateRoster) {
-          let gateCard = null;
-          try { gateCard = claimantFrom(gateRoster, name); known = Boolean(gateCard) && gateCard.isNamedOurs === true; } catch { known = false; }
-          if (!known && !gateCard && claudeReadProblem()) couldNotLook = true;
-        }
-        let agentHere = false;
-        if (couldNotLook) { try { agentHere = fs.existsSync(create.workerDir(name)) && !removal.isRemoved(name); } catch { agentHere = false; } }
-        const rosterUnreadable = couldNotLook && agentHere;
+        /* kosmos#9085: ONE roster read (sendGate, shared with the command routes since kosmos#9087). A window Kosmos
+           did not start keeps the 409 'untied' below. */
+        const { known, rosterUnreadable } = sendGate(name);
         if (!known) {
           /* kosmos#9085: a roster that cannot be READ is not "no agent by that name". On Windows a `claude agents --json`
              that kept failing (five hours on 11-25) made the roster refuse, and every message to a running agent was
@@ -22194,7 +22217,7 @@ const server = http.createServer(async (req, res) => {
              typed. Any other absent name stays a 404 below. */
           if (rosterUnreadable) {
             noteUnreadableSend(name);
-            const unknown = new Error('we could not check which agents are running, so nothing was sent. Try again in a moment.');
+            const unknown = new Error(UNREADABLE_SEND_WORDS);
             unknown.status = 409;
             unknown.because = 'unreadable';
             unknown.retry = true;   // said plainly: nothing was sent, and the same message can be sent again
