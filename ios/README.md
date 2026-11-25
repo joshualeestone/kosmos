@@ -256,8 +256,10 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
   answering, for any other address or error; or the system's own reason) with Try again, and
   reloads by itself when an offline phone reconnects (`ShellViews.swift`, `Shell.loadFailure`).
 - **Pull to refresh** reloads the page.
-- **Links** (`Shell.linkDecision`): Kosmos+ and your Macs (plain host, no port or user part)
-  open in the app over https. Any other site, however it is reached (a tap, a redirect, a
+- **Links** (`Shell.linkDecision`): Kosmos+ and your own computers (plain host, no port or user part) open in
+  the app over https. An address that only looks like a computer's does not (kosmos#9028): it must be on the account's
+  list (read once more when it is not), the page showing, one shown before (back), or, before the list is read, where a
+  Kosmos+ page sends it. A name Kosmos+ keeps for itself (`Download.reservedLabels`, the community among them) never does. Any other site, however it is reached (a tap, a redirect, a
   script), opens in Safari, so no third-party page ever shows inside the app's frame. Plain http
   never loads in the app. Mail, phone and text links need a tap. Other schemes are refused.
 - **A page that will not load** offers Try again and "Back to Kosmos" (`Shell.backAction`: after a

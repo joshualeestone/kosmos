@@ -2132,9 +2132,15 @@ final class BoardClient: ObservableObject {
     }
 
     // kosmos#9028: the account's computers, read again because a page opened one the list does not have.
+    // One read at a time, shared by every caller waiting for it.
+    private var rereading: Task<Void, Never>?
     func rereadMacs() async {
+        if let rereading { await rereading.value; return }
         guard let session = sessionStore.load() else { return }
-        await readMacs(session: session, nil)
+        let read = Task { await readMacs(session: session, nil) }
+        rereading = read
+        await read.value
+        rereading = nil
     }
 
     private func chooseMac(session: String, _ gen: Int) async -> Board.Mac? {

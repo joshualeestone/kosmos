@@ -249,10 +249,10 @@ enum Shell {
             pending = nil
             if let h = url?.host?.lowercased() { shown.insert(h) }
         }
-        // A load ended without showing: failed, stopped, or became a download. A stopped load is reported after the one that
+        // A load ended without showing: failed, stopped, refused here (a redirect's end), or became a download. A stopped load is reported after the one that
         // replaced it is on its way, so only its own address is cleared (any, when its address is not known).
         mutating func ended(_ url: URL?) { if url == nil || url == pending { pending = nil } }
-        // Another account (or none): what the last one opened is no reason to let a page in.
+        // Another account, none, or the same one's new session: what the last one opened is no reason to let a page in.
         mutating func accountChanged() { opening = nil; shown = [] }
 
         // `addresses` is the account's list (empty until read), `connected` and `remembered` computers known before it is.
@@ -312,7 +312,8 @@ enum Shell {
             if known.reserved.contains(host.split(separator: ".").first.map(String.init) ?? "") { return .external }
             if known.own.contains(host) || known.leaving(host) || (origin == .history && known.shown.contains(host)) { return .inApp }
             if !known.listRead && known.leavingKosmosPlus(coordinator) { return .inApp }
-            return .external
+            // A step back onto a computer that is not (or no longer) the person's does nothing: it is not a link to open.
+            return origin == .history ? .block : .external
         case "http":
             guard let host = url.host, !host.isEmpty else { return .block }
             return origin == .pageFlow ? .block : .external
