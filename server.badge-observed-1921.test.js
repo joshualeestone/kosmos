@@ -211,7 +211,8 @@ test('#3136 ROUTE: a positively-dead sign-in records 401 and reddens (honest not
   } finally { create.setClaudeProbe(null); }
 });
 
-test('#9031 ROUTE: "Not logged in" from Check now\'s own probe records nothing: the default account\'s folder may hold no login entry', async () => {
+test('#9031 ROUTE: "Not logged in" from Check now\'s own probe is not a rejection: the default account\'s folder may hold no login entry', async () => {
+  // An OK is seeded, so the row is green from it; with none, a failed check still drops a green that rests on the login date (#3997 review 1).
   observed.sawDir(observed.PROVIDER.ANTHROPIC, CLEO_DIR, observed.OUTCOME.OK, Date.now());
   create.setClaudeProbe(async () => ({ exitCode: 1, out: 'Not logged in \u00b7 Please run ' + '/login' }));
   try {
