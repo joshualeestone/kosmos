@@ -8,6 +8,8 @@ struct AutomationView: View {
     // The computer this phone shows, with its kept sign-in (Settings.keptMac); nil when there is none.
     let mac: Settings.Mac?
     var sample = false
+    // Settings is still finding the computer (its own first read), so "no computer" would not be true yet (review 6).
+    var finding = false
 
     private enum Load: Equatable {
         case reading
@@ -28,7 +30,14 @@ struct AutomationView: View {
 
     var body: some View {
         List {
-            if mac == nil && !sample {
+            if mac == nil && !sample && finding {
+                Section {
+                    HStack(spacing: 10) {
+                        SweepDots(scales: false)
+                        Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary)
+                    }
+                }
+            } else if mac == nil && !sample {
                 Section {
                     Text("Open the Agents tab to connect to your computer, then its settings show here.")
                         .font(.subheadline).foregroundColor(Palette.secondary)
@@ -261,6 +270,8 @@ struct AutomationView: View {
     // keepNote: a read that follows a save keeps the save's line under the box.
     @MainActor private func read(_ box: Automation.Box, keepNote: Bool = false) async {
         await Task.yield()
+        // Review 6: a read queued for a computer no longer shown never paints.
+        guard sample || mac?.url == shownURL else { return }
         // Review 1: no read while a save is out; the save reads again itself when it needs to.
         guard pending[box] == nil else { return }
         guard let mac = mac ?? (sample ? Settings.Mac(name: "Studio Mac", url: URL(string: "https://studio.kosmosplus.com/")!, cookie: "sample") : nil)
@@ -303,9 +314,11 @@ struct AutomationView: View {
             return
         }
         let sentTo = mac.url
+        let sentGeneration = generations[box] ?? 0
         let (status, data) = await send(box, request)
-        // Review 5: the computer changed while this was out; its answer is the other computer's, so it is dropped.
-        guard sentTo == shownURL || (shownURL == nil && sample) else { return }
+        // Review 5 and 6: the computer changed while this was out (even A to B and back to A, which the generation bump
+        // in .task records), so its answer is dropped.
+        guard (sentTo == shownURL || (shownURL == nil && sample)) && sentGeneration == (generations[box] ?? 0) else { return }
         // Ends the save and makes any read that started during it stale, so it cannot paint over this answer.
         generations[box, default: 0] += 1
         pending[box] = nil
