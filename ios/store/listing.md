@@ -143,7 +143,11 @@ records, server logs, and the processors), which matches `privacy-label.md`.
 2026 KOSMOS Agent Manager, Inc.
 <!-- /copyright -->
 
-## Notes for App Review (draft, rewritten 2026-10-27 for the native app, kosmos #7352; App Review reads this, customers do not)
+## Notes for App Review (rewritten 2026-10-27 for the native app, kosmos #7352; App Review reads this, customers do not)
+
+Entered in App Store Connect on 2026-11-17 with the demo sign-in and the review contact, which are kept there only: the
+"(Josh to paste)" and "(Josh to fill in)" places below stay empty in this file on purpose. To be re-read against the
+submission build.
 
 For us, not for App Review: everything from the next paragraph on is pasted into
 the Notes field. The demo account is the Play review account and review computer

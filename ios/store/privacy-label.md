@@ -1,4 +1,4 @@
-# App Privacy ("nutrition label") answers, draft (#718)
+# App Privacy ("nutrition label") answers (#718)
 
 Published by Josh in App Store Connect on 2026-11-24, by hand (Apple takes these only on its website, so they cannot be read
 back here). What else has been entered is in `README.md`.
