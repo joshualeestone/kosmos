@@ -593,7 +593,8 @@ test('task message: a missing part or a non-number task is a usage error that se
 test('an unknown task subcommand lists all nineteen, as install/kosmos does', async () => {
   const r = await run(['task', 'reassign', 'p1']);
   assert.equal(r.code, 2);
-  assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | assign | close | reopen | message | activity | show | files | built | done-when | check | hold | unhold | repeat | ran | told | wake | edit');   // edit: kosmos#8664; wake: #8669; check: #8464; reopen: #6157; assign: #4914; repeat, ran: #4787; show: kosmos#8202; files: kosmos#8214; told: #5836; activity: #5874
+  // kosmos#9068: the nearest subcommand follows the list (reassign is two edits from assign).
+  assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | assign | close | reopen | message | activity | show | files | built | done-when | check | hold | unhold | repeat | ran | told | wake | edit\n  Did you mean: kosmos task assign');   // edit: kosmos#8664; wake: #8669; check: #8464; reopen: #6157; assign: #4914; repeat, ran: #4787; show: kosmos#8202; files: kosmos#8214; told: #5836; activity: #5874
 });
 
 test('#7180 Windows task hold --until-task / --until send the condition; bad values are sent nowhere; the list says what a hold waits for', async () => {

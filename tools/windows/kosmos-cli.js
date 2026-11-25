@@ -4365,8 +4365,23 @@ async function verbCommunity(ctx, args) {
     ctx.out(guide);
     return 0;
   }
+  // kosmos#9068, as install/kosmos: a word that is not a subcommand says so first, with the nearest one; a bare
+  // `kosmos community` (or a flag) is the full usage, as before.
+  if (args && args[0] && !args[0].startsWith('-')) {
+    unknownSub(ctx, 'community', args[0]);
+    ctx.err('Every community command, with what it takes: kosmos community');
+    return 2;
+  }
   ctx.err(USAGE.community);
   return 2;
+}
+
+/* kosmos#9068, as install/kosmos _unknown_sub: "Unknown: kosmos <verb> <sub>. Try: ..." from the verb's own subcommands,
+   then the nearest one by engine/didyoumean.js's rule, or nothing when nothing is close (or the module cannot load). */
+function unknownSub(ctx, verb, sub) {
+  const subs = Object.keys(SUBCOMMAND_HANDLERS[verb]);
+  ctx.err('Unknown: kosmos ' + verb + ' ' + sub + '. Try: ' + subs.join(' | '));
+  try { const s = ctx.engine('didyoumean').line(sub, subs, undefined, verb); if (s) ctx.err('  ' + s); } catch { /* no suggestion */ }
 }
 
 /* A verb whose first argument must be one of its subcommands: reached only when
@@ -4375,7 +4390,7 @@ function subcommandRequired(verb) {
   return async (ctx, args) => {
     const sub = args[0];
     if (!sub || sub === 'help') { ctx.err(USAGE[verb]); return 2; }
-    ctx.err('Unknown: kosmos ' + verb + ' ' + sub + '. Try: ' + Object.keys(SUBCOMMAND_HANDLERS[verb]).join(' | '));
+    unknownSub(ctx, verb, sub);
     return 2;
   };
 }

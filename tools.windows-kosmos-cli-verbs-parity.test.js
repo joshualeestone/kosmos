@@ -116,7 +116,8 @@ function macSubcommands(text, verb) {
 
 /* Verbs that refuse a first argument that is not one of their subcommands. */
 function macSubcommandRequired(text) {
-  return new Set([...text.matchAll(/Unknown: kosmos ([a-z]+) \$sub\b/g)].map((m) => m[1]));
+  // kosmos#9068: the groups now answer through _unknown_sub <verb> "$sub" (the same "Unknown: kosmos <verb> <word>" line).
+  return new Set([...text.matchAll(/Unknown: kosmos ([a-z]+) \$sub\b|_unknown_sub ([a-z]+) "\$sub"/g)].map((m) => m[1] || m[2]));
 }
 
 const MAC_VERBS = macVerbsFromDispatch(MAC_CLI);

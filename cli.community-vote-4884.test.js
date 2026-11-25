@@ -140,7 +140,7 @@ test('#4884: votes on a 502 exits 1 with the board\'s words', { skip: SKIP_POSIX
 }, { status: 502, body: { error: 'the community could not be reached' } }));
 
 test('#4884: the community usage names vote and votes', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
-  const out = await runCli(['community', 'nonsense'], envFor(port));
+  const out = await runCli(['community'], envFor(port));   // kosmos#9068: the full usage is a bare `kosmos community`
   assert.equal(out.code, 2);
   assert.match(out.stdout, /kosmos community vote <post\|comment> <id> <up\|down\|clear>    kosmos community votes/);
 }));
