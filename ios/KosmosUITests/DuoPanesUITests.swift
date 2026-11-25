@@ -160,6 +160,50 @@ final class DuoPanesUITests: XCTestCase {
         shot(app, "another project")
     }
 
+    // The other order: the page is opened while folded, then the phone unfolds. And an upright phone, as it always was:
+    // no tabs in a room or its page, the tabs back with the list.
+    func testAPageOpenedFoldedHasTheTabsBackOnAnUnfold() throws {
+        let app = try launch("fold:25", ["KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"])
+        let info = app.buttons["room-info"], plus = app.buttons["Add a file to this conversation"]
+        XCTAssertTrue(info.waitForExistence(timeout: 30), "the room did not open")
+        XCTAssertTrue(holds(8) { self.pastMiddle(app, plus) && self.tabsShow(app) }, "CONTROL: unfolded, the room is not beside its list with the tabs")
+        XCTAssertTrue(holds(40) { self.atLeft(app, plus) && !self.tabsShow(app) }, "folded, the room is not alone without the tabs")
+        info.tap()
+        let about = words(app, "What it is for")
+        XCTAssertTrue(about.waitForExistence(timeout: 10) && !tabsShow(app), "the page opened folded has the tab bar over it")
+        XCTAssertTrue(holds(40) { self.pastMiddle(app, about) && self.tabsShow(app) }, "unfolded, the page is not beside its list with the tabs")
+        shot(app, "opened folded, unfolded")
+        // Three pages deep: a member's chat from that page.
+        let member = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Cleo'")).firstMatch
+        XCTAssertTrue(member.waitForExistence(timeout: 5), "CONTROL: no Cleo in the page's members")
+        member.tap()
+        let chat = labelled(app, "label == %@", "Message Cleo")
+        XCTAssertTrue(holds(10) { self.pastMiddle(app, chat) && self.tabsShow(app) }, "a chat three pages deep is not beside the list with the tabs")
+        shot(app, "three deep")
+    }
+    func testAnUprightPhoneHidesTheTabsInAProjectAndShowsThemInTheList() throws {
+        guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"]
+        app.launch()
+        XCTAssertTrue(app.buttons["room-info"].waitForExistence(timeout: 30), "the room did not open")
+        XCTAssertTrue(holds(5) { !self.tabsShow(app) }, "an upright phone shows the tabs in a project's room")
+        app.buttons["room-info"].tap()
+        XCTAssertTrue(words(app, "What it is for").waitForExistence(timeout: 10) && holds(5) { !self.tabsShow(app) }, "an upright phone shows the tabs over a project's page")
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(app.buttons["room-info"].waitForExistence(timeout: 10) && holds(5) { !self.tabsShow(app) }, "back in the room, the tabs show")
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(holds(8) { self.tabsShow(app) }, "back in the list, the tabs are gone")
+        shot(app, "upright, back in the list")
+        // A task's page keeps its tabs, as it always has.
+        app.tabBars.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Tasks'")).firstMatch.tap()
+        let task = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Choose the cover photo'")).firstMatch
+        XCTAssertTrue(task.waitForExistence(timeout: 10), "no tasks")
+        task.tap()
+        XCTAssertTrue(app.navigationBars["Task 7"].waitForExistence(timeout: 10) && tabsShow(app), "an upright phone lost the tabs on a task's page")
+    }
+
     // A task's page beside the list, kept through a fold; an agent's Answer in the list then takes its place.
     func testATaskStaysThroughAFoldAndAnswerReplacesIt() throws {
         let app = try launch("fold:40", ["KOSMOS_SAMPLE_TAB": "tasks"])
