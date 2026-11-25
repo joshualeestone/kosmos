@@ -297,6 +297,7 @@ async function finish(a) {
   }
   const forgot = steps.find((s) => s.id === 'forget');
   if (certRateLimited && forgot && forgot.result === 'pass') {
+    try { fs.rmSync(progressPath(ptr.sha256), { force: true }); } catch { /* best effort */ }   // the attempt is over
     setup('register was refused by the certificate authority\'s limit for this seed\'s address, which says nothing about the build: nothing recorded (it clears on its own within a week; another seed carries on now). ' + certRateLimited);
   }
   return finishRecord(ptr, identity, seed, placement, steps, kind);

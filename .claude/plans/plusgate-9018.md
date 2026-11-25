@@ -30,7 +30,13 @@ hand, so the gate only ever said "cannot tell" and every promote went out with t
 A sandboxed board signs in exactly as an installed one does. Board auth is off in it; the sign-in routes do not read
 board auth, but that is not proved for every route.
 
+A register the certificate authority rate-limits is recorded as nothing (exit 2), chosen by matching the refusal's
+text ("HTTP 429 on /v1/mac/cert", "too many certificates") as the board relays it. So the build's own words decide
+that classification; only when its forget also passed.
+
 ## Limit, stated so nobody reads more into it
+The throwaway board runs with board auth off on 127.0.0.1, so any local process on this Mac can call it while it runs
+(a minute or two), when it holds the test seed's session and briefly a registered identity. It is a test account.
 KOSMOS_PLUS_VERIFIED_SHA256 stops an ACCIDENTAL sandboxed record (a worktree fixture reporting the staged version). It
 does not stop a deliberate one: whoever can set it can also write the record JSON by hand, as with any record on the
 box. The bytes are proved by plus-signin-auto.sh's sha256 check, and only on runs it made.
