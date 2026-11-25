@@ -30,7 +30,7 @@ agent, asynchronously; another login (#2129, #6095), a credential that outranks 
 - macOS only, where the login date is read (the Keychain). A session with no run instance: as on main.
 - A refused agent costs one `security` read a minute, and one tmux and two ps calls a run (a minute, while its login
   cannot be told), and a look in each project folder on a re-check tick once a sign-in has been seen.
-- A token or key set in a settings file's `env`: not looked for, as the account check does not.
+- A token or key set in a settings file's `env`, or an `apiKeyHelper` set there by hand: not looked for, as the account check does not.
 
 ## Weakest premise
 That a renewal never moves the login date later (Math.min in Claude Code 2.1.327 to 2.1.332, not guaranteed by Anthropic). If one did, a
@@ -39,4 +39,4 @@ sessions/<pid>.json; without it nothing is cleared. Measured 11-25: 21 of 21 liv
 transcripts end in a refusal this reads.
 
 ## Test
-engine/oldsigninline-9038.test.js, 25 tests, most through the real snapshot(); 47 mutations, all red.
+engine/oldsigninline-9038.test.js, 28 tests, most through the real snapshot(); 55 mutations, all red.
