@@ -1749,6 +1749,19 @@ do {
     check(Board.savedName("short.pdf") == "short.pdf" && Board.savedName(String(repeating: "x", count: 300)).utf8.count == 200, "short names unchanged; long ones cut to 200 bytes")
     check(Board.attachmentMeta(r.attachments[0]) == "PDF \u{00B7} 2.4 MB" && Board.attachmentMeta(r.attachments[1]) == "Word document \u{00B7} 47 KB",
           "the kind word and size, as the board writes them")
+    // kosmos#9016: a file the Mac marks incomplete says so under its name; a false or missing field does not.
+    do {
+        func one(_ extra: String) -> Board.Attachment? {
+            let body = #"{"attachments":[{"url":"/api/attachment/0123456789abcdef01234567","name":"deck.xlsx","type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","size":65536"# + extra + "}]}"
+            guard let o = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any] else { return nil }
+            return Board.parseAttachments(o).first
+        }
+        check(one(#","incomplete":true"#)?.incomplete == true, "kosmos#9016: incomplete: true is read")
+        check(Board.attachmentMeta(one(#","incomplete":true"#)!).hasSuffix(" \u{00B7} incomplete upload, please send again"),
+              "kosmos#9016: and the card says it after the kind and size")
+        check(one("")?.incomplete == false && !Board.attachmentMeta(one("")!).contains("incomplete"), "kosmos#9016: no field: not incomplete")
+        check(one(#","incomplete":"yes""#)?.incomplete == false, "kosmos#9016: only a real true counts")
+    }
     let fw = { (t: String, n: String, k: String) in Board.fileWord(type: t, name: n, kind: k) }
     check(fw("", "x.XLSX", "other") == "Excel spreadsheet" && fw("application/vnd.ms-powerpoint", "x", "other") == "PowerPoint"
           && fw("image/png", "x", "other") == "Image" && fw("", "data.csv", "other") == "CSV" && fw("text/markdown", "x", "text") == "Text"

@@ -297,7 +297,8 @@ struct FileCard: View {
         case .failed:
             Text("Could not open it. Try again.").font(.caption).foregroundColor(Palette.dangerWord).lineLimit(lines)
         case .ready:
-            Text(Board.attachmentMeta(file)).font(.caption).foregroundColor(Palette.secondary).lineLimit(lines)
+            // kosmos#9016: a file the Mac found cut short says so in the warning colour, as the board's att-bad does
+            Text(Board.attachmentMeta(file)).font(.caption).foregroundColor(file.incomplete ? Palette.dangerWord : Palette.secondary).lineLimit(lines)
         }
     }
 }

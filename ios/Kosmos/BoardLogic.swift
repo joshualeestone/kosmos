@@ -1978,6 +1978,9 @@ enum Board {
         // The Mac's own address for the file and for its first-page picture, only ever under /api/.
         let url: String
         let preview: String?
+        // kosmos#9016: the Mac found a zip-based file's ending missing (engine/attachments.js incompleteZip), so it may be
+        // cut short; the card says so (attachmentMeta). Absent on older Macs: not incomplete.
+        var incomplete: Bool = false
     }
 
     // `attachments` when it has any, else `attachment`; a file whose address is not under /api/ is dropped (the board
@@ -1994,7 +1997,8 @@ enum Board {
             let preview = (a["preview"] as? String).flatMap { $0 == url + "/preview" ? $0 : nil }
             return Attachment(id: id, name: (name?.isEmpty == false ? name! : "a file"),
                               type: a["type"] as? String ?? "", size: integer(a["size"]),
-                              kind: ["image", "pdf", "text"].contains(kind) ? kind : "other", url: url, preview: preview)
+                              kind: ["image", "pdf", "text"].contains(kind) ? kind : "other", url: url, preview: preview,
+                              incomplete: (a["incomplete"] as? Bool) == true)
         }
     }
 
@@ -2035,9 +2039,12 @@ enum Board {
         return String(format: "%.1f MB", Double(n) / (1024 * 1024))
     }
 
-    // "PDF · 2.4 MB".
+    // "PDF · 2.4 MB", and for a file the Mac found cut short, "· incomplete upload, please send again" (kosmos#9016, the
+    // board's words for it).
+    static let incompleteWords = "incomplete upload, please send again"
     static func attachmentMeta(_ a: Attachment) -> String {
-        [fileWord(type: a.type, name: a.name, kind: a.kind), sizeText(a.size)].filter { !$0.isEmpty }.joined(separator: " \u{00B7} ")
+        [fileWord(type: a.type, name: a.name, kind: a.kind), sizeText(a.size), a.incomplete ? incompleteWords : ""]
+            .filter { !$0.isEmpty }.joined(separator: " \u{00B7} ")
     }
 
     // A post made with no words carries the file names as its text; the cards say them, so the text is not drawn too
