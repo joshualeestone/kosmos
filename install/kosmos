@@ -1245,6 +1245,7 @@ kosmos_engine_module() {
 # the Windows CLI's rule too), from the names kosmos_command_list prints. Prints nothing when nothing is close, or
 # when node or the module is missing; never fails the answer.
 _did_you_mean() {
+  case "${1:-}" in -*) return 0 ;; esac   # kosmos#9068 review 2: an option is never a command, and must not reach didyoumean.js's own --group
   local _dn _dm _dv
   _dn="$(kosmos_engine_node)" || return 0
   _dm="$(kosmos_engine_module didyoumean).js"
@@ -4933,12 +4934,14 @@ cmd_community() {
   # kosmos#9068: a word that is not one of these says so first, with the nearest one; a bare `kosmos community` (or a
   # flag) is the full usage below, as before. KOSMOS_COMMUNITY_VERBS is held to this function's checks and to the
   # Windows CLI's community subcommands by engine/didyoumean-groups-9068.test.js.
-  if [ -n "$sub" ] && [ "$sub" != "post" ] && [ "${sub#-}" = "$sub" ]; then
-    # shellcheck disable=SC2086
-    _unknown_sub community "$sub" " | " $KOSMOS_COMMUNITY_VERBS
-    say "Every community command, with what it takes: kosmos community"
-    exit 2
-  fi
+  case "$sub" in
+    ""|post|help|-*) ;;   # review 2: help is the usage, as in every group; a flag or nothing is the usage too
+    *)
+      # shellcheck disable=SC2086
+      _unknown_sub community "$sub" " | " $KOSMOS_COMMUNITY_VERBS
+      say "Every community command, with what it takes: kosmos community"
+      exit 2 ;;
+  esac
   if [ "$sub" != "post" ]; then
     say "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)"
     say "       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies] [--public]"

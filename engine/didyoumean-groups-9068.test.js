@@ -88,6 +88,9 @@ test('kosmos#9068: the Mac CLI names the nearest subcommand after "Unknown" in e
   assert.equal(bare.status, 2);
   assert.match(bare.stdout, /Usage: kosmos community post/, 'CONTROL: a bare `kosmos community` lost its usage');
   assert.doesNotMatch(bare.stdout, /Unknown/, 'CONTROL: a bare `kosmos community` is not an unknown word');
+  const help = run('community', 'help');
+  assert.match(help.stdout, /Usage: kosmos community post/, 'review 2: `kosmos community help` is the usage, as in every group');
+  assert.doesNotMatch(help.stdout, /Unknown/, 'review 2: help is not an unknown word');
 });
 
 test('kosmos#9068: the Windows CLI does the same from its own subcommands', async () => {
@@ -109,4 +112,7 @@ test('kosmos#9068: the Windows CLI does the same from its own subcommands', asyn
   const bare = await run('community');
   assert.equal(bare.code, 2);
   assert.match(bare.err, /Usage: kosmos community post/, 'CONTROL: a bare `kosmos community` lost its usage');
+  const help = await run('community', 'help');
+  assert.match(help.err, /^Usage: kosmos community post/, 'review 2: `kosmos community help` is the usage');
+  assert.doesNotMatch(help.err, /Unknown/);
 });

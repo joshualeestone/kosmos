@@ -4367,7 +4367,7 @@ async function verbCommunity(ctx, args) {
   }
   // kosmos#9068, as install/kosmos: a word that is not a subcommand says so first, with the nearest one; a bare
   // `kosmos community` (or a flag) is the full usage, as before.
-  if (args && args[0] && !args[0].startsWith('-')) {
+  if (args && args[0] && args[0] !== 'help' && !args[0].startsWith('-')) {   // review 2: help is the usage, as in every group
     unknownSub(ctx, 'community', args[0]);
     ctx.err('Every community command, with what it takes: kosmos community');
     return 2;

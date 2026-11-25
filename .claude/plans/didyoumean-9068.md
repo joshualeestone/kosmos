@@ -34,3 +34,13 @@ module and Windows CLI the three behaviour tests fail; dropping `edit` from the 
 Updated pins (the behaviour the card changes): tools.windows-kosmos-cli-570 (task reassign gains its suggestion),
 -community-4330 (community publish says Unknown), cli.community-withdraw-5574 / -endorse-4913 / -vote-4884 (full help is
 a bare `kosmos community`), and the verbs-parity test's parser reads `_unknown_sub`.
+
+## Review rounds
+- Round 1 (sonnet): 0 BLOCKERs, 0 SHOULDs. NITs fixed: the comment named the wrong test file; a real name in another
+  case ("Follow") is suggested as written (the dispatch is case-sensitive), top level too; the suggestion prints
+  through `say` (its indent, as the Unknown line).
+- Round 2 (opus): SHOULD fixed: `kosmos community help` had become "Unknown" while every group treats help as the
+  usage; now a case arm on the Mac (the parity parser skips help there) and a check on Windows, both tested. NIT
+  fixed: a top-level option never reaches didyoumean.js (it could be read as its own --group); no test, because with
+  today's command list the misread prints nothing, so a test could not fail. NIT left: a padded real name ("follow ")
+  gets no suggestion, as before this branch.
