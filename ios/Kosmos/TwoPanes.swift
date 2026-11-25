@@ -19,19 +19,58 @@ private struct ReadsTwoPanes: ViewModifier {
     func body(content: Content) -> some View { content.environment(\.twoPanes, h == .regular && v == .regular) }
 }
 
-// The same question asked of the window at this moment. A closure in a view being taken down by an unfold still holds the
-// environment it was drawn with, so it must ask here.
-@MainActor enum TwoPanesNow {
-    static var value: Bool {
-        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-        guard let t = (windows.first(where: \.isKeyWindow) ?? windows.first)?.traitCollection else { return false }
-        return t.horizontalSizeClass == .regular && t.verticalSizeClass == .regular
-    }
-}
-
 extension View {
     // Everything below reads \.twoPanes; it changes on a fold.
     func readsTwoPanes() -> some View { modifier(ReadsTwoPanes()) }
+}
+
+// A tab's list and what is open from it. One column: the list, with the open page pushed on it, as always. Two panes: the list
+// on the left, the open page on the right. Both are the SAME navigation and the same push: an unfold only moves the list out
+// of its root into a pane of its own, so the open chat, its place and the words in its box are never taken down by a fold.
+struct ListAndOpen<ListPage: View, Open: View>: View {
+    let isOpen: Binding<Bool>
+    let nothingOpen: String
+    @ViewBuilder let list: () -> ListPage
+    @ViewBuilder let open: () -> Open
+    @Environment(\.twoPanes) private var twoPanes
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if twoPanes {
+                NavigationView { list() }
+                    .navigationViewStyle(.stack)
+                    .frame(width: min(360, max(280, width * 0.4)))
+                Divider().ignoresSafeArea()
+            }
+            NavigationView {
+                ZStack {
+                    if twoPanes { NothingOpen(words: nothingOpen) } else { list() }
+                }
+                .background(
+                    NavigationLink(isActive: isOpen) {
+                        // In two panes there is no list under it to go back to.
+                        open().navigationBarBackButtonHidden(twoPanes)
+                    } label: { EmptyView() }
+                    .hidden()
+                )
+            }
+            .navigationViewStyle(.stack)
+        }
+        .background(GeometryReader { g in
+            Color.clear.onAppear { width = g.size.width }.onChange(of: g.size.width) { width = $0 }
+        })
+    }
+}
+
+private struct TabBarBesideOnly: ViewModifier {
+    @Environment(\.twoPanes) private var twoPanes
+    func body(content: Content) -> some View { content.toolbar(twoPanes ? .visible : .hidden, for: .tabBar) }
+}
+
+extension View {
+    // An open chat, room or page has no tab bar on a phone (#7847); beside its list, the tabs stay.
+    func hidesTabBarInOneColumn() -> some View { modifier(TabBarBesideOnly()) }
 }
 
 // What the right pane says while nothing is open.

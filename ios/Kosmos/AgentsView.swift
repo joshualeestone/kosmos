@@ -27,7 +27,6 @@ struct AgentsView: View {
     var create: () -> Void = {}
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.twoPanes) private var twoPanes   // kosmos#9002
     @State private var visible = false
     @State private var wasBackground = false
     // The agent whose chat is open (kosmos#7008), as it was tapped (the chat follows the list for its status).
@@ -97,7 +96,7 @@ struct AgentsView: View {
         .accessibilityAddTraits(sortChoice != Board.agentSortDefault ? .isSelected : [])
     }
 
-    // The list, with its bar. In one column it carries the open chat's link; in two panes the chat is the other pane.
+    // The list, with its bar. ListAndOpen (kosmos#9002) shows the open chat over it or beside it.
     private var listPage: some View {
         content
             .safeAreaInset(edge: .bottom) { if let closedNote { closedLine(closedNote) } }
@@ -129,40 +128,12 @@ struct AgentsView: View {
         }
     }
 
-    // kosmos#9002: one column, as it was, or two panes on an unfolded Duo. openAgent is this view's own state and drafts are
-    // the client's, so a fold changes neither.
-    @ViewBuilder private var panes: some View {
-        if twoPanes {
-            NavigationSplitView(columnVisibility: .constant(.all)) {
-                listPage
-            } detail: {
-                NavigationStack {
-                    if openAgent == nil { NothingOpen(words: "Choose an agent") } else { openChatPage }
-                }
-            }
-            .navigationSplitViewStyle(.balanced)
-        } else {
-            NavigationView {
-                listPage
-                    // The link sits on the page, not on a row, so a row that stops being drawn does not close the chat. The page's
-                    // content being swapped (the connection screen for the list) closes it too, so shownList keeps the list while a
-                    // chat is open through a brief state (kosmos#8055).
-                    .background(
-                        // kosmos#9002: an unfold takes this column down, which can report the link closed: that is not the
-                        // person's back, so it closes nothing.
-                        NavigationLink(isActive: Binding(get: { openAgent != nil }, set: { if !$0 && !TwoPanesNow.value { linkClosed(); openAgent = nil } })) {
-                            openChatPage
-                        } label: { EmptyView() }
-                        .hidden()
-                    )
-            }
-            .navigationViewStyle(.stack)
-        }
-    }
-
     var body: some View {
-        // The ZStack is what appears and disappears, so a fold (which swaps what is in it) runs none of the handlers below.
-        ZStack { panes }
+        // The link sits on the page, not on a row, so a row that stops being drawn does not close the chat. The page's
+        // content being swapped (the connection screen for the list) closes it too, so shownList keeps the list while a
+        // chat is open through a brief state (kosmos#8055).
+        ListAndOpen(isOpen: Binding(get: { openAgent != nil }, set: { if !$0 { linkClosed(); openAgent = nil } }),
+                    nothingOpen: "Choose an agent") { listPage } open: { openChatPage }
         // Signed out, another account or another Mac: the open chat was the previous one's, so it closes.
         .onChange(of: client.chatEpoch) { _ in
             // After an account change forget() has blanked the kept name: the line then names no agent (another account's).
