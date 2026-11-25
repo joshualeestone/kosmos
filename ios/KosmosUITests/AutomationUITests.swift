@@ -103,7 +103,12 @@ final class AutomationUITests: XCTestCase {
         shot(app, "automation-ready")
 
         // kosmos#8959 slice D1d3b: the posts and comments, in a closed fold, each with Delete behind the page's ask.
-        let fold = app.descendants(matching: .any)["automation-mine-fold"]
+        // Found by its identifier OR its words: in a List a DisclosureGroup's label becomes the group's own button, and the
+        // identifier set on the label Text did not reach it (UI run 1, light and dark: the hierarchy at the failure shows
+        // the screen already scrolled past the Community section, so the fold was passed, never matched).
+        let foldIs = NSPredicate(format: "identifier == %@ OR label == %@ OR label == %@",
+                                 "automation-mine-fold", "View all of them here, to delete one", "Hide them")
+        let fold = app.descendants(matching: .any).matching(foldIs).firstMatch
         reveal(app, fold, swipes: 4)
         XCTAssertTrue(fold.waitForExistence(timeout: 5), "the posts and comments fold is missing")
         fold.tap()
@@ -113,7 +118,7 @@ final class AutomationUITests: XCTestCase {
         XCTAssertEqual(del.label, "Delete “What we shipped this week” from the community")
         shot(app, "automation-mine")
         // Closed again, so the screens below are where the rest of the test expects them: back UP to the fold first.
-        let foldAgain = app.descendants(matching: .any)["automation-mine-fold"]
+        let foldAgain = app.descendants(matching: .any).matching(foldIs).firstMatch
         for _ in 0..<4 where !(foldAgain.exists && foldAgain.isHittable) { app.swipeDown() }
         XCTAssertTrue(foldAgain.isHittable, "could not get back to the fold to close it")
         foldAgain.tap()
