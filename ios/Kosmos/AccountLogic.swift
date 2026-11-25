@@ -303,6 +303,8 @@ enum Account {
     // Review 3: whether to say there is no computer is the page's decision (noMac, from /me), not the computer list's:
     // /v1/account/macs also lists retired and held computers, and a refused device is shown only its own. Until /me
     // answers, the list stands in for it, counting only a computer that is neither retired nor held.
+    // Review 7: the page's #pending-note for a refused device (signin.html, relay#217), so the empty list is explained.
+    static let refusedDevice = "Your computer said no to this device last time. It is asking again; if that was you, allow it there."
     enum Computers: Equatable { case zero, live, refused }   // not none or some: as an Optional, those mean nil and wrapped
     static func computers(_ data: Data?) -> Computers? {
         guard let data, let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
@@ -413,6 +415,7 @@ enum Account {
         // Review 1: a server or gateway failure is not a judgement on the name.
         if status >= 500 { return .refused(nameUnreachable) }
         if status == 401 { return .refused("You are signed out.") }   // review 4: not the server's "no such account"
+        if status == 403 { return .refused(nameNotHere) }             // review 7: the review account; not its server words
         return .refused(errorWords(data) ?? "That name is not available.")
     }
 
