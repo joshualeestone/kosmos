@@ -4741,6 +4741,39 @@ function sendGate(name) {
   if (couldNotLook) { try { agentHere = fs.existsSync(create.workerDir(name)) && !removal.isRemoved(name); } catch { agentHere = false; } }
   return { known, card, rosterUnreadable: couldNotLook && agentHere };
 }
+/* kosmos#9087 Part B: on Windows, a message to an agent of ours while `claude agents --json` cannot be read goes
+   through its supervisor's pipe instead of being refused. The evidence is the two things that do not come from that
+   read: its supervisor is up (win32streamstate.liveNames, the presence pipe of kosmos#8415) and the ownership record
+   files a session under exactly this name, every such row with a Claude runner (a per-turn runner, codex and the
+   like, is listed through the read and never reaches here). Then the one card it needs (status.channelCardFor), never
+   added to the roster. The pipe answers for itself if the agent is gone (chat.js deliverThroughChannel). null when
+   any of that is missing. Never throws. The seam is for tests: { win32, liveNames, owned }. */
+let outageChannelSeam = null;
+function _setOutageChannelForTest(seam) { outageChannelSeam = seam && typeof seam === 'object' ? seam : null; }
+function outageChannelCard(name) {
+  try {
+    const seam = outageChannelSeam || {};
+    const onWin32 = typeof seam.win32 === 'boolean' ? seam.win32 : process.platform === 'win32';
+    if (!onWin32) return null;
+    const live = typeof seam.liveNames === 'function' ? seam.liveNames() : require('./engine/win32streamstate').liveNames();
+    if (!live || typeof live.has !== 'function' || !live.has(name)) return null;
+    const sessions = require('./engine/win32sessions');
+    const owned = typeof seam.owned === 'function' ? seam.owned() : sessions.read();
+    const rows = Object.values(owned || {}).filter((row) => sessions.rowIsUnder(row, name));
+    if (!rows.length) return null;
+    const runnerOf = (row) => String((row && row.runner) || 'claude');
+    if (!rows.every((row) => runnerOf(row) === 'claude')) return null;
+    return require('./engine/status').channelCardFor(name, '');
+  } catch { return null; }
+}
+/* kosmos#9087: the log line for a message sent through the pipe while the roster could not be read. Never throws. */
+function noteOutageSend(name) {
+  const why = claudeReadProblem();
+  try {
+    console.error('[kosmos#9087] the running agents could not all be read' + (why ? ' (' + why + ')' : '')
+      + '; a message to ' + JSON.stringify(String(name)) + ' goes through its supervisor, which is up');
+  } catch { /* never fatal */ }
+}
 /* The 409 body for a send the gate found unreadable: nothing was sent, and the same thing can be sent again. */
 const UNREADABLE_SEND_WORDS = 'we could not check which agents are running, so nothing was sent. Try again in a moment.';
 function unreadableSendBody() { return { error: UNREADABLE_SEND_WORDS, because: 'unreadable', retry: true }; }
@@ -22208,7 +22241,11 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#9085: ONE roster read (sendGate, shared with the command routes since kosmos#9087). A window Kosmos
            did not start keeps the 409 'untied' below. */
         const { known, rosterUnreadable } = sendGate(name);
-        if (!known) {
+        /* kosmos#9087 Part B: on Windows, a supervised agent of ours is sent to through its pipe while the read fails
+           (outageChannelCard says what that needs); everything else unreadable keeps #9085's 409. */
+        const outageCard = (!known && rosterUnreadable) ? outageChannelCard(name) : null;
+        if (outageCard) noteOutageSend(name);
+        if (!known && !outageCard) {
           /* kosmos#9085: a roster that cannot be READ is not "no agent by that name". On Windows a `claude agents --json`
              that kept failing (five hours on 11-25) made the roster refuse, and every message to a running agent was
              answered 404 as if the agent did not exist. Unknown is answered as unknown: a 409 with `because`
@@ -22293,7 +22330,8 @@ const server = http.createServer(async (req, res) => {
             later.status = 409; throw later;
           }
         }
-        const roster = safeRoster();
+        /* kosmos#9087: the one channel card, never the roster's refusal read again (safeRoster would read it as none). */
+        const roster = outageCard ? [outageCard] : safeRoster();
         /* #1629: BEFORE the button block below, which only runs for a button
            press. A plain typed reply is the common case and the dangerous one
            here (Enter picks "No, exit"), so the hold reads a fresh screen for
@@ -32323,7 +32361,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 /* kosmos#8340: ages one agent's shown-counts record, so a test can show the block comes back after COUNTS_SHOWN_FOR_MS. */
 function _ageCountsShownForTest(agentKey, ms) { const e = COUNTS_SHOWN.get(String(agentKey)); if (e) e.at -= ms; return Boolean(e); }
-module.exports = { _setClaudeReadProblemForTest /* kosmos#9085 */, _setStartedProofPlatformForTest, _setStartWaitForTest,   // kosmos#8652: the starting wait, for its test
+module.exports = { _setClaudeReadProblemForTest /* kosmos#9085 */, _setOutageChannelForTest /* kosmos#9087 */, _setStartedProofPlatformForTest, _setStartWaitForTest,   // kosmos#8652: the starting wait, for its test
    _resetRoomRunSaidForTest, _ageRoomRunSaidForTest, _ageCountsShownForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it

@@ -10947,7 +10947,40 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { setPaneLoginReaderForTests, readPaneLogin /* kosmos#9038 */, panesWithCommands /* kosmos#8719 */, boardTmux /* kosmos#8719 */, isClaudeCommand /* kosmos#8719 */, paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, win32ReadText, win32LongForm, win32Powershell, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
+/* kosmos#9087: the card a message needs for ONE supervised Windows agent while `claude agents --json` cannot be read,
+   so the roster refuses. Built from the row win32roster would have emitted for it (rowLine, the same bytes), parsed by
+   the roster's own parser, and with each field a delivery reads (target, isAgentPane, isNamedOurs, reachedByChannel,
+   runner) decided by the same predicate snapshot uses for it. Its state is UNKNOWN: nobody looked. Only the send
+   route builds it, and only for a name whose supervisor is up and whose ownership record files it (server.js
+   outageChannelCard); it never joins the roster, which stays refused for remove, restart and create (#9085's first
+   design was rejected for that). null when the row does not parse as a Windows agent of ours. */
+function channelCardFor(name, runner) {
+  const win32roster = require('./win32roster');
+  let pane = null;
+  try { pane = readPanes(win32roster.rowLine(name, runner || '') + '\n').panes[0] || null; } catch { pane = null; }
+  if (!pane || !win32roster.isWin32Pane(pane) || !isNamedOurs(pane) || pane.name !== name) return null;
+  return {
+    name: readIdentity(pane.name).displayName,
+    sessionName: pane.name,
+    session: pane.session,
+    target: pane.target,
+    isAgentPane: isAgentPane(pane),
+    isAgentSession: isAgentSession(pane),
+    isFleetSession: isFleetSession(pane),
+    isNamedOurs: true,
+    paneless: false,
+    reachedByChannel: true,
+    runner: cardRunnerOf(pane),
+    state: STATE.UNKNOWN,
+    stateConfidence: CONFIDENCE.NONE,
+    stateEvidence: null,
+    because: 'the running agents could not be read, so what it is doing is not known',
+    /* The one field that says this card was not read off the roster. Test `=== true`. */
+    outageCard: true,
+  };
+}
+
+module.exports = { setPaneLoginReaderForTests, channelCardFor /* kosmos#9087 */, readPaneLogin /* kosmos#9038 */, panesWithCommands /* kosmos#8719 */, boardTmux /* kosmos#8719 */, isClaudeCommand /* kosmos#8719 */, paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, win32ReadText, win32LongForm, win32Powershell, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   backgroundShellsIn, backgroundShellsOf /* kosmos#8846 */, composerText, unsentInputOf, deliveryStallOf, restartedOf /* kosmos#8979 */, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
