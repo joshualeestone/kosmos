@@ -22,3 +22,4 @@ Stacked on taskholdform-8958 (B8).
 - With it go TaskPageView.openPage, BoardClient.taskURL and Tasks.taskPageURL, which nothing else used.
 - Weakest premise: a task this phone cannot show in full (a repeat rule of a new kind) now has no link, only the words saying to open it
   on the computer's board.
+- Accepted: a link to a task already under this one pushes it again, as the page's subtask and Part of links have since #7074.

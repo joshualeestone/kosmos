@@ -1153,7 +1153,10 @@ extension Board.TaskPage {
         "Check \(i + 1): " + c.words + (c.words.last.map { ".!?".contains($0) } == true ? " " : ". ") + checkSays(c, roster: roster)
     }
     // The tasks the state line names, which the board links: the one that replaced this, and those it replaced.
-    var stateTasks: [Int] { (closed ? [replacedBy].compactMap { $0 } : []) + replaces }
+    var stateTasks: [Int] {
+        let by = closed ? replacedBy : nil
+        return (by.map { [$0] } ?? []) + replaces.filter { $0 != by }
+    }
     // What an agent says about a check, and the task its part moved to (the page links that one).
     func checkSays(_ c: Board.TaskCheck, roster: [String: String]) -> String {
         guard let met = c.met else { return Board.checkUnreported }

@@ -240,6 +240,8 @@ final class TaskPageActionsUITests: XCTestCase {
         // Its folded runs open to show each, and close.
         let fold = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "2 runs found nothing new")).firstMatch
         for _ in 0..<8 where !(fold.exists && fold.isHittable) { app.swipeUp() }
+        app.swipeUp()   // off the bottom edge: the runs open under it, and only what is on screen is there to find
+        XCTAssertTrue(fold.isHittable, "the folded row went off the screen")
         fold.tap()
         let run = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Dana ran it, nothing new: no new prices")).firstMatch
         XCTAssertTrue(run.waitForExistence(timeout: 10), "the runs a row folds are not shown")
@@ -249,7 +251,8 @@ final class TaskPageActionsUITests: XCTestCase {
         waitForExpectations(timeout: 10)
         // The task it replaced, from its state line; and the one that replaced that, from its activity.
         let nine = app.buttons["Open task 9"]
-        for _ in 0..<8 where !(nine.exists && nine.isHittable) { app.swipeDown() }
+        for _ in 0..<16 where !(nine.exists && nine.isHittable) { app.swipeDown() }
+        XCTAssertTrue(nine.exists && nine.isHittable, "its state line has no link to the task it replaced")
         nine.tap()
         XCTAssertTrue(app.navigationBars["Task 9"].waitForExistence(timeout: 15), "the task it replaced did not open")
         XCTAssertTrue(app.buttons["Open task 8"].waitForExistence(timeout: 10), "its state line does not open the one that replaced it")
@@ -258,7 +261,7 @@ final class TaskPageActionsUITests: XCTestCase {
         shot(app, "replaced")
         app.navigationBars["Task 9"].buttons.firstMatch.tap()
         XCTAssertTrue(app.navigationBars["Task 8"].waitForExistence(timeout: 10), "no way back")
-        for _ in 0..<8 where !(there.exists && there.isHittable) { app.swipeUp() }
+        for _ in 0..<16 where !(there.exists && there.isHittable) { app.swipeUp() }
         there.tap()
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.navigationBars["Task 8"])
         waitForExpectations(timeout: 15)
