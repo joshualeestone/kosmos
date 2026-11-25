@@ -1027,6 +1027,8 @@ struct ScreenHeading: View {
 // checked, and choosing one shows that computer (BoardClient.showMac). With one it is the name alone.
 struct MacSwitcher: View {
     @ObservedObject var client: BoardClient
+    // kosmos#9063: read so a text size change redraws the name at its new width (review 1).
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let rows = Board.switcherRows(client.macs, shown: client.switcherShown, heard: client.heardFrom)
@@ -1048,7 +1050,7 @@ struct MacSwitcher: View {
                     }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        nameText(name)
                         Image(systemName: "chevron.down").font(.caption.weight(.semibold))
                     }
                     .foregroundColor(Palette.primary)
@@ -1056,11 +1058,36 @@ struct MacSwitcher: View {
                 .accessibilityLabel("Showing \(name)")
                 .accessibilityHint("Choose another computer")
             } else {
-                Text(name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                nameText(name)
                     .foregroundColor(Palette.secondary)
                     .accessibilityLabel("Showing \(name)")
             }
         }
+    }
+
+    // kosmos#9063: the bar gives a leading item only the width it asks for, and a one-line Text asks for almost none, so
+    // "Studio Mac" showed as "St..." with the bar half empty. The name takes its own width (CappedIdealWidth), up to a
+    // cap; only a longer name still shortens. A smaller cap at the accessibility sizes, so on a 375 pt phone the order and
+    // + buttons keep their room (review 1).
+    private func nameText(_ name: String) -> some View {
+        CappedIdealWidth(cap: typeSize.isAccessibilitySize ? 120 : 160) {
+            Text(name).font(.subheadline.weight(.semibold)).lineLimit(1)
+        }
+    }
+}
+
+// kosmos#9063: its one child at the child's own width (as if nothing limited it), but never wider than `cap`, whatever
+// width it is offered. A toolbar item offers almost none, which a plain Text accepts and truncates in.
+struct CappedIdealWidth: Layout {
+    let cap: CGFloat
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        let width = min(child.sizeThatFits(.unspecified).width, cap)
+        return CGSize(width: width, height: child.sizeThatFits(ProposedViewSize(width: width, height: nil)).height)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading,
+                              proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }
 
