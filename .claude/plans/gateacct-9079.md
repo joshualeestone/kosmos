@@ -10,8 +10,13 @@ every agent on the default Claude account, a real regression fixed by createdead
 ## The change
 The gate picks one connected account per provider from GET /api/accounts. A Claude row the board itself already marks
 dead can still read `connection.state: "connected"`: badge `rejected` (an expired sign-in) or `signed_out`, or
-`connection.loginEnded: true` under any badge. The gate now skips such a row, so it tests on an account the board
-says works. If none is left for Claude, the existing "no signed-in account" arm answers cannot-tell (2).
+`connection.loginEnded: true` under any badge. The gate now skips such a row when it is a SECONDARY account, and
+says in its log which one and why. If none is left for Claude, the existing "no signed-in account" arm answers
+cannot-tell (2).
+
+**The default row is never skipped (review 1 BLOCKER).** Its dead mark comes from the build under test: Check now
+runs the same probe as the create, so on 0.8.23 a person pressing Check now would have marked the default rejected,
+and a gate that skipped it would have passed on a secondary account. The default is tested exactly as on main.
 
 ## Rejected, and why it matters
 - **Trying the next Claude account when a create is refused on its sign-in.** Built and reverted before any commit:
@@ -26,11 +31,14 @@ says works. If none is left for Claude, the existing "no signed-in account" arm 
 - A rejected Claude row listed first is skipped: exit 0, and the output never says "create REFUSED".
 - A loginEnded Claude row (badge working) listed first is skipped: exit 0, likewise.
 - Only a dead Claude row: no signed-in Claude, cannot-tell (2).
+- Review 1: the DEFAULT row marked dead (isDefault true, badge rejected) beside a working secondary is NOT skipped:
+  its create refusal stands, exit 1, and nothing is logged as skipped. On the previous commit it read 0.
+- Review 1: a skipped secondary row is named in the log, with its reason.
 - The existing "create refused (400, sign-in) -> do-not-promote (1)" case is unchanged and still passes: the strict
   arm stands.
 - Result: 83 pass, 0 fail. Mutant (the skip line removed, on a scratch copy): all three new cases red.
 
 ## Weakest premise
-That the board's own badge and loginEnded can never mark a working account dead in a way that hides a build
-defect. They are part of the build. A build that wrongly marked every Claude account dead would read cannot-tell (2),
-not pass, so it is held rather than promoted; one that marked only the first account dead would be tested on the next.
+That a build defect never shows only as a false dead mark on a SECONDARY account. The default is safe by the rule
+above. A build that wrongly marked a secondary dead would be tested on another account: a narrower gap than before
+the skip existed (when the gate picked whatever row came first), and every such skip is now named in the log.
