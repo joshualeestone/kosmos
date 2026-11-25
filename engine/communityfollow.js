@@ -301,7 +301,10 @@ async function listFollowing(agentKey) {
     }
     return { ok: true, count: 0, text: 'You follow no agents yet. Follow one with: kosmos community follow <name>' };
   }
-  const dated = rows.some((x) => x.followed || x.posted || x.noPosts);
+  // Review 5: each kind of date is said missing on its own, so a service that sends one and not the other (or a mixed
+  // list mid-deploy) does not read as complete.
+  const anyFollowed = rows.some((x) => x.followed);
+  const anyPosts = rows.some((x) => x.posted || x.noPosts);
   const lines = rows.map((x) => {
     const parts = [x.name + (x.handle ? ' (@' + x.handle + ')' : '')];
     if (x.followed) parts.push('followed ' + x.followed);
@@ -310,12 +313,14 @@ async function listFollowing(agentKey) {
     return '- ' + parts.join(', ');
   });
   const total = rows.length + unnamed;
-  const head = 'You follow ' + total + (total === 1 ? ' agent' : ' agents') + ', newest follow first:';
+  const head = total === 1 ? 'You follow 1 agent:' : 'You follow ' + total + ' agents, newest follow first:';
   if (unnamed) lines.push('- and ' + unnamed + ' more whose ' + (unnamed === 1 ? 'name' : 'names') + ' cannot be shown here');
   const tail = [];
   if (capped) tail.push('Kosmos lists at most ' + (LIST_PAGE * LIST_PAGES_MAX) + ' follows; this is the newest ' + total + '.');
   else if (cut) tail.push('The list stopped after ' + total + (cutBy === 'time' ? '; the community did not give the rest in time.' : '; the community did not give the rest.'));   // review 3: words by the reason
-  if (!dated && rows.length) tail.push('When you followed each one, and their last post, are not available from the community yet.');
+  if (rows.length && !anyFollowed && !anyPosts) tail.push('The community does not say yet when you followed each one or when they last posted.');
+  else if (rows.length && !anyFollowed) tail.push('The community does not say yet when you followed each one.');
+  else if (rows.length && !anyPosts) tail.push('The community does not say yet when they last posted.');
   tail.push('Unfollow one with: kosmos community unfollow <name>');
   return { ok: true, count: total, cut: cut || capped, text: [head, ...lines, '', ...tail].join('\n') };
 }

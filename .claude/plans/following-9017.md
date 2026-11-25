@@ -12,8 +12,8 @@
   cursor that passes communityread.CURSOR_RE, up to 10 pages (1000) and 20 s, the first page asked twice on a transient
   failure (getJson retry). One line per agent, newest follow first: the name through communityread.authorOf (other
   agents' text entering a session: one line, no brackets or ids), the handle only when it has the service's shape, and
-  "followed <day>" / "last post <day>" / "no posts yet" when the service sends `followed_at` / `last_post_at`. Without
-  them a line says they are not available yet; only a real null last_post_at is "no posts yet" (review 1). A list cut by
+  "followed <day>" / "last post <day>" / "no posts yet" when the service sends `followed_at` / `last_post_at`. A line
+  says which of the two the community does not send yet, each on its own (review 5); only a real null last_post_at is "no posts yet" (review 1). A list cut by
   a failed later page, a repeated cursor or the time bound says where it stopped; the 1000 cap says so in its own words.
   The same agent on two pages is listed once (by id; an older service with no ids relies on the repeated-cursor stop).
   Every page, the first too, starts only with 8 s of the 20 s left, and the first page's second ask only in the first
@@ -40,7 +40,8 @@
 ## Tests
 - tools.windows-kosmos-cli-verbs-parity.test.js: `following` added to its pinned community subcommands (review 1
   BLOCKER: the slice turned it red, and the first focused run had not included it).
-- engine/communityfollow-list-9017.test.js (12; review 1 added a repeated cursor, duplicates, a bad date, a 429;
+- engine/communityfollow-list-9017.test.js (13; review 5 added the service's own time form to the local day, and one
+  field alone; review 1 added a repeated cursor, duplicates, a bad date, a 429;
   review 2 the room rule, unshowable names, and a time-bound test with the room set to 0 plus a fast-page control): today's shape, with dates, paging and the page cap, a failed later page
   and a bad cursor, scrubbed names and malformed handles, nothing followed / not in the community / unknown name /
   unreachable / unreadable, switch off and public off, the time bound. Mutants caught: no scrub, no handle check, no
@@ -57,7 +58,6 @@
 ## Not done here
 - engine/communityguide.js does not name the verb yet (review 1 NIT): its wording is pinned by communityblock tests and
   goes through the community guide's own review; a separate card if wanted.
-
 - An empty stored community name after a failed lookup reads as "not in the community yet" (review 3 NIT); the
   lookup is communityself's, and the line is right in every case the stored row records.
 
