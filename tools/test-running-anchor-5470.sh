@@ -30,7 +30,7 @@ settle() { local p i; for p in "$@"; do for i in 1 2 3 4 5 6 7 8 9 10; do _kosmo
 
 # One live read of the helper into $out and $rc, with a second look when pgrep itself failed (kosmos#9045): once on a loaded
 # Mac the real pgrep did, the helper rightly answered 2, and the whole validation was red for it. Only a pgrep that exited 2 or
-# more is looked at again: a wrong 0 or 1, or a 2 the helper gave on its own, is red at once. A pgrep that keeps failing stays
+# more, or could not be started, is looked at again: a wrong 0 or 1, or a 2 the helper gave on its own, is red at once. A pgrep that keeps failing stays
 # 2, and each failure prints what pgrep said, which the helper throws away. rc 9: pgrep is not known to have answered.
 live_pgrep() { command pgrep "$@"; }
 LOOK_PAUSE=0.5
@@ -41,8 +41,13 @@ look() { # sets out and rc
     { : > "$T/pgrep.err" && : > "$T/pgrep.rc"; } 2>/dev/null || { out="cannot record what pgrep says in $T"; rc=9; return 0; }
     out="$(pgrep() { local r; live_pgrep "$@" 2>"$T/pgrep.err"; r=$?; echo "$r" > "$T/pgrep.rc"; return "$r"; }; kosmos_running_lines "$SCRIPT")"; rc=$?
     pr="$(cat "$T/pgrep.rc")"
-    case "$pr" in 0|1) return 0 ;; '') [ "$rc" = 2 ] || { out="pgrep was not asked: $out"; rc=9; }; return 0 ;; esac
-    echo "NOTE  look $i could not tell: pgrep rc=$pr said: $(tr '\n' ' ' < "$T/pgrep.err")"
+    case "$pr" in
+      0|1) return 0 ;;                                                         # pgrep answered: the helper's answer stands
+      '') [ "$rc" = 2 ] || { out="pgrep was not asked: $out"; rc=9; return 0; }
+          [ -s "$T/pgrep.err" ] || return 0 ;;                                 # a 2 of the helper's own; with words, pgrep could not be started (a fork refused under load)
+      *) [ "$rc" = 2 ] || { out="pgrep failed ($pr) and the helper answered $rc"; rc=9; return 0; } ;;
+    esac
+    echo "NOTE  look $i could not tell: pgrep rc=${pr:-none} said: $(tr '\n' ' ' < "$T/pgrep.err")"
   done
 }
 
@@ -58,6 +63,12 @@ got="$(LOOK_PAUSE=0; : > "$T/tries"; live_pgrep() { echo x >> "$T/tries"; echo "
 
 got="$(LOOK_PAUSE=0; : > "$T/tries"; kosmos_running_lines() { echo x >> "$T/tries"; return 2; }; look; echo "rc=$rc tries=$(tries)")"
 [ "$got" = "rc=2 tries=1" ] && ok "a 2 the helper gave without a failing pgrep is not looked at again" || bad "a 2 of the helper's own: $got"
+got="$(LOOK_PAUSE=0; : > "$T/tries"; live_pgrep() { return 1; }; kosmos_running_lines() { echo x >> "$T/tries"; pgrep none; return 2; }; look; echo "rc=$rc tries=$(tries)")"
+[ "$got" = "rc=2 tries=1" ] && ok "a 2 of the helper's after pgrep answered is not looked at again" || bad "a 2 after an answer: $got"
+got="$(LOOK_PAUSE=0; : > "$T/tries"; live_pgrep() { return 3; }; kosmos_running_lines() { echo x >> "$T/tries"; pgrep none; return 1; }; look; echo "rc=$rc tries=$(tries)")"
+[ "$got" = "rc=9 tries=1" ] && ok "nothing running is not believed, or looked at again, when pgrep failed" || bad "an answer over a failed pgrep: $got"
+got="$(LOOK_PAUSE=0; : > "$T/tries"; live_pgrep() { echo x >> "$T/tries"; [ "$(tries)" -gt 1 ] && return 1; echo "fork: Resource temporarily unavailable" >&2; exit 2; }; look; echo "rc=$rc tries=$(tries)")"
+case "$got" in *"pgrep rc=none said: fork: Resource"*"rc=1 tries=2") ok "a pgrep that could not be started is looked at again, with the reason printed" ;; *) bad "a refused fork: $got" ;; esac
 got="$(kosmos_running_lines() { return 1; }; look; echo "rc=$rc")"
 [ "$got" = "rc=9" ] && ok "nothing running is not believed when pgrep was never asked" || bad "an unasked pgrep: $got"
 mkdir -p "$T/norecord/pgrep.err"   # a folder where the words go: the redirect fails and pgrep is never run

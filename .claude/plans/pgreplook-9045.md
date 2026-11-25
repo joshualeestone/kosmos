@@ -6,8 +6,8 @@
 11-25, load 17.57; not reproduced by load.
 
 ## Call
-- The test's three live reads go through `look`: up to six, half a second apart, and only a pgrep that exited 2 or more is looked
-  at again. Every failed look prints pgrep's code and words. An answer pgrep is not known to have given is 9, and red.
+- The test's three live reads go through `look`: up to six, half a second apart, and only a pgrep that exited 2 or more, or
+  could not be started, is looked at again. Every failed look prints pgrep's code and words. An answer pgrep is not known to have given is 9, and red.
 - The helper (`tools/lib/cut-guard.sh`) is untouched: a caller that cannot tell must wait or refuse.
 
 ## Rejected
@@ -22,5 +22,5 @@
 That the failure is short. If pgrep fails for longer than about 3 s on this Mac, the test is red, now with the reason printed.
 
 ## Test
-Six new arms with a stand-in pgrep. A pgrep on PATH that fails its first call: main's version red with the card's own line, this one
-green with one note; failing three times, green; failing always, red. Seven mutations, all red.
+Nine new arms with a stand-in pgrep. A pgrep on PATH that fails its first call: main's version red with the card's own line, this one
+green with one note; failing three times, green; failing always, red. Nine mutations, all red.
