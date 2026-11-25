@@ -43,3 +43,9 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan 7157275680). St
 - M5 a missing `unreachable` read as 0: now as null, the board cannot tell.
 - M6 a saved key the board's list no longer has showed blank: it stays a choice (as the language picker keeps its own).
 - Measured: run-industry.sh PASS 41/41; app and UI-test typecheck 0 errors.
+
+### Round 3 (opus, 02:54 CST): no BLOCKER, 1 MAJOR, 1 MINOR. The reviewer traced every save and read path by hand: industrySaving can never stay set, and a pull, a computer switch or leaving the screen during a save all end right.
+- MAJOR after a save whose 200 answer did not read, a failed re-read kept the old business chosen beside "Saved, but ...". Now the shown state turns unread first, as the page's industryPaint({}), so a failed re-read says "could not be read", never a wrong business.
+- MINOR a re-read that worked left no line at all: it now says the save's own sentence (savedSaid).
+- Loop ends here. Rounds 2 and 3 found no BLOCKER, and round 3's two findings are on one narrow path, now fixed.
+- Measured: run-industry.sh 41/41; run-automation.sh 228/228; typecheck 0 errors.

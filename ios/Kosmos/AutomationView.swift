@@ -387,7 +387,7 @@ struct AutomationView: View {
         if let l = industry?.list, !l.isEmpty { industryKept = l }
         // A note never stays beside an unread setting it no longer describes ("Saved. ..." under "Could not be read").
         // "Saved, but we could not read it back" is answered by a read that worked.
-        if industry?.unread == false, industryNote == Industry.Words.savedUnread { industryNote = nil }
+        if let s = industry, !s.unread, industryNote == Industry.Words.savedUnread { industryNote = Industry.savedSaid(s) }
         if industry?.unread != false {
             // Unread now: only a refusal being kept may stay (it says why); a "Saved." line goes.
             if !(keepNote && industryNote.map(Industry.isRefusal) == true) { industryNote = nil }
@@ -421,6 +421,9 @@ struct AutomationView: View {
             // Saved, but the answer did not read: the page's res.json().catch(() => ({})) then "Saved, but ...". The
             // choice stays shown until the re-read answers.
             industryNote = Industry.Words.savedUnread
+            // As the page's industryPaint({}): what was shown is no longer known, so it reads as unread; a re-read that
+            // fails then says so, never shows the old business as chosen beside "Saved" (review 3).
+            industry?.unread = true
             industrySaving = nil
             await readIndustry(keepNote: true, after: key)
         } else {
