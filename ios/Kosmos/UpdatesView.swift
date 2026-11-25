@@ -23,6 +23,8 @@ struct UpdatesView: View {
     @State private var doneLine: String?
     @State private var auto: Updates.Auto?
     @State private var autoSaving = false
+    @State private var autoPending: Bool?   // the value being saved, shown until the computer answers
+    @State private var installing: Task<Void, Never>?   // the install and its wait, cancelled when the screen goes
     @State private var autoNote: String?
     @State private var generation = 0
     @State private var shownURL: URL?
@@ -57,14 +59,16 @@ struct UpdatesView: View {
             if shownURL != mac?.url {
                 shownURL = mac?.url
                 state = nil; failed = false; asked = false; busy = false; confirming = false; note = nil; checkSaid = nil
-                waitLead = nil; settled = nil; doneLine = nil; auto = nil; autoSaving = false; autoNote = nil
+                waitLead = nil; settled = nil; doneLine = nil; auto = nil; autoSaving = false; autoPending = nil; autoNote = nil
+                installing?.cancel(); installing = nil
                 generation += 1
             }
             await load()
         }
+        .onDisappear { installing?.cancel(); installing = nil; waitLead = nil }
         .alert(Updates.Words.confirmTitle, isPresented: $confirming) {
             Button(Updates.Words.confirmNo, role: .cancel) {}
-            Button(Updates.Words.confirmGo) { Task { await install() } }
+            Button(Updates.Words.confirmGo) { installing?.cancel(); installing = Task { await install() } }
         } message: {
             Text(state.map(Updates.confirmBody) ?? Updates.Words.confirmMac)
         }
@@ -128,23 +132,32 @@ struct UpdatesView: View {
 
     private func autoSection(_ s: Updates.State) -> some View {
         Section {
-            Toggle(isOn: Binding(
-                get: { auto == .on },
-                set: { on in Task { await saveAuto(on) } }
-            )) {
+            // No answer: no switch, as the page (paintSwitch(null) hides it: never a false Off). Only its sentence.
+            if case .noAnswer? = auto {
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(Updates.Words.autoLabel).foregroundColor(Palette.primary)
-                        if autoSaving || auto == nil { SweepDots(size: 16, label: "Loading", scales: false) }
-                    }
+                    Text(Updates.Words.autoLabel).foregroundColor(Palette.primary)
                     Text(Updates.autoHint(s)).font(.footnote).foregroundColor(Palette.secondary)
                 }
+                .accessibilityElement(children: .combine)
+            } else {
+                Toggle(isOn: Binding(
+                    get: { autoPending ?? (auto?.isOn ?? false) },
+                    set: { on in Task { await saveAuto(on) } }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(Updates.Words.autoLabel).foregroundColor(Palette.primary)
+                            if autoSaving || auto == nil { SweepDots(size: 16, label: "Loading", scales: false) }
+                        }
+                        Text(Updates.autoHint(s)).font(.footnote).foregroundColor(Palette.secondary)
+                    }
+                }
+                .disabled(autoSaving || auto == nil)
+                .accessibilityIdentifier("updates-auto")
             }
-            .disabled(autoSaving || auto == nil)
-            .accessibilityIdentifier("updates-auto")
         } footer: {
-            if let said = autoNote ?? { if case .unread(let w)? = auto { return w } else { return nil } }() {
-                Text(said).font(.footnote).foregroundColor(Palette.secondary)
+            if let said = autoNote ?? auto?.said {
+                Text(said).font(.footnote).foregroundColor(Palette.secondary).accessibilityIdentifier("updates-auto-note")
             }
         }
     }
@@ -218,11 +231,14 @@ struct UpdatesView: View {
         let sentTo = mac.url
         let (status, data) = await send(Updates.installRequest(mac))
         guard sentTo == shownURL else { return }
-        switch Updates.started(status: status, data: data, version: shown.offer ?? shown.version) {
+        // The version the computer is running: the page's "already on" names the one it serves.
+        switch Updates.started(status: status, data: data, version: shown.version) {
         case .refused(let said):
             note = said
         case .started(let myStart):
             await wait(mac, before: shown, myStart: myStart)
+        case .unanswered:
+            await waitUnanswered(mac, before: shown)
         }
     }
 
@@ -234,11 +250,13 @@ struct UpdatesView: View {
         var log = before.log
         while !Task.isCancelled, mac.url == shownURL {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
             let (status, data) = await send(Updates.statusRequest(mac))
-            guard mac.url == shownURL else { return }
+            guard mac.url == shownURL, !Task.isCancelled else { return }
             let now = Updates.state(status: status, data: data)
             if let l = now?.log { log = l }
-            let v = Updates.verdict(elapsed: Date().timeIntervalSince(t0), reached: now != nil, before: before.version, now: now?.version,
+            // Reached is any answer, as the page's ping.ok, even one whose body does not read.
+            let v = Updates.verdict(elapsed: Date().timeIntervalSince(t0), reached: status == 200, before: before.version, now: now?.version,
                                     attempt: now?.attempt, myStart: myStart, bootBefore: before.bootedAt, bootNow: now?.bootedAt)
             switch v {
             case .waiting: continue
@@ -258,13 +276,36 @@ struct UpdatesView: View {
         waitLead = nil
     }
 
+    // waitForUnansweredPress: the press got no answer, so wait for the computer to answer rather than call it refused.
+    @MainActor private func waitUnanswered(_ mac: Settings.Mac, before: Updates.State) async {
+        note = Updates.notAnswering
+        waitLead = Updates.Words.updating
+        defer { if mac.url == shownURL { waitLead = nil } }
+        let t0 = Date()
+        while !Task.isCancelled, mac.url == shownURL {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            let (status, data) = await send(Updates.statusRequest(mac))
+            guard mac.url == shownURL, !Task.isCancelled else { return }
+            let now = Updates.state(status: status, data: data)
+            let v = Updates.unanswered(elapsed: Date().timeIntervalSince(t0), reached: status == 200, before: before.version,
+                                       now: now?.version, bootBefore: before.bootedAt, bootNow: now?.bootedAt)
+            if v == .waiting { continue }
+            if let now { state = now }
+            if v == .done { note = nil; doneLine = Updates.Words.done(now?.version ?? ""); return }
+            note = Updates.unansweredSays(v, now: now?.version)
+            return
+        }
+    }
+
     @MainActor private func saveAuto(_ on: Bool) async {
         guard !autoSaving, let s = state else { return }
         autoNote = nil
         if sample { auto = on ? .on : .off; return }
         guard let mac else { return }
         autoSaving = true
-        defer { autoSaving = false }
+        autoPending = on
+        defer { autoSaving = false; autoPending = nil }
         let sentTo = mac.url
         let (status, data) = await send(Updates.autoSaveRequest(mac, on: on))
         guard sentTo == shownURL else { return }

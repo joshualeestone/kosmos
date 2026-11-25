@@ -37,3 +37,13 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7154958
 - The app and the UI test type-check.
 
 ## Challenge loop ledger
+
+### Round 1 (opus, 00:57 CST): no BLOCKER, 2 MAJOR, 4 MINOR
+- MAJOR 1 an install press with no answer (status 0) read as a refusal; the page waits (#7207, waitForUnansweredPress), since it is very often the board restarting to install. Fixed: `.unanswered`, then the page's wait, judged by unansweredPressVerdict (done, restarted, answering, deadline), with the version and boot taken before the POST. The waiting sentence is the page's, its "this page" said as "this screen"; the deadline's Reload is said as pull down. Control: without the status-0 rule, 1 of 115 fails.
+- MAJOR 2 the switch showed a false Off, which could be changed, when the setting had no answer: now `.noAnswer` shows no switch, only its sentence (the page's paintSwitch(null)); `.unreadOff`, a saved setting that could not be read, shows Off as the page does.
+- M3 the wait outlived the screen (an unstructured Task): the install is now a kept Task, cancelled when the screen goes or the computer changes; the loops check for cancellation.
+- M4 the switch snapped back during a save: it shows the value being saved until the answer.
+- M5 "already on" named the offer; it now names the running version, as the page's served one.
+- M6 a 200 whose body did not read counted as not reached: reached is now status 200, as the page's ping.ok.
+- Kept: "Checking." without the version (the version is on the row above, and the page's own card arm has none); the Windows "Downloading X." lead (the phone's download arm is done at the computer, so a phone never starts a Windows download wait it could lead).
+- Measured: run-updates.sh PASS 115/115; app and UI-test typecheck 0 errors.

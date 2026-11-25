@@ -181,12 +181,22 @@ enum Updates {
     static func autoShown(_ s: State) -> Bool { !onWindows(s) && (s.platform != "linux" || s.cloud) }
     static func autoHint(_ s: State) -> String { s.cloud ? Words.autoHintCloud : Words.autoHint }
 
-    enum Auto: Equatable { case on, off, unread(String) }
-    // GET or PUT /api/autoupdate's answer, as autoPaint: no answer reads "just now"; ok false is a saved setting that
-    // could not be read, which counts as off.
+    enum Auto: Equatable {
+        case on, off
+        case unreadOff(String)    // a saved setting that could not be read: it counts as off, and the switch shows off
+        case noAnswer(String)     // no answer: the page shows no switch at all (paintSwitch(null), never a false Off)
+        var isOn: Bool { self == .on }
+        var said: String? {
+            switch self {
+            case .unreadOff(let w), .noAnswer(let w): return w
+            default: return nil
+            }
+        }
+    }
+    // GET or PUT /api/autoupdate's answer, as autoPaint.
     static func auto(status: Int, data: Data?, cloud: Bool) -> Auto {
-        guard status == 200, let o = object(data) else { return .unread(Words.autoUnread) }
-        if o["ok"] as? Bool == false { return .unread(cloud ? Words.autoUnreadOffCloud : Words.autoUnreadOff) }
+        guard status == 200, let o = object(data) else { return .noAnswer(Words.autoUnread) }
+        if o["ok"] as? Bool == false { return .unreadOff(cloud ? Words.autoUnreadOffCloud : Words.autoUnreadOff) }
         return o["on"] as? Bool == true ? .on : .off
     }
     // A refused save says the computer's sentence, or the page's.
@@ -194,15 +204,38 @@ enum Updates {
 
     // MARK: Installing
 
-    enum Started: Equatable { case started(myStart: String?), refused(String) }
+    enum Started: Equatable { case started(myStart: String?), unanswered, refused(String) }
     // POST /api/update's answer. A refusal is the computer's own sentence (the step-up's too); "no update to install"
-    // means it already has it.
+    // means it already has it. No answer at all is not a refusal (#7207): it is very often the board restarting to
+    // install the update this press started, so the screen waits, as the page's waitForUnansweredPress.
     static func started(status: Int, data: Data?, version: String?) -> Started {
+        if status == 0 { return .unanswered }
         let o = object(data)
         if (200..<300).contains(status) { return .started(myStart: o.flatMap { text($0["startedAt"]) }) }
         let said = o.flatMap { text($0["error"]) } ?? Words.noReason(status)
         if status == 409, said.contains("no update to install") { return .refused(Words.already(version)) }
         return .refused(said)
+    }
+
+    // While an unanswered press waits: the page's words, "this page" said as this screen.
+    static let notAnswering = "Kosmos is not answering right now. It may be restarting, perhaps to install the update. This screen will wait for it to answer."
+    enum Unanswered: Equatable { case done, restarted, answering, deadline, waiting }
+    // unansweredPressVerdict: the version and boot are the ones the press saw before its POST.
+    static func unanswered(elapsed: TimeInterval, reached: Bool, before: String?, now: String?, bootBefore: String?, bootNow: String?) -> Unanswered {
+        if reached, let before, let now, now != before { return .done }
+        if reached, before != nil, let bootBefore, let bootNow, bootNow != bootBefore { return .restarted }
+        if reached { return .answering }
+        if elapsed >= 3 * 60 { return .deadline }
+        return .waiting
+    }
+    static func unansweredSays(_ v: Unanswered, now: String?) -> String? {
+        switch v {
+        case .restarted: return "Kosmos restarted and is still on " + (now ?? "the same version") + ". Press Update to update it now."
+        case .answering: return "Kosmos is answering again. Press Update to try again. If the update already started, this joins it."
+        // The page's, with its Reload said as the phone's pull to refresh.
+        case .deadline: return "Kosmos has not answered for three minutes. Pull down to see where it is."
+        case .done, .waiting: return nil
+        }
     }
 
     enum Verdict: Equatable { case done, failed, didNotTake, deadline, slow, waiting }
