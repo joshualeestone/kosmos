@@ -1,6 +1,7 @@
-# App Store listing text, draft (#718)
+# App Store listing text (#718)
 
-Draft only. Nothing here has been entered into App Store Connect. Every field is
+Entered in App Store Connect for 1.0 on 2026-11-24 (kosmos #7352): the name, subtitle, promotional text, description,
+keywords and links below. They can change until Submit; change them here and there together. Every field is
 checked against Apple's length limit by `ios/store/check-listing.sh`, which reads
 the text between the `<!-- field -->` markers below, so edit the text there and
 run it again.

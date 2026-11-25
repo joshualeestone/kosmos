@@ -7,7 +7,7 @@
 ## Change
 - age-rating.md: three rows Apple now requires (social media No, guns or other weapons None, health or wellness topics No),
   the six fields left blank, and that the set was entered and read back on 2026-11-24 (Apple's result: 4+).
-- README.md: "Nothing here has been uploaded to App Store Connect" was true until 2026-11-24 and is replaced.
+- README.md, listing.md and privacy-label.md: "nothing entered in App Store Connect" was true until 2026-11-24 and is replaced.
 
 ## Checked
 - The 23 entered answers were read back through the App Store Connect API and match, field by field.
