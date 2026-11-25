@@ -28,6 +28,7 @@ for (const d of [HOME, BIN, nodePath.join(SANDBOX, 'data'), nodePath.join(SANDBO
   fs.mkdirSync(d, { recursive: true });
 }
 process.env.AGENT_WORKFORCE_HOME = HOME;
+process.env.HOME = HOME;   // kosmos#9082: the sandbox's default is this HOME's .claude (create.claudeProbeDir keeps a folder that is not)
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');

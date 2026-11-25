@@ -166,4 +166,17 @@ function sessionClaudeDirs(names, opts) {
   return out;
 }
 
-module.exports = { sessionClaudeDirs, parseQuoted, MARK, BATCH };
+/* kosmos#9082: the tmux SERVER's global CLAUDE_CONFIG_DIR, asked exactly as bin/agent-supervisor.sh's EFFECTIVE_CCD block
+   asks it (`show-environment -g CLAUDE_CONFIG_DIR`), so the account probe pins a default-account check to the folder
+   that block pins default agents to. Returns the value, '' when nothing is set (`-CLAUDE_CONFIG_DIR`, or tmux's
+   "unknown variable" exit 1), or null when tmux could not be asked (no server, not installed, timed out). */
+function globalClaudeDir(opts) {
+  const o = opts || {};
+  const got = (o.run || ((args) => runTmux(args, o)))(['show-environment', '-g', 'CLAUDE_CONFIG_DIR']);
+  if (!got || !got.ran) return null;
+  const line = String(got.out || '').replace(/\n+$/, '');
+  if (got.status === 0) { const m = /^CLAUDE_CONFIG_DIR=(.+)$/.exec(line); return m ? m[1] : ''; }
+  return got.status === 1 ? '' : null;   // 1: the variable is not in the global environment; anything else: unknown
+}
+
+module.exports = { sessionClaudeDirs, globalClaudeDir, parseQuoted, MARK, BATCH };

@@ -127,3 +127,32 @@ test('#9031: the sweep reads an ended login as a stopped one, never as a blip, a
   assert.deepEqual(ab.decide({ rows: at('login-ended'), movable: () => true, nowMs: NOW }).moves, [], 'agents would move onto an ended login');
   assert.equal(ab.decide({ rows: at('token-expired'), movable: () => true, nowMs: NOW }).moves.length, 1, 'CONTROL: a renewal is a blip');
 });
+
+test('kosmos#9082 review 1: the default is probed with the tmux server\'s pinned folder when set, else unset; a sandbox keeps its folder', () => {
+  const nodePath = require('node:path');
+  const os = require('node:os');
+  const def = nodePath.join(os.homedir(), '.claude');
+  const tmux = (status, out, ran = true) => ({ run: () => ({ ran, status, out }) });
+  assert.equal(create.claudeProbeDir(def, tmux(0, 'CLAUDE_CONFIG_DIR=/Users/x/.claude\n')), '/Users/x/.claude', 'a tmux-pinned folder (the supervisor pins default agents to it) was not probed');
+  assert.equal(create.claudeProbeDir(def, tmux(0, '-CLAUDE_CONFIG_DIR\n')), null, 'a removed global is not a pin');
+  assert.equal(create.claudeProbeDir(def, tmux(1, '')), null, 'tmux says unknown variable: unset');
+  assert.equal(create.claudeProbeDir(def, tmux(null, '', false)), null, 'no tmux to ask: unset, as the supervisor finds nothing either');
+  assert.equal(create.claudeProbeDir('/u/x/labelled', tmux(0, 'CLAUDE_CONFIG_DIR=/elsewhere\n')), '/u/x/labelled', 'CONTROL: a labelled account keeps its own folder');
+  const was = process.env.AGENT_WORKFORCE_HOME;
+  const sandbox = require('node:fs').mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-9082-sandbox-'));
+  process.env.AGENT_WORKFORCE_HOME = sandbox;
+  try {
+    const sdef = nodePath.join(sandbox, '.claude');
+    assert.equal(require('./accounts').isDefaultDir(sdef), true, 'CONTROL: the sandbox folder is the default there');
+    assert.equal(create.claudeProbeDir(sdef, tmux(1, '')), sdef, 'a sandboxed board would probe the real login');
+  } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = was; }
+});
+
+test('kosmos#9082 review 1: #9031\'s state words count only from a run that failed', async () => {
+  const check = async (out, exitCode) => { create.setClaudeProbe(async () => ({ exitCode, out })); return create.claudeAccountCheck('/u/x/labelled'); };
+  try {
+    assert.equal((await check('A notice: Not logged in · Please run /' + 'login (another tool)\nok', 0)).state, subscription.STATE.CONNECTED, 'a run that answered was read as dead');
+    assert.equal((await check(NONE, 1)).state, subscription.STATE.NONE, 'CONTROL: the same words from a failed run are dead');
+    assert.equal((await check('Login expired · Please run /' + 'login', 0)).state, subscription.STATE.NONE, 'CONTROL: a refused token stays dead whatever the exit');
+  } finally { create.setClaudeProbe(null); }
+});

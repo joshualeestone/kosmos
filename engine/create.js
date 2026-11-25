@@ -5614,9 +5614,13 @@ function isAutoGuideBirth(e, sa = require('./setup-assistant')) {
    CLAUDE_CONFIG_DIR=<home>/.claude for the default too, and Claude Code reads another Keychain entry when the variable is
    set (#2129): usually none ("Not logged in"), or a stale one ("OAuth session expired", measured on a fleet Mac whose
    hashed entry was a month old). The probe now reads the login the account's agents use (claudeProbeDir: the default
-   account with the variable UNSET), so those words name a dead login again. Measured 11-25 from a launchd job with the
-   board's environment: unset -> "ok"; set -> "OAuth session expired". */
-const CLAUDE_DEAD_AUTH = /OAuth access token (?:has expired|has been revoked|is invalid)|OAuth token revoked|Login expired|login reached its time limit|OAuth session expired and could not be refreshed|Not logged in\s+[\u00b7_]\s+Please run \/login|authentication_error|API Error:\s*401\s+Invalid API key/i;
+   account as its agents run), so those words name a dead login again; they live in CLAUDE_DEAD_STATE below and count only
+   from a run that failed. Measured 11-25 from a launchd job with the board's environment: unset -> "ok"; set -> "OAuth
+   session expired". */
+const CLAUDE_DEAD_AUTH = /OAuth access token (?:has expired|has been revoked|is invalid)|OAuth token revoked|Login expired|authentication_error|API Error:\s*401\s+Invalid API key/i;
+/* Review 1: #9031's three describe a STATE, not a refused request, so they count only from a run that failed (a non-zero
+   exit): a notice carrying one of them on a run that answered can never refuse a good account. */
+const CLAUDE_DEAD_STATE = /login reached its time limit|OAuth session expired and could not be refreshed|Not logged in\s+[\u00b7_]\s+Please run \/login/i;
 const CLAUDE_CAPACITY = /usage limit|reached your .{0,40}limit|\/usage-credits|rate[ _-]?limit|overloaded/i;
 
 let claudeProbe = null;
@@ -5624,14 +5628,25 @@ let claudeProbe = null;
     seam, matching subscription.setRunner / openaiaccounts.setFetcher. */
 function setClaudeProbe(fn) { claudeProbe = typeof fn === 'function' ? fn : null; }
 
-/* kosmos#9082: the folder to probe an account with, or null for the DEFAULT account. Claude Code keeps the default's login
-   in the plain Keychain entry and reads it only with CLAUDE_CONFIG_DIR UNSET; set to <home>/.claude it reads a hashed
-   entry the default's agents never use (#2129; claudeloginlive and loginexpiry.serviceNameFor key on the same bit). An
-   unreadable answer from isDefaultDir keeps the folder, as before. */
-function claudeProbeDir(dir) {
+/* kosmos#9082: the folder to probe an account with, as the account's agents run, or null for unset. Claude Code keeps
+   the default's login in the plain Keychain entry and reads it only with CLAUDE_CONFIG_DIR UNSET; set to <home>/.claude
+   it reads a hashed entry (#2129; claudeloginlive, loginexpiry.serviceNameFor and usagepoll key on the same bit). So:
+   - a labelled account (or an unreadable isDefaultDir answer): its folder, as before;
+   - the default, when the tmux server carries a global CLAUDE_CONFIG_DIR: that folder, because bin/agent-supervisor.sh
+     pins default agents to it (EFFECTIVE_CCD, #3417; review 1: probing unset there would refuse a working account);
+   - the default otherwise: unset;
+   - a sandboxed board (AGENT_WORKFORCE_HOME, so the default folder is not the person's real ~/.claude): its folder, so
+     a sandbox never probes the real login (review 1; usagepoll refuses the same). */
+function claudeProbeDir(dir, opts) {
   let def = null;
   try { def = require('./accounts').isDefaultDir(dir); } catch { def = null; }
-  return def === true ? null : (dir || null);
+  if (def !== true) return dir || null;
+  let real = false;
+  try { real = path.resolve(dir) === path.join(os.homedir(), '.claude'); } catch { real = false; }
+  if (!real) return dir;
+  let pinned = null;
+  try { pinned = require('./sessionccd').globalClaudeDir(opts); } catch { pinned = null; }
+  return pinned ? pinned : null;
 }
 
 /* kosmos#9082: with CLAUDE_CONFIG_DIR unset, what `claude -p` needs to find the plain Keychain entry is USER (measured
@@ -5652,7 +5667,8 @@ function defaultClaudeProbe(configDir) {
     if (!bin) { resolve({ exitCode: null, out: '' }); return; }
     const env = { ...process.env };
     // #5386: every spelling (a copy of process.env keeps names as spelled).
-    if (configDir) envSet(env, 'CLAUDE_CONFIG_DIR', configDir); else { envDelete(env, 'CLAUDE_CONFIG_DIR'); fillLoginIdentity(env); }
+    if (configDir) envSet(env, 'CLAUDE_CONFIG_DIR', configDir); else envDelete(env, 'CLAUDE_CONFIG_DIR');
+    fillLoginIdentity(env);   // review 1: both arms (a hashed entry's lookup may key on USER too)
     // Overridable only so a test can drive the timeout/partial-output path
     // quickly; unset in production, where 15s is the wait before a hung probe is
     // killed and its partial output classified.
@@ -5711,6 +5727,7 @@ async function claudeAccountCheck(configDir) {
      A clean exit 0 with neither marker (the "reply ok" response) is CONNECTED. */
   if (CLAUDE_CAPACITY.test(text)) return { state: subscription.STATE.UNKNOWN, refused: false }; // live but capped/overloaded
   if (CLAUDE_DEAD_AUTH.test(text)) return { state: subscription.STATE.NONE, refused: false };   // positively dead
+  if (exit !== null && exit !== 0 && CLAUDE_DEAD_STATE.test(text)) return { state: subscription.STATE.NONE, refused: false };   // kosmos#9082
   if (exit === 0) return { state: subscription.STATE.CONNECTED, refused: false };           // a real call went through cleanly
   // network/unrunnable/other. A non-zero exit code is a failed check (see above); no exit code (claude was not
   // found) is not.
@@ -5944,22 +5961,14 @@ async function accountConnectable({ provider, accountDir } = {}) {
      OAuth token as "Signed in" -- so the first version of this gate accepted a
      dead account. claudeAccountLive makes a real `claude -p` call, the only
      reliable validator for an OAuth subscription token, and returns NONE only on
-     a genuine auth failure (capacity/rate/network all fail open). Scoped exactly
-     as before, EXCEPT the default now passes its RESOLVED dir explicitly too (#3189
-     instance #4): the old `isDefault ? null` deleted CLAUDE_CONFIG_DIR and leaned on
-     claude -p's own ambient default resolution, which fails in the board's launchd
-     process (no ambient shell env) -> UNKNOWN. Here that failed OPEN (the create still
-     proceeds) so it was benign, but it is the same launchd-missing-ambient-env class as
-     #3136 (the check-now badge) and #3113 (tmux). acct.dir is the env-resolved
-     <homeDir>/.claude (accounts.js), so passing it is env-independent -- one pattern.
-     🛑 DO NOT "unify" this into an `isDefault ? null` fix everywhere: the correct
-     configDir for the default is SUBCOMMAND-DEPENDENT. `claude -p` (HERE) needs the
-     RESOLVED DIR. `claude auth status` (subscription.checkLive, via accounts.listLiveNow)
-     needs UNDEFINED -- the default's real config is the `<homeDir>/.claude.json` FILE
-     beside the dir, and CLAUDE_CONFIG_DIR=<homeDir>/.claude makes auth status read a
-     DECOY `.claude.json` INSIDE the dir and report not-signed-in (measured; see the
-     accounts.js listLiveNow comment). Same account, opposite correct argument, both
-     board-confirmed (#3189). */
+     a genuine auth failure (capacity/rate/network all fail open).
+     kosmos#9082: the folder comes from claudeProbeDir, which probes the DEFAULT the way
+     its agents run: unset (the plain Keychain entry), or the tmux server's pinned folder
+     when there is one. #3189 instance #4 passed the default's resolved dir instead, which
+     reads another Keychain entry (#2129) and refused a signed-in account in 0.8.23's
+     promote gate; its launchd failure was most likely a missing USER, now filled by the
+     probe. (`claude auth status`, subscription.checkLive, still needs UNDEFINED for the
+     default for its own reason: see the accounts.js listLiveNow decoy comment.) */
   let state;
   try { state = await claudeAccountLive(claudeProbeDir(acct.dir)); }   // kosmos#9082: the default probes UNSET
   catch (err) { return failOpen("claudeAccountLive", err); }

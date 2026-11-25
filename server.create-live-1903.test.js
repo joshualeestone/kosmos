@@ -96,9 +96,9 @@ test('#1903 CONTROL: a create on a CONNECTED account is not blocked by the gate'
   } finally { create.setClaudeProbe(null); }
 });
 
-/* kosmos#9031, caught by 0.8.23's promote gate. The gate's probe names the default account's folder (CLAUDE_CONFIG_DIR), and Claude Code
-   then reads another Keychain entry from the one the plain login is in, usually none. A stand-in claude that answers as 2.1.332 does
-   there; the REAL probe runs it, so this holds whichever words the gate knows. */
+/* kosmos#9031, caught by 0.8.23's promote gate: the gate's probe named the default account's folder (CLAUDE_CONFIG_DIR), and
+   Claude Code then read another Keychain entry than the one the plain login is in. kosmos#9082 probes the default as its
+   agents run (unset, or the tmux server's pinned folder), so the test below holds the probe to that. */
 test('kosmos#9082: a signed-in DEFAULT account is probed UNSET, the login its agents use, and is not refused', async () => {
   /* The fake claude answers as Claude Code does: with CLAUDE_CONFIG_DIR set it reads another Keychain entry and says
      "Not logged in" (0.8.23's promote gate, #9031's words now back in the dead list); unset, it answers ok. It records

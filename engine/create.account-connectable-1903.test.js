@@ -28,6 +28,7 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'create-connectable-19
 const HOME = nodePath.join(SANDBOX, 'home');
 fs.mkdirSync(HOME, { recursive: true });
 process.env.AGENT_WORKFORCE_HOME = HOME;
+process.env.HOME = HOME;   // kosmos#9082: the sandbox's default is this HOME's .claude (create.claudeProbeDir keeps a folder that is not)
 delete process.env.AGENT_WORKFORCE_GROK_HOME;   // #3391: the default Grok home must be HOME/.grok here, never an ambient override
 delete process.env.AGENT_WORKFORCE_CODEX_HOME;
 delete process.env.CODEX_HOME;

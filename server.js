@@ -16206,7 +16206,7 @@ const server = http.createServer(async (req, res) => {
         // kosmos#9082 (replaces #3136's "pass the RESOLVED dir for the DEFAULT too"): the default account is probed with
         // CLAUDE_CONFIG_DIR UNSET, the way its agents run, because set to <home>/.claude Claude Code reads another Keychain
         // entry (#2129: usually none, or a stale one). #3136's failure under launchd was most likely a missing USER, which
-        // the probe now fills from the operating system (create.fillLoginIdentity); measured 11-25 under launchd: unset
+        // the probe now fills from the operating system; a tmux-pinned folder is used when set (create.claudeProbeDir); measured 11-25 under launchd: unset
         // answers, set read a month-old entry. Keyed by acct.dir below for the badge join, as before.
         const probeDir = create.claudeProbeDir(acct.dir);
         // A validator CRASH fails open (UNKNOWN), never a false "not connected" --

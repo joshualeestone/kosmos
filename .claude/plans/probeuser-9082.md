@@ -33,3 +33,15 @@ is unchanged by this.
 - server.badge-observed-1921: Check now's "Not logged in" is a dead sign-in; the default probes unset and greens.
 - server.create-live-1903: a real probe against a fake claude that answers "Not logged in" when the variable is set:
   the default passes unset; a second arm without USER/LOGNAME passes with the OS user filled (fails without the fill).
+
+## Review round 1 (opus): 0 BLOCKERs, 2 SHOULDs, NITs, all fixed or answered
+- SHOULD: bin/agent-supervisor.sh pins default agents to the tmux server's global CLAUDE_CONFIG_DIR when set (#3417);
+  probing unset there would refuse a working account --> FIXED: claudeProbeDir asks tmux the same way
+  (sessionccd.globalClaudeDir, `show-environment -g CLAUDE_CONFIG_DIR`) and probes that folder when set.
+- SHOULD: USER filled only for the default, though the restored words now refuse labelled accounts too --> FIXED (both arms).
+- NIT: the restored words are states; count them only from a failed run --> FIXED (CLAUDE_DEAD_STATE, exit != 0).
+- NIT: a sandboxed board (AGENT_WORKFORCE_HOME) would probe the real login --> FIXED: the default is probed unset only
+  when its folder is the real os.homedir()/.claude; two test sandboxes now set HOME too.
+- NITs: stale comments in create.js and the create-live test header --> FIXED.
+Tests: loginended-9031 gains the pinned/removed/unknown/no-tmux/labelled/sandbox arms and the failed-run-only arm; each
+fails with its rule removed. 179 probe-related tests pass.
