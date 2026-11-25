@@ -2015,6 +2015,12 @@ function questionMenuKeysAllowed(sessionName, roster) {
 }
 const QMENU_BUSY = new Set();   // pane targets with a key answer or a close in progress
 const QMENU_BUSY_SENTENCE = 'its question is being handled right now, so nothing was sent; look at this page again in a moment';
+/* kosmos#8952 slice (d): is a key answer, a close or a delivery under way on this card's pane? engine/permgrow.js leaves
+   such a pane's size alone, so a press's before and after reads see the same screen. */
+function paneKeysBusy(card) {
+  const t = paneTarget(card);
+  return QMENU_BUSY.has(t) || deliveryQueues.has(t);
+}
 /* Run `fn` holding the pane's key-answer slot (the check above refused if it was taken). */
 async function withQmenuSlot(allowed, fn) {
   const t = paneTarget(allowed.card);
@@ -3494,7 +3500,14 @@ function permissionBox(text) {
    so it gets no buttons, no key, and no promise of buttons. */
 function permissionAnswerable(text) {
   const box = permissionBox(text);
-  return Boolean(box && box.top >= 0);
+  if (!box || box.top < 0) return false;
+  /* kosmos#8952 slice (d) review 5: a box carrying Claude Code's own "↑ N more lines" (or "↓") under its question is a
+     box Claude Code itself says it did not draw whole. Claude Code 2.1.331 clears the scrollback when the window is
+     resized, so the top found above such a box is today never a stale one; this makes that not matter: a top left in
+     scrollback by an earlier, taller drawing can never pass for this box's. */
+  const lines = String(text == null ? '' : text).split('\n');
+  for (let i = box.pp.at; i < lines.length; i += 1) if (status.CLAUDE_SCROLL_HINT.test(lines[i])) return false;
+  return true;
 }
 /* kosmos#8952 slice (c): a permission prompt that is not permissionAnswerable (no box top on screen: usually scrolled
    away by a long command, or a layout without its top rule) cannot be approved from a phone or the board (#6054
@@ -3520,6 +3533,7 @@ const PERMISSION_DASHED = /^\s*╌{8,}\s*$/;
 function permissionCard(text) {
   const box = permissionBox(text);
   if (!box || box.top < 0) return null;
+  if (!permissionAnswerable(text)) return null;   // kosmos#8952 slice (d) review 5: the same gate, its own hint included
   const lines = String(text == null ? '' : text).split('\n').slice(box.top, box.pp.at);
   const segs = [[]];
   for (const l of lines) {
@@ -5620,7 +5634,7 @@ module.exports = {
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,
   defaultAgentFor, looksLikeManager,
   dmSeenRead, markDmSeen, dmSummaryAll, dmUnreadAll, dmUnread, DM_SEEN,
-  setRunner, setDryRun, setPauser, setChannel, resetForTests, CODEX_ENTER_GAP_MS,
+  setRunner, setDryRun, setPauser, tmuxCall: tmux, paneKeysBusy /* kosmos#8952 slice (d): engine/permgrow.js, through the same runner and dry-run guard */, setChannel, resetForTests, CODEX_ENTER_GAP_MS,
   chatsDir: DIR,
 };
 

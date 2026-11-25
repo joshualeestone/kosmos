@@ -1,0 +1,24 @@
+ │ g46 \                                                                        
+ │ g47 \                                                                      
+ │ g48 \                                                                        
+ │ g49 \                                                                        
+ │ g50 \                                                                        
+ │ g51 \                                                                     
+ │ g52 \                                                                        
+ │ g53 \                                                                        
+ │ g54 \                                                                        
+ │ g55 \                                                                     
+ │ g56 \                                                                        
+ │ g57 \                                                                        
+ │ g58 \                                                                        
+ │ g59 \                                                                        
+ │ g60    
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Rule Bash from command line arguments overrides auto mode.                     
+ /permissions to let auto mode decide                                           
+                                                                              
+ Do you want to proceed?                                                        
+ ❯ 1. Yes                   
+   2. No                                                                        
+ ↑ 50 more lines  
+ Esc to cancel · Tab to amend                                           
