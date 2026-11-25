@@ -112,10 +112,11 @@ final class AutomationUITests: XCTestCase {
         XCTAssertTrue(del.waitForExistence(timeout: 5), "the post's Delete is missing")
         XCTAssertEqual(del.label, "Delete “What we shipped this week” from the community")
         shot(app, "automation-mine")
-        // Closed again, so the screens below are where the rest of the test expects them.
+        // Closed again, so the screens below are where the rest of the test expects them: back UP to the fold first.
         let foldAgain = app.descendants(matching: .any)["automation-mine-fold"]
-        reveal(app, foldAgain, swipes: 2)
-        if foldAgain.exists { foldAgain.tap() }
+        for _ in 0..<4 where !(foldAgain.exists && foldAgain.isHittable) { app.swipeDown() }
+        XCTAssertTrue(foldAgain.isHittable, "could not get back to the fold to close it")
+        foldAgain.tap()
 
         // The Recommender is on in the sample, so its three guards show, each in the board's words.
         // Each guard is revealed on its own, as the check-ins are: a lazy List draws a row only near the screen, so the
