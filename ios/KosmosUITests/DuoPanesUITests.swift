@@ -40,6 +40,12 @@ final class DuoPanesUITests: XCTestCase {
         return what()
     }
 
+    // The tabs show beside a list and never over an open page on one column.
+    private func tabsShow(_ app: XCUIApplication) -> Bool {
+        let b = app.tabBars.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Settings'")).firstMatch
+        return b.exists && b.frame.width > 0 && b.frame.maxY <= app.frame.height && b.frame.minY >= 0
+    }
+
     // CONTROL: the same phone, sideways, with no stand-in, keeps its one column.
     func testSidewaysWithoutTheStandInIsOneColumn() throws {
         let app = try launch(nil)
@@ -52,12 +58,14 @@ final class DuoPanesUITests: XCTestCase {
     func testTheListIsBesideTheChatAndAFoldKeepsTheChatAndTheDraft() throws {
         let app = try launch("fold:40")
         XCTAssertTrue(box(app).waitForExistence(timeout: 30), "Dana's chat did not open")
+        XCTAssertTrue(holds(5) { self.tabsShow(app) }, "CONTROL: unfolded, no tabs beside the chat")
         shot(app, "unfolded")
         XCTAssertTrue(holds(8) { self.beside(app) }, "unfolded, the list is not beside the chat (row \(row(app).frame), box \(box(app).frame))")
         box(app).tap()
         box(app).typeText("kept words")
         XCTAssertTrue(((box(app).value as? String) ?? "").contains("kept words"), "CONTROL: the words were not typed")
         XCTAssertTrue(holds(50) { self.alone(app) }, "the fold never came, or Dana's chat is gone (box exists \(box(app).exists))")
+        XCTAssertTrue(holds(5) { !self.tabsShow(app) }, "folded, the tab bar is over the chat")
         shot(app, "folded")
         XCTAssertTrue(((box(app).value as? String) ?? "").contains("kept words"), "folded, the draft is gone (the box reads \((box(app).value as? String ?? "").debugDescription))")
         XCTAssertTrue(holds(60) { self.beside(app) }, "the unfold never came, or Dana's chat is gone (box exists \(box(app).exists))")
@@ -116,8 +124,10 @@ final class DuoPanesUITests: XCTestCase {
         let about = words(app, "What it is for")
         XCTAssertTrue(about.waitForExistence(timeout: 10) && holds(5) { self.pastMiddle(app, about) }, "the project's page is not beside the list")
         XCTAssertTrue(holds(50) { self.atLeft(app, about) }, "folded, the project's page is gone (exists \(about.exists))")
+        XCTAssertTrue(holds(5) { !self.tabsShow(app) }, "folded, the tab bar is over the project's page")
         shot(app, "project page, folded")
         XCTAssertTrue(holds(60) { self.pastMiddle(app, about) }, "unfolded again, the project's page is gone")
+        XCTAssertTrue(holds(5) { self.tabsShow(app) }, "unfolded again, the tabs are gone beside the project's page")
         shot(app, "project page, unfolded again")
         let other = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Website'")).firstMatch
         XCTAssertTrue(other.exists, "CONTROL: no Website row in the list")
@@ -131,7 +141,7 @@ final class DuoPanesUITests: XCTestCase {
     // A task's page beside the list, kept through a fold; an agent's Answer in the list then takes its place.
     func testATaskStaysThroughAFoldAndAnswerReplacesIt() throws {
         let app = try launch("fold:40", ["KOSMOS_SAMPLE_TAB": "tasks"])
-        let task = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Pages 9 to 12'")).firstMatch
+        let task = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Choose the cover photo'")).firstMatch
         XCTAssertTrue(task.waitForExistence(timeout: 30), "no tasks")
         XCTAssertTrue(words(app, "Choose a task").waitForExistence(timeout: 10), "unfolded, nothing says to choose a task")
         shot(app, "tasks, nothing open")

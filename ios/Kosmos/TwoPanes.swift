@@ -4,24 +4,12 @@ import UIKit
 // kosmos#9002: whether the app shows two panes (the list on the left, what is open on the right). Only where the width AND the
 // height are regular, which an unfolded iPhone Duo is. The width alone would also take in a large iPhone turned sideways
 // (regular width, compact height), which keeps the one column it has.
-private struct TwoPanesKey: EnvironmentKey { static let defaultValue = false }
-
-extension EnvironmentValues {
-    var twoPanes: Bool {
-        get { self[TwoPanesKey.self] }
-        set { self[TwoPanesKey.self] = newValue }
-    }
-}
-
-private struct ReadsTwoPanes: ViewModifier {
+// Read where it is used, from the size classes every pushed page gets from UIKit: a value put in the environment at the top did
+// not reach a page two pushes deep after a fold (a project's info page kept the tab bar, 11-25).
+@propertyWrapper struct TwoPanes: DynamicProperty {
     @Environment(\.horizontalSizeClass) private var h
     @Environment(\.verticalSizeClass) private var v
-    func body(content: Content) -> some View { content.environment(\.twoPanes, h == .regular && v == .regular) }
-}
-
-extension View {
-    // Everything below reads \.twoPanes; it changes on a fold.
-    func readsTwoPanes() -> some View { modifier(ReadsTwoPanes()) }
+    var wrappedValue: Bool { h == .regular && v == .regular }
 }
 
 // A tab's list and what is open from it. One column: the list, with the open page pushed on it, as always. Two panes: the list
@@ -32,7 +20,7 @@ struct ListAndOpen<ListPage: View, Open: View>: View {
     let nothingOpen: String
     @ViewBuilder let list: () -> ListPage
     @ViewBuilder let open: () -> Open
-    @Environment(\.twoPanes) private var twoPanes
+    @TwoPanes private var twoPanes
     @State private var width: CGFloat = 0
 
     var body: some View {
@@ -64,7 +52,7 @@ struct ListAndOpen<ListPage: View, Open: View>: View {
 }
 
 private struct TabBarBesideOnly: ViewModifier {
-    @Environment(\.twoPanes) private var twoPanes
+    @TwoPanes private var twoPanes
     func body(content: Content) -> some View { content.toolbar(twoPanes ? .visible : .hidden, for: .tabBar) }
 }
 
