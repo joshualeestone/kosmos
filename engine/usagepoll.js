@@ -278,7 +278,10 @@ function readCredFor(a, { platform = process.platform, readCred = loginexpiry.re
   });
 }
 
-/* { state } with state 'ok' | 'no-credential' | 'no-token' | 'token-expired', and `token` only when 'ok'. */
+/* { state } with state 'ok' | 'no-credential' | 'no-token' | 'token-expired' | 'login-ended', and `token` only when 'ok'.
+   #9031: 'login-ended' is an expired access token whose login's own date (refreshTokenExpiresAt) has passed too: Claude
+   Code can no longer renew it, so no agent on it can start a turn. Needs BOTH, so an access token waiting for its next
+   renewal (the ordinary case, every few hours) stays 'token-expired', which says nothing about the login. */
 async function tokenStateFor(a, { now = Date.now(), ...deps } = {}) {
   let raw;
   try { raw = await readCredFor(a, deps); } catch { raw = null; }
@@ -289,7 +292,8 @@ async function tokenStateFor(a, { now = Date.now(), ...deps } = {}) {
   const token = oauth && typeof oauth.accessToken === 'string' ? oauth.accessToken : '';
   if (!token) return { state: 'no-token' };
   if (typeof oauth.expiresAt === 'number' && Number.isFinite(oauth.expiresAt) && oauth.expiresAt <= now + EXPIRY_MARGIN_MS) {
-    return { state: 'token-expired' };
+    const until = oauth.refreshTokenExpiresAt;
+    return { state: oauth.expiresAt <= now && typeof until === 'number' && Number.isFinite(until) && until > 0 && until <= now ? 'login-ended' : 'token-expired' };
   }
   return { state: 'ok', token, expiresAt: typeof oauth.expiresAt === 'number' ? oauth.expiresAt : null };
 }

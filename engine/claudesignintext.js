@@ -19,8 +19,13 @@ const AUTH_FAILED_MARKERS = [
   /"type":\s*"authentication_error"/i,
 ];
 const AUTH_ENVELOPE = /"type":\s*"error"/i;
-/* status.js #1884: the friendly line is a message AND Claude Code's own remedy on one row. */
-const AUTH_FRIENDLY_MESSAGE = /OAuth access token (?:has expired|has been revoked|is invalid)|API Error:\s*401\s+Invalid API key|OAuth token revoked|Login expired|Your session has expired/i;
+/* status.js #1884: the friendly line is a message AND Claude Code's own remedy on one row.
+   #9031: two more of Claude Code's own lines, read from the 2.1.332 binary and from real transcripts: "Login reached its
+   time limit · Please run /login" (a login past its last date, no renewal left) and "Not logged in · Please run /login".
+   Without them an agent stopped on either read idle, and its account never got a rejection. The second needs the dot and
+   the remedy right after it (any one or two characters for the dot, as a capture can draw it), so "Not logged in" alone,
+   which other tools print too, is not a sign-in. */
+const AUTH_FRIENDLY_MESSAGE = /OAuth access token (?:has expired|has been revoked|is invalid)|API Error:\s*401\s+Invalid API key|OAuth token revoked|Login expired|Login reached its time limit|Not logged in\s+\S{1,2}\s+Please run \/login|Your session has expired/i;
 const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
 
 /**
@@ -32,7 +37,7 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * 📌 A bare 401 counts only beside an auth word, so a 401 from some tool's web request quoted in an error is not a
  * sign-in.
  */
-const STREAM_SIGNIN = /Not logged in|Invalid API key|authentication_error|Please run \/login|\bRun \/login\b|OAuth token revoked|OAuth (?:access )?token (?:has expired|has been revoked|is invalid)|Login expired|Your session has expired|\b401\b[^\n]{0,80}\b(?:unauthori[sz]ed|auth|token|api key|log ?in)/i;
+const STREAM_SIGNIN = /Not logged in|Invalid API key|authentication_error|Please run \/login|\bRun \/login\b|OAuth token revoked|OAuth (?:access )?token (?:has expired|has been revoked|is invalid)|Login expired|login reached its time limit|OAuth session expired and could not be refreshed|Your session has expired|\b401\b[^\n]{0,80}\b(?:unauthori[sz]ed|auth|token|api key|log ?in)/i;
 
 /** #7369: whether one stream `result` text is Claude Code saying its sign-in does not work. */
 function isStreamSignInError(text) {
