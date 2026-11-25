@@ -19891,7 +19891,8 @@ const server = http.createServer(async (req, res) => {
        every failure too; `as=text` the lines a person reads; otherwise JSON. Nothing is cleared. kosmos#8634: on the
        startup path the hook JSON also says when the agent's own last report was a wait (needs_you or blocked) that
        nothing has ended since, and the JSON form carries it as `wait`. kosmos#9049: `as=waithook` (and `wait=only` by
-       hand) answers only that wait, for a /clear or a resume after a quit; see the branch below. */
+       hand, with which `as=hook` may also answer {"pending":true}) answers only that wait, for a /clear or a resume after
+       a quit; see the branch below. */
     req.resume();
     let as = null;
     let fromPane = null;
@@ -19945,7 +19946,7 @@ const server = http.createServer(async (req, res) => {
         const pending = !!w && (after === null || (after === 'started' && clearing));
         if (after !== 'stopped') w = null;
         if (as === 'waithook' || as === 'hook') { sendText(res, 200, w ? away.hookJson(null, w, { ended: true }) : pending ? '{"pending":true}' : ''); return; }
-        if (as === 'text') { sendText(res, 200, (away.waitText(w, { ended: true }) || 'Kosmos has no wait of yours to remind you of: your last report was not a wait, or it is still shown, or you were already reminded of it at a startup.') + '\n'); return; }
+        if (as === 'text') { sendText(res, 200, (away.waitText(w, { ended: true }) || (pending ? 'Your last report was a wait, and Kosmos has not yet heard the session end that would set it aside, so it is still shown (or about to be set aside); ask again in a moment.' : 'Kosmos has no wait of yours to remind you of: your last report was not a wait, or you were already reminded of it at a startup.')) + '\n'); return; }
         sendJson(res, 200, { ok: true, wait: w, ...(pending ? { pending: true } : {}) });
         return;
       }

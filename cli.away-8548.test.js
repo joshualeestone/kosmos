@@ -120,6 +120,7 @@ test('--after-clear marks a /clear\'s ask', { skip: SKIP_POSIX_SHELL }, () => wi
 
 test('--wait-only without --hook is a usage error and never asks the board', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   assert.equal((await runCli(['away', '--wait-only'], envFor(port))).code, 2);
+  assert.equal((await runCli(['away', '--hook', '--after-clear'], envFor(port))).code, 2, '--after-clear goes with --wait-only');
   assert.equal(seen.length, 0);
 }, { status: 200, text: '' }));
 

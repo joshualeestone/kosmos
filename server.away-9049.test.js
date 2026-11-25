@@ -104,6 +104,15 @@ test('a wait with no session event after it (a resume after a crash, or a clear 
       const j = JSON.parse((await ask(tok, 'wait=only')).text);
       assert.equal(j.wait, null);
       assert.equal(j.pending, true);
+      // A `stopped` BEFORE the wait does not count: quit, startup, a new wait, a crash, a resume is pending too.
+      writeHistory([
+        { state: 'stopped', by: 'auto', because: '', at: t - 60 * M },
+        { state: 'started', by: 'auto', because: '', at: t - 50 * M },
+        { state: 'needs_you', by: 'agent', because: 'may I merge', at: t - 30 * M },
+        { state: 'working', by: 'auto', because: 'answering a prompt', at: t - 29 * M },
+      ]);
+      assert.equal((await ask(tok, 'as=waithook')).text, '{"pending":true}');
+      assert.match((await ask(tok, 'as=text&wait=only')).text, /has not yet heard the session end/);
       // CONTROL: the same history at a real startup still reminds, in the startup words.
       const s = await ask(tok, 'as=hook&at=startup');
       assert.match(JSON.parse(s.text).hookSpecificOutput.additionalContext, /A new run replaces a waiting report on the board/);

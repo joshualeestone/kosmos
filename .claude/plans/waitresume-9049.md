@@ -54,6 +54,13 @@ Deferred (round 5): a "reminded at" marker or a cap per wait. Each /clear wipes 
 reminder, so reminding again is right while the agent has not said otherwise, and the reminder now says how to stop it.
 Deferred (round 5): the second ask reuses the first's 1 s budget rather than the remainder (worst case about 3 s, paid
 only on `pending`). The Mac hook asks with a token or a pane and the Windows hook with a token only: Windows has no panes.
+Known gaps (round 6), both silent, never false:
+- Windows, a resume after a quit more than 3 minutes old: the hook sends no report at a resume (#1058), and on Windows
+  the roster row appears only after a report, so the board cannot tell who is asking from the agent token alone once
+  the heartbeat is stale (180 s) and answers 403. A /clear is not affected (the session is live). Closing it needs a
+  report at a resume or a token-only identity path: kosmos#9057.
+- Mac, an in-session /resume that beats its own `stopped` when the newest session event is a `started` (wait, quit,
+  startup, then /resume): the board answers nothing, because a crash-resume looks the same and silence is right there.
 Not measured: whether Claude Code waits for the SessionEnd hook to finish before the next SessionStart (on Windows the
 hook awaits its send, so it would then not race; the retry covers it either way).
 Not covered: Grok and Gemini bridges, which send `started` on every SessionStart (#9048, a separate card). A real
@@ -63,7 +70,7 @@ Claude Code /clear and resume on a live agent were not driven; the hooks were fe
 - server.away-9049.test.js: ended wording after a stopped (hook, JSON and text forms), no digest, no report words;
   nothing without a stopped (crash-resume), with the startup path's control; nothing for an ended wait or no wait.
 - engine/awaydigest-9049.test.js: the ended wording and sessionAfter.
-- engine/kosmos-report-hook.waitresume-9049.test.js: Windows hook at clear/resume (asks wait=only, prints, no report),
+- engine/kosmos-report-hook.waitresume-9049.test.js: Windows hook at clear/resume (asks as=waithook, prints, no report),
   compact and no-token ask nothing, startup control.
 - report-hook-away-8548.test.js: the Mac hook's clear/resume now ask `away --hook --wait-only` (this changed the old
   "a compaction or a resume asks nothing" test, split in two), an older CLI's refusal is dropped, the person's own
