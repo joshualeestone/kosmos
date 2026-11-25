@@ -95,6 +95,9 @@ classes="$classes UnsentDraftUITests:3 TaskPageActionsUITests:10"
 # kosmos#8959 slice D1a: AutomationUITests, Settings' Automation row opening the native screen, a switch saved, and the
 #   Recommender's guards under the page's heading (1 check; no chat list, so this lazy-arm run only). Its own line, as above.
 classes="$classes AutomationUITests:1"
+# kosmos#8959 slice D1b1: GlobalSkillsUITests, Settings' Global skills row opening the native list, Remove asking once,
+#   and a skill added (1 check; lazy arm only). Its own line, as above.
+classes="$classes GlobalSkillsUITests:1"
 skip=""
 arm="lazy"
 if [ "$uikit" = 1 ]; then

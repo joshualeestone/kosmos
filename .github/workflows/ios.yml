@@ -255,6 +255,13 @@ jobs:
           ios/LogicTests/run-automation.sh | tee "$RUNNER_TEMP/automation.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/automation.log"
 
+      # kosmos#8959 slice D1b1: the computer's Global skills (list, add, remove), words compared with web/index.html.
+      - name: Global skills logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-globalskills.sh | tee "$RUNNER_TEMP/globalskills.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/globalskills.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build

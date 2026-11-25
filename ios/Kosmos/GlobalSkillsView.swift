@@ -1,0 +1,253 @@
+import SwiftUI
+
+// kosmos#8959 slice D1b1: the computer's Global skills, native (the board's Settings > Global skills): the list, names
+// only, each with a Remove that asks once before it acts, and the add form. The list is read again after every change,
+// as the page's: it is the receipt. The logic is GlobalSkillsLogic.swift.
+struct GlobalSkillsView: View {
+    let mac: Settings.Mac?
+    var sample = false
+    var finding = false
+    var signedOut = false
+
+    private enum Load: Equatable { case reading, got([Board.Skill]), failed(String) }
+
+    @State private var load: Load = .reading
+    @State private var listNote: String?
+    // The one Remove asking "for good?" (the page's armed button); any other press or leaving disarms it.
+    @State private var armed: String?
+    @State private var removing: String?
+    @State private var name = ""
+    @State private var words = ""
+    @State private var adding = false
+    @State private var addNote: (text: String, problem: Bool)?
+    // Bumped by every read and every change, so an older answer never paints over a newer one; and the computer the
+    // list came from, so another computer starts the screen over.
+    @State private var generation = 0
+    @State private var shownURL: URL?
+
+    private var sampleMac: Settings.Mac? {
+        sample ? Settings.Mac(name: "Studio Mac", url: URL(string: "https://studio.kosmosplus.com/")!, cookie: "sample") : nil
+    }
+
+    var body: some View {
+        List {
+            if mac == nil && !sample {
+                Section {
+                    if finding {
+                        HStack(spacing: 10) {
+                            SweepDots(scales: false)
+                            Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary)
+                        }
+                    } else {
+                        Text(signedOut ? "Sign in to Kosmos+ first, then your computer's settings show here."
+                             : "Open the Agents tab to connect to your computer, then its settings show here.")
+                            .font(.subheadline).foregroundColor(Palette.secondary)
+                    }
+                }
+            } else {
+                listSection
+                addSection
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Palette.ground.ignoresSafeArea())
+        .navigationTitle(GlobalSkills.Words.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .dotsRefresh { await read() }
+        .task(id: mac?.url) {
+            if shownURL != mac?.url {
+                shownURL = mac?.url
+                load = .reading; listNote = nil; armed = nil; removing = nil; addNote = nil
+                generation += 1
+            }
+            await read()
+        }
+        .onDisappear { armed = nil }
+    }
+
+    // MARK: The list
+
+    private var listSection: some View {
+        Section {
+            switch load {
+            case .reading:
+                HStack(spacing: 10) {
+                    SweepDots(scales: false)
+                    Text("Looking…").font(.footnote).foregroundColor(Palette.secondary)
+                }
+            case .failed(let why):
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(why).font(.subheadline).foregroundColor(Palette.secondary)
+                    Button("Try again") { Task { await read() } }
+                }
+            case .got(let skills):
+                if skills.isEmpty {
+                    Text(GlobalSkills.Words.none).foregroundColor(Palette.secondary)
+                }
+                ForEach(skills) { skill in row(skill) }
+            }
+        } header: {
+            Text(GlobalSkills.Words.title)
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                if let listNote { Text(listNote).foregroundColor(Palette.dangerWord) }
+                Text(GlobalSkills.Words.ask).foregroundColor(Palette.secondary)
+                Text(GlobalSkills.Words.hint).foregroundColor(Palette.secondary)
+            }
+            .font(.footnote)
+        }
+    }
+
+    private func row(_ skill: Board.Skill) -> some View {
+        let isArmed = armed == skill.key
+        return HStack {
+            Text(skill.name).font(.body.weight(.semibold)).foregroundColor(Palette.primary)
+            Spacer()
+            if removing == skill.key {
+                SweepDots(size: 16, label: "Removing", scales: false)
+            } else {
+                Button(isArmed ? GlobalSkills.Words.removeArmed : GlobalSkills.Words.remove) {
+                    // The second press is the consent, as the page's armed button; the first only asks.
+                    if isArmed { Task { await remove(skill) } } else { armed = skill.key }
+                }
+                .foregroundColor(isArmed ? Palette.dangerWord : Palette.primary)
+                .accessibilityLabel(isArmed ? GlobalSkills.Words.removeArmed : "Remove the skill " + skill.name)
+                .accessibilityIdentifier("gskill-remove-" + skill.key)
+                .disabled(removing != nil)
+            }
+        }
+        .frame(minHeight: 44)
+    }
+
+    // MARK: Adding
+
+    private var addSection: some View {
+        Section {
+            TextField(GlobalSkills.Words.namePlaceholder, text: Binding(get: { name }, set: { name = String($0.prefix(GlobalSkills.nameMax)) }))
+                .accessibilityIdentifier("gskill-name")
+                .accessibilityLabel(GlobalSkills.Words.addLabel)
+            ZStack(alignment: .topLeading) {
+                if words.isEmpty {
+                    Text(GlobalSkills.Words.bodyPlaceholder).foregroundColor(Palette.tertiary).padding(.top, 8).padding(.leading, 5)
+                        .accessibilityHidden(true)
+                }
+                TextEditor(text: $words).frame(minHeight: 120)
+                    .scrollContentBackground(.hidden)
+                    .accessibilityIdentifier("gskill-body")
+                    .accessibilityLabel("What the skill should do")
+            }
+            Button {
+                Task { await add() }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(GlobalSkills.Words.addButton)
+                    if adding { SweepDots(size: 16, label: "Adding", scales: false) }
+                }
+            }
+            .disabled(adding || !GlobalSkills.canAdd(name: name, body: words))
+            .accessibilityIdentifier("gskill-add")
+        } header: {
+            Text(GlobalSkills.Words.addLabel)
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                if let addNote { Text(addNote.text).foregroundColor(addNote.problem ? Palette.dangerWord : Palette.secondary) }
+                Text(GlobalSkills.Words.addHint).foregroundColor(Palette.secondary)
+            }
+            .font(.footnote)
+        }
+    }
+
+    // MARK: Reading and writing
+
+    private static let http = URLSession(configuration: .ephemeral, delegate: RefuseRedirects(), delegateQueue: nil)
+
+    private func send(_ request: URLRequest?) async -> (Int, Data) {
+        guard let request else { return (0, Data()) }
+        guard let (data, response) = try? await Self.http.data(for: request), let answer = response as? HTTPURLResponse
+        else { return (0, Data()) }
+        return (answer.statusCode, data)
+    }
+
+    @MainActor private func read() async {
+        await Task.yield()
+        if sample {
+            if case .got = load {} else { load = .got(Board.parseSkills(Data(GlobalSkills.sampleList.utf8)) ?? []) }
+            return
+        }
+        guard let mac, mac.url == shownURL else { return }
+        generation += 1
+        let started = generation
+        if case .got = load {} else { load = .reading }
+        let (status, data) = await send(GlobalSkills.listRequest(mac))
+        guard started == generation else { return }
+        if Task.isCancelled {
+            if case .reading = load { load = .failed(GlobalSkills.Words.listFailed) }
+            return
+        }
+        switch GlobalSkills.list(status: status, data: data) {
+        case .got(let skills):
+            load = .got(skills)
+            if let a = armed, !skills.contains(where: { $0.key == a }) { armed = nil }
+        case .failed(let why):
+            // A list already shown is kept, with why under it; with nothing shown, why is the section.
+            if case .got = load { listNote = why } else { load = .failed(why) }
+        }
+    }
+
+    @MainActor private func remove(_ skill: Board.Skill) async {
+        armed = nil
+        if sample {
+            if case .got(let s) = load { load = .got(s.filter { $0.key != skill.key }) }
+            return
+        }
+        guard let mac, removing == nil, let request = GlobalSkills.removeRequest(mac, key: skill.key) else { return }
+        removing = skill.key
+        generation += 1
+        let sentTo = mac.url
+        let (status, data) = await send(request)
+        removing = nil
+        guard sentTo == shownURL else { return }
+        switch GlobalSkills.removed(status: status, data: data) {
+        case .done: listNote = nil
+        case .refused(let why): listNote = why
+        }
+        await read()
+    }
+
+    @MainActor private func add() async {
+        armed = nil
+        if sample {
+            if case .got(let s) = load {
+                load = .got(s + [Board.Skill(key: name.lowercased().replacingOccurrences(of: " ", with: "-"), name: name)])
+            }
+            name = ""; words = ""
+            addNote = (GlobalSkills.Words.added, false)
+            return
+        }
+        guard let mac, !adding, let request = GlobalSkills.addRequest(mac, name: name, body: words) else { return }
+        adding = true
+        let sentTo = mac.url
+        let (status, data) = await send(request)
+        adding = false
+        guard sentTo == shownURL else { return }
+        switch GlobalSkills.added(status: status, data: data) {
+        case .done:
+            // As the page: the fields empty, the sentence said, and the list read again as the receipt.
+            name = ""; words = ""
+            addNote = (GlobalSkills.Words.added, false)
+            generation += 1
+            await read()
+        case .refused(let why):
+            addNote = (why, true)
+        }
+    }
+}
+
+// As Settings' own: a redirect is refused, so the computer's cookie can never be carried to another host.
+private final class RefuseRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
