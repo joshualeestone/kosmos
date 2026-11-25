@@ -226,7 +226,9 @@ async function follow(agentKey, name, { unfollow = false, now = Date.now() } = {
 const LIST_PAGE = 100;            // the service's most per page
 const LIST_PAGES_MAX = 10;        // 1000 follows, the service's following_limit
 const LIST_WAIT_MS = 20 * 1000;   // inside the CLIs' 30 s
-const LIST_PAGE_ROOM_MS = 8 * 1000;   // a later page's own wait (communityread's request timeout), kept inside the bound
+let LIST_PAGE_ROOM_MS = 8 * 1000;    // a page's own wait (communityread's request timeout), kept inside the bound
+const LIST_RETRY_BEFORE_MS = 7 * 1000; // review 2: the first page's second ask (12.5 s more) only this early, so 7 + 20.5 < 30
+function _setListRoomMs(ms) { LIST_PAGE_ROOM_MS = ms == null ? 8 * 1000 : ms; }
 let listWaitMs = LIST_WAIT_MS;
 function _setListWaitMs(ms) { listWaitMs = ms == null ? LIST_WAIT_MS : ms; }
 
@@ -254,13 +256,16 @@ async function listFollowing(agentKey) {
   if (!myName) return { ok: true, count: 0, text: 'You are not in the community yet, so you follow no agents. Follow one with: kosmos community follow <name>' };
   const enc = encodeURIComponent(myName);
   const rows = [];
-  const seenIds = new Set();   // review 1: a page read twice (a repeated cursor, a cache) lists nobody twice
+  const seenIds = new Set();   // review 1: a page read twice (a repeated cursor, a cache) lists nobody twice; by id only,
+                               // so an older service that sends none is covered by the repeated-cursor stop alone
+  let unnamed = 0;             // review 2: an agent whose name cannot be shown is still counted
   let cursor = null, pages = 0, cut = false, capped = false;
   for (;;) {
-    // Review 1 (NIT): a page is started only with time left for its own wait, so the answer stays inside the CLIs' 30 s.
-    if (Date.now() - began > listWaitMs - (pages ? LIST_PAGE_ROOM_MS : 0)) { cut = true; break; }
+    // Review 1 and 2: every page, the first too, starts only with time left for its own wait (the name refresh before it
+    // can take some), so the answer stays inside the CLIs' 30 s.
+    if (Date.now() - began > listWaitMs - LIST_PAGE_ROOM_MS) { cut = true; break; }
     const q = '/agents/by-name/' + enc + '/following?limit=' + LIST_PAGE + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
-    const r = await communityread.getJson(q, null, null, { retry: pages === 0 });
+    const r = await communityread.getJson(q, null, null, { retry: pages === 0 && Date.now() - began < LIST_RETRY_BEFORE_MS });
     pages += 1;
     if (pages === 1) {
       if (r.status === 0) return unreached;
@@ -274,8 +279,8 @@ async function listFollowing(agentKey) {
       const idKey = typeof a.id === 'string' && a.id ? a.id.toLowerCase() : '';
       if (idKey && seenIds.has(idKey)) return;
       const name = communityread.authorOf({ name: a.name });
-      if (!name) return;
       if (idKey) seenIds.add(idKey);
+      if (!name) { if (typeof a.name === 'string' && a.name.trim()) unnamed += 1; return; }   // a real name we cannot show; not junk
       rows.push({ name, handle: typeof a.handle === 'string' && HANDLE_RE.test(a.handle) ? a.handle : '', followed: listDayOf(a.followed_at), posted: listDayOf(a.last_post_at),
                   noPosts: a.last_post_at === null });   // review 1: only a real null is "no posts yet"; a bad value says nothing
     });
@@ -285,7 +290,7 @@ async function listFollowing(agentKey) {
     if (pages >= LIST_PAGES_MAX) { capped = true; break; }
     cursor = next;
   }
-  if (!rows.length) {
+  if (!rows.length && !unnamed) {
     return { ok: true, count: 0, text: cut ? 'The community did not finish answering, so who you follow is not known right now. Try again in a moment.'
       : 'You follow no agents yet. Follow one with: kosmos community follow <name>' };
   }
@@ -297,13 +302,15 @@ async function listFollowing(agentKey) {
     else if (x.noPosts) parts.push('no posts yet');
     return '- ' + parts.join(', ');
   });
-  const head = 'You follow ' + rows.length + (rows.length === 1 ? ' agent' : ' agents') + ', newest follow first:';
+  const total = rows.length + unnamed;
+  const head = 'You follow ' + total + (total === 1 ? ' agent' : ' agents') + ', newest follow first:';
+  if (unnamed) lines.push('- and ' + unnamed + ' more whose ' + (unnamed === 1 ? 'name' : 'names') + ' cannot be shown here');
   const tail = [];
-  if (capped) tail.push('Kosmos lists at most ' + (LIST_PAGE * LIST_PAGES_MAX) + ' follows; this is the newest ' + rows.length + '.');
-  else if (cut) tail.push('The list stopped after ' + rows.length + '; the community did not give the rest in time.');
+  if (capped) tail.push('Kosmos lists at most ' + (LIST_PAGE * LIST_PAGES_MAX) + ' follows; this is the newest ' + total + '.');
+  else if (cut) tail.push('The list stopped after ' + total + '; the community did not give the rest in time.');
   if (!dated) tail.push('When you followed each one, and their last post, are not available from the community yet.');
   tail.push('Unfollow one with: kosmos community unfollow <name>');
-  return { ok: true, count: rows.length, cut: cut || capped, text: [head, ...lines, '', ...tail].join('\n') };
+  return { ok: true, count: total, cut: cut || capped, text: [head, ...lines, '', ...tail].join('\n') };
 }
 
 /* A feed item in the shape communityread.itemOf reads: a post as itself, a reply under the post it answers (its id
@@ -751,4 +758,4 @@ async function readFollowing(agentKey) {
   return { ok: true, count: shown.length, text: communityread.frame(shown, above.concat(heading).join('\n')) + (suggestion ? '\n' + suggestion : '') }   // above the heading, which ends in a colon before its list;
 }
 
-module.exports = { listFollowing, LIST_PAGE, LIST_PAGES_MAX, _setListWaitMs, ALL_SEEN, suggestOutside, suggestFetch, SUGGEST_EVERY_MS, SUGGEST_RETRY_MS, _setSuggestWaitMs, follow, byHandle, uncheckedNote, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { listFollowing, LIST_PAGE, LIST_PAGES_MAX, _setListWaitMs, _setListRoomMs, ALL_SEEN, suggestOutside, suggestFetch, SUGGEST_EVERY_MS, SUGGEST_RETRY_MS, _setSuggestWaitMs, follow, byHandle, uncheckedNote, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };

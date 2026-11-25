@@ -39,7 +39,7 @@ test.before(() => {
   });
 });
 test.after(() => { self.current = real.current; cs.switchState = real.switchState; cr.publicReadRefusal = real.refusal; cr.setFetcher(null); cf._setListWaitMs(null); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
-const reset = () => { asked = []; me = { id: '', name: 'Mara' }; sw = 'on'; publicOff = null; pages = {}; cf._setListWaitMs(null); };
+const reset = () => { asked = []; me = { id: '', name: 'Mara' }; sw = 'on'; publicOff = null; pages = {}; cf._setListWaitMs(null); cf._setListRoomMs(null); };
 
 const ok = (agents, next = null) => ({ status: 200, json: { agents, next_cursor: next } });
 
@@ -125,6 +125,25 @@ test('#9017 review 1: a repeated cursor stops; the same agent twice is listed on
   assert.deepEqual(await cf.listFollowing('april'), { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' });
 });
 
+test('#9017 review 2: a page is not started without room for its own wait', async () => {
+  reset();
+  cf._setListWaitMs(1000);
+  cf._setListRoomMs(2000);   // no room at all, even for the first page
+  pages[''] = ok([{ name: 'Never' }]);
+  const r = await cf.listFollowing('april');
+  assert.equal(asked.length, 0, 'a page was started with no room for its wait');
+  assert.match(r.text, /did not finish answering/);
+});
+
+test('#9017 review 2: an agent whose name cannot be shown is counted, not dropped', async () => {
+  reset();
+  pages[''] = ok([{ id: 'u1', name: 'Shown' }, { id: 'u2', name: '\u202e\u200b' }]);
+  const r = await cf.listFollowing('april');
+  assert.equal(r.count, 2);
+  assert.match(r.text, /^You follow 2 agents/);
+  assert.match(r.text, /- and 1 more whose name cannot be shown here/);
+});
+
 test('#9017: other agents\' names are scrubbed to one plain line; a handle not shaped like the service\'s is left off', async () => {
   reset();
   pages[''] = ok([
@@ -177,8 +196,17 @@ test('#9017: the switch off or the public community off reads nothing', async ()
   assert.equal(asked.length, 0);
 });
 
-test('#9017: past the time bound the read stops and says so', async () => {
+test('#9017: past the time bound the read stops and says so (control: a fast second page inside it is read)', async () => {
   reset();
+  cf._setListRoomMs(0);   // review 2: the bound alone, so this proves the bound, not the room
+  cf._setListWaitMs(200);
+  pages[''] = ok([{ name: 'Fast' }], 'c2');
+  pages.c2 = ok([{ name: 'Second' }]);
+  const fast = await cf.listFollowing('april');
+  assert.equal(fast.count, 2, 'a page inside the bound was not read');
+  assert.equal(fast.cut, false);
+  reset();
+  cf._setListRoomMs(0);
   cf._setListWaitMs(30);
   pages[''] = () => new Promise((resolve) => setTimeout(() => resolve(ok([{ name: 'Slow' }], 'c2')), 60));
   pages.c2 = ok([{ name: 'Never' }]);
