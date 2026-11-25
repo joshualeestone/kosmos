@@ -50,6 +50,10 @@ How the rule got here (review rounds 1 to 3): a first version retried every empt
 for good (wait, quit, startup, /clear before a new report). The newest-session-event rule above replaces all of these.
 Accepted: when the board answers `pending` because the agent crashed with a wait shown, the hook pays the 0.8 s retry
 once; worst case about 3 s (two 1 s asks and the pause), inside the hook's 15 s.
+Deferred (round 5): a "reminded at" marker or a cap per wait. Each /clear wipes the context that held the previous
+reminder, so reminding again is right while the agent has not said otherwise, and the reminder now says how to stop it.
+Deferred (round 5): the second ask reuses the first's 1 s budget rather than the remainder (worst case about 3 s, paid
+only on `pending`). The Mac hook asks with a token or a pane and the Windows hook with a token only: Windows has no panes.
 Not measured: whether Claude Code waits for the SessionEnd hook to finish before the next SessionStart (on Windows the
 hook awaits its send, so it would then not race; the retry covers it either way).
 Not covered: Grok and Gemini bridges, which send `started` on every SessionStart (#9048, a separate card). A real
