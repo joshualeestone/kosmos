@@ -15,7 +15,7 @@ struct GlobalSkillsView: View {
     @State private var load: Load = .reading
     @State private var listNote: String?
     // A refused remove's sentence, said by the one read that follows it, then gone (review 1).
-    @State private var removeRefusal: String?
+    @State private var removeRefusal: (key: String, text: String)?
     // The one Remove asking "for good?" (the page's armed button, which disarms on blur): typing, a read, another
     // press or leaving disarms it.
     @State private var armed: String?
@@ -29,7 +29,9 @@ struct GlobalSkillsView: View {
     @State private var generation = 0
     @State private var shownURL: URL?
     // A field taking focus disarms Remove, as the page's blur does (review 4); so does the app leaving the screen.
-    @FocusState private var focused: Bool
+    // Review 6: one value per field (a Bool shared by two fields is not defined in SwiftUI).
+    private enum Field: Hashable { case name, words }
+    @FocusState private var focused: Field?
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -67,7 +69,7 @@ struct GlobalSkillsView: View {
             await read()
         }
         .onDisappear { armed = nil }
-        .onChange(of: focused) { f in if f { armed = nil } }
+        .onChange(of: focused) { f in if f != nil { armed = nil } }
         .onChange(of: scenePhase) { p in if p != .active { armed = nil } }
         // The page's fields stop at their maxlength (UTF-16 units); typing anywhere disarms a Remove, as the page's blur.
         .onChange(of: name) { v in
@@ -128,7 +130,7 @@ struct GlobalSkillsView: View {
                     // The second press is the consent, as the page's armed button; the first only asks.
                     // Review 5: arming takes the keyboard away, as the page's button takes focus, so any later tap into a
                     // field is a real focus change and disarms it.
-                    if isArmed { Task { await remove(skill) } } else { focused = false; armed = skill.key }
+                    if isArmed { Task { await remove(skill) } } else { focused = nil; armed = skill.key }
                 } label: {
                     // Review 4: borderless, the tap is the label's, so the label is a full 44-point target.
                     Text(isArmed ? GlobalSkills.Words.removeArmed : GlobalSkills.Words.remove)
@@ -153,7 +155,7 @@ struct GlobalSkillsView: View {
     private var addSection: some View {
         Section {
             TextField(GlobalSkills.Words.namePlaceholder, text: $name)
-                .focused($focused)
+                .focused($focused, equals: .name)
                 .accessibilityIdentifier("gskill-name")
                 .accessibilityLabel(GlobalSkills.Words.addLabel)
             ZStack(alignment: .topLeading) {
@@ -162,7 +164,7 @@ struct GlobalSkillsView: View {
                         .accessibilityHidden(true)
                 }
                 TextEditor(text: $words).frame(minHeight: 120)
-                    .focused($focused)
+                    .focused($focused, equals: .words)
                     .scrollContentBackground(.hidden)
                     .accessibilityIdentifier("gskill-body")
                     .accessibilityLabel("What the skill should do")
@@ -219,8 +221,9 @@ struct GlobalSkillsView: View {
         switch GlobalSkills.list(status: status, data: data) {
         case .got(let skills):
             load = .got(skills)
-            // Review 1: a fresh list says nothing old; only a refused remove's sentence is said, once, under it.
-            listNote = removeRefusal
+            // Review 1: a fresh list says nothing old; only a refused remove's sentence is said, once, under it. Review 6:
+            // and only while the skill is still listed (a remove with no answer may have landed; the list says so).
+            listNote = removeRefusal.flatMap { r in skills.contains { $0.key == r.key } ? r.text : nil }
             removeRefusal = nil
         case .failed(let why):
             // As the page: a failed read empties the list (nothing it cannot vouch for stays pressable) and says why.
@@ -249,7 +252,7 @@ struct GlobalSkillsView: View {
             // Review 5: the row goes now, so its Remove cannot be pressed again while the list is read.
             removeRefusal = nil
             if case .got(let s) = load { load = .got(s.filter { $0.key != skill.key }) }
-        case .refused(let why): removeRefusal = why
+        case .refused(let why): removeRefusal = (skill.key, why)
         }
         await read()
     }
