@@ -28,17 +28,17 @@ const SCRIPT = path.join(__dirname, '..', 'tools', 'windows', 'kosmos.ps1');
 const REFUSAL = 'PowerShell would have changed this text before kosmos saw it';
 const NO_RUNTIME = 'the runtime is missing';
 
+const PWSH = pwshState('pwsh');   // asked once: every line below reads this one answer
 function shells() {
   const found = [];
   const has = (exe) => spawnSync(exe, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'], { stdio: 'ignore', windowsHide: true, timeout: 20000 }).status === 0;
-  const pwsh = pwshState('pwsh');
-  if (pwsh === 'ok') found.push('pwsh');
-  else if (pwsh !== 'missing') test('#8213 pwsh starts on this machine', () => assert.fail(pwsh));
+  if (PWSH === 'ok') found.push('pwsh');
+  else if (PWSH !== 'missing') test('#8213 pwsh starts on this machine', () => assert.fail(PWSH));
   if (process.platform === 'win32' && has('powershell.exe')) found.push('powershell.exe');
   return found;
 }
 const SHELLS = shells();
-const PWSH_BROKEN = process.platform !== 'win32' && !SHELLS.length && pwshState('pwsh') !== 'missing';
+const PWSH_BROKEN = !SHELLS.length && PWSH !== 'missing';
 
 let dir;
 let bin;
