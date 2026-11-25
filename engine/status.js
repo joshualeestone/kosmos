@@ -9890,6 +9890,21 @@ function snapshot() {
         pane.name,
         (n) => require('./create').readJob(n),
         (d) => { probedDir = d; return require('./authprobe').verdict(d, now); });
+      /* #9038: a line from before the account's last sign-in (oldsigninline: its login date moved later since) is not
+         evidence about the login now, so while a re-check of a HEALTHY account is under way (UNCHECKED) it stays cleared: no
+         card flicker, no refusal recorded. A check that says signed out, or could not tell, is the last one settled then,
+         and stands. */
+      if (probedDir !== undefined) {
+        try {
+          const old = require('./oldsigninline').isOld(pane.name, {
+            account: probedDir === null ? '(default)' : probedDir,
+            text,
+            date: require('./claudeloginlive').lastRead({ isDefault: probedDir === null, dir: probedDir }, now),
+            now,
+          });
+          if (old && require('./authprobe').lastSettledHealthy(probedDir)) liveAuth = LIVE_AUTH_HEALTHY;
+        } catch { /* the check's own answer stands: never the tick */ }
+      }
       /* #7369 review 3: a Windows refusal is remembered as cleared only by a HEALTHY check that BEGAN after it (a cached
          HEALTHY from before a new sign-out must not hide it for good); reconcileReport reads this. */
       if (typeof scrapedStatus.authSince === 'string' && probedDir !== undefined) {

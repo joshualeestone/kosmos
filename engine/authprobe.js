@@ -79,6 +79,14 @@ function startedAt(configDir) {
   return cur && Number.isFinite(cur.startedAt) ? cur.startedAt : 0;
 }
 
+/* #9038: whether the last check that SETTLED for this account said HEALTHY, whatever its age. Not a verdict, and no
+   evidence on its own (a HEALTHY goes stale on purpose, below): status.js asks it only for a screen line already known to
+   be from before the account's last sign-in, for the moment a re-check is under way. */
+function lastSettledHealthy(configDir) {
+  const cur = cache.get(dirKey(configDir));
+  return !!cur && cur.verdict === HEALTHY;
+}
+
 /**
  * verdict(configDir, nowMs) -> HEALTHY | EXPIRED | UNKNOWN | UNCHECKED  (never throws, never blocks).
  * Reads the cache; if the entry is absent or older than the TTL, kicks off an async re-check and
@@ -107,7 +115,7 @@ function verdict(configDir, nowMs = Date.now()) {
 }
 
 module.exports = {
-  verdict, startedAt,
+  verdict, startedAt, lastSettledHealthy,
   HEALTHY, EXPIRED, UNKNOWN, UNCHECKED,
   TTL_MS,
   dirKey,
