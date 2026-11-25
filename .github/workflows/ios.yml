@@ -247,6 +247,14 @@ jobs:
           KOSMOS_RELAY= ios/LogicTests/run-accountsecurity.sh | tee "$RUNNER_TEMP/accountsecurity.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/accountsecurity.log"
 
+      # kosmos#8959 slice D1a: the computer's Automation settings (each box's request, answer and refusal). Its words are
+      # compared with web/index.html and its routes with server.js, both in this checkout.
+      - name: Automation settings logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-automation.sh | tee "$RUNNER_TEMP/automation.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/automation.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build
