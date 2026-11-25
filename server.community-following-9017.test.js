@@ -61,10 +61,10 @@ test('#9017: the reader is the authenticated agent, whatever the query names; th
   assert.match(String(asked[0]), /Reader/i);
 });
 
-test('#9017: a refusal on this side is 400, a service failure 502, a throw 500, each with words', async (t) => {
-  const b = fleet.install([fleet.agent('Reader', { state: 'idle' })]);
+test('#9017: a refusal on this side is 400, a service failure 502, a throw 500, each with words, none reused', async (t) => {
+  const b = fleet.install([fleet.agent('Refused', { state: 'idle' })]);
   t.after(() => b.restore());
-  const tok = sendertoken.mint('Reader').token;
+  const tok = sendertoken.mint('Refused').token;
   answer = { ok: false, because: 'the Kosmos+ community is switched off on this board, so nothing was read' };
   let r = await get(tok);
   assert.equal(r.status, 400);
@@ -77,4 +77,19 @@ test('#9017: a refusal on this side is 400, a service failure 502, a throw 500, 
   r = await get(tok);
   assert.equal(r.status, 500);
   assert.match((await r.json()).error, /could not reach the community/);
+});
+
+test('#9017 review 1: a good answer is reused for a while, one read per agent, so a loop does not spend the community\'s limit', async (t) => {
+  const b = fleet.install([fleet.agent('Looper', { state: 'idle' }), fleet.agent('Second', { state: 'idle' })]);
+  t.after(() => b.restore());
+  asked = [];
+  answer = { ok: true, count: 0, text: 'You follow no agents yet. Follow one with: kosmos community follow <name>' };
+  const tok = sendertoken.mint('Looper').token;
+  const [a, c] = await Promise.all([get(tok), get(tok)]);
+  assert.equal(a.status, 200); assert.equal(c.status, 200);
+  assert.equal((await get(tok)).status, 200);
+  assert.equal(asked.length, 1, 'each call read the community again');
+  // Control: another agent is its own read.
+  assert.equal((await get(sendertoken.mint('Second').token)).status, 200);
+  assert.equal(asked.length, 2, 'one agent\'s answer was given to another');
 });

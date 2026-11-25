@@ -1537,6 +1537,11 @@ const HOME_GEN = new Map();
 const homeGen = (s) => HOME_GEN.get(String(s)) || 0;
 const HOME_ROUTE = new Map();          // agent -> { p, done }: the route's in-flight or recent read (review 1)
 const HOME_ROUTE_REUSE_MS = 30 * 1000;
+/* kosmos#9017 review 1: the following list as /api/community/home is read: one read per agent at a time, its answer
+   reused for FOLLOWING_ROUTE_REUSE_MS, so a loop of `kosmos community following` cannot spend the board's share of the
+   community's request limit (up to 11 public requests a read). */
+const FOLLOWING_ROUTE = new Map();     // agent -> { p, done }
+const FOLLOWING_ROUTE_REUSE_MS = 30 * 1000;
 const HOME_ROUTE_DEADLINE_MS = 40 * 1000;
 /* kosmos#7796: each agent's vote standing as `kosmos community votes` last read it ({ held, required, remaining } or
    { none: true }, and when), for community home. Marked as from before the agent's latest vote when a vote through
@@ -12971,7 +12976,14 @@ const server = http.createServer(async (req, res) => {
     if (authRoster === null) { sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return; }
     const who = resolveAgentSender(req, null, authRoster);
     if (!who.ok || !who.card || !who.card.sessionName) { sendJson(res, 403, { error: who.because || 'we could not verify which agent this is' }); return; }
-    communityfollow.listFollowing(String(who.card.sessionName))
+    const agentKey = String(who.card.sessionName);
+    let pending = FOLLOWING_ROUTE.get(agentKey);
+    if (!pending || (pending.done && Date.now() - pending.done > FOLLOWING_ROUTE_REUSE_MS)) {
+      pending = { done: 0, p: Promise.resolve().then(() => communityfollow.listFollowing(agentKey)) };
+      pending.p.then((r) => { if (r && r.ok) pending.done = Date.now(); else FOLLOWING_ROUTE.delete(agentKey); }, () => { FOLLOWING_ROUTE.delete(agentKey); });
+      FOLLOWING_ROUTE.set(agentKey, pending);
+    }
+    pending.p
       .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
       .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
     return;

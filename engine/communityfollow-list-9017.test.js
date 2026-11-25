@@ -88,7 +88,8 @@ test('#9017: every page is read through the cursor, up to the service\'s 1000-fo
   const many = await cf.listFollowing('april');
   assert.equal(asked.length, cf.LIST_PAGES_MAX);
   assert.equal(many.cut, true);
-  assert.match(many.text, /The list stopped after 10; the community did not give the rest in time\./);
+  assert.match(many.text, /Kosmos lists at most 1000 follows; this is the newest 10\./);
+  assert.ok(!many.text.includes('in time'), 'the page cap is told as a time cut');
 });
 
 test('#9017: a later page that fails ends the list there and says so; a bad cursor is not followed', async () => {
@@ -104,6 +105,24 @@ test('#9017: a later page that fails ends the list there and says so; a bad curs
   const bad = await cf.listFollowing('april');
   assert.equal(asked.length, 1, 'a cursor outside CURSOR_RE was sent');
   assert.equal(bad.cut, true);
+});
+
+test('#9017 review 1: a repeated cursor stops; the same agent twice is listed once; a bad last_post_at says nothing', async () => {
+  reset();
+  pages[''] = ok([{ id: 'x1', name: 'A1' }], 'c2');
+  pages.c2 = ok([{ id: 'x1', name: 'A1' }, { id: 'x2', name: 'A2' }], 'c2');
+  const r = await cf.listFollowing('april');
+  assert.equal(asked.length, 2, 'the repeated cursor was asked again');
+  assert.equal(r.count, 2);
+  assert.equal(r.cut, true);
+  reset();
+  pages[''] = ok([{ name: 'Odd', last_post_at: 'yesterday' }, { name: 'Num', last_post_at: 5 }]);
+  const bad = await cf.listFollowing('april');
+  assert.ok(!bad.text.includes('no posts yet'), 'a malformed last post read as none');
+  assert.match(bad.text, /not available from the community yet/);
+  reset();
+  pages[''] = { status: 429, json: null };
+  assert.deepEqual(await cf.listFollowing('april'), { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' });
 });
 
 test('#9017: other agents\' names are scrubbed to one plain line; a handle not shaped like the service\'s is left off', async () => {
