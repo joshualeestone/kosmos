@@ -12,7 +12,7 @@
  *     node docs/browser-checks/mobile-shots.js [--out DIR] [--screens a,b]
  *       [--sizes se,iphone15,promax,android,android360,desktop] [--themes light,dark]
  *       [--engines chromium,webkit] [--strict] [--list] [--keep]
- *       [--data sample|store|marketing] [--faces DIR] [--scale css|device] [--remote]
+ *       [--data sample|store|marketing|fresh] [--faces DIR] [--scale css|device] [--remote]
  *
  * Output: DIR/<screen>--<size>--<theme>--<engine>.png plus DIR/report.md (every
  * shot, and every overflow found). Default DIR is a new temp folder, printed at
@@ -1181,18 +1181,20 @@ async function frPrep(page, win) {
     return;
   }
   await page.route((u) => u.pathname === '/' || u.pathname === '/index.html', async (r) => {
-    try {
-      if (r.request().resourceType() !== 'document') { await r.continue(); return; }
-      const res = await r.fetch();
+    try {   // #6022: a late answer after close is caught, not a crash
+      if (r.request().resourceType() !== 'document') return await r.fallback();
+      let res;
+      try { res = await fetchBoard(r); } catch { return await r.fallback(); }   // --remote: through the board
       const body = (await res.text()).replace(/(<meta name="kosmos-platform" content=")[^"]*(")/, '$1win32$2');
       await r.fulfill({ response: res, body });
-    } catch { /* the page closed under the shot (#6022): nothing to answer */ }
+    } catch { await r.abort().catch(() => {}); }   // never leave the page's load hanging
   });
 }
 async function frIsWin(page, win) {
-  if (!win) return;
   const v = await page.evaluate(() => document.documentElement.getAttribute('data-kosmos-platform'));
-  if (v !== 'win32') throw new Error('the page did not take the Windows platform (data-kosmos-platform=' + v + ')');
+  if (win && v !== 'win32') throw new Error('the page did not take the Windows platform (data-kosmos-platform=' + v + ')');
+  // A Mac screen run where the board is stamped Windows or Linux would show their words under a Mac name.
+  if (!win && (v === 'win32' || v === 'linux')) throw new Error('a Mac first-run screen on a board stamped ' + v);
 }
 async function frPane(page, n, win) {
   await frPrep(page, win);
@@ -1202,6 +1204,7 @@ async function frPane(page, n, win) {
   await frIsWin(page, win);
 }
 async function frBoard(page, win, then) {
+  if (!['board', 'new', 'role'].includes(then)) throw new Error('frBoard: no step ' + then);
   await frPrep(page, win);
   await at(page, '');
   await frIsWin(page, win);
@@ -2895,34 +2898,36 @@ const SCREENS = [
     await page.click('#cstep-kind [data-path="swarm"]', { timeout: 5000 });
     await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
   } },
-  /* First run (frPrep and the helpers beside it). The screens showing the board need --data fresh, so without it they are
-     skipped, never shot on the full sample fleet under a first-run name; the setup panes do not depend on the data. */
+  /* First run (frPrep and the helpers beside it). The whole set needs --data fresh: without it every one is skipped,
+     so the board screens are never the full sample fleet under a first-run name, and a default sweep does not grow
+     by the set. Windows has no setup-choice screen: its app's FirstRunChoice switch is off on main
+     (tools/windows/README.md), so a new Windows person starts at Welcome. */
   { name: 'fr-mac-01-choice', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: async (page) => {
     await frPrep(page, false);
     await at(page, '?mode=unreadable');
     await page.waitForSelector('#fr-choice', { state: 'visible', timeout: 8000 });
     await page.waitForTimeout(600);
   } },
-  { name: 'fr-mac-02-welcome', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 1, false) },
-  { name: 'fr-mac-03-permission', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 2, false) },
-  { name: 'fr-mac-04-never-sleeps', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 3, false) },
-  { name: 'fr-mac-05-notifications', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 4, false) },
-  { name: 'fr-mac-06-model', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 5, false) },
-  { name: 'fr-mac-07-community', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 6, false) },
-  { name: 'fr-mac-08-installed', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 7, false) },
-  { name: 'fr-mac-09-working-for', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 8, false) },
-  { name: 'fr-mac-10-ready', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 9, false) },
+  { name: 'fr-mac-02-welcome', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 1, false) },
+  { name: 'fr-mac-03-permission', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 2, false) },
+  { name: 'fr-mac-04-never-sleeps', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 3, false) },
+  { name: 'fr-mac-05-notifications', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 4, false) },
+  { name: 'fr-mac-06-model', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 5, false) },
+  { name: 'fr-mac-07-community', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 6, false) },
+  { name: 'fr-mac-08-installed', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 7, false) },
+  { name: 'fr-mac-09-working-for', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 8, false) },
+  { name: 'fr-mac-10-ready', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 9, false) },
   { name: 'fr-mac-11-board', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, false, 'board') },
   { name: 'fr-mac-12-new-agent', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, false, 'new') },
   { name: 'fr-mac-13-new-agent-role', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, false, 'role') },
   { name: 'fr-mac-14-first-chat', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page, data) => frChat(page, false, data) },
-  { name: 'fr-win-01-welcome', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 1, true) },
-  { name: 'fr-win-02-never-sleeps', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 3, true) },
-  { name: 'fr-win-03-model', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 5, true) },
-  { name: 'fr-win-04-community', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 6, true) },
-  { name: 'fr-win-05-installed', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 7, true) },
-  { name: 'fr-win-06-working-for', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 8, true) },
-  { name: 'fr-win-07-ready', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 9, true) },
+  { name: 'fr-win-01-welcome', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 1, true) },
+  { name: 'fr-win-02-never-sleeps', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 3, true) },
+  { name: 'fr-win-03-model', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 5, true) },
+  { name: 'fr-win-04-community', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 6, true) },
+  { name: 'fr-win-05-installed', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 7, true) },
+  { name: 'fr-win-06-working-for', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 8, true) },
+  { name: 'fr-win-07-ready', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 9, true) },
   { name: 'fr-win-08-board', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, true, 'board') },
   { name: 'fr-win-09-new-agent', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, true, 'new') },
   { name: 'fr-win-10-new-agent-role', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, true, 'role') },

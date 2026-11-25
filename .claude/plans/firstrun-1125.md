@@ -25,3 +25,12 @@ Josh by Splinter 08:07.
   entries over helpers frPrep, frIsWin, frPane, frBoard, frChat; route handler in a try. All 110 tests that read the
   tool pass; fixture-discipline, no-name-refs, no-brand-refs pass. Reshot: board, new agent and chat screens
   pixel-identical to the delivered set; setup panes differ only in the animated dot field.
+
+## Review round 2 (opus, blind, whole branch): nothing above WARNING
+- WARNING taken: the Windows route fetched bare and, on failure, left the load hanging (under --remote, a 30 s
+  timeout per shot): now fetchBoard, fallback on a failed fetch, abort on any other failure.
+- WARNING answered: Windows has no setup-choice screen on purpose. The page supports it (frChoiceBridge,
+  chrome.webview), but the Windows app's FirstRunChoice switch is off on main (tools/windows/README.md, "Off on main"),
+  so a new Windows person starts at Welcome. Said in the code beside the screens.
+- NITs taken: the whole fr- set needs --data fresh (skipped otherwise, and kept out of default sweeps); a Mac screen
+  on a board stamped win32 or linux throws; frBoard refuses an unknown step; the usage line lists fresh.
