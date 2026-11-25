@@ -130,7 +130,7 @@ struct AIPoliciesView: View {
             Text(AIPolicies.Words.title)
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                if let note, !noteInForm { noteText(note) }
+                if let note, !noteInForm { noteText(note, "policy-note-list") }
                 Text(AIPolicies.Words.hint).foregroundColor(Palette.secondary)
             }
             .font(.footnote)
@@ -235,15 +235,15 @@ struct AIPoliciesView: View {
             Text(replacing.map { "Replace the words of " + $0.name } ?? AIPolicies.Words.addLabel)
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                if let note, noteInForm { noteText(note) }
+                if let note, noteInForm { noteText(note, "policy-note-form") }
                 Text(replacing == nil ? AIPolicies.Words.addHint : AIPolicies.Words.replaceHint).foregroundColor(Palette.secondary)
             }
             .font(.footnote)
         }
     }
 
-    private func noteText(_ n: Note) -> some View {
-        Text(n.text).foregroundColor(n.problem ? Palette.dangerWord : Palette.secondary).accessibilityIdentifier("policy-note")
+    private func noteText(_ n: Note, _ id: String) -> some View {
+        Text(n.text).foregroundColor(n.problem ? Palette.dangerWord : Palette.secondary).accessibilityIdentifier(id)
     }
 
     private func startReplacing(_ p: AIPolicies.Policy) {
@@ -308,7 +308,8 @@ struct AIPoliciesView: View {
         let (status, data) = await send(request)
         guard sentTo == shownURL else { return false }
         // busy holds until the list is fetched again, so no second change can drop that fetch (its generation bump).
-        defer { busy = false }
+        // Only for this computer: after a switch, busy belongs to a change on the new one.
+        defer { if sentTo == shownURL { busy = false } }
         switch AIPolicies.done(did, status: status, data: data) {
         case .done(let said):
             note = Note(said, false)

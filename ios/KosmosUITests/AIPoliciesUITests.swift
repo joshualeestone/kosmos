@@ -33,7 +33,7 @@ final class AIPoliciesUITests: XCTestCase {
         remove.tap()
         XCTAssertTrue(app.staticTexts["Removed. No agents are running, so there was nothing to take back."].waitForExistence(timeout: 5),
                       "the page's removed sentence is missing")
-        noteShown(app, "Removed. No agents are running, so there was nothing to take back.", above: app.textFields["policy-name"])
+        noteShown(app, "Removed. No agents are running, so there was nothing to take back.", inForm: false)
 
         // Adding asks first, in the page's words, naming the policy.
         let name = app.textFields["policy-name"]
@@ -52,18 +52,18 @@ final class AIPoliciesUITests: XCTestCase {
         ask.buttons["Hand it out"].tap()
         XCTAssertTrue(app.staticTexts["Saved. No agents are running yet; each one gets it when it exists."].waitForExistence(timeout: 5),
                       "the page's saved sentence is missing")
-        noteShown(app, "Saved. No agents are running yet; each one gets it when it exists.", below: save)
+        noteShown(app, "Saved. No agents are running yet; each one gets it when it exists.", inForm: true)
         shot(app, "ai-policies-saved")
     }
 
-    /// The change's sentence is shown once, as the note, and under what was tapped (review round 2's fix).
-    private func noteShown(_ app: XCUIApplication, _ said: String, below: XCUIElement? = nil, above: XCUIElement? = nil) {
-        let notes = app.staticTexts.matching(identifier: "policy-note")
-        XCTAssertEqual(notes.count, 1, "the note is shown \(notes.count) times")
-        XCTAssertEqual(notes.firstMatch.label, said)
-        if let below, below.exists { XCTAssertGreaterThan(notes.firstMatch.frame.minY, below.frame.maxY, "the note is not under what was tapped") }
-        // A rename or remove's note is under the list, so above the add form (when the form is drawn at all).
-        if let above, above.exists { XCTAssertLessThan(notes.firstMatch.frame.maxY, above.frame.minY, "the note is under the form, not the list") }
+    /// The change's sentence is shown once, as the note, in the footer beside what was tapped (review round 2's fix):
+    /// under the list for a remove or rename, under the form for an add. Each footer's note has its own identifier, so
+    /// this needs no frames (a lazy List drops a footer scrolled off screen).
+    private func noteShown(_ app: XCUIApplication, _ said: String, inForm: Bool) {
+        let here = app.staticTexts[inForm ? "policy-note-form" : "policy-note-list"]
+        XCTAssertTrue(here.waitForExistence(timeout: 5), "the note is not in the " + (inForm ? "form's" : "list's") + " footer")
+        XCTAssertEqual(here.label, said)
+        XCTAssertFalse(app.staticTexts[inForm ? "policy-note-list" : "policy-note-form"].exists, "the note is shown in both places")
     }
 
     private func reveal(_ app: XCUIApplication, _ element: XCUIElement, swipes: Int = 8) {
