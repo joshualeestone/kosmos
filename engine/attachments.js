@@ -30,12 +30,14 @@
  * decoded.
  *
  * The record on a message row, the shape the page draws against:
- *   attachment: { id, name, type, size, kind, url, preview }
+ *   attachment: { id, name, type, size, kind, url, preview, incomplete? }
  *     kind     'image' | 'pdf' | 'text' | 'other'
  *     url      '/api/attachment/<id>', the file itself
  *     preview  '/api/attachment/<id>/preview' for image and pdf (a PNG, or
  *              the image itself), the text itself for kind 'text' (capped,
  *              so the card shows a snippet), null when there is none.
+ *     incomplete  true when a zip-based file's ending could not be found
+ *              (kosmos#9016); absent otherwise.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -121,8 +123,9 @@ function pageFile(page) { return '.pdf-page-' + page + '.png'; }
 /* kosmos#9016: whether a zip-based file is cut short. A zip ends with its End Of Central Directory record, which comes after the
    directory it points to and may be followed by a comment of up to 65,535 bytes (and, in some files, by data appended after
    that). The record is searched in the last 1 MiB; it is the file's own when its comment fits before the end and its directory
-   lies before it at the place it says, starting as a directory does. A file that does not start as a zip, or whose directory
-   figures are in the zip64 form (the 32-bit ones all ones), is not judged here. Any read that fails says nothing: the
+   lies before it at the place it says, ending where the record begins (an encrypted one) or starting as a directory does. Not judged: a file
+   that does not start as a zip, one volume of a split archive, and a record holding a zip64 marker (a 32-bit figure, or the count of
+   entries, all ones). Any read that fails says nothing: the
    file is as it was. */
 const ZIP_HEAD = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 const ZIP_END = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
