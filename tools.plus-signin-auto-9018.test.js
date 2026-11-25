@@ -226,6 +226,18 @@ test('#9018: with KOSMOS_SEED_TOTP unset the secret is read through the secrets 
   assert.deepStrictEqual(calls(w2.boardLog), [], 'a board was started');
 });
 
+test('#9018: a meta whose targets are only addresses is refused for naming no secret, before any download', async () => {
+  const w = world();
+  fs.writeFileSync(path.join(w.env.HOME, '.config', 'secrets', 'kosmosplus-test-gate-totp.meta'), 'purpose: x\ntargets: ' + SEED + '\nformat: bare-token\n');
+  const bin = path.join(w.dir, 'bin'); fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'secrets-map.sh'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  delete w.env.KOSMOS_SEED_TOTP; w.env.PATH = bin + ':' + w.env.PATH;
+  const r = await run(w, ['--pointer', w.pointer, '--seed', SEED, '--port', String(await freePort()), '--tarball', w.tgz]);
+  assert.strictEqual(r.code, 2, r.out);
+  assert.match(r.out, /names no secret on its targets: line, only addresses/);
+  assert.deepStrictEqual(calls(w.boardLog), [], 'a board was started');
+});
+
 test('#9018: a progress file from a run started by hand on an installed board is left alone', async () => {
   const w = world({ noCode: true });
   const prog = recordOf(w).replace(/\.json$/, '.progress.json');
