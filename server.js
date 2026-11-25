@@ -19897,13 +19897,15 @@ const server = http.createServer(async (req, res) => {
     let fromPane = null;
     let startup = false;
     let waitOnly = false;
+    let clearing = false;
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       as = q.get('as');
       fromPane = q.get('from_pane');
       startup = q.get('at') === 'startup';
       waitOnly = q.get('wait') === 'only' || q.get('as') === 'waithook';
-    } catch { as = null; fromPane = null; startup = false; waitOnly = false; }
+      clearing = q.get('src') === 'clear';
+    } catch { as = null; fromPane = null; startup = false; waitOnly = false; clearing = false; }
     const fail = (status, msg) => {
       if (as === 'hook' || as === 'waithook') sendText(res, status, '');
       else if (as === 'text') sendText(res, status, msg + '\n');
@@ -19939,7 +19941,6 @@ const server = http.createServer(async (req, res) => {
         try { w = away.lastWait(hist, { nowMs: now }); } catch { w = null; }
         /* `src=clear`: a /clear ALWAYS follows its own SessionEnd, so a newest `started` there only means that SessionEnd's
            `stopped` has not landed yet (the Mac hook sends it in the background): pending too, not "already reminded". */
-        const clearing = (() => { try { return new URL(req.url, ROUTING_BASE).searchParams.get('src') === 'clear'; } catch { return false; } })();
         const after = w ? away.sessionAfter(hist, w.atMs) : null;
         const pending = !!w && (after === null || (after === 'started' && clearing));
         if (after !== 'stopped') w = null;
