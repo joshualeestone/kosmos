@@ -270,6 +270,14 @@ jobs:
           ios/LogicTests/run-aipolicies.sh | tee "$RUNNER_TEMP/aipolicies.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/aipolicies.log"
 
+      # kosmos#8959 slice C: deleting the account natively (the four routes' requests, every answer, the page's words).
+      # Words compared with the web page only where kosmos-relay is checked out beside it (not on CI).
+      - name: Delete account logic tests
+        run: |
+          set -o pipefail
+          KOSMOS_RELAY= ios/LogicTests/run-deleteaccount.sh | tee "$RUNNER_TEMP/deleteaccount.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/deleteaccount.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build

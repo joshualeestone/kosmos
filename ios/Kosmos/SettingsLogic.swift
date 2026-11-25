@@ -170,7 +170,4 @@ enum Settings {
     // connected, since otherwise nothing is sent whatever they say.
     static func kindsShown(_ s: PhoneNotify) -> Bool { s.available && s.connected && s.on }
 
-    // Kosmos+'s delete-account flow (coordinator lib.rs), opened in the app's web view; deleting an account takes its own
-    // confirmed steps there. (The account page it sat beside is native since kosmos#8959 slice B3.)
-    static func deleteAccountURL(coordinator: URL) -> URL { URL(string: "/delete-account", relativeTo: coordinator)!.absoluteURL }
 }
