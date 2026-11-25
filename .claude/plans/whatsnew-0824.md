@@ -1,7 +1,8 @@
 # whatsnew-0824: the What's New list for 0.8.24
 
 0.8.23 reached staging and was held from prod (fleetbuilders m6672): its create check refused every agent on the
-default Claude account (#9031, fixed by createdead-9031). 0.8.24 carries that fix, so this is 0.8.24's list.
+default Claude account (#9031). Its fix, createdead-9031, is not on main yet: 0.8.24 is cut only once it
+merges (the cut requires its merge sha). This is 0.8.24's list.
 
 Built with `node tools/whats-new-pool.js build 0.8.24` (online) on origin/main fdac85902d.
 
@@ -13,7 +14,8 @@ Built with `node tools/whats-new-pool.js build 0.8.24` (online) on origin/main f
 ## Pool additions
 Read from each PR's description of what changes for the person, or from its code where that was unclear.
 - **A closed question says who closed it** (#9011 part 1, PR #9044, rank 12, since 0.8.23). For 12 hours, the hover
-  and screen reader text of the status pill say when and how an agent's own question was closed. It is user-facing,
+  and screen reader text of the status pill say when and how an agent's own question was closed. The line says
+  "hovering", since nothing visible on the card changes (review 2). It is user-facing,
   but it ranks below the five already pending, so it waits for the next window.
 - **An expired Claude login is said** (#9031, PR #9051, rank 12.5, since 0.8.23). In Renet Tilley's words for what
   #9031 still does once createdead-9031 lands (m6678): the card shows a sign-in issue, kosmos accounts says the login
@@ -21,9 +23,11 @@ Read from each PR's description of what changes for the person, or from its code
 - **An old sign-in message no longer misleads** (#9038, PR #9061, rank 13, mac, since 0.8.23), in Renet's words.
 - Both rank below the five pending, so they wait for the next window. Renet's blind review of createdead-9031 checked
   the rest of #9031 and #9038 for the same trap and found none, so both lines stand (m6684).
-- notesOnly: **A wait outlives a /clear** (#9049 PR #9059, #9057 PR #9066, #9058 PR #9073, #9048 PR #9056). An agent
-  is reminded of its own wait after a /clear or a late resume, twice; a reopened Grok or Gemini session keeps it
-  (#9056, review 1).
+- notesOnly: **A wait outlives a /clear** (#9049 PR #9059, #9057 PR #9066, #9048 PR #9056, since 0.8.23: all three
+  were in the 0.8.23 cut's pin 317618978a). An agent is reminded of its own wait after a /clear or a late resume, and
+  a reopened Grok or Gemini session keeps it.
+- notesOnly: **A wait is reminded twice, then not again** (#9058, PR #9073, since 0.8.24: it merged after the 0.8.23
+  freeze, review 2). Split from the entry above so `kosmos whats-new --since 0.8.23` still shows it.
 - notesOnly: **kosmos community following** (#9017 slice 1, PR #9071).
 
 ## Not added
