@@ -83,17 +83,34 @@ test('#9094 a row moving DOWN moves alone', () => {
   assert.equal(moves, 1, 'the rows it passed were moved too');
 });
 
-test('#9094 the whole-write paths: an unknown last write, another writer, a repeated key', () => {
+test('#9094 another writer\'s added child is removed; unchanged rows are kept; a repeated key writes whole', () => {
   const b = board(); b.write([row('a'), row('b')].join(''));
   const a0 = b.node('a');
   b.box.insertBefore(el('<h3>someone else</h3>'), null);   // another writer added a child
   b.write([row('a'), row('b')].join(''));
   assert.equal(b.order(), [row('a'), row('b')].join(''), 'a foreign child survived');
-  assert.notEqual(b.node('a'), a0, 'a foreign write did not force a whole write');
+  assert.equal(b.node('a'), a0, 'an unchanged row was rebuilt');
   const a1 = b.node('a');
   b.write([row('a'), row('a', 'twice')].join(''));
   assert.equal(b.order(), [row('a'), row('a', 'twice')].join(''));
   assert.notEqual(b.box.childNodes[0], a1, 'a repeated key did not force a whole write');
+});
+
+test('#9094 another writer that swaps a child at the same count: its node is removed and the swapped-out row comes back', () => {
+  const b = board(); b.write([row('a'), row('b'), row('c')].join(''));
+  const stranger = el('<h3>someone else</h3>');
+  b.box.insertBefore(stranger, b.box.childNodes[1]); b.box.take(b.box.childNodes[2]);   // b swapped out, count unchanged
+  const a0 = b.node('a');
+  b.write([row('a'), row('b'), row('c', 'c v2')].join(''));
+  assert.equal(b.order(), [row('a'), row('b'), row('c', 'c v2')].join(''), 'the swapped-in child survived or a row is missing');
+  assert.ok(!b.box.childNodes.includes(stranger));
+  assert.equal(b.node('a'), a0, 'an unchanged row was rebuilt');
+});
+
+test('#9094 the write after a repeated key is right too', () => {
+  const b = board(); b.write([row('a'), row('a', 'twice'), row('b')].join(''));
+  b.write([row('a'), row('b')].join(''));
+  assert.equal(b.order(), [row('a'), row('b')].join(''));
 });
 
 test('#9094 random sequences: order always right, unchanged pieces keep their nodes, moves stay minimal', () => {

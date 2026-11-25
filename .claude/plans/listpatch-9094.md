@@ -18,9 +18,10 @@ on a 0.8.22 board).
 each top-level piece there, and match pieces to the last write's by `data-agent` (unkeyed pieces, such as headers, by
 their order among themselves). A matched piece with the same markup keeps its node. Of the kept nodes, the longest run
 already in the new order stays put and only the others are moved (insertBefore), so an agent changing place under a
-sort or a star moves alone, up or down. Written whole (replaceChildren) when prevHtml is null (the memo resets), when
-the container's child count is not the number of pieces last written (another writer), or when an agent key repeats.
-A changed piece count is patched, not written whole. Used by paintAgentListNow (ALIST_PARTS), setGridHtml
+sort or a star moves alone, up or down. Each piece's on-screen node is recorded, and only recorded nodes are kept, so
+another writer's nodes are removed (review 4; a count or identity guard on top was dead code, measured by mutant).
+Written whole (replaceChildren) when prevHtml is null (the memo resets) or when an agent key repeats. A changed piece
+count is patched, not written whole. Used by paintAgentListNow (ALIST_PARTS), setGridHtml
 (GRID_PARTS) and My Agents (MY_AGENTS_PARTS).
 
 ## Tests
@@ -43,3 +44,10 @@ That no code puts per-row state on a row node expecting the next full rewrite to
 unchanged row keeps such state through other agents' changes, as an unchanged list already did under #8990. The
 fed sections (#alist-fed-own, #alist-fed-outside) hold in-place focus and busy state and are re-found by
 fedRefocusRail; keeping them is the intent, and no check yet exercises a patch beside an in-place edit.
+
+## Review 4 audit: code that edits a row or card node in place (now kept across other agents' changes)
+Searched web/index.html for in-place edits reached through .lrow/.acard and [data-agent=] selectors. Three:
+- My Agents' `current` class, aria-current and title: re-applied to every row after each write (paintMyAgents).
+- Team create's `just-made` and tabIndex: its own mark loop toggles them off when the mark ends (since #8990).
+- The avatar retry's src (retry=N): built for kept nodes since #8990.
+None needs a rebuild to clear it. The search covers those selector spellings, not every possible way to reach a node.

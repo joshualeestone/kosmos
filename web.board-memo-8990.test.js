@@ -59,12 +59,12 @@ test('the failed-poll card, which writes both containers by id, clears both memo
   assert.match(after, /GRID_HTML = null;\s*ALIST_HTML = null;/, 'the failed-poll loop writes behind the memos without clearing them');
 });
 
-test('kosmos#9094: patchBoardHtml writes whole whenever the last write is unknown, someone else wrote, or a key repeats', () => {
+test('kosmos#9094: patchBoardHtml writes whole whenever the last write is unknown or a key repeats', () => {
   const at = PAGE.indexOf('function patchBoardHtml(el, html, prevHtml, prevParts) {');
   assert.ok(at > -1, 'patchBoardHtml moved or was renamed');
   const body = PAGE.slice(at, PAGE.indexOf('\n}\n', at));
-  assert.match(body, /if \(prevHtml === null \|\| !prevParts \|\| live\.length !== prevParts\.length \|\| new Set\(keys\)\.size !== keys\.length\) \{\s*el\.replaceChildren\(\.\.\.next\);/,
-    'a memo reset (null), a container someone else wrote, or a repeated agent key no longer forces a whole write');
+  assert.match(body, /if \(prevHtml === null \|\| !prevParts \|\| new Set\(keys\)\.size !== keys\.length\) \{\s*el\.replaceChildren\(\.\.\.next\);/,
+    'a memo reset (null) or a repeated agent key no longer forces a whole write');
   assert.match(body, /const old = x\.key \? byKey\.get\(x\.key\) : loose\[li\+\+\];/, 'pieces are no longer matched by agent, so a row that changes place redraws the rows between');
   // The reorder itself is run, not read, in web.board-patch-9094.test.js.
 });

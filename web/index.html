@@ -27757,30 +27757,34 @@ let ALIST_PARTS = null;   // kosmos#9094: its top-level pieces as last written (
 /* kosmos#9094: write a board container's new markup, touching only the top-level pieces (rows, cards, headers) whose
    markup changed since the last write. A rewrite of the whole container replaced every row when one agent's state or
    memory ring moved: on a live board of 20 agents, 3 whole-list rewrites a minute, 20 rows replaced for 1 that changed.
-   Pieces are matched by their data-agent, so an agent that changes place under a sort or a star moves alone; pieces
-   with none (headers, notes) are matched by their order among such pieces. A matched piece whose markup is the same
-   keeps its node, and only the nodes out of order are moved (insertBefore), so the rows an agent passes are not touched. The new markup
-   is parsed into a template and each piece serialised there, so both sides of the comparison come from the same parser
-   (never the live innerHTML, which the page may have touched). Written whole when the last write is unknown (prevHtml
-   null: the empty-board and failed-poll paths), when the container's child count is not what we wrote (another writer
-   added or removed), or when an agent key repeats. A writer that keeps the count but swaps children is not seen: no
-   page code does that, and a browser check that writes a container directly must clear its memo first. Unkeyed
-   pieces matched by order mean one of them appearing or going redraws the unkeyed pieces after it (headers, notes). prevParts is the last call's return: [{ key, ser }] in order. */
+
+   Pieces are matched by their data-agent; pieces with none (headers, notes) by their order among such pieces, so one
+   of those appearing or going redraws the unkeyed pieces after it. A matched piece whose markup is the same keeps its
+   node. Of the kept nodes, the longest run already in the new order stays put and only the others are moved
+   (insertBefore), so an agent changing place under a sort or a star moves alone, up or down.
+
+   The new markup is parsed into a template and each piece serialised there, so both sides of the comparison come from
+   the same parser (never the live innerHTML, which the page may have touched). The nodes kept are the ones this function
+   recorded, wherever they now are, and every other child is removed, so another writer's nodes do not survive a patch.
+   Written whole when the last write is unknown (prevHtml null: the empty-board and failed-poll paths) or when an
+   agent key repeats.
+
+   prevParts is the last call's return: [{ key, ser, node }] in order, node being what is on screen for that piece. */
 function patchBoardHtml(el, html, prevHtml, prevParts) {
   const t = document.createElement('template');
   t.innerHTML = html;
   const next = [...t.content.childNodes];
   const ser = (n) => (n.nodeType === 1 ? n.outerHTML : n.nodeType === 3 ? '#' + n.nodeValue : '!' + n.nodeType + ':' + n.nodeValue);
   const keyOf = (n) => (n.nodeType === 1 && n.dataset && n.dataset.agent ? 'a:' + n.dataset.agent : null);
-  const parts = next.map((n) => ({ key: keyOf(n), ser: ser(n) }));
+  const parts = next.map((n) => ({ key: keyOf(n), ser: ser(n), node: n }));
   const live = [...el.childNodes];
   const keys = parts.filter((x) => x.key).map((x) => x.key);
-  if (prevHtml === null || !prevParts || live.length !== prevParts.length || new Set(keys).size !== keys.length) {
+  if (prevHtml === null || !prevParts || new Set(keys).size !== keys.length) {
     el.replaceChildren(...next);
     return parts;
   }
   const byKey = new Map(); const loose = [];
-  prevParts.forEach((x, i) => { if (x.key) byKey.set(x.key, { node: live[i], ser: x.ser }); else loose.push({ node: live[i], ser: x.ser }); });
+  prevParts.forEach((x) => { if (x.key) byKey.set(x.key, x); else loose.push(x); });
   let li = 0;
   const want = next.map((n, i) => {
     const x = parts[i];
@@ -27807,6 +27811,7 @@ function patchBoardHtml(el, html, prevHtml, prevParts) {
     if (!stays.has(want[i])) el.insertBefore(want[i], anchor);
     anchor = want[i];
   }
+  want.forEach((n, i) => { parts[i].node = n; });   // the node now on screen for each piece, for the next call's checks
   return parts;
 }
 function paintAgentListNow() {
