@@ -37,3 +37,8 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (D1d plan 7156885894)
 - BLOCKER the UI test looked for the check-ins after scrolling down to the Recommender's guards. reveal() only swipes down, and the Prompter box is near the top, so the lazy rows were gone and the test would fail. The check-ins are now asserted right after the first shot, where the Prompter box is, with a wait for the sample's async read.
 - M kept: the check-ins show under a Prompter box that is reading or failed. They have their own read, and the 30 s read retries them.
 - The reviewer verified the 30 s loop: it blocks nothing, ends with the screen, and a pull starts no second loop. The cancellation guards hold.
+
+### Round 3 (opus, 02:36 CST): no BLOCKER, 1 MAJOR, 1 MINOR, both in the UI test. The reviewer walked the whole test against the box order and the sample: every lookup moves down the page, and the app code holds.
+- MAJOR one reveal for three rows of a lazy List could leave eli's row unbuilt (or the heading scrolled out), a CI flake. Each element (heading, dana, eli) is now revealed and waited for on its own, top to bottom.
+- MINOR reveal ran before the sample's read had landed: each lookup now waits after its reveal, and the sample's read lands with the boxes' reads.
+- Loop ends here: round 3 found nothing in the app code, and its test findings are fixed.

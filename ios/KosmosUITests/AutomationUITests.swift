@@ -29,12 +29,19 @@ final class AutomationUITests: XCTestCase {
 
         // kosmos#8959 slice D1d1: the sample's two check-ins under the Prompter box, each a button to its agent. Checked
         // here, near the top where the Prompter box is: reveal() only swipes down, so after the guards below they are gone.
+        // Each found top to bottom (the heading, dana, eli), revealed and waited for on its own: the List builds rows
+        // lazily, so one reveal for three rows can leave the last unbuilt (review 3).
+        let heading = app.staticTexts["Agents that may need you"]
+        reveal(app, heading, swipes: 6)
+        XCTAssertTrue(heading.waitForExistence(timeout: 5), "the check-ins' heading is missing")
         let quiet = app.buttons["automation-checkin-dana"]
-        reveal(app, quiet, swipes: 6)
+        reveal(app, quiet, swipes: 3)
         XCTAssertTrue(quiet.waitForExistence(timeout: 5), "the Prompter's check-ins are missing")
         XCTAssertTrue(quiet.label.contains("dana") && quiet.label.contains("seems to have gone quiet. Still mid-something, finished, or stopped?"), quiet.label)
-        XCTAssertTrue(app.buttons["automation-checkin-eli"].label.contains("lost its connection, and Kosmos stopped trying."), "the gave-up question is not the page's")
-        XCTAssertTrue(app.staticTexts["Agents that may need you"].exists, "the check-ins' heading is missing")
+        let gone = app.buttons["automation-checkin-eli"]
+        reveal(app, gone, swipes: 3)
+        XCTAssertTrue(gone.waitForExistence(timeout: 5), "the second check-in is missing")
+        XCTAssertTrue(gone.label.contains("lost its connection, and Kosmos stopped trying."), "the gave-up question is not the page's: \(gone.label)")
         shot(app, "automation-checkins")
 
 
