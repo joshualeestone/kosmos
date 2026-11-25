@@ -164,19 +164,27 @@ struct ChatList: UIViewRepresentable {
         var movedAt: CFTimeInterval = 0
         func moving() -> Bool { CACurrentMediaTime() - movedAt < 0.25 }
 
+        func redrawAtNewWidth() {
+            guard let source, let list else { return }
+            for ip in list.indexPathsForVisibleItems {
+                if let c = list.cellForItem(at: ip), let id = source.itemIdentifier(for: ip) { configure(c, id) }
+            }
+        }
+
         func configure(_ c: UICollectionViewCell, _ id: String) {
             guard let cell else { return }
             let env = environment
             let open = ChatList.sampleNoCellActions ? nil : env.openMessageActions
             c.contentConfiguration = UIHostingConfiguration {
                 // The long-press sheet's host is the chat's (messageActionsHost); a hosted cell does not inherit SwiftUI's
-                // environment, so the two values the bubbles read are carried in.
+                // environment, so the values the bubbles read are carried in.
                 // One stack with no spacing: a cell can hold two views (a send that starts a day is its day line and its
                 // bubble), which a hosting configuration would otherwise space 8 pt apart (measured 11-07: the list stepped
                 // 8 pt as such a send became its two rows). The lazy list's stack has no spacing either.
                 VStack(alignment: .leading, spacing: 0) { cell(id) }
                     .environment(\.openMessageActions, open)
                     .environment(\.shownMessageActions, env.shownMessageActions)
+                    .environment(\.paneWidth, env.paneWidth)   // kosmos#9002: a bubble's width is its pane's
             }
             .margins(.horizontal, 16).margins(.vertical, 0)
             .minSize(height: 0)   // a list cell's default 44 pt would add room under a day line or the working line
@@ -1067,7 +1075,10 @@ struct ChatList: UIViewRepresentable {
         co.toldTop = atTop
         co.readTopTold = topRead
         co.landing = landing
+        let wasWide = co.environment.paneWidth
         co.environment = context.environment
+        // kosmos#9002: a fold changes the pane's width; cells already drawn are drawn again at the new one.
+        if abs(wasWide - co.environment.paneWidth) > 0.5 { co.redrawAtNewWidth() }
         co.apply(ids, dropped: dropped)
         if newest != co.newest {
             co.newest = newest

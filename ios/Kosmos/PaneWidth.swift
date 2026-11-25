@@ -18,9 +18,10 @@ extension EnvironmentValues {
 
 private struct MeasuresPaneWidth: ViewModifier {
     @State private var width: CGFloat = UIScreen.main.bounds.width
+    @TwoPanes private var twoPanes
     func body(content: Content) -> some View {
         content
-            .environment(\.paneWidth, width)
+            .environment(\.paneWidth, twoPanes ? width : UIScreen.main.bounds.width)
             .background(GeometryReader { g in
                 Color.clear.onAppear { width = g.size.width }.onChange(of: g.size.width) { width = $0 }
             })
