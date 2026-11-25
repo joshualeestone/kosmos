@@ -1858,7 +1858,8 @@ struct RoomBubble: View {
                 }
                 .padding(.top, words.isEmpty ? 0 : 2)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Files: " + row.attachments.map(\.name).joined(separator: ", "))
+                // kosmos#9016: an incomplete file is said here too (the cards inside are not read on their own)
+                .accessibilityLabel("Files: " + row.attachments.map { $0.incomplete ? $0.name + " (" + Board.incompleteWords + ")" : $0.name }.joined(separator: ", "))
             }
         }
         // kosmos#7347 (Josh 10-27, Mona Lisa): 10 pt by 14 pt around the words, the Mac board's proportion.
