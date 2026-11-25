@@ -15,10 +15,13 @@ on a 0.8.22 board).
 
 ## Fix
 `patchBoardHtml(el, html, prevHtml, prevParts)` in web/index.html: parse the new markup into a template, serialise
-each top-level piece there, and replace only the pieces whose markup differs from the last write's. Write whole
-(replaceChildren) when prevHtml is null (the empty-board and failed-poll memo resets), when the piece count changed,
-or when the container's child count no longer matches what was written. Used by paintAgentListNow (both memo-guarded
-writes, new ALIST_PARTS) and setGridHtml (new GRID_PARTS).
+each top-level piece there, and match pieces to the last write's by `data-agent` (unkeyed pieces, such as headers, by
+their order among themselves). A matched piece with the same markup keeps its node. Of the kept nodes, the longest run
+already in the new order stays put and only the others are moved (insertBefore), so an agent changing place under a
+sort or a star moves alone, up or down. Written whole (replaceChildren) when prevHtml is null (the memo resets), when
+the container's child count is not the number of pieces last written (another writer), or when an agent key repeats.
+A changed piece count is patched, not written whole. Used by paintAgentListNow (ALIST_PARTS), setGridHtml
+(GRID_PARTS) and My Agents (MY_AGENTS_PARTS).
 
 ## Tests
 - Browser check render-board-patch-9094 (gated.txt): a new picture for alpha replaces alpha's row and card; beta's
@@ -26,8 +29,13 @@ writes, new ALIST_PARTS) and setGridHtml (new GRID_PARTS).
 - Page pins updated: web.board-memo-8990.test.js (writer shapes, plus the whole-write conditions),
   web.board-empty.test.js, browser-checks-reason-grep.test.js (emit site).
 - Other checks that repaint (render-star-6719, render-federation-invite-4649, render-ownseal-4658,
-  render-working-pulse-3956, render-teamcreate-4557) reset the memo to null first, which still forces a whole write.
+  render-working-pulse-3956, render-teamcreate-4557) reset the memo to null first, so they take the whole-write path.
+- Browser check arms: 1 one change (only alpha redrawn), 2 a star moves gamma up (alpha and beta not even detached),
+  4 un-star moves gamma down (same), 3 a new agent paints. Red controls in a queued job: always whole (fails 1, 2),
+  positional matching (fails 2), forward-only insertion (fails 4).
 
 ## Weakest premise
 That no code puts per-row state on a row node expecting the next full rewrite to clear it. Under the patch an
-unchanged row keeps such state, as an unchanged list already did under #8990.
+unchanged row keeps such state through other agents' changes, as an unchanged list already did under #8990. The
+fed sections (#alist-fed-own, #alist-fed-outside) hold in-place focus and busy state and are re-found by
+fedRefocusRail; keeping them is the intent, and no check yet exercises a patch beside an in-place edit.

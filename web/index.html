@@ -27759,11 +27759,11 @@ let ALIST_PARTS = null;   // kosmos#9094: its top-level pieces as last written (
    memory ring moved: on a live board of 20 agents, 3 whole-list rewrites a minute, 20 rows replaced for 1 that changed.
    Pieces are matched by their data-agent, so an agent that changes place under a sort or a star moves alone; pieces
    with none (headers, notes) are matched by their order among such pieces. A matched piece whose markup is the same
-   keeps its node; out-of-place nodes are moved with insertBefore, so the rows between are not touched. The new markup
+   keeps its node, and only the nodes out of order are moved (insertBefore), so the rows an agent passes are not touched. The new markup
    is parsed into a template and each piece serialised there, so both sides of the comparison come from the same parser
    (never the live innerHTML, which the page may have touched). Written whole when the last write is unknown (prevHtml
-   null: the empty-board and failed-poll paths), when the container no longer holds the pieces we wrote, or when an
-   agent key repeats. prevParts is the last call's return: [{ key, ser }] in order. */
+   null: the empty-board and failed-poll paths), when the container's child count is not what we wrote (another writer
+   added or removed; one that swaps a child in place is not seen, and none does), or when an agent key repeats. prevParts is the last call's return: [{ key, ser }] in order. */
 function patchBoardHtml(el, html, prevHtml, prevParts) {
   const t = document.createElement('template');
   t.innerHTML = html;
@@ -27787,9 +27787,23 @@ function patchBoardHtml(el, html, prevHtml, prevParts) {
   });
   const keep = new Set(want);
   for (const n of live) if (!keep.has(n)) n.remove();
-  for (let i = 0; i < want.length; i += 1) {
-    const at = el.childNodes[i] || null;
-    if (at !== want[i]) el.insertBefore(want[i], at);
+  /* Which kept nodes stay where they are: the longest run of them already in the new order (old positions
+     increasing). Only the others are moved, so a row moving down moves alone, as a row moving up does. */
+  const was = new Map(live.map((n, i) => [n, i]));
+  const seq = want.map((n) => (was.has(n) ? was.get(n) : -1));
+  const tails = []; const tailAt = []; const prev = new Array(seq.length).fill(-1);
+  seq.forEach((v, i) => {
+    if (v < 0) return;
+    let lo = 0; let hi = tails.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (tails[mid] < v) lo = mid + 1; else hi = mid; }
+    tails[lo] = v; tailAt[lo] = i; prev[i] = lo > 0 ? tailAt[lo - 1] : -1;
+  });
+  const stays = new Set();
+  for (let i = tails.length ? tailAt[tails.length - 1] : -1; i >= 0; i = prev[i]) stays.add(want[i]);
+  let anchor = null;
+  for (let i = want.length - 1; i >= 0; i -= 1) {
+    if (!stays.has(want[i])) el.insertBefore(want[i], anchor);
+    anchor = want[i];
   }
   return parts;
 }

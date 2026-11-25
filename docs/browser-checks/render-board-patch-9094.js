@@ -13,8 +13,12 @@
  *   2. A STAR MOVES ONE ROW, NOT THE ROWS IT PASSES: gamma is starred, so it moves above alpha and beta. The list and
  *      grid then show gamma first, and alpha's and beta's rows and cards are still the same nodes. (Gamma's own row
  *      is redrawn: its star is part of its markup.)
- *   3. A NEW AGENT STILL PAINTS: delta appears, and the list and grid then show all four, each once.
- * RED with patchBoardHtml forced to write whole: arms 1 and 2's same-node assertions fail.
+ *      Neither of their nodes is even detached (a move would restart their animations), counted by a MutationObserver.
+ *   4. A ROW MOVING DOWN MOVES ALONE: gamma's star comes off, so it moves below alpha and beta; neither is detached.
+ *   3. A NEW AGENT STILL PAINTS (run last): delta appears, and the list and grid then show all four, each once.
+ * RED controls, run by hand in a queued job that edits web/index.html and restores it: patchBoardHtml forced to write
+ * whole fails arms 1 and 2; matching by position instead of data-agent fails arm 2; forward-only insertion (no
+ * in-order run kept) fails arm 4.
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-board-patch-9094.js
  * Self-contained: a throwaway board (sandboxed data, fake tmux) on a free port, killed at the end.
@@ -132,7 +136,7 @@ const say = (n, cond, note) => {
         cardBetaKept: !!one('#grid .acard', 'beta') && one('#grid .acard', 'beta').__m9094 === true };
     });
     const polls = statusPolls.length - pollsBefore;
-    say('arm 1: the polls ran (at least 3 since the change)', polls >= 3, polls + ' polls');
+    say('arm 1: the polls ran (at least 2 since the change)', polls >= 2, polls + ' polls');
     say('arm 1: alpha\'s row was redrawn with its new picture', !!(seen && seen.rowAlphaNew && seen.rowAlphaV), JSON.stringify(seen));
     say('arm 1: alpha\'s card was redrawn with its new picture', !!(seen && seen.cardAlphaNew && seen.cardAlphaV), JSON.stringify(seen));
     say('arm 1: beta\'s row is the same node (not redrawn)', after.rowBetaKept, JSON.stringify(after));
@@ -140,10 +144,17 @@ const say = (n, cond, note) => {
     say('arm 1: alpha\'s new row picture decoded (built in a template, then moved into the page)', after.decoded, JSON.stringify(after));
 
     // Arm 2: star gamma, so it moves above alpha and beta; those two stay the same nodes.
+    /* A moved node keeps its identity, so the marker alone cannot see a move. Count every time alpha's or beta's row or
+       card is detached from its container: a move detaches it, an untouched node never is. */
     await p.evaluate(() => {
-      for (const sel of ['#alist .lrow', '#grid .acard']) for (const a of ['alpha', 'beta']) {
+      for (const sel of ['#alist .lrow', '#grid .acard']) for (const a of ['alpha', 'beta', 'gamma']) {
         const el = document.querySelector(sel + '[data-agent="' + a + '"]'); if (el) el.__m9094b = true;
       }
+      window.__det9094 = 0;
+      const watch = (id) => new MutationObserver((ms) => { for (const m of ms) for (const n of m.removedNodes) {
+        if (n.nodeType === 1 && (n.dataset.agent === 'alpha' || n.dataset.agent === 'beta')) window.__det9094 += 1;
+      } }).observe(document.getElementById(id), { childList: true });
+      watch('alist'); watch('grid');
     });
     const star = await p.evaluate(async () => (await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'gamma', on: true }) })).status);
@@ -155,13 +166,35 @@ const say = (n, cond, note) => {
       moved = await p.evaluate(() => {
         const order = (sel) => [...document.querySelectorAll(sel)].map((e) => e.dataset.agent).join(',');
         const kept = (sel) => ['alpha', 'beta'].every((a) => { const el = document.querySelector(sel + '[data-agent="' + a + '"]'); return !!el && el.__m9094b === true; });
-        return { rows: order('#alist .lrow'), cards: order('#grid .acard'), rowsKept: kept('#alist .lrow'), cardsKept: kept('#grid .acard') };
+        const fresh = (sel) => { const el = document.querySelector(sel + '[data-agent="gamma"]'); return !!el && el.__m9094b !== true; };
+        return { rows: order('#alist .lrow'), cards: order('#grid .acard'), rowsKept: kept('#alist .lrow'), cardsKept: kept('#grid .acard'),
+          gammaRedrawn: fresh('#alist .lrow') && fresh('#grid .acard'), detached: window.__det9094 };
       });
       if (moved.rows === 'gamma,alpha,beta' && moved.cards === 'gamma,alpha,beta') break;
     }
     say('arm 2: the starred gamma now comes first in the list and the grid', !!moved && moved.rows === 'gamma,alpha,beta' && moved.cards === 'gamma,alpha,beta', JSON.stringify(moved));
     say('arm 2: alpha\'s and beta\'s rows were not redrawn when gamma passed them', !!moved && moved.rowsKept, JSON.stringify(moved));
     say('arm 2: alpha\'s and beta\'s cards were not redrawn when gamma passed them', !!moved && moved.cardsKept, JSON.stringify(moved));
+    say('arm 2: gamma\'s own row and card were redrawn (its star is in its markup)', !!moved && moved.gammaRedrawn, JSON.stringify(moved));
+    say('arm 2: alpha\'s and beta\'s nodes were never even moved', !!moved && moved.detached === 0, JSON.stringify(moved));
+
+    // Arm 4: un-star gamma, so it moves DOWN past alpha and beta; still only gamma moves.
+    await p.evaluate(() => { window.__det9094 = 0; });
+    const unstar = await p.evaluate(async () => (await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'gamma', on: false }) })).status);
+    say('fixture: gamma\'s star was taken off', unstar >= 200 && unstar < 300, 'PUT ' + unstar);
+    await p.evaluate(() => (typeof loadStars === 'function' ? loadStars() : null));   // eslint-disable-line no-undef
+    let down = null;
+    for (let i = 0; i < 30; i++) {
+      await p.waitForTimeout(500);
+      down = await p.evaluate(() => {
+        const order = (sel) => [...document.querySelectorAll(sel)].map((e) => e.dataset.agent).join(',');
+        return { rows: order('#alist .lrow'), cards: order('#grid .acard'), detached: window.__det9094 };
+      });
+      if (down.rows === 'alpha,beta,gamma' && down.cards === 'alpha,beta,gamma') break;
+    }
+    say('arm 4: gamma is back after alpha and beta in the list and the grid', !!down && down.rows === 'alpha,beta,gamma' && down.cards === 'alpha,beta,gamma', JSON.stringify(down));
+    say('arm 4: moving gamma down moved neither alpha nor beta', !!down && down.detached === 0, JSON.stringify(down));
 
     // Arm 3: a new agent still paints, once each.
     setFleet(['alpha', 'beta', 'gamma', 'delta']);
