@@ -32,3 +32,8 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (D1d plan 7156885894)
 - M6 one non-object entry in /api/status dropped every phase: such entries are skipped.
 - M7 the plan's ledger was empty: this.
 - Measured: run-checkins.sh PASS 26/26; run-automation.sh 227/227; typecheck 0 errors.
+
+### Round 2 (sonnet, 02:34 CST): 1 BLOCKER, 1 MINOR
+- BLOCKER the UI test looked for the check-ins after scrolling down to the Recommender's guards. reveal() only swipes down, and the Prompter box is near the top, so the lazy rows were gone and the test would fail. The check-ins are now asserted right after the first shot, where the Prompter box is, with a wait for the sample's async read.
+- M kept: the check-ins show under a Prompter box that is reading or failed. They have their own read, and the 30 s read retries them.
+- The reviewer verified the 30 s loop: it blocks nothing, ends with the screen, and a pull starts no second loop. The cancellation guards hold.
