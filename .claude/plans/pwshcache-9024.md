@@ -44,3 +44,9 @@ Card: https://github.com/joshualeestone/kosmos/issues/9024 (claimed: april, nigh
 - M2 strip() cannot see strings or regex literals: said beside it; a miscount fails loudly, never passes. No pinned file has one today.
 - M3 the "fine" stand-in proves less if XDG_CACHE_HOME is already set: kept, the notEqual assertion covers it.
 - Measured: every test file that lists *.test.js files (57, chosen by content, not name), run from the repo root: 1732 pass, 0 fail, 17 skipped.
+
+### Round 3 (sonnet, 00:23 CST): nothing material, 5 MINOR
+- M4 with pwsh broken, the skipped arms still said "no PowerShell on this machine": fixed in 8213 and 8316, they now say "pwsh is here but broken: see "#8213 pwsh starts on this machine"" (with the stand-in that SIGABRTs: 27 + 1 skips say so, 2 fail).
+- M1 strip() and strings: already said beside it (round 2). M2 the cache folder on a SIGKILL: kept (round 1, the run root). M3 a busy machine's 60 s timeout fails the file: kept on purpose; it says "busy?", never the cache. M5 the pinned calls count goes stale if has() is deleted: that is what the pin is for.
+- The reviewer ran 1777, fixture-discipline, test-support.tmpscope, engine.reachable, 9024, 6352: all pass.
+- Measured: 8213, 8316, 9024, 7820: 83 pass, 0 fail, 0 skipped.

@@ -38,6 +38,7 @@ function shells() {
   return found;
 }
 const SHELLS = shells();
+const PWSH_BROKEN = process.platform !== 'win32' && !SHELLS.length && pwshState('pwsh') !== 'missing';
 
 let dir;
 let bin;
@@ -101,7 +102,7 @@ const ALLOWED = [
 /* With no PowerShell, every arm is still registered, as a skip, so a machine with none counts the same as one with pwsh
    only (Windows, with both shells, counts every arm twice). */
 for (const shell of (SHELLS.length ? SHELLS : ['(no PowerShell here)'])) {
-  const skip = SHELLS.length ? false : 'no PowerShell on this machine';
+  const skip = SHELLS.length ? false : (PWSH_BROKEN ? 'pwsh is here but broken: see "#8213 pwsh starts on this machine"' : 'no PowerShell on this machine');
   REFUSED.forEach(([label, rest], i) => {
     test('#8213 [' + shell + '] refused before sending: ' + label, { skip }, () => {
       const r = run(shell, rest, 'refused-' + i + '-' + shell.replace(/\W/g, ''));
