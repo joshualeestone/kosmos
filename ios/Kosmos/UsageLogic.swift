@@ -269,7 +269,7 @@ enum Usage {
     static func apiCost(_ byDay: [String: [String: Bucket]]) -> (cost: Double?, unpriced: [String]) {
         var cost = 0.0, priced = 0
         var unpriced = Set<String>()
-        // In the page's order (days, then models, as the JSON keys run; sorted here), so a fractional sum adds up the same.
+        // Sorted, so the sum is the same every time (order changes only the last bits of a fractional total; the page adds in its JSON key order).
         for day in byDay.keys.sorted() {
             let models = byDay[day] ?? [:]
             for m in models.keys.sorted() {
