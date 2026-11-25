@@ -22,9 +22,10 @@ A file that arrived whole looks and works exactly as before.
 - engine/chat.js keptAttachment: keeps `incomplete` when a message is saved (a direct conversation picks fields by name; review 1
   found the mark dropped there), and the page's upload answers it at once: the chip says it and the status line offers to remove
   and send again.
+- engine/dailylog.js: the day's record says "(incomplete)" after the name too.
 - server.js inbox: an agent that reads its messages back sees "(incomplete)" after the file's name.
 - web/index.html attachUploadAll: a pick of several goes on past a file that was not added (as before), stops only when the next would not
-  be either (nothing open, the file limit, a lost connection), and at the end says why, names every file not added and every cut one.
+  be either (nothing open, the file limit; not a failed send, since a folder or a file changed since it was picked fails as a lost connection does), and at the end says why, names every file not added and every cut one.
   Each sentence was wiped by the next file before. Two separate drops at once still share the one status line.
 - engine/replyfile.js attach: an agent's own cut zip-based file is refused with words, and nothing is kept. DECIDED: stricter than a
   person's upload (which is kept and marked), because an agent can make the file again; the words name the fallback (say where it is saved).
@@ -58,6 +59,6 @@ no smaller than what it then sends. The zip check is the second net.
 server.attachment-whole-9016.test.js: boundary sizes in three ways of sending, size header right / wrong / absent /
 malformed / over the cap, real zips cut at several points and whole, what is and is not judged, the CLI copy loop at the
 boundary, the page's words and header. docs/browser-checks/render-attach-incomplete-9016.js. The pinned upload test (web.links-everywhere)
-requires the size header. The multi-file arms run the page's own functions over a fake board. 31 single removals, in a throwaway
+requires the size header. The multi-file arms run the page's own functions over a fake board. 36 single removals, in a throwaway
 worktree (store, server, chat, reply file, inbox, every page surface and each multi-file outcome): the first run found four that no test
 caught, all from review 3's fixes, and bugs under them; after the fixes every one is caught.

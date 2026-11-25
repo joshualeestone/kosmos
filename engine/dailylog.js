@@ -330,9 +330,10 @@ function flattenMessages(conversations, dayOf = localDayOf) {
 /** Names of any attachments on a message, for a "[shared: ...]" note. */
 function attachmentNames(m) {
   const seen = new Set();
-  if (m.attachment && typeof m.attachment === 'object' && m.attachment.name) seen.add(String(m.attachment.name));
+  const named = (a) => String(a.name) + (a.incomplete === true ? ' (incomplete)' : '');   // kosmos#9016
+  if (m.attachment && typeof m.attachment === 'object' && m.attachment.name) seen.add(named(m.attachment));
   if (Array.isArray(m.attachments)) {
-    for (const a of m.attachments) if (a && typeof a === 'object' && a.name) seen.add(String(a.name));
+    for (const a of m.attachments) if (a && typeof a === 'object' && a.name) seen.add(named(a));
   }
   return [...seen];
 }

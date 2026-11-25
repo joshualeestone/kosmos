@@ -8003,7 +8003,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .att-meta { font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
 .att-bad { font: 600 var(--text-caption) var(--font-ui); color: var(--warn-ink); }
 .attach-chip .att-bad { flex: 0 1 auto; white-space: normal; }   /* kosmos#9016: the words wrap, so the name keeps room */
-.attach-chip-name:has(+ .att-bad) { min-width: 5rem; }
+.attach-chip-name:has(+ .att-bad), .pj-doc-n:has(+ .att-bad) { min-width: 5rem; }
 
 /* #4930: the full-page preview of a file a message carries. Very dark, the file fitted to the screen, X top right.
    #8122 (Josh 11-06: "maybe we put the download button right below it ... so it's not hidden off in the corner like it
@@ -8768,6 +8768,7 @@ html.has-speak .asp-speak { display: grid; }
 .pj-doc:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .pj-doc-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-doc-w { flex: 0 0 auto; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
+.pj-doc-w.att-bad { flex: 0 1 auto; white-space: normal; color: var(--warn-ink); }   /* kosmos#9016: long words, so they wrap and the name keeps room */
 .pj-doc-line { display: flex; align-items: center; gap: var(--space-2); }   /* kosmos#7952: a file row and its download button */
 .pj-doc-line .pj-doc { flex: 1; min-width: 0; }
 .pj-doc-dl { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
@@ -78487,7 +78488,7 @@ async function openDocsView() {
         b.className = 'pj-doc'; b.href = a.url; b.target = '_blank'; b.rel = 'noopener';
         b.insertAdjacentHTML('afterbegin', fileIcon(a.name || ''));
         const n = document.createElement('span'); n.className = 'pj-doc-n'; n.textContent = a.name || 'a file';
-        const w = document.createElement('span'); w.className = 'pj-doc-w'; w.textContent = pjSize(a.size) + (a.incomplete === true ? ' · incomplete upload, please send again' : '');   // kosmos#9016
+        const w = document.createElement('span'); w.className = a.incomplete === true ? 'pj-doc-w att-bad' : 'pj-doc-w'; w.textContent = pjSize(a.size) + (a.incomplete === true ? ' · incomplete upload, please send again' : '');   // kosmos#9016
         b.append(n, w); convo.append(b);
       }
       document.getElementById('docs-seg').hidden = false;      // #4937: the switch names the two sources
@@ -85636,7 +85637,7 @@ async function attachUpload(file, where) {
     msg.textContent = file.size > ATTACH_SLOW_BYTES
       ? 'We could not reach Kosmos to add ' + file.name + '. If your connection is slow, a file this large can take longer than Kosmos waits for one.'
       : 'We could not reach Kosmos to add that file.';
-    return 'stop';
+    return 'refused';   // a folder, or a file changed since it was picked, fails just as a lost connection does, so the next is still tried
   } finally {
     ATTACH_UPLOADING = Math.max(0, ATTACH_UPLOADING - 1);
     if (btn) btn.disabled = false;

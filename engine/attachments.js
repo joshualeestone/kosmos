@@ -151,8 +151,8 @@ function incompleteZip(file) {
     let got = 0;
     while (got < n) { const k = fs.readSync(fd, tail, got, n - got, size - n + got); if (k === 0) return false; got += k; }
     /* Every end record in the tail, the last first, since a comment can hold its bytes. One is the file's own when its
-       comment fits before the end, and its directory lies before it at the place it says, starting as a directory does
-       (an inner zip's record, left by a cut file that holds one, says a place where no directory is). */
+       comment fits before the end and its directory lies before it, as the header says (an inner zip's record, left by a
+       cut file that holds one, says a place where no directory is). */
     for (let at = tail.lastIndexOf(ZIP_END); at >= 0; at = at > 0 ? tail.lastIndexOf(ZIP_END, at - 1) : -1) {
       if (at + 22 > n) continue;
       const commentLen = tail.readUInt16LE(at + 20);
