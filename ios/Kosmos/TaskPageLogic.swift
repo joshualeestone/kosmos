@@ -275,8 +275,7 @@ extension Board.TaskPage {
         return "Added by " + fixed.lowercased() + parts.words.dropFirst(fixed.count)
     }
 
-    // The board's hold hint, said here only when there is something to say (a paused project, or a hold): the control
-    // that the other hints describe is on the board's page.
+    // The board's hold hint, said here only when there is something to say (a paused project, or a hold).
     var holdLine: String? {
         guard !closed else { return nil }
         if projectPaused { return "This project is paused, so Kosmos does not nudge anyone about its tasks or hand them out." }
@@ -608,8 +607,8 @@ extension Board {
     static let activityEmpty = "Nothing yet. As this task is worked on, what happens shows up here."
     static let activityUnread = "We could not read the activity just now."
 
-    // A JSON number as a Double (counts may come as Int or Double).
     static func isFalse(_ v: Any?) -> Bool { (v as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && !$0.boolValue } ?? false }
+    // A JSON number as a Double (counts may come as Int or Double).
     fileprivate static func number(_ v: Any?) -> Double? { (v as? NSNumber)?.doubleValue }
     // A whole count of at least 1, clamped so no number the Mac sends can trap (the board's Number(x) >= 1).
     fileprivate static func count(_ v: Any?) -> Int? {
@@ -1149,6 +1148,10 @@ extension Board {
 }
 
 extension Board.TaskPage {
+    // One check as VoiceOver says it: its number, its words, and what is said of it.
+    func checkSpoken(_ i: Int, _ c: Board.TaskCheck, roster: [String: String]) -> String {
+        "Check \(i + 1): " + c.words + (c.words.last.map { ".!?".contains($0) } == true ? " " : ". ") + checkSays(c, roster: roster)
+    }
     // The tasks the state line names, which the board links: the one that replaced this, and those it replaced.
     var stateTasks: [Int] { (closed ? [replacedBy].compactMap { $0 } : []) + replaces }
     // What an agent says about a check, and the task its part moved to (the page links that one).

@@ -1517,6 +1517,8 @@ do {
     let moved = one("", others: #",{"number":9,"doneWhen":["N1","N2"],"doneWhenResults":[null,{"met":false,"how":"x","movedTo":1}]},{"number":4,"doneWhen":["F1","F2","F3"],"doneWhenResults":[{"met":false,"how":"x","movedTo":1},{"met":false,"how":"x","movedTo":2},{"met":false,"how":"x","movedTo":1}]}"#)
     check(moved?.movedHere == [Board.MovedCheck(from: 4, check: 1, words: "F1"), Board.MovedCheck(from: 4, check: 3, words: "F3"), Board.MovedCheck(from: 9, check: 2, words: "N2")], "those moved here, by task and check")
     check(one(#","doneWhen":["A"],"doneWhenResults":[{"met":false,"how":"x","movedTo":1}]"#)?.movedHere == [], "never its own")
+    if let p = one(#","doneWhen":["A","B."]"#) { check(p.checks.enumerated().map { p.checkSpoken($0, $1, roster: [:]) } == ["Check 1: A. Not reported yet", "Check 2: B. Not reported yet"], "each is said with its number, with one stop") }
+    else { check(false, "the spoken fixture parses") }
     check(one(#","doneWhen":["A","B"],"doneWhenResults":[{"met":1,"how":"x"},{"met":0,"how":"y","movedTo":3}]"#)?.checks.map(\.met) == [nil, nil], "nor a number for yes or no, as the board")
     // The wake line.
     func wake(_ own: String) -> String? { one(own)?.wakeLine }
