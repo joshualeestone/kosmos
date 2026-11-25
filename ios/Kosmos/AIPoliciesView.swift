@@ -12,7 +12,12 @@ struct AIPoliciesView: View {
     var signedOut = false
 
     @State private var read: AIPolicies.Read?
-    @State private var note: (text: String, problem: Bool)?
+    /// Each note is its own value (its id), so the same sentence twice is still announced twice.
+    struct Note: Equatable {
+        let text: String, problem: Bool, id = UUID()
+        init(_ text: String, _ problem: Bool) { self.text = text; self.problem = problem }
+    }
+    @State private var note: Note?
     // Where the note shows: under the form for an add or a replace, under the list for a rename or a remove, so it is
     // beside what was tapped (the page's one pol-msg sits by its form, which on the phone is below the list).
     @State private var noteInForm = true
@@ -65,8 +70,8 @@ struct AIPoliciesView: View {
         .navigationTitle(AIPolicies.Words.title)
         .navigationBarTitleDisplayMode(.inline)
         .dotsRefresh { await load() }
-        .onChange(of: note?.text) { said in
-            if let said { UIAccessibility.post(notification: .announcement, argument: said) }
+        .onChange(of: note) { said in
+            if let said { UIAccessibility.post(notification: .announcement, argument: said.text) }
         }
         .task(id: mac?.url) {
             if shownURL != mac?.url {
@@ -237,7 +242,7 @@ struct AIPoliciesView: View {
         }
     }
 
-    private func noteText(_ n: (text: String, problem: Bool)) -> some View {
+    private func noteText(_ n: Note) -> some View {
         Text(n.text).foregroundColor(n.problem ? Palette.dangerWord : Palette.secondary).accessibilityIdentifier("policy-note")
     }
 
@@ -253,7 +258,7 @@ struct AIPoliciesView: View {
         armed = nil
         noteInForm = true
         switch AIPolicies.form(replacing: replacing?.id, name: name, source: source) {
-        case .refused(let why): note = (why, true)
+        case .refused(let why): note = Note(why, true)
         case .ready(let body):
             let who = replacing?.name ?? (body["name"] ?? "")
             confirm = (AIPolicies.confirmTitle(name: who, replacing: replacing != nil), body, doing)
@@ -297,23 +302,25 @@ struct AIPoliciesView: View {
     @MainActor private func change(_ request: URLRequest?, did: AIPolicies.Did, doing: String, then: () -> Void = {}) async -> Bool {
         guard let mac, !busy, let request else { return false }
         busy = true
-        note = (doing, false)
+        note = Note(doing, false)
         generation += 1
         let sentTo = mac.url
         let (status, data) = await send(request)
         guard sentTo == shownURL else { return false }
-        busy = false
+        // busy holds until the list is fetched again, so no second change can drop that fetch (its generation bump).
+        defer { busy = false }
         switch AIPolicies.done(did, status: status, data: data) {
         case .done(let said):
-            note = (said, false)
+            note = Note(said, false)
             then()
             await load()
             return true
         case .refused(let why):
-            note = (why, true)
-            // This change dropped a first load still in flight (the generation bump above); fetch the list again.
-            // Also when the outcome is unknown (no answer, status 0): the computer may have made the change anyway.
-            if read == nil || status == 0 { await load() }
+            note = Note(why, true)
+            // Always fetch the list again: this change dropped any load in flight (the generation bump above), and with no
+            // answer or one that is not JSON (status 0, a relay's 502) the computer may have made the change anyway.
+            // A link still being fetched past the 30 s limit can land after this fetch; pull to refresh shows it then.
+            await load()
             return false
         }
     }
@@ -331,10 +338,10 @@ struct AIPoliciesView: View {
 
     @MainActor private func rename(_ p: AIPolicies.Policy, to typed: String) async {
         let n = typed.trimmingCharacters(in: .whitespacesAndNewlines)
-        noteInForm = false
-        // As the page: no name is refused in its words; the same name changes nothing.
-        if n.isEmpty { note = (AIPolicies.Words.nameFirst, true); return }
+        // As the page: no name is refused in its words; the same name changes nothing (and moves no note).
+        if n.isEmpty { noteInForm = false; note = Note(AIPolicies.Words.nameFirst, true); return }
         if n == p.name { return }
+        noteInForm = false
         if sample { sampleChange(.rename(p.id, n)); return }
         guard let mac else { return }
         _ = await change(AIPolicies.renameRequest(mac, id: p.id, name: n), did: .renamed, doing: AIPolicies.Words.renaming) {
@@ -372,12 +379,12 @@ struct AIPoliciesView: View {
                 let old = list[i]
                 let text = body["text"] ?? ("Words fetched from " + (body["url"] ?? ""))
                 list[i] = AIPolicies.Policy(id: id, name: old.name, source: body["url"] ?? "pasted", savedAt: Date(), chars: text.count, opening: String(text.prefix(240)))
-                note = (AIPolicies.said([], did: .replaced), false)
+                note = Note(AIPolicies.said([], did: .replaced), false)
             } else {
                 let text = body["text"] ?? ("Words fetched from " + (body["url"] ?? ""))
                 list.append(AIPolicies.Policy(id: "s-" + UUID().uuidString, name: body["name"] ?? "", source: body["url"] ?? "pasted",
                                               savedAt: Date(), chars: text.count, opening: String(text.prefix(240))))
-                note = (AIPolicies.said([], did: .handed), false)
+                note = Note(AIPolicies.said([], did: .handed), false)
             }
             name = ""; link = ""; words = ""; replacing = nil
         case .rename(let id, let n):
@@ -385,11 +392,11 @@ struct AIPoliciesView: View {
                 let o = list[i]
                 list[i] = AIPolicies.Policy(id: id, name: n, source: o.source, savedAt: o.savedAt, chars: o.chars, opening: o.opening)
             }
-            note = (AIPolicies.said([], did: .renamed), false)
+            note = Note(AIPolicies.said([], did: .renamed), false)
         case .remove(let id):
             list.removeAll { $0.id == id }
             if replacing?.id == id { replacing = nil }
-            note = (AIPolicies.said([], did: .removed), false)
+            note = Note(AIPolicies.said([], did: .removed), false)
         }
         read = list.isEmpty && company == nil ? .none(company: nil) : .saved(list, company: company)
     }
