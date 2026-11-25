@@ -2870,7 +2870,7 @@
     },
     {
       "title": "A wait outlives a /clear",
-      "line": "After a /clear, or a resume long after a quit, an agent is reminded of its own wait: at the first session end and once more.",
+      "line": "After a /clear or a late resume, an agent is reminded of its own wait twice; a reopened Grok or Gemini session keeps it.",
       "icon": "tasks",
       "rank": 152,
       "since": "0.8.23",
@@ -2885,6 +2885,25 @@
       "since": "0.8.24",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "An expired Claude login is said",
+      "line": "An agent stopped by an expired Claude login shows a sign-in issue on its card; kosmos accounts says so, and agents are not moved onto it.",
+      "icon": "shield",
+      "rank": 12.5,
+      "since": "0.8.23",
+      "status": "pending"
+    },
+    {
+      "title": "An old sign-in message no longer misleads",
+      "line": "An old sign-in message left on an agent's screen no longer marks a working Claude account as refused after you sign in again.",
+      "icon": "shield",
+      "rank": 13,
+      "since": "0.8.23",
+      "status": "pending",
+      "platforms": [
+        "mac"
+      ]
     }
   ],
   "lastProdWin": "0.8.22"
