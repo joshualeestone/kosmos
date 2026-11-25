@@ -263,14 +263,17 @@ struct UpdatesView: View {
         let sentTo = mac.url
         let (status, data) = await send(Updates.installRequest(mac))
         guard sentTo == shownURL else { return }
-        // Cancelled because the screen went: the press may have reached the computer, so the wait is kept to resume when
-        // the screen comes back, judged as unanswered (by version and boot), and nothing is said now.
-        if Task.isCancelled { resume = (shown, nil, nil, Date(), true); return }
+        // Cancelled because the screen went: nothing is waited for and nothing is said. Whether the press reached the
+        // computer cannot be told from here (round 5: judging it as unanswered on return says "not answering" and then
+        // "press Update again" to a computer that answers fine). The screen comes back to a fresh card, and pressing
+        // Update again is safe: the route joins an install already under way (the page's own "this joins it").
+        if Task.isCancelled { return }
         switch Updates.started(status: status, data: data) {
         case .refused(let said):
             note = said
         case .already:
             await load()
+            guard !Task.isCancelled else { return }   // a cut-short read would name the old version
             note = Updates.Words.already(state?.version)
         case .started(let myStart, let updating):
             await wait(mac, before: shown, myStart: myStart, updating: updating, t0: Date())
@@ -319,6 +322,7 @@ struct UpdatesView: View {
     @MainActor private func waitUnanswered(_ mac: Settings.Mac, before: Updates.State, t0: Date) async {
         note = Updates.notAnswering
         waitLead = Updates.Words.updating
+        settled = nil
         resume = (before, nil, nil, t0, true)
         defer { if mac.url == shownURL { waitLead = nil } }
         while !Task.isCancelled, mac.url == shownURL {

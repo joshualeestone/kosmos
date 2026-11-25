@@ -71,3 +71,9 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7154958
 - M3 a switch read started during a save could land over it: the epoch moves again when the save ends.
 - M4 and M5 the 5 s re-read could fire during a press or a check, and never restarted: it now checks after each sleep (no wait, no resume, not busy, first look under way) for as long as the screen is shown, asking nothing otherwise.
 - Measured: run-updates.sh PASS 121/121 (view-only changes); typecheck 0 errors.
+
+### Round 5 (opus, 01:18 CST): no BLOCKER, 1 MAJOR, 2 MINOR
+- MAJOR 1 round 4's resume of a cancelled install was judged as unanswered on return, so it said "not answering" and then "press Update again" to a computer answering fine. Removed: whether a cancelled press reached the computer cannot be told from the phone. The screen comes back to a fresh card, and pressing Update again is safe, because the route joins an install under way (the page's own "If the update already started, this joins it", index.html:26885). The resume stays for a wait that had started (an answered press, or a real no-answer).
+- M2 a resumed unanswered wait kept an earlier settled block: waitUnanswered clears it, as wait does.
+- M3 "already on" could name the old version when its read was cut short: it says nothing if cancelled.
+- Measured: run-updates.sh PASS 121/121; typecheck 0 errors.
