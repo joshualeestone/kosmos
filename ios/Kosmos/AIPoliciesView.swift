@@ -22,6 +22,7 @@ struct AIPoliciesView: View {
     // beside what was tapped (the page's one pol-msg sits by its form, which on the phone is below the list).
     @State private var noteInForm = true
     @State private var busy = false
+    @State private var changing: UUID?   // the change that set busy; only it clears it
     @State private var armed: String?
     // The add form: a new policy, or the words of one being replaced (the page's POL_EDIT).
     @State private var replacing: AIPolicies.Policy?
@@ -76,7 +77,7 @@ struct AIPoliciesView: View {
         .task(id: mac?.url) {
             if shownURL != mac?.url {
                 shownURL = mac?.url
-                read = nil; note = nil; busy = false; armed = nil; replacing = nil; confirm = nil; renaming = nil
+                read = nil; note = nil; busy = false; changing = nil; armed = nil; replacing = nil; confirm = nil; renaming = nil
                 generation += 1
             }
             await load()
@@ -256,9 +257,8 @@ struct AIPoliciesView: View {
     // The page refuses an empty name, link or paste in its words before it asks; then the confirm asks.
     private func ask(_ source: AIPolicies.Source, doing: String) {
         armed = nil
-        noteInForm = true
         switch AIPolicies.form(replacing: replacing?.id, name: name, source: source) {
-        case .refused(let why): note = Note(why, true)
+        case .refused(let why): noteInForm = true; note = Note(why, true)
         case .ready(let body):
             let who = replacing?.name ?? (body["name"] ?? "")
             confirm = (AIPolicies.confirmTitle(name: who, replacing: replacing != nil), body, doing)
@@ -302,14 +302,16 @@ struct AIPoliciesView: View {
     @MainActor private func change(_ request: URLRequest?, did: AIPolicies.Did, doing: String, then: () -> Void = {}) async -> Bool {
         guard let mac, !busy, let request else { return false }
         busy = true
+        let me = UUID()
+        changing = me
         note = Note(doing, false)
         generation += 1
         let sentTo = mac.url
         let (status, data) = await send(request)
         guard sentTo == shownURL else { return false }
         // busy holds until the list is fetched again, so no second change can drop that fetch (its generation bump).
-        // Only for this computer: after a switch, busy belongs to a change on the new one.
-        defer { if sentTo == shownURL { busy = false } }
+        // Only this change clears busy: after a switch (even back again), busy belongs to a newer change.
+        defer { if changing == me { busy = false; changing = nil } }
         switch AIPolicies.done(did, status: status, data: data) {
         case .done(let said):
             note = Note(said, false)
