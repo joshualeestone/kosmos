@@ -13,7 +13,7 @@ in the warning colour, as the board shows it beside the file; files without the 
 - LogicTests: read, words and order, absent field, a non-boolean value.
 
 ## Checked
-Every iOS logic suite passes (run.sh 2753/2753); the ios.* node tests pass. The view file is compiled by CI's iPhone
+Every iOS logic suite passes (run.sh 2754/2754 after round 1); the ios.* node tests pass. The view file is compiled by CI's iPhone
 build, not by the logic suites.
 
 ## Weakest premise
@@ -29,3 +29,9 @@ better but the phone has no copy of the board's strings today.
   card once sent.
 - Kept: the whole line in Palette.dangerWord (the board's project file list colours its whole line; its message card
   colours only the words in amber). The phone has no amber warning colour today.
+
+## Round 2 (sonnet, blind, whole branch): nothing above NIT. Converged.
+- Compile read: types, optional lineLimit and the label closure all check; FileCard has only a minimum height, so a
+  wrapped line grows the card and its whole-card button (44 pt target kept).
+- NIT taken: the room label puts the words in parentheses after the file ("b.xlsx (incomplete upload, please send
+  again)") so the next file name cannot read as part of it. NIT taken: the stale count above.
