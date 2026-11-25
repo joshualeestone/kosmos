@@ -10,3 +10,8 @@ send again" under its name on the waiting chip, in the warning colour, while it 
   (the chip is fixedSize horizontally). A picture's square is unchanged (a cut-short zip-based file has no picture).
 - ChatView.swift and RoomView.swift: the composer chips pass `a.incomplete`.
 - LogicTests: true is read; a number 1 is not.
+
+## Round 1 (opus, blind): nothing above NIT. Converged.
+- NIT taken: VoiceOver hears the name and the warning as one item, and the remove button's hint gives the reason.
+- NIT noted, not built: nothing runs the composer wiring (a dropped `a.incomplete` in ChatView/RoomView would stay
+  green); the chip at the largest text sizes wraps to 5+ lines. Both need a screenshot or UI test, not a logic test.

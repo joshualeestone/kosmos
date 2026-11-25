@@ -159,6 +159,7 @@ struct FileChip: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Remove \(name)")
+                .accessibilityHint(incomplete ? Board.incompleteWords : "")   // the reason to take it off, at the button
             }
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
@@ -181,6 +182,7 @@ struct FileChip: View {
                     .fixedSize(horizontal: false, vertical: true).frame(width: 150, alignment: .leading)
             }
         }
+        .accessibilityElement(children: .combine)   // one item: the name, then the warning (review 1)
     }
 }
 
