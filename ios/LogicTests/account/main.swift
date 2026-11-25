@@ -154,6 +154,11 @@ check(Account.signedInAs(json(#"{"email":"ada@example.com"}"#)) == "ada@example.
 check(Account.signedInAs(json(#"{"email":""}"#)) == nil && Account.signedInAs(json(#"{"email":5}"#)) == nil && Account.signedInAs(nil) == nil, "empty, not a string, or no answer: nothing")
 check(Account.planAnswer(status: 200, data: json(#"{"email":"ada@example.com","kosmos_plus":true}"#)) == .show(line: A, note: nil, name: .none, email: "ada@example.com"), "the /me answer carries it")
 
+section("no computer yet (slice B3 review 2): the page's words")
+check(Account.noComputerHead == "No computer is connected yet.", "the page's heading")
+check(Account.noComputerHow == "On the computer you want to reach, open Kosmos, go to Settings, then Kosmos+, and sign in with this email. If Kosmos isn't on it yet, install it there first.", "the page's steps")
+check(!Account.noComputerHow.contains("http"), "no link")
+
 section("the Kosmos+ address (slice B3): the page's #addr-line and #name-offer")
 check(Account.nameState(json(#"{"addresses":[],"device_status":"allowed","account_address":"ada.kosmosplus.com","has_name":true}"#)) == .address("ada.kosmosplus.com"), "no computer, an own address: says it")
 check(Account.nameState(json(#"{"addresses":["ada.kosmosplus.com"],"account_address":"ada.kosmosplus.com","has_name":true}"#)) == .none, "with a computer: the page does not say the address")
