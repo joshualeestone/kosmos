@@ -38,3 +38,10 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7155802
 - M6 the three small figures could be cut short at the largest text sizes: side by side while they fit (ViewThatFits), stacked otherwise.
 - Kept: M1 and M2, equal totals ordering by name, where the page keeps the server's key order, which JSON parsing does not carry (rare; colours go by rank). M3 grouping follows the phone's region, the page the browser's language: on one person's devices they agree, and the region is the phone's own setting for numbers. M7 a null body or a boolean count, which the server never sends. M8 "per class" in the hint, true once D1c2b's per-class charts land.
 - Measured: run-usage.sh PASS 57/57; app and UI-test typecheck 0 errors.
+
+### Round 2 (sonnet, 01:42 CST): no BLOCKER, no MAJOR, 3 MINOR
+- M1 after a computer switch an old read's defer could clear the new read's flag, letting a pull start a second count: the flag is cleared only by the read that is still the current one (generation).
+- M2 the formatter cache was a bare static dictionary: now under a lock, so no later caller off the main actor can race it.
+- M3 the small figures' fixed widths made the side-by-side row never fit: their labels wrap again, so the row stacks only when it truly does not fit.
+- The reviewer checked the UI test's identifiers and the sample's figures against the view and the logic.
+- Measured: run-usage.sh PASS 57/57; typecheck 0 errors.

@@ -119,7 +119,7 @@ struct UsageView: View {
     private func figure(_ value: String, _ label: String, small: Bool = false, id: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value).font((small ? Font.headline : Font.title2).weight(.bold).monospacedDigit()).foregroundColor(Palette.primary)
-                .lineLimit(1).minimumScaleFactor(0.6).fixedSize(horizontal: small, vertical: false)
+                .lineLimit(1).minimumScaleFactor(0.6)
             Text(label).font(.caption).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -193,9 +193,9 @@ struct UsageView: View {
         }
         guard let mac, mac.url == shownURL, !reading else { return }
         reading = true
-        defer { reading = false }
         generation += 1
         let started = generation
+        defer { if started == generation { reading = false } }   // a superseded read leaves the newer one's flag alone
         var status = 0
         var data = Data()
         if let (d, response) = try? await Self.http.data(for: Usage.request(mac)), let answer = response as? HTTPURLResponse {
