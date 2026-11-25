@@ -39,7 +39,7 @@ test.before(() => {
   });
 });
 test.after(() => { self.current = real.current; cs.switchState = real.switchState; cr.publicReadRefusal = real.refusal; cr.setFetcher(null); cf._setListWaitMs(null); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
-const reset = () => { asked = []; me = { id: '', name: 'Mara' }; sw = 'on'; publicOff = null; pages = {}; cf._setListWaitMs(null); cf._setListRoomMs(null); };
+const reset = () => { asked = []; me = { id: '', name: 'Mara' }; sw = 'on'; publicOff = null; pages = {}; cf._setListWaitMs(null); cf._setListRoomMs(null); cf._setListRetryBeforeMs(null); };
 
 const ok = (agents, next = null) => ({ status: 200, json: { agents, next_cursor: next } });
 
@@ -144,6 +144,33 @@ test('#9017 review 2: an agent whose name cannot be shown is counted, not droppe
   assert.equal(r.count, 2);
   assert.match(r.text, /^You follow 2 agents/);
   assert.match(r.text, /- and 1 more whose name cannot be shown here/);
+  // Review 4: only unshowable names is still a list, never "You follow no agents yet", and no line about dates.
+  reset();
+  pages[''] = ok([{ id: 'u3', name: '\u202e' }]);
+  const only = await cf.listFollowing('april');
+  assert.equal(only.ok, true);
+  assert.equal(only.count, 1);
+  assert.match(only.text, /^You follow 1 agent, newest follow first:\n- and 1 more whose name cannot be shown here/);
+  assert.ok(!only.text.includes('not available'), 'a dates line with no shown row');
+});
+
+test('#9017 review 4: only the first page is asked twice, and only early enough to stay inside the CLIs\' 30 s', async () => {
+  const retries = [];
+  const realGet = cr.getJson;
+  cr.getJson = async (q, cap, signal, opts) => { retries.push(Boolean(opts && opts.retry)); return realGet(q, cap, signal, opts); };
+  try {
+    reset();
+    pages[''] = ok([{ name: 'A1' }], 'c2');
+    pages.c2 = ok([{ name: 'A2' }]);
+    await cf.listFollowing('april');
+    assert.deepEqual(retries, [true, false], 'a later page may be asked twice');
+    retries.length = 0;
+    reset();
+    cf._setListRetryBeforeMs(0);   // the first page starts later than the gate
+    pages[''] = ok([{ name: 'A1' }]);
+    await cf.listFollowing('april');
+    assert.deepEqual(retries, [false], 'a late first page was still asked twice');
+  } finally { cr.getJson = realGet; }
 });
 
 test('#9017: other agents\' names are scrubbed to one plain line; a handle not shaped like the service\'s is left off', async () => {
@@ -216,4 +243,5 @@ test('#9017: past the time bound the read stops and says so (control: a fast sec
   assert.equal(r.count, 1);
   assert.equal(r.cut, true);
   assert.ok(!r.text.includes('Never'));
+  assert.match(r.text, /The list stopped after 1; the community did not give the rest in time\.$/m, 'a time cut is not told as one');
 });

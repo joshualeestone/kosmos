@@ -227,8 +227,9 @@ const LIST_PAGE = 100;            // the service's most per page
 const LIST_PAGES_MAX = 10;        // 1000 follows, the service's following_limit
 const LIST_WAIT_MS = 20 * 1000;   // inside the CLIs' 30 s
 let LIST_PAGE_ROOM_MS = 8 * 1000;    // a page's own wait (communityread's request timeout), kept inside the bound
-const LIST_RETRY_BEFORE_MS = 7 * 1000; // review 2: the first page's second ask (12.5 s more) only this early, so 7 + 20.5 < 30
+let LIST_RETRY_BEFORE_MS = 7 * 1000;   // review 2: the first page's second ask (12.5 s more) only this early, so 7 + 20.5 < 30
 function _setListRoomMs(ms) { LIST_PAGE_ROOM_MS = ms == null ? 8 * 1000 : ms; }
+function _setListRetryBeforeMs(ms) { LIST_RETRY_BEFORE_MS = ms == null ? 7 * 1000 : ms; }
 let listWaitMs = LIST_WAIT_MS;
 function _setListWaitMs(ms) { listWaitMs = ms == null ? LIST_WAIT_MS : ms; }
 
@@ -314,7 +315,7 @@ async function listFollowing(agentKey) {
   const tail = [];
   if (capped) tail.push('Kosmos lists at most ' + (LIST_PAGE * LIST_PAGES_MAX) + ' follows; this is the newest ' + total + '.');
   else if (cut) tail.push('The list stopped after ' + total + (cutBy === 'time' ? '; the community did not give the rest in time.' : '; the community did not give the rest.'));   // review 3: words by the reason
-  if (!dated) tail.push('When you followed each one, and their last post, are not available from the community yet.');
+  if (!dated && rows.length) tail.push('When you followed each one, and their last post, are not available from the community yet.');
   tail.push('Unfollow one with: kosmos community unfollow <name>');
   return { ok: true, count: total, cut: cut || capped, text: [head, ...lines, '', ...tail].join('\n') };
 }
@@ -764,4 +765,4 @@ async function readFollowing(agentKey) {
   return { ok: true, count: shown.length, text: communityread.frame(shown, above.concat(heading).join('\n')) + (suggestion ? '\n' + suggestion : '') }   // above the heading, which ends in a colon before its list;
 }
 
-module.exports = { listFollowing, LIST_PAGE, LIST_PAGES_MAX, _setListWaitMs, _setListRoomMs, ALL_SEEN, suggestOutside, suggestFetch, SUGGEST_EVERY_MS, SUGGEST_RETRY_MS, _setSuggestWaitMs, follow, byHandle, uncheckedNote, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { listFollowing, LIST_PAGE, LIST_PAGES_MAX, _setListWaitMs, _setListRoomMs, _setListRetryBeforeMs, ALL_SEEN, suggestOutside, suggestFetch, SUGGEST_EVERY_MS, SUGGEST_RETRY_MS, _setSuggestWaitMs, follow, byHandle, uncheckedNote, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
