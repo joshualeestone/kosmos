@@ -36,14 +36,16 @@ final class DeleteAccountUITests: XCTestCase {
         code.tap()
         code.typeText("123456")
         shot(app, "delete-code")
+        reveal(app, app.buttons["delete-verify"])
         app.buttons["delete-verify"].tap()
 
         // 4. Confirm: every line, both of the sample's warnings, red only on the last button.
         XCTAssertTrue(app.staticTexts["Deleting the account for you@example.com."].waitForExistence(timeout: 5), "no confirm screen")
         XCTAssertTrue(app.staticTexts["Your sign-in and two-factor settings"].exists, "the list of what is deleted is missing")
+        let company = app.staticTexts["You are the only admin of Sample Co. Make someone else an admin there first, or your company is left without one."]
+        reveal(app, company)
+        XCTAssertTrue(company.exists, "the only-admin warning is missing")
         reveal(app, app.staticTexts["It ends now, and you will not be charged again. What is left of this billing period is not refunded."])
-        XCTAssertTrue(app.staticTexts["You are the only admin of Sample Co. Make someone else an admin there first, or your company is left without one."].exists,
-                      "the only-admin warning is missing")
         XCTAssertTrue(app.staticTexts["It ends now, and you will not be charged again. What is left of this billing period is not refunded."].exists,
                       "the subscription line is missing")
         shot(app, "delete-confirm")
@@ -52,7 +54,7 @@ final class DeleteAccountUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Tick the box above to delete."].exists, "no hint while unticked")
         shot(app, "delete-confirm-unticked")
         go.tap()
-        XCTAssertFalse(app.staticTexts["Your Kosmos+ account is deleted"].waitForExistence(timeout: 2), "Delete my account worked without the tick")
+        XCTAssertFalse(app.staticTexts["delete-done-title"].waitForExistence(timeout: 2), "Delete my account worked without the tick")
         XCTAssertTrue(go.exists, "the confirm screen left without the tick")
 
         app.buttons["delete-understood"].tap()
@@ -62,7 +64,9 @@ final class DeleteAccountUITests: XCTestCase {
         go.tap()
 
         // 5. Deleted: the page's words, and Done leaves the flow.
-        XCTAssertTrue(app.staticTexts["Your Kosmos+ account is deleted"].waitForExistence(timeout: 5), "no done screen")
+        let doneTitle = app.staticTexts["delete-done-title"]
+        XCTAssertTrue(doneTitle.waitForExistence(timeout: 5), "no done screen")
+        XCTAssertEqual(doneTitle.label, "Your Kosmos+ account is deleted", "the done title is not the page's")
         XCTAssertTrue(app.staticTexts["We sent a note to you@example.com saying so."].exists, "the done note is missing")
         XCTAssertTrue(app.staticTexts["Kosmos keeps working on your computers. You can make a new Kosmos+ account any time."].exists, "the done words are missing")
         shot(app, "delete-done")
@@ -86,9 +90,12 @@ final class DeleteAccountUITests: XCTestCase {
         XCTAssertTrue(code.waitForExistence(timeout: 5), "no code screen")
         // The server's refusals for a used-up code say "ask for a new one": the screen offers it.
         app.buttons["delete-resend"].tap()
-        XCTAssertTrue(app.staticTexts["New code sent."].waitForExistence(timeout: 5), "Send the code again said nothing")
+        let sentLine = app.staticTexts["delete-sent"]
+        XCTAssertTrue(sentLine.waitForExistence(timeout: 5), "Send the code again said nothing")
+        XCTAssertEqual(sentLine.label, "New code sent.", "the page's words")
         code.tap()
         code.typeText("123456")
+        reveal(app, app.buttons["delete-verify"])
         app.buttons["delete-verify"].tap()
         let keep = app.buttons["delete-keep"]
         XCTAssertTrue(app.staticTexts["Deleting the account for you@example.com."].waitForExistence(timeout: 5), "no confirm screen")
