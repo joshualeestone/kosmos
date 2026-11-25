@@ -76,6 +76,7 @@ test('a wait a session END set aside is the whole answer, in the words for a ses
       const ctx = JSON.parse(r.text).hookSpecificOutput.additionalContext;
       assert.match(ctx, /last reported that it was waiting \(needs_you, at /);
       assert.match(ctx, /The board has since set that waiting report aside/);
+      assert.match(ctx, /if not, report what it is doing \(kosmos report working \.\.\.\) so Kosmos stops reminding it\./);
       assert.doesNotMatch(ctx, /A new run replaces/, 'the startup wording is not this case');
       assert.doesNotMatch(ctx, /could not reach it/, 'the digest is not replayed to a session that saw it');
       assert.doesNotMatch(ctx, /SECRET-WORDS/, 'the report\'s own words are never repeated');
@@ -130,6 +131,10 @@ test('a /clear after a startup that reminded is reminded again (the clear wiped 
         { state: 'working', by: 'auto', because: 'answering a prompt', at: t - 29 * M },
       ]);
       assert.equal((await ask(tok, 'as=waithook')).text, '', 'the newest session event is the startup, which reminded already');
+      // The same history at a /clear: its own SessionEnd's `stopped` has not landed yet, so it is pending, not "reminded".
+      assert.equal((await ask(tok, 'as=waithook&src=clear')).text, '{"pending":true}');
+      // as=hook with wait=only keeps the hook contract (hook JSON or empty), never a JSON object.
+      assert.equal((await ask(tok, 'as=hook&wait=only&src=clear')).text, '{"pending":true}');
     } finally { sendertoken.revoke('leo'); }
   });
 });

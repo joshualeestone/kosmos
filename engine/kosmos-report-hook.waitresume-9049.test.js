@@ -50,6 +50,7 @@ test('a /clear or a resume asks for the wait reminder alone, prints it, and send
     const away = s.seen.filter((u) => /\/api\/away\?/.test(u));
     assert.equal(away.length, 1, source + ': ' + s.seen.join(', '));
     assert.match(away[0], /\/api\/away\?as=waithook(&|$)/, source);
+    if (source === 'clear') assert.match(away[0], /[?&]src=clear(&|$)/); else assert.doesNotMatch(away[0], /src=clear/);
     assert.equal(s.seen.filter((u) => /\/api\/report$/.test(u)).length, 0, source + ': no started over the wait (#1058)');
     assert.deepEqual(s.printed, [JSONLINE + '\n'], source);
   }
@@ -61,6 +62,10 @@ test('a pending answer is asked once more and the second answer is printed; an e
     await hook.main(p.io);
     assert.equal(p.seen.filter((u) => /\/api\/away\?/.test(u)).length, 2, source);
     assert.deepEqual(p.printed, [JSONLINE + '\n'], source + ': "pending" itself is never printed');
+    const twice = start(source, TOKEN, ['{"pending":true}', '{"pending":true}']);
+    await hook.main(twice.io);
+    assert.equal(twice.seen.filter((u) => /\/api\/away\?/.test(u)).length, 2, source + ': asked once more only');
+    assert.deepEqual(twice.printed, [], source + ': pending twice prints nothing');
     const e = start(source, TOKEN, ['']);
     await hook.main(e.io);
     assert.equal(e.seen.filter((u) => /\/api\/away\?/.test(u)).length, 1, source);

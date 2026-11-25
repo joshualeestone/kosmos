@@ -51,6 +51,7 @@ test('Windows --hook --wait-only asks for the wait alone; --wait-only alone send
   const ok = await run(['away', '--hook', '--wait-only'], () => ({ body: HOOKJSON }));
   assert.deepEqual([ok.code, ok.out], [0, HOOKJSON]);
   assert.equal(ok.calls[0].route, '/api/away?as=waithook&from_pane=');
+  assert.equal((await run(['away', '--hook', '--wait-only', '--after-clear'], () => ({ body: '' }))).calls[0].route, '/api/away?as=waithook&src=clear&from_pane=');
   assert.equal((await run(['away', '--hook', '--wait-only'], () => ({ body: '{"pending":true}' }))).out, '{"pending":true}');
   assert.equal((await run(['away', '--hook'], () => ({ body: '{"pending":true}' }))).out, '');
   const bad = await run(['away', '--wait-only'], () => ({ body: '' }));

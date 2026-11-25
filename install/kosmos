@@ -4703,12 +4703,13 @@ cmd_file_notices() {
 # session already saw it). Same contract as --hook (exit 0, 1 s cap), printing the hook JSON, or {"pending":true} when
 # the board has not yet heard the session end that would set the wait aside (the hook then asks once more), or nothing.
 cmd_away() {
-  local _hook=0 _waitonly=0
+  local _hook=0 _waitonly=0 _afterclear=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --hook) _hook=1 ;;
       --wait-only) _waitonly=1 ;;
-      *) say "kosmos away takes only --hook (and --wait-only with it)."; exit 2 ;;
+      --after-clear) _afterclear=1 ;;   # kosmos#9049: the ask is a /clear's, which always follows its own SessionEnd
+      *) say "kosmos away takes only --hook (and --wait-only, --after-clear with it)."; exit 2 ;;
     esac
     shift || true
   done
@@ -4725,6 +4726,7 @@ cmd_away() {
   if [ "$_hook" = 1 ]; then
     local _ask="as=hook&at=startup"
     [ "$_waitonly" = 1 ] && _ask="as=waithook"
+    [ "$_waitonly" = 1 ] && [ "$_afterclear" = 1 ] && _ask="as=waithook&src=clear"
     _body=$(_KOSMOS_CURL_ONCE=1 kosmos_curl "$_bt" "$_tok" -sS -m 1 -w $'\n%{http_code}' "$URL/api/away?${_ask}&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
     [ "$_rc" -eq 0 ] || exit 0
     _code="${_body##*$'\n'}"

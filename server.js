@@ -19937,10 +19937,13 @@ const server = http.createServer(async (req, res) => {
       if (waitOnly) {
         let w = null;
         try { w = away.lastWait(hist, { nowMs: now }); } catch { w = null; }
+        /* `src=clear`: a /clear ALWAYS follows its own SessionEnd, so a newest `started` there only means that SessionEnd's
+           `stopped` has not landed yet (the Mac hook sends it in the background): pending too, not "already reminded". */
+        const clearing = (() => { try { return new URL(req.url, ROUTING_BASE).searchParams.get('src') === 'clear'; } catch { return false; } })();
         const after = w ? away.sessionAfter(hist, w.atMs) : null;
-        const pending = !!w && after === null;
+        const pending = !!w && (after === null || (after === 'started' && clearing));
         if (after !== 'stopped') w = null;
-        if (as === 'waithook') { sendText(res, 200, w ? away.hookJson(null, w, { ended: true }) : pending ? '{"pending":true}' : ''); return; }
+        if (as === 'waithook' || as === 'hook') { sendText(res, 200, w ? away.hookJson(null, w, { ended: true }) : pending ? '{"pending":true}' : ''); return; }
         if (as === 'text') { sendText(res, 200, (away.waitText(w, { ended: true }) || 'Kosmos has no wait of yours to remind you of: your last report was not a wait, or it is still shown, or you were already reminded of it at a startup.') + '\n'); return; }
         sendJson(res, 200, { ok: true, wait: w, ...(pending ? { pending: true } : {}) });
         return;
