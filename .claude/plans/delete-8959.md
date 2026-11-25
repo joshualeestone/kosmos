@@ -61,3 +61,6 @@ Plan as posted on the card 2026-11-25 02:4x UTC (issuecomment-7151149115):
   filed for kosmos-relay). FIXED W3 the app sent to the background on the done screen signs out (scene phase). FIXED W4
   .cancelled may have been sent. FIXED W5 the session is captured once per flow, even when signed out. Simplified: one
   send (DeleteAccount.Sent), one /me request (meRequest), one another-account rule, one nav title.
+- r6 sonnet: 0B/3W. FIXED W1 a deleted answer heard with the app in the background signs out at once. FIXED W2 no Back
+  after a lost answer (the tab bar still leaves, as accepted in r2). KEPT W3 after a lost answer the tick stays: the
+  person already ticked, and the lost words ask for the same press (the page keeps it too). FIXED the resend wait clamp.

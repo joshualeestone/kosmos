@@ -59,7 +59,8 @@ struct DeleteAccountView: View {
             // No way back while a confirm is out (it can take a while) or once the answer is shown. The tab bar still
             // leaves; a deletion answered then signs out at the answer (`visible`), and a tab switch on the done screen
             // counts as leaving it.
-            .navigationBarBackButtonHidden(isAnswer || confirming)
+            // After a lost answer too: the account may be gone, and leaving would drop the grant with nothing said.
+            .navigationBarBackButtonHidden(isAnswer || confirming || answerLost)
             .toolbar {
                 if isAnswer {
                     ToolbarItem(placement: .confirmationAction) {
@@ -367,7 +368,7 @@ struct DeleteAccountView: View {
         resendLocked = secs > 0
         guard secs > 0 else { return }
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(secs) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(min(secs, 3600)) * 1_000_000_000)
             if resendGeneration == mine { resendLocked = false }
         }
     }
@@ -440,8 +441,9 @@ struct DeleteAccountView: View {
             gone = true; goneEmail = address
             step = .done(email: address)
             focusAnswer()
-            // Left already (another tab): nothing will leave the done screen, so sign out now.
-            if !visible { signOutIfDeleted() }
+            // Left already (another tab), or answered with the app in the background (the phone locked during confirm):
+            // nothing may ever leave the done screen, so sign out now.
+            if !visible || scenePhase != .active { signOutIfDeleted() }
         case .pending: step = .pending; focusAnswer()
         case .failed: step = .failed(grant); focusAnswer()
         case .unknown:
