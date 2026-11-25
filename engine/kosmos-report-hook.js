@@ -755,7 +755,11 @@ async function main(io) {
            Claude Code waits for that hook before the next SessionStart is not measured, so ask once more after a pause. */
         if (json === 'pending') {
           await new Promise((r) => setTimeout(r, o.waitRetryMs === undefined ? WAIT_RETRY_MS : o.waitRetryMs));
-          json = await ask();
+          /* #1765/#6464: prove the listener again before sending the tokens a second time; the board can restart, or
+             another process take its port, during the pause. */
+          const ap2 = await proven(c0, o.awayTimeoutMs || AWAY_TIMEOUT_MS);
+          json = ap2.ok && ap2.leftMs > 0 ? await takeAway({ url: c0.url, boardToken: c0.boardToken, agentToken: c0.agentToken,
+            world: c0.world, fetchImpl: o.fetchImpl, timeoutMs: ap2.leftMs, waitOnly: true, clear: field(evt, 'source') === 'clear' }) : '';
         }
         if (json && json !== 'pending') stdout(json.replace(/\n$/, '') + '\n');
       }

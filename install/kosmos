@@ -6426,7 +6426,7 @@ if [ "$_kosmos_help" = 1 ]; then
       printf 'Usage: kosmos agents   (list the terminal sessions on this computer, as Kosmos'"'"'s own tmux sees them; every agent: kosmos agent list)\n'
       exit 0 ;;
     away)
-      printf 'Usage: kosmos away [--hook [--wait-only]]   (what reached you while you were not running: room posts to you, messages from other agents and from the person, as counts and post ids, for the window your newest startup had; nothing is cleared. --hook: what Kosmos'"'"'s own hook runs at startup; --wait-only with it: what that hook runs at a /clear or a resume, the reminder of your own wait alone, with --after-clear at a /clear)\n'
+      printf 'Usage: kosmos away [--hook [--wait-only [--after-clear]]]   (what reached you while you were not running: room posts to you, messages from other agents and from the person, as counts and post ids, for the window your newest startup had; nothing is cleared. --hook: what Kosmos'"'"'s own hook runs at startup; --wait-only with it: what that hook runs at a /clear or a resume, the reminder of your own wait alone, with --after-clear at a /clear)\n'
       exit 0 ;;
     file-notices)
       # kosmos#7989: not with the read-only group either. Run bare, it takes (clears) your notices.
