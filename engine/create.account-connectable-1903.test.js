@@ -28,6 +28,13 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'create-connectable-19
 const HOME = nodePath.join(SANDBOX, 'home');
 fs.mkdirSync(HOME, { recursive: true });
 process.env.AGENT_WORKFORCE_HOME = HOME;
+// kosmos#9082 review 2: a stub tmux whose global environment has nothing, never the host's server (a Mac whose tmux
+// carries a leaked CLAUDE_CONFIG_DIR would otherwise pin the default's probe to it).
+{
+  const stub = require('node:path').join(HOME, 'tmux-stub-9082');
+  require('node:fs').writeFileSync(stub, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  process.env.AGENT_WORKFORCE_TMUX_BIN = stub;
+}
 process.env.HOME = HOME;   // kosmos#9082: the sandbox's default is this HOME's .claude (create.claudeProbeDir keeps a folder that is not)
 delete process.env.AGENT_WORKFORCE_GROK_HOME;   // #3391: the default Grok home must be HOME/.grok here, never an ambient override
 delete process.env.AGENT_WORKFORCE_CODEX_HOME;

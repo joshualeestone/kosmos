@@ -12,8 +12,8 @@ with USER/LOGNAME removed -> "Not logged in". Unset with HOME removed -> ok. The
 HOME and LOGNAME and no CLAUDE_CONFIG_DIR. So the dependency is USER, not HOME (#3136 blamed HOME; most likely USER).
 
 ## Change
-- engine/create.js: `claudeProbeDir(dir)` returns null for the default account (accounts.isDefaultDir), the folder
-  otherwise; the create gate uses it. With no folder, `defaultClaudeProbe` unsets CLAUDE_CONFIG_DIR (every spelling)
+- engine/create.js: `claudeProbeDir(dir)` returns, for the default account (accounts.isDefaultDir), null (unset), or the
+  tmux server's pinned folder, or (a sandbox) its folder; a labelled account's folder otherwise; the create gate uses it. With no folder, `defaultClaudeProbe` unsets CLAUDE_CONFIG_DIR (every spelling)
   and fills USER, LOGNAME and HOME from the operating system when missing (`fillLoginIdentity`).
 - server.js: Check now (`/api/accounts/claude/check`) uses `create.claudeProbeDir`; the badge join stays on acct.dir.
 - CLAUDE_DEAD_AUTH gets #9031's three back (from 317618978a), with the reason beside them.
@@ -45,3 +45,12 @@ is unchanged by this.
 - NITs: stale comments in create.js and the create-live test header --> FIXED.
 Tests: loginended-9031 gains the pinned/removed/unknown/no-tmux/labelled/sandbox arms and the failed-run-only arm; each
 fails with its rule removed. 179 probe-related tests pass.
+
+## Review round 2 (sonnet): 0 BLOCKERs, 3 SHOULDs, NITs
+- SHOULD: two tests asked the host's real tmux --> FIXED (a stub run in loginended-9031; a stub tmux in account-connectable).
+- SHOULD: a bare `tmux` may not be on the board's PATH, and a failed lookup reads as "nothing pinned" --> FIXED: the
+  probe asks through status.boardTmux() (the tmux the board reads its server through).
+- SHOULD: a board started inside a tmux pane would ask that pane's server --> FIXED: TMUX is dropped from the lookup's env.
+- NIT: "no server running" is exit 1 (''), not null --> comment FIXED (same outcome). NIT: plan wording --> FIXED.
+- Left: the synchronous tmux call (5 s timeout, as status.js and chat.js do); a symlink spelling of the real home in
+  AGENT_WORKFORCE_HOME reads as a sandbox (unusual configuration; the safe direction for a sandbox).

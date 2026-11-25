@@ -65,7 +65,7 @@ test('kosmos#9082: create and Check now take "not logged in" and an ended login 
   assert.equal((await check('ok', 0)).state, subscription.STATE.CONNECTED, 'CONTROL: a real answer');
   assert.equal((await check('API Error: 529 overloaded', 1)).state, subscription.STATE.UNKNOWN, 'CONTROL: capacity is not a dead login');
   // The only gate on this: the default account is probed unset (claudeProbeDir), never with its folder.
-  assert.equal(create.claudeProbeDir(require('./accounts').homeDir() + '/.claude'), null, 'the default account would be probed with its folder');
+  assert.equal(create.claudeProbeDir(require('./accounts').homeDir() + '/.claude', { run: () => ({ ran: true, status: 1, out: '' }) }), null, 'the default account would be probed with its folder');   // review 2: a stub tmux, never the host's
   assert.equal(create.claudeProbeDir('/u/x/labelled'), '/u/x/labelled', 'CONTROL: a labelled account keeps its folder');
 });
 
@@ -155,4 +155,17 @@ test('kosmos#9082 review 1: #9031\'s state words count only from a run that fail
     assert.equal((await check(NONE, 1)).state, subscription.STATE.NONE, 'CONTROL: the same words from a failed run are dead');
     assert.equal((await check('Login expired · Please run /' + 'login', 0)).state, subscription.STATE.NONE, 'CONTROL: a refused token stays dead whatever the exit');
   } finally { create.setClaudeProbe(null); }
+});
+
+test('kosmos#9082 review 2: the tmux lookup runs without TMUX, so a board started in a pane asks the default server', () => {
+  const fs = require('node:fs'); const nodePath = require('node:path'); const os = require('node:os');
+  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-9082-tmux-'));
+  const stub = nodePath.join(dir, 'tmux');
+  fs.writeFileSync(stub, '#!/bin/sh\necho "CLAUDE_CONFIG_DIR=${TMUX:-noTMUX}"\n', { mode: 0o755 });
+  const was = process.env.TMUX;
+  process.env.TMUX = '/tmp/some-pane-socket,1,0';
+  try {
+    assert.equal(require('./sessionccd').globalClaudeDir({ bin: stub }), 'noTMUX', 'the lookup inherited the pane\'s TMUX');
+    assert.equal(require('./sessionccd').globalClaudeDir({ bin: stub, env: { ...process.env } }), '/tmp/some-pane-socket,1,0', 'CONTROL: the stub reports TMUX when given it');
+  } finally { if (was === undefined) delete process.env.TMUX; else process.env.TMUX = was; }
 });

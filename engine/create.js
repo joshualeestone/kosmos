@@ -5644,8 +5644,12 @@ function claudeProbeDir(dir, opts) {
   let real = false;
   try { real = path.resolve(dir) === path.join(os.homedir(), '.claude'); } catch { real = false; }
   if (!real) return dir;
+  /* Review 2: the tmux the board itself reads its server through (status.boardTmux), not a bare `tmux` that may not be on
+     the board's PATH: a lookup that cannot run reads as nothing pinned, while the supervisor's baked tmux may see a pin. */
+  const o = { ...(opts || {}) };
+  if (!o.run && !o.bin) { try { o.bin = require('./status').boardTmux(); } catch { /* sessionccd's own default */ } }
   let pinned = null;
-  try { pinned = require('./sessionccd').globalClaudeDir(opts); } catch { pinned = null; }
+  try { pinned = require('./sessionccd').globalClaudeDir(o); } catch { pinned = null; }
   return pinned ? pinned : null;
 }
 

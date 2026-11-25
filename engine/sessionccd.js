@@ -45,7 +45,7 @@ function tmuxBin() {
 function runTmux(args, opts) {
   const o = opts || {};
   try {
-    return { ran: true, status: 0, out: execFileSync(o.bin || tmuxBin(), [...(o.prefixArgs || []), ...args], { encoding: 'utf8', timeout: o.timeoutMs || 5000 }) };
+    return { ran: true, status: 0, out: execFileSync(o.bin || tmuxBin(), [...(o.prefixArgs || []), ...args], { encoding: 'utf8', timeout: o.timeoutMs || 5000, ...(o.env ? { env: o.env } : {}) }) };
   } catch (e) {
     const status = e && typeof e.status === 'number' ? e.status : null;
     return { ran: status !== null, status, out: (e && e.stdout && e.stdout.toString()) || '' };
@@ -168,10 +168,13 @@ function sessionClaudeDirs(names, opts) {
 
 /* kosmos#9082: the tmux SERVER's global CLAUDE_CONFIG_DIR, asked exactly as bin/agent-supervisor.sh's EFFECTIVE_CCD block
    asks it (`show-environment -g CLAUDE_CONFIG_DIR`), so the account probe pins a default-account check to the folder
-   that block pins default agents to. Returns the value, '' when nothing is set (`-CLAUDE_CONFIG_DIR`, or tmux's
-   "unknown variable" exit 1), or null when tmux could not be asked (no server, not installed, timed out). */
+   that block pins default agents to. Returns the value, '' when nothing is set (`-CLAUDE_CONFIG_DIR`, or exit 1: tmux's
+   "unknown variable", and also "no server running"), or null when tmux could not be asked (not installed, timed out,
+   another exit). Review 2: asked without TMUX in the environment, so a board started inside a tmux pane asks the
+   default server the launchd supervisor uses, not that pane's. */
 function globalClaudeDir(opts) {
-  const o = opts || {};
+  const o = { ...(opts || {}) };
+  if (!o.run && !o.env) { const env = { ...process.env }; delete env.TMUX; o.env = env; }
   const got = (o.run || ((args) => runTmux(args, o)))(['show-environment', '-g', 'CLAUDE_CONFIG_DIR']);
   if (!got || !got.ran) return null;
   const line = String(got.out || '').replace(/\n+$/, '');
