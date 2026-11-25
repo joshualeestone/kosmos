@@ -249,7 +249,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     const movedAt = Date.now();   // before the move, so a first call made as the restart finishes counts
     const base = { kind: 'move', agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, why: m.why, startedAt: movedAt };
     let started;
-    try { started = deps.startMove({ dir: m.to, names: [m.agent] }); }
+    try { started = deps.startMove({ dir: m.to, names: [m.agent], automatic: true }); }   // kosmos#9010: a timer's move
     catch (err) {
       /* Rule 11: accountmove says whether an account write had begun when it threw. Before it, nothing changed: a
          refusal. After it (or when it cannot say), the agent may be on its new account: unknown, rests, watched. */

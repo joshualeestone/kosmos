@@ -250,7 +250,10 @@ function startSteps(body, deps, step) {
   const names = raw.filter((n) => { const k = n.trim(); if (seen.has(k)) return false; seen.add(k); return true; });
 
   const m = { id: crypto.randomUUID(), done: false, startedAt: Date.now(), finishedAt: 0, agents: [],
-    stopped: false, current: null, deps };
+    stopped: false, current: null, deps,
+    // kosmos#9010: started by the automatic mover (a timer), not by a person's click; its pickup line takes the Gemini
+    // cap like any automatic send (server.agyhold-4588's pin: only sends after the person's own click skip it).
+    automatic: !!(body && body.automatic === true) };
   /* #6214: the account each agent was saved on before this move, and the one this move saved, as its job reads them.
      A stop puts an agent back only from the second to the first. `ok: false` when a read failed: then it is not put back. */
   const readNow = (name) => {
@@ -368,7 +371,7 @@ function startSteps(body, deps, step) {
           if (back && back.outcome === deps.RESTARTED && a.handoff && a.handoff.saved && deps.handoffFirst && typeof deps.handoffFirst.pickup === 'function') {
             const rec = a;
             let p;
-            try { p = Promise.resolve(deps.handoffFirst.pickup(rec.name, rec.handoff.path)); } catch (err) { p = Promise.reject(err); }
+            try { p = Promise.resolve(deps.handoffFirst.pickup(rec.name, rec.handoff.path, { automatic: m.automatic })); } catch (err) { p = Promise.reject(err); }
             p.then((r) => r && r.ok === true, () => false).then((ok) => {
               rec.handoff.pickup = ok;
               // Either way the words are rewritten: "will be pointed" becomes "is pointed" or "could not point".

@@ -265,3 +265,20 @@ test('an agent that is not running adds no handoff clause: the move already says
   assert.doesNotMatch(a.because, /handoff/, a.because);
   assert.doesNotMatch(a.because, /could not reach it/);
 });
+
+test('the pickup is told whether the automatic mover started the move (only a person\'s move skips the Gemini cap)', async () => {
+  for (const [body, want] of [[{ dir: '/acct/spare', names: ['al'] }, false], [{ dir: '/acct/spare', names: ['al'], automatic: true }, true], [{ dir: '/acct/spare', names: ['al'], automatic: 'yes' }, false]]) {
+    accountmove.resetForTests();
+    let how = null;
+    const d = deps({ handoff: () => ({
+      ask: async (n) => ({ asked: true, path: '/h/' + n + '.md', before: { exists: false } }),
+      isFresh: () => true,
+      pickup: async (n, path, h) => { how = h; return { ok: true }; },
+      waitMs: 2000, pollMs: 5,
+    }) });
+    const out = accountmove.start(body, d);
+    await out.done; await tick(); await tick();
+    await until(() => how !== null);
+    assert.deepEqual(how, { automatic: want }, JSON.stringify(body));
+  }
+});

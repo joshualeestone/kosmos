@@ -26,6 +26,16 @@ fs.writeFileSync(path.join(SANDBOX, 'panes.txt'), '');
 
 const server = require('./server');
 const fleet = require('./test-support/fleet');
+/* fixture-discipline: the cards these deps read are the board's own, built once here by test-support/fleet for each
+   state a test needs (before any test installs its own board, since install and restore swap the whole fake world).
+   `limitReported` is not on any card a pane alone produces (it comes from the agent's own usage report), so the one
+   test that needs it lays it over a real card. */
+const CARDS = {};
+for (const state of ['idle', 'working', 'needs_you', 'rate_limited', 'auth_failed']) {
+  const b = fleet.install([fleet.agent('mara', { state })]);
+  try { CARDS[state] = { ...b.card('mara') }; } finally { b.restore(); }
+}
+const cardIn = (state, over = {}) => [{ ...CARDS[state], ...over }];
 
 test.after(() => { delete process.env.AGENT_WORKFORCE_MOVE_HANDOFF_OFF; fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
@@ -69,10 +79,9 @@ test('signed out: not asked; a usage-limit report that may be stale IS asked (re
   const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
   t.after(() => board.restore());
   recordSends(t);
-  const card = (extra) => [{ sessionName: 'mara', isNamedOurs: true, ...extra }];
-  const asBlocked = server._moveHandoffDepsForTest({ roster: () => card({ state: 'blocked', limitReported: true }), startedAt: async () => 1 });
+  const asBlocked = server._moveHandoffDepsForTest({ roster: () => cardIn('idle', { state: 'blocked', limitReported: true }), startedAt: async () => 1 });
   assert.equal((await asBlocked.ask('mara')).asked, true, 'a report that may be hours stale lost a handoff it could write');
-  const signedOut = server._moveHandoffDepsForTest({ roster: () => card({ state: 'auth_failed' }) });
+  const signedOut = server._moveHandoffDepsForTest({ roster: () => cardIn('auth_failed') });
   assert.deepEqual(await signedOut.ask('mara'), { asked: false, why: 'it was signed out, so it could not write one.' });
 });
 
@@ -80,7 +89,7 @@ test('an idle agent is asked with #3492\'s prompt naming its handoff path, witho
   const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
   t.after(() => board.restore());
   const sent = recordSends(t);
-  const d = server._moveHandoffDepsForTest({ roster: () => [{ sessionName: 'mara', isNamedOurs: true, state: 'idle' }], startedAt: async () => 100 });
+  const d = server._moveHandoffDepsForTest({ roster: () => cardIn('idle'), startedAt: async () => 100 });
   const got = await d.ask('mara');
   assert.equal(got.asked, true);
   assert.match(got.path, /handoffs\/mara-discord\.md$/, 'the per-session path #3492 and auto-handoff use');
@@ -101,7 +110,7 @@ test('the pickup waits for the NEW session to be up and idle, then types the pic
   let start = Date.now() - 60 * 60 * 1000;   // the old session, an hour old
   let state = 'working';
   const d = server._moveHandoffDepsForTest({
-    roster: () => [{ sessionName: 'mara', isNamedOurs: true, state }],
+    roster: () => cardIn(state),
     startedAt: async () => start, readyWaitMs: 3000, pollMs: 5,
   });
   const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
@@ -136,14 +145,14 @@ test('a new session busy from the start is typed to at the deadline; no new sess
   const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
   t.after(() => board.restore());
   let start = Date.now() - 60 * 60 * 1000;
-  const d = server._moveHandoffDepsForTest({ roster: () => [{ sessionName: 'mara', isNamedOurs: true, state: 'working' }],
+  const d = server._moveHandoffDepsForTest({ roster: () => cardIn('working'),
     startedAt: async () => start, readyWaitMs: 60, pollMs: 5 });
   await d.ask('mara');
   sent.length = 0;
   start = Date.now();
   assert.deepEqual(await d.pickup('mara', '/h/mara.md'), { ok: true }, 'a busy new session still gets the line');
   // CONTROL: the old session never went away (its start never changed): nothing is typed.
-  const d2 = server._moveHandoffDepsForTest({ roster: () => [{ sessionName: 'mara', isNamedOurs: true, state: 'idle' }],
+  const d2 = server._moveHandoffDepsForTest({ roster: () => cardIn('idle'),
     startedAt: async () => 5000, readyWaitMs: 40, pollMs: 5 });
   await d2.ask('mara');
   sent.length = 0;
@@ -157,7 +166,7 @@ test('a start unreadable at the ask cannot let the OLD session pass as new', asy
   t.after(() => board.restore());
   let reads = 0;
   const old = Date.now() - 60 * 60 * 1000;
-  const d = server._moveHandoffDepsForTest({ roster: () => [{ sessionName: 'mara', isNamedOurs: true, state: 'idle' }],
+  const d = server._moveHandoffDepsForTest({ roster: () => cardIn('idle'),
     startedAt: async () => (reads++ === 0 ? null : old), readyWaitMs: 40, pollMs: 5 });
   await d.ask('mara');   // the start could not be read here
   sent.length = 0;
@@ -171,7 +180,7 @@ test('no readable start (Windows): a gap after the ask, then idle, is the new se
   const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
   t.after(() => board.restore());
   let state = 'idle';
-  const d = server._moveHandoffDepsForTest({ roster: () => (state === 'gone' ? [] : [{ sessionName: 'mara', isNamedOurs: true, state }]),
+  const d = server._moveHandoffDepsForTest({ roster: () => (state === 'gone' ? [] : cardIn(state)),
     startedAt: async () => null, readyWaitMs: 2000, pollMs: 5, minGapMs: 1500 });
   await d.ask('mara');
   sent.length = 0;
@@ -188,7 +197,7 @@ test('no readable start and no gap seen: idle counts only after the minimum wait
   const sent = recordSends(t);
   const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
   t.after(() => board.restore());
-  const d = server._moveHandoffDepsForTest({ roster: () => [{ sessionName: 'mara', isNamedOurs: true, state: 'idle' }],
+  const d = server._moveHandoffDepsForTest({ roster: () => cardIn('idle'),
     startedAt: async () => null, readyWaitMs: 2000, pollMs: 5, minGapMs: 80 });
   await d.ask('mara');
   sent.length = 0;
@@ -203,7 +212,7 @@ test('at the deadline a new session that cannot take a turn (out of usage) is no
   t.after(() => board.restore());
   let state = 'idle';
   let start = Date.now() - 60 * 60 * 1000;
-  const d = server._moveHandoffDepsForTest({ roster: () => [{ sessionName: 'mara', isNamedOurs: true, state }],
+  const d = server._moveHandoffDepsForTest({ roster: () => cardIn(state),
     startedAt: async () => start, readyWaitMs: 40, pollMs: 5 });
   await d.ask('mara');
   sent.length = 0;
@@ -218,7 +227,7 @@ test('the board says whether the agent is still busy beside the fresh file', asy
   t.after(() => board.restore());
   recordSends(t);
   let state = 'idle';
-  const d = server._moveHandoffDepsForTest({ roster: () => [{ sessionName: 'mara', isNamedOurs: true, state }], startedAt: async () => 1 });
+  const d = server._moveHandoffDepsForTest({ roster: () => cardIn(state), startedAt: async () => 1 });
   const got = await d.ask('mara');
   fs.mkdirSync(path.dirname(got.path), { recursive: true });
   fs.writeFileSync(got.path, '# half\n');

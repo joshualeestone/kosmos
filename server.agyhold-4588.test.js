@@ -371,6 +371,9 @@ test('#4588 ask 3 review 3 pin: the restart pickup and the wake hello (sends aft
     'the handoff pickup is held by the Gemini cap');
   assert.match(CODE, /\(automatic \? chat\.deliverAutomaticAsync : chat\.deliverAsync\)\(name, body\.text, roster,\s*envelope, [^;]*\.\.\.\(automatic \? \[\{ cap: false \}\] : \[\]\)\)/,
     'the wake hello is held by the Gemini cap');
+  // kosmos#9010: the account move's pickup skips it only when a person started the move, never the automatic mover's.
+  assert.match(CODE, /chat\.deliverAutomaticAsync\(name, handoffRestart\.pickupPrompt\(path\), rosterNow\(\), undefined, undefined, \.\.\.\(how && how\.automatic \? \[\] : \[\{ cap: false \}\]\)\)/,
+    'the account move\'s pickup skips the cap for the automatic mover too');
   const exempt = CODE.match(/\{ cap: false \}/g) || [];
-  assert.equal(exempt.length, 2, 'only those two sends may skip the cap, got ' + exempt.length);
+  assert.equal(exempt.length, 3, 'only those three sends may skip the cap, got ' + exempt.length);
 });
