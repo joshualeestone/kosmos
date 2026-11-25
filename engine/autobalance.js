@@ -55,8 +55,8 @@ function loginStopped(row) {
   return c.badge === 'rejected' || c.badge === 'signed_out' || c.loginEnded === true;
 }
 
-/* The page's acctOfferableTarget, plus (#9031) a login past its last date: only the CONFIRMED-unusable are out (rejected, signed out); a row with no
-   connection is offered; a badge-less row falls back to the older state. */
+/* The page's acctOfferableTarget, plus (#9031) a login past its last date: only the CONFIRMED-unusable are out (rejected,
+   signed out); a row with no connection is offered; a badge-less row falls back to the older state. */
 function offerable(row) {
   const c = row && row.connection;
   if (!c) return true;

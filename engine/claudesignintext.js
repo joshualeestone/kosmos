@@ -8,8 +8,8 @@
  * is_error and Claude's sentence. Before #7369 that result read as idle, so the card said nothing while messages were
  * typed into a session that answered every one "Not logged in" (a user went 5 days, #7366).
  *
- * 🔑 THE SCREEN PATTERNS LIVE HERE UNCHANGED. They were status.js's own constants; status.js now takes them from this
- * module, so the Mac detection is byte-for-byte what it was (its long rationale stays beside authFailed in status.js).
+ * 🔑 THE SCREEN PATTERNS LIVE HERE. They were status.js's own constants, moved unchanged by #7369 and added to by #9031;
+ * status.js takes them from this module (its long rationale stays beside authFailed in status.js).
  * This module is small on purpose: the Windows supervisor loads it, and status.js is ten thousand lines.
  */
 
@@ -23,9 +23,9 @@ const AUTH_ENVELOPE = /"type":\s*"error"/i;
    #9031: two more of Claude Code's own lines, read from the 2.1.332 binary and from real transcripts: "Login reached its
    time limit · Please run /login" (a login past its last date, no renewal left) and "Not logged in · Please run /login".
    Without them an agent stopped on either read idle, and its account never got a rejection. The second needs the dot and
-   the remedy right after it (any one or two characters for the dot, as a capture can draw it), so "Not logged in" alone,
+   the remedy right after it (an underscore too, as tmux draws the dot without UTF-8), so "Not logged in" alone,
    which other tools print too, is not a sign-in. */
-const AUTH_FRIENDLY_MESSAGE = /OAuth access token (?:has expired|has been revoked|is invalid)|API Error:\s*401\s+Invalid API key|OAuth token revoked|Login expired|Login reached its time limit|Not logged in\s+\S{1,2}\s+Please run \/login|Your session has expired/i;
+const AUTH_FRIENDLY_MESSAGE = /OAuth access token (?:has expired|has been revoked|is invalid)|API Error:\s*401\s+Invalid API key|OAuth token revoked|Login expired|Login reached its time limit|Not logged in\s+[\u00b7_]\s+Please run \/login|Your session has expired/i;
 const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
 
 /**

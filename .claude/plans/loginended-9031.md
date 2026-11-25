@@ -17,6 +17,10 @@ was 11-22 10:27, so "signed in" may have been true at 20:53 over an old screen. 
 - The sentences join the one shared module, and create.js's Check now list.
 - `kosmos accounts` says the sign-in has expired and what to do.
 - `loginEnded` counts as a stopped login: never a target (the mover's or the page's bulk move), at risk by login.
+- The account check behind a refused screen (authprobe) reads the login's dates too. `claude auth status` says signed in for
+  an ended login, which hid the refusal (review 1), so the hold and the badge never came. Both dates past reads signed out.
+- A refusal is not recorded while an account whose last check worked is being checked again (review 1): an old line on an
+  idle screen would mark a repaired account refused every 35 s. The card can still show the line for that one tick, as before.
 - usagepoll says `login-ended` when the access token AND the login's own date have both passed. Both, so a renewal still
   reads `token-expired`.
 
@@ -25,9 +29,12 @@ was 11-22 10:27, so "signed in" may have been true at 20:53 over an old screen. 
 - Moving agents off by itself. automove rule 3 (#7548) leaves a stopped login to the person, and its first build of that was
   removed in review (a refused agent reads auth_failed, so it is never movable). The would-move line is recorded, as before.
 
+- Dropping an ended login from the page's one-account pickers (the create list). Creating on one is refused at the create gate,
+  which now knows these sentences; the list itself is left alone here.
+
 ## Weakest premise
 That an account with both dates past cannot start a turn. Claude Code's error for it says so, but I did not see one refused.
-A live renewal moves the dates, so the row recovers by itself at the next read.
+A new sign-in moves both dates, so the row recovers by itself at the next read (a renewal never moves the login's own date).
 
 ## Test
-engine/loginended-9031.test.js, 8 tests with controls; 20 mutations, all red.
+engine/loginended-9031.test.js and engine/loginrecheck-9031.test.js (the real snapshot), 12 tests with controls; 34 mutations, all red.
