@@ -126,11 +126,14 @@ struct GlobalSkillsView: View {
             } else {
                 Button {
                     // The second press is the consent, as the page's armed button; the first only asks.
-                    if isArmed { Task { await remove(skill) } } else { armed = skill.key }
+                    // Review 5: arming takes the keyboard away, as the page's button takes focus, so any later tap into a
+                    // field is a real focus change and disarms it.
+                    if isArmed { Task { await remove(skill) } } else { focused = false; armed = skill.key }
                 } label: {
                     // Review 4: borderless, the tap is the label's, so the label is a full 44-point target.
                     Text(isArmed ? GlobalSkills.Words.removeArmed : GlobalSkills.Words.remove)
-                        .lineLimit(1).fixedSize()
+                        // Review 5: wraps rather than running off the row at the largest text sizes.
+                        .fixedSize(horizontal: false, vertical: true).multilineTextAlignment(.trailing)
                         .frame(minHeight: 44).contentShape(Rectangle())
                 }
                 .foregroundColor(isArmed ? Palette.dangerWord : Palette.primary)
@@ -242,7 +245,10 @@ struct GlobalSkillsView: View {
         guard sentTo == shownURL else { return }
         if removing == skill.key { removing = nil }
         switch GlobalSkills.removed(status: status, data: data) {
-        case .done: removeRefusal = nil
+        case .done:
+            // Review 5: the row goes now, so its Remove cannot be pressed again while the list is read.
+            removeRefusal = nil
+            if case .got(let s) = load { load = .got(s.filter { $0.key != skill.key }) }
         case .refused(let why): removeRefusal = why
         }
         await read()
