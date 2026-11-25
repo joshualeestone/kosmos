@@ -4713,7 +4713,7 @@ function claudeReadProblem() {
 function noteUnreadableSend(name) {
   const why = claudeReadProblem();
   try {
-    console.error('[kosmos#9085] a message to ' + JSON.stringify(String(name)) + ' was not sent: the list of running agents could not be read'
+    console.error('[kosmos#9085] a message to ' + JSON.stringify(String(name)) + ' was not sent: the running agents could not all be read'
       + (why ? ' (' + why + ')' : '') + '; answered 409 unreadable, not 404');
   } catch { /* never fatal */ }
 }
@@ -22169,29 +22169,29 @@ const server = http.createServer(async (req, res) => {
         // and a pane with Claude in it. This one is about the NAME.)
         /* kosmos#9085: ONE roster read. Its throw means we could not look; a name claimantFrom cannot key (a
            store.safeKey throw) is only "not ours". On Windows a Claude read that is failing while a codex agent keeps
-           the roster readable (or during win32roster's hold) makes a name unknown too (claudeReadProblem), but only a
-           name no card holds at all and whose agent folder is on this computer: a typo stays a 404, and a window
-           Kosmos did not start stays the 409 'untied' below. */
-        let rosterUnreadable = false;
+           the roster readable (or during win32roster's hold) makes a name no card holds unknown too
+           (claudeReadProblem), so a window Kosmos did not start keeps the 409 'untied' below. Either way only for a
+           name whose agent folder is on this computer and not removed: a typo stays a 404 and is never told to
+           retry. */
+        let couldNotLook = false;
         let known = false;
         let gateRoster = null;
-        try { gateRoster = paneRoster(); } catch { rosterUnreadable = true; }
+        try { gateRoster = paneRoster(); } catch { couldNotLook = true; }
         if (gateRoster) {
           let gateCard = null;
           try { gateCard = claimantFrom(gateRoster, name); known = Boolean(gateCard) && gateCard.isNamedOurs === true; } catch { known = false; }
-          if (!known && !gateCard && claudeReadProblem()) {
-            let ours = false;
-            try { ours = fs.existsSync(create.workerDir(name)) && !removal.isRemoved(name); } catch { ours = false; }
-            if (ours) rosterUnreadable = true;
-          }
+          if (!known && !gateCard && claudeReadProblem()) couldNotLook = true;
         }
+        let agentHere = false;
+        if (couldNotLook) { try { agentHere = fs.existsSync(create.workerDir(name)) && !removal.isRemoved(name); } catch { agentHere = false; } }
+        const rosterUnreadable = couldNotLook && agentHere;
         if (!known) {
           /* kosmos#9085: a roster that cannot be READ is not "no agent by that name". On Windows a `claude agents --json`
              that kept failing (five hours on 11-25) made the roster refuse, and every message to a running agent was
              answered 404 as if the agent did not exist. Unknown is answered as unknown: a 409 with `because`
              'unreadable' (nameRefusal's reason) and `retry`, and a line in the board's log. A 4xx, not a 503, for the
              #8652 reason below: the page and the iPhone read a 5xx on a send as "it may have gone", and nothing was
-             typed. A roster that reads and does not list the name stays a 404 below. */
+             typed. Any other absent name stays a 404 below. */
           if (rosterUnreadable) {
             noteUnreadableSend(name);
             const unknown = new Error('we could not check which agents are running, so nothing was sent. Try again in a moment.');

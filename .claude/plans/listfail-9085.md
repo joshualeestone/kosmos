@@ -19,7 +19,8 @@ Decided in ONE roster read (review 5): a throw from the read is "could not look"
 roster readable (win32roster refuses only when no codex row exists), or during its 15 s hold, makes a name unknown
 too: the gate asks win32roster's cachedRun.problem() (review 5). Review 6 narrowed that arm to a name no card holds
 and whose agent folder is here and not removed, so a typo is still a 404 (never told to retry for five hours) and an
-untied window keeps its 409 'untied'.
+untied window keeps its 409 'untied'. Review 7: the folder check gates BOTH arms, so in the five-hour shape (the
+roster refuses outright) a typo is also a 404.
 
 ## Rejected
 - The first design (commit edcc3a5a7b) listed a supervised agent inside win32roster.make when the read failed.

@@ -53,11 +53,13 @@ test.beforeEach(() => {
   logged = [];
   console.error = (...a) => { logged.push(a.join(' ')); };
   app._setStartWaitForTest({ maxMs: 0 });
+  app._setClaudeReadProblemForTest(() => null);   // a healthy Claude read unless a test says otherwise, on every platform
   fs.mkdirSync(create.workerDir('raph'), { recursive: true });
 });
 test.afterEach(() => { console.error = realError; });
 test.after(() => {
   console.error = realError;
+  app._setClaudeReadProblemForTest(null);
   app._setStartWaitForTest(null);
   status.setPaneSource(null);
   try { server.close(); } catch { /* already down */ }
@@ -81,6 +83,13 @@ test('#9085 a roster that cannot be read answers 409 unreadable, never 404 "no a
   assert.match(r.json.error, /could not check which agents are running, so nothing was sent/);
   assert.ok(logged.some((l) => /kosmos#9085/.test(l) && /"raph" was not sent/.test(l) && /answered 409 unreadable, not 404/.test(l)),
     'the board log names the agent and why: ' + JSON.stringify(logged));
+});
+
+test('#9085 CONTROL: with the roster unreadable, a name with no agent folder here (a typo) is a 404, never told to retry', async () => {
+  const r = await send('nobody', 'hello');
+  assert.equal(r.status, 404, JSON.stringify(r.json));
+  assert.equal(r.json.retry, undefined);
+  assert.equal(logged.filter((l) => /kosmos#9085/.test(l)).length, 0);
 });
 
 test('#9085 CONTROL: a roster that READS and does not list the name is still a 404 "no agent by that name"', async () => {
@@ -113,7 +122,7 @@ test('#9085 on Windows a failing Claude read behind a readable roster (a codex a
     app._setClaudeReadProblemForTest(() => null);
     const ok = await send('raph', 'hello');
     assert.equal(ok.status, 404, 'CONTROL: with the Claude read healthy, an absent name is missing: ' + JSON.stringify(ok.json));
-  } finally { app._setClaudeReadProblemForTest(null); }
+  } finally { app._setClaudeReadProblemForTest(() => null); }
 });
 
 test('#9085 CONTROL: a roster that reads and lists the agent is not refused at the gate', async () => {
