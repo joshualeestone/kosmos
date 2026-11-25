@@ -38,3 +38,9 @@ Card: https://github.com/joshualeestone/kosmos/issues/9024 (claimed: april, nigh
 - M3 the cache folder is left on a SIGKILL: kept; it sits in the run root, which run-tests.sh removes.
 - M4 'pwsh.exe' or a built name is not swept: kept, said in the header; nothing in the repo does it today.
 - Measured: the five files, 85 pass, 0 fail, 0 skipped.
+
+### Round 2 (opus, 00:12 CST): 1 BLOCKER, 2 MINOR
+- BLOCKER tools.pwsh-cache-9024's two win32 skips are host branches, and engine/windows-tests-1777 requires every such file to be selected for Windows or excluded with a reason: it failed, and would have turned every full run red. I had picked meta tests by name and missed it. Fixed: listed in HOST_BRANCH_EXCLUDED with its reason (the converted tests still run on Windows).
+- M2 strip() cannot see strings or regex literals: said beside it; a miscount fails loudly, never passes. No pinned file has one today.
+- M3 the "fine" stand-in proves less if XDG_CACHE_HOME is already set: kept, the notEqual assertion covers it.
+- Measured: every test file that lists *.test.js files (57, chosen by content, not name), run from the repo root: 1732 pass, 0 fail, 17 skipped.
