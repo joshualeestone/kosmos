@@ -33,9 +33,9 @@ enum Checkins {
     // Each agent's reconnect phase, from /api/status's agents (sessionName, reconnect.phase).
     static func phases(status: Int, data: Data?) -> [String: String] {
         guard status == 200, let data, let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let rows = o["agents"] as? [[String: Any]] else { return [:] }
+              let all = o["agents"] as? [Any] else { return [:] }
         var out: [String: String] = [:]
-        for r in rows {
+        for case let r as [String: Any] in all {   // an entry that is not an object is skipped, not the whole list
             if let s = r["sessionName"] as? String, let p = (r["reconnect"] as? [String: Any])?["phase"] as? String { out[s] = p }
         }
         return out
@@ -81,7 +81,8 @@ enum Checkins {
     // The agent a row opens, as a push tap names it: the computer's address and the agent's session.
     static func target(_ mac: Settings.Mac, session: String) -> PushBridge.AgentTarget? {
         guard let host = mac.url.host?.lowercased(), !host.isEmpty, PushBridge.isAgentSession(session) else { return nil }
-        return PushBridge.AgentTarget(host: host, session: session, name: session)
+        // Named as a push tap names an agent it has no name for: the session, capitalised.
+        return PushBridge.AgentTarget(host: host, session: session, name: session.prefix(1).uppercased() + session.dropFirst())
     }
 
     // A sample build's computer: one agent gone quiet, one whose connection Kosmos gave up on.

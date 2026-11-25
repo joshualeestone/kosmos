@@ -22,3 +22,13 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (D1d plan 7156885894)
 - iOS node tests (ios*, server.ios*, web.ios*) 73 pass. App and UI-test typecheck 0 errors.
 
 ## Challenge loop ledger
+
+### Round 1 (opus, 02:31 CST): no BLOCKER, 1 MAJOR, 6 MINOR. The reviewer confirmed the target's host is what agentOpening compares with (Board.macURL lower-cases the address), so a tap opens the chat natively.
+- MAJOR 1 the check-ins were drawn inside the Prompter box's loaded state, so a failed or slow box read hid them; the page reads them on their own. Now drawn in the Prompter section whatever the box's read did.
+- M2 a cancelled read (a tap that leaves the screen) hid the list or dropped the phases as if it had failed: a cancelled read changes nothing.
+- M3 the list was never read again while shown (the page repaints from its poll): read every 30 s while the screen shows.
+- M4 a row whose session the board's names do not allow was a button that did nothing: it is plain text then.
+- M5 the opened chat's title differed from a push tap's: the session capitalised, as agentToOpen names an agent with no name.
+- M6 one non-object entry in /api/status dropped every phase: such entries are skipped.
+- M7 the plan's ledger was empty: this.
+- Measured: run-checkins.sh PASS 26/26; run-automation.sh 227/227; typecheck 0 errors.

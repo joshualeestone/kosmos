@@ -81,6 +81,11 @@ struct AutomationView: View {
                 for box in Automation.Box.allCases { generations[box, default: 0] += 1 }
             }
             await readAll(keepNotes: true)
+            // The page repaints the check-ins from its poll; here they are read again every 30 s while the screen shows.
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                if !Task.isCancelled { await readCheckins() }
+            }
         }
         .accessibilityIdentifier("automation-list")
     }
@@ -103,6 +108,9 @@ struct AutomationView: View {
             case .loaded(let state):
                 controls(box, state)
             }
+            // The check-ins, under the Prompter box's controls as on the page, read on their own (round 1: whatever
+            // the box's own read did); hidden while there are none.
+            if box == .prompter, let rows = checkins, !rows.isEmpty { checkinRows(rows) }
         } header: {
             Text(box.title)
         } footer: {
@@ -151,20 +159,6 @@ struct AutomationView: View {
             if p.on {
                 picker(box, key: "minutes", label: Automation.Words.prompterEvery, choices: Automation.choices(p.choices, keeping: p.minutes),
                        value: p.minutes, name: Automation.minutesLabel) { .prompterMinutes($0) }
-            }
-            // The check-ins, under the box's controls as on the page; hidden while there are none.
-            if let rows = checkins, !rows.isEmpty {
-                Text(Checkins.Words.heading).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
-                    .accessibilityAddTraits(.isHeader)
-                ForEach(rows) { r in
-                    Button { open(r.session) } label: {
-                        (Text(r.session).bold().foregroundColor(Palette.primary) + Text(" " + r.question).foregroundColor(Palette.secondary))
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityIdentifier("automation-checkin-" + r.session)
-                }
             }
         case .cap(let c):
             picker(box, key: "max", label: Automation.Words.capLabel, choices: Automation.choices(c.choices, keeping: c.max),
@@ -312,20 +306,43 @@ struct AutomationView: View {
         checkinsGeneration += 1
         let mine = checkinsGeneration
         let (status, data) = await fetch(Checkins.nudgesRequest(mac))
-        guard mine == checkinsGeneration, mac.url == shownURL else { return }
+        // Cancelled (a tap that left the screen, say): nothing changes, so the list is not taken for a failure.
+        guard !Task.isCancelled, mine == checkinsGeneration, mac.url == shownURL else { return }
         guard let ns = Checkins.nudges(status: status, data: data) else { checkins = nil; return }
         var phases: [String: String] = [:]
         if Checkins.needsPhases(ns) {
             let (s2, d2) = await fetch(Checkins.statusRequest(mac))
-            guard mine == checkinsGeneration, mac.url == shownURL else { return }
+            guard !Task.isCancelled, mine == checkinsGeneration, mac.url == shownURL else { return }
             phases = Checkins.phases(status: s2, data: d2)
         }
         checkins = Checkins.rows(ns, phases: phases)
     }
 
-    private func open(_ session: String) {
+    @ViewBuilder private func checkinRows(_ rows: [Checkins.Row]) -> some View {
+        Text(Checkins.Words.heading).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
+            .accessibilityAddTraits(.isHeader)
+        ForEach(rows) { r in
+            let line = (Text(r.session).bold().foregroundColor(Palette.primary) + Text(" " + r.question).foregroundColor(Palette.secondary))
+                .font(.subheadline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            // A row is a button only when it can open its agent (a session the board's names allow).
+            if target(r.session) != nil {
+                Button { open(r.session) } label: { line }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("automation-checkin-" + r.session)
+            } else {
+                line.accessibilityIdentifier("automation-checkin-" + r.session)
+            }
+        }
+    }
+
+    private func target(_ session: String) -> PushBridge.AgentTarget? {
         let mac = mac ?? (sample ? Settings.Mac(name: "Studio Mac", url: URL(string: "https://studio.kosmosplus.com/")!, cookie: "sample") : nil)
-        if let mac, let t = Checkins.target(mac, session: session) { openAgent(t) }
+        return mac.flatMap { Checkins.target($0, session: session) }
+    }
+
+    private func open(_ session: String) {
+        if let t = target(session) { openAgent(t) }
     }
 
     // keepNote: a read that follows a save keeps the save's line under the box.
