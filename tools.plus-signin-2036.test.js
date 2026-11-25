@@ -484,6 +484,7 @@ test('#2036: with no seed address given, start is setup and nothing is sent', as
 function sandboxEnv(dir) {
   const e = env(dir);
   fs.rmSync(path.join(e.KOSMOS_STORE_ROOT, 'board.token'));
+  e.KOSMOS_PLUS_VERIFIED_SHA256 = SHA;   // what plus-signin-auto.sh sets after checking the tarball it booted
   return e;
 }
 const startArgs = (ptr, b, more = []) => ['start', '--pointer', ptr, '--port', String(b.port), ...more];
@@ -528,6 +529,21 @@ test('#9018: --board-kind sandboxed on a board that holds a token, or an unknown
     assert.match(r.out, /--board-kind is installed or sandboxed/);
     assert.ok(!b.calls.some((c) => c.url === '/api/remote/signin-start'), 'a code was sent');
     assert.ok(!fs.existsSync(record.recordPath(SHA, e)));
+  } finally { b.server.close(); }
+});
+
+test('#9018: a sandboxed run with no checked sha256, or another build\'s, is refused before any code is sent', async () => {
+  const b = await fakeBoard({ unenforced: true });
+  try {
+    for (const verified of [undefined, 'b'.repeat(64)]) {
+      const dir = tmp(); const e = sandboxEnv(dir); const ptr = pointerFile(dir);
+      if (verified === undefined) delete e.KOSMOS_PLUS_VERIFIED_SHA256; else e.KOSMOS_PLUS_VERIFIED_SHA256 = verified;
+      const r = await runner(startArgs(ptr, b, ['--board-kind', 'sandboxed']), Object.assign(e, verified === undefined ? { KOSMOS_PLUS_VERIFIED_SHA256: '' } : {}));
+      assert.strictEqual(r.code, 2, r.out);
+      assert.match(r.out, /needs KOSMOS_PLUS_VERIFIED_SHA256 equal to the pointer's sha256/);
+      assert.ok(!fs.existsSync(record.recordPath(SHA, e)));
+    }
+    assert.ok(!b.calls.some((c) => c.url === '/api/remote/signin-start'), 'a code was sent');
   } finally { b.server.close(); }
 });
 
