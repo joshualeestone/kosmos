@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardsettings-8959
-diff_hash: 566be35c703ac7a55067cec77c05c3d08b5112f54d8b9de6e9aed449d4c741d2
+diff_hash: 256a6d58c0f3ca142aef512e15f49c32c7ee9d10edf923f246585658110ed829
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-25T16:14:58Z
+timestamp: 2026-11-25T18:04:33Z
 iterations: 8
 converged: false
 ---
@@ -18,7 +18,8 @@ converged: false
 **Asked (awaiting user):** 0
 
 ### Validation
-- Full validation on head 01e9e22ad7: PASSED on this Mac, ended 05:30 CST 2026-11-25 (validation_rc 0, audit_rc 0, hash 566be35c703a, base baab2b36bf). Diff unchanged since (same hash at 2026-11-25T16:14:58Z); only this proof file added. main has moved since; the PR's CI is the run against current main.
+- REBASED 12:04 CST 2026-11-25 onto main fdac85902d: one conflict, ios/tools/ui-sample.sh, where main had grown the TaskPageActionsUITests line (5 to 10 checks); kept main's line and added this slice's AutomationUITests:1 line after it. So the diff hash moved from 566be35c703a to 256a6d58c0f3; the full validation and UI run below were on the pre-rebase diff. Since the rebase: bash -n on ui-sample.sh, the three tests that read it (ios.uibuild-8993, ios.ui-sample-tally-7609, ios.ui-sample-shard-8453) plus server.ios-routes-6838, 5 of 5 pass; run-automation.sh VERDICT PASS 228/228. The PR CI is the full run on current main.
+- Full validation on head 01e9e22ad7: PASSED on this Mac, ended 05:30 CST 2026-11-25 (validation_rc 0, audit_rc 0, hash 566be35c703a, base baab2b36bf). The diff was unchanged from that run until the rebase below. main has moved since; the PR's CI is the run against current main.
 - AutomationUITests on head 01e9e22ad7: passed light and dark (UI_ACCOUNT_RC=0, 04:55 CST 2026-11-25). Run 1 (02:09) had failed in the test (a 146-character XCUI subscript), fixed by a label predicate.
 
 ### Per-Iteration Breakdown
