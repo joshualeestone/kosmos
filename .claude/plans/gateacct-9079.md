@@ -34,6 +34,8 @@ and a gate that skipped it would have passed on a secondary account. The default
 - Review 1: the DEFAULT row marked dead (isDefault true, badge rejected) beside a working secondary is NOT skipped:
   its create refusal stands, exit 1, and nothing is logged as skipped. On the previous commit it read 0.
 - Review 1: a skipped secondary row is named in the log, with its reason.
+- Review 2: a signed_out secondary row that still reads state connected is skipped and named (the existing
+  claude-signedout fixture has state none, so it never reached the skip).
 - The existing "create refused (400, sign-in) -> do-not-promote (1)" case is unchanged and still passes: the strict
   arm stands.
 - Result: 85 pass, 0 fail. Mutants, each on a scratch copy: the skip line removed turns the three skip cases red;
@@ -43,3 +45,5 @@ and a gate that skipped it would have passed on a secondary account. The default
 That a build defect never shows only as a false dead mark on a SECONDARY account. The default is safe by the rule
 above. A build that wrongly marked a secondary dead would be tested on another account: a narrower gap than before
 the skip existed (when the gate picked whatever row came first), and every such skip is now named in the log.
+The same holds for `loginEnded`, which the board sets from the login date (review 2): a build that set it wrongly on
+a secondary would see that secondary skipped, and named, not tested.

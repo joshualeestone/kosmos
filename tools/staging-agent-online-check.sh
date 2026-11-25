@@ -449,7 +449,7 @@ let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
     // dead would otherwise pass on another account. The default is tested as it is, and its create answer stands.
     // Nothing is ever skipped on what a create answers.
     if (prov==="anthropic" && r.isDefault!==true && (badge==="rejected" || badge==="signed_out" || conn.loginEnded===true)) {
-      process.stdout.write("skipped\t"+dir+"\t"+(conn.loginEnded===true ? "its login has ended" : "the board marks it "+badge)+"\n");
+      process.stdout.write("skipped\t"+(dir || "(no folder named)")+"\t"+(conn.loginEnded===true ? "its login has ended" : "the board marks it "+badge)+"\n");
       continue;
     }
     if (!seen[prov]) { seen[prov]=1; process.stdout.write(prov+"\t"+dir+"\n"); }
