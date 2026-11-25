@@ -3049,9 +3049,11 @@ test('#185: the room store refuses an agent-authored row with no command provena
     arm([]);
     /* No armSender: the pane is nobody the roster vouches for. The row
        must not be written; an agent's words exist only through its own
-       command. */
+       command. The pane id is one tmux has not reached: a small one like %99
+       is a real pane on a Mac running many agents, which the board looks
+       up for real, and then it is somebody the roster vouches for. */
     const before = messages.record().rows.filter((m) => m.kind === 'post').length;
-    const forged = messages.sendPost({ fromPane: '%99', project: 'henderson-lease', text: 'words in my mouth' }, board.agents, MEMBERS);
+    const forged = messages.sendPost({ fromPane: '%99999999', project: 'henderson-lease', text: 'words in my mouth' }, board.agents, MEMBERS);
     assert.equal(forged.state, chat.DELIVERY.COULD_NOT, 'a pane the roster does not vouch for posted as an agent');
     assert.equal(messages.record().rows.filter((m) => m.kind === 'post').length, before,
       'the refused post still reached the store');
