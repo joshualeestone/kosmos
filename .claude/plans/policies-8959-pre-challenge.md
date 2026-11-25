@@ -24,11 +24,37 @@ converged: false
 - run-globalskills.sh PASS 68/68 after review 8, with a control per round.
 
 ### Per-Iteration Breakdown
-- r1 opus: 1 BLOCKER (fresh list clears the old line; a refused remove's sentence said once), 8 WARNING, all FIXED
-- r2 sonnet: 6 WARNING, five FIXED, one kept with its reason
-- r3 opus: 2 WARNING FIXED
-- r4 sonnet: 4 WARNING, three FIXED, one recorded
-- r5 opus: 3 WARNING FIXED
-- r6 sonnet: 2 WARNING FIXED, three small gaps recorded
-- r7 opus: 1 BLOCKER (Remove word compared from the app's own string) and 1 WARNING, FIXED
-- r8 sonnet: 2 WARNING FIXED
+
+#### Iteration 1
+**Reviewer model:** opus
+- [BLOCKER] a fresh list clears the old line; a refused remove's sentence said once FIXED
+- [WARNING] 8 findings FIXED
+
+#### Iteration 2
+**Reviewer model:** sonnet
+- [WARNING] 6 findings: five FIXED, W5 kept with its reason
+
+#### Iteration 3
+**Reviewer model:** opus
+- [WARNING] 2 findings FIXED (Remove a borderless button; the sample refuses as the engine does)
+
+#### Iteration 4
+**Reviewer model:** sonnet
+- [WARNING] 4 findings: three FIXED, W4 recorded
+
+#### Iteration 5
+**Reviewer model:** opus
+- [WARNING] 3 findings FIXED (arming Remove drops the keyboard; others)
+
+#### Iteration 6
+**Reviewer model:** sonnet
+- [WARNING] 2 findings FIXED (focus one value per field; a refused remove's sentence only while listed); three small gaps recorded
+
+#### Iteration 7
+**Reviewer model:** opus
+- [BLOCKER] the Remove word compared from the app's own string FIXED
+- [WARNING] 1 finding FIXED
+
+#### Iteration 8
+**Reviewer model:** sonnet
+- [WARNING] 2 findings FIXED (spoken Remove label checked against the page's aria-label; Measured block dated)
