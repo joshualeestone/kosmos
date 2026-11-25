@@ -106,8 +106,7 @@ final class TaskPageModel: ObservableObject {
     private var undoReads = 0
     private(set) var undoReading: Task<Void, Never>?
     // The title and detail being saved, and the line for the last save (the board's tk-msg for the form).
-    // Like `pressing`, saying, dueSaving and editSaving stay set when the epoch moves mid-request: the page is then about
-    // nothing.
+    // Every in-the-air flag here (as `pressing`) stays set when the epoch moves mid-request: the page is then about nothing.
     @Published private(set) var editSaving = false
     @Published private(set) var editRefusal: String?
 
@@ -613,11 +612,12 @@ final class TaskPageModel: ObservableObject {
     }
 
     // "Undo the chosen files" of `list`, the plan the person chose from. Nothing is sent for no files, while one is on its
-    // way, or when what is offered is not that list any more. The line that says what was done takes the offer's place; a
+    // way, beside a press or part write (Reopen, Put back and a new part can take the task out of its close, and this one's
+    // answer would then stand nowhere), or when what is offered is not that list any more. The line that says what was done takes the offer's place; a
     // refusal keeps the list with its words. Then the activity is read, after a refusal too: an undo whose answer was lost
     // shows there.
     func undo(_ paths: [String], of list: Board.UndoPlan, names: [String: String]) async {
-        guard !undoing, current, undoPlan == list else { return }
+        guard !undoing, !pressing, partWriting == nil, current, undoPlan == list else { return }
         clearUndoSay()
         guard !paths.isEmpty else { undoSay = Board.undoChoose; return }
         // The list is of an earlier close (it stayed open under a refusal): what it says of each file may be wrong now.

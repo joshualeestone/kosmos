@@ -953,7 +953,7 @@ struct TaskPageView: View {
                         .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(model.pressing)
+                .disabled(model.pressing || model.partWriting != nil)
             }
         }
     }
