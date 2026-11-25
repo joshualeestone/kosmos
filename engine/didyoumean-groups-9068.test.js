@@ -35,6 +35,8 @@ test('kosmos#9068: the rule names a group\'s nearest subcommand, and nothing whe
   assert.equal(dym.suggest('reads', subs, undefined, 'community'), 'kosmos community read', 'a plural gives the singular, no " list"');
   assert.equal(dym.suggest('zzqqxx', subs, undefined, 'community'), null, 'CONTROL: close to nothing');
   assert.equal(dym.suggest('follow', subs, undefined, 'community'), null, 'CONTROL: a real subcommand is not unknown');
+  assert.equal(dym.suggest('Follow', subs, undefined, 'community'), 'kosmos community follow', 'review 1: another case is suggested as written');
+  assert.equal(dym.suggest('Task', ['task', 'agent']), 'kosmos task', 'review 1: the same at the top level');
   assert.equal(dym.suggest('folow', subs, undefined, 'Not A Group'), 'kosmos follow', 'a group that is not a word is ignored');
   assert.equal(dym.line('folow', subs, undefined, 'community'), 'Did you mean: kosmos community follow');
   assert.equal(dym.suggest('tasks', ['task', 'agent']), 'kosmos task list', 'CONTROL: the top level keeps its list rule (#8948)');

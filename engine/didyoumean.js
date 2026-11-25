@@ -44,7 +44,10 @@ function suggest(word, verbs, listable = LISTABLE, group) {
     const w = String(word || '').trim().toLowerCase();
     if (!w || w.startsWith('-') || !/^[a-z][a-z-]*$/.test(w)) return null;
     const names = (Array.isArray(verbs) ? verbs : []).map((v) => String(v).trim().toLowerCase()).filter((v) => /^[a-z][a-z-]*$/.test(v));
-    if (!names.length || names.includes(w)) return null;
+    if (!names.length) return null;
+    /* kosmos#9068 review 1: a real name typed in another case ("Follow") is unknown to the dispatch, which is
+       case-sensitive, so it is suggested as written there; the exact name is not unknown at all. */
+    if (names.includes(w)) return String(word).trim() === w ? null : 'kosmos ' + g + w;
     const lists = new Set(Array.isArray(listable) ? listable : LISTABLE);
     if (w.endsWith('s') && names.includes(w.slice(0, -1))) {
       const one = w.slice(0, -1);

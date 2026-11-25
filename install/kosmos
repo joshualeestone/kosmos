@@ -1268,7 +1268,8 @@ _unknown_sub() {
   _un="$(kosmos_engine_node)" || return 0
   _um="$(kosmos_engine_module didyoumean).js"
   [ -f "$_um" ] || return 0
-  "$_un" "$_um" --group "$_ug" "$_uw" "$@" </dev/null 2>/dev/null | sed 's/^/  /' || true
+  local _ud; _ud="$("$_un" "$_um" --group "$_ug" "$_uw" "$@" </dev/null 2>/dev/null)" || _ud=""
+  [ -n "$_ud" ] && say "$_ud"   # say's own indent, as the Unknown line above (review 1)
   return 0
 }
 
@@ -4931,7 +4932,7 @@ cmd_community() {
   if [ "$sub" = "edit" ]; then cmd_community_edit "$@"; return; fi   # #5574 slice 2b
   # kosmos#9068: a word that is not one of these says so first, with the nearest one; a bare `kosmos community` (or a
   # flag) is the full usage below, as before. KOSMOS_COMMUNITY_VERBS is held to this function's checks and to the
-  # Windows CLI's community subcommands by cli.didyoumean-groups-9068.test.js.
+  # Windows CLI's community subcommands by engine/didyoumean-groups-9068.test.js.
   if [ -n "$sub" ] && [ "$sub" != "post" ] && [ "${sub#-}" = "$sub" ]; then
     # shellcheck disable=SC2086
     _unknown_sub community "$sub" " | " $KOSMOS_COMMUNITY_VERBS
