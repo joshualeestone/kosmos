@@ -67,6 +67,22 @@ check(D.outcome(status: 400, json: ["error": "tick the box to say you understand
 check(D.outcome(status: 200, json: ["outcome": "gone"]) == .startOver(D.didNotWork), "an outcome this app does not know is not read as deleted")
 check(D.outcome(status: 200, json: nil) == .startOver(D.didNotWork), "no body")
 
+// A lost answer, or the sweep, finished it: the account is gone, and the iPhone signs out.
+check(D.outcome(status: 401, json: ["error": "that account is already gone"]) == .deleted, "already gone reads as deleted")
+check(D.outcome(status: 400, json: ["error": "that account is already gone"]) == .startOver("That account is already gone."), "only Kosmos+'s 401 for it")
+// confirm waits as long as Stripe may take; the other three keep the usual 15 s.
+check(D.confirmRequest(coordinator: coordinator, grant: "g").timeoutInterval >= 120, "confirm waits for billing to end")
+check(D.startRequest(coordinator: coordinator, email: "a@b.co").timeoutInterval == 15, "start does not")
+
+// Signing this iPhone out: once, only after deleted, never for another account.
+check(D.signsOut(deleted: true, already: false, ownEmail: "a@b.co", deletedEmail: "a@b.co"), "its own account")
+check(D.signsOut(deleted: true, already: false, ownEmail: "A@B.co", deletedEmail: "a@b.CO"), "an address in another case is the same")
+check(!D.signsOut(deleted: true, already: false, ownEmail: "a@b.co", deletedEmail: "c@d.co"), "another account's deletion signs nothing out")
+check(D.signsOut(deleted: true, already: false, ownEmail: nil, deletedEmail: "c@d.co"), "unknown own account: signs out, as the page")
+check(D.signsOut(deleted: true, already: false, ownEmail: "a@b.co", deletedEmail: nil), "unknown deleted address: signs out")
+check(!D.signsOut(deleted: true, already: true, ownEmail: nil, deletedEmail: nil), "never twice")
+check(!D.signsOut(deleted: false, already: false, ownEmail: nil, deletedEmail: nil), "never before deleted (still deleting, could not, start over)")
+
 // The variants.
 check(D.subscriptionWords(true) == "It ends now, and you will not be charged again. What is left of this billing period is not refunded.", "subscription")
 check(D.subscriptionWords(false) == "You have no subscription to cancel.", "none")
@@ -90,7 +106,7 @@ if !relay.isEmpty, let page = try? String(contentsOfFile: relay + "/coordinator/
         ("subscription", D.subscriptionWords(true)), ("none", D.subscriptionWords(false)), ("keep", D.keepWords(true)),
         ("keepNone", D.keepWords(false)), ("understood", D.understood), ("deleteButton", D.deleteButton), ("tickHint", D.tickHint),
         ("keepButton", D.keepButton), ("doneTitle", D.doneTitle), ("doneWords", D.doneWords), ("failedTitle", D.failedTitle),
-        ("failedWords", D.failedWords), ("tryAgain", D.tryAgain), ("pendingTitle", D.pendingTitle), ("pendingWords", D.pendingWords),
+        ("failedWords", D.failedWords), ("tryAgain", D.tryAgain), ("sendAgain", D.sendAgain), ("newCodeSent", D.newCodeSent), ("pendingTitle", D.pendingTitle), ("pendingWords", D.pendingWords),
         ("unreachable", D.unreachable), ("didNotWork", D.didNotWork), ("codeRefused", D.codeRefused),
         ("notAnEmail", D.notAnEmail), ("couldNotWords", D.couldNotWords),
         ("company sentence", "Make someone else an admin there first, or your company is left without one."),

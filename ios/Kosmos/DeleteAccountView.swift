@@ -32,14 +32,24 @@ struct DeleteAccountView: View {
     @State private var note: String?
     // The session held when the flow began, signed out once the account is gone.
     @State private var heldSession: String?
+    // Whose account this iPhone holds, when Kosmos+ said (/v1/account/me): another account's deletion signs nothing out.
+    @State private var ownEmail: String?
+    // The account typed here is deleted (set the moment Kosmos+ says so, whatever screen shows).
+    @State private var gone = false
+    @State private var goneEmail: String?
     @State private var signedOutDone = false
+    @State private var visible = false
+    @State private var sent: String?
+    @AccessibilityFocusState private var answerFocus: Bool
 
     var body: some View {
         List { content }
             .listStyle(.insetGrouped)
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
-            .navigationBarBackButtonHidden(isAnswer)
+            // No way back while Kosmos+ is answering (a confirm can take a while) or once the answer is shown.
+            .navigationBarBackButtonHidden(isAnswer || busy)
+            .interactiveDismissDisabled(isAnswer || busy)
             .toolbar {
                 if isAnswer {
                     ToolbarItem(placement: .confirmationAction) {
@@ -48,7 +58,8 @@ struct DeleteAccountView: View {
                 }
             }
             .task { await prefill() }
-            .onDisappear { signOutIfDeleted() }
+            .onAppear { visible = true }
+            .onDisappear { visible = false; signOutIfDeleted() }
     }
 
     private var isAnswer: Bool {
@@ -115,8 +126,13 @@ struct DeleteAccountView: View {
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
                 Text(DeleteAccount.codeWords(email: email))
+                if let sent { Text(sent).accessibilityIdentifier("delete-sent") }
                 noteLine
             }
+        }
+        // Kosmos+'s refusals for a used-up or expired code say "ask for a new one": this is where.
+        Section {
+            Button(DeleteAccount.sendAgain) { Task { await resend(email: email) } }.disabled(busy).accessibilityIdentifier("delete-resend")
         }
         startAgainSection
     }
@@ -182,6 +198,7 @@ struct DeleteAccountView: View {
             .disabled(busy)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(DeleteAccount.understood)
+            .accessibilityValue(understood ? "Ticked" : "Not ticked")
             .accessibilityAddTraits(understood ? [.isButton, .isSelected] : .isButton)
             .accessibilityIdentifier("delete-understood")
             // Red only here. It stays pressable while unticked (as the page's aria-disabled) so its hint can be heard, and
@@ -212,6 +229,7 @@ struct DeleteAccountView: View {
         } header: {
             Text(DeleteAccount.doneTitle).font(.headline).foregroundColor(Palette.primary).textCase(nil)
                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("delete-done-title")
+                .accessibilityFocused($answerFocus)
         }
     }
 
@@ -222,6 +240,7 @@ struct DeleteAccountView: View {
         } header: {
             Text(DeleteAccount.pendingTitle).font(.headline).foregroundColor(Palette.primary).textCase(nil)
                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("delete-pending-title")
+                .accessibilityFocused($answerFocus)
         }
     }
 
@@ -233,6 +252,7 @@ struct DeleteAccountView: View {
         } header: {
             Text(DeleteAccount.failedTitle).font(.headline).foregroundColor(Palette.primary).textCase(nil)
                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("delete-failed-title")
+                .accessibilityFocused($answerFocus)
         } footer: { noteLine }
         Section {
             Button(DeleteAccount.keepButton) { dismiss() }.disabled(busy)
@@ -280,6 +300,7 @@ struct DeleteAccountView: View {
         r.httpShouldHandleCookies = false
         r.cachePolicy = .reloadIgnoringLocalCacheData
         guard let (status, json) = await send(r), let found = SignIn.accountEmail(status: status, json: json) else { return }
+        ownEmail = found
         if email.isEmpty, step == .email { email = found }
     }
 
@@ -291,7 +312,20 @@ struct DeleteAccountView: View {
         let answer: (Int, Any?)? = sample ? (200, ["ok": true]) : await send(DeleteAccount.startRequest(coordinator: coordinator, email: address))
         guard let (status, json) = answer else { note = DeleteAccount.unreachable; return }
         switch DeleteAccount.started(status: status, json: json) {
-        case .sent: code = ""; step = .code(email: address)
+        case .sent: code = ""; sent = nil; step = .code(email: address)
+        case .refused(let sentence): note = sentence
+        }
+    }
+
+    /// The page's "Send the code again": the same start, for the address the code screen names.
+    @MainActor private func resend(email address: String) async {
+        guard !busy else { return }
+        busy = true; note = nil; sent = nil
+        defer { busy = false }
+        let answer: (Int, Any?)? = sample ? (200, ["ok": true]) : await send(DeleteAccount.startRequest(coordinator: coordinator, email: address))
+        guard let (status, json) = answer else { note = DeleteAccount.unreachable; return }
+        switch DeleteAccount.started(status: status, json: json) {
+        case .sent: code = ""; sent = DeleteAccount.newCodeSent
         case .refused(let sentence): note = sentence
         }
     }
@@ -319,8 +353,8 @@ struct DeleteAccountView: View {
 
     @MainActor private func take(_ checked: DeleteAccount.Checked, email address: String) {
         switch checked {
-        case .grant(let grant): code = ""; understood = false; step = .confirm(grant)
-        case .second(let kind, let challenge, let sentTo): code = ""; step = .second(email: address, kind: kind, challenge: challenge, sentTo: sentTo)
+        case .grant(let grant): code = ""; sent = nil; understood = false; step = .confirm(grant)
+        case .second(let kind, let challenge, let sentTo): code = ""; sent = nil; step = .second(email: address, kind: kind, challenge: challenge, sentTo: sentTo)
         case .refused(let sentence): note = sentence
         case .startOver(let sentence): startOver(sentence)
         }
@@ -334,15 +368,21 @@ struct DeleteAccountView: View {
         // Nothing reached Kosmos+ (or its answer was lost): the same grant may be sent again, as the page's Try again.
         guard let (status, json) = answer else { note = DeleteAccount.unreachable; return }
         switch DeleteAccount.outcome(status: status, json: json) {
-        case .deleted: step = .done(email: grant.preview.email ?? email)
-        case .stillDeleting: step = .pending
-        case .nothingChanged: step = .failed(grant)
+        case .deleted:
+            let address = grant.preview.email ?? email
+            gone = true; goneEmail = address
+            step = .done(email: address)
+            answerFocus = true
+            // Left already (another tab, the app sent away): nothing will leave the done screen, so sign out now.
+            if !visible { signOutIfDeleted() }
+        case .stillDeleting: step = .pending; answerFocus = true
+        case .nothingChanged: step = .failed(grant); answerFocus = true
         case .startOver(let sentence): startOver(sentence)
         }
     }
 
     @MainActor private func startOver(_ sentence: String?) {
-        code = ""; understood = false
+        code = ""; sent = nil; understood = false
         step = .email
         note = sentence
     }
@@ -352,9 +392,10 @@ struct DeleteAccountView: View {
         dismiss()
     }
 
-    /// Once, and only after `deleted`: the session this iPhone held is for an account that no longer exists.
+    /// Once, and only after `deleted` (DeleteAccount.signsOut): the session this iPhone held is for an account that no
+    /// longer exists. Called on leaving the done screen, and at the answer when the screen is already gone.
     private func signOutIfDeleted() {
-        guard case .done = step, !signedOutDone else { return }
+        guard DeleteAccount.signsOut(deleted: gone, already: signedOutDone, ownEmail: ownEmail, deletedEmail: goneEmail) else { return }
         signedOutDone = true
         if !sample, let session = heldSession ?? currentSession() { deleted(session) }
     }

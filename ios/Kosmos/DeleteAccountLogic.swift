@@ -45,9 +45,15 @@ enum DeleteAccount {
 
     /// `understood` is the screen's "I understand" switch; the request is only built once it is on, as the page's
     /// Delete my account does nothing while the box is unticked.
+    /// It waits as long as Kosmos+ takes: confirm ends billing at Stripe before it answers (several calls in a row, each
+    /// allowed 20 s, account_delete.rs `finish`), and the page waits with no limit. A phone that gave up sooner would say
+    /// "could not be reached" about a deletion that is going ahead.
     static func confirmRequest(coordinator: URL, grant: String) -> URLRequest {
-        request(confirmPath, coordinator: coordinator, body: ["grant": grant, "understood": true])
+        var r = request(confirmPath, coordinator: coordinator, body: ["grant": grant, "understood": true])
+        r.timeoutInterval = confirmTimeout
+        return r
     }
+    static let confirmTimeout: TimeInterval = 180
 
     /// The email as typed, trimmed (Kosmos+ normalises it again). The page's own check comes first: SignIn.looksLikeEmail.
     static func email(_ raw: String) -> String? {
@@ -144,8 +150,27 @@ enum DeleteAccount {
         case "deleted": return .deleted
         case "still_deleting": return .stillDeleting
         case "nothing_changed": return .nothingChanged
-        default: return .startOver(SignIn.refusal(body["error"]) ?? didNotWork)
+        default:
+            let sentence = SignIn.refusal(body["error"])
+            // A valid grant for an account that no longer exists (account_delete.rs confirm): an earlier confirm whose
+            // answer was lost, or the sweep, finished it. It is deleted, and this iPhone must not keep its session.
+            if status == 401, sentence == alreadyGone { return .deleted }
+            return .startOver(sentence ?? didNotWork)
         }
+    }
+    static let alreadyGone = "That account is already gone."
+
+    // MARK: - Signing this iPhone out after a deletion
+
+    /// Whether the session this iPhone holds goes, once a deletion is done (`deleted` true); asked when the person leaves
+    /// the done screen, or at the answer when the screen is gone already. Never twice, never before `deleted`, never for another
+    /// account: when Kosmos+ said whose account this iPhone holds (`ownEmail`, from /v1/account/me) and the deleted one
+    /// is a different address, this iPhone's account still exists. When either is unknown it signs out, as the page
+    /// forgets every session it holds: a dead session kept is worse than a live one ended.
+    static func signsOut(deleted: Bool, already: Bool, ownEmail: String?, deletedEmail: String?) -> Bool {
+        guard deleted, !already else { return false }
+        if let own = ownEmail?.lowercased(), let gone = deletedEmail?.lowercased(), own != gone { return false }
+        return true
     }
 
     // MARK: - Words (the page's own, signin.html)
@@ -201,6 +226,8 @@ enum DeleteAccount {
     static let failedTitle = "We could not delete your account"
     static let failedWords = "Nothing was deleted. Something on our side did not answer. Try again in a minute."
     static let tryAgain = "Try again"
+    static let sendAgain = "Send the code again"
+    static let newCodeSent = "New code sent."
     static let pendingTitle = "We are still deleting your account"
     static let pendingWords = "Part of it did not finish just now. We will finish it and email you when it is done. You will not be charged again."
     /// The page's line without "and you can close this page": there is no page to close here.
