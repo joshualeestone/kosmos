@@ -2755,7 +2755,7 @@
     },
     {
       "title": "Built but waiting",
-      "line": "A project with nothing running and work built and waiting now says Built but waiting instead of looking idle.",
+      "line": "An active project with nothing running and work built and waiting now says Built but waiting instead of looking idle.",
       "icon": "tasks",
       "rank": 11,
       "since": "0.8.22",

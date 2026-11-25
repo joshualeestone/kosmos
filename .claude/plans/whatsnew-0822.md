@@ -14,7 +14,8 @@ Built with `node tools/whats-new-pool.js build 0.8.22` (online) on origin/main a
   status", not "its card says". The first wording claimed the card itself, which #9008 rules out.
 - **Built but waiting** (#9011 part 2, PR #9023, rank 11). The pill shows when nothing is running, nobody needs the person,
   and at least one open task is built (`builtWaiting > 0`, engine/projects.js). The first wording said "all built", which
-  the code does not require; review caught it.
+  the code does not require; review caught it. It is the last pill in the order, so a paused project still says Paused
+  and one with a question still says Question: hence "an active project with nothing running".
 - **Commands that would stall are refused up front** (#9001 part 2, PR #9013, notesOnly, rank 148). Agent-facing: the
   report hook's refusal message. It is in install/kosmos-report-hook.sh only, the Mac and Linux hook; the Windows hook
   (engine/kosmos-report-hook.js) has none of it. So it is tagged ["mac"]: the pool refuses a line that names the Mac
@@ -24,7 +25,8 @@ Built with `node tools/whats-new-pool.js build 0.8.22` (online) on origin/main a
 - **kosmos project show gives last activity** (#8996 slice 1, PR #9006, notesOnly, rank 149). An agent's command.
 
 ## Not added
-- #8990 (PR #9025): the board stops refetching avatars on an idle poll. Nothing a person sees changes.
+- #8990 (PR #9025): an idle board stops rebuilding its cards and refetching every avatar each poll (32 rebuilds and 16
+  fetches in 40 s, measured on the PR), and a picture that fails to load asks again. Real, but not worth a line.
 - #8999 (PR #9009): an internal receipt read.
 - #9016, #8952 d, #8959 B1c: the iPhone app, which ships through TestFlight, not this window.
 - #9020, #8993, the #185 test fix: CI and tests only.
