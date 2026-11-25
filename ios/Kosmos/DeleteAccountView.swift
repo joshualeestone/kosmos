@@ -22,6 +22,7 @@ struct DeleteAccountView: View {
         case done(email: String)
         case pending
         case failed(DeleteAccount.Grant)
+        case unknown
     }
 
     @Environment(\.dismiss) private var dismiss
@@ -41,6 +42,11 @@ struct DeleteAccountView: View {
     @State private var signedOutDone = false
     @State private var visible = false
     @State private var sent: String?
+    // A confirm on the grant shown went out and no answer came back (DeleteAccount.Outcome.unknown).
+    @State private var answerLost = false
+    // "Send the code again" waits after a send, as the page's (DeleteAccount.resendWait).
+    @State private var resendLocked = false
+    @State private var resendGeneration = 0
     @AccessibilityFocusState private var answerFocus: Bool
 
     var body: some View {
@@ -70,7 +76,7 @@ struct DeleteAccountView: View {
     }
 
     private var isAnswer: Bool {
-        switch step { case .done, .pending: return true; default: return false }
+        switch step { case .done, .pending, .unknown: return true; default: return false }
     }
 
     private var navTitle: String {
@@ -79,7 +85,7 @@ struct DeleteAccountView: View {
         case .code: return DeleteAccount.codeTitle
         case .second: return DeleteAccount.secondTitle
         case .confirm: return "Delete account"
-        case .done, .pending, .failed: return "Delete account"
+        case .done, .pending, .failed, .unknown: return "Delete account"
         }
     }
 
@@ -92,6 +98,7 @@ struct DeleteAccountView: View {
         case .done(let email): doneScreen(email: email)
         case .pending: pendingScreen
         case .failed(let grant): failedScreen(grant)
+        case .unknown: unknownScreen
         }
     }
 
@@ -139,7 +146,7 @@ struct DeleteAccountView: View {
         }
         // Kosmos+'s refusals for a used-up or expired code say "ask for a new one": this is where.
         Section {
-            Button(DeleteAccount.sendAgain) { Task { await resend(email: email) } }.disabled(busy).accessibilityIdentifier("delete-resend")
+            Button(DeleteAccount.sendAgain) { Task { await resend(email: email) } }.disabled(busy || resendLocked).accessibilityIdentifier("delete-resend")
         }
         startAgainSection
     }
@@ -251,6 +258,16 @@ struct DeleteAccountView: View {
         }
     }
 
+    private var unknownScreen: some View {
+        Section {
+            Text(DeleteAccount.unknownWords).foregroundColor(Palette.primary)
+        } header: {
+            Text(DeleteAccount.unknownTitle).font(.headline).foregroundColor(Palette.primary).textCase(nil)
+                .accessibilityAddTraits(.isHeader).accessibilityIdentifier("delete-unknown-title")
+                .accessibilityFocused($answerFocus)
+        }
+    }
+
     @ViewBuilder private func failedScreen(_ grant: DeleteAccount.Grant) -> some View {
         Section {
             Text(DeleteAccount.failedWords).foregroundColor(Palette.primary)
@@ -319,9 +336,21 @@ struct DeleteAccountView: View {
         defer { busy = false }
         let answer: (Int, Any?)? = sample ? (200, ["ok": true]) : await send(DeleteAccount.startRequest(coordinator: coordinator, email: address))
         guard let (status, json) = answer else { note = DeleteAccount.unreachable; return }
+        lockResend(DeleteAccount.resendWait(status: status, json: json))
         switch DeleteAccount.started(status: status, json: json) {
         case .sent: code = ""; sent = nil; step = .code(email: address)
         case .refused(let sentence): note = sentence
+        }
+    }
+
+    @MainActor private func lockResend(_ secs: Int) {
+        resendGeneration += 1
+        let mine = resendGeneration
+        resendLocked = secs > 0
+        guard secs > 0 else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(secs) * 1_000_000_000)
+            if resendGeneration == mine { resendLocked = false }
         }
     }
 
@@ -332,6 +361,7 @@ struct DeleteAccountView: View {
         defer { busy = false }
         let answer: (Int, Any?)? = sample ? (200, ["ok": true]) : await send(DeleteAccount.startRequest(coordinator: coordinator, email: address))
         guard let (status, json) = answer else { note = DeleteAccount.unreachable; return }
+        lockResend(DeleteAccount.resendWait(status: status, json: json))
         switch DeleteAccount.started(status: status, json: json) {
         case .sent: code = ""; sent = DeleteAccount.newCodeSent
         case .refused(let sentence): note = sentence
@@ -363,7 +393,7 @@ struct DeleteAccountView: View {
 
     @MainActor private func take(_ checked: DeleteAccount.Checked, email address: String) {
         switch checked {
-        case .grant(let grant): code = ""; sent = nil; understood = false; step = .confirm(grant)
+        case .grant(let grant): code = ""; sent = nil; understood = false; answerLost = false; step = .confirm(grant)
         case .second(let kind, let challenge, let sentTo): code = ""; sent = nil; step = .second(email: address, kind: kind, challenge: challenge, sentTo: sentTo)
         case .refused(let sentence): note = sentence
         case .startOver(let sentence): startOver(sentence)
@@ -375,12 +405,13 @@ struct DeleteAccountView: View {
         busy = true; note = nil
         // Confirm ends billing before it answers: ask iOS for time to hear the answer if the phone locks or the app is
         // sent away meanwhile, rather than reporting "could not be reached" about a deletion that is going ahead.
-        let background = UIApplication.shared.beginBackgroundTask(withName: "delete-account-confirm")
-        defer { busy = false; if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
+        let background = BackgroundTime(name: "delete-account-confirm")
+        defer { busy = false; background.end() }
         let answer: (Int, Any?)? = sample ? (200, ["outcome": "deleted"]) : await send(DeleteAccount.confirmRequest(coordinator: coordinator, grant: grant.token))
-        // Nothing reached Kosmos+ (or its answer was lost): the same grant may be sent again, as the page's Try again.
-        guard let (status, json) = answer else { note = DeleteAccount.unreachable; return }
-        switch DeleteAccount.outcome(status: status, json: json) {
+        // Nothing reached Kosmos+, or its answer was lost: the same grant may be sent again, as the page's Try again. If it
+        // did reach Kosmos+, the deletion may be finishing, so a later refusal of this grant reads as unknown.
+        guard let (status, json) = answer else { answerLost = true; note = DeleteAccount.unreachable; return }
+        switch DeleteAccount.outcome(status: status, json: json, answerLost: answerLost) {
         case .deleted:
             let address = grant.preview.email ?? email
             gone = true; goneEmail = address
@@ -389,7 +420,9 @@ struct DeleteAccountView: View {
             // Left already (another tab, the app sent away): nothing will leave the done screen, so sign out now.
             if !visible { signOutIfDeleted() }
         case .stillDeleting: step = .pending; focusAnswer()
-        case .nothingChanged: step = .failed(grant); focusAnswer()
+        case .nothingChanged: answerLost = false; step = .failed(grant); focusAnswer()
+        case .noAnswer: answerLost = true; note = DeleteAccount.unreachable
+        case .unknown: step = .unknown; focusAnswer()
         case .startOver(let sentence): startOver(sentence)
         }
     }
@@ -420,6 +453,20 @@ struct DeleteAccountView: View {
         // Only the session held when the flow began, and only while it is still the one held: a sign-in that changed
         // meanwhile (another account) is left alone. Signed in during the flow from signed out: that sign-in is new too.
         if let session = heldSession, currentSession() == session { deleted(session) }
+    }
+}
+
+/// Background time for a request that must be heard out (confirm). Ended when the request ends, or by iOS's expiry
+/// handler, whichever comes first, so the app is never ended for holding it past its time.
+private final class BackgroundTime {
+    private var id: UIBackgroundTaskIdentifier = .invalid
+    init(name: String) {
+        id = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in self?.end() }
+    }
+    func end() {
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
     }
 }
 

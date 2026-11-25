@@ -99,10 +99,33 @@ enum DeleteAccount {
     }
 
     static func started(status: Int, json: Any?) -> Started {
-        guard (200..<300).contains(status) else {
-            return .refused(SignIn.refusal((json as? [String: Any])?["error"]) ?? couldNotWords)
-        }
+        guard (200..<300).contains(status) else { return .refused(sentence(json) ?? couldNotWords) }
         return .sent
+    }
+
+    /// Kosmos+'s refusal, with a long wait in words, as the page's plainWait: "in 1290 seconds" reads "in about 22 minutes".
+    static func sentence(_ json: Any?) -> String? {
+        let body = json as? [String: Any] ?? [:]
+        guard var t = body["error"] as? String else { return nil }
+        if let secs = (body["retry_after_secs"] as? NSNumber)?.intValue, secs >= 120,
+           let r = t.range(of: #"in \d+ seconds?"#, options: .regularExpression) {
+            t.replaceSubrange(r, with: "in " + waitWords(secs))
+        }
+        return SignIn.refusal(t)
+    }
+
+    static func waitWords(_ secs: Int) -> String {
+        if secs < 120 { return "\(secs)" + (secs == 1 ? " second" : " seconds") }
+        let m = (secs + 59) / 60
+        return m == 60 ? "about an hour" : "about \(m) minutes"
+    }
+
+    /// How long "Send the code again" waits after a send, as the page's: 90 s after a code went, Kosmos+'s own wait after
+    /// a 429, none after any other refusal.
+    static func resendWait(status: Int, json: Any?) -> Int {
+        if (200..<300).contains(status) { return 90 }
+        if status == 429, let secs = ((json as? [String: Any])?["retry_after_secs"] as? NSNumber)?.intValue, secs > 0 { return secs }
+        return 0
     }
 
     enum Checked: Equatable {
@@ -121,7 +144,7 @@ enum DeleteAccount {
     static func checked(status: Int, json: Any?) -> Checked {
         let body = json as? [String: Any] ?? [:]
         guard (200..<300).contains(status) else {
-            let sentence = SignIn.refusal(body["error"])
+            let sentence = sentence(json)
             if let sentence, SignIn.startsOver(sentence) { return .startOver(sentence) }
             return .refused(sentence ?? codeRefused)
         }
@@ -138,24 +161,32 @@ enum DeleteAccount {
         case stillDeleting
         /// Nothing was deleted; the same grant may be sent again (Try again).
         case nothingChanged
-        /// The grant is spent or expired (a 401), or an answer this app cannot read: back to the email screen with the
-        /// sentence. A dead grant is never sent again.
+        /// The grant is spent or expired (a 401), or a refusal: back to the email screen with the sentence. A dead grant is
+        /// never sent again.
         case startOver(String)
+        /// No answer this app can read (a proxy's page, no body): as if nothing came back. The same grant stays, with Try
+        /// again, as the page's catch.
+        case noAnswer
+        /// An earlier confirm on this grant went out and its answer never came back, and now the grant is refused: the
+        /// deletion may have finished with it (it spends the grant in the same transaction). Saying "start again" would
+        /// tell someone whose account is gone that it is not.
+        case unknown
     }
 
-    /// The page reads `outcome` whatever the status (deleted 200, still_deleting 202, nothing_changed 503).
-    static func outcome(status: Int, json: Any?) -> Outcome {
+    /// The page reads `outcome` whatever the status (deleted 200, still_deleting 202, nothing_changed 503). `answerLost`:
+    /// a confirm on this same grant was sent before and no answer came back.
+    static func outcome(status: Int, json: Any?, answerLost: Bool = false) -> Outcome {
         let body = json as? [String: Any] ?? [:]
         switch body["outcome"] as? String {
         case "deleted": return .deleted
         case "still_deleting": return .stillDeleting
         case "nothing_changed": return .nothingChanged
         default:
-            let sentence = SignIn.refusal(body["error"])
-            // A valid grant for an account that no longer exists (account_delete.rs confirm): an earlier confirm whose
-            // answer was lost, or the sweep, finished it. It is deleted, and this iPhone must not keep its session.
+            guard let sentence = SignIn.refusal(body["error"]) else { return .noAnswer }
+            // A valid grant for an account that no longer exists (account_delete.rs confirm): the sweep finished it.
             if status == 401, sentence == alreadyGone { return .deleted }
-            return .startOver(sentence ?? didNotWork)
+            if answerLost { return .unknown }
+            return .startOver(sentence)
         }
     }
     static let alreadyGone = "That account is already gone."
@@ -190,7 +221,8 @@ enum DeleteAccount {
     static func codeWords(email: String) -> String { "Type the six-digit code we sent to \(email). " + codeLife }
     static let secondTitle = "One more code"
     static func secondWords(kind: String, sentTo: String?) -> String {
-        if kind == "sms" { return "Type the six-digit code we texted to " + (sentTo ?? "your phone") + "." }
+        // A texted code lasts as the emailed one, and the page says so beside it (secondClock); an app's code has no lifetime line.
+        if kind == "sms" { return "Type the six-digit code we texted to " + (sentTo ?? "your phone") + ". " + codeLife }
         return "Type the six-digit code your authenticator app shows for Kosmos."
     }
     static let startAgain = "Start again from the email"
@@ -234,6 +266,10 @@ enum DeleteAccount {
     static let pendingClose = "You do not need to do anything."
 
     static let unreachable = "Kosmos+ could not be reached just now. Try again in a minute."
+    // Not on the page (its flow has the same gap): what the phone says when it cannot tell. Kosmos+ emails the address
+    // when a deletion finishes (account_delete.rs finish), so the email is where the person can find out.
+    static let unknownTitle = "We could not tell whether your account was deleted"
+    static let unknownWords = "Kosmos+ did not answer in time, and the confirmation cannot be used again. If your account was deleted, we emailed you to say so. If no email comes, start again from the email."
     static let didNotWork = "That did not work. Start again from the email."
     static let codeRefused = "That code is not right."
     static let notAnEmail = "That does not look like an email address."

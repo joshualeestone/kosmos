@@ -64,8 +64,25 @@ check(D.outcome(status: 202, json: ["outcome": "still_deleting"]) == .stillDelet
 check(D.outcome(status: 503, json: ["outcome": "nothing_changed"]) == .nothingChanged, "nothing changed")
 check(D.outcome(status: 401, json: ["error": "that confirmation has expired; start again from the email"]) == .startOver("That confirmation has expired; start again from the email."), "an expired grant")
 check(D.outcome(status: 400, json: ["error": "tick the box to say you understand this cannot be undone"]) == .startOver("Tick the box to say you understand this cannot be undone."), "understood missing")
-check(D.outcome(status: 200, json: ["outcome": "gone"]) == .startOver(D.didNotWork), "an outcome this app does not know is not read as deleted")
-check(D.outcome(status: 200, json: nil) == .startOver(D.didNotWork), "no body")
+check(D.outcome(status: 200, json: ["outcome": "gone"]) == .noAnswer, "an outcome this app does not know is not read as deleted")
+check(D.outcome(status: 200, json: nil) == .noAnswer, "no body: as if nothing came back, the grant stays")
+check(D.outcome(status: 502, json: nil) == .noAnswer, "a proxy's page (no JSON) keeps the grant, as the page's catch")
+// A lost answer, then the grant refused: the deletion may have spent it. Never "start again" about a gone account.
+check(D.outcome(status: 401, json: ["error": "that confirmation has expired; start again from the email"], answerLost: true) == .unknown, "lost answer then expired: unknown")
+check(D.outcome(status: 400, json: ["error": "tick the box to say you understand this cannot be undone"], answerLost: true) == .unknown, "lost answer then any refusal: unknown")
+check(D.outcome(status: 202, json: ["outcome": "still_deleting"], answerLost: true) == .stillDeleting, "a real outcome still wins after a lost answer")
+check(D.outcome(status: 401, json: ["error": "that account is already gone"], answerLost: true) == .deleted, "already gone is deleted either way")
+
+// Long waits in words, as the page's plainWait; the resend wait, as the page's cooldown.
+check(D.sentence(["error": "too many codes; try again in 1290 seconds", "retry_after_secs": 1290]) == "Too many codes; try again in about 22 minutes.", "a long wait in minutes")
+check(D.sentence(["error": "too many codes; try again in 3600 seconds", "retry_after_secs": 3600]) == "Too many codes; try again in about an hour.", "an hour")
+check(D.sentence(["error": "wait; try again in 45 seconds", "retry_after_secs": 45]) == "Wait; try again in 45 seconds.", "a short wait stays in seconds")
+check(D.sentence(["error": "try again in 300 seconds"]) == "Try again in 300 seconds.", "no retry_after_secs: unchanged")
+check(D.started(status: 429, json: ["error": "too many codes; try again in 1290 seconds", "retry_after_secs": 1290]) == .refused("Too many codes; try again in about 22 minutes."), "start reads it")
+check(D.checked(status: 429, json: ["error": "too many tries; try again in 600 seconds", "retry_after_secs": 600]) == .refused("Too many tries; try again in about 10 minutes."), "verify reads it")
+check(D.resendWait(status: 200, json: nil) == 90, "90 s after a code went")
+check(D.resendWait(status: 429, json: ["retry_after_secs": 1290]) == 1290, "Kosmos+'s own wait after a 429")
+check(D.resendWait(status: 400, json: ["retry_after_secs": 30]) == 0 && D.resendWait(status: 429, json: nil) == 0, "no wait otherwise")
 
 // A lost answer, or the sweep, finished it: the account is gone, and the iPhone signs out.
 check(D.outcome(status: 401, json: ["error": "that account is already gone"]) == .deleted, "already gone reads as deleted")
@@ -89,7 +106,7 @@ check(D.subscriptionWords(false) == "You have no subscription to cancel.", "none
 check(D.keepWords(true) != D.keepWords(false), "the two keep lines")
 check(D.companyWords([]) == nil, "no company line")
 check(D.companyWords(["Acme", "your company"]) == "You are the only admin of Acme, your company. Make someone else an admin there first, or your company is left without one.", "the company line")
-check(D.secondWords(kind: "sms", sentTo: nil) == "Type the six-digit code we texted to your phone.", "a text with no number")
+check(D.secondWords(kind: "sms", sentTo: nil) == "Type the six-digit code we texted to your phone. It is good for ten minutes.", "a text with no number, and its lifetime")
 check(D.secondWords(kind: "totp", sentTo: "x") == "Type the six-digit code your authenticator app shows for Kosmos.", "the authenticator")
 check(D.codeWords(email: "a@b.co") == "Type the six-digit code we sent to a@b.co. It is good for ten minutes.", "the code line")
 

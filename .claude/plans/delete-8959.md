@@ -40,3 +40,11 @@ Plan as posted on the card 2026-11-25 02:4x UTC (issuecomment-7151149115):
   confirm. W6 tab switch on the done screen counts as leaving: commented, as planned. FIXED W7 back hidden only during a
   confirm. FIXED W8 UI test queries the answer by identifier plus label, reveals Continue past the keyboard, checks the
   company line before scrolling past it.
+- r3 opus: 0B/5W. FIXED W1 a confirm whose answer was lost, then a refused grant, reads as a new "could not tell" screen
+  (Outcome.unknown; words NOT the page's, which has the same gap: they point at the email Kosmos+ sends when a deletion
+  finishes). FIXED W2 an answer with no outcome and no sentence keeps the grant, as the page's catch. FIXED W3 the
+  background task ends at iOS's expiry. FIXED W4 long waits in words (plainWait), and Send the code again waits 90 s or
+  Kosmos+'s retry_after_secs. FIXED W5c the texted code's lifetime line. ACCEPTED W5a (static ten-minute line is true:
+  ttl::CODE = 600), W5b mail-trouble line (a new route for the phone: filed as follow-up on the card), W5d (cosmetic).
+  NOTED for Josh's billing calls, not this slice: still_deleting says "You will not be charged again" while the sweep may
+  still be ending billing (the page's words; account_delete.rs).
