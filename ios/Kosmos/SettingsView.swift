@@ -344,6 +344,13 @@ struct SettingsView: View {
                 Text(GlobalSkills.Words.title).foregroundColor(Palette.primary)
             }
             .accessibilityIdentifier("settings-global-skills")
+            // kosmos#8959 slice D1b2: the board's AI policies, native.
+            NavigationLink {
+                AIPoliciesView(mac: mac, sample: Self.sample, finding: load == .reading, signedOut: load == .signedOut)
+            } label: {
+                Text(AIPolicies.Words.title).foregroundColor(Palette.primary)
+            }
+            .accessibilityIdentifier("settings-ai-policies")
             Button(action: openBoardSettings) { row("Settings on your computer's board", detail: nil) }
         } footer: {
             Text("Agents, AI models, connections and the rest of your computer's settings are there.")
