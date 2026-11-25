@@ -33,6 +33,7 @@ final class AIPoliciesUITests: XCTestCase {
         remove.tap()
         XCTAssertTrue(app.staticTexts["Removed. No agents are running, so there was nothing to take back."].waitForExistence(timeout: 5),
                       "the page's removed sentence is missing")
+        noteShown(app, "Removed. No agents are running, so there was nothing to take back.", above: app.textFields["policy-name"])
 
         // Adding asks first, in the page's words, naming the policy.
         let name = app.textFields["policy-name"]
@@ -51,7 +52,18 @@ final class AIPoliciesUITests: XCTestCase {
         ask.buttons["Hand it out"].tap()
         XCTAssertTrue(app.staticTexts["Saved. No agents are running yet; each one gets it when it exists."].waitForExistence(timeout: 5),
                       "the page's saved sentence is missing")
+        noteShown(app, "Saved. No agents are running yet; each one gets it when it exists.", below: save)
         shot(app, "ai-policies-saved")
+    }
+
+    /// The change's sentence is shown once, as the note, and under what was tapped (review round 2's fix).
+    private func noteShown(_ app: XCUIApplication, _ said: String, below: XCUIElement? = nil, above: XCUIElement? = nil) {
+        let notes = app.staticTexts.matching(identifier: "policy-note")
+        XCTAssertEqual(notes.count, 1, "the note is shown \(notes.count) times")
+        XCTAssertEqual(notes.firstMatch.label, said)
+        if let below, below.exists { XCTAssertGreaterThan(notes.firstMatch.frame.minY, below.frame.maxY, "the note is not under what was tapped") }
+        // A rename or remove's note is under the list, so above the add form (when the form is drawn at all).
+        if let above, above.exists { XCTAssertLessThan(notes.firstMatch.frame.maxY, above.frame.minY, "the note is under the form, not the list") }
     }
 
     private func reveal(_ app: XCUIApplication, _ element: XCUIElement, swipes: Int = 8) {

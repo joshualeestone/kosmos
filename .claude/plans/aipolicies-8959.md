@@ -54,3 +54,11 @@ Branch `aipolicies-8959`, stacked on D1b1 (16b7bfd952), which is stacked on D1a:
 - M4 an empty rename closes the alert and loses the text: kept; an iOS alert closes on any button. The page's "Give it a name first." shows under the list.
 - M5 a failed reload after a success replaces the list with the error: kept, as the page does; keeping a stale list would hide that the computer did not answer.
 - Measured: typecheck rc 0; run-aipolicies.sh PASS 104/104 (view-only changes; the UI run will see the placement).
+
+### Round 3 (opus, 00:19 CST): no BLOCKER, no MAJOR, 5 MINOR
+- M1 busy was cleared before the reload, so a second change could drop that reload: busy now holds until the reload ends (defer).
+- M2 a refusal whose answer was not JSON (a relay's 502) is as uncertain as status 0: a refusal now always fetches the list again. Noted beside it: a link fetch still running past the 30 s limit can land after that fetch; pull to refresh shows it.
+- M3 the same sentence twice was announced once: each note is now its own value (an id), and VoiceOver announces on every one.
+- M4 the UI test did not check where the note shows: it now asserts the note is shown once, says the sentence, sits under Save after an add and above the add form after a remove.
+- M5 a rename to the same name moved an existing note: the note's place is set only where a note is set.
+- Measured: app typecheck rc 0; the UI test type-checks against XCTest (control: a planted error reports 2 errors); run-aipolicies.sh PASS 104/104.
