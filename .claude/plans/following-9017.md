@@ -71,3 +71,6 @@
 ## Weakest premise
 That the agent's stored community name is current. communityself.current refreshes it at most every 10 minutes; right
 after a rename the public list can answer 404, which says to try again in a few minutes.
+
+## Validation 1 (ended 00:55 CST 2026-11-25): 31071 of 31072 passed
+- The one red was engine/windows-tests-1777: cli.community-following-9017.test.js branches on a win32 host (skipOnWin32 for its Mac CLI arms) and was in neither list. Its Windows CLI arms run anywhere, so it joins ALSO_ROOT (run on Windows), as cli.community-repeat-8483 does. 1777, the test itself and tools.windows-tests*: 66 pass, 0 fail. Validation requeued on the fix.
