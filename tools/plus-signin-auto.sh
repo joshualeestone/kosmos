@@ -28,6 +28,7 @@
 #   issues at most 5 certificates for one name a week, so one seed runs the gate about five times a week. The run uses
 #   the seed used least in the last week (tools/lib/plus-seed-ledger.js, a ledger beside the records), and with every
 #   seed used up it says so before any download (exit 2, with when the next frees). Every seed given passes the guard.
+#   Give only seeds that OWN a Kosmos+ address: one with none registers under a per-build name every such seed shares.
 #   With KOSMOS_SEED_TOTP unset, the seed's meta names its secret and `secrets-map.sh value <target>` reads it.
 #
 # Exit: plus-signin-fresh.js's contract. 0 = the record says pass; 1 = it says fail (the gate refuses);
@@ -77,17 +78,18 @@ done
 for s_ in "${SEEDS[@]}"; do guard_seed "$s_"; done
 # kosmos#9026: the seed this run uses, the one used least this week, from the ledger beside the records. The guard
 # above has already checked it; its meta is found again below.
-LEDGER="$(node -e 'process.stdout.write(require("node:path").join(require(process.argv[1]).recordDir(), "seed-certs.jsonl"))' "$(cd "$(dirname "$0")" && pwd)/lib/plus-signin-record.js")" \
+command -v node >/dev/null 2>&1 || die "node is required"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+LEDGER="$(node -e 'process.stdout.write(require("node:path").join(require(process.argv[1]).recordDir(), "seed-certs.jsonl"))' "$HERE/lib/plus-signin-record.js")" \
   || die "could not find where the seed ledger lives"
-PICKED="$(node "$(cd "$(dirname "$0")" && pwd)/lib/plus-seed-ledger.js" pick "$LEDGER" "${SEEDS[@]}")"; prc=$?
+PICKED="$(node "$HERE/lib/plus-seed-ledger.js" pick "$LEDGER" "${SEEDS[@]}")"; prc=$?
 [ "$prc" = 0 ] || die "${PICKED:-the seed ledger could not be read}: nothing recorded"
 guard_seed "$PICKED"
-[ "${#SEEDS[@]}" -gt 1 ] && say "seed for this run: $PICKED (the least used this week of ${#SEEDS[@]})"
+NSEEDS="$(printf '%s\n' "${SEEDS[@]}" | tr '[:upper:]' '[:lower:]' | sort -u | grep -c .)"
+[ "$NSEEDS" -gt 1 ] && say "seed for this run: $PICKED (the least used this week of $NSEEDS)"
 
 case "$PORT" in *[!0-9]*|'') die "port $PORT is not numeric" ;; esac
 [ -n "$POINTER" ] && [ -f "$POINTER" ] || die "no staging pointer at ${POINTER:-(none)}"
-command -v node >/dev/null 2>&1 || die "node is required"
-HERE="$(cd "$(dirname "$0")" && pwd)"
 FRESH="${KOSMOS_PLUS_FRESH_JS:-$HERE/plus-signin-fresh.js}"
 SC="${KOSMOS_SIGNIN_CODE_BIN:-$(command -v kosmos-signin-code || true)}"
 [ -f "$FRESH" ] || die "no plus-signin-fresh.js at $FRESH"
