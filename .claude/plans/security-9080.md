@@ -11,9 +11,10 @@ Publish where to report a security problem: SECURITY.md at the kosmos repo root 
 - No known weakness is described or hinted at.
 - security.txt: Contact, Expires just under a year out (2027-11-20; RFC 9116 advises under a year), Policy pointing at SECURITY.md on
   GitHub main, Canonical, Preferred-Languages. RFC 9116 requires Contact and Expires.
-- The site serves it only at the next release deploy (DEPLOY.md: production deploys only from a
-  release export), so the card parks needs-release after both merge.
+- The site deploys itself minutes after a push to its main (.github/workflows/site-deploy.yml,
+  kosmos#5589). So merge the kosmos PR FIRST and confirm the Policy URL answers 200, then merge the
+  site PR; otherwise installkosmos.com would briefly serve a policy link that 404s.
 
 ## Done when
 SECURITY.md is on main, and curl of https://installkosmos.com/.well-known/security.txt returns
-the file.
+the file, read from outside after the site deploy runs.
