@@ -241,7 +241,8 @@ function digest(o) {
 
 /*
  * kosmos#9033: whether this agent has a day of its own to report on: a word with its person in Kosmos (conversation),
- * a task it changed (taskChanges), or a room post or a message to another agent it sent (the message log), on `date`.
+ * a task it changed (taskChanges), or a room post or agent message it sent or an agent message it received (the message
+ * log), on `date`.
  * The daily feedback ask (engine/feedbacknudge.js) skips an agent whose day is empty, so a brand-new or idle agent is not
  * spent a turn writing a report about nothing (feedback 11-24). The same readers as `kosmos feedback day`, plus the room
  * posts that digest does not list (an agent working in rooms all day has a day).
@@ -265,7 +266,10 @@ function hadDay(o) {
   let log;
   try { log = readLog(); } catch { return true; }
   if (!log || log.ok !== true || !Array.isArray(log.rows)) return true;
-  return log.rows.some((r) => r && (r.kind === 'post' || r.kind === 'message') && names.includes(r.from) && Boolean(onDay(r.at, date, dateKey)));
+  /* Its own room post or message, or a message another agent sent it (`kosmos msg`, review round 1: work handed to it). */
+  const toIt = (to) => (Array.isArray(to) ? to : [to]).some((t) => names.includes(t));
+  return log.rows.some((r) => r && Boolean(onDay(r.at, date, dateKey))
+    && (((r.kind === 'post' || r.kind === 'message') && names.includes(r.from)) || (r.kind === 'message' && toIt(r.to))));
 }
 
 module.exports = { digest, dayArg, dayBefore, DAY_USAGE, recordWho, listTaskFilesIn, conversation, taskChanges, firstLine, hadDay, MAX_MESSAGES, LINE_MAX };

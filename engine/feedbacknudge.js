@@ -185,7 +185,7 @@ function plan(o) {
      check that throws counts as a day (asked as before). Absent (tests of the rest of the planner), every card has one. */
   const hasDay = typeof o.hasDay === 'function' ? o.hasDay : () => true;
   const cards = worked.filter((c) => { try { return hasDay(c) !== false; } catch { return true; } });
-  if (!cards.length) return { act: 'none', because: 'nobody who worked today has a day of their own to report on (no conversation with their person, task change or room post)' };
+  if (!cards.length) return { act: 'none', noDay: true, because: 'nobody who worked today has a day of their own to report on (no conversation with their person, task change or room post)' };
   return { act: 'nudge', cards, because: 'today has no report' };
 }
 
@@ -237,6 +237,12 @@ function sweepOnce(o) {
       labels: Array.isArray(o.labels) ? o.labels : firstLabels(), isGuide: typeof o.isGuide === 'function' ? o.isGuide : undefined,
       hasDay: typeof o.hasDay === 'function' ? (c) => o.hasDay(c, today, dateKey) : undefined,
     });
+    /* kosmos#9033 (review round 1): nobody asked because nobody had a day of their own. Said once a day, as a held day is,
+       so a person asking why no report came finds the reason. */
+    if (p.act !== 'nudge' && p.noDay === true && !(entry && entry.date === today && entry.noDaySaid)) {
+      book.set('day', { ...(entry && entry.date === today ? entry : { date: today, nudgedAt: null, tries: 0 }), noDaySaid: true });
+      say({ name: '-', session: '-', act: 'none', delivery: null, because: p.because });
+    }
     if (p.act !== 'nudge') return { result: { act: 'none', because: p.because } };
     /* Each candidate in turn, in one tick:
        - held (deliverAutomatic's holds: a menu, a usage limit, a signed-out account, text in its box): nothing typed, the
