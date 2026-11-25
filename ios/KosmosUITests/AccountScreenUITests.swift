@@ -38,6 +38,7 @@ final class AccountScreenUITests: XCTestCase {
         noSelling(app, "the plan, computers and second step")
         reveal(app, app.buttons["account-sign-out-everywhere"])
         XCTAssertTrue(app.buttons["account-sign-out"].exists && app.buttons["account-sign-out-everywhere"].exists, "no sign-out buttons")
+        XCTAssertFalse(app.descendants(matching: .any)["account-no-computer"].exists, "no-computer words beside computers that answer")
         // kosmos#8959 slice B3: nothing on this screen opens the web page any more.
         XCTAssertFalse(app.buttons["account-more"].exists, "the More on Kosmos+ row is still there")
         XCTAssertFalse(app.staticTexts["Anything not on this screen is on your Kosmos+ account page."].exists, "the More footer is still there")
