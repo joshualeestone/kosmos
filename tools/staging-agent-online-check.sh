@@ -442,16 +442,27 @@ let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
     const badge = String(conn.badge || "");
     const ok = st==="connected" || badge==="working" || badge==="signed_in_unverified";
     if (!ok) continue;
-    // kosmos#9079: skip a row the BOARD ITSELF already marks dead (badge rejected or signed_out, or connection.loginEnded),
-    // which can still read state "connected". Never skip on what a create answers: a create refusing the account is the
-    // answer of the build and stands (0.8.23: #9031 refused every default-account create, and this gate was right to hold).
-    if (badge==="rejected" || badge==="signed_out" || conn.loginEnded===true) continue;
     const dir = r.dir || r.account || r.accountDir || "";
+    // kosmos#9079: skip a SECONDARY Claude row the board itself marks dead (badge rejected or signed_out, or
+    // connection.loginEnded), which can still read state "connected". NEVER the default row: its dead mark comes from
+    // the build under test (Check now runs the same probe as the create), so a build that wrongly marks the default
+    // dead would otherwise pass on another account. The default is tested as it is, and its create answer stands.
+    // Nothing is ever skipped on what a create answers.
+    if (prov==="anthropic" && r.isDefault!==true && (badge==="rejected" || badge==="signed_out" || conn.loginEnded===true)) {
+      process.stdout.write("skipped\t"+dir+"\t"+(conn.loginEnded===true ? "its login has ended" : "the board marks it "+badge)+"\n");
+      continue;
+    }
     if (!seen[prov]) { seen[prov]=1; process.stdout.write(prov+"\t"+dir+"\n"); }
   }
 })')"
 
 get_dir() { printf '%s\n' "$PROV_DIRS" | awk -F'\t' -v p="$1" '$1==p{print $2; exit}'; }
+# kosmos#9079: say which secondary Claude rows were skipped and why, so a pass reached past a skip is visible.
+while IFS="$(printf '\t')" read -r k d why; do
+  if [ "$k" = skipped ]; then say "  [anthropic] skipped account $d: $why"; fi
+done <<EOF_SKIPPED
+$PROV_DIRS
+EOF_SKIPPED
 ANTHROPIC_DIR="$(get_dir anthropic)"
 OPENAI_DIR="$(get_dir openai)"
 
