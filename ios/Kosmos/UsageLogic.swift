@@ -138,6 +138,8 @@ enum Usage {
 
     /// toLocaleString on a whole number: the person's grouping. `locale` is a seam for the suite.
     static func grouped(_ n: Double, locale: Locale = .current) -> String {
+        formattersLock.lock()
+        defer { formattersLock.unlock() }   // callable from any thread; a NumberFormatter is used under the lock too
         let f: NumberFormatter
         if let kept = formatters[locale.identifier] { f = kept } else {
             f = NumberFormatter()
@@ -149,6 +151,7 @@ enum Usage {
         return f.string(from: NSNumber(value: n)) ?? String(n)
     }
     private static var formatters: [String: NumberFormatter] = [:]
+    private static let formattersLock = NSLock()
 
     // usageAbbr
     static func abbr(_ n: Double) -> String {
