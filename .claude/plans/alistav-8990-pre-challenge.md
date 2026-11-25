@@ -34,27 +34,27 @@ folder my own tooling left in the worktree made it dirty.
 **Reviewer model:** opus
 **New findings:** 1 BLOCKER, 2 WARNINGs, 1 CONVENTION, 3 NITs
 **Self-generated:** 0
-- [BLOCKER] docs/browser-checks/render-teamcreate-4557.js:681 — waited for an idle poll to rebuild cards --> FIXED (measured red, then forced rebuild; a mutant proves the arm bites)
-- [WARNING] docs/browser-checks/render-star-6719.js:181 — list-repaint arms could pass without keepStarFocus --> FIXED
-- [WARNING] web/index.html tcGoToTeam — tabindex no longer wiped by a poll --> FIXED
-- [CONVENTION] tools/browser-checks.sh — new check belongs in gated.txt --> FIXED
+- [BLOCKER] docs/browser-checks/render-teamcreate-4557.js:681 - waited for an idle poll to rebuild cards --> FIXED (measured red, then forced rebuild; a mutant proves the arm bites)
+- [WARNING] docs/browser-checks/render-star-6719.js:181 - list-repaint arms could pass without keepStarFocus --> FIXED
+- [WARNING] web/index.html tcGoToTeam - tabindex no longer wiped by a poll --> FIXED
+- [CONVENTION] tools/browser-checks.sh - new check belongs in gated.txt --> FIXED
 - Found by running, same class: render-federation-invite-4649, render-ownseal-4658 --> FIXED
 
 #### Iteration 2
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 4 NITs
 **Self-generated:** 0
-- [WARNING] web/index.html setGridHtml — a failed avatar was never retried --> FIXED (later reworked, iter 3 and 5)
-- [WARNING] web/index.html — in-place writers inside #grid/#alist --> DEFERRED: the plan's named weakest premise; swept, none found; later pinned by web.board-memo-8990.test.js
-- [NIT] web/index.html #2698 comment — led to a real defect: grid/list avatar URLs unversioned, a new picture stayed old --> FIXED (?v=)
+- [WARNING] web/index.html setGridHtml - a failed avatar was never retried --> FIXED (later reworked, iter 3 and 5)
+- [WARNING] web/index.html - in-place writers inside #grid/#alist --> DEFERRED: the plan's named weakest premise; swept, none found; later pinned by web.board-memo-8990.test.js
+- [NIT] web/index.html #2698 comment - led to a real defect: grid/list avatar URLs unversioned, a new picture stayed old --> FIXED (?v=)
 - [CONVENTION] stray untracked http:/ folder --> FIXED
 
 #### Iteration 3
 **Reviewer model:** fable
 **New findings:** 1 BLOCKER, 4 WARNINGs, 2 CONVENTIONs, 3 NITs
 **Self-generated:** 2
-- [BLOCKER] render-avatar-steady-8990.js — fixture picture undecodable --> FIXED (real PNGs, decode asserted)
-- [WARNING] web/index.html retry — cleared the container memo; one broken picture rebuilt everything --> FIXED (per-element retry)
+- [BLOCKER] render-avatar-steady-8990.js - fixture picture undecodable --> FIXED (real PNGs, decode asserted)
+- [WARNING] web/index.html retry - cleared the container memo; one broken picture rebuilt everything --> FIXED (per-element retry)
 - [WARNING] arm 4 counted requests from any surface --> FIXED
 - [WARNING] no source guard on writers --> FIXED (web.board-memo-8990.test.js)
 - [WARNING] forced rebuilds stand in for a real poll --> DEFERRED, then filed to #9004
@@ -64,7 +64,7 @@ folder my own tooling left in the worktree made it dirty.
 **Reviewer model:** opus
 **New findings:** 1 BLOCKER, 4 WARNINGs, 3 NITs
 **Self-generated:** 2
-- [BLOCKER] web.avatarver-2762.test.js — pinned /avatar count 25 became 26 --> FIXED (measured, pin bumped with reason)
+- [BLOCKER] web.avatarver-2762.test.js - pinned /avatar count 25 became 26 --> FIXED (measured, pin bumped with reason)
 - [WARNING] arm 4 beta-fetch could not discriminate --> FIXED (node identity)
 - [WARNING] arm 4 did not prove backoff or cap --> FIXED
 - [WARNING] retry gave up after 75 s --> FIXED in iteration 5
