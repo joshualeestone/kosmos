@@ -2755,7 +2755,7 @@
     },
     {
       "title": "Built but waiting",
-      "line": "An active project with nothing running and work built and waiting now says Built but waiting instead of looking idle.",
+      "line": "On Projects, an active project with nothing running and work built and waiting now says Built but waiting instead of looking idle.",
       "icon": "tasks",
       "rank": 11,
       "since": "0.8.22",
@@ -2781,6 +2781,17 @@
       "since": "0.8.22",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "Long permission requests can be allowed",
+      "line": "When a Claude agent asks permission for a long command, the board now shows the whole request with Allow, not only a way to refuse it.",
+      "icon": "shield",
+      "rank": 9,
+      "since": "0.8.22",
+      "status": "pending",
+      "platforms": [
+        "mac"
+      ]
     }
   ],
   "lastProdWin": "0.8.21"
