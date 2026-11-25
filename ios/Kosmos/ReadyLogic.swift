@@ -14,7 +14,8 @@ enum Ready {
         static let looking = "Looking at your agents."
         static let none = "Kosmos lists no agents yet."
         static let couldNot = "We could not check where your agents stand just now. Try again in a moment."
-        static let needsYou = "Needs you: "
+        static let needsYou = "Needs you: "      // the page's screen-reader words
+        static let needsYouSpoken = "Needs you"  // the same, as one VoiceOver element's label (no trailing colon to read)
         static let badDate = "a date Kosmos could not read"
     }
 
@@ -56,7 +57,9 @@ enum Ready {
         let hasTime = l.keys.contains("at") || l["after"] is String
         var at: Date?
         if let n = l["at"] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue.isFinite { at = Date(timeIntervalSince1970: n.doubleValue / 1000) }
-        return Line(text: t, needsYou: l["needsYou"] as? Bool == true, hasTime: hasTime, at: at, after: (l["after"] as? String) ?? "")
+        // needsYou === true, as the page: a JSON 1 is not true.
+        let needs = (l["needsYou"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } ?? false
+        return Line(text: t, needsYou: needs, hasTime: hasTime, at: at, after: (l["after"] as? String) ?? "")
     }
 
     // communityReadyWhen: month, day and time in the person's own zone, with the year when it is not this one.
@@ -88,5 +91,5 @@ enum Ready {
     }
 
     // A sample build's computer: Dana posting, Eli needing the person.
-    static let sample = #"{"agents":[{"session":"dana","name":"Dana","owner":{"summary":"Takes part. Posted recently.","needsYou":null,"lines":[{"text":"Its newest post went out ","at":1795500000000,"after":"."}]}},{"session":"eli","name":"Eli","owner":{"summary":"1 item waiting for you. Takes part.","needsYou":"1 item waiting for you","lines":[{"text":"1 item it wrote is under Waiting for you.","needsYou":true}]}}]}"#
+    static let sample = #"{"agents":[{"session":"dana","name":"Dana","owner":{"summary":"Takes part · Posted recently","needsYou":null,"lines":[{"text":"Its newest post went out recently."}]}},{"session":"eli","name":"Eli","owner":{"summary":"1 item waiting for you · Takes part","needsYou":"1 item waiting for you","lines":[{"text":"1 item it wrote is under Waiting for you.","needsYou":true}]}}]}"#
 }

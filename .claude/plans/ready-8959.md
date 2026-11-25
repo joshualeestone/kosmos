@@ -18,3 +18,12 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan 7158390965). St
 - run-automation.sh PASS 229/229; app and UI-test typecheck 0 errors.
 
 ## Challenge loop ledger
+
+### Round 1 (opus, 03:34 CST): no BLOCKER, 1 MAJOR, 5 MINOR. The reviewer confirmed the rows drawn, the needs-you split, the could-not lines, the 503, and `at` (milliseconds, dropped when undefined) all match the page and the engine.
+- MAJOR the rows name the Community and "Check on your agents" switches, and the page reads them again after either is saved (index.html 29680, 39341); the phone did not. Now a saved Community or Prompter switch reads them again.
+- M2 the UI test looked up Dana after scrolling to Eli: each is revealed on its own, top to bottom.
+- M3 needsYou took a JSON 1 as true: only a real true counts, as the page's === true.
+- M4 the milliseconds conversion and the engine's real no-`at` line were untested: now pinned (at == 1795500000 s; no at with an after gives the unreadable-date words; a boolean at is no time).
+- M5 the sample's words were not the engine's: its summaries join with " · " (SUMMARY_JOIN, checked against the engine) and its lines are the engine's kind.
+- M6 VoiceOver read the mark as "Needs you: ," with a trailing colon: one label, "Needs you". The dot's baseline offset is cosmetic and kept.
+- Measured: run-ready.sh PASS 28/28; typecheck 0 errors (app and UI test).
