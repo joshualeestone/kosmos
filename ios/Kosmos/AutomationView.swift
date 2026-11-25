@@ -40,6 +40,14 @@ struct AutomationView: View {
     @State private var ready: Ready.Load = .looking
     @State private var readyOpen: Set<String> = []      // rows opened, kept per agent across reads (COMMUNITY_READY_OPEN)
     @State private var readyGeneration = 0
+    // kosmos#8959 slice D1d3b: "Your agents’ posts and comments in the community" (the page's #community-mine), with Delete.
+    private enum MineLoad: Equatable { case reading, read(Mine.Read), failed }
+    @State private var mine: MineLoad = .reading
+    @State private var mineGeneration = 0
+    @State private var mineOpen = false              // the fold holding the rows (closed, as the page's)
+    @State private var mineAsking: String?           // the row whose Delete ask is open
+    @State private var mineBusy: String?
+    @State private var mineNotes: [String: String] = [:]
 
     private enum Load: Equatable {
         case reading
@@ -101,7 +109,8 @@ struct AutomationView: View {
                 shownURL = mac?.url
                 loads = [:]; notes = [:]; pending = [:]; checkins = nil; checkinsGeneration += 1
                 industry = nil; industryRead = false; industryKept = []; industryNote = nil; industrySaving = nil; industryGeneration += 1
-                held = .reading; lastCommunity = nil; ready = .looking; readyOpen = []; readyGeneration += 1; heldGeneration += 1; heldBusy = nil; heldNotes = [:]; heldSay = nil; heldAsking = nil; heldShowWords = []; heldOpen = []
+                held = .reading; lastCommunity = nil; ready = .looking; readyOpen = []; readyGeneration += 1
+                mine = .reading; mineGeneration += 1; mineOpen = false; mineAsking = nil; mineBusy = nil; mineNotes = [:]; heldGeneration += 1; heldBusy = nil; heldNotes = [:]; heldSay = nil; heldAsking = nil; heldShowWords = []; heldOpen = []
                 for box in Automation.Box.allCases { generations[box, default: 0] += 1 }
             }
             await readAll(keepNotes: true)
@@ -139,6 +148,7 @@ struct AutomationView: View {
             if box == .community, industryRead { industryRows() }
             if box == .community { heldRows() }
             if box == .community { readyRows() }
+            if box == .community { mineRows() }
         } header: {
             Text(box.title)
         } footer: {
@@ -323,6 +333,7 @@ struct AutomationView: View {
             group.addTask { await readIndustry(keepNote: keepNotes) }
             group.addTask { await readHeld() }
             group.addTask { await readReady() }
+            group.addTask { await readMine() }
         }
     }
 
@@ -497,6 +508,112 @@ struct AutomationView: View {
         }
     }
 
+    // communityMinePaint and communityMineSummaryPaint.
+    @ViewBuilder private func mineRows() -> some View {
+        Text(Mine.Words.heading).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
+        switch mine {
+        case .reading:
+            HStack(spacing: 10) { SweepDots(scales: false); Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary) }
+        case .failed:
+            Text(Mine.Words.unread).font(.footnote).foregroundColor(Palette.secondary).accessibilityIdentifier("automation-mine-msg")
+        case .read(let r):
+            if let line = Mine.summaryLine(r.summary, rowCount: r.rows.count) { Text(line).font(.footnote).foregroundColor(Palette.secondary) }
+            let agents = Mine.agentLinks(r.summary, rowCount: r.rows.count)
+            if !agents.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Mine.Words.agentsLead).font(.footnote).foregroundColor(Palette.secondary)
+                    ForEach(Array(agents.enumerated()), id: \.offset) { _, a in Link(a.0, destination: a.1).font(.footnote).buttonStyle(.borderless) }
+                }
+            }
+            if let page = Mine.siteLink(r.summary, rowCount: r.rows.count) {
+                (Text(Mine.Words.siteLead) + Text(.init("[\(Mine.Words.siteLink)](\(page.absoluteString))")) + Text(Mine.Words.siteTail))
+                    .font(.footnote).foregroundColor(Palette.secondary)
+            }
+            if r.rows.isEmpty && !r.commentsUnread { Text(Mine.Words.none).font(.footnote).foregroundColor(Palette.secondary).accessibilityIdentifier("automation-mine-msg") }
+            if r.commentsUnread { Text(Mine.Words.commentsUnread).font(.footnote).foregroundColor(Palette.secondary) }
+            if !r.rows.isEmpty {
+                DisclosureGroup(isExpanded: $mineOpen) {
+                    ForEach(r.rows) { row in mineRow(row) }
+                } label: {
+                    Text(mineOpen ? Mine.Words.foldOpen : Mine.Words.foldClosed).font(.footnote).foregroundColor(Palette.primary)
+                }
+                .accessibilityIdentifier("automation-mine-fold")
+            }
+        }
+    }
+
+    @ViewBuilder private func mineRow(_ r: Mine.Row) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(Mine.label(r)).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
+            // The meta in the page's order, " · " between, a comment's post as a link.
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                ForEach(Array(Mine.meta(r).enumerated()), id: \.offset) { i, piece in
+                    if i > 0 { Text(" · ").font(.footnote).foregroundColor(Palette.secondary) }
+                    switch piece {
+                    case .text(let t): Text(t).font(.footnote).foregroundColor(Palette.secondary)
+                    case .onPost(let u): Link(Mine.Words.onPost, destination: u).font(.footnote).buttonStyle(.borderless)
+                            .accessibilityLabel("The post this comment is on: " + (r.text ?? "(no text)"))
+                    }
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            if r.canDelete {
+                if mineAsking == r.id {
+                    Text(Mine.ask(r)).font(.footnote).foregroundColor(Palette.primary)
+                    HStack(spacing: 16) {
+                        Button(Mine.Words.keep) { mineAsking = nil }.disabled(mineBusy != nil)
+                        Button(Mine.Words.deleteIt, role: .destructive) { Task { await deleteMine(r) } }
+                            .disabled(mineBusy != nil)
+                            .accessibilityIdentifier("automation-mine-delete-it-" + r.id)
+                    }
+                    .buttonStyle(.borderless)
+                } else {
+                    Button(Mine.Words.delete, role: .destructive) { mineAsking = r.id }
+                        .buttonStyle(.borderless)
+                        .disabled(mineBusy != nil)
+                        .accessibilityLabel("Delete “" + Mine.label(r) + "” from the community")
+                        .accessibilityIdentifier("automation-mine-delete-" + r.id)
+                }
+            }
+            if let note = mineNotes[r.id] {
+                Text(note).font(.footnote).foregroundColor(note == Mine.Words.deleting ? Palette.secondary : Palette.dangerWord)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    @MainActor private func readMine(during busy: Bool = false) async {
+        if sample { if mine == .reading { mine = Mine.read(status: 200, data: Data(Mine.sample.utf8)).map { .read($0) } ?? .failed }; return }
+        guard let mac, mac.url == shownURL, busy || mineBusy == nil else { return }
+        mineGeneration += 1
+        let gen = mineGeneration
+        let (status, data) = await fetch(Mine.readRequest(mac))
+        guard !Task.isCancelled, gen == mineGeneration, mac.url == shownURL else { return }
+        mine = Mine.read(status: status, data: data).map { .read($0) } ?? .failed
+    }
+
+    // openCommunityDelete's Delete it.
+    @MainActor private func deleteMine(_ r: Mine.Row) async {
+        guard mineBusy == nil else { return }
+        if sample { mineAsking = nil; if case .read(var x) = mine { x.rows.removeAll { $0.id == r.id }; mine = .read(x) }; return }
+        guard let mac else { return }
+        mineBusy = r.id
+        mineNotes[r.id] = Mine.Words.deleting
+        let (status, data) = await fetch(Mine.deleteRequest(mac, id: r.id))
+        guard mac.url == shownURL else { return }
+        switch Mine.outcome(status: status, data: data) {
+        case .done:
+            mineAsking = nil; mineNotes[r.id] = nil
+            await readMine(during: true); mineBusy = nil; await readReady()
+        case .changed(let said):
+            // The row changed under it: read again, and keep the board's sentence on the row.
+            mineAsking = nil
+            await readMine(during: true); mineBusy = nil; mineNotes[r.id] = said; await readReady()
+        case .refused(let said):
+            mineBusy = nil; mineNotes[r.id] = said
+        }
+    }
+
     // communityReadyDot: the mark, and "Needs you: " for a screen reader.
     private func needsYouDot() -> some View {
         Circle().fill(Palette.dangerWord).frame(width: 7, height: 7).alignmentGuide(.firstTextBaseline) { d in d[.bottom] - 1 }
@@ -544,7 +661,7 @@ struct AutomationView: View {
         guard mac.url == shownURL else { return }
         switch Held.outcome(status: status, data: data, releasing: true) {
         // Done: the buttons stay disabled until the list is read again, so a released post never looks untouched.
-        case .done: await readHeld(during: true); heldNotes[row.id] = nil; heldBusy = nil; await readReady()
+        case .done: await readHeld(during: true); heldNotes[row.id] = nil; heldBusy = nil; await readReady(); await readMine()
         case .refused(let said): heldBusy = nil; heldNotes[row.id] = said
         case .unfinished(let said): heldNotes[row.id] = nil; await settleUnfinished(said)
         }
@@ -560,7 +677,7 @@ struct AutomationView: View {
         let (status, data) = await fetch(Held.discardRequest(mac, id: row.id))
         guard mac.url == shownURL else { return }
         switch Held.outcome(status: status, data: data, releasing: false) {
-        case .done: heldAsking = nil; await readHeld(during: true); heldNotes[row.id] = nil; heldBusy = nil; await readReady()
+        case .done: heldAsking = nil; await readHeld(during: true); heldNotes[row.id] = nil; heldBusy = nil; await readReady(); await readMine()
         case .refused(let said): heldBusy = nil; heldNotes[row.id] = said
         case .unfinished(let said): heldNotes[row.id] = nil; heldAsking = nil; await settleUnfinished(said)
         }
