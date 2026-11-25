@@ -155,6 +155,8 @@ struct UsageView: View {
                             LineMark(x: .value("Day", i), y: .value(c.name, v))
                                 .foregroundStyle(color)
                                 .lineStyle(StrokeStyle(lineWidth: 1.8, lineJoin: .round))
+                            // One day draws no line or area: a point, so the box is not empty.
+                            if c.values.count == 1 { PointMark(x: .value("Day", i), y: .value(c.name, v)).foregroundStyle(color) }
                         }
                     }
                     .chartXAxis(.hidden)

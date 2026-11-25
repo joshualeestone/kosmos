@@ -43,7 +43,8 @@ final class UsageUITests: XCTestCase {
         }
         shot(app, "usage-charts")
         let donut = app.descendants(matching: .any)["usage-donut"]
-        reveal(app, donut)
+        // A container may never read as hittable, so this stops once it exists rather than swiping past it.
+        for _ in 0..<8 where !donut.exists { app.swipeUp() }
         XCTAssertTrue(donut.exists, "the donut is missing")
         shot(app, "usage-donut")
 
