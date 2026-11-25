@@ -111,7 +111,8 @@ test('#5167: the selftest runs the download rows and counts them', () => {
   const dl = (st.slice(0, st.indexOf('let expected')).match(/\n    dl\(/g) || []).length;
   const dest = (st.slice(0, st.indexOf('let expected')).match(/\n    dest\(/g) || []).length;
   assert.equal(dl + dest, 29, 'the #5167 rows changed; update the expected count with them');
-  assert.match(st, /let expected = 320\b/);   // kosmos#8125: +3 (quitMissesAfter); kosmos#8118: +61 (computerToRemember, rememberableHost, reopenAnswerKeeps, reopenMissesForget, reopenMissesAfter, reopenRetryAllowed, quitKeeps, reopenStep); kosmos#5167 (11-06): +6 (the failure reason rows); kosmos#7952: +12 (download-folder says rows, isFolderDownload rows, downloadAskedByPage rows, the marked request)
+  assert.match(st, /let expected = 327\b/);   // kosmos#9093: +7 (replacedSinceLaunch, the real-file rows, the restart words)
+    // kosmos#8125: +3 (quitMissesAfter); kosmos#8118: +61 (computerToRemember, rememberableHost, reopenAnswerKeeps, reopenMissesForget, reopenMissesAfter, reopenRetryAllowed, quitKeeps, reopenStep); kosmos#5167 (11-06): +6 (the failure reason rows); kosmos#7952: +12 (download-folder says rows, isFolderDownload rows, downloadAskedByPage rows, the marked request)
   // kosmos#5167 (2026-10-27): +9 refusalShouldShow rows; kosmos#6589: +14 tls-pin rows; #6585: +10 switchGoesHome rows; #5896: +14 config rows; #6411: +42 own-board, own-settings, address, board-start retry and advice-origin rows; #6358: +27 (sign-in-again, log redaction, sign-in-again page, decision)
 });
 
@@ -430,4 +431,21 @@ test('kosmos#8879: the refused-folder waits end by a clock, and one that runs ou
   const arms = [...BUILD.slice(BUILD.indexOf('--kosmos-app-download-selftest 2>&1')).split('esac')[0].matchAll(/^\s*\*"([^"]+)"\*\)/gm)].map((m) => m[1]);
   assert.ok(arms.length >= 4, 'read the bundle build\'s case arms for the download gate (found ' + arms.length + ')');
   for (const a of arms) assert.ok(!line.includes(a), 'the ran-out line contains the build arm "' + a + '"');
+});
+
+// kosmos#9093: macOS refusing Downloads in a window whose app was replaced on disk (an update while it was open) offers
+// Restart Kosmos, ahead of the Save panel question, because restarting onto the new app is the remedy.
+test('#9093: a refusal in a replaced window offers a restart, before the Save panel question', () => {
+  const fail = SRC.slice(SRC.indexOf('@objc(download:didFailWithError:resumeData:)'));
+  const restartAt = fail.indexOf('replacedSinceLaunch(launched: launchedExecutableID, now: executableID(Bundle.main.executablePath))');
+  const panelAt = fail.indexOf('offerSaveElsewhere(error, request: request');
+  assert.ok(restartAt > 0, 'the failure path no longer checks whether the app was replaced since launch');
+  assert.ok(panelAt > restartAt, 'the restart offer must come before the Save panel question');
+  assert.match(fail.slice(restartAt - 200, restartAt), /downloadRefusedCode\(error\) == EPERM/, 'only "Operation not permitted" (EPERM) is offered a restart');
+  assert.match(fail.slice(restartAt, panelAt), /offerRestartAfterUpdate\(\)/);
+  // Read at launch, once, from the file this process started from.
+  assert.match(SRC, /^let launchedExecutableID = executableID\(Bundle\.main\.executablePath\)$/m);
+  const offer = SRC.slice(SRC.indexOf('private func offerRestartAfterUpdate()'));
+  assert.match(offer.slice(0, 2500), /relaunch\(mine: mine, theirs: onDisk, target: target, waited: 0, asked: true, askedBefore: true\)/,
+    'Restart Kosmos goes through the stale-app relaunch (the new copy first, then this one quits)');
 });
