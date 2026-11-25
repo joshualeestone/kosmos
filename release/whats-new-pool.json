@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.20",
+  "lastProd": "0.8.21",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -905,7 +905,8 @@
       ],
       "rank": 30,
       "since": "0.7.76",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.21"
     },
     {
       "title": "Delete your own messages",
@@ -1204,7 +1205,8 @@
       ],
       "rank": 20,
       "since": "0.7.95",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.21"
     },
     {
       "title": "Kosmos says when others can change its folder",
@@ -2724,14 +2726,15 @@
     },
     {
       "since": "0.8.21",
-      "status": "pending",
+      "status": "shown",
       "title": "A restarted agent says why",
       "line": "On Windows, when a Claude agent stops and Kosmos starts it again, its card says when and why, such as a sign-in or a usage limit.",
       "icon": "swarm",
       "rank": 13.5,
       "platforms": [
         "windows"
-      ]
+      ],
+      "shownIn": "0.8.21"
     },
     {
       "since": "0.8.20",
@@ -2741,7 +2744,41 @@
       "rank": 140,
       "notesOnly": true,
       "line": "kosmos msg --status says whether a message was answered, read with no answer, not read yet, or never delivered."
+    },
+    {
+      "title": "A waiting agent says why",
+      "line": "Point at a waiting agent's status and it now says why in plain words, such as a question to answer or a permission to give.",
+      "icon": "chat",
+      "rank": 10,
+      "since": "0.8.22",
+      "status": "pending"
+    },
+    {
+      "title": "Built but waiting",
+      "line": "A project with nothing running, whose open tasks are all built and waiting, now says Built but waiting instead of looking idle.",
+      "icon": "tasks",
+      "rank": 11,
+      "since": "0.8.22",
+      "status": "pending"
+    },
+    {
+      "title": "Commands that would stall are refused up front",
+      "line": "Kosmos refuses a shell command Claude Code would stop on with its own safety prompt, before it runs, and says the plain way to write it.",
+      "icon": "shield",
+      "rank": 148,
+      "since": "0.8.22",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "kosmos project show gives last activity",
+      "line": "kosmos project show adds a Last activity line, and says when a quiet project is worth telling the person about.",
+      "icon": "tasks",
+      "rank": 149,
+      "since": "0.8.22",
+      "status": "pending",
+      "notesOnly": true
     }
   ],
-  "lastProdWin": "0.8.20"
+  "lastProdWin": "0.8.21"
 }

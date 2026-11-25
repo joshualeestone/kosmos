@@ -1,29 +1,15 @@
 {
-  "version": "0.8.21",
+  "version": "0.8.22",
   "highlights": [
     {
-      "icon": "swarm",
-      "title": "A restarted agent says why",
-      "line": "On Windows, when a Claude agent stops and Kosmos starts it again, its card says when and why, such as a sign-in or a usage limit.",
-      "platforms": [
-        "windows"
-      ]
+      "icon": "chat",
+      "title": "A waiting agent says why",
+      "line": "Point at a waiting agent's status and it now says why in plain words, such as a question to answer or a permission to give."
     },
     {
-      "icon": "shield",
-      "title": "A failed download gives the system's reason",
-      "line": "When the Mac app cannot save a download, its message now adds the system's reason when there is one, such as Permission denied.",
-      "platforms": [
-        "mac"
-      ]
-    },
-    {
-      "icon": "shield",
-      "title": "A Meta agent out of quota says so",
-      "line": "When Meta's usage quota stops a Meta agent, Kosmos now says so in Meta's words, and when it resets, instead of only that it could not run.",
-      "platforms": [
-        "mac"
-      ]
+      "icon": "tasks",
+      "title": "Built but waiting",
+      "line": "A project with nothing running, whose open tasks are all built and waiting, now says Built but waiting instead of looking idle."
     }
   ]
 }
