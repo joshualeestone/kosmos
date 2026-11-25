@@ -1367,7 +1367,7 @@ struct RoomView: View {
                     .padding(.horizontal, 6)
                 }
                 ForEach(attachedHere) { a in
-                    FileChip(name: a.name, preview: client.attachedPreviews[a.id]?.small, open: { previewing = OpenPicture(a, client.attachedPreviews[a.id]) },
+                    FileChip(name: a.name, incomplete: a.incomplete, preview: client.attachedPreviews[a.id]?.small, open: { previewing = OpenPicture(a, client.attachedPreviews[a.id]) },
                              remove: { client.unattach(a.id, for: attachKey) })
                 }
             }
