@@ -455,7 +455,7 @@ final class SignInModel: ObservableObject {
                     // forgotten by the web page, which would otherwise hand the dead one back.
                     self.drop()
                     self.step = .email
-                    self.error = "This sign-in ended before your Mac answered. Sign in again."
+                    self.error = "This sign-in ended before your computer answered. Sign in again."
                     return
                 case .status(.pending, _, false), .unknown: continue
                 }
@@ -606,26 +606,26 @@ struct SignInView: View {
             primary("Sign in", action: model.verifySecond)
             if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
         case .allow(let matchCode, let hasComputer):
-            title(hasComputer ? "Allow this iPhone on your Mac" : "Signed in")
+            title(hasComputer ? "Allow this iPhone on your computer" : "Signed in")
             if hasComputer {
                 // The one thing to match comes first, at every text size (Mona Lisa's review).
                 if let matchCode {
                     Text(matchCode).font(.system(.largeTitle, design: .monospaced).weight(.semibold))
                         .foregroundColor(Palette.primary).accessibilityLabel("Code \(matchCode.map { String($0) }.joined(separator: " "))")
                 }
-                line("Your Mac is asking whether to let this iPhone in. Allow it there if it shows this code.")
-                HStack(spacing: 8) { SweepDots(scales: false); Text("Waiting for your Mac").font(.footnote).foregroundColor(Palette.secondary) }
+                line("Your computer is asking whether to let this iPhone in. Allow it there if it shows this code.")
+                HStack(spacing: 8) { SweepDots(scales: false); Text("Waiting for your computer").font(.footnote).foregroundColor(Palette.secondary) }
             } else {
                 line("No computer is connected to this account yet. Set up Kosmos on your computer, and this iPhone will be asked about there.")
             }
             link("Continue to the app", action: model.continueToApp)
         case .denied(let asking):
-            title("Your Mac said no")
+            title("Your computer said no")
             if asking {
-                line("Your Mac did not let this iPhone in before. It is asking again now: if that was a mistake, allow it there, and this screen moves on.")
-                HStack(spacing: 8) { SweepDots(scales: false); Text("Waiting for your Mac").font(.footnote).foregroundColor(Palette.secondary) }
+                line("Your computer did not let this iPhone in before. It is asking again now: if that was a mistake, allow it there, and this screen moves on.")
+                HStack(spacing: 8) { SweepDots(scales: false); Text("Waiting for your computer").font(.footnote).foregroundColor(Palette.secondary) }
             } else {
-                line("Your Mac did not let this iPhone in. If that was a mistake, sign in again and it will ask again.")
+                line("Your computer did not let this iPhone in. If that was a mistake, sign in again and it will ask again.")
             }
             if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
         case .web(let reason):

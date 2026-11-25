@@ -55,7 +55,7 @@ final class SignInUITests: XCTestCase {
             // Review 1: the tab bar shows as soon as sign-in ends, board or not; the Agents list's rows, or its "No agents
             // yet", come only from the board's own answer (AgentsView: every other state is a connection message).
             let noComputer = { app.buttons["Continue to the app"].exists && app.staticTexts["Signed in"].exists }
-            let askedAllow = { app.staticTexts["Allow this iPhone on your Mac"].exists }
+            let askedAllow = { app.staticTexts["Allow this iPhone on your computer"].exists }
             // Review 2: the test opens Agents itself (the app opens there today, AppTabs.todayTab being off, but it does not
             // rely on that), and waits on the two names AgentsView gives only what the board's answer draws ("agents-list",
             // or "agents-empty" for no agents). Review 2 said the app opens on Today; it does only in the screenshot build.

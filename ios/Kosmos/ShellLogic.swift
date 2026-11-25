@@ -145,7 +145,7 @@ enum Shell {
     }
 
     static func macUnreachableTitle(_ name: String?) -> String {
-        guard let n = name?.trimmingCharacters(in: .whitespaces), !n.isEmpty else { return "Your Mac isn't answering" }
+        guard let n = name?.trimmingCharacters(in: .whitespaces), !n.isEmpty else { return "Your computer isn't answering" }
         return "\(n) isn't answering"
     }
 
@@ -172,7 +172,7 @@ enum Shell {
     static func macUnreachableMessage(_ name: String?, lastSeen: Double? = nil, now: Date = Date(),
                                       calendar: Calendar = .current, locale: Locale = .current) -> String {
         let n = name?.trimmingCharacters(in: .whitespaces) ?? ""
-        let who = n.isEmpty ? "your Mac" : "the Mac called \(n)"
+        let who = n.isEmpty ? "your computer" : "the computer called \(n)"
         let heard = lastHeardSentence(lastSeen, now: now, calendar: calendar, locale: locale).map { " " + $0 } ?? ""
         return "Your phone is online, but \(who) didn't reply. It may be asleep, off or offline.\(heard) Wake it, then try again."
     }

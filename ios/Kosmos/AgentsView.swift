@@ -596,19 +596,19 @@ struct BoardStates<Empty: View>: View {
                 OpensOnBoardNote(words: Board.opensSignInPage, foot: 8)   // kosmos#8957: signed out, so the Kosmos+ sign-in
             }
         case .noMac:
-            message("No Mac to connect to.", detail: "Turn on remote access in Kosmos on your computer, then try again.", retry: true)
+            message("No computer to connect to.", detail: "Turn on remote access in Kosmos on your computer, then try again.", retry: true)
         case .waitingForAllow(let mac, let code):
             // Josh 2026-11-06 18:14: the orb, at least double 66 pt, above the words and centred with them as one group.
             message("Allow this iPhone on \(mac).",
-                    detail: code.map { "Your Mac is showing a code. Check it matches: \($0)" } ?? "Your Mac is asking whether to let this iPhone in.",
-                    orb: "Waiting for your Mac")
+                    detail: code.map { "Your computer is showing a code. Check it matches: \($0)" } ?? "Your computer is asking whether to let this iPhone in.",
+                    orb: "Waiting for your computer")
             .accessibilityElement(children: .combine)
             // The code is spelled out character by character, as the gate page reads it.
-            .accessibilityLabel("Allow this iPhone on \(mac). " + (code.map { "Your Mac is showing a code. Check it matches: \($0.map(String.init).joined(separator: " "))" } ?? "Your Mac is asking whether to let this iPhone in."))
+            .accessibilityLabel("Allow this iPhone on \(mac). " + (code.map { "Your computer is showing a code. Check it matches: \($0.map(String.init).joined(separator: " "))" } ?? "Your computer is asking whether to let this iPhone in."))
             .accessibilityAddTraits(.updatesFrequently)
         case .connecting(let mac):
             // Josh 2026-11-06 18:14: the orb, centred with the words (it was #7954's dots at the foot of the screen).
-            message("Connecting to \(mac).", detail: "This can take a moment, for example just after your Mac starts.", orb: "Waiting for your Mac")
+            message("Connecting to \(mac).", detail: "This can take a moment, for example just after your computer starts.", orb: "Waiting for your computer")
         case .denied(let mac):
             message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access, then try again.", retry: true)
         case .macRefused(let mac):

@@ -206,7 +206,7 @@ do {
     if let c = connR { outside.removeSubrange(c) }
     if let a = between(outside, "case .waitingForAllow(", "case .connecting(") { outside.removeSubrange(a) }
     // Each case passes the orb its exact label, once (review 4: a count also took `orb: nil`).
-    let theOrb = "orb: \"Waiting for your Mac\")"
+    let theOrb = "orb: \"Waiting for your computer\")"
     let allowHas = allowR.map { orbColons(agentsCode[$0]) == 1 && agentsCode[$0].components(separatedBy: theOrb).count == 2 ? 1 : 0 } ?? -1
     let connectingHas = connR.map { orbColons(agentsCode[$0]) == 1 && agentsCode[$0].components(separatedBy: theOrb).count == 2 ? 1 : 0 } ?? -1
     let outsideHas = orbColons(outside[...])
