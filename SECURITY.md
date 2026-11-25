@@ -3,6 +3,8 @@
 If you think you have found a security problem in Kosmos, please tell us privately first. Do not
 open a public issue, pull request or discussion about it.
 
+This covers the Kosmos app, this repository and the installkosmos.com website.
+
 **Email: security@installkosmos.com**
 
 ## What to include
@@ -16,7 +18,7 @@ open a public issue, pull request or discussion about it.
 ## What happens next
 
 We read every report and we reply to say we have it. We may ask you questions while we confirm
-it. When it is fixed, we tell you.
+it. If we fix it, we tell you when the fix is out.
 
 Please give us a reasonable chance to fix a problem before you talk about it in public.
 
@@ -28,7 +30,7 @@ Please give us a reasonable chance to fix a problem before you talk about it in 
 
 ## Which versions
 
-We fix security problems in the newest release. Before you report, please check the problem is
+Fixes go into the newest release. Before you report, please check the problem is
 still there in the newest version.
 
 The same address is published at https://installkosmos.com/.well-known/security.txt.
