@@ -6,7 +6,8 @@ import Foundation
 // Every figure is the board page's own arithmetic (web/index.html, Settings > Token usage: usageTotals, usageGrandTotal,
 // usageByModel, usageApiCost with USAGE_MODEL_PRICES, usageAgentRows, usageAgentNote, usageHistoryHtml, usageHeroHtml,
 // and the formatters usageAbbr, usageBigTokens, usageUsd, usageUsdTileSub1M), read from the same GET /api/usage?days=all,
-// which is not gated for a remote session. The four daily charts and the model donut are slice D1c2b.
+// which is not gated for a remote session. Slice D1c2b adds the four daily charts (usageCharts4Html) and the model donut
+// (usageDonutSvg): their text figures are pinned with the rest; their shapes are drawn by the view.
 //
 // Numbers are formatted as JavaScript's toFixed does, from the double's exact value with a tie going up (1.25M reads
 // 1.3M, 9.95B reads 9.9B because 9.95 is 9.9499... in binary), never as Swift's %.1f, which rounds a tie to even. The
@@ -17,10 +18,12 @@ enum Usage {
 
     enum Words {
         static let title = "Token usage"
-        // The page's hint, up to the clause about the daily charts (D1c2b), and without "Nothing here leaves the
-        // machine.", which is not so once the counts are shown on a phone (the transcripts stay; the counts travel).
-        static let hintPieces = ["What your agents used, per class, since Kosmos was installed on this computer", "Read from the transcripts on this computer, shown in full."]
-        static var hint: String { hintPieces[0] + ". " + hintPieces[1] }
+        // The page's hint, without "Nothing here leaves the machine.", which is not so once the counts are shown on a
+        // phone (the transcripts stay; the counts travel).
+        static let hintPieces = ["What your agents used, per class, since Kosmos was installed on this computer (the daily charts show the last 14 days).", "Read from the transcripts on this computer, shown in full."]
+        static var hint: String { hintPieces[0] + " " + hintPieces[1] }
+        static let totalTokensSmall = "total tokens"   // the donut's centre
+        static let other = "Other"
         static let reading = "Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute, and the first time after an update it can take a few."
         static let none = "No usage recorded yet on this computer."
         static let noneSince = "No usage recorded since Kosmos was installed on this computer."
@@ -327,6 +330,66 @@ enum Usage {
         return said
     }
 
+    // MARK: The charts (D1c2b)
+
+    // usageDailySeries, oldest first, and usageChartDays: the last 14 of them.
+    static let chartDays = 14   // USAGE_CHART_DAYS
+    static func dailySeries(_ byDay: [String: [String: Bucket]]) -> [(day: String, use: Bucket)] {
+        byDay.keys.sorted().map { ($0, (byDay[$0] ?? [:]).values.reduce(Bucket(), +)) }
+    }
+
+    enum Class: String, CaseIterable { case cacheRead, cacheWritten, output, input }   // usageCharts4Html's order
+    struct ClassChart: Equatable {
+        var kind: Class
+        var name: String, tag: String, total: String, share: String, label: String
+        var values: [Double]
+        var days: [String]
+    }
+    static func value(_ b: Bucket, _ c: Class) -> Double {
+        switch c { case .cacheRead: return b.cacheRead; case .cacheWritten: return b.cacheWritten; case .output: return b.output; case .input: return b.input }
+    }
+    // USAGE_CLASS_COLORS
+    static func classColor(_ c: Class) -> UInt32 {
+        switch c { case .cacheRead: return 0xd6a62e; case .cacheWritten: return 0x6fd3a0; case .input: return 0x8ab4ff; case .output: return 0xc78cff }
+    }
+    // A class's share of the grand total, as usageCharts4Html: one decimal from 1%, "<0.1%" under a tenth, else two.
+    static func classShare(_ tot: Double, of grand: Double) -> String {
+        let pct = tot / (grand != 0 ? grand : 1) * 100
+        return pct >= 1 ? fixed(pct, 1) + "%" : (pct < 0.1 ? "<0.1%" : fixed(pct, 2) + "%")
+    }
+    static func charts(_ byDay: [String: [String: Bucket]], totals t: Bucket, grand: Double) -> [ClassChart] {
+        let series = Array(dailySeries(byDay).suffix(chartDays))
+        guard !series.isEmpty else { return [] }
+        let words: [Class: (String, String)] = [.cacheRead: ("Cache reads", "context ingested"), .cacheWritten: ("Cache writes", "context stored"),
+                                                .output: ("Output", "text produced"), .input: ("Input", "new prompts")]
+        return Class.allCases.map { c in
+            let (name, tag) = words[c]!
+            let tot = value(t, c)
+            return ClassChart(kind: c, name: name, tag: tag, total: abbr(tot), share: classShare(tot, of: grand),
+                              label: name + " per day, last \(series.count) days", values: series.map { value($0.use, c) }, days: series.map(\.day))
+        }
+    }
+
+    // usageDonutSvg: the six biggest models, then "Other" for the rest, clockwise from the top.
+    struct Slice: Equatable { var name: String, tok: Double, color: UInt32, share: String, start: Double, end: Double }
+    struct Donut: Equatable { var centre: String, slices: [Slice] }
+    static func donut(_ models: [Share], grand: Double) -> Donut? {
+        guard !models.isEmpty else { return nil }
+        var parts = models.prefix(6).enumerated().map { ($0.element.name, $0.element.tok, modelColors[$0.offset]) }
+        let rest = models.dropFirst(6).reduce(0) { $0 + $1.tok }
+        if rest > 0 { parts.append((Words.other, rest, modelColors[6])) }
+        let sum = parts.reduce(0) { $0 + $1.1 }
+        let tot = sum != 0 ? sum : 1
+        var at = 0.0
+        let slices = parts.map { p -> Slice in
+            let frac = p.1 / tot
+            defer { at += frac }
+            let pct = frac * 100
+            return Slice(name: p.0, tok: p.1, color: p.2, share: pct >= 1 ? fixed(pct, 0) + "%" : "<1%", start: at, end: at + frac)
+        }
+        return Donut(centre: bigTokens(grand.isFinite ? grand : tot), slices: slices)
+    }
+
     // MARK: The whole screen
 
     struct Shown: Equatable {
@@ -337,6 +400,8 @@ enum Usage {
         var agentNote: String
         var history: [HistoryRow]
         var counted: String
+        var charts: [ClassChart]
+        var donut: Donut?
     }
     enum Screen: Equatable { case shown(Shown), empty(String), failed }
     static func screen(status: Int, data: Data?, locale: Locale = .current) -> Screen {
@@ -346,9 +411,11 @@ enum Usage {
         if rows.isEmpty { return .empty(Words.noneSince) }
         let t = totals(d.byDay)
         let api = apiCost(d.byDay)
-        return .shown(Shown(hero: hero(t, days: activeDays(d), api: api.cost, locale: locale), models: byModel(d.byDay), grand: t.total,
+        let models = byModel(d.byDay)
+        return .shown(Shown(hero: hero(t, days: activeDays(d), api: api.cost, locale: locale), models: models, grand: t.total,
                             agents: agentRows(d.byAgent), agentNote: agentNote(d.byAgent), history: rows,
-                            counted: counted(roots: d.roots, unpriced: api.unpriced, daysOnKosmos: d.daysOnKosmos)))
+                            counted: counted(roots: d.roots, unpriced: api.unpriced, daysOnKosmos: d.daysOnKosmos),
+                            charts: charts(d.byDay, totals: t, grand: t.total), donut: donut(models, grand: t.total)))
     }
 
     // USAGE_MODEL_COLORS, by rank; past the palette, the muted "Other". Agents are one neutral ink (the view's).

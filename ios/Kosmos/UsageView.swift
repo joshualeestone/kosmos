@@ -1,8 +1,9 @@
 import SwiftUI
+import Charts
 
 // kosmos#8959 slice D1c2a: the computer's Token usage, native (the board's Settings > Token usage): the hero, the model
-// table, By agent, Usage history and the method note, every figure the page's own (UsageLogic.swift). The four daily
-// charts and the model donut are slice D1c2b. The UI test drives only the sample build's path.
+// table with its donut, the four daily charts, By agent, Usage history and the method note, every figure the page's own
+// (UsageLogic.swift; the charts and donut are slice D1c2b). The UI test drives only the sample build's path.
 struct UsageView: View {
     let mac: Settings.Mac?
     var sample = false
@@ -54,7 +55,9 @@ struct UsageView: View {
                 }
                 if case .shown(let s)? = screen {
                     heroSection(s.hero)
+                    if !s.charts.isEmpty { chartsSection(s.charts) }
                     shareSection(Usage.Words.model, rows: s.models, grand: s.grand, hint: nil, note: nil) { i, _ in Color(hex: Usage.modelColor(rank: i)) }
+                    if let d = s.donut { donutSection(d) }
                     if !s.agents.isEmpty || !s.agentNote.isEmpty {
                         shareSection(Usage.Words.agent, rows: s.agents, grand: s.grand, title: Usage.Words.byAgent, hint: Usage.Words.byAgentHint,
                                      note: s.agentNote.isEmpty ? nil : s.agentNote) { _, r in
@@ -125,6 +128,76 @@ struct UsageView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(id)
+    }
+
+    // usageCharts4Html: one area-and-line chart per class over the last 14 days, its name, tag, total and share.
+    private func chartsSection(_ charts: [Usage.ClassChart]) -> some View {
+        Section {
+            ForEach(charts, id: \.kind) { c in
+                let color = Color(hex: Usage.classColor(c.kind))
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(c.name).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
+                        Text(c.tag).font(.caption).foregroundColor(Palette.secondary)
+                        Spacer(minLength: 8)
+                        Text(c.total).font(.subheadline.monospacedDigit()).foregroundColor(Palette.primary)
+                        Text(c.share).font(.caption.monospacedDigit()).foregroundColor(Palette.secondary)
+                    }
+                    Chart {
+                        ForEach(Array(c.values.enumerated()), id: \.offset) { i, v in
+                            AreaMark(x: .value("Day", i), y: .value(c.name, v))
+                                .foregroundStyle(LinearGradient(colors: [color.opacity(0.28), color.opacity(0.02)], startPoint: .top, endPoint: .bottom))
+                            LineMark(x: .value("Day", i), y: .value(c.name, v))
+                                .foregroundStyle(color)
+                                .lineStyle(StrokeStyle(lineWidth: 1.8, lineJoin: .round))
+                        }
+                    }
+                    .chartXAxis(.hidden)
+                    .chartYAxis(.hidden)
+                    .chartYScale(domain: 0...max(1, c.values.max() ?? 1))
+                    .frame(height: 64)
+                    .accessibilityHidden(true)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(c.label + ". " + c.name + ", " + c.tag + ": " + c.total + ", " + c.share + " of all tokens.")
+                .accessibilityIdentifier("usage-chart-" + c.kind.rawValue)
+            }
+        }
+    }
+
+    // usageDonutSvg: each model's share, clockwise from the top, the total in the middle, and its legend.
+    private func donutSection(_ d: Usage.Donut) -> some View {
+        Section {
+            HStack(alignment: .center, spacing: 18) {
+                ZStack {
+                    ForEach(Array(d.slices.enumerated()), id: \.offset) { _, sl in
+                        DonutArc(start: sl.start, end: sl.end)
+                            .stroke(Color(hex: sl.color), style: StrokeStyle(lineWidth: 22, lineCap: .butt))
+                    }
+                    VStack(spacing: 1) {
+                        Text(d.centre).font(.headline.weight(.bold).monospacedDigit()).foregroundColor(Palette.primary)
+                        Text(Usage.Words.totalTokensSmall).font(.caption2).foregroundColor(Palette.secondary)
+                    }
+                }
+                .frame(width: 132, height: 132)
+                .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(d.slices.enumerated()), id: \.offset) { _, sl in
+                        HStack(spacing: 6) {
+                            Circle().fill(Color(hex: sl.color)).frame(width: 8, height: 8).accessibilityHidden(true)
+                            Text(sl.name).font(.caption).foregroundColor(Palette.primary).lineLimit(1).truncationMode(.middle)
+                            Spacer(minLength: 4)
+                            Text(sl.share).font(.caption.monospacedDigit()).foregroundColor(Palette.secondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+            }
+            .padding(.vertical, 6)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Token share by model, " + d.centre + " total tokens")
+            .accessibilityIdentifier("usage-donut")
+        }
     }
 
     private func shareSection(_ label: String, rows: [Usage.Share], grand: Double, title: String? = nil, hint: String?, note: String?,
@@ -204,6 +277,22 @@ struct UsageView: View {
         guard started == generation, !Task.isCancelled else { return }
         // As the page: a read that fails clears the figures and says so.
         screen = Usage.screen(status: status, data: data)
+    }
+}
+
+// One slice of the donut: an arc of the circle from `start` to `end` (fractions of a turn), clockwise from the top. A
+// sliver is drawn at least 0.01 rad wide, as the page's.
+private struct DonutArc: Shape {
+    var start: Double, end: Double
+    func path(in rect: CGRect) -> Path {
+        let r = min(rect.width, rect.height) / 2 - 11
+        let c = CGPoint(x: rect.midX, y: rect.midY)
+        let a0 = -Double.pi / 2 + start * 2 * Double.pi
+        let a1 = max(-Double.pi / 2 + end * 2 * Double.pi, a0 + 0.01)
+        var p = Path()
+        if end - start >= 1 { p.addEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)); return p }
+        p.addArc(center: c, radius: r, startAngle: .radians(a0), endAngle: .radians(a1), clockwise: false)
+        return p
     }
 }
 
