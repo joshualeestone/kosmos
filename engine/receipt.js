@@ -458,6 +458,16 @@ function keptStillRight(kept) {
     && !kept.agents.some((a) => a && OTHER_PROVIDERS.has(a.provider));
 }
 
+/* kosmos#8958 B4: a receipt as the task page's route sends it: each agent whose work was read gets its estimated cost from
+   the engine's price table, worked out at each request and never kept, so a price change shows at once. A copy: the kept
+   receipt and one shared by two requests stay as they were. The web page ignores it (its own table, kept equal by
+   usageprice.test.js); the iPhone has no table. Pure. */
+function withCost(r) {
+  if (!r || !Array.isArray(r.agents)) return r;
+  const { modelsCost } = require('./usageprice');
+  return { ...r, agents: r.agents.map((a) => (a && a.available ? { ...a, cost: modelsCost(a.models) } : a)) };
+}
+
 /* One computation per task at a time: a second request while the first is reading shares its answer. */
 const inFlight = new Map();
 
@@ -666,6 +676,6 @@ function overlapAcrossTasks(spans) {
   return false;
 }
 
-module.exports = { forAgent, forTask, forProject, holdsFrom, retriesFrom, closedAtOf, receiptFile, providerWork, SETTLE_MS, FILES_SHOWN, VERSION,
+module.exports = { forAgent, forTask, forProject, withCost, holdsFrom, retriesFrom, closedAtOf, receiptFile, providerWork, SETTLE_MS, FILES_SHOWN, VERSION,
   /* #5683: engine/agentevents.js reads the same transcript folders (one rule for where they are). */
   transcriptDirs, transcriptsIn };

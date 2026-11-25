@@ -75,6 +75,20 @@ extension Board {
         let allSubtasksBuilt: Bool
         // The tasks this one replaced (theirs name it; the link is stored once).
         let replaces: [Int]
+        // kosmos#8958 slice B3: the board's repeat fields (Board.fillRepeat) when the task repeats, for its line; and the
+        // stored rule as the Repeats controls show it (Board.repeatStored): the Never choice when it does not repeat, nil for a rule
+        // this phone cannot show (the controls then stay on the board).
+        var repeatRow: TaskRow? = nil
+        var repeatStored: RepeatChoice? = RepeatChoice(every: .never)
+        // kosmos#8958 slice B3b: who is told when a run is missed (the board's tkReviewerOf): "none", "me", or an agent's
+        // session name; and the project's members in the project's order (a Set has none), for the choice's list.
+        var repeatReviewer = "none"
+        var memberOrder: [String] = []
+        // kosmos#8958 slice B4: the closed state the receipt belongs to, the board's tkReceiptSync key: nil while the task is
+        // open, else its close time (the task's own, or its newest part's), so closed, put back and closed again asks
+        // again. And whether it was closed as never run (kosmos#8301).
+        var receiptKey: String? = nil
+        var closedUnrun = false
     }
 
     enum TaskPageRead: Equatable {
@@ -94,9 +108,10 @@ extension Board {
         guard let t = tasks.first(where: { integer($0["number"]) == number }) else { return .gone }
         var members: [String: String] = [:]
         var memberSessions = Set<String>()
+        var memberOrder: [String] = []
         for a in (p["agents"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) {
             guard let s = a["sessionName"] as? String, !s.isEmpty else { continue }
-            memberSessions.insert(s)
+            if memberSessions.insert(s).inserted { memberOrder.append(s) }
             // A member with no name of its own is named by the roster (tkMemberName: m.name || tskAgentName).
             if let n = a["name"] as? String, !n.isEmpty { members[s] = n }
         }
@@ -132,7 +147,7 @@ extension Board {
         let parentNumber = integer(t["parent"])
         let parent = parentNumber.flatMap { n in tasks.first { integer($0["number"]) == n } }
         let replaces = tasks.filter { integer($0["replacedBy"]) == number && isClosed($0) }.compactMap { integer($0["number"]) }.sorted()
-        return .page(TaskPage(
+        var page = TaskPage(
             projectId: project, projectName: text(p["name"]) ?? project, projectPaused: p["paused"] as? Bool == true,
             members: members, memberSessions: memberSessions, number: number, sentence: text(t["sentence"]) ?? "", detail: text(t["detail"]),
             createdAt: text(t["createdAt"]), addedBy: text(t["addedBy"]), addedVia: text(t["addedVia"]),
@@ -149,7 +164,17 @@ extension Board {
             subtasks: subtasks,
             allSubtasksDone: !kids.isEmpty && kids.allSatisfy(isClosed) && !closed,
             allSubtasksBuilt: !kids.isEmpty && !kids.allSatisfy(isClosed) && kids.allSatisfy { isClosed($0) || built($0) } && !closed,
-            replaces: replaces))
+            replaces: replaces)
+        // kosmos#8958 slice B3: a task that repeats carries the board's words for its rule, runs and next run.
+        var row = TaskRow(projectId: project, projectName: page.projectName, number: number, sentence: page.sentence, state: closed ? "done" : "open")
+        fillRepeat(&row, t)
+        if row.repeating { page.repeatRow = row }
+        page.repeatStored = repeatStored(t["repeat"])
+        page.repeatReviewer = t["repeatReviewerPerson"] as? Bool == true ? "me" : text(t["repeatReviewer"]) ?? "none"
+        page.memberOrder = memberOrder
+        if closed { page.receiptKey = closedAt ?? rawParts.compactMap { text($0["closedAt"]) }.max() ?? "" }
+        page.closedUnrun = t["closedUnrun"] as? Bool == true
+        return .page(page)
     }
 }
 
@@ -227,34 +252,19 @@ extension Board.TaskPage {
         return "Added by " + fixed.lowercased() + parts.words.dropFirst(fixed.count)
     }
 
-    // The due date, read only here (it is set on the board's page): "Due Oct 30".
-    func dueLine(calendar: Calendar = .current) -> String? {
-        guard let due = dueDate else { return nil }
-        let p = DateFormatter()
-        p.locale = Locale(identifier: "en_US_POSIX")
-        p.calendar = Calendar(identifier: .gregorian)
-        p.timeZone = calendar.timeZone
-        p.dateFormat = "yyyy-MM-dd"
-        guard let d = p.date(from: due) else { return "Due " + due }
-        let f = DateFormatter()
-        f.calendar = calendar
-        f.timeZone = calendar.timeZone
-        f.setLocalizedDateFormatFromTemplate("MMMd")
-        return "Due " + f.string(from: d)
-    }
-
     // The board's hold hint, said here only when there is something to say (a paused project, or a hold): the control
     // that the other hints describe is on the board's page.
     var holdLine: String? {
         guard !closed else { return nil }
         if projectPaused { return "This project is paused, so Kosmos does not nudge anyone about its tasks or hand them out." }
         guard onHold else { return nil }
-        // kosmos#7788: an agent's hold that waits on the person, in the board's words (tk-hold-hint) bar the place.
+        // kosmos#7788: an agent's hold that waits on the person, in the board's words (tk-hold-hint). kosmos#8958 slice B2:
+        // the page takes it off now (Take off hold), so "here", as the board says.
         if onHoldForPerson && !onHoldByPerson {
-            return "An agent put this on hold because it waits on you. Once you have answered, take it off hold on your computer's board, or tell the agent. Kosmos does not nudge anyone about it or hand it out."
+            return "An agent put this on hold because it waits on you. Once you have answered, take it off hold here, or tell the agent. Kosmos does not nudge anyone about it or hand it out."
         }
         return onHoldByPerson
-            ? "You put this on hold, so only you can take it off, on your computer's board. Kosmos does not nudge anyone about it or hand it out."
+            ? "You put this on hold, so only you can take it off, here. Kosmos does not nudge anyone about it or hand it out."
             : "This was put on hold outside this screen (by an agent, or with kosmos task hold), so an agent or you can take it off. Kosmos does not nudge anyone about it or hand it out."
     }
 
@@ -543,5 +553,590 @@ extension Board {
     fileprivate static func count(_ v: Any?) -> Int? {
         guard let d = number(v), d.isFinite, d >= 1 else { return nil }
         return Int(min(d, 1_000_000_000).rounded(.down))
+    }
+}
+
+// MARK: Saying something, the due date, and the words (kosmos#8958 slice B1: the board's tkSayPost, saveTaskDue, tk-editform)
+
+extension Board {
+    static let taskSayPlaceholder = "Say something about this task"
+    static let taskSayLabel = "Add a message to this task"
+    static let taskSayNote = "A message is recorded on the task, shows in the activity above, and is sent to the agents assigned to the task."
+    static let taskSayMax = 2000
+    static let taskSayFailed = "we could not record that message"
+    static let taskSayUnreached = "we could not reach Kosmos to record that message"
+    static let taskDueFailed = "we could not set that due date"
+    static let taskDueUnreached = "we could not reach Kosmos to set that date"
+    static let taskEditOpen = "Edit title or detail"
+    static let taskEditTitle = "What needs doing?"
+    static let taskEditDetail = "Anything they should know"
+    static let taskEditTitleMax = 200
+    static let taskEditDetailMax = 2000
+    static let taskEditNeedsTitle = "A task needs a title: say what needs doing."
+    static let taskEditFailed = "we could not change that task"
+
+    // The board's maxlength and the Mac count UTF-16 units, so the phone's caps do too.
+    static func capped(_ text: String, _ max: Int) -> String {
+        guard text.utf16.count > max else { return text }
+        var t = text
+        while t.utf16.count > max { t.removeLast() }
+        return t
+    }
+    // Line ends as the board's form reads them (/\r\n?/g).
+    static func boardLineEnds(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+    }
+
+    private static func taskPost(_ url: URL?, _ body: [String: Any]) -> URLRequest? {
+        guard let url, let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        var r = URLRequest(url: url)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = data
+        return r
+    }
+
+    // POST .../task/<n>/message {text}: the words trimmed; nothing for an empty box (the board sends nothing either).
+    static func taskMessageRequest(mac: URL, project: String, number: Int, text: String) -> URLRequest? {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty else { return nil }
+        return taskPost(taskRoute(mac: mac, project: project, number: number, "message"), ["text": words])
+    }
+
+    // POST .../task/<n>/due {dueDate}: a calendar date (YYYY-MM-DD), or nil to clear it.
+    static func taskDueRequest(mac: URL, project: String, number: Int, due: String?) -> URLRequest? {
+        if let due, dueDay(due) == nil { return nil }
+        return taskPost(taskRoute(mac: mac, project: project, number: number, "due"), ["dueDate": due.map { $0 as Any } ?? NSNull()])
+    }
+
+    // POST .../task/<n>/text with only what changed (the board's form): nil when nothing did.
+    static func taskTextRequest(mac: URL, project: String, number: Int, body: [String: Any]) -> URLRequest? {
+        guard !body.isEmpty else { return nil }
+        return taskPost(taskRoute(mac: mac, project: project, number: number, "text"), body)
+    }
+
+    // The day a due date names, read in the person's own calendar (the Mac keeps the date alone, no time zone).
+    private static func dueFormatter(_ calendar: Calendar) -> DateFormatter {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.timeZone = calendar.timeZone
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }
+    static func dueDay(_ s: String, calendar: Calendar = .current) -> Date? {
+        guard s.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil,
+              let d = dueFormatter(calendar).date(from: s), dueString(d, calendar: calendar) == s else { return nil }
+        return d
+    }
+    static func dueString(_ d: Date, calendar: Calendar = .current) -> String { dueFormatter(calendar).string(from: d) }
+
+    // The Due section's picker: a date being chosen is kept only while it differs from the one the Mac holds, so a
+    // draft that came back to the stored day, or that the stored day moved to, is dropped rather than left to show
+    // later as a change nobody is making.
+    static func keptDraft(_ draft: String?, stored: String?) -> String? {
+        guard let draft, dueDay(draft) != nil, draft != stored else { return nil }
+        return draft
+    }
+    // What the section shows: a date being chosen (Set and Cancel), a stored date (Clear), a stored date this phone cannot
+    // read (said as kept, with Clear), or none (Set a due date).
+    enum DueControls: Equatable { case choosing(String), stored(String), unreadable(String), none }
+    static func dueControls(stored: String?, draft: String?) -> DueControls {
+        if let d = keptDraft(draft, stored: stored) { return .choosing(d) }
+        if let s = stored { return dueDay(s) != nil ? .stored(s) : .unreadable(s) }
+        return .none
+    }
+
+    enum TaskEdit: Equatable { case nothing, needsTitle, send([String: String?]) }
+    // The board's Save: both trimmed; a title is needed; only what differs from what the form opened with is sent, and
+    // an emptied detail goes as null (cleared). Line ends compared as a textarea gives them back.
+    static func taskEdit(title: String, detail: String, openedTitle: String, openedDetail: String?) -> TaskEdit {
+        // A title is one line: a line break in it is a space. (The board's text input drops a stored line break instead,
+        // and so sends such a title back as changed; the phone compares both sides one line, below, and does not.)
+        func oneLine(_ s: String) -> String { boardLineEnds(s).replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines) }
+        let t = oneLine(title)
+        let d = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return .needsTitle }
+        var body: [String: String?] = [:]
+        if t != oneLine(openedTitle) { body["sentence"] = t }
+        let was = boardLineEnds(openedDetail ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if d != was { body["detail"] = d.isEmpty ? .some(nil) : .some(d) }
+        return body.isEmpty ? .nothing : .send(body)
+    }
+    static func taskTextBody(_ edit: [String: String?]) -> [String: Any] {
+        edit.mapValues { $0.map { $0 as Any } ?? NSNull() }
+    }
+
+    // A write's answer: a 2xx is done; a refusal is the Mac's own words, else the board's; no answer, the board's
+    // could-not-reach words.
+    static func taskWriteResult(status: Int, body: Data?, failed: String, unreached: String) -> TaskActResult {
+        if (200...299).contains(status) { return .done }
+        if status == 0 { return .refused(unreached) }
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if let e = obj?["error"] as? String, !e.isEmpty { return .refused(e) }
+        return .refused(failed)
+    }
+
+    // #5842 on the board: who a message on the task did NOT reach, one line per agent (its worst outcome when listed
+    // twice), in the page's own sentences. nil when every assignee got it, or the answer had no list (the board says
+    // nothing then either).
+    static func taskSaidLine(_ body: Data?, name: (String) -> String) -> String? {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        guard let all = obj?["delivered"] as? [Any] else { return nil }
+        // The board tests the list as it came (an empty one means nobody is assigned); entries that are not objects are
+        // skipped after that.
+        if all.isEmpty { return "No agent is assigned to this task, so nobody was told." }
+        let list = all.compactMap { $0 as? [String: Any] }
+        func rank(_ s: String?) -> Int { s == "could_not" ? 3 : s == "placed" ? 0 : s == "held" ? 1 : 2 }
+        var order: [String] = []
+        var by: [String: [String: Any]] = [:]
+        for d in list {
+            // The board's String(d.agent == null ? '' : d.agent).trim().
+            let raw = d["agent"]
+            let key = raw == nil || raw is NSNull ? "" : String(describing: raw!).trimmingCharacters(in: .whitespacesAndNewlines)
+            if let had = by[key] { if rank(d["state"] as? String) > rank(had["state"] as? String) { by[key] = d } } else { order.append(key); by[key] = d }
+        }
+        var lines: [String] = []
+        for sn in order {
+            guard let d = by[sn] else { continue }
+            let state = d["state"] as? String ?? ""
+            if state == "placed" { continue }
+            let who = sn.isEmpty ? "an agent" : name(sn)
+            let lead = sn.isEmpty ? "An agent" : who
+            let why = d["because"] as? String ?? ""
+            func has(_ s: String) -> Bool { why.contains(s) }
+            if state == "could_not" {
+                let line = has("switched off in this project")
+                    ? lead + " is switched off in this project, so it was not told. Switch it on in the project's members to send it work here."
+                    : has("not on this project any more") ? lead + " is not on this project any more, so it was not told."
+                    : has("could not keep this one") ? "Kosmos could not keep your message for " + who + ", so it was not told."
+                    : has("input box already holds text") ? lead + "'s input box held text that had not been sent, so it was not told."
+                    : "Kosmos could not reach " + who + ", so it was not told."
+                lines.append(line + " Your message stays on the task.")
+            } else if state == "held" {
+                // The board names the reset time (quotaResetWords); the phone says the same sentence without it, as its
+                // other held lines do (AgentInfoLogic wakeHeldLine).
+                let out = (d["heldUntil"] as? String).flatMap(isoDate).map { $0 > Date() } == true
+                lines.append((d["heldFor"] as? String) == "signin" ? lead + " is signed out. Kosmos will try to send your message to " + who + " once it is signed in again."
+                    : out ? lead + " is out of usage. Kosmos will try to send your message to " + who + " once its usage resets."
+                    : has("still has messages kept") ? "Kosmos will try to send your message to " + who + " after the ones already waiting for it."
+                    : "Kosmos is keeping your message and will try to send it to " + who + " later.")
+            } else {
+                lines.append("Kosmos could not confirm that " + who + " got it.")
+            }
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: " ")
+    }
+}
+
+// MARK: Putting it on hold and taking it off (kosmos#8958 slice B2: the board's tk-hold button)
+
+extension Board {
+    static func holdTitle(onHold: Bool) -> String { onHold ? "Take off hold" : "Put on hold" }
+    static let holdCheckFailed = "We could not check that task just now, so nothing changed."
+    static let holdTaskGone = "That task is no longer on this project, so nothing changed."
+    static let holdAlready = "This is already on hold, so nothing changed."
+    static let holdFailed = "We could not change that task."
+    static let holdUnreached = "We could not reach Kosmos to change that task."
+    // The board cuts this ask off the unhold route's sentence and puts a Choose who button under it; the phone has no
+    // picker for a task's parts yet, so the ask is cut and holdChooseOnBoard said in its place (review 1: the person is
+    // told where choosing happens, not left at "so it waits for a person.").
+    static let holdAssignAsk = " To choose who, assign it now."
+    static let holdChooseOnBoard = " To choose who, open this task on your computer's board."
+
+    // POST .../task/<n>/hold {onHold}.
+    static func taskHoldRequest(mac: URL, project: String, number: Int, onHold: Bool) -> URLRequest? {
+        guard let url = taskRoute(mac: mac, project: project, number: number, "hold"),
+              let data = try? JSONSerialization.data(withJSONObject: ["onHold": onHold]) else { return nil }
+        var hold = URLRequest(url: url)
+        hold.httpMethod = "POST"
+        hold.setValue("application/json", forHTTPHeaderField: "Accept")
+        hold.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        hold.httpBody = data
+        return hold
+    }
+
+    // What the unhold route says next (who gets the task now), or nil: a hold answers with none. Where the board would
+    // show Choose who (the route's closing ask, or a free part beside one somebody is on: its looseBesideHeld), the phone
+    // says to choose on the computer's board instead.
+    static func holdNextLine(_ body: Data?, page: TaskPage? = nil) -> String? {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        guard var next = obj?["next"] as? String, !next.isEmpty else { return nil }
+        var ask = false
+        if next.hasSuffix(holdAssignAsk) { next.removeLast(holdAssignAsk.count); ask = true }
+        let open = page?.parts.filter { !$0.closed } ?? []
+        let looseBesideHeld = open.contains { $0.who != nil } && open.contains { $0.who == nil }
+        if next.isEmpty { return nil }
+        return ask || looseBesideHeld ? next + holdChooseOnBoard : next
+    }
+
+    // The board's tkHoldNextSig: what the next sentence was read from (open, held or closed, who is on each open part,
+    // and the project's pause and members, named or not: review 2). Narrower than the board's in one way (review 3):
+    // members are the parsed session names, sorted, so a member with no session name, or the roster's order, does not
+    // count here; the line can then stay where the board would take it down, never the reverse. `project` is the shown page, for a task read
+    // out of the hold route's answer, which carries no project.
+    static func holdNextSig(_ t: TaskPage, project: TaskPage? = nil) -> String {
+        let p = project ?? t
+        let state = t.closed ? "closed" : t.onHold ? "held" : "open"
+        let who = t.parts.filter { !$0.closed }.map { $0.who ?? "" }.joined(separator: ",")
+        let proj = (p.projectPaused ? "paused" : "live") + ":" + p.memberSessions.sorted().joined(separator: ",")
+        return state + "|" + who + "|" + proj
+    }
+
+    // The task the hold route's answer describes (its `task`), read as a task page; nil when the answer has none. The
+    // board records the next sentence against this task, not against its own read after the post (review 2).
+    static func holdAnswerTask(_ body: Data?, project: String, number: Int) -> TaskPage? {
+        guard let obj = body.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
+              var task = obj["task"] as? [String: Any] else { return nil }
+        task["number"] = number
+        guard let wrapped = try? JSONSerialization.data(withJSONObject: ["projects": [["id": project, "tasks": [task]]]]),
+              case .page(let t) = parseTaskPage(wrapped, project: project, number: number) else { return nil }
+        return t
+    }
+}
+
+// MARK: How often it repeats (kosmos#8958 slice B3: the board's Repeats controls, tk-repeat-*)
+
+extension Board {
+    // The board's frequency choices (tk-repeat-every), in its order and words.
+    enum RepeatEvery: String, CaseIterable, Equatable {
+        case never = "", minutes, hour, day, week
+        var words: String {
+            switch self {
+            case .never: return "Never"
+            case .minutes: return "Every so many minutes"
+            case .hour: return "Every hour"
+            case .day: return "Every day"
+            case .week: return "Every week"
+            }
+        }
+    }
+    // The days as the route reads them (taskrepeat.fromWords), Monday first as the board lists them.
+    static let repeatDays: [(key: String, words: String)] = [("mon", "Monday"), ("tue", "Tuesday"), ("wed", "Wednesday"),
+        ("thu", "Thursday"), ("fri", "Friday"), ("sat", "Saturday"), ("sun", "Sunday")]
+    // The engine's day numbers (Sunday 0), the board's TK_REPEAT_DAYS.
+    static let repeatDayOfNumber = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+
+    // What the controls hold, each box keeping its own value whichever frequency shows (as the board's inputs do): the
+    // minutes box, the time box, a daily rule's other times (kosmos#5752: the box shows the first, the line says them
+    // all) and the day. Defaults as the board's tkRepeatShowChoice: 30 minutes, 9am, Monday.
+    struct RepeatChoice: Equatable {
+        var every: RepeatEvery
+        var minutes = "30"
+        var at = "09:00"
+        var others: [String] = []
+        var on = "mon"
+    }
+
+    // What a choice sends, as the board's tkRepeatChoice: nothing yet for an empty box (needsMinutes, needsTime). Two
+    // choices are the same rule when these are equal, which is how Save knows there is nothing to save. Unlike the
+    // board, a daily list is compared sorted on both sides (the engine stores it sorted, so the two agree on real data).
+    enum RepeatWire: Equatable {
+        case clear, hour, minutes(String), day(String), week(on: String, at: String), needsMinutes, needsTime
+    }
+    static func repeatWire(_ c: RepeatChoice) -> RepeatWire {
+        switch c.every {
+        case .never: return .clear
+        case .hour: return .hour
+        case .minutes:
+            let m = c.minutes.trimmingCharacters(in: .whitespacesAndNewlines)
+            if m.isEmpty { return .needsMinutes }
+            // Written as the board stores it (review 2 on the board): "030" is 30, and 60 minutes is the hourly rule.
+            let n = m.allSatisfy({ $0.isASCII && $0.isNumber }) ? (Int(m).map(String.init) ?? m) : m
+            return n == "60" ? .hour : .minutes(n)
+        case .day:
+            if c.at.isEmpty { return .needsTime }
+            if c.others.isEmpty { return .day(c.at) }
+            return .day(Array(Set([c.at] + c.others)).sorted().joined(separator: ","))
+        case .week:
+            if c.at.isEmpty { return .needsTime }
+            return .week(on: c.on, at: c.at)
+        }
+    }
+    // The request body for a choice (the board's JSON), nil while a box is empty.
+    static func repeatBody(_ w: RepeatWire) -> [String: Any]? {
+        switch w {
+        case .clear: return ["clear": true]
+        case .hour: return ["every": "hour"]
+        case .minutes(let n): return ["every": "minutes", "at": n]
+        case .day(let at): return ["every": "day", "at": at]
+        case .week(let on, let at): return ["every": "week", "on": on, "at": at]
+        case .needsMinutes, .needsTime: return nil
+        }
+    }
+    // The board's tkRepeatDirty line for an empty box.
+    static func repeatNeeds(_ w: RepeatWire) -> String? {
+        switch w {
+        case .needsMinutes: return "Say how many minutes"
+        case .needsTime: return "Choose a time"
+        default: return nil
+        }
+    }
+
+    // The stored rule (a task's `repeat`) as the controls show it, the board's tkRepeatStoredChoice and
+    // tkRepeatShowChoice together: never for none; nil for a rule the controls cannot show (the line still says it).
+    // An hourly rule an agent set at another minute shows as hourly: from this screen hourly runs on the hour, and the
+    // rule reads unchanged until the person changes it (as on the board).
+    static func repeatStored(_ raw: Any?) -> RepeatChoice? {
+        guard let r = raw as? [String: Any] else { return raw == nil || raw is NSNull ? RepeatChoice(every: .never) : nil }
+        switch r["every"] as? String {
+        case "hour": return RepeatChoice(every: .hour)
+        case "minutes":
+            guard let n = integer(r["n"]) else { return nil }
+            return RepeatChoice(every: .minutes, minutes: String(n))
+        case "day":
+            let list = ((r["at"] as? [Any])?.compactMap { $0 as? String } ?? (r["at"] as? String).map { [$0] } ?? []).filter { !$0.isEmpty }
+            guard let first = list.first else { return nil }
+            return RepeatChoice(every: .day, at: first, others: list.dropFirst().filter { $0 != first })
+        case "week":
+            guard let d = integer(r["day"]), repeatDayOfNumber.indices.contains(d), let at = r["at"] as? String, !at.isEmpty else { return nil }
+            return RepeatChoice(every: .week, at: at, on: repeatDayOfNumber[d])
+        default: return nil
+        }
+    }
+
+    // The person's choice kept over the stored rule, the board's paint: nil (follow what is stored) once it is the same
+    // rule. A daily rule changed elsewhere under an edit keeps the edit, but its other times follow the new rule (the
+    // board's tkRepeatFollowUnderEdit, kosmos#5752 round 3), so Save never sends times that are on no screen.
+    static func keptRepeatDraft(_ draft: RepeatChoice?, stored: RepeatChoice?) -> RepeatChoice? {
+        guard var d = draft, let stored else { return nil }
+        // First as it stands: a draft that IS the stored rule goes (after a save, the rule just saved). Following the
+        // others first would rebuild them from the sorted stored list and lose a time the box had moved past.
+        if repeatWire(d) == repeatWire(stored) { return nil }
+        // Whatever frequency the draft shows (the board's keeps its others for every choice): a weekly draft switched
+        // back to daily must carry the new rule's other times, never ones that were removed while it was weekly.
+        let list = stored.every == .day ? [stored.at] + stored.others : []
+        d.others = Array(list.dropFirst()).filter { $0 != d.at }
+        return repeatWire(d) == repeatWire(stored) ? nil : d
+    }
+
+    // The stored rule as the controls show it, with a daily rule's box on `box` when the stored list holds that time:
+    // after a save, the box stays on the time the person put in it, whichever place it sorts to (the board's
+    // tkRepeatSaved, kosmos#5752 round 3). Any other rule, or a box the list no longer holds, shows as stored.
+    static func repeatShown(_ stored: RepeatChoice?, box: String?) -> RepeatChoice? {
+        guard var s = stored, s.every == .day, let box, box != s.at, s.others.contains(box) else { return stored }
+        s.others = ([s.at] + s.others).filter { $0 != box }
+        s.at = box
+        return s
+    }
+
+    // The stored rule moved (another device, an agent) under a draft: a draft that was the OLD rule is nothing unsaved,
+    // so the controls follow the new one (the board's tkPaintRepeat review 3); any other draft stands, as keptRepeatDraft
+    // keeps it.
+    static func followStored(_ draft: RepeatChoice?, old: RepeatChoice?, new: RepeatChoice?) -> RepeatChoice? {
+        guard let draft else { return nil }
+        if let old, repeatWire(draft) == repeatWire(old) { return nil }
+        return keptRepeatDraft(draft, stored: new)
+    }
+
+    // A time box's "HH:mm" as a picker's Date, and back. The time is the computer's clock as the board keeps it, so it
+    // is read and written in one fixed calendar, never moved by this phone's time zone.
+    static let repeatClock: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c }()
+    static func repeatTime(_ at: String) -> Date {
+        let parts = at.split(separator: ":").compactMap { Int($0) }
+        let (h, m) = parts.count == 2 ? (parts[0], parts[1]) : (9, 0)
+        return repeatClock.date(from: DateComponents(year: 2000, month: 1, day: 1, hour: h, minute: m)) ?? Date(timeIntervalSince1970: 0)
+    }
+    static func repeatTimeString(_ d: Date) -> String {
+        let c = repeatClock.dateComponents([.hour, .minute], from: d)
+        return String(format: "%02d:%02d", c.hour ?? 9, c.minute ?? 0)
+    }
+
+    static let repeatFailed = "we could not change how that task repeats"
+    static let repeatUnreached = "we could not reach Kosmos to change how that task repeats"
+    static let repeatSaved = "Saved."
+    static let repeatOnBoard = "This task repeats in a way this screen cannot show. To change it, open it on your computer's board."
+
+    // POST .../task/<n>/repeat with the board's body; nil while a box is empty.
+    static func taskRepeatRequest(mac: URL, project: String, number: Int, wire: RepeatWire) -> URLRequest? {
+        guard let body = repeatBody(wire) else { return nil }
+        return taskPost(taskRoute(mac: mac, project: project, number: number, "repeat"), body)
+    }
+}
+
+// MARK: Who is told when a run is missed (kosmos#8958 slice B3b: the board's tk-review-who)
+
+extension Board {
+    struct ReviewerOption: Equatable, Hashable { let value: String; let words: String }
+    // The board's tkPaintReviewer list: Nobody, Me, the project's agents in its order, and a stored reviewer no longer on
+    // the project, said so, so the choice never shows something that is not stored.
+    static func reviewerOptions(_ p: TaskPage, roster: [String: String]) -> [ReviewerOption] {
+        var agents = p.memberOrder
+        let stored = p.repeatReviewer
+        if stored != "none" && stored != "me" && !p.memberSessions.contains(stored) { agents.append(stored) }
+        return [ReviewerOption(value: "none", words: "Nobody"), ReviewerOption(value: "me", words: "Me")]
+            + agents.map { ReviewerOption(value: $0, words: p.name($0, roster: roster) + (p.memberSessions.contains($0) ? "" : " (left the project)")) }
+    }
+    static let reviewerFailed = "we could not change who is told"
+    static let reviewerUnreached = "we could not reach Kosmos to change who is told"
+
+    // POST .../task/<n>/repeat {reviewer}: the same route as the rule, with only the reviewer (the board's change).
+    static func taskReviewerRequest(mac: URL, project: String, number: Int, reviewer: String) -> URLRequest? {
+        taskPost(taskRoute(mac: mac, project: project, number: number, "repeat"), ["reviewer": reviewer])
+    }
+}
+
+// MARK: A closed task's receipt (kosmos#8958 slice B4: the board's tk-receipt, #5153 and #6842)
+
+extension Board {
+    struct Receipt: Equatable {
+        // "This task was put back ... and handed on ...", or that it was done without; nil when the board says nothing.
+        let again: String?
+        let agents: [ReceiptAgent]
+    }
+    struct ReceiptPR: Equatable { let label: String; let url: URL? }
+    struct ReceiptAgent: Equatable, Identifiable {
+        let id: Int
+        let who: String
+        // What it did, or why there is nothing to show (muted).
+        let line: String
+        let muted: Bool
+        // "Worked on pull request app#12." in pieces, so each number can be its own link: the words before, the pull
+        // requests, the words after. Empty when there are none.
+        let prs: [ReceiptPR]
+        let prsBefore: String
+        let prsAfter: String
+        // "4 files", or nil when it edited none; the list under it; the agent's folder.
+        let filesTitle: String?
+        let files: [String]
+        let folder: String?
+    }
+    enum ReceiptRead: Equatable { case receipt(Receipt), none, unreadable }
+
+    static let receiptIntro = "What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command."
+    static let receiptNobody = "Nobody held this task, so there is no work to show."
+    static let receiptTools = ["codex": "Codex", "gemini": "Gemini CLI", "grok": "Grok", "antigravity": "Antigravity", "muse": "Muse"]
+
+    // GET .../task/<n>/receipt. Asked only for a closed task; an open one answers { ready: false }.
+    static func taskReceiptRequest(mac: URL, project: String, number: Int) -> URLRequest? {
+        guard let url = taskRoute(mac: mac, project: project, number: number, "receipt") else { return nil }
+        var receipt = URLRequest(url: url)
+        receipt.setValue("application/json", forHTTPHeaderField: "Accept")
+        receipt.cachePolicy = .reloadIgnoringLocalCacheData
+        // The Mac answers only when the whole receipt is worked out, and an agent's long transcripts can take longer than the
+        // 15 s every other call keeps (the board's own read sets no limit).
+        receipt.timeoutInterval = receiptTimeout
+        return receipt
+    }
+    static let receiptTimeout: TimeInterval = 120
+
+    // tkReceiptHtml. `replaced` (the task was closed as replaced) and `unrun` (closed as never run): the board then says
+    // nothing about put-backs when there were none.
+    static func parseReceipt(_ data: Data, replaced: Bool, unrun: Bool) -> ReceiptRead {
+        guard let r = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return .unreadable }
+        if r["ready"] as? Bool == false { return .none }
+        let retries = r["retries"] as? [String: Any] ?? [:]
+        func times(_ k: Double) -> String { k == 1 ? "1 time" : receiptNum(k) + " times" }
+        let reopened = amount(retries["reopened"]), handoffs = amount(retries["handoffs"])
+        let again = [reopened > 0 ? "put back " + times(reopened) : nil, handoffs > 0 ? "handed on " + times(handoffs) : nil].compactMap { $0 }
+        let agents = (r["agents"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }
+        return .receipt(Receipt(
+            again: !again.isEmpty ? "This task was " + again.joined(separator: " and ") + "."
+                : replaced || unrun ? nil : "Done without being put back or handed on.",
+            agents: agents.enumerated().map { receiptAgent($0, $1) }))
+    }
+
+    // tkReceiptAgentHtml, for one entry of the receipt's agents.
+    private static func receiptAgent(_ i: Int, _ a: [String: Any]) -> ReceiptAgent {
+        let who = a["who"] as? String ?? ""
+        let provider = (a["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        func quiet(_ line: String) -> ReceiptAgent {
+            ReceiptAgent(id: i, who: who, line: line, muted: true, prs: [], prsBefore: "", prsAfter: "", filesTitle: nil, files: [], folder: nil)
+        }
+        guard a["available"] as? Bool == true else {
+            return quiet(a["because"] as? String == "provider"
+                ? "A receipt is not available for " + (provider.map { receiptTools[$0] ?? $0 } ?? "this provider") + " agents yet."
+                : "Not an agent with a folder on this computer, so there is nothing to read.")
+        }
+        guard amount(a["transcriptsWithWork"]) > 0 else {
+            let tool = provider.map { $0 == "claude" ? "Claude Code" : receiptTools[$0] ?? $0 } ?? "Claude Code"
+            return quiet("No " + tool + " activity found while it held this task.")
+        }
+        let files = (a["files"] as? [Any] ?? []).compactMap { $0 as? String }
+        let filesMore = amount(a["filesMore"])
+        let nFiles = Double(files.count) + filesMore
+        let commands = amount(a["commands"])
+        var bits = [
+            nFiles == 1 ? "Edited 1 file" : "Edited " + receiptNum(nFiles) + " files",
+            commands == 1 ? "ran 1 command" : "ran " + receiptNum(commands) + " commands",
+            receiptAbbr(receiptTokens(a["models"])) + " tokens",
+        ]
+        if let cost = receiptCost(a["cost"]) { bits.append(cost) }
+        let folder = (a["folder"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let prs = receiptPRs(a)
+        return ReceiptAgent(
+            id: i, who: who, line: bits.joined(separator: ", ") + ".", muted: false,
+            prs: prs.list, prsBefore: prs.before, prsAfter: prs.after,
+            filesTitle: nFiles == 0 ? nil : nFiles == 1 ? "1 file" : receiptNum(nFiles) + " files",
+            files: files + (filesMore > 0 ? ["and " + receiptNum(filesMore) + " more"] : []), folder: folder)
+    }
+
+    // tkReceiptPrsHtml: a link only to a github.com pull request, as the engine wrote it.
+    private static func receiptPRs(_ a: [String: Any]) -> (list: [ReceiptPR], before: String, after: String) {
+        let list = (a["prs"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }.compactMap { p -> ReceiptPR? in
+            guard let n = integer(p["number"]) else { return nil }
+            let repo = (p["repo"] as? String ?? "").components(separatedBy: "/").last ?? ""
+            let url = (p["url"] as? String).flatMap { u in
+                u.range(of: #"\Ahttps://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+\z"#, options: .regularExpression) == nil ? nil : URL(string: u)
+            }
+            return ReceiptPR(label: repo + "#" + String(n), url: url)
+        }
+        guard !list.isEmpty else { return ([], "", "") }
+        let more = amount(a["prsMore"])
+        return (list, Double(list.count) + more == 1 ? "Worked on pull request " : "Worked on pull requests ",
+                (more > 0 ? (a["upTo"] as? Bool == true ? " and up to " : " and ") + receiptNum(more) + " more" : "") + ".")
+    }
+
+    // The cost words of tkTokensAndCost, from the numbers the Mac worked out; nil from a Mac that sends none.
+    static func receiptCost(_ raw: Any?) -> String? {
+        guard let cost = raw as? [String: Any] else { return nil }
+        let unpriced = (cost["unpriced"] as? [Any] ?? []).compactMap { $0 as? String }
+        let named = unpriced.joined(separator: ", ")
+        if let usd = number(cost["usd"]) {
+            return receiptUsd(usd) + " at API prices"
+                + (unpriced.isEmpty ? "" : " (not counting " + named + (unpriced.count > 1 ? ", which have" : ", which has") + " no published price)")
+        }
+        return unpriced.isEmpty ? nil : "no published price for " + named
+    }
+
+    // usageRowTokenTotal over a model -> buckets map: the four token fields, never `rows`.
+    static func receiptTokens(_ models: Any?) -> Double {
+        (models as? [String: Any] ?? [:]).values.reduce(0.0) { sum, b in
+            let b = b as? [String: Any] ?? [:]
+            return sum + ["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"].reduce(0.0) { $0 + amount(b[$1]) }
+        }
+    }
+
+    // The page's Number(x) || 0 for a count the Mac sends.
+    fileprivate static func amount(_ v: Any?) -> Double { number(v).flatMap { $0.isFinite ? $0 : nil } ?? 0 }
+
+    // usageNum: grouped digits.
+    static func receiptNum(_ v: Double) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal; f.locale = Locale(identifier: "en_US"); f.maximumFractionDigits = 3
+        return f.string(from: NSNumber(value: v)) ?? String(v)
+    }
+    // JavaScript's toFixed for a number of at least 0: printf rounds an exact tie to even, toFixed rounds it up. A double is
+    // an exact tie at d digits only when v * 2^(d+1) is an odd whole number.
+    static func toFixed(_ v: Double, _ d: Int) -> String {
+        let t = v * pow(2, Double(d + 1))
+        let tie = t == t.rounded() && t.truncatingRemainder(dividingBy: 2) == 1
+        // No locale argument: with one, Foundation rounds the shortest decimal (9.995 becomes 10.00) and not the number itself.
+        return String(format: "%.\(d)f", tie ? v.nextUp : v)
+    }
+    // usageAbbr: the unit is chosen after rounding.
+    static func receiptAbbr(_ v: Double) -> String {
+        func rounded(_ x: Double, _ d: Int) -> Double { Double(toFixed(x, d)) ?? x }
+        if v >= 1e9 || rounded(v / 1e6, 1) >= 1000 { return toFixed(v / 1e9, v >= 1e10 || rounded(v / 1e9, 1) >= 10 ? 0 : 1) + "B" }
+        if v >= 1e6 || rounded(v / 1e3, 0) >= 1000 { return toFixed(v / 1e6, 1) + "M" }
+        if v >= 1e3 { return toFixed(v / 1e3, 0) + "K" }
+        return toFixed(v, 0)
+    }
+    // usageUsd.
+    static func receiptUsd(_ v: Double) -> String {
+        if v >= 1e9 { return "$" + toFixed(v / 1e9, 2) + "B" }
+        if v >= 1e6 { return "$" + toFixed(v / 1e6, 0) + "M" }
+        if v >= 1e3 { return "$" + receiptNum((v + 0.5).rounded(.down)) }
+        return "$" + toFixed(v, v < 10 ? 2 : 0)
     }
 }

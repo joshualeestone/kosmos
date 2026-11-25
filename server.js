@@ -27182,8 +27182,9 @@ const server = http.createServer(async (req, res) => {
       task = proj ? require('./engine/tasks').byNumber(proj, Number(taskReceipt[2])) || null : null;
     } catch { task = null; }
     if (!task) { sendJson(res, 404, { error: 'no such task' }); return; }
-    require('./engine/receipt').forTask(id, task)
-      .then((out) => sendJson(res, 200, out))
+    const receipt = require('./engine/receipt');
+    receipt.forTask(id, task)
+      .then((out) => sendJson(res, 200, receipt.withCost(out)))
       .catch((err) => {
         console.error('receipt: could not be worked out:', (err && err.message) || err);
         sendJson(res, 500, { error: 'we could not work out the receipt just now' });

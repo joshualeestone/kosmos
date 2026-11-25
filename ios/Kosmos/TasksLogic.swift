@@ -83,16 +83,44 @@ extension Board {
         var id: String { "ask:" + who }
     }
 
+    // The board's repeat fields on one task (engine/taskrepeat.fieldsOf, on GET /api/tasks and GET /api/projects alike),
+    // read once for the Tasks tab's row and the task page (kosmos#8958 slice B3), so both say the same sentence.
+    static func fillRepeat(_ t: inout TaskRow, _ row: [String: Any]) {
+        let str = { (k: String) -> String? in (row[k] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        let int = { (d: [String: Any], k: String) -> Int in (d[k] as? NSNumber)?.intValue ?? 0 }
+        let reading = { (v: Any?) -> TaskRow.Reading? in
+            guard let d = v as? [String: Any], let value = d["value"] as? String else { return nil }
+            return TaskRow.Reading(value: value, at: d["at"] as? String ?? "")
+        }
+        t.repeating = row["repeat"] != nil && !(row["repeat"] is NSNull)
+        t.repeatWords = str("repeatWords")
+        t.repeatMissed = int(row, "repeatMissed")
+        t.repeatMissedMore = (row["repeatMissedMore"] as? Bool) == true
+        t.repeatMissedWords = str("repeatMissedWords")
+        t.repeatNextWords = str("repeatNextWords")
+        t.lastRunAt = str("lastRunAt")
+        t.lastRunBy = str("lastRunBy")
+        t.lastRunByPerson = (row["lastRunByPerson"] as? Bool) == true
+        t.lastRunLate = (row["lastRunLate"] as? Bool) == true
+        t.lastRunNote = str("lastRunNote")
+        if let rec = row["lastRunRecovered"] as? [String: Any] {
+            t.lastRunRecoveredMissed = int(rec, "missed")
+            t.lastRunRecoveredMore = (rec["more"] as? Bool) == true
+        }
+        t.unchangedRuns = int(row, "unchangedRuns")
+        t.unchangedInferred = int(row, "unchangedInferred")
+        t.lastChangeAt = str("lastChangeAt")
+        t.lastChangeNote = str("lastChangeNote")
+        t.verified = reading(row["verified"])
+        t.told = reading(row["told"])
+    }
+
     static func parseTasks(_ data: Data) -> TasksRead? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let rows = obj["tasks"] as? [[String: Any]]
         else { return nil }
         let str = { (row: [String: Any], k: String) -> String? in (row[k] as? String).flatMap { $0.isEmpty ? nil : $0 } }
         let int = { (row: [String: Any], k: String) -> Int in (row[k] as? NSNumber)?.intValue ?? 0 }
-        let reading = { (v: Any?) -> TaskRow.Reading? in
-            guard let d = v as? [String: Any], let value = d["value"] as? String else { return nil }
-            return TaskRow.Reading(value: value, at: d["at"] as? String ?? "")
-        }
         let tasks: [TaskRow] = rows.compactMap { row in
             guard let projectId = str(row, "projectId"), let number = (row["number"] as? NSNumber)?.intValue,
                   let state = str(row, "state")
@@ -121,27 +149,7 @@ extension Board {
             if let s = row["subtasks"] as? [String: Any], let total = (s["total"] as? NSNumber)?.intValue, total > 0 {
                 t.subtasks = TaskRow.Subtasks(done: int(s, "done"), total: total, built: int(s, "built"))
             }
-            t.repeating = row["repeat"] != nil && !(row["repeat"] is NSNull)
-            t.repeatWords = str(row, "repeatWords")
-            t.repeatMissed = int(row, "repeatMissed")
-            t.repeatMissedMore = (row["repeatMissedMore"] as? Bool) == true
-            t.repeatMissedWords = str(row, "repeatMissedWords")
-            t.repeatNextWords = str(row, "repeatNextWords")
-            t.lastRunAt = str(row, "lastRunAt")
-            t.lastRunBy = str(row, "lastRunBy")
-            t.lastRunByPerson = (row["lastRunByPerson"] as? Bool) == true
-            t.lastRunLate = (row["lastRunLate"] as? Bool) == true
-            t.lastRunNote = str(row, "lastRunNote")
-            if let rec = row["lastRunRecovered"] as? [String: Any] {
-                t.lastRunRecoveredMissed = int(rec, "missed")
-                t.lastRunRecoveredMore = (rec["more"] as? Bool) == true
-            }
-            t.unchangedRuns = int(row, "unchangedRuns")
-            t.unchangedInferred = int(row, "unchangedInferred")
-            t.lastChangeAt = str(row, "lastChangeAt")
-            t.lastChangeNote = str(row, "lastChangeNote")
-            t.verified = reading(row["verified"])
-            t.told = reading(row["told"])
+            fillRepeat(&t, row)
             return t
         }
         let asking: [Asking] = (obj["askingWithoutTask"] as? [[String: Any]])?.compactMap { a in

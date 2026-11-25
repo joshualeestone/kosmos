@@ -61,4 +61,17 @@ function costOf(modelId, bucket) {
     + (Number(b.cache_read_input_tokens) || 0) * p.cr) / 1e6;
 }
 
-module.exports = { USAGE_MODEL_PRICES, modelPrice, costOf };
+/* kosmos#8958 B4: the estimated cost of a { model: bucket } map, as the page's usageApiCost says it: dollars over the models
+   with a published price (null when none has one, never 0), and the sorted ids of those without. */
+function modelsCost(models) {
+  let usd = null;
+  const unpriced = [];
+  for (const id of Object.keys(models || {})) {
+    const c = costOf(id, models[id]);
+    if (c === null) unpriced.push(id);
+    else usd = (usd === null ? 0 : usd) + c;
+  }
+  return { usd, unpriced: unpriced.sort() };
+}
+
+module.exports = { USAGE_MODEL_PRICES, modelPrice, costOf, modelsCost };

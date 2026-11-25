@@ -63,6 +63,32 @@ test('an open task has none yet; a closed one has a receipt; an agent\'s token i
   assert.equal(res.status, 404);
 });
 
+test('kosmos#8958 B4: the task receipt carries each read agent\'s cost, and the kept receipt on disk does not', async () => {
+  const projects = require('./engine/projects');
+  const taskchat = require('./engine/taskchat');
+  const worker = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'costa');
+  fs.mkdirSync(worker, { recursive: true });
+  projects.writeAll([...projects.readAll(), { id: 'cost-p', name: 'Cost project', agents: ['costa'],
+    tasks: [{ number: 1, sentence: 'Price the notes', closedAt: '2026-10-01T11:00:00.000Z' }] }]);
+  const file = taskchat.taskChatFile('cost-p', 1);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, [{ at: '2026-10-01T10:00:00.000Z', kind: 'created', who: 'costa' }, { at: '2026-10-01T11:00:00.000Z', kind: 'closed' }]
+    .map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const dir = require('./engine/receipt').transcriptDirs(worker)[0];
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 's1.jsonl'), JSON.stringify({ type: 'assistant', timestamp: '2026-10-01T10:30:00.000Z',
+    message: { id: 'm1', model: 'claude-fable-5', usage: { input_tokens: 1e6, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, content: [] } }) + '\n');
+  for (const read of ['first', 'kept']) {
+    const res = await fetch(base + '/api/project/cost-p/task/1/receipt');
+    assert.equal(res.status, 200);
+    const r = await res.json();
+    assert.deepEqual(r.agents.map((a) => [a.who, a.transcriptsWithWork, a.cost]), [['costa', 1, { usd: 10, unpriced: [] }]], read + ' read');
+  }
+  const kept = JSON.parse(fs.readFileSync(require('./engine/receipt').receiptFile('cost-p', 1), 'utf8'));
+  assert.equal(kept.agents[0].who, 'costa', 'control: the receipt was kept');
+  assert.ok(!('cost' in kept.agents[0]), 'a price on disk would outlive a price change');
+});
+
 test('an agent\'s receipts route: a list for the page, an agent\'s token refused, a bad name refused', async () => {
   let res = await fetch(base + '/api/agent/someone/receipts');
   assert.equal(res.status, 200);
