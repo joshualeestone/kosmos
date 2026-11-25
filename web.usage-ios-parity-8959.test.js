@@ -35,7 +35,7 @@ function pageFunctions() {
   const pinned = src.replace(/\.toLocaleString\(\)/g, ".toLocaleString('en-US')")
     .replace(/\.localeCompare\(([^()]*)\)/g, ".localeCompare($1, 'en-US')");
   // eslint-disable-next-line no-new-func
-  return new Function('esc', pinned + '; return { usageTotals, usageGrandTotal, usageAbbr, usageBigTokens, usageUsd, usageUsdTileSub1M, usageRowValue, usageActiveDays, usageByModel, usageAgentRows, usageAgentNote, usageApiCost, usageHeroHtml, usageShareTableHtml, usageHistoryHtml };')(esc);
+  return new Function('esc', pinned + '; return { usageTotals, usageGrandTotal, usageAbbr, usageBigTokens, usageUsd, usageUsdTileSub1M, usageRowValue, usageActiveDays, usageByModel, usageAgentRows, usageAgentNote, usageApiCost, usageHeroHtml, usageShareTableHtml, usageHistoryHtml, usageDailySeries, usageChartDays, usageCharts4Html, usageDonutSvg };')(esc);
 }
 
 /* What the page shows for the fixture and for each formatter's inputs. Numbers are formatted in en-US, which the
@@ -69,6 +69,14 @@ function actual(f, fx, inputs) {
     agents: f.usageAgentRows(fx.byAgent).map((r) => [r.name, r.tok, r.muted]),
     agentNote: f.usageAgentNote(fx.byAgent),
     history: rows,
+    // D1c2b: the four daily charts' series, headers and labels, and the donut's centre and legend.
+    chartSeries: f.usageChartDays(f.usageDailySeries(fx.byDay)).map((p) => [p.day, p.input, p.output, p.cacheWritten, p.cacheRead]),
+    charts: [...f.usageCharts4Html(f.usageChartDays(f.usageDailySeries(fx.byDay)), totals, grand)
+      .matchAll(/<span class="tv-nm">([^<]*)<span class="tv-tg">([^<]*)<\/span><\/span><span class="tv-tot">([^<]*)<span class="tv-pc">([^<]*)<\/span><\/span><\/div><svg [^>]*aria-label="([^"]*)"/g)]
+      .map((m) => [m[1], m[2], m[3], unesc(m[4]), m[5]]),
+    donutCentre: (f.usageDonutSvg(models, grand).match(/<text [^>]*>([^<]*)<\/text>/g) || []).map((t) => t.replace(/<[^>]*>/g, '')),
+    donut: [...f.usageDonutSvg(models, grand).matchAll(/<span class="tv-dot" style="background:([^"]*)"><\/span>([^<]*)<\/span><span class="v">([^<]*)</g)]
+      .map((m) => [m[1], m[2], unesc(m[3])]),
   };
 }
 

@@ -129,8 +129,8 @@
    "$50"
   ]
  },
- "grand": 141281530,
- "apiCost": 44.5915,
+ "grand": 141342530,
+ "apiCost": 44.650980000000004,
  "unpriced": [
   "mystery-model"
  ],
@@ -152,6 +152,22 @@
    53000
   ],
   [
+   "gemini-2.5-flash",
+   24400
+  ],
+  [
+   "claude-haiku-5-5",
+   18300
+  ],
+  [
+   "claude-sonnet-5-5",
+   12200
+  ],
+  [
+   "claude-opus-5",
+   6100
+  ],
+  [
    "claude-haiku-4-5-20251001",
    2000
   ],
@@ -162,8 +178,16 @@
  ],
  "modelCells": [
   "141.2M",
-  "100.0%",
+  "99.9%",
   "53K",
+  "<0.1%",
+  "24K",
+  "<0.1%",
+  "18K",
+  "<0.1%",
+  "12K",
+  "<0.1%",
+  "6K",
   "<0.1%",
   "2K",
   "<0.1%",
@@ -223,6 +247,124 @@
    "claude-opus-5-5",
    "99.5M",
    "$89,551"
+  ],
+  [
+   "2026-11-10",
+   "claude-haiku-5-5",
+   "18K",
+   "$16"
+  ],
+  [
+   "2026-11-10",
+   "claude-opus-5",
+   "6K",
+   "$5.49"
+  ],
+  [
+   "2026-11-10",
+   "claude-sonnet-5-5",
+   "12K",
+   "$11"
+  ],
+  [
+   "2026-11-10",
+   "gemini-2.5-flash",
+   "24K",
+   "$22"
+  ]
+ ],
+ "chartSeries": [
+  [
+   "2026-11-10",
+   1000,
+   10000,
+   0,
+   50000
+  ],
+  [
+   "2026-11-23",
+   1700,
+   251500,
+   1250000,
+   98000000
+  ],
+  [
+   "2026-11-24",
+   1310,
+   127020,
+   600000,
+   41050000
+  ]
+ ],
+ "charts": [
+  [
+   "Cache reads",
+   "context ingested",
+   "139.1M",
+   "98.4%",
+   "Cache reads per day, last 3 days"
+  ],
+  [
+   "Cache writes",
+   "context stored",
+   "1.9M",
+   "1.3%",
+   "Cache writes per day, last 3 days"
+  ],
+  [
+   "Output",
+   "text produced",
+   "389K",
+   "0.27%",
+   "Output per day, last 3 days"
+  ],
+  [
+   "Input",
+   "new prompts",
+   "4K",
+   "<0.1%",
+   "Input per day, last 3 days"
+  ]
+ ],
+ "donutCentre": [
+  "141.3M",
+  "total tokens"
+ ],
+ "donut": [
+  [
+   "#b88920",
+   "claude-opus-5-5",
+   "100%"
+  ],
+  [
+   "#4171e3",
+   "gpt-5.1",
+   "<1%"
+  ],
+  [
+   "#3fbf87",
+   "gemini-2.5-flash",
+   "<1%"
+  ],
+  [
+   "#41c2e3",
+   "claude-haiku-5-5",
+   "<1%"
+  ],
+  [
+   "#8a7fe0",
+   "claude-sonnet-5-5",
+   "<1%"
+  ],
+  [
+   "#d97aa0",
+   "claude-opus-5",
+   "<1%"
+  ],
+  [
+   "#8a8f98",
+   "Other",
+   "<1%"
   ]
  ]
 }

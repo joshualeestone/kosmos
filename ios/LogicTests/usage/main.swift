@@ -49,8 +49,8 @@ section("the figures, on the fixture")
 guard case .shown(let s) = U.screen(status: 200, data: Data(fixture.utf8), locale: us) else { check(false, "the fixture shows"); exit(1) }
 let d = U.read(status: 200, data: Data(fixture.utf8))!
 let t = U.totals(d.byDay)
-check(t == Usage.Bucket(input: 3010, output: 378520, cacheWritten: 1850000, cacheRead: 139050000) && s.grand == 141281530, "usageTotals and usageGrandTotal")
-check(abs((U.apiCost(d.byDay).cost ?? 0) - 44.5915) < 1e-9 && U.apiCost(d.byDay).unpriced == ["mystery-model"], "usageApiCost: the dated haiku id priced without its date, the unknown one left out")
+check(t.total == (expected["grand"] as? NSNumber)?.doubleValue && t.cacheRead > t.output, "usageTotals: the four classes add to the page's grand total")
+check(U.price("claude-haiku-4-5-20251001") == U.price("claude-haiku-4-5") && U.price("claude-haiku-4-5") != nil && U.price("mystery-model") == nil, "a dated id is priced without its date; an unknown one is not")
 let h = s.hero
 check([String(h.days), h.tokens, h.value, h.hours, h.years, h.api] == (expected["hero"] as? [String] ?? []), "the hero's six figures: \(h)")
 check(s.models.map { [$0.name, $0.tok] as [AnyHashable] } == ((expected["models"] as? [[Any]]) ?? []).map { [$0[0] as! String, ($0[1] as! NSNumber).doubleValue] as [AnyHashable] }, "usageByModel, most first")
@@ -68,6 +68,24 @@ check(page.contains("? 'Counted from the transcripts on this computer.'") && pag
       && page.contains("said += ' The equivalent API cost leaves out '") && page.contains("+ ' with no published price (' + api.unpriced.join(', ') + ').';")
       && page.contains("said += ' Claude removes transcripts after about ' + USAGE_TRANSCRIPT_KEEP_DAYS + ' days, so an older day counts only if Kosmos saved it in time.';"),
       "the counted-from sentence's pieces are still the page's")
+
+section("the charts and the donut (D1c2b), against the page's own (expected.json)")
+let series = (expected["chartSeries"] as? [[Any]]) ?? []
+check(!series.isEmpty && U.dailySeries(d.byDay).suffix(U.chartDays).map { [$0.day as AnyHashable, $0.use.input, $0.use.output, $0.use.cacheWritten, $0.use.cacheRead] }
+      == series.map { [$0[0] as! String as AnyHashable] + $0.dropFirst().map { ($0 as! NSNumber).doubleValue as AnyHashable } }, "usageDailySeries and usageChartDays")
+check(s.charts.map { [$0.name, $0.tag, $0.total, $0.share, $0.label] } == ((expected["charts"] as? [[String]]) ?? []), "usageCharts4Html's headers and labels: \(s.charts.map(\.share))")
+check(s.charts.map(\.values) == Usage.Class.allCases.map { c in U.dailySeries(d.byDay).suffix(U.chartDays).map { U.value($0.use, c) } } && s.charts.allSatisfy { $0.values.count == series.count }, "each chart plots its class per day")
+check([s.donut?.centre ?? "", U.Words.totalTokensSmall] == ((expected["donutCentre"] as? [String]) ?? []), "the donut's centre")
+let hex = { (c: UInt32) in String(format: "#%06x", c) }
+check((s.donut?.slices ?? []).map { [hex($0.color), $0.name, $0.share] } == ((expected["donut"] as? [[String]]) ?? []), "the donut's legend: \((s.donut?.slices ?? []).map(\.name))")
+let sl = s.donut?.slices ?? []
+check(sl.first?.start == 0 && abs((sl.last?.end ?? 0) - 1) < 1e-9 && zip(sl, sl.dropFirst()).allSatisfy { $0.end == $1.start }, "the slices run round the whole circle, end to end")
+check(U.classShare(1, of: 100) == "1.0%" && U.classShare(0.5, of: 100) == "0.50%" && U.classShare(0.05, of: 100) == "<0.1%" && U.classShare(5, of: 0) == "500.0%", "the class share's three bands (and the page's total || 1)")
+check(U.donut([], grand: 0) == nil && U.charts([:], totals: Usage.Bucket(), grand: 0).isEmpty, "nothing to draw: no chart, no donut")
+check(page.contains("{ key: 'cacheRead', color: '#d6a62e', label: 'Cache read' }") && page.contains("{ key: 'cacheWritten', color: '#6fd3a0', label: 'Cache written' }")
+      && page.contains("{ key: 'input', color: '#8ab4ff', label: 'Input' }") && page.contains("{ key: 'output', color: '#c78cff', label: 'Output' }")
+      && Usage.Class.allCases.map { hex(U.classColor($0)) } == ["#d6a62e", "#6fd3a0", "#c78cff", "#8ab4ff"], "USAGE_CLASS_COLORS")
+check(page.contains("const USAGE_CHART_DAYS = 14;") && page.contains("'<text x=\"100\" y=\"113\" text-anchor=\"middle\" style=\"font-size:10px;fill:var(--k-ink-2)\">total tokens</text></svg>'"), "14 days, and the centre's words")
 
 section("the edges")
 check(U.abbr(-1e19) == "-10000000000000000000" && U.activeDays(Usage.Data_(byDay: [:], byAgent: nil, daysOnKosmos: 1e20, roots: nil)) == 1_000_000_000
