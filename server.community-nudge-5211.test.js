@@ -40,7 +40,7 @@ const timers = new Set();   // a slow stub's timers, cleared at the end so the f
 function stubNudge(answer = 'That post is by Ada; you do not follow them. Today: votes 1/3.', delayMs = 0) {
   nudges = [];
   communitynudge.nudge = (agentKey, opts) => {
-    nudges.push({ agentKey, postId: opts && opts.postId, ...(opts && opts.reply ? { reply: true } : {}) });
+    nudges.push({ agentKey, postId: opts && opts.postId, ...(opts && opts.reply ? { reply: true } : {}), ...(opts && opts.vote ? { vote: true } : {}) });
     return delayMs ? new Promise((r) => { const t = setTimeout(() => r(answer), delayMs); timers.add(t); }) : Promise.resolve(answer);
   };
 }
@@ -81,15 +81,15 @@ test('#5211: a post vote that went through answers with the nudge, built for the
   const r = await call('/api/community/vote', sendertoken.mint('Voter').token, { kind: 'post', id: POST, direction: 'up' });
   assert.equal(r.status, 200);
   assert.deepEqual(await r.json(), { ok: true, text: 'You voted that post up.', nudge: 'That post is by Ada; you do not follow them. Today: votes 1/3.' });
-  assert.deepEqual(nudges, [{ agentKey: 'Voter', postId: POST }]);
+  assert.deepEqual(nudges, [{ agentKey: 'Voter', postId: POST, vote: true }]);
 });
 
-test('#5211: a comment vote gets the counts only (no post to name); a refused vote and the standing read get no nudge', async (t) => {
+test('#5211: a comment vote names no post; a refused vote and the standing read get no nudge', async (t) => {
   const b = fleet.install([fleet.agent('Voter', { state: 'idle' })]);
   t.after(() => b.restore());
   stubVote(); stubNudge();
   await call('/api/community/vote', sendertoken.mint('Voter').token, { kind: 'comment', id: COMMENT, direction: 'up' });
-  assert.deepEqual(nudges, [{ agentKey: 'Voter', postId: null }]);
+  assert.deepEqual(nudges, [{ agentKey: 'Voter', postId: null, vote: true }]);
   stubVote(false); stubNudge();
   const refused = await call('/api/community/vote', sendertoken.mint('Voter').token, { kind: 'post', id: POST, direction: 'up' });
   assert.equal(refused.status, 400);
@@ -172,6 +172,11 @@ test('copy review: the comment route marks a --reply-to comment as a reply (so t
   assert.deepEqual(nudges, [{ agentKey: 'Writer', postId: POST, reply: true }, { agentKey: 'Writer', postId: POST }]);
 });
 
+/* One comment, each with its own words (the counts line goes with a comment, never a vote: kosmos#9015). */
+let words = 0;
+const comment = (who) => call('/api/community/service-comment', sendertoken.mint(who).token,
+  { kind: 'community_post', servicePostId: POST, body: 'A thought, number ' + (++words) + '.', at: new Date().toISOString() });
+
 /* kosmos#8340: a nudge that behaves as the real one does with the caller's memory: counts the caller says were shown
    become the short sentence; others print in full and are reported through onCounts. */
 function stubCountingNudge(countsRef, delayMs = 0) {
@@ -188,27 +193,27 @@ test('kosmos#8340: the counts repeat only when they changed since the agent was 
   const b = fleet.install([fleet.agent('Repeater', { state: 'idle' })]);
   t.after(() => b.restore());
   const counts = { now: 'Last 24 hours: commented on 1 post.' };
-  stubVote(); stubCountingNudge(counts);
-  const vote = async () => (await (await call('/api/community/vote', sendertoken.mint('Repeater').token, { kind: 'post', id: POST, direction: 'up' })).json()).nudge;
-  assert.equal(await vote(), 'Ada. Last 24 hours: commented on 1 post.', 'the first line carries the counts');
-  assert.equal(await vote(), 'Ada. ' + communitynudge.COUNTS_UNCHANGED, 'the same counts again were repeated');
+  stubCountingNudge(counts);
+  const said = async () => (await (await comment('Repeater')).json()).nudge;
+  assert.equal(await said(), 'Ada. Last 24 hours: commented on 1 post.', 'the first line carries the counts');
+  assert.equal(await said(), 'Ada. ' + communitynudge.COUNTS_UNCHANGED, 'the same counts again were repeated');
   counts.now = 'Last 24 hours: commented on 2 posts.';
-  assert.equal(await vote(), 'Ada. Last 24 hours: commented on 2 posts.', 'changed counts were not printed');
-  assert.equal(await vote(), 'Ada. ' + communitynudge.COUNTS_UNCHANGED);
+  assert.equal(await said(), 'Ada. Last 24 hours: commented on 2 posts.', 'changed counts were not printed');
+  assert.equal(await said(), 'Ada. ' + communitynudge.COUNTS_UNCHANGED);
   // Two hours on, the same counts print in full again (a rolling day moves; the agent may have lost the earlier line).
   assert.equal(require('./server')._ageCountsShownForTest('Repeater', 2 * 60 * 60 * 1000), true, 'CONTROL: no record was kept');
-  assert.equal(await vote(), 'Ada. Last 24 hours: commented on 2 posts.', 'counts from two hours ago were taken as just shown');
+  assert.equal(await said(), 'Ada. Last 24 hours: commented on 2 posts.', 'counts from two hours ago were taken as just shown');
 });
 
 test('kosmos#8340: one agent being shown its counts does not hide them from another', async (t) => {
   const b = fleet.install([fleet.agent('Ann', { state: 'idle' }), fleet.agent('Bea', { state: 'idle' })]);
   t.after(() => b.restore());
   const counts = { now: 'Last 24 hours: followed 1 agent.' };
-  stubVote(); stubCountingNudge(counts);
-  const vote = async (who) => (await (await call('/api/community/vote', sendertoken.mint(who).token, { kind: 'post', id: POST, direction: 'up' })).json()).nudge;
-  assert.equal(await vote('Ann'), 'Ada. Last 24 hours: followed 1 agent.');
-  assert.equal(await vote('Bea'), 'Ada. Last 24 hours: followed 1 agent.', 'Ann\'s record hid the counts from Bea');
-  assert.equal(await vote('Ann'), 'Ada. ' + communitynudge.COUNTS_UNCHANGED, 'CONTROL: Ann\'s own repeat is still shortened');
+  stubCountingNudge(counts);
+  const said = async (who) => (await (await comment(who)).json()).nudge;
+  assert.equal(await said('Ann'), 'Ada. Last 24 hours: followed 1 agent.');
+  assert.equal(await said('Bea'), 'Ada. Last 24 hours: followed 1 agent.', 'Ann\'s record hid the counts from Bea');
+  assert.equal(await said('Ann'), 'Ada. ' + communitynudge.COUNTS_UNCHANGED, 'CONTROL: Ann\'s own repeat is still shortened');
 });
 
 test('kosmos#9015: through the REAL nudge, a vote carries no counts, first or repeated; CONTROL: the same agent has counts to show', async (t) => {
@@ -223,7 +228,16 @@ test('kosmos#9015: through the REAL nudge, a vote carries no counts, first or re
   assert.equal(first.ok, true, JSON.stringify(first));
   assert.ok(!('nudge' in first), 'a vote carried a line: ' + first.nudge);
   assert.ok(!('nudge' in await vote()), 'a second vote carried a line');
-  assert.match(await realNudge('Realist', {}), /Last 24 hours, not since midnight: .*followed 1 agent/, 'CONTROL: the counts a comment would show');
+  /* CONTROL, and what must not regress: the same agent's comments, through the route and the real nudge (less the post, so
+     nothing is read over the network), show the counts in full, then short, then in full again when they change. */
+  communitynudge.nudge = (agentKey, opts) => realNudge(agentKey, { ...opts, postId: null });
+  const say = async () => (await (await comment('Realist')).json()).nudge;
+  const full = await say();
+  assert.match(full, /^Last 24 hours, not since midnight: .*followed 1 agent/, 'a comment shows no counts: ' + full);
+  assert.equal(await say(), communitynudge.COUNTS_UNCHANGED, 'the same counts were repeated after a second comment');
+  communitynudge.noteFollowed('Realist', 'Somebody else', Date.now());
+  assert.match(await say(), /followed 2 agents/, 'a changed count was not printed in full');
+  assert.ok(!('nudge' in await vote()), 'a vote after them carried the counts');
 });
 
 test('kosmos#8340: counts in a line that came too late to send are not taken as shown', async (t) => {
@@ -231,12 +245,12 @@ test('kosmos#8340: counts in a line that came too late to send are not taken as 
   process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS = '3000';   // the line gets about 3 s; this one takes 3.5 s
   t.after(() => { b.restore(); delete process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS; });
   const counts = { now: 'Last 24 hours: posted once.' };
-  stubVote(); stubCountingNudge(counts, 3500);
-  const late = await (await call('/api/community/vote', sendertoken.mint('Latecomer').token, { kind: 'post', id: POST, direction: 'up' })).json();
+  stubCountingNudge(counts, 3500);
+  const late = await (await comment('Latecomer')).json();
   assert.ok(!('nudge' in late), 'CONTROL: the slow line did not go out: ' + JSON.stringify(late));
   delete process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS;
-  stubVote(); stubCountingNudge(counts);
-  const next = await (await call('/api/community/vote', sendertoken.mint('Latecomer').token, { kind: 'post', id: POST, direction: 'up' })).json();
+  stubCountingNudge(counts);
+  const next = await (await comment('Latecomer')).json();
   assert.equal(next.nudge, 'Ada. Last 24 hours: posted once.', 'counts the agent never saw were treated as shown');
 });
 
@@ -255,14 +269,14 @@ test('kosmos#8895: the next nudge gets the last shown comments count and its tim
     if (opts && typeof opts.onCounts === 'function') opts.onCounts(counts, comments, countedAt);
     return Promise.resolve('Ada. ' + counts);
   };
-  const vote = async () => (await (await call('/api/community/vote', sendertoken.mint('Dipper').token, { kind: 'post', id: POST, direction: 'up' })).json()).nudge;
-  await vote();
+  const said = async () => (await (await comment('Dipper')).json()).nudge;
+  await said();
   assert.equal(seen[0], null, 'a first showing was handed a last showing');
   comments = 1;
-  await vote();
+  await said();
   assert.deepEqual(seen[1], { comments: 2, at: countedAt }, 'the last shown comments count, or the moment it was counted, was not handed on');
   // CONTROL: two hours on, the record is stale, so nothing is handed on (and no aging reason can be given from it).
   assert.equal(require('./server')._ageCountsShownForTest('Dipper', 2 * 60 * 60 * 1000), true, 'CONTROL: no record was kept');
-  await vote();
+  await said();
   assert.equal(seen[2], null, 'a two-hour-old showing was handed on as the last one');
 });

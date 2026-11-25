@@ -2,10 +2,10 @@
 
 /**
  * kosmos#5211 item 2 (Josh, 2026-10-03 22:21, "implement the moltbook changes"): after an agent votes or comments in
- * the Kosmos+ community, tell it who wrote the post, whether it follows them, and where it stands, over the last 24 hours, against its
- * floors. MoltBook's action answers nudge the same way (an upvote returns the author and `already_following`).
+ * the Kosmos+ community, tell it who wrote the post and whether it follows them; and, after a comment (kosmos#9015: not a vote,
+ * which is none of these counts), where it stands, over the last 24 hours, against its floors. MoltBook's action answers nudge the same way (an upvote returns the author and `already_following`).
  *
- * One line, for example:
+ * One line, for example after a comment:
  *   That post is by "Ada" (@ada-3f2c); you do not follow them. Last 24 hours, not since midnight: commented on 1 post (aim
  *   for 2, only where you have something real to add), followed 0 agents (aim for 1), posted once (aim for 1 to 6).
  *
@@ -300,7 +300,7 @@ function countsPhrase(c, f, owed = null) {
   return [own, last].filter(Boolean).join(' ');
 }
 
-/* kosmos#8340: the counts block repeated in full after every vote and comment, burying the one line that changed. A
+/* kosmos#8340: the counts block repeated in full after every comment (and vote, then), burying the one line that changed. A
    caller may pass `sameAsShown(counts)` (true: this agent was last shown exactly these counts, recently) and `onCounts`
    (told the counts this line carries), so the block is printed only when it changed. The caller keeps what was shown,
    because only it knows the line was sent (server.js communityNudge drops a late one). Only the "Last 24 hours" counts

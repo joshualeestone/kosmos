@@ -94,11 +94,58 @@ test('#9015 the same agent after a restart (a new launch token) is not pointed a
   /* A token file that cannot be read, an older single-token file (its key is the name), and a token that is not a string. */
   const odd = fresh();
   fs.mkdirSync(path.join(odd, 'sendertokens'));
-  fs.writeFileSync(path.join(odd, 'sendertokens', 'aaa.json'), '{ torn');
-  fs.writeFileSync(path.join(odd, 'sendertokens', 'bbb.json'), JSON.stringify({ tokens: [null, { token: 5 }] }));
+  fs.writeFileSync(path.join(odd, 'sendertokens', 'bbb.json'), JSON.stringify({ tokens: [null, { token: 5 }, { token: 'tok-after', name: 'After' }] }));
   fs.writeFileSync(path.join(odd, 'sendertokens', 'zed.json'), JSON.stringify({ token: 'tok-old' }));
-  assert.equal(hh.agentKeyOf({ KOSMOS_AGENT_TOKEN: 'tok-old' }, odd), 'zed');
+  fs.mkdirSync(path.join(odd, 'sendertokens', 'a-folder.json'));
+  assert.equal(hh.agentKeyOf({ KOSMOS_AGENT_TOKEN: ' tok-old ' }, odd), 'zed');
+  assert.equal(hh.agentKeyOf({ KOSMOS_AGENT_TOKEN: 'tok-after' }, odd), 'after', 'an entry that is not one hid the next');
   assert.match(hh.agentKeyOf({ KOSMOS_AGENT_TOKEN: '5' }, odd), /^launch:/);
+});
+
+test('#9015 review 1: a token file that cannot be read leaves who it is unknown: nothing shown, nothing marked; CONTROL: read again, it points', () => {
+  const root = fresh();
+  giveToken(root, 'pete', [{ token: 'tok-pete', name: 'Pete' }]);
+  fs.writeFileSync(path.join(root, 'sendertokens', 'mona.json'), '{ torn');
+  assert.equal(hh.hint('claim', ['p'], { env: tokenEnv('tok-mona', root) }), '');
+  assert.deepEqual(marks(root), [], 'marked as somebody else');
+  assert.match(hh.hint('claim', ['p'], { env: tokenEnv('tok-pete', root) }), /kosmos claim --how/, 'CONTROL: one whose own file reads');
+  giveToken(root, 'mona', [{ token: 'tok-mona', name: 'Mona' }]);
+  assert.match(hh.hint('claim', ['p'], { env: tokenEnv('tok-mona', root) }), /kosmos claim --how/);
+});
+
+test('#9015 review 1: one agent, however it is spelled; CONTROL: another agent whose name starts the same', () => {
+  const root = fresh();
+  giveToken(root, 'mona', [{ token: 'tok-mona', name: 'Mona' }]);
+  assert.match(hh.hint('claim', ['p'], { env: tokenEnv('tok-mona', root) }), /kosmos claim --how/);
+  for (const s of ['mona', 'Mona', 'mona-discord']) assert.equal(hh.hint('claim', ['p'], { env: envFor(s, root) }), '', s + ' was pointed again');
+  assert.equal(hh.hint('claim', ['p'], { env: { ...envFor('mona-discord+lab', root), KOSMOS_WORLD: 'lab' } }), '', 'in a named Kosmos');
+  for (const s of ['mona-discord-2', 'mona+lab']) assert.match(hh.hint('claim', ['p'], { env: envFor(s, root) }), /kosmos claim --how/, s);
+});
+
+test('#9015 review 1: a launch looks its token up once a command', (t) => {
+  const root = fresh();
+  giveToken(root, 'mona', [{ token: 'tok-mona', name: 'Mona' }]);
+  assert.match(hh.hint('claim', ['p'], { env: tokenEnv('tok-mona', root) }), /kosmos claim --how/);
+  const looked = t.mock.method(fs, 'readdirSync');
+  assert.equal(hh.hint('claim', ['p'], { env: tokenEnv('tok-mona', root) }), '');
+  assert.equal(looked.mock.calls.length, 0, 'the token folder was read again');
+  assert.match(hh.hint('post', ['p', 'x'], { env: tokenEnv('tok-mona', root) }), /kosmos post --how/);
+  assert.ok(looked.mock.calls.length > 0, 'CONTROL: a first use of another command reads it');
+  t.mock.restoreAll();
+  assert.equal(marks(root).length, 4, 'the agent\'s marks and the launch\'s');
+});
+
+test('#9015 review 1: marks are only made in a real folder, owner only', { skip: process.platform === 'win32' && 'links and modes are POSIX here' }, () => {
+  const root = fresh();
+  const elsewhere = fresh();
+  fs.symlinkSync(elsewhere, path.join(root, 'how-hints'));
+  assert.equal(hh.hint('claim', ['p'], { env: envFor('mona', root) }), '');
+  assert.deepEqual(fs.readdirSync(elsewhere), [], 'wrote through a link');
+  const real = fresh();
+  const was = process.umask(0);
+  try { assert.match(hh.hint('claim', ['p'], { env: envFor('mona', real) }), /kosmos claim --how/); } finally { process.umask(was); }
+  assert.equal(fs.statSync(path.join(real, 'how-hints')).mode & 0o777, 0o700);
+  assert.equal(fs.statSync(path.join(real, 'how-hints', marks(real)[0])).mode & 0o777, 0o600);
 });
 
 test('#9015 reading the guide counts for the session and after a restart', () => {
@@ -120,6 +167,9 @@ test('#9015 the record kept before is still honoured, by name and by this launch
   assert.match(hh.hint('task', ['list', 'p'], { env: envFor('mona', root) }), /kosmos task --how/, 'CONTROL: one it had not seen');
   assert.match(hh.hint('claim', ['p', '7'], { env: tokenEnv('tok-now', root) }), /kosmos claim --how/, 'CONTROL: another agent\'s mark');
   assert.equal(fs.readFileSync(path.join(root, 'how-hints.json'), 'utf8'), before);
+  /* And after the next restart, whose token the old record does not hold: what was seen was carried to the agent. */
+  giveToken(root, 'pete', [{ token: 'tok-next', name: 'Pete' }]);
+  assert.equal(hh.hint('post', ['p', 'x'], { env: tokenEnv('tok-next', root) }), '', 'pointed again after the next restart');
 });
 
 test('#9015 many agents at once each see it once: no mark is lost', async () => {
@@ -143,10 +193,15 @@ test('#9015 marks past the limit: the oldest go, this one stays', () => {
   const dir = path.join(root, 'how-hints');
   fs.mkdirSync(dir);
   const old = new Date(Date.now() - 86400000);
-  for (let k = 0; k < hh.MARKS_MAX + 2; k += 1) { const f = path.join(dir, 'old-' + k); fs.writeFileSync(f, ''); fs.utimesSync(f, old, old); }
-  assert.match(hh.hint('claim', ['p'], { env: envFor('mona', root) }), /kosmos claim --how/);
-  assert.equal(marks(root).length, hh.MARKS_MAX);
-  assert.equal(hh.hint('claim', ['p'], { env: envFor('mona', root) }), '', 'its own mark was dropped');
+  const put = (name, at) => { const f = path.join(dir, name); fs.writeFileSync(f, ''); fs.utimesSync(f, at, at); };
+  const older = new Date(Date.now() - 2 * 86400000);
+  put('0123456789abcdef-claim', older);   // an agent's own mark, older than all of them
+  put('notes.txt', older);   // not a mark at all
+  for (let k = 0; k < hh.MARKS_MAX + 2; k += 1) put('l-' + k.toString(16).padStart(16, '0') + '-claim', old);
+  assert.match(hh.hint('claim', ['p'], { env: tokenEnv('tok-new', root) }), /kosmos claim --how/);
+  assert.equal(marks(root).filter((f) => f.startsWith('l-')).length, hh.MARKS_MAX);
+  assert.ok(marks(root).includes('0123456789abcdef-claim') && marks(root).includes('notes.txt'), 'something other than a launch\'s mark was taken');
+  assert.equal(hh.hint('claim', ['p'], { env: tokenEnv('tok-new', root) }), '', 'its own mark was dropped');
 });
 
 test('#8935 bare and --auto calls neither point nor mark; a test run without its own record never points', () => {
