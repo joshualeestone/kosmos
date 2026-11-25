@@ -763,7 +763,7 @@ struct AccountView: View {
     // A failed read keeps what is shown; a first read that fails shows nothing (the page shows nothing either).
     @MainActor private func readPlan() async {
         if sample {
-            plan = Account.planActive; standing = nil; email = "ada@example.com"; meComputers = .some
+            plan = Account.planActive; standing = nil; email = "ada@example.com"; meComputers = .live
             // Deliberately not a state the server sends: it says has_name with a computer that answers. The sample keeps
             // its computers for the other checks and offers the address too, so one run shows every row (review 1).
             if nameSaved == nil { nameState = .offer }
@@ -771,13 +771,15 @@ struct AccountView: View {
         }
         planTicket += 1
         let ticket = planTicket
-        guard let session = currentSession() else { plan = nil; standing = nil; email = nil; nameState = .none; return }
+        guard let session = currentSession() else {
+            plan = nil; standing = nil; email = nil; nameState = .none; meComputers = nil; nameSaved = nil; return
+        }
         let (status, data) = await send(Account.meRequest(coordinator: coordinator, session: session))
         guard !Task.isCancelled, ticket == planTicket, currentSession() == session else { return }
         switch Account.planAnswer(status: status, data: data) {
         case .show(let line, let note, let name, let who):
             plan = line; standing = note; nameState = name; email = who; meComputers = Account.computers(data)
-        case .clear: plan = nil; standing = nil; nameState = .none; email = nil; meComputers = nil
+        case .clear: plan = nil; standing = nil; nameState = .none; email = nil; meComputers = nil; nameSaved = nil
         case .keep: break
         }
     }
