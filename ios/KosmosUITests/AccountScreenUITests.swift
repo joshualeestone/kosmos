@@ -40,7 +40,7 @@ final class AccountScreenUITests: XCTestCase {
         XCTAssertTrue(app.buttons["account-sign-out"].exists && app.buttons["account-sign-out-everywhere"].exists, "no sign-out buttons")
         reveal(app, app.buttons["account-more"])
         XCTAssertTrue(app.buttons["account-more"].exists, "no way to the rest of the account")
-        // kosmos#8959 slice B2: the footer says only what the in-app page still offers, and nothing on the phone sells.
+        // kosmos#8959 slice B2: the footer names nothing, and nothing on the phone sells.
         // Review 4: the footer may be built a moment after its row, so wait for it.
         XCTAssertTrue(app.staticTexts["Anything not on this screen is on your Kosmos+ account page."].waitForExistence(timeout: 3),
                       "the More on Kosmos+ footer is not the one that names nothing")

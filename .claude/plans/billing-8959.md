@@ -7,7 +7,9 @@
   machine and the cloud waitlist (`loadCloud` returns at once).
 - Inside the apps it still shows: the plan line `#plan-line` ("Kosmos+ · Active" when `/v1/account/me` says
   `kosmos_plus === true && (!standing || standing === "good")`), the address offer `#name-offer`, the Open my Kosmos
-  buttons, and the computers and security sections (native since B1a to B1c).
+  buttons, and the computers and security sections (native since B1a to B1c). Review 7 measured that every state also
+  shows "Signed in as <email>" and the device line (`#pending-note`), which is what keeps the footer below true for a
+  named account with a computer.
 
 ## The call
 - No link-out to Safari (the card's 03:52 plan said so; that plan was wrong, see the card). Josh's switch, not ours.
@@ -20,7 +22,10 @@
 - The "More on Kosmos+" footer names nothing: "Anything not on this screen is on your Kosmos+ account page." Review 6
   measured that the in-app page shows the address line only with no computer and the address offer only with no name, so
   a footer naming them was false for a named account with a computer, the commonest state.
-- Next slice B3: the address choice native, then the row goes.
+- Next slice B3: the address choice native, and Open my Kosmos (the page's per-address buttons) given a native
+  equivalent or kept behind the row; the row goes only when nothing the page offers in the app is lost (review 7).
+- A lapsed account reads the server's sentence and finds no way to fix it, on the phone or on the in-app page (the fix
+  control is behind CAN_BUY_HERE). That is Josh's switch; recorded here, not worked around (review 7, accepted).
 
 ## Tests
 - ios/LogicTests/account: 43 new checks, 98 in all (page's cases, the standing note, each status, the request). Mutants: drop the strict-true
