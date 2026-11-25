@@ -294,10 +294,44 @@ test('kosmos#9058 review 1: a racing third /clear is not reminded, and a restart
       // A restart: two worked sessions ended since the wait, so the startup reminder is not given either.
       writeHistory(base9058.concat([{ state: 'stopped', by: 'auto', because: '', at: t - 38 * M }]));
       const s2 = await ask(tok, 'as=hook&at=startup');
+      assert.equal(s2.code, 200, 'review 3: an error also answers an empty body here');
       assert.doesNotMatch(s2.text, /last reported that it was waiting/);
       // CONTROL: after one worked session the startup still reminds, in the startup words.
       writeHistory(base9058.slice(0, 5));
       assert.match(JSON.parse((await ask(tok, 'as=hook&at=startup')).text).hookSpecificOutput.additionalContext, /A new run replaces a waiting report on the board/);
+    } finally { sendertoken.revoke('leo'); }
+  });
+});
+
+/* kosmos#9058 review 3: most restarts on this fleet leave no `stopped` (a killed or relaunched run sends no SessionEnd),
+   so a session also ends at the next `started`. History with no `stopped` at all: the Mac asks at=startup before its
+   `started` lands (the session it ends counts now); the Windows hook asks as=hook after it (its `started` closes it). */
+test('kosmos#9058 review 3: restarts with no stopped rows stop reminding after two worked sessions, on a Mac and on Windows', async () => {
+  await withBoard(async () => {
+    const t = now();
+    const tok = sendertoken.mint('leo').token;
+    const s = (state, by, min) => ({ state, by, because: '', at: t - min * M });
+    const reminded = (r) => r.code === 200 && /last reported that it was waiting/.test(r.text);
+    try {
+      // wait, crash, startup (reminded), a turn, crash: one worked session; the next startup still reminds.
+      const one = [s('needs_you', 'agent', 60), s('started', 'auto', 50), s('working', 'auto', 49), s('idle', 'auto', 48)];
+      writeHistory(one);
+      assert.equal(reminded(await ask(tok, 'as=hook&at=startup')), true, 'Mac: the restart ending the first worked session reminds');
+      writeHistory(one.concat([s('started', 'auto', 47)]));
+      assert.equal(reminded(await ask(tok, 'as=hook')), true, 'Windows (after its started): one worked session, still reminds');
+      // another crash after another worked session: two, so neither platform reminds.
+      const two = one.concat([s('started', 'auto', 40), s('working', 'auto', 39), s('idle', 'auto', 38)]);
+      writeHistory(two);
+      const mac = await ask(tok, 'as=hook&at=startup');
+      assert.equal(mac.code, 200);
+      assert.equal(reminded(mac), false, 'Mac: two worked sessions, no reminder');
+      writeHistory(two.concat([s('started', 'auto', 37)]));
+      const win = await ask(tok, 'as=hook');
+      assert.equal(win.code, 200);
+      assert.equal(reminded(win), false, 'Windows: the same count at the same moment');
+      // CONTROL: restarts with no turn between them use up nothing.
+      writeHistory([s('needs_you', 'agent', 60), s('started', 'auto', 50), s('started', 'auto', 40), s('started', 'auto', 30)]);
+      assert.equal(reminded(await ask(tok, 'as=hook&at=startup')), true);
     } finally { sendertoken.revoke('leo'); }
   });
 });

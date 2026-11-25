@@ -48,3 +48,11 @@ rule; the wording test fails with the old phrase. #9049's own tests unchanged an
 - NIT: the sessionAfter comment said every /clear is reminded; the limit's sentence hard-coded "two" and "each begun with
   that reminder" (false after a crash) --> FIXED (reads REMIND_SESSIONS; claims only that it reminded already).
 - Measured by the reviewer: the Mac (asks before `started`) and Windows (after) count the same at the same moment.
+
+## Review round 3 (opus): 0 BLOCKERs, 1 SHOULD, 2 NITs, all fixed
+- SHOULD (measured in this Mac's selfreports): most restarts leave no `stopped` (started after started 17/9/8/8/6
+  times for five agents, after stopped 0), so the startup limit never applied --> FIXED: a worked session also ends at
+  the next `started`; the Mac's at=startup ask (before its `started` lands) passes endingNow, the Windows as=hook (after
+  it) does not, so both count the same at the same moment. Route test with no `stopped` rows at all, both platforms.
+- NIT: a startup assertion could pass on an error body --> FIXED (asserts 200).
+- NIT: "each such session began with a reminder" overstated --> FIXED ("began where a reminder is given").
