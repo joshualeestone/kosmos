@@ -27753,6 +27753,28 @@ function paintAgentList() {
    compare MY_AGENTS_HTML uses). null means "write next time": the empty-board branch and the failed-poll path write the
    list behind this memo, so they clear it. */
 let ALIST_HTML = null;
+let ALIST_PARTS = null;   // kosmos#9094: its top-level pieces as last written (patchBoardHtml)
+/* kosmos#9094: write a board container's new markup, replacing only the top-level pieces (rows, cards, headers) whose
+   markup changed since the last write. A rewrite of the whole container replaced every row when one agent's state or
+   memory ring moved: on a live board of 20 agents, 3 whole-list rewrites a minute, 20 rows replaced for 1 that changed.
+   The new markup is parsed into a template and each piece serialised there, so both sides of the comparison come from
+   the same parser (never the live innerHTML, which the page may have touched). A whole write when the last write is
+   unknown (prevHtml null: the empty-board and failed-poll paths), when the number of pieces changed, or when the
+   container no longer holds the pieces we wrote. Returns the pieces to remember for the next call. */
+function patchBoardHtml(el, html, prevHtml, prevParts) {
+  const t = document.createElement('template');
+  t.innerHTML = html;
+  const next = [...t.content.childNodes];
+  const ser = (n) => (n.nodeType === 1 ? n.outerHTML : n.nodeType === 3 ? '#' + n.nodeValue : '?' + n.nodeType);
+  const parts = next.map(ser);
+  const live = [...el.childNodes];
+  if (prevHtml === null || !prevParts || prevParts.length !== parts.length || live.length !== prevParts.length) {
+    el.replaceChildren(...next);
+    return parts;
+  }
+  for (let i = 0; i < parts.length; i += 1) if (parts[i] !== prevParts[i]) live[i].replaceWith(next[i]);
+  return parts;
+}
 function paintAgentListNow() {
   const alist = document.getElementById('alist');
   if (!alist) return;
@@ -27828,12 +27850,12 @@ function paintAgentListNow() {
       + (fedOwn ? '<div id="alist-fed-own" class="fedout">' + fedOwn + '</div>' : '')
       + otherAgentsHeaderHtml()
       + rest.map(lrow).join('');
-    if (html !== ALIST_HTML) { ALIST_HTML = html; alist.innerHTML = html; }
+    if (html !== ALIST_HTML) { ALIST_PARTS = patchBoardHtml(alist, html, ALIST_HTML, ALIST_PARTS); ALIST_HTML = html; }
     setAgentsGrouped(true);
     fedRefocusRail();
   } else {
     const html = shown.map(lrow).join('');
-    if (html !== ALIST_HTML) { ALIST_HTML = html; alist.innerHTML = html; }
+    if (html !== ALIST_HTML) { ALIST_PARTS = patchBoardHtml(alist, html, ALIST_HTML, ALIST_PARTS); ALIST_HTML = html; }
     setAgentsGrouped(false);
   }
 }
@@ -42736,11 +42758,12 @@ function keepStarFocus(paint, follow) {
    behind a project room). Compared against the string last WRITTEN, never innerHTML, which the browser reserializes.
    Both paint sites go through here, so neither can rewrite the grid behind the other's memo. */
 let GRID_HTML = null;
+let GRID_PARTS = null;   // kosmos#9094, as ALIST_PARTS
 function setGridHtml(html) {
   const grid = document.getElementById('grid');
   if (!grid || html === GRID_HTML) return;
+  GRID_PARTS = patchBoardHtml(grid, html, GRID_HTML, GRID_PARTS);   // kosmos#9094: only the cards that changed
   GRID_HTML = html;
-  grid.innerHTML = html;
 }
 /* kosmos#8990: an agent avatar in the grid, the list or My Agents (all three skip identical markup) that fails to load
    is asked for again, by itself, after 5 s, then 10, 20, 40 and every 60 s while it keeps failing. Rebuilding every poll
