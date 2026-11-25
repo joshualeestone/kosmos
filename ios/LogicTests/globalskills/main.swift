@@ -110,7 +110,8 @@ check(G.slug("  How we write EMAILS!! ") == "how-we-write-emails" && G.slug("--a
 check(G.sampleRefusal(name: "!!", body: "x", taken: []) == G.sampleBlankName && G.sampleRefusal(name: "A", body: "  ", taken: []) == G.sampleBlankWords
       && G.sampleRefusal(name: "Release notes", body: "x", taken: ["release-notes"]) == "There is already a skill called release-notes; pick another name rather than replacing it."
       && G.sampleRefusal(name: "New one", body: "x", taken: ["release-notes"]) == nil, "the sample refuses as the engine, in that order")
-check(script.contains("rm.textContent = 'Remove';"), "the Remove button's own word in the script (review 2: the bare word is in other sentences)")
+check(script.contains("rm.textContent = '" + W.remove + "';"),
+      "the app's Remove word is the page's button word (review 7: compared from the app's own string; the bare word is in other sentences)")
 for w in [W.none, W.added, W.removeArmed, W.listFailed, W.addFailed, W.removeFailed, W.addRefusedDefault,
           W.removeRefusedDefault, W.listRefusedDefault, "Looking…"] {
     check(script.contains(w), "in the page's script: \(w.prefix(50))")
