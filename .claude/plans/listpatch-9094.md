@@ -51,3 +51,9 @@ Searched web/index.html for in-place edits reached through .lrow/.acard and [dat
 - Team create's `just-made` and tabIndex: its own mark loop toggles them off when the mark ends (since #8990).
 - The avatar retry's src (retry=N): built for kept nodes since #8990.
 None needs a rebuild to clear it. The search covers those selector spellings, not every possible way to reach a node.
+
+Review 6 widened it: queries into #alist, #grid and #my-agents-list by inner class (lstate, ltask, lmodel, lmem,
+lpill, lav, and the card's) and by container-scoped descendant: no writer. The only hits are reads (the fed sections'
+focus restore). The working-pulse pinner (#3956) watches addedNodes, so a moved row is pinned like a rebuilt one.
+Deferred (review 6): a page pin that keepStarFocus wraps every patchBoardHtml caller. The callers handle focus
+exactly as before this branch; the patch only loses focus on fewer nodes.
