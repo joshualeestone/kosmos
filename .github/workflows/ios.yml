@@ -62,9 +62,13 @@ jobs:
   # the repo variable KOSMOS_CI_IOS_JOBS names it ("build") AND test.yml's kill switch KOSMOS_CI_RUNNER is `on` AND the
   # code is this repo's own (a push to main, or a PR whose head is this repo), the same own-code rule as test.yml
   # (#5488); the machine's job guard (tools/ci-runner-job-guard.sh) is what refuses fork code. Anything else, the
-  # variable unset included, is macos-latest, as before. The UI jobs stay on macos-latest: they share one build, and a
-  # UI job whose Xcode differs from the build's builds again (see uibuild), and two simulator runs on one Mac under one
-  # user would share its simulators (test.yml's #4601 note on the two runners). Pinned by tools/test-ci-ios-route-8993.sh.
+  # variable unset included, is macos-latest, as before. The UI jobs stay on macos-latest: they share one build, a UI
+  # job whose Xcode differs from the build's builds again (see uibuild), and both kosmos-ci runners are on one machine
+  # (test.yml's #4601 note), so simulator runs there would compete for one Mac; measure `build` there first.
+  # A change to either variable reaches a run's `build` only through a new route: "Re-run failed jobs" keeps the route
+  # it had, so after switching off, use "Re-run all jobs". A routed job with no runner online waits in the queue (up to
+  # GitHub's 24 hours), red to nobody, as test.yml's does. If route itself fails, build still runs, on macos-latest.
+  # Pinned by tools/test-ci-ios-route-8993.sh.
   route:
     name: route
     runs-on: ubuntu-latest
@@ -101,10 +105,22 @@ jobs:
   build:
     name: logic tests + simulator build
     needs: route
-    runs-on: ${{ fromJSON(needs.route.outputs.build_runner) }}
+    if: ${{ !cancelled() }}
+    runs-on: ${{ fromJSON(needs.route.outputs.build_runner || '"macos-latest"') }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+
+      # kosmos#8993: on the self-hosted Mac, check what the hosted image always has, so a machine that cannot build says
+      # so in one plain line instead of failing somewhere inside xcodebuild.
+      - name: The self-hosted Mac can build an iPhone app
+        if: ${{ runner.environment == 'self-hosted' }}
+        run: |
+          fix="to send this job back to macos-latest, take build out of the repo variable KOSMOS_CI_IOS_JOBS (kosmos#8993)"
+          xcodebuild -version > /dev/null 2>&1 || { echo "::error::no working full Xcode on this runner (xcodebuild -version failed); $fix"; exit 1; }
+          xcodebuild -checkFirstLaunchStatus > /dev/null 2>&1 || { echo "::error::Xcode's first-launch setup or licence is not done on this runner; $fix"; exit 1; }
+          xcrun simctl list runtimes 2>/dev/null | grep -q '^iOS ' || { echo "::error::no iOS simulator runtime on this runner (the asset catalog needs one); $fix"; exit 1; }
+          echo "this runner has Xcode, its first-launch setup and an iOS simulator runtime"
 
       - name: Toolchain versions
         run: |
@@ -271,7 +287,10 @@ jobs:
         run: |
           xcodebuild -project Kosmos.xcodeproj -scheme Kosmos -configuration Release \
             -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Kosmos.xcarchive" \
-            CODE_SIGNING_ALLOWED=NO archive
+            -derivedDataPath "$RUNNER_TEMP/archive-dd" CODE_SIGNING_ALLOWED=NO archive
+          # kosmos#8993: -derivedDataPath keeps the archive's build state in this job's temp folder. On the self-hosted
+          # Mac the default (~/Library/Developer/Xcode/DerivedData) is reused across runs, so the archive would be an
+          # incremental build of whatever the last run left, not the clean build a hosted runner makes.
           test -d "$RUNNER_TEMP/Kosmos.xcarchive/Products/Applications/Kosmos.app"
           # kosmos#6487: the notification extension rides inside the app, under its own bundle id.
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Kosmos.xcarchive/Products/Applications/Kosmos.app/PlugIns/KosmosNotice.appex/Info.plist")" = io.kosmos.app.notice

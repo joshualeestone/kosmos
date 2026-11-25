@@ -35,3 +35,17 @@ this branch's runs until merge). If that run is red for a machine reason, the va
 ## Weakest premise
 That the self-hosted Mac has room: two runners on one box, and test.yml's node part already uses them. A 20 to 30 min
 build per iPhone run there could make test.yml wait. Measured after merge; unsetting the variable undoes it.
+
+## Round 1 (opus, blind) fixes
+- WARNING fixed: the test could not fail for two rules it claimed. Without set -f the glob case still passed (an empty
+  folder), and without the comma split the list case still passed (it had a space). Now a file named build sits where
+  the body runs for the glob case, and a comma list with no space is a case; both mutations turn it red.
+- WARNING fixed (documented): "Re-run failed jobs" keeps the route a run already had, so a kill-switch change needs
+  "Re-run all jobs"; a routed job with no runner waits up to 24 hours, as test.yml's does. Both are in the comment.
+- WARNING fixed: a self-hosted preflight step (only there) checks xcodebuild -version, -checkFirstLaunchStatus and an
+  iOS simulator runtime, and says in one line which variable to change; nothing else checked these on that Mac.
+- WARNING fixed: the archive step's build state goes to RUNNER_TEMP (-derivedDataPath), so a reused DerivedData on the
+  self-hosted Mac cannot make it an incremental build. The plan's DerivedData residual is gone for that step.
+- NIT fixed: if route fails, build still runs (if: !cancelled()) on macos-latest (fromJSON with a fallback).
+- NIT fixed: the comment no longer says "one user"; it says both runners are on one machine (#4601's note).
+- NIT fixed: the control now runs a never-routing body and requires all three self-hosted cases to come out wrong.

@@ -28,7 +28,12 @@ if ! ruby -ryaml -e '
   raise "decide never pastes a variable into its script" if d["run"].include?("${{")
   b = j["build"]
   raise "build needs route" unless Array(b["needs"]) == ["route"]
-  raise "build takes route'"'"'s choice" unless b["runs-on"] == "${{ fromJSON(needs.route.outputs.build_runner) }}"
+  raise "build takes route'"'"'s choice, macos-latest if route gave none" unless b["runs-on"] == %q{${{ fromJSON(needs.route.outputs.build_runner || '"'"'"macos-latest"'"'"') }}}
+  raise "build runs even when route failed (it then falls back), never when the run is cancelled" unless b["if"] == "${{ !cancelled() }}"
+  pre = b["steps"].find { |x| x["name"].to_s.include?("self-hosted Mac can build") } or raise "a self-hosted preflight step"
+  raise "the preflight runs only on a self-hosted runner" unless pre["if"] == "${{ runner.environment == '"'"'self-hosted'"'"' }}"
+  %w[xcodebuild\ -version -checkFirstLaunchStatus simctl\ list\ runtimes KOSMOS_CI_IOS_JOBS].each { |w| raise "the preflight checks #{w}" unless pre["run"].include?(w.delete("\\")) }
+  raise "build state of the archive stays in RUNNER_TEMP" unless b["steps"].any? { |x| x["run"].to_s.include?("archive") && x["run"].to_s.include?(%q{-derivedDataPath "$RUNNER_TEMP/archive-dd"}) }
   %w[uibuild ui uikit].each { |n| raise "#{n} stays on macos-latest" unless j[n] && j[n]["runs-on"] == "macos-latest" }
   File.write(ARGV[1], d["run"])
 ' "$WF" "$T/decide.sh" 2>"$T/rb.err"; then
@@ -59,18 +64,25 @@ expect "the kill switch off: macos-latest even when build is named"             
 expect "the kill switch unset: macos-latest"                                     "$HOSTED" ""  build  push         ""
 expect "the kill switch spelled On: macos-latest (exactly on)"                   "$HOSTED" On  build  push         ""
 expect "a list naming build among others: the self-hosted Mac"                   "$SELF"   on "uibuild, build" push    ""
+expect "a comma list with no space: the self-hosted Mac"                         "$SELF"   on "uibuild,build"  push    ""
 expect "whole tokens only: builds names nothing"                                 "$HOSTED" on builds  push         ""
 expect "whole tokens only: xbuild names nothing"                                 "$HOSTED" on xbuild  push         ""
-expect "a glob is kept literal: * names nothing"                                 "$HOSTED" on '*'     push         ""
+touch "$T/cwd/build"   # a file named build where the body runs: an unquoted * would expand to it without set -f
+expect "a glob is kept literal (set -f), even beside a file named build"          "$HOSTED" on '*'     push         ""
+rm -f "$T/cwd/build"
 expect "another event (workflow_dispatch): macos-latest"                         "$HOSTED" on build   workflow_dispatch ""
 expect "shell syntax in the list runs nothing: macos-latest"                     "$HOSTED" on '$(touch pwned);build;x' push ""
 [ -e "$T/cwd/pwned" ] && fail "the list's text was run as a command" || pass "the list's text is never run"
 
-# CONTROL: the harness can see the self-hosted answer, so a body that always says macos-latest fails above.
+# CONTROL: a body that never routes makes each self-hosted case above give the wrong answer, so they can fail.
 printf 'echo "build_runner=\\"macos-latest\\"" >> "$GITHUB_OUTPUT"\n' > "$T/decide.sh"
-got="$(route on build push "")"
-[ "$got" = "$HOSTED" ] && pass "CONTROL: a body that never routes gives macos-latest here, so the routed cases above can fail" \
-  || fail "CONTROL: the stub body was not run (got [$got])"
+wrong=0
+for args in "on build push x" "on build pull_request owner/kosmos" "on uibuild,build push x"; do
+  set -- $args; [ "$4" = x ] && h="" || h="$4"
+  [ "$(route "$1" "$2" "$3" "$h")" = "$SELF" ] || wrong=$((wrong + 1))
+done
+[ "$wrong" = 3 ] && pass "CONTROL: with a body that never routes, all 3 self-hosted cases come out wrong" \
+  || fail "CONTROL: a never-routing body still passed $((3 - wrong)) of the 3 self-hosted cases"
 
 if [ "$fails" -ne 0 ]; then echo "test-ci-ios-route-8993: $fails failed"; exit 1; fi
 echo "test-ci-ios-route-8993: all passed"
