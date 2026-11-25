@@ -5679,7 +5679,7 @@ function defaultClaudeProbe(configDir) {
     const env = { ...process.env };
     // #5386: every spelling (a copy of process.env keeps names as spelled).
     if (configDir) envSet(env, 'CLAUDE_CONFIG_DIR', configDir); else envDelete(env, 'CLAUDE_CONFIG_DIR');
-    fillLoginIdentity(env);   // review 1: both arms (a hashed entry's lookup may key on USER too)
+    fillLoginIdentity(env);   // review 1: both arms (not measured for a labelled folder's entry; filling a missing USER costs nothing)
     // Overridable only so a test can drive the timeout/partial-output path
     // quickly; unset in production, where 15s is the wait before a hung probe is
     // killed and its partial output classified.

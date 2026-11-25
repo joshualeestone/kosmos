@@ -65,7 +65,9 @@ test('kosmos#9082: create and Check now take "not logged in" and an ended login 
   assert.equal((await check('ok', 0)).state, subscription.STATE.CONNECTED, 'CONTROL: a real answer');
   assert.equal((await check('API Error: 529 overloaded', 1)).state, subscription.STATE.UNKNOWN, 'CONTROL: capacity is not a dead login');
   // The only gate on this: the default account is probed unset (claudeProbeDir), never with its folder.
-  assert.equal(create.claudeProbeDir(require('./accounts').homeDir() + '/.claude', { run: () => ({ ran: true, status: 1, out: '' }) }), null, 'the default account would be probed with its folder');   // review 2: a stub tmux, never the host's
+  create.setProbeRealHomeForTests(require('./accounts').homeDir());   // review 4: independent of an ambient HOME
+  try { assert.equal(create.claudeProbeDir(require('./accounts').homeDir() + '/.claude', { run: () => ({ ran: true, status: 1, out: '' }) }), null, 'the default account would be probed with its folder'); }   // review 2: a stub tmux, never the host's
+  finally { create.setProbeRealHomeForTests(null); }
   assert.equal(create.claudeProbeDir('/u/x/labelled'), '/u/x/labelled', 'CONTROL: a labelled account keeps its folder');
 });
 
@@ -131,7 +133,8 @@ test('#9031: the sweep reads an ended login as a stopped one, never as a blip, a
 test('kosmos#9082 review 1: the default is probed with the tmux server\'s pinned folder when set, else unset; a sandbox keeps its folder', () => {
   const nodePath = require('node:path');
   const os = require('node:os');
-  const def = nodePath.join(os.homedir(), '.claude');
+  const def = nodePath.join(require('./accounts').homeDir(), '.claude');
+  create.setProbeRealHomeForTests(require('./accounts').homeDir());   // review 4: independent of an ambient HOME
   const tmux = (status, out, ran = true) => ({ run: () => ({ ran, status, out }) });
   assert.equal(create.claudeProbeDir(def, tmux(0, 'CLAUDE_CONFIG_DIR=/Users/x/.claude\n')), '/Users/x/.claude', 'a tmux-pinned folder (the supervisor pins default agents to it) was not probed');
   assert.equal(create.claudeProbeDir(def, tmux(0, '-CLAUDE_CONFIG_DIR\n')), null, 'a removed global is not a pin');
@@ -144,8 +147,9 @@ test('kosmos#9082 review 1: the default is probed with the tmux server\'s pinned
   try {
     const sdef = nodePath.join(sandbox, '.claude');
     assert.equal(require('./accounts').isDefaultDir(sdef), true, 'CONTROL: the sandbox folder is the default there');
+    create.setProbeRealHomeForTests(null);
     assert.equal(create.claudeProbeDir(sdef, tmux(1, '')), sdef, 'a sandboxed board would probe the real login');
-  } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = was; }
+  } finally { create.setProbeRealHomeForTests(null); if (was === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = was; }
 });
 
 test('kosmos#9082 review 1: #9031\'s state words count only from a run that failed', async () => {
@@ -196,7 +200,7 @@ test('kosmos#9082 review 3: a pin reaches the probe through the real lookup (the
   fs.writeFileSync(stub, '#!/bin/sh\n[ "$1 $2 $3" = "show-environment -g CLAUDE_CONFIG_DIR" ] && echo "CLAUDE_CONFIG_DIR=/pinned/by/tmux" && exit 0\nexit 1\n', { mode: 0o755 });
   const was = process.env.AGENT_WORKFORCE_TMUX_BIN;
   process.env.AGENT_WORKFORCE_TMUX_BIN = stub;
-  create.setProbeRealHomeForTests(os.homedir());
+  create.setProbeRealHomeForTests(require('./accounts').homeDir());   // review 4
   try {
     const def = nodePath.join(require('./accounts').homeDir(), '.claude');
     assert.equal(require('./status').boardTmux(), stub, 'CONTROL: the board would ask this tmux');

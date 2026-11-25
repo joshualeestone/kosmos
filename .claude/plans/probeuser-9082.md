@@ -61,3 +61,9 @@ fails with its rule removed. 179 probe-related tests pass.
   (excused in engine.reachable). Test: a HOME-replacing sandbox keeps its folder (fails with $HOME).
 - NIT: no test of a real pin through the real lookup --> ADDED (a stub tmux via status.boardTmux; fails without it).
 - NIT: long comment line --> wrapped. Left: the synchronous tmux call on the click path (5 s cap, as status reads).
+
+## Review round 4 (sonnet): 0 BLOCKERs, 0 SHOULDs -> CONVERGED
+- NIT: two loginended tests relied on HOME matching the OS home --> FIXED (they name the real home via the seam; pass
+  with HOME set elsewhere). NIT: a comment guessed that a hashed entry keys on USER --> softened to what is measured.
+- Left: the synchronous tmux lookup on the click path (5 s cap, as status reads); the "most likely USER" history is
+  stated as likely.
