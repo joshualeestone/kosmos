@@ -41,3 +41,10 @@ rule; the wording test fails with the old phrase. #9049's own tests unchanged an
   only when the limit is the reason.
 - Measured by the reviewer: while the wait is the newest row, selfreport refuses (and does not store) automatic
   working/idle, so the wait's own session has no automatic rows; the SessionEnd's `stopped` is always stored.
+
+## Review round 2 (sonnet): 0 BLOCKERs, 0 SHOULDs, 2 NITs
+- NIT: an in-session /resume can race its own `stopped` like a /clear and give one extra reminder --> DECLINED, stated
+  residual: it errs toward reminding, never silence, and nothing today tells an in-session /resume from a quit-then-resume.
+- NIT: the sessionAfter comment said every /clear is reminded; the limit's sentence hard-coded "two" and "each begun with
+  that reminder" (false after a crash) --> FIXED (reads REMIND_SESSIONS; claims only that it reminded already).
+- Measured by the reviewer: the Mac (asks before `started`) and Windows (after) count the same at the same moment.

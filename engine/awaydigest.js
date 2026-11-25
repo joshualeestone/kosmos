@@ -92,8 +92,8 @@ function lastWait(history, { nowMs }) {
 /* kosmos#9049: the newest session event after the wait at atMs: 'stopped' (a SessionEnd set the wait aside),
    'started' (a real startup came after it, and #8634 reminded the agent there), or null (neither yet: the clear's own
    `stopped` has not landed, or the agent crashed and its wait is still shown). A /clear or a resume is reminded only on
-   'stopped', so every /clear after a session end is reminded (each wipes the context that held the last reminder) and a
-   resume after a crash that followed a startup is not. */
+   'stopped', so a /clear after a session end is reminded (each wipes the context that held the last reminder), up to
+   the limit sessionsSinceWait sets (kosmos#9058), and a resume after a crash that followed a startup is not. */
 function sessionAfter(history, atMs) {
   const rows = Array.isArray(history) ? history : [];
   for (let i = rows.length - 1; i >= 0; i -= 1) {

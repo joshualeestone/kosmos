@@ -262,7 +262,7 @@ test('kosmos#9058: a wait is reminded at the first /clear and once more, then no
       assert.equal(r.code, 200);
       assert.equal(r.text, '', 'it worked through two reminded sessions: no reminder, and never {"pending":true}');
       assert.equal(JSON.parse((await ask(tok, 'wait=only')).text).wait, null);
-      assert.match((await ask(tok, 'as=text&wait=only')).text, /you have worked through two sessions since it/);
+      assert.match((await ask(tok, 'as=text&wait=only')).text, /you have worked through 2 sessions since it without reporting again/);
       // CONTROL: /clears with no turn between them do not use up the reminders.
       writeHistory([rows[0], rows[1], rows[2],
         { state: 'stopped', by: 'auto', because: '', at: t - 30 * M },
