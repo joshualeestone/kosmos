@@ -246,6 +246,9 @@ final class TaskPageActionsUITests: XCTestCase {
         let run = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Dana ran it, nothing new: no new prices")).firstMatch
         XCTAssertTrue(run.waitForExistence(timeout: 10), "the runs a row folds are not shown")
         shot(app, "folded runs")
+        // The page reads again every 5 seconds, and what a person opened stays open through it.
+        usleep(12_000_000)
+        XCTAssertTrue(run.exists, "the runs closed by themselves when the page read again")
         fold.tap()
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: run)
         waitForExpectations(timeout: 10)
