@@ -79,9 +79,12 @@ check(!U.autoShown(st(#"{"platform":"linux"}"#)) && U.autoShown(st(#"{"platform"
 check(U.autoShown(bare), "an older board that does not say its platform: shown, as on a Mac (the PUT refuses anywhere it does not apply)")
 check(U.autoHint(st(#"{"cloudMachine":true}"#)) == W.autoHintCloud && U.autoHint(bare) == W.autoHint, "the cloud computer's hint, as data-cloud-copy")
 check(U.auto(status: 200, data: json(#"{"on":true}"#), cloud: false) == .on && U.auto(status: 200, data: json(#"{"on":false}"#), cloud: false) == .off, "on and off")
-check(U.auto(status: 200, data: json(#"{"ok":false,"on":false}"#), cloud: false) == .unread(W.autoUnreadOff), "a saved setting it could not read counts as off")
-check(U.auto(status: 200, data: json(#"{"ok":false}"#), cloud: true) == .unread(W.autoUnreadOffCloud), "the cloud computer's sentence")
-check(U.auto(status: 500, data: json("{}"), cloud: false) == .unread(W.autoUnread), "no answer: just now")
+check(U.auto(status: 200, data: json(#"{"ok":false,"on":false}"#), cloud: false) == .unreadOff(W.autoUnreadOff), "a saved setting it could not read counts as off")
+check(U.auto(status: 200, data: json(#"{"ok":false}"#), cloud: true) == .unreadOff(W.autoUnreadOffCloud), "the cloud computer's sentence")
+check(U.auto(status: 500, data: json("{}"), cloud: false) == .noAnswer(W.autoUnread) && U.auto(status: 0, data: nil, cloud: false) == .noAnswer(W.autoUnread),
+      "no answer is its own case (no switch, never a false Off), not an unread Off")
+check(!Updates.Auto.noAnswer("x").isOn && !Updates.Auto.unreadOff("x").isOn && Updates.Auto.on.isOn && Updates.Auto.off.said == nil && Updates.Auto.noAnswer("x").said == "x", "isOn and said")
+check(page.contains("paintSwitch('auto-toggle', unread ? null : r.on === true);"), "the page shows no switch (null) when unread, a real Off otherwise")
 check(U.autoRefused(status: 403, data: json(#"{"error":"\#(stepSaid)"}"#)) == stepSaid && U.autoRefused(status: 400, data: json("x")) == W.autoSaveFailed, "a refused save: the computer's sentence, else the page's")
 
 section("installing")
@@ -90,6 +93,22 @@ check(U.started(status: 202, data: json("{}"), version: nil) == .started(myStart
 check(U.started(status: 409, data: json(#"{"error":"there is no update to install"}"#), version: "0.8.22") == .refused("Kosmos is already on 0.8.22."), "nothing to install: it already has it")
 check(U.started(status: 403, data: json(#"{"code":"remote_step_up","error":"\#(stepSaid)"}"#), version: nil) == .refused(stepSaid), "the step-up refusal, as is")
 check(U.started(status: 500, data: json("{}"), version: nil) == .refused("Kosmos could not start the update (it answered 500 with no reason). Try again in a minute."), "no reason: the page's sentence")
+check(U.started(status: 0, data: nil, version: "0.8.21") == .unanswered, "no answer at all is not a refusal (#7207): the screen waits")
+
+section("an unanswered press, as unansweredPressVerdict")
+func un(_ e: TimeInterval, reached: Bool = true, now: String? = "0.8.21", boot: String? = "B1") -> Updates.Unanswered {
+    U.unanswered(elapsed: e, reached: reached, before: "0.8.21", now: now, bootBefore: "B1", bootNow: boot)
+}
+check(un(4, now: "0.8.22") == .done && un(4, boot: "B2") == .restarted && un(4) == .answering, "done, restarted, answering")
+check(un(4, reached: false, now: nil, boot: nil) == .waiting && un(180, reached: false, now: nil, boot: nil) == .deadline && un(180) == .answering, "no answer waits up to three minutes; an answer is never the deadline")
+check(U.unanswered(elapsed: 4, reached: true, before: "0.8.21", now: "0.8.21", bootBefore: nil, bootNow: "B2") == .answering, "no boot seen before the press: answering, not restarted")
+check(U.unansweredSays(.restarted, now: "0.8.21") == "Kosmos restarted and is still on 0.8.21. Press Update to update it now.", "restarted, the page's words")
+check(U.unansweredSays(.answering, now: nil) == "Kosmos is answering again. Press Update to try again. If the update already started, this joins it.", "answering, the page's words")
+check(U.unansweredSays(.done, now: nil) == nil && U.unansweredSays(.waiting, now: nil) == nil, "done and waiting say nothing here")
+check(page.contains("'Kosmos is not answering right now. It may be restarting'") && page.contains("(rollingBack ? '' : ', perhaps to install the update') + '. This page will wait for it to answer.'"), "the waiting sentence is the page's, its page said as this screen")
+check(page.contains("? 'Kosmos restarted and is still on ' + (now || 'the same version') + '. Press ' + label + ' to ' + did + (rollingBack ? '' : ' it') + ' now.'")
+      && page.contains(": 'Kosmos is answering again. Press ' + label + ' to try again. If the ' + did + ' already started, this joins it.';")
+      && page.contains("'Kosmos has not answered for three minutes. Reload this page to see where it is.'"), "the three settle sentences are the page's")
 
 section("the wait, as updateVerdict")
 func v(_ e: TimeInterval, reached: Bool = true, now: String? = "0.8.21", attempt: Updates.Attempt? = nil, boot: String? = "B1") -> Updates.Verdict {
