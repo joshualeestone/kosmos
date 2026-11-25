@@ -9701,9 +9701,10 @@ const loginAdvCache = { at: 0, value: [] }; // mutated in place by loginexpiry.c
 /* #9038: whether the refusal this agent is stopped on is from before its account's last sign-in (oldsigninline), and the
    account's last settled check said HEALTHY. `dir` is the account the check probes (null: the default). The tick waits on
    no process: the date and the pane's process are asked for here and answered on a later tick. */
-function signInLineOld(pane, dir, now) {
+function signInLineOld(pane, dir, now, liveAuth) {
   const after = require('./claudeloginlive').signedInAfter({ isDefault: dir === null, dir }, now);
   const proc = paneLogin(pane, now);
+  if (liveAuth !== require('./authprobe').UNCHECKED) return false;   // the two reads above are kept warm; nothing else to decide
   if (after === null || !proc || !require('./authprobe').lastSettledHealthy(dir, now)) return false;
   const le = require('./loginexpiry');
   if (le.serviceNameFor(proc.ccd) !== le.serviceNameFor(dir)) return false;   // #2129, #6095: it reads another login
@@ -9935,7 +9936,7 @@ function snapshot() {
          evidence about the login now, so while a re-check of a HEALTHY account is under way (UNCHECKED) it stays cleared: no
          card flicker, no refusal recorded. A check that says signed out, or could not tell, is the last one settled then,
          and stands. */
-      try { if (probedDir !== undefined && signInLineOld(pane, probedDir, now)) liveAuth = LIVE_AUTH_HEALTHY; } catch { /* the check's own answer stands: never the tick */ }
+      try { if (probedDir !== undefined && signInLineOld(pane, probedDir, now, liveAuth)) liveAuth = LIVE_AUTH_HEALTHY; } catch { /* the check's own answer stands: never the tick */ }
       /* #7369 review 3: a Windows refusal is remembered as cleared only by a HEALTHY check that BEGAN after it (a cached
          HEALTHY from before a new sign-out must not hide it for good); reconcileReport reads this. */
       if (typeof scrapedStatus.authSince === 'string' && probedDir !== undefined) {
@@ -10920,7 +10921,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { setPaneLoginReaderForTests /* kosmos#9038 */, panesWithCommands /* kosmos#8719 */, boardTmux /* kosmos#8719 */, isClaudeCommand /* kosmos#8719 */, paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, win32ReadText, win32LongForm, win32Powershell, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
+module.exports = { setPaneLoginReaderForTests, readPaneLogin /* kosmos#9038 */, panesWithCommands /* kosmos#8719 */, boardTmux /* kosmos#8719 */, isClaudeCommand /* kosmos#8719 */, paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, win32ReadText, win32LongForm, win32Powershell, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   backgroundShellsIn, backgroundShellsOf /* kosmos#8846 */, composerText, unsentInputOf, deliveryStallOf, restartedOf /* kosmos#8979 */, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)

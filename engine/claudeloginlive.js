@@ -101,13 +101,14 @@ function signedInAfter(row, now = Date.now()) {
   if (!row.isDefault && !ccd) return null;
   validUntil(row, now).catch(() => {});
   const m = moves.get(loginexpiry.serviceNameFor(ccd));
-  return m ? m.after : null;
+  return m && m.after !== null && m.after <= now ? m.after : null;   // ahead of now: the clock was set back since
 }
 /* Every read that gave a date, in order. A renewal may move it earlier, never later, so later is a sign-in. An unread
    date changes nothing: a sign-out then a sign-in is still later than the last date read. */
 const moves = new Map();   // service -> { at, until, after }
 function noteDate(service, at, until) {
-  const m = moves.get(service);
+  let m = moves.get(service);
+  if (m && m.at > Date.now()) { moves.delete(service); m = undefined; }   // read on a clock that has been set back since
   if (m && at < m.at) return;   // an older read that finished late
   moves.set(service, { at, until, after: m && until > m.until ? m.at : (m ? m.after : null) });
 }
