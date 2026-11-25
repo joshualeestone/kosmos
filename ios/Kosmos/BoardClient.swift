@@ -1847,6 +1847,24 @@ final class BoardClient: ObservableObject {
             if let data = try? JSONSerialization.data(withJSONObject: ["messages": rows, "olderCount": 40]),
                let t = Board.parseThread(data) { sampleThreads["dana"] = t }
         }
+        // kosmos#9089: KOSMOS_SAMPLE_LONG=tall20 is a short chat of tall replies, 20 messages and none older, the size of a
+        // reviewer's chat after one long answer: Dana's replies of 3, 8 and 14 paragraphs, the person's one line, the newest the
+        // person's "Message 20 of 20.". KOSMOS_SAMPLE_LONG=short20 is the same 20 with every message one line (the control).
+        if let long = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_LONG"], long == "tall20" || long == "short20" {
+            var rows: [[String: Any]] = []
+            let para = "Here is where things stand on the catalogue, with the parts that are done and the parts still waiting on photos and prices."
+            for i in 0..<20 {
+                let at: String = String(format: "2026-10-23T09:%02d:00Z", i)
+                var text = "Message \(i + 1) of 20."
+                if long == "tall20" && i % 2 == 0 {
+                    let paragraphs = [3, 8, 14, 2, 8][i / 2 % 5]
+                    text += "\n\n" + Array(repeating: para, count: paragraphs).joined(separator: "\n\n")
+                }
+                rows.append(["at": at, "text": text, "from": i % 2 == 0 ? "dana" : NSNull()])
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: ["messages": rows, "olderCount": 0]),
+               let t = Board.parseThread(data) { sampleThreads["dana"] = t }
+        }
         // Cleo's shows the way-through rows: older messages, a file, Kosmos's own line and a question.
         let cleo = #"{"messages":[{"at":"2026-10-22T16:10:00Z","text":"Here is the launch checklist we agreed.","from":"cleo","attachments":[{"id":"5a6d0c1e2f3a4b5c6d7e8f90","name":"Launch checklist.pdf","type":"application/pdf","size":2516582,"kind":"pdf","url":"/api/attachment/5a6d0c1e2f3a4b5c6d7e8f90","preview":"/api/attachment/5a6d0c1e2f3a4b5c6d7e8f90/preview"},{"id":"5a6d0c1e2f3a4b5c6d7e8f91","name":"Press release draft.docx","type":"application/vnd.openxmlformats-officedocument.wordprocessingml.document","size":48211,"kind":"other","url":"/api/attachment/5a6d0c1e2f3a4b5c6d7e8f91","preview":null}]},{"at":"2026-10-22T16:12:00Z","text":"Thanks, I will read it tonight.","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T14:00:00Z","text":"Cleo paused for today's limit. It picks up again at 4:00.","from":null,"kind":"kosmos"},{"at":"2026-10-23T14:05:00Z","text":"Should the launch email go out on Tuesday or Wednesday?","from":"cleo","kind":"question"}],"olderCount":12,"question":{"text":"Should the launch email go out on Tuesday or Wednesday?"},"asking":true,"asked":"Should the launch email go out on Tuesday or Wednesday?","presence":"on","options":[{"n":1,"label":"Tuesday"},{"n":2,"label":"Wednesday"},{"n":3,"label":"Tuesday, and do not ask again for launch emails","lasting":true}]}"#
         // kosmos#8953: KOSMOS_SAMPLE_WEBFILE=1 adds a web page to Cleo's first message, opened by WebFileView (WebFileUITests).
