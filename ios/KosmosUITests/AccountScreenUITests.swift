@@ -126,7 +126,12 @@ final class AccountScreenUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Kosmos+ account"].waitForExistence(timeout: 10), "the native account screen did not open")
 
         let add = app.buttons["account-passkey-add"]
-        XCTAssertTrue(app.staticTexts["Passkeys"].waitForExistence(timeout: 10), "no Passkeys section")
+        // Slice B2: the plan section above the computers pushes Passkeys below the first screen of a lazy List, so it is
+        // scrolled to before it is waited for (measured: the UI run of 5bdbe0e141 failed here, light and dark).
+        let passkeys = app.staticTexts["Passkeys"]
+        _ = passkeys.waitForExistence(timeout: 5)
+        reveal(app, passkeys)
+        XCTAssertTrue(passkeys.waitForExistence(timeout: 10), "no Passkeys section")
         // A List builds its rows only near the screen, so scroll until Add shows (it is below the fold).
         reveal(app, add)
         noSelling(app, "passkeys")
