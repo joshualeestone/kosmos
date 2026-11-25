@@ -58,6 +58,7 @@ check(M.agentLinks(read.summary, rowCount: 3).map { $0.0 } == ["Dana"] && M.agen
 check(M.uriComponent("a/b@c d") == "a%2Fb%40c%20d" && M.uriComponent("x-y_z.1~") == "x-y_z.1~", "names encoded as encodeURIComponent does")
 var noPosts = read.summary!; noPosts.posts = nil
 check(M.siteLink(noPosts, rowCount: 3) == nil && M.agentLinks(noPosts, rowCount: 3).isEmpty, "no post count: neither line (the page returns first)")
+check(M.postLink(M.row(["id": "z", "kind": "comment", "remotePostId": "0a1b2c3d-99\n"])!) == nil, "an id with a trailing newline is no plain id (JS's $)")
 check(String(M.metaText([.text("Eli"), .onPost(URL(string: "https://x/p")!), .text("In the community")]).characters) == "Eli · on a community post · In the community", "the meta is one line, \" · \" between")
 
 section("a comment's meta")

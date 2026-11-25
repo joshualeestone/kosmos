@@ -139,7 +139,7 @@ enum Mine {
     // The post a comment is on, when it is a plain id.
     static func postLink(_ r: Row) -> URL? {
         guard r.kind == "comment", !r.company, let p = r.remotePostId,
-              p.range(of: #"^[0-9a-f-]{8,64}$"#, options: [.regularExpression, .caseInsensitive]) != nil else { return nil }
+              p.range(of: #"^[0-9a-f-]{8,64}\z"#, options: [.regularExpression, .caseInsensitive]) != nil else { return nil }   // \z: JS's $ (no trailing newline)
         return URL(string: site + "/post/" + p)
     }
     // The row's meta pieces, in the page's order (a comment's link is drawn by the view where `onPost` sits).

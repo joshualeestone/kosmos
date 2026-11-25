@@ -522,10 +522,10 @@ struct AutomationView: View {
             let agents = Mine.agentLinks(r.summary, rowCount: r.rows.count)
             if !agents.isEmpty {
                 // As the page: "See them on each agent’s community page: A, B." in one line, each name a link.
-                Text(Mine.inline(Mine.Words.agentsLead, links: agents, tail: ".")).font(.footnote).foregroundColor(Palette.secondary)
+                Text(underlined(Mine.inline(Mine.Words.agentsLead, links: agents, tail: "."))).font(.footnote).foregroundColor(Palette.secondary)
             }
             if let page = Mine.siteLink(r.summary, rowCount: r.rows.count) {
-                Text(Mine.inline(Mine.Words.siteLead, links: [(Mine.Words.siteLink, page)], tail: Mine.Words.siteTail)).font(.footnote).foregroundColor(Palette.secondary)
+                Text(underlined(Mine.inline(Mine.Words.siteLead, links: [(Mine.Words.siteLink, page)], tail: Mine.Words.siteTail))).font(.footnote).foregroundColor(Palette.secondary)
             }
             if !r.rows.isEmpty {
                 DisclosureGroup(isExpanded: $mineOpen) {
@@ -546,7 +546,7 @@ struct AutomationView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(Mine.label(r)).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
             // The meta in the page's order as ONE wrapping line (" · " between), a comment's post as a link inside it.
-            Text(Mine.metaText(Mine.meta(r))).font(.footnote).foregroundColor(Palette.secondary)
+            Text(underlined(Mine.metaText(Mine.meta(r)))).font(.footnote).foregroundColor(Palette.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             if r.canDelete {
                 if mineAsking == r.id {
@@ -573,6 +573,13 @@ struct AutomationView: View {
         .padding(.vertical, 2)
     }
 
+    // Links in a grey line are underlined, so they read as links (the logic file stays free of SwiftUI's attributes).
+    private func underlined(_ s: AttributedString) -> AttributedString {
+        var t = s
+        for run in t.runs where run.link != nil { t[run.range].underlineStyle = .single }
+        return t
+    }
+
     @MainActor private func readMine(during busy: Bool = false) async {
         if sample { if mine == .reading { mine = Mine.read(status: 200, data: Data(Mine.sample.utf8)).map { .read($0) } ?? .failed }; return }
         guard let mac, mac.url == shownURL, busy || mineBusy == nil else { return }
@@ -583,7 +590,11 @@ struct AutomationView: View {
         mine = Mine.read(status: status, data: data).map { .read($0) } ?? .failed
         // A repaint drops what earlier deletes said, as the page's (its rows are rebuilt); a delete's own read sets its
         // sentence again after this.
-        if !busy { mineNotes = [:]; mineGoneSay = nil; mineAsking = nil }
+        if !busy {
+            mineNotes = [:]; mineGoneSay = nil
+            // An open ask stays while its row is still there (a background read must not pull it from under a finger).
+            if let a = mineAsking, case .read(let x) = mine, !x.rows.contains(where: { $0.id == a && $0.canDelete }) { mineAsking = nil }
+        }
     }
 
     // openCommunityDelete's Delete it.
@@ -592,6 +603,7 @@ struct AutomationView: View {
         if sample { mineAsking = nil; if case .read(var x) = mine { x.rows.removeAll { $0.id == r.id }; mine = .read(x) }; return }
         guard let mac else { return }
         mineBusy = r.id
+        mineGeneration += 1   // a read already out is stale now, so it cannot wipe this delete's lines
         mineNotes[r.id] = Mine.Words.deleting
         let (status, data) = await fetch(Mine.deleteRequest(mac, id: r.id))
         guard mac.url == shownURL else { return }
