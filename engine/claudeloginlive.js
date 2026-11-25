@@ -91,6 +91,15 @@ function worksUntil(row, now = Date.now()) {
   return Number.isFinite(hit.until) && hit.until <= now && Number.isFinite(hit.works) && hit.works > now ? hit.works : null;
 }
 
+/* #9031: whether this row's login is over: its own date and its access token's have BOTH been read and have both passed,
+   so Claude Code can neither use nor renew it. Reads (validUntil, cached). Never rejects; a date not read is false. */
+async function ended(row, now = Date.now()) {
+  const until = await validUntil(row, now);
+  if (!Number.isFinite(until) || until > now) return false;
+  const hit = cache.get(loginexpiry.serviceNameFor(row.isDefault ? undefined : row.dir));
+  return !!hit && hit.gen === loginexpiry.loginGeneration() && Number.isFinite(hit.works) && hit.works <= now;
+}
+
 /* validUntil, waited on for at most budgetMs: null when the read has not answered by then (it goes on). */
 async function validUntilWithin(row, budgetMs = READ_BUDGET_MS, now = Date.now()) {
   let timer = null;
@@ -126,5 +135,5 @@ function checkRefused(dir, newerOutcomeAt = null) {
 /* Whether that good login also turns the row green: only with the switch on. */
 function greenFromLogin(args) { return GREEN_FROM_LOGIN && loginGood(args); }
 
-module.exports = { validUntil, validUntilWithin, worksUntil, loginGood, greenFromLogin, noteCheck, checkRefused, setReaderForTests, _clearForTest,
+module.exports = { validUntil, validUntilWithin, worksUntil, ended, loginGood, greenFromLogin, noteCheck, checkRefused, setReaderForTests, _clearForTest,
   GREEN_FROM_LOGIN, CACHE_MS, MISS_CACHE_MS, READ_BUDGET_MS };

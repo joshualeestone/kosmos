@@ -3727,7 +3727,7 @@ function retireResetLimits(text, nowMs, firstSeenOf) {
  * that pinned test is deliberately left as WORKING and this change does
  * not touch it.
  */
-/* #7369: the patterns themselves live in engine/claudesignintext.js, unchanged, so the Windows stream reads the same
+/* #7369: the patterns themselves live in engine/claudesignintext.js, so the Windows stream reads the same
    words without loading this file; the reasoning for each stays here. */
 const { AUTH_FAILED_MARKERS } = require('./claudesignintext');
 
@@ -3890,7 +3890,7 @@ function waitingSinceFrom(waitReport, cardState, nowMs = Date.now()) {
  * this line has no JSON at all -- current Claude Code prints a human-readable
  * error, not the raw envelope #874 was captured from. So `authFailed` returned
  * null, `classify` fell through to idle, and the WORST possible label sat over a
- * blocked agent. (Every message alternative in AUTH_FRIENDLY_MESSAGE is
+ * blocked agent. (Every message alternative in AUTH_FRIENDLY_MESSAGE but #9031's two, from 2.1.332, is
  * byte-exact from Claude Code 2.1.258's own strings: `OAuth access token has
  * expired.`, `OAuth access token has been revoked.`, `OAuth access token is
  * invalid.`, `API Error: 401 Invalid API key`, `OAuth token revoked`,
@@ -3912,7 +3912,7 @@ function waitingSinceFrom(waitReport, cardState, nowMs = Date.now()) {
  * false calm that stopped the tester. A missed dead token is worse than a rare false
  * pause; that trade is this file's oldest rule.
  */
-const { AUTH_FRIENDLY_MESSAGE, AUTH_FRIENDLY_REMEDY } = require('./claudesignintext');   // #7369: shared, unchanged
+const { AUTH_FRIENDLY_MESSAGE, AUTH_FRIENDLY_REMEDY } = require('./claudesignintext');   // #7369: shared; #9031 added two lines
 
 /**
  * #3410. Claude Code's own on-screen text for a TRANSIENT network error --
@@ -9864,6 +9864,7 @@ function snapshot() {
        never blocks this tick. Only for a scraped auth_failed on one of our named panes (we
        need the name to resolve the account config dir); no probe for a healthy agent. */
     let liveAuth;
+    let recheckingHealthy = false;   // #9031: between checks of an account whose last one said it works
     if (scrapedStatus.state === STATE.AUTH_FAILED && isNamedOurs(pane)) {
       let probedDir;
       liveAuth = liveAuthForAuthFailed(
@@ -9875,6 +9876,8 @@ function snapshot() {
       if (typeof scrapedStatus.authSince === 'string' && probedDir !== undefined) {
         scrapedStatus = { ...scrapedStatus, authCheckStartedAt: require('./authprobe').startedAt(probedDir) };
       }
+      recheckingHealthy = liveAuth === require('./authprobe').UNCHECKED
+        && require('./authprobe').lastVerdict(probedDir) === LIVE_AUTH_HEALTHY;
     }
     /* #2019: is this pane's agent one we are deliberately restarting right now?
        Only for a pane TIED to the name -- the same identity gate every
@@ -10169,7 +10172,10 @@ function snapshot() {
         /* #5949: nor a HELD Windows reading: it is what we saw before the read failed, not a turn seen now. */
         const outcome = (scrapedStatus.state === STATE.WORKING
           && scrapedStatus.backgroundWait !== true && scrapedNow) ? observed.OUTCOME.OK
-          : status.state === STATE.AUTH_FAILED ? observed.OUTCOME.REJECTED
+          /* #9031: not while an account whose last check worked is being checked again: an old refusal left on an idle
+             screen would otherwise mark a repaired account refused every time the check's answer ages out. A login
+             that really ended says so at the answer, a tick or two later. */
+          : (status.state === STATE.AUTH_FAILED && !recheckingHealthy) ? observed.OUTCOME.REJECTED
           : null;
         if (outcome) observed.saw(observed.PROVIDER.ANTHROPIC, pane.name, outcome, now);
       } else if (isNamedOurs(pane) && isCodexPane) {

@@ -5605,12 +5605,12 @@ function isAutoGuideBirth(e, sa = require('./setup-assistant')) {
    this is tested before the exit-0 shortcut, a broad marker that a LIVE call
    might print (an update/onboarding notice carrying "/login") would FALSE-REFUSE
    a good account -- the false negative this family must never ship. Every
-   alternative here is a genuine dead-sign-in string from Claude Code 2.1.258 and
+   alternative here is a genuine dead-sign-in string from Claude Code (2.1.258, or 2.1.332 for #9031's) and
    would not appear in a successful "reply ok" response. The tester's line
    ("Please run /login · API Error: 401 OAuth access token has expired.") is
    caught by "OAuth access token has expired", not by the remedy phrase. */
 /* #9031: `claude -p`'s own words for a login past its last date, a failed renewal and no login at all (2.1.332). */
-const CLAUDE_DEAD_AUTH = /OAuth access token (?:has expired|has been revoked|is invalid)|OAuth token revoked|Login expired|login reached its time limit|OAuth session expired and could not be refreshed|Not logged in\s+\S{1,2}\s+Please run \/login|authentication_error|API Error:\s*401\s+Invalid API key/i;
+const CLAUDE_DEAD_AUTH = /OAuth access token (?:has expired|has been revoked|is invalid)|OAuth token revoked|Login expired|login reached its time limit|OAuth session expired and could not be refreshed|Not logged in\s+[\u00b7_]\s+Please run \/login|authentication_error|API Error:\s*401\s+Invalid API key/i;
 const CLAUDE_CAPACITY = /usage limit|reached your .{0,40}limit|\/usage-credits|rate[ _-]?limit|overloaded/i;
 
 let claudeProbe = null;

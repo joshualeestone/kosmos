@@ -31,9 +31,9 @@ function accountState(a, now = Date.now()) {
     const when = new Date(stops).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
     return 'its sign-in has run out; its agents keep working until ' + when + ', then stop. The person signs in again in Settings > AI Models';
   }
-  /* #9031: past its last date with no access left to work on (the server sets loginEnded only then): the page's "Login
-     expired", which outranks its badge there too. */
-  if (c.loginEnded === true) return 'its sign-in has expired, so its agents cannot work. The person signs in again, or moves them to another account, in Settings > AI Models';
+  /* #9031: past its last date with no known access left (the server's loginEnded): the page's "Login expired", which
+     outranks its badge there too. Like the page, no claim about the agents' state. */
+  if (c.loginEnded === true) return 'its sign-in has expired. The person signs in again to bring its agents back, or moves them to another account, in Settings > AI Models';
   if (c.badge === 'working') return 'signed in';
   // #8159: a sign-in nothing has renewed or used for days says since when, never "signed in".
   if (c.badge === 'signed_in_unverified' && Number.isFinite(c.notConfirmedSince)) {
