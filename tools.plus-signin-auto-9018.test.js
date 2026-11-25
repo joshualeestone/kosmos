@@ -26,7 +26,7 @@ const FAKE_SERVER = `
 const http = require('node:http'); const fs = require('node:fs'); const path = require('node:path');
 const o = JSON.parse(fs.readFileSync(path.join(__dirname, 'fake.json'), 'utf8'));
 const log = (l) => fs.appendFileSync(o.log, l + '\\n');
-log('env ' + JSON.stringify({ home: process.env.HOME || '', data: process.env.AGENT_WORKFORCE_DATA || '', tmux: process.env.AGENT_WORKFORCE_TMUX_BIN || '', path: process.env.PATH }));
+log('env ' + JSON.stringify({ home: process.env.HOME || '', runners: process.env.AGENT_WORKFORCE_RUNNERS_DIR || '', browser: process.env.KOSMOS_AGENT_BROWSER || '', data: process.env.AGENT_WORKFORCE_DATA || '', tmux: process.env.AGENT_WORKFORCE_TMUX_BIN || '', path: process.env.PATH }));
 const st = { enrolled: false, on: false, up: false };
 http.createServer((req, res) => {
   let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => {
@@ -121,6 +121,8 @@ test('#9018: one command takes the pointer\'s own tarball through a first sign-i
   const envLine = JSON.parse(calls(w.boardLog)[0].replace(/^env /, ''));
   assert.ok(envLine.data.startsWith(w.scratch), 'the board\'s data root is not in the work folder: ' + envLine.data);
   assert.ok(envLine.home.startsWith(w.scratch), 'the board was given a HOME outside the work folder: ' + envLine.home);
+  assert.ok(envLine.runners.startsWith(w.scratch), 'the board\'s runners are not in the work folder: ' + envLine.runners);
+  assert.strictEqual(envLine.browser, 'off', 'the board would download the agents\' browser');
   assert.ok(envLine.tmux.startsWith(w.scratch), 'the board\'s tmux is not the work folder\'s stub');
   assert.strictEqual(envLine.path, '/usr/bin:/bin:/usr/sbin:/sbin', 'the board inherited this shell\'s PATH');
   // The code reader was asked for the placement, on the seed's base mailbox for the anchor.
