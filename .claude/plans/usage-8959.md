@@ -45,3 +45,9 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7155802
 - M3 the small figures' fixed widths made the side-by-side row never fit: their labels wrap again, so the row stacks only when it truly does not fit.
 - The reviewer checked the UI test's identifiers and the sample's figures against the view and the logic.
 - Measured: run-usage.sh PASS 57/57; typecheck 0 errors.
+
+### Round 3 (opus, 01:49 CST): no BLOCKER, no MAJOR, 3 MINOR. The reviewer compared fixed, abbr, bigTokens, usd, tileSub1M and jsRound with the page's functions in node on about 27,000 inputs from 0 to 1e21: no mismatch in fixed, usd or tileSub1M.
+- M2 (the one that mattered) the suite pinned today's figures as literals, so a later change to the page's usage functions would have left it green while the phone disagreed. Now the phone and the page meet at one file. ios/LogicTests/usage/fixture.json and expected.json are committed. web.usage-ios-parity-8959.test.js runs the page's own functions on the fixture and must equal expected.json (control: one more token changes the result). The Swift suite must equal the same file. Control: one figure changed in expected.json fails both (Swift 1 of 63, node 1).
+- M1 Int(...) stopped the app on a malformed count past 9.2e18 (abbr, activeDays, the hero's years): none of these goes through Int any more (formatted with %.0f, or clamped).
+- M3 negative zero now keeps its "-" as JavaScript's toFixed does; Math.round is exact. Kept: a count below 1e-6 writes "1e-07" where the page writes "1e-7" (counts are whole numbers).
+- Measured: run-usage.sh PASS 63/63; web.usage-ios-parity-8959 2/2; every test file that lists *.test.js files (57, run from the repo root) 1726 pass, 0 fail.
