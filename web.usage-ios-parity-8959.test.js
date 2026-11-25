@@ -22,12 +22,17 @@ function pageFunctions() {
   const b = page.indexOf('let USAGE_BUSY = false;');
   assert.ok(a > 0 && b > a, 'the usage functions moved: re-anchor this test');
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  /* The page groups with toLocaleString() in the reader's own locale; this pins en-US, as the phone's suite does, so
+     a machine with another locale does not read a grouping difference as the page's arithmetic changing. */
+  const src = page.slice(a, b);
+  const pinned = src.replace(/\.toLocaleString\(\)/g, ".toLocaleString('en-US')");
+  assert.ok(pinned !== src, 'the page no longer calls toLocaleString(): re-check what this pins');
   // eslint-disable-next-line no-new-func
-  return new Function('esc', page.slice(a, b) + '; return { usageTotals, usageGrandTotal, usageAbbr, usageBigTokens, usageUsd, usageUsdTileSub1M, usageRowValue, usageActiveDays, usageByModel, usageAgentRows, usageAgentNote, usageApiCost, usageHeroHtml, usageShareTableHtml, usageHistoryHtml };')(esc);
+  return new Function('esc', pinned + '; return { usageTotals, usageGrandTotal, usageAbbr, usageBigTokens, usageUsd, usageUsdTileSub1M, usageRowValue, usageActiveDays, usageByModel, usageAgentRows, usageAgentNote, usageApiCost, usageHeroHtml, usageShareTableHtml, usageHistoryHtml };')(esc);
 }
 
 /* What the page shows for the fixture and for each formatter's inputs. Numbers are formatted in en-US, which the
-   suite pins on the phone too (toLocaleString here, NumberFormatter there). */
+   suite pins on the phone too (toLocaleString pinned to en-US above, NumberFormatter there). */
 function actual(f, fx, inputs) {
   const unesc = (s) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
   const cells = (html, re) => (html.match(re) || []).map((s) => unesc(s.replace(/<[^>]*>/g, '').replace(/<$/, '')));
