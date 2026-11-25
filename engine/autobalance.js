@@ -47,17 +47,20 @@ function fiveHourNow(row, nowMs) {
   return f.resetsAt === null || (Number.isFinite(f.resetsAt) && f.resetsAt > nowMs) ? f : null;
 }
 
-/* The login has stopped working: the live check's own two confirmed states. */
+/* The login has stopped working: the live check's own two confirmed states, or (#9031) a login past its last date with
+   no access left to work on (the server's loginEnded, the page's "Login expired"), whatever its badge says. */
 function loginStopped(row) {
-  const badge = row && row.connection && row.connection.badge;
-  return badge === 'rejected' || badge === 'signed_out';
+  const c = row && row.connection;
+  if (!c) return false;
+  return c.badge === 'rejected' || c.badge === 'signed_out' || c.loginEnded === true;
 }
 
-/* The page's acctOfferableTarget, as it was: only the CONFIRMED-unusable are out (rejected, signed out); a row with no
+/* The page's acctOfferableTarget, plus (#9031) a login past its last date: only the CONFIRMED-unusable are out (rejected, signed out); a row with no
    connection is offered; a badge-less row falls back to the older state. */
 function offerable(row) {
   const c = row && row.connection;
   if (!c) return true;
+  if (c.loginEnded === true) return false;   // #9031
   if (c.badge) return c.badge !== 'rejected' && c.badge !== 'signed_out';
   return c.state !== 'none';
 }
@@ -388,7 +391,7 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
    endpoint's own rate limit, held for six hours since kosmos#8846), an answer it could not read, and a token that belongs to another
    login: none of them says the agents' login has stopped. `agentsOn(dir, isDefault)` gives { names, complete, moving }.
    The record's resets are seconds; rows carry ms, as /api/accounts does. */
-const LOGIN_REFUSED = /^(profile-)?http-40[13]$/;
+const LOGIN_REFUSED = /^((profile-)?http-40[13]|login-ended)$/;   // #9031: login-ended, usagepoll's word for a login past its last date
 const BLIP_STATES = /^(http-429|(profile-)?http-5\d\d|unreachable|profile-unreachable|token-expired)$/;
 const NO_CREDENTIAL = /^(no-credential|no-token)$/;   // slice 1 cannot read the credential: says nothing about the account
 function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
