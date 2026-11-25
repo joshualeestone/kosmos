@@ -2582,7 +2582,8 @@ function folderNameProblem(name) {
   // `.` and `..` ARE the current and parent directory; a leading dot is a
   // hidden folder the person would never see again in Finder.
   if (folded === '.' || folded === '..') return 'that name means a folder that already has a meaning on this computer';
-  if (folded.startsWith('.')) return 'a name starting with a dot makes a folder your Mac hides, so pick another';
+  // kosmos#9070: words true on every platform (a dot-folder is hidden on a Mac and on Linux, not on Windows).
+  if (folded.startsWith('.')) return 'a name starting with a dot can make a hidden folder, so pick another';
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(folded)) return 'that name has characters we cannot make a folder out of';
   if (folded.length > 60) return 'that name is too long to make a folder out of; keep it to 60 characters';
