@@ -27759,7 +27759,8 @@ let ALIST_PARTS = null;   // kosmos#9094: its top-level pieces as last written (
    memory ring moved: on a live board of 20 agents, 3 whole-list rewrites a minute, 20 rows replaced for 1 that changed.
 
    Pieces are matched by their data-agent; pieces with none (headers, notes) by their order among such pieces, so one
-   of those appearing or going redraws each later unkeyed piece whose markup differs from the one now at its rank. A matched piece whose markup is the same keeps its
+   of those appearing or going redraws each later unkeyed piece whose markup differs from the one now at its rank.
+   Unkeyed pieces, the fed sections among them, are moved by the reorder below like any kept node. A matched piece whose markup is the same keeps its
    node. Of the kept nodes, the longest run already in the new order stays put and only the others are moved
    (insertBefore), so an agent changing place under a sort or a star moves alone, up or down.
 
@@ -27849,6 +27850,7 @@ function paintAgentListNow() {
     const fedOutE = (layoutConsolidated() && PJ_CURRENT && typeof fedOutsideHtml === 'function') ? fedOutsideHtml() : '';
     // kosmos#4658: the sealed-room key section too, for the same reason (the Members card is hidden here).
     const fedOwnE = (layoutConsolidated() && PJ_CURRENT && typeof fedOwnHtml === 'function') ? fedOwnHtml() : '';
+    ALIST_PARTS = null;   // kosmos#9094: with its memo, so the two never disagree
     ALIST_HTML = null;
     alist.innerHTML = boardEmpty();
     if (fedOutE) alist.insertAdjacentHTML('beforeend', '<div id="alist-fed-outside" class="fedout">' + fedOutE + '</div>');
@@ -27933,6 +27935,7 @@ function paintMyAgents() {
     // Empty, not just hidden: a second copy of every row left in the page answers anything looking an agent up by data-agent.
     document.getElementById('my-agents-list').innerHTML = '';
     MY_AGENTS_HTML = null;
+    MY_AGENTS_PARTS = null;   // kosmos#9094: with its memo
     MY_AGENTS_OPEN = null;
     return;
   }
@@ -28729,6 +28732,7 @@ async function tick() {
        the failure card up for good. Cleared here, as ORG_HTML is below: the next good poll writes once. */
     GRID_HTML = null;
     ALIST_HTML = null;
+    GRID_PARTS = null; ALIST_PARTS = null;   // kosmos#9094: with their memos
     /* #3387: a failed poll shows no rows, so the consolidated head must not keep reading
        "Project Members" with the top + wired to add-member over a "could not refresh" list.
        Revert to "Agents" / New agent, the same reset the genuine empty-board path makes. */

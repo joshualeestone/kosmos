@@ -27,7 +27,9 @@ function el(markup) {
   return { nodeType: 1, outerHTML: markup, dataset: m[2] ? { agent: m[2] } : {}, parent: null,
     remove() { if (this.parent) this.parent.take(this); } };
 }
-function parse(html) { return (html.match(/<(div|h3)[^>]*>[^<]*<\/\1>/g) || []).map(el); }
+/* Whitespace between pieces is a text node, as the browser's template gives it (the real ser keys those on nodeValue). */
+function txt(v) { return { nodeType: 3, nodeValue: v, outerHTML: undefined, dataset: {}, parent: null, remove() { if (this.parent) this.parent.take(this); } }; }
+function parse(html) { return (html.match(/<(div|h3)[^>]*>[^<]*<\/\1>|[^<]+/g) || []).map((x) => (x.startsWith('<') ? el(x) : txt(x))); }
 function container() {
   return {
     childNodes: [],
@@ -49,7 +51,7 @@ function board() {
   return {
     box,
     write(next) { parts = patchBoardHtml(box, next, html, parts); html = next; },
-    order() { return box.childNodes.map((n) => n.outerHTML).join(''); },
+    order() { return box.childNodes.map((n) => (n.nodeType === 3 ? n.nodeValue : n.outerHTML)).join(''); },
     node(agent) { return box.childNodes.find((n) => n.dataset.agent === agent); },
   };
 }
@@ -119,7 +121,7 @@ test('#9094 random sequences: order always right, unchanged pieces keep their no
   const lis = (xs) => { const t = []; for (const v of xs) { let lo = 0; let hi = t.length; while (lo < hi) { const m = (lo + hi) >> 1; if (t[m] < v) lo = m + 1; else hi = m; } t[lo] = v; } return t.length; };
   for (let run = 0; run < 400; run += 1) {
     const b = board();
-    let pieces = ['h3:Members', 'a', 'b', 'c', 'h3:Others', 'd', 'e'].map((x) => (x.startsWith('h3:') ? '<h3>' + x.slice(3) + '</h3>' : row(x)));
+    let pieces = ['h3:Members', 'a', ' ', 'b', 'c', 'h3:Others', '\n  ', 'd', 'e'].map((x) => (x.startsWith('h3:') ? '<h3>' + x.slice(3) + '</h3>' : /^\s+$/.test(x) ? x : row(x)));
     b.write(pieces.join(''));
     for (let step = 0; step < 6; step += 1) {
       let next = pieces.slice();
@@ -129,9 +131,10 @@ test('#9094 random sequences: order always right, unchanged pieces keep their no
       else if (r < 0.65) next.splice(Math.floor(rnd() * (next.length + 1)), 0, row('n' + run + 's' + step));
       else if (r < 0.8 && next.length > 2) next.splice(Math.floor(rnd() * next.length), 1);
       else next = next.slice().sort(() => rnd() - 0.5);
+      const show = (n) => (n.nodeType === 3 ? '#' + n.nodeValue : n.outerHTML);
       const prevLoose = b.box.childNodes.filter((n) => !n.dataset.agent);
       const prevNodes = new Map(b.box.childNodes.map((n, i) => [n, i]));
-      const byMarkup = new Map(b.box.childNodes.map((n) => [n.outerHTML, n]));
+      const byMarkup = new Map(b.box.childNodes.filter((n) => n.nodeType === 1).map((n) => [n.outerHTML, n]));
       moves = 0;
       b.write(next.join(''));
       assert.equal(b.order(), next.join(''), 'run ' + run + ' step ' + step + ': wrong order');
@@ -145,7 +148,7 @@ test('#9094 random sequences: order always right, unchanged pieces keep their no
       assert.equal(moves, keptIdx.length - lis(keptIdx), 'run ' + run + ' step ' + step + ': more kept nodes moved than needed');
       // Unkeyed pieces (headers) are matched by rank among themselves: same rank, same markup, same node.
       b.box.childNodes.filter((n) => !n.dataset.agent).forEach((n, k) => {
-        if (prevLoose[k] && prevLoose[k].outerHTML === n.outerHTML) assert.equal(n, prevLoose[k], 'run ' + run + ' step ' + step + ': an unchanged header was rebuilt');
+        if (prevLoose[k] && show(prevLoose[k]) === show(n)) assert.equal(n, prevLoose[k], 'run ' + run + ' step ' + step + ': an unchanged header or text node was rebuilt');
       });
       pieces = next;
     }

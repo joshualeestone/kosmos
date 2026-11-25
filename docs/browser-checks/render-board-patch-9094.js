@@ -109,6 +109,11 @@ const say = (n, cond, note) => {
     say('fixture: alpha and beta each have a row and a card', Object.keys(marked).length === 4, JSON.stringify(marked));
 
     // Arm 1: change alpha only.
+    const oldV = await p.evaluate(() => {
+      const v = (sel) => { const el = document.querySelector(sel + '[data-agent="alpha"]'); const n = el && el.querySelector('img, image');
+        return n ? (/[?&]v=(\d+)/.exec(n.getAttribute('src') || n.getAttribute('href') || '') || [])[1] || null : null; };
+      return { row: v('#alist .lrow'), card: v('#grid .acard') };
+    });
     const put = await p.evaluate(async (bytes) => (await fetch('/api/agent/alpha/avatar', { method: 'PUT',
       headers: { 'content-type': 'image/png' }, body: new Uint8Array(bytes) })).status, [...solidPng(20, 200, 20)]);
     say('fixture: alpha\'s new picture was accepted', put >= 200 && put < 300, 'PUT ' + put);
@@ -137,8 +142,8 @@ const say = (n, cond, note) => {
     });
     const polls = statusPolls.length - pollsBefore;
     say('arm 1: the polls ran (at least 2 since the change)', polls >= 2, polls + ' polls');
-    say('arm 1: alpha\'s row was redrawn with its new picture', !!(seen && seen.rowAlphaNew && seen.rowAlphaV), JSON.stringify(seen));
-    say('arm 1: alpha\'s card was redrawn with its new picture\'s URL (an SVG image: decoding is not read here)', !!(seen && seen.cardAlphaNew && seen.cardAlphaV), JSON.stringify(seen));
+    say('arm 1: alpha\'s row was redrawn with its new picture', !!(seen && seen.rowAlphaNew && seen.rowAlphaV && seen.rowAlphaV !== oldV.row), JSON.stringify({ seen, oldV }));
+    say('arm 1: alpha\'s card was redrawn with its new picture\'s URL (an SVG image: decoding is not read here)', !!(seen && seen.cardAlphaNew && seen.cardAlphaV && seen.cardAlphaV !== oldV.card), JSON.stringify({ seen, oldV }));
     say('arm 1: beta\'s row is the same node (not redrawn)', after.rowBetaKept, JSON.stringify(after));
     say('arm 1: beta\'s card is the same node (not redrawn)', after.cardBetaKept, JSON.stringify(after));
     say('arm 1: alpha\'s new row picture decoded (built in a template, then moved into the page)', after.decoded, JSON.stringify(after));
@@ -159,7 +164,7 @@ const say = (n, cond, note) => {
     const star = await p.evaluate(async () => (await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'gamma', on: true }) })).status);
     say('fixture: gamma\'s star was accepted', star >= 200 && star < 300, 'PUT ' + star);
-    await p.evaluate(() => (typeof loadStars === 'function' ? loadStars() : null));   // eslint-disable-line no-undef
+    await p.evaluate(() => loadStars());   // eslint-disable-line no-undef
     let moved = null;
     for (let i = 0; i < 30; i++) {
       await p.waitForTimeout(500);
@@ -183,7 +188,7 @@ const say = (n, cond, note) => {
     const unstar = await p.evaluate(async () => (await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'gamma', on: false }) })).status);
     say('fixture: gamma\'s star was taken off', unstar >= 200 && unstar < 300, 'PUT ' + unstar);
-    await p.evaluate(() => (typeof loadStars === 'function' ? loadStars() : null));   // eslint-disable-line no-undef
+    await p.evaluate(() => loadStars());   // eslint-disable-line no-undef
     let down = null;
     for (let i = 0; i < 30; i++) {
       await p.waitForTimeout(500);
