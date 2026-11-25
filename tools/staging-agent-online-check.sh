@@ -442,7 +442,8 @@ let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
     const badge = String(conn.badge || "");
     const ok = st==="connected" || badge==="working" || badge==="signed_in_unverified";
     if (!ok) continue;
-    const dir = r.dir || r.account || r.accountDir || "";
+    // kosmos#9079 review 3: no tab or newline from the board can reach the tab- and line-split output below.
+    const dir = String(r.dir || r.account || r.accountDir || "").replace(/[\t\n\r]/g, " ");
     // kosmos#9079: skip a SECONDARY Claude row the board itself marks dead (badge rejected or signed_out, or
     // connection.loginEnded), which can still read state "connected". NEVER the default row: its dead mark comes from
     // the build under test (Check now runs the same probe as the create), so a build that wrongly marks the default
@@ -457,13 +458,19 @@ let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
 })')"
 
 get_dir() { printf '%s\n' "$PROV_DIRS" | awk -F'\t' -v p="$1" '$1==p{print $2; exit}'; }
-# kosmos#9079: say which secondary Claude rows were skipped and why, so a pass reached past a skip is visible.
+# kosmos#9079: list every secondary Claude row the board marks dead, with why.
 while IFS="$(printf '\t')" read -r k d why; do
   if [ "$k" = skipped ]; then say "  [anthropic] skipped account $d: $why"; fi
 done <<EOF_SKIPPED
 $PROV_DIRS
 EOF_SKIPPED
 ANTHROPIC_DIR="$(get_dir anthropic)"
+# kosmos#9079 review 3: when the skips leave no Claude account at all, test the first skipped one anyway, as main
+# does. Otherwise a build that wrongly marks every account dead would read cannot-tell (2) where main reads 1.
+if [ -z "$ANTHROPIC_DIR" ]; then
+  ANTHROPIC_DIR="$(get_dir skipped)"
+  [ -z "$ANTHROPIC_DIR" ] || say "  [anthropic] every connected Claude account is marked dead by the board, so the first is tested anyway: $ANTHROPIC_DIR"
+fi
 OPENAI_DIR="$(get_dir openai)"
 
 MISSING=""

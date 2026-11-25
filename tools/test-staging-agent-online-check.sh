@@ -101,6 +101,12 @@ case "$route" in
       rows='{"provider":"anthropic","dir":"/x/.claude","connection":{"state":"none","badge":"signed_out"}}'
       rows="$rows,{\"provider\":\"openai\",\"dir\":\"/x/.codex\",\"connection\":{\"state\":\"connected\"}}"
       emit "{\"accounts\":[$rows]}" 200
+    elif [ "$a" = claude-default-first ]; then
+      # review 3: the real board order, the connected default first and a dead secondary after it.
+      rows='{"provider":"anthropic","dir":"/x/.claude","isDefault":true,"connection":{"state":"connected","badge":"working"}}'
+      rows="$rows,{\"provider\":\"anthropic\",\"dir\":\"/x/.claude-dead\",\"connection\":{\"state\":\"connected\",\"badge\":\"rejected\"}}"
+      rows="$rows,{\"provider\":\"openai\",\"dir\":\"/x/.codex\",\"connection\":{\"state\":\"connected\"}}"
+      emit "{\"accounts\":[$rows]}" 200
     elif [ "$a" = claude-dead-first ] || [ "$a" = claude-ended-first ] || [ "$a" = claude-dead-only ] || [ "$a" = claude-default-dead ] || [ "$a" = claude-signedout-first ]; then
       # kosmos#9079: a Claude row the board marks dead, listed FIRST, still reading state "connected": badge "rejected",
       # or loginEnded under badge "working". The create refuses /x/.claude-dead (below), so picking it reads red.
@@ -453,7 +459,10 @@ run_case "#9079: a Claude row with loginEnded, listed first, is skipped (0)" 0 -
 run_case "#9079 review 1: the DEFAULT row marked dead is NOT skipped: its create refusal stands (1)" 1 --expect "create REFUSED" --reject "skipped account" MOCK_ACCOUNTS=claude-default-dead MOCK_AGENT_STATE=idle
 run_case "#9079 review 1: a skipped secondary row is said in the log (0)" 0 --expect "skipped account /x/.claude-dead: the board marks it rejected" MOCK_ACCOUNTS=claude-dead-first MOCK_AGENT_STATE=idle
 run_case "#9079 review 2: a SIGNED_OUT secondary row (state connected) is skipped and said (0)" 0 --expect "skipped account /x/.claude-dead: the board marks it signed_out" MOCK_ACCOUNTS=claude-signedout-first MOCK_AGENT_STATE=idle
-run_case "#9079: only a Claude row marked dead -> no signed-in Claude, cannot-tell (2)" 2 --expect "no signed-in account for: anthropic" MOCK_ACCOUNTS=claude-dead-only MOCK_AGENT_STATE=idle
+# review 3: when every connected Claude row is marked dead, the first is tested anyway, as main does: its create
+# refusal stands (1), never a forceable cannot-tell.
+run_case "#9079 review 3: only a Claude row marked dead -> tested anyway, its create refusal stands (1)" 1 --expect "is tested anyway" MOCK_ACCOUNTS=claude-dead-only MOCK_AGENT_STATE=idle
+run_case "#9079 review 3: a connected DEFAULT row first, a dead secondary after: passes on the default (0)" 0 --reject "create REFUSED" MOCK_ACCOUNTS=claude-default-first MOCK_AGENT_STATE=idle
 run_case "agent never appears (shape mismatch) -> cannot-tell" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=noshow
 # kosmos#6906: a populated board is checked, not refused: its agents are removed after (the assertion in run_case).
 run_case "populated board (5 agents) -> checked, PASS, removed (0)" 0 --expect "removed 'verify2129-openai-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5
