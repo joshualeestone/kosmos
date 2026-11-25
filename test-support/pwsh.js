@@ -37,10 +37,13 @@ function pwshEnv(extra) {
 }
 
 const BROKEN = 'pwsh broken on this machine (startup cache?)';
-function pwshState(exe) {
-  const r = spawnSync(exe, ['-NoProfile', '-NonInteractive', '-Command', '1+1'], { env: pwshEnv(), encoding: 'utf8', windowsHide: true, timeout: 60000 });
+function pwshState(exe, timeoutMs) {
+  const limit = timeoutMs || 60000;   // timeoutMs only for this helper's own test
+  const r = spawnSync(exe, ['-NoProfile', '-NonInteractive', '-Command', '1+1'], { env: pwshEnv(), encoding: 'utf8', windowsHide: true, timeout: limit });
   if (r.error && r.error.code === 'ENOENT') return 'missing';
   if (r.status === 0 && String(r.stdout).trim() === '2') return 'ok';
+  // A start with a fresh cache is slower (17 s once on a loaded CI Mac, #7998); a timeout is a busy machine, not the cache.
+  if (r.error && r.error.code === 'ETIMEDOUT') return 'pwsh did not answer 1+1 within ' + Math.round(limit / 1000) + ' s on this machine (busy?): ' + exe;
   const why = r.error ? r.error.message : (r.signal ? 'ended by ' + r.signal : 'rc ' + r.status);
   const first = String(r.stderr || r.stdout || '').split('\n').map((l) => l.trim()).find(Boolean) || '';
   return BROKEN + ': ' + exe + ' could not run 1+1 (' + why + ')' + (first ? ': ' + first.slice(0, 200).replace(/\.$/, '') : '')
