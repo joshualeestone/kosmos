@@ -164,9 +164,9 @@ enum DeleteAccount {
         /// The grant is spent or expired (a 401), or a refusal: back to the email screen with the sentence. A dead grant is
         /// never sent again.
         case startOver(String)
-        /// No answer this app can read (a proxy's page, no body): as if nothing came back. The same grant stays, with Try
-        /// again, as the page's catch.
-        case noAnswer
+        /// Not an answer about the grant (a proxy's page, no body, a 5xx, a rate limit): the same grant stays, with Try
+        /// again, as the page's catch. The sentence when Kosmos+ sent one, else nil (the screen says it could not answer).
+        case retry(String?)
         /// An earlier confirm on this grant went out and its answer never came back, and now the grant is refused: the
         /// deletion may have finished with it (it spends the grant in the same transaction). Saying "start again" would
         /// tell someone whose account is gone that it is not.
@@ -182,14 +182,49 @@ enum DeleteAccount {
         case "still_deleting": return .stillDeleting
         case "nothing_changed": return .nothingChanged
         default:
-            guard let sentence = SignIn.refusal(body["error"]) else { return .noAnswer }
+            guard let sentence = SignIn.refusal(body["error"]) else { return .retry(nil) }
             // A valid grant for an account that no longer exists (account_delete.rs confirm): the sweep finished it.
             if status == 401, sentence == alreadyGone { return .deleted }
+            // Only a refusal of the grant itself (400 understood, 401 expired or spent, 403) ends it. A 408, 429 or 5xx
+            // leaves the grant as it was on Kosmos+.
+            if status == 408 || status == 429 || status >= 500 { return .retry(sentence) }
             if answerLost { return .unknown }
             return .startOver(sentence)
         }
     }
     static let alreadyGone = "That account is already gone."
+
+    /// Whether a confirm that failed with this error may have reached Kosmos+ (and so may be deleting). Only errors raised
+    /// before anything is sent say no: no connection, no such host, refused, TLS, the phone not allowed data. Anything
+    /// else (a timeout, a connection lost mid-way, an unreadable answer, an error this app does not know) says it may.
+    static func mayHaveArrived(_ code: URLError.Code?) -> Bool {
+        guard let code else { return true }
+        let neverSent: [URLError.Code] = [.notConnectedToInternet, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed,
+                                          .internationalRoamingOff, .dataNotAllowed, .secureConnectionFailed,
+                                          .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateNotYetValid,
+                                          .serverCertificateHasUnknownRoot, .appTransportSecurityRequiresSecureConnection, .badURL,
+                                          .unsupportedURL, .cancelled]
+        return !neverSent.contains(code)
+    }
+
+    /// After "could not tell", one look at this iPhone's own sign-in (/v1/account/me with the session held), when the
+    /// deleted account is the one this iPhone holds (or whose that is is unknown).
+    enum Settled: Equatable {
+        /// Kosmos+ answered for that very account: it exists, so nothing was deleted. Back to the email screen.
+        case stillThere
+        /// The session is refused: it may have gone with the account. This iPhone signs out; the screen still says it could
+        /// not tell (a refused session is not proof of a deletion).
+        case sessionGone
+        /// Nothing more is known.
+        case unknown
+    }
+
+    static func settled(meStatus: Int?, meEmail: String?, deletedEmail: String?) -> Settled {
+        guard let meStatus else { return .unknown }
+        if meStatus == 401 { return .sessionGone }
+        if (200..<300).contains(meStatus), let me = meEmail?.lowercased(), let gone = deletedEmail?.lowercased(), me == gone { return .stillThere }
+        return .unknown
+    }
 
     // MARK: - Signing this iPhone out after a deletion
 
@@ -269,6 +304,9 @@ enum DeleteAccount {
     // Not on the page (its flow has the same gap): what the phone says when it cannot tell. Kosmos+ emails the address
     // when a deletion finishes (account_delete.rs finish), so the email is where the person can find out.
     static let unknownTitle = "We could not tell whether your account was deleted"
+    /// The note on the confirm screen after a confirm went out and no answer came back.
+    static let lostWords = "Kosmos+ did not answer in time. Your account may already be deleted: if it was, we emailed you. Pressing Delete my account again is safe: it finishes the deletion, or says it is done."
+    static let stillThereWords = "Your account was not deleted. Start again from the email."
     static let unknownWords = "Kosmos+ did not answer in time, and the confirmation cannot be used again. If your account was deleted, we emailed you to say so. If no email comes, start again from the email."
     static let didNotWork = "That did not work. Start again from the email."
     static let codeRefused = "That code is not right."

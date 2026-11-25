@@ -64,12 +64,29 @@ check(D.outcome(status: 202, json: ["outcome": "still_deleting"]) == .stillDelet
 check(D.outcome(status: 503, json: ["outcome": "nothing_changed"]) == .nothingChanged, "nothing changed")
 check(D.outcome(status: 401, json: ["error": "that confirmation has expired; start again from the email"]) == .startOver("That confirmation has expired; start again from the email."), "an expired grant")
 check(D.outcome(status: 400, json: ["error": "tick the box to say you understand this cannot be undone"]) == .startOver("Tick the box to say you understand this cannot be undone."), "understood missing")
-check(D.outcome(status: 200, json: ["outcome": "gone"]) == .noAnswer, "an outcome this app does not know is not read as deleted")
-check(D.outcome(status: 200, json: nil) == .noAnswer, "no body: as if nothing came back, the grant stays")
-check(D.outcome(status: 502, json: nil) == .noAnswer, "a proxy's page (no JSON) keeps the grant, as the page's catch")
+check(D.outcome(status: 200, json: ["outcome": "gone"]) == .retry(nil), "an outcome this app does not know is not read as deleted")
+check(D.outcome(status: 200, json: nil) == .retry(nil), "no body: as if nothing came back, the grant stays")
+check(D.outcome(status: 502, json: nil) == .retry(nil), "a proxy's page (no JSON) keeps the grant, as the page's catch")
 // A lost answer, then the grant refused: the deletion may have spent it. Never "start again" about a gone account.
 check(D.outcome(status: 401, json: ["error": "that confirmation has expired; start again from the email"], answerLost: true) == .unknown, "lost answer then expired: unknown")
 check(D.outcome(status: 400, json: ["error": "tick the box to say you understand this cannot be undone"], answerLost: true) == .unknown, "lost answer then any refusal: unknown")
+// A 5xx, 429 or 408 is not a refusal of the grant: it stays, lost answer or not.
+check(D.outcome(status: 500, json: ["error": "internal error"]) == .retry("Internal error."), "a 500 keeps the grant")
+check(D.outcome(status: 500, json: ["error": "internal error"], answerLost: true) == .retry("Internal error."), "a 500 after a lost answer keeps it too")
+check(D.outcome(status: 429, json: ["error": "too many; try again in 30 seconds"], answerLost: true) == .retry("Too many; try again in 30 seconds."), "a 429")
+check(D.outcome(status: 503, json: ["error": "deleting an account is not open yet", "code": "deletion_off"]) == .retry("Deleting an account is not open yet."), "the off switch keeps the grant")
+check(D.outcome(status: 403, json: ["error": "no"], answerLost: true) == .unknown, "a 403 after a lost answer: unknown")
+// Whether a failed confirm may have reached Kosmos+.
+check(!D.mayHaveArrived(.notConnectedToInternet) && !D.mayHaveArrived(.cannotFindHost) && !D.mayHaveArrived(.cannotConnectToHost), "never sent")
+check(!D.mayHaveArrived(.dnsLookupFailed) && !D.mayHaveArrived(.secureConnectionFailed) && !D.mayHaveArrived(.dataNotAllowed), "never sent, more")
+check(D.mayHaveArrived(.timedOut) && D.mayHaveArrived(.networkConnectionLost) && D.mayHaveArrived(.cannotParseResponse), "may have arrived")
+check(D.mayHaveArrived(nil) && D.mayHaveArrived(.unknown), "an error this app does not know: may have arrived")
+// After "could not tell": one look at the iPhone's own sign-in.
+check(D.settled(meStatus: 200, meEmail: "A@b.co", deletedEmail: "a@b.co") == .stillThere, "Kosmos+ answers for that account: not deleted")
+check(D.settled(meStatus: 200, meEmail: "x@b.co", deletedEmail: "a@b.co") == .unknown, "another account answers: nothing known")
+check(D.settled(meStatus: 200, meEmail: nil, deletedEmail: "a@b.co") == .unknown && D.settled(meStatus: 200, meEmail: "a@b.co", deletedEmail: nil) == .unknown, "an address unknown")
+check(D.settled(meStatus: 401, meEmail: nil, deletedEmail: "a@b.co") == .sessionGone, "a refused session signs out")
+check(D.settled(meStatus: nil, meEmail: nil, deletedEmail: "a@b.co") == .unknown && D.settled(meStatus: 500, meEmail: nil, deletedEmail: nil) == .unknown, "no answer")
 check(D.outcome(status: 202, json: ["outcome": "still_deleting"], answerLost: true) == .stillDeleting, "a real outcome still wins after a lost answer")
 check(D.outcome(status: 401, json: ["error": "that account is already gone"], answerLost: true) == .deleted, "already gone is deleted either way")
 
