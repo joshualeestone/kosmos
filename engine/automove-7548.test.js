@@ -127,7 +127,7 @@ test('#7548 rule 1: a move goes through the account move, is recorded in the swe
   const { d, calls } = deps();
   const r = await twoTicks(run, d);
   assert.deepEqual([r.did, r.outcome], ['moved', 'changed']);
-  assert.deepEqual(calls.starts, [{ dir: '/u/.claude-spare', names: ['ada'] }]);
+  assert.deepEqual(calls.starts, [{ dir: '/u/.claude-spare', names: ['ada'], automatic: true }]);
   const move = lines(file).find((l) => l.kind === 'move' && l.outcome !== 'started');
   assert.deepEqual([move.agent, move.fromLabel, move.toLabel, move.outcome], ['ada', 'work', 'spare', 'changed']);
   assert.equal(calls.tells.length, 1);
@@ -446,13 +446,13 @@ test('#7548 rule 8: an agent Kosmos has moved rests a day, partial and unknown i
   const { d, calls } = deps({ where, usage, lastSeen: () => ({ outcome: 'ok', at: Date.now() + 5000 }) });
   d.list = () => list3;
   await twoTicks(run, d);
-  assert.deepEqual(calls.starts.pop(), { dir: '/u/.claude-spare', names: ['ada'] }, 'CONTROL: the first move');
+  assert.deepEqual(calls.starts.pop(), { dir: '/u/.claude-spare', names: ['ada'], automatic: true }, 'CONTROL: the first move');
   usage['/u/.claude-spare'] = reading(95, 40);   // now spare runs out too
   await twoTicks(run, d, NOW + 10000);
   assert.equal(calls.starts.length, 0, 'an agent Kosmos had just moved was moved again within the day');
   assert.ok(automove.create({ file, nowMs: NOW + 20000 }).state.resting.has('ada'), 'a restart forgot that ada was just moved');
   await twoTicks(run, d, NOW + automove.REST_MS + 30000);
-  assert.deepEqual(calls.starts.pop(), { dir: '/u/.claude-third', names: ['ada'] }, 'CONTROL: after the day it may move on');
+  assert.deepEqual(calls.starts.pop(), { dir: '/u/.claude-third', names: ['ada'], automatic: true }, 'CONTROL: after the day it may move on');
   for (const outcome of ['partial', 'stopped']) {
     const r = automove.create({ file: fileFor() });
     const { d: dx } = deps({ moveOutcome: outcome });
@@ -490,7 +490,7 @@ test('#7548 rule 6: a held or unproven target does not stop balancing: the next-
   const { d, calls } = deps({ usage: { ...USAGE, '/u/.claude-third': reading(20, 100) } });
   d.list = () => [...LIST, THIRD];
   await twoTicks(run, d);
-  assert.deepEqual(calls.starts, [{ dir: '/u/.claude-third', names: ['ada'] }], 'a held best target stopped the move instead of the next-best one taking it');
+  assert.deepEqual(calls.starts, [{ dir: '/u/.claude-third', names: ['ada'], automatic: true }], 'a held best target stopped the move instead of the next-best one taking it');
 });
 
 test('#7548: decide() skips the targets skipTarget names, and without it picks as before', () => {
@@ -1099,7 +1099,7 @@ test('kosmos#8048: an agent stopped at its weekly limit, holding a commitment, i
   d.readCommitment = () => promised;
   const r = await twoTicks(run, d);
   assert.deepEqual([r.did, r.outcome], ['moved', 'changed'], 'an agent at the wall was not moved by the real mover');
-  assert.deepEqual(calls.starts, [{ dir: '/u/.claude-spare', names: ['ada'] }]);
+  assert.deepEqual(calls.starts, [{ dir: '/u/.claude-spare', names: ['ada'], automatic: true }]);
   assert.equal(calls.tells.length, 1);
   assert.match(calls.tells[0][1], / It had stopped at its usage limit, and the restart ended anything it had running, so it may need to pick its work back up\. Before the move it had said it was committed to: watching the 0\.7\.92 release\.$/,
     'the person was not told what the moved agent had promised');
@@ -1220,7 +1220,7 @@ test('kosmos#8048: a target the agents would lose skills or hooks on is held, sa
   d2.list = () => [...LIST, THIRD];
   d2.wouldLose = (from, to) => to === '/u/.claude-spare';
   await twoTicks(run2, d2);
-  assert.deepEqual(c2.starts, [{ dir: '/u/.claude-third', names: ['ada'] }], 'the next target that loses nothing was not used');
+  assert.deepEqual(c2.starts, [{ dir: '/u/.claude-third', names: ['ada'], automatic: true }], 'the next target that loses nothing was not used');
   // A check that cannot be made (throws) holds, never moves.
   const run3 = automove.create({ file: fileFor() });
   const { d: d3, calls: c3 } = deps();
@@ -1232,7 +1232,7 @@ test('kosmos#8048: a target the agents would lose skills or hooks on is held, sa
   const { d: d4, calls: c4 } = deps();
   d4.wouldLose = () => false;
   await twoTicks(run4, d4);
-  assert.deepEqual(c4.starts, [{ dir: '/u/.claude-spare', names: ['ada'] }]);
+  assert.deepEqual(c4.starts, [{ dir: '/u/.claude-spare', names: ['ada'], automatic: true }]);
 });
 
 test('kosmos#8048 review 1: a mover with no loss check holds rather than moves; a hold reaches the page through recent()', async () => {

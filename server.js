@@ -3699,7 +3699,7 @@ function moveHandoffDeps(o = {}) {
       try { card = chat.resolveCard(rosterNow(), name); } catch { card = null; }
       return { mtimeMs: now.mtimeMs, busy: !!card && card.state !== 'idle' };
     },
-    pickup: async (rawName, path) => {
+    pickup: async (rawName, path, how) => {
       const name = clean(rawName);
       const was = before.get(name) || { start: null, at: 0 };
       const waitMs = Number.isFinite(o.readyWaitMs) ? o.readyWaitMs : 3 * 60 * 1000;
@@ -3735,7 +3735,8 @@ function moveHandoffDeps(o = {}) {
       }
       // The restart's own pickup line (the moved note rides it, #5400), through the shared-quota gate as #3492's does.
       let delivery;
-      try { delivery = await chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(path), rosterNow(), undefined, undefined, { cap: false }); }
+      // Only a move the person started skips the Gemini cap, as #3492's restart pickup does; the automatic mover's does not.
+      try { delivery = await chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(path), rosterNow(), undefined, undefined, ...(how && how.automatic ? [] : [{ cap: false }])); }
       catch { delivery = null; }
       const ok = !!delivery && delivery.state !== chat.DELIVERY.COULD_NOT;
       if (!ok) told(name);
