@@ -537,8 +537,8 @@ test('#9018: a sandboxed run with no checked sha256, or another build\'s, is ref
   try {
     for (const verified of [undefined, 'b'.repeat(64)]) {
       const dir = tmp(); const e = sandboxEnv(dir); const ptr = pointerFile(dir);
-      if (verified === undefined) delete e.KOSMOS_PLUS_VERIFIED_SHA256; else e.KOSMOS_PLUS_VERIFIED_SHA256 = verified;
-      const r = await runner(startArgs(ptr, b, ['--board-kind', 'sandboxed']), Object.assign(e, verified === undefined ? { KOSMOS_PLUS_VERIFIED_SHA256: '' } : {}));
+      e.KOSMOS_PLUS_VERIFIED_SHA256 = verified === undefined ? '' : verified;   // '' also stops a parent's value reaching the runner
+      const r = await runner(startArgs(ptr, b, ['--board-kind', 'sandboxed']), e);
       assert.strictEqual(r.code, 2, r.out);
       assert.match(r.out, /needs KOSMOS_PLUS_VERIFIED_SHA256 equal to the pointer's sha256/);
       assert.ok(!fs.existsSync(record.recordPath(SHA, e)));

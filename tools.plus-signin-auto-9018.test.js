@@ -83,9 +83,12 @@ function world(opts = {}) {
   fs.writeFileSync(path.join(home, '.config', 'secrets', 'kosmosplus-test-gate-totp.meta'),
     'purpose: a fake seed for the kosmos#9018 driver test\ntargets: kosmosplus-test-gate-totp, ' + SEED + '\nformat: bare-token\n');
   const scratch = path.join(dir, 'tmp'); fs.mkdirSync(scratch);
+  /* TMPDIR as a Mac gives it: through a symlink, with a trailing slash. The board's children name canonical paths, so
+     the teardown must match those, not the raw mktemp answer. */
+  const tmpLink = path.join(dir, 'tmplink'); fs.symlinkSync(scratch, tmpLink);
   const records = path.join(dir, 'records');
   const env = Object.assign({}, process.env, {
-    HOME: home, TMPDIR: scratch, KOSMOS_PLUS_VERIFY_DIR: records, KOSMOS_SIGNIN_CODE_BIN: sc,
+    HOME: home, TMPDIR: tmpLink + '/', KOSMOS_PLUS_VERIFY_DIR: records, KOSMOS_SIGNIN_CODE_BIN: sc,
     KOSMOS_SEED_TOTP: 'otpauth://totp/x?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=x',
     KOSMOS_PLUS_BOARD_UP_S: '20', KOSMOS_PLUS_UP_MS: '300', KOSMOS_PLUS_UP_POLL_MS: '50',
   });
@@ -119,11 +122,11 @@ test('#9018: one command takes the pointer\'s own tarball through a first sign-i
   assert.match(g.stdout, /on a sandboxed board\)/, 'the gate\'s pass line does not say the board was sandboxed');
   // The board ran fully sandboxed, from a clean environment.
   const envLine = JSON.parse(calls(w.boardLog)[0].replace(/^env /, ''));
-  assert.ok(envLine.data.startsWith(w.scratch), 'the board\'s data root is not in the work folder: ' + envLine.data);
-  assert.ok(envLine.home.startsWith(w.scratch), 'the board was given a HOME outside the work folder: ' + envLine.home);
-  assert.ok(envLine.runners.startsWith(w.scratch), 'the board\'s runners are not in the work folder: ' + envLine.runners);
+  assert.ok(envLine.data.startsWith(fs.realpathSync(w.scratch)), 'the board\'s data root is not in the work folder: ' + envLine.data);
+  assert.ok(envLine.home.startsWith(fs.realpathSync(w.scratch)), 'the board was given a HOME outside the work folder: ' + envLine.home);
+  assert.ok(envLine.runners.startsWith(fs.realpathSync(w.scratch)), 'the board\'s runners are not in the work folder: ' + envLine.runners);
   assert.strictEqual(envLine.browser, 'off', 'the board would download the agents\' browser');
-  assert.ok(envLine.tmux.startsWith(w.scratch), 'the board\'s tmux is not the work folder\'s stub');
+  assert.ok(envLine.tmux.startsWith(fs.realpathSync(w.scratch)), 'the board\'s tmux is not the work folder\'s stub');
   assert.strictEqual(envLine.path, '/usr/bin:/bin:/usr/sbin:/sbin', 'the board inherited this shell\'s PATH');
   // The code reader was asked for the placement, on the seed's base mailbox for the anchor.
   const sc = calls(w.scLog);
@@ -235,6 +238,23 @@ test('#9018: a progress file from a run started by hand on an installed board is
   assert.strictEqual(r.code, 2, r.out);
   assert.ok(fs.existsSync(prog), 'another run\'s progress file was removed');
   assert.strictEqual(JSON.parse(fs.readFileSync(prog, 'utf8')).kind, 'installed');
+});
+
+test('#9018: a second run for a build whose run is still in flight is refused, and the first run\'s progress is untouched', async () => {
+  const w = world();
+  const prog = recordOf(w).replace(/\.json$/, '.progress.json');
+  fs.mkdirSync(path.dirname(prog), { recursive: true });
+  const theirs = JSON.stringify({ version: VER, sha256: w.sha, kind: 'sandboxed', startedAt: new Date().toISOString(), steps: [] });
+  fs.writeFileSync(prog, theirs);
+  const r = await run(w, ['--pointer', w.pointer, '--seed', SEED, '--port', String(await freePort()), '--tarball', w.tgz]);
+  assert.strictEqual(r.code, 2, r.out);
+  assert.match(r.out, /started under 15 minutes ago and has not finished/);
+  assert.strictEqual(fs.readFileSync(prog, 'utf8'), theirs, 'the first run\'s progress was changed');
+  assert.deepStrictEqual(calls(w.boardLog), [], 'a board was started');
+  // CONTROL: a progress file older than that is an abandoned run, and does not refuse.
+  fs.writeFileSync(prog, JSON.stringify({ version: VER, sha256: w.sha, kind: 'sandboxed', startedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(), steps: [] }));
+  const r2 = await run(w, ['--pointer', w.pointer, '--seed', SEED, '--port', String(await freePort()), '--tarball', w.tgz]);
+  assert.strictEqual(r2.code, 0, r2.out);
 });
 
 test('#9018: a flag given with no value is refused, not looped on', async () => {
