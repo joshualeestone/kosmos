@@ -81,6 +81,10 @@ check((s.donut?.slices ?? []).map { [hex($0.color), $0.name, $0.share] } == ((ex
 let sl = s.donut?.slices ?? []
 check(sl.first?.start == 0 && abs((sl.last?.end ?? 0) - 1) < 1e-9 && zip(sl, sl.dropFirst()).allSatisfy { $0.end == $1.start }, "the slices run round the whole circle, end to end")
 check(U.classShare(1, of: 100) == "1.0%" && U.classShare(0.5, of: 100) == "0.50%" && U.classShare(0.05, of: 100) == "<0.1%" && U.classShare(5, of: 0) == "500.0%", "the class share's three bands (and the page's total || 1)")
+check(U.chartDays == 14 && d.byDay.count > 14 && series.count == 14 && s.charts.allSatisfy { $0.values.count == 14 && $0.label.hasSuffix("last 14 days") },
+      "the window: the fixture's \(d.byDay.count) days cut to the last 14, as the page's USAGE_CHART_DAYS")
+let one = U.donut([Usage.Share(name: "solo", tok: 5, muted: false)], grand: 5)
+check(one?.slices.count == 1 && one?.slices.first?.share == "100%" && one?.slices.first?.start == 0 && one?.slices.first?.end == 1 && one?.centre == "5", "a single model is the whole circle, 100%")
 check(U.donut([], grand: 0) == nil && U.charts([:], totals: Usage.Bucket(), grand: 0).isEmpty, "nothing to draw: no chart, no donut")
 check(page.contains("{ key: 'cacheRead', color: '#d6a62e', label: 'Cache read' }") && page.contains("{ key: 'cacheWritten', color: '#6fd3a0', label: 'Cache written' }")
       && page.contains("{ key: 'input', color: '#8ab4ff', label: 'Input' }") && page.contains("{ key: 'output', color: '#c78cff', label: 'Output' }")

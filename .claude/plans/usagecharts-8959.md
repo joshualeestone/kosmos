@@ -16,3 +16,12 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7156509
 - web.usage-ios-parity-8959 2/2. Typecheck 0 errors.
 
 ## Challenge loop ledger
+
+### Round 1 (opus, 02:09 CST): no BLOCKER, 2 MAJOR, 4 MINOR. The reviewer checked every page rule listed in the plan and found them matched.
+- MAJOR 1 the 14-day window was never cut (the fixture had 3 days): the fixture now has 16 days (13 small October days and one big one), so the window cuts two, and the suite pins U.chartDays == 14 and "last 14 days". Control: dropping the window fails 3 of 75.
+- MAJOR 2 nothing checked the charts were drawn, though the plan's premise said the shots would: the UI test now asserts each chart's identifier (and the reads chart's label, "last 2 days" in the sample) and the donut, with shots usage-charts and usage-donut.
+- M1 the donut's centre could run over the ring at large text: one line, scaled down to fit the hole.
+- M2 the chart headers squeezed at large text: one line while it fits, else the total and share go under the name (ViewThatFits).
+- M3 the arc's inset was a bare 11 tied to a 22 stroke elsewhere: one constant, DonutArc.ring.
+- M4 the donut's whole-percent band and the single-model circle were untested: the fixture's big day gives 64% and 36% slices, and a unit check covers one model as the whole circle at 100%.
+- Measured: run-usage.sh PASS 75/75; parity 2/2; app and UI-test typecheck 0 errors.

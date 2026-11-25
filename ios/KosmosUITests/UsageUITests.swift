@@ -32,6 +32,21 @@ final class UsageUITests: XCTestCase {
         XCTAssertTrue(model.label.hasPrefix("claude-opus-5-5"), model.label)
         shot(app, "usage-hero")
 
+        // D1c2b: the four daily charts and the donut are drawn (their shapes are read in these shots).
+        let reads = app.descendants(matching: .any)["usage-chart-cacheRead"]
+        XCTAssertTrue(reads.waitForExistence(timeout: 5), "the cache reads chart is missing")
+        XCTAssertTrue(reads.label.hasPrefix("Cache reads per day, last 2 days"), reads.label)
+        for kind in ["cacheWritten", "output", "input"] {
+            let c = app.descendants(matching: .any)["usage-chart-" + kind]
+            reveal(app, c)
+            XCTAssertTrue(c.exists, "the \(kind) chart is missing")
+        }
+        shot(app, "usage-charts")
+        let donut = app.descendants(matching: .any)["usage-donut"]
+        reveal(app, donut)
+        XCTAssertTrue(donut.exists, "the donut is missing")
+        shot(app, "usage-donut")
+
         let dana = app.descendants(matching: .any)["usage-agent-0"]
         reveal(app, dana)
         XCTAssertTrue(dana.exists, "By agent is missing its first row")

@@ -136,12 +136,17 @@ struct UsageView: View {
             ForEach(charts, id: \.kind) { c in
                 let color = Color(hex: Usage.classColor(c.kind))
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(c.name).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
-                        Text(c.tag).font(.caption).foregroundColor(Palette.secondary)
-                        Spacer(minLength: 8)
-                        Text(c.total).font(.subheadline.monospacedDigit()).foregroundColor(Palette.primary)
-                        Text(c.share).font(.caption.monospacedDigit()).foregroundColor(Palette.secondary)
+                    // One line while it fits; at large text sizes the total and share go under the name.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            chartName(c)
+                            Spacer(minLength: 8)
+                            chartFigures(c)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            chartName(c)
+                            chartFigures(c)
+                        }
                     }
                     Chart {
                         ForEach(Array(c.values.enumerated()), id: \.offset) { i, v in
@@ -165,6 +170,19 @@ struct UsageView: View {
         }
     }
 
+    @ViewBuilder private func chartName(_ c: Usage.ClassChart) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(c.name).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
+            Text(c.tag).font(.caption).foregroundColor(Palette.secondary)
+        }
+    }
+    @ViewBuilder private func chartFigures(_ c: Usage.ClassChart) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(c.total).font(.subheadline.monospacedDigit()).foregroundColor(Palette.primary)
+            Text(c.share).font(.caption.monospacedDigit()).foregroundColor(Palette.secondary)
+        }
+    }
+
     // usageDonutSvg: each model's share, clockwise from the top, the total in the middle, and its legend.
     private func donutSection(_ d: Usage.Donut) -> some View {
         Section {
@@ -172,12 +190,15 @@ struct UsageView: View {
                 ZStack {
                     ForEach(Array(d.slices.enumerated()), id: \.offset) { _, sl in
                         DonutArc(start: sl.start, end: sl.end)
-                            .stroke(Color(hex: sl.color), style: StrokeStyle(lineWidth: 22, lineCap: .butt))
+                            .stroke(Color(hex: sl.color), style: StrokeStyle(lineWidth: DonutArc.ring, lineCap: .butt))
                     }
                     VStack(spacing: 1) {
                         Text(d.centre).font(.headline.weight(.bold).monospacedDigit()).foregroundColor(Palette.primary)
                         Text(Usage.Words.totalTokensSmall).font(.caption2).foregroundColor(Palette.secondary)
                     }
+                    // Inside the hole at every text size.
+                    .lineLimit(1).minimumScaleFactor(0.4)
+                    .frame(width: 132 - 2 * DonutArc.ring - 8)
                 }
                 .frame(width: 132, height: 132)
                 .accessibilityHidden(true)
@@ -283,9 +304,10 @@ struct UsageView: View {
 // One slice of the donut: an arc of the circle from `start` to `end` (fractions of a turn), clockwise from the top. A
 // sliver is drawn at least 0.01 rad wide, as the page's.
 private struct DonutArc: Shape {
+    static let ring: CGFloat = 22   // the stroke's width; the arc sits half of it in, so the ring fits its frame
     var start: Double, end: Double
     func path(in rect: CGRect) -> Path {
-        let r = min(rect.width, rect.height) / 2 - 11
+        let r = min(rect.width, rect.height) / 2 - Self.ring / 2
         let c = CGPoint(x: rect.midX, y: rect.midY)
         let a0 = -Double.pi / 2 + start * 2 * Double.pi
         let a1 = max(-Double.pi / 2 + end * 2 * Double.pi, a0 + 0.01)

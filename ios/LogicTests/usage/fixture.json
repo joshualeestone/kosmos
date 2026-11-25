@@ -5,6 +5,110 @@
   "/b"
  ],
  "byDay": {
+  "2026-10-01": {
+   "claude-sonnet-5-5": {
+    "input_tokens": 10,
+    "output_tokens": 100,
+    "cache_creation_input_tokens": 1000,
+    "cache_read_input_tokens": 10000
+   }
+  },
+  "2026-10-02": {
+   "claude-sonnet-5-5": {
+    "input_tokens": 20,
+    "output_tokens": 200,
+    "cache_creation_input_tokens": 2000,
+    "cache_read_input_tokens": 20000
+   }
+  },
+  "2026-10-03": {
+   "claude-sonnet-5-5": {
+    "input_tokens": 30,
+    "output_tokens": 300,
+    "cache_creation_input_tokens": 3000,
+    "cache_read_input_tokens": 30000
+   }
+  },
+  "2026-10-04": {
+   "claude-sonnet-5-5": {
+    "input_tokens": 40,
+    "output_tokens": 400,
+    "cache_creation_input_tokens": 4000,
+    "cache_read_input_tokens": 40000
+   }
+  },
+  "2026-10-05": {
+   "claude-sonnet-5-5": {
+    "input_tokens": 50,
+    "output_tokens": 500,
+    "cache_creation_input_tokens": 5000,
+    "cache_read_input_tokens": 50000
+   }
+  },
+  "2026-10-06": {
+   "claude-sonnet-5-5": {
+    "input_tokens": 60,
+    "output_tokens": 600,
+    "cache_creation_input_tokens": 6000,
+    "cache_read_input_tokens": 60000
+   }
+  },
+  "2026-10-07": {
+   "claude-sonnet-5-5": {
+    "input_tokens": 70,
+    "output_tokens": 700,
+    "cache_creation_input_tokens": 7000,
+    "cache_read_input_tokens": 80000000
+   }
+  },
+  "2026-10-08": {
+   "claude-sonnet-5-5": {
+    "input_tokens": 80,
+    "output_tokens": 800,
+    "cache_creation_input_tokens": 8000,
+    "cache_read_input_tokens": 80000
+   }
+  },
+  "2026-10-09": {
+   "claude-sonnet-5-5": {
+    "input_tokens": 90,
+    "output_tokens": 900,
+    "cache_creation_input_tokens": 9000,
+    "cache_read_input_tokens": 90000
+   }
+  },
+  "2026-10-10": {
+   "claude-sonnet-5-5": {
+    "input_tokens": 100,
+    "output_tokens": 1000,
+    "cache_creation_input_tokens": 10000,
+    "cache_read_input_tokens": 100000
+   }
+  },
+  "2026-10-11": {
+   "claude-sonnet-5-5": {
+    "input_tokens": 110,
+    "output_tokens": 1100,
+    "cache_creation_input_tokens": 11000,
+    "cache_read_input_tokens": 110000
+   }
+  },
+  "2026-10-12": {
+   "claude-sonnet-5-5": {
+    "input_tokens": 120,
+    "output_tokens": 1200,
+    "cache_creation_input_tokens": 12000,
+    "cache_read_input_tokens": 120000
+   }
+  },
+  "2026-10-13": {
+   "claude-sonnet-5-5": {
+    "input_tokens": 130,
+    "output_tokens": 1300,
+    "cache_creation_input_tokens": 13000,
+    "cache_read_input_tokens": 130000
+   }
+  },
   "2026-11-10": {
    "claude-opus-5": {
     "input_tokens": 100,
