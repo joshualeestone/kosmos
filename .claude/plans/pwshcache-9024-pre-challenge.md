@@ -19,7 +19,7 @@ converged: true
 
 ### Validation
 - REBASED 12:03 CST 2026-11-25 onto main 654e5282a1: one conflict, tools/windows-tests.js HOST_BRANCH_EXCLUDED, where main had added supervisor.macrestart-8988 beside this branch's tools.pwsh-cache-9024 entry; both kept. So the diff hash moved from f4078c1e8395 to 2a07cfc6fd78; the full validation below ran on the pre-rebase diff. Since the rebase: engine/windows-tests-1777 and tools.pwsh-cache-9024 (the two files that read that map) 32 of 32 pass. The PR CI is the full run on current main.
-- Full validation on head 0bdfaf5737: PASSED on this Mac, ended 04:04 CST 2026-11-25 (validation_rc 0, audit_rc 0, hash f4078c1e8395, base 2d01d7b753). The diff is unchanged since (same hash at 2026-11-25T15:51:53Z); only this proof file was added. main has moved since that base: the PR's CI is the run against current main.
+- Full validation on head 0bdfaf5737: PASSED on this Mac, ended 04:04 CST 2026-11-25 (validation_rc 0, audit_rc 0, hash f4078c1e8395, base 2d01d7b753). The diff was unchanged from that run until the 12:03 rebase above. main has moved since that base: the PR's CI is the run against current main.
 
 ### Per-Iteration Breakdown
 
