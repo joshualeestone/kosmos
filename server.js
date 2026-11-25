@@ -19970,8 +19970,10 @@ const server = http.createServer(async (req, res) => {
       let wait = null;
       if (startup || as === 'hook') { try { wait = away.lastWait(hist, { nowMs: now }); } catch { wait = null; } }
       /* kosmos#9058 (review 1): the same limit at a startup, the commonest session boundary: an agent that has worked
-         through two sessions since its wait, each begun with a reminder, is not reminded at every restart for 7 days. */
-      if (wait) { try { if (away.sessionsSinceWait(hist, wait.atMs) >= away.REMIND_SESSIONS) wait = null; } catch { /* keep it */ } }
+         through two sessions since its wait, each begun where a reminder is given, is not reminded at every restart for
+         7 days. Review 3: the Mac hook's at=startup asks before its `started` lands, so the session it ends is counted
+         now (endingNow); the Windows hook's as=hook asks after, and its `started` closes that session itself. */
+      if (wait) { try { if (away.sessionsSinceWait(hist, wait.atMs, { endingNow: startup }) >= away.REMIND_SESSIONS) wait = null; } catch { /* keep it */ } }
       let digest = away.build({ name, sinceMs: NaN, untilMs: NaN });
       let unread = false;   // a record that could not be read: "nothing arrived" would then be a guess
       if (win) {

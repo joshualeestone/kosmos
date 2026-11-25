@@ -106,16 +106,17 @@ function sessionAfter(history, atMs) {
 
 /* kosmos#9058: how many sessions the agent has had, since this wait, that began after the wait was set aside (a
    startup's `started`, or a /clear's or quit's `stopped`), in which it took a turn (an automatic `working` or `idle`,
-   which the hook writes on every turn), and that have ended (a later `stopped`). Each such session began with a
-   reminder (#8634 at a startup, #9049 after a session end) and the agent went on without reporting a wait again or
-   anything else of its own. The session the wait was raised in does not count. A /clear or a resume is reminded while
+   which the hook writes on every turn), and that have ended (a later `stopped` or `started`). Each such session began
+   where a reminder is given (#8634 at a startup, #9049 after a session end; whether it reached the agent is not
+   recorded) and the agent went on without reporting a wait again or anything else of its own. The session the wait was raised in does not count. A /clear or a resume is reminded while
    this is under REMIND_SESSIONS: the first session end, and one repeat (a /clear wipes the context that held the
    reminder, which is why #9049 reminds a /clear after a startup), then no more, instead of at every /clear and resume
    for 7 days. Reasoned from the history, not recorded: a reminder that never reached the agent (its ask lost a race,
    or was refused) still counts, so it fails silent, never false.
-   `endingNow` (a /clear: review 1): the session the /clear is ending is counted when it had a turn, though its own
-   `stopped` (sent in the background by the Mac hook) may not have landed yet; once it lands, the open session is the
-   new, empty one, so nothing is counted twice. */
+   `endingNow`: the session being ended now is counted when it had a turn, though the row that ends it has not landed:
+   a /clear's own `stopped` (sent in the background by the Mac hook, review 1), or the Mac hook's startup ask, made
+   before its `started` is recorded (review 3; the Windows hook asks after, so its `started` already closes it). Once
+   that row lands the open session is the new, empty one, so nothing is counted twice. */
 const REMIND_SESSIONS = 2;
 function sessionsSinceWait(history, atMs, opts) {
   const rows = Array.isArray(history) ? history : [];
@@ -125,7 +126,10 @@ function sessionsSinceWait(history, atMs, opts) {
   for (const r of rows) {
     if (!r || !Number.isFinite(r.at) || r.at <= atMs) continue;
     if (r.state === 'stopped' || r.state === 'started') {
-      if (open && turned && r.state === 'stopped') count += 1;
+      /* Review 3: a session ends at the next `started` too. A killed or relaunched run sends no SessionEnd, and on this
+         fleet most restarts leave no `stopped` at all (measured 11-25 in the selfreports: started after started 17, 9,
+         8, 8 and 6 times for five agents, after stopped 0), so counting only `stopped` never stopped a restart's reminder. */
+      if (open && turned) count += 1;
       open = true;
       turned = false;
       continue;
