@@ -2,6 +2,14 @@
   "version": "0.8.22",
   "highlights": [
     {
+      "icon": "shield",
+      "title": "Long permission requests can be allowed",
+      "line": "When a Claude agent asks permission for a long command, the board now shows the whole request with Allow, not only a way to refuse it.",
+      "platforms": [
+        "mac"
+      ]
+    },
+    {
       "icon": "chat",
       "title": "A waiting agent says why",
       "line": "Point at a waiting agent's status and it now says why in plain words, such as a question to answer or a permission to give."
@@ -9,7 +17,7 @@
     {
       "icon": "tasks",
       "title": "Built but waiting",
-      "line": "An active project with nothing running and work built and waiting now says Built but waiting instead of looking idle."
+      "line": "On Projects, an active project with nothing running and work built and waiting now says Built but waiting instead of looking idle."
     }
   ]
 }
