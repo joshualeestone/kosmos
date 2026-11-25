@@ -1402,7 +1402,8 @@ do {
     check(lines(at.replacingOccurrences(of: "false", with: "true")) == ["That time has passed, so this can come off hold."], "the time passed")
     check(lines(#","holdUntil":{"words":"something else","met":false}"#) == [], "words it cannot read say nothing")
     check(Board.holdUntilTask("task #12 is closed") == 12 && Board.holdUntilTask("task # is closed") == nil && Board.holdUntilTask("task #1x is closed") == nil && Board.holdUntilTask("task #1 is closed now") == nil
-          && Board.holdUntilTask("a task #1 is closed") == nil && Board.holdUntilTask("task #\u{0661} is closed") == nil, "only the Mac's own words name a task")
+          && Board.holdUntilTask("a task #1 is closed") == nil && Board.holdUntilTask("task #\u{0661} is closed") == nil
+          && Board.holdUntilTask("task #12 is opened") == nil && Board.holdUntilTask("card #12 is closed") == nil, "only the Mac's own words name a task")
     let why = #","onHoldBecause":"Prices come Friday""#
     check(lines(why) == ["Why: Prices come Friday"], "why")
     check(lines(why + #","onHoldConfirmedAt":"2026-11-24T01:00:00.000Z""# + onTask5, others: open5) == ["Why: Prices come Friday", "Last confirmed today.", "Waiting for task 5 to close."], "why, how fresh, what for: in that order")
@@ -1430,7 +1431,7 @@ do {
         check(Board.holdOptions(h, chosen: nil).map(\.value) == [nil, 2, 3, 5, 6, 7, 8, 9], "the stored one stays a choice once closed")
     } else { check(false, "the closed-wait fixture parses") }
     if let h = heldPage(#","onHoldUntil":{"task":4}"#, others: others)?.hold {
-        check(Board.holdOptions(h, chosen: nil).map(\.value).contains(4), "and so does a stored one that waits for this task")
+        check(Board.holdOptions(h, chosen: nil).first { $0.value == 4 }?.words == "#4 Waits here", "and so does a stored one that waits for this task")
     } else { check(false, "the mutual-wait fixture parses") }
     if let h = heldPage(#","onHoldUntil":{"task":44}"#, others: others)?.hold {
         check(Board.holdOptions(h, chosen: 44).filter { $0.value == 44 }.map(\.words) == ["#44 (no longer on this project)"], "a stored one that is gone is said so, once")
@@ -1446,6 +1447,7 @@ do {
     func ready(_ c: Board.HoldChoice, _ s: Board.HoldChoice) -> Bool { Board.holdReady(c, stored: s, now: now) }
     check(!ready(none, none) && !ready(five, five) && !ready(nine, nine), "nothing differs: Save is off")
     check(ready(five, none) && ready(nine, none) && ready(none, five) && ready(none, nine) && ready(nine, five), "a whole change: on")
+    check(ready(Board.HoldChoice(kind: .task, task: 6), five), "another task is a change")
     check(!ready(Board.HoldChoice(kind: .task), none) && !ready(Board.HoldChoice(kind: .at), none), "no task or no time chosen: off")
     check(!ready(Board.HoldChoice(kind: .nothing, task: 5, at: now), none) && !ready(Board.HoldChoice(kind: .task, task: 5, at: now), five), "what another kind holds is no change")
     check(!ready(Board.HoldChoice(kind: .at, at: at("2026-11-25T09:30:59.000Z")), nine) && ready(Board.HoldChoice(kind: .at, at: at("2026-11-25T09:31:00.000Z")), nine), "times compare to the minute")
@@ -1564,6 +1566,34 @@ func b8ModelTests() async {
         mac.projects = bare
         await m.read()
         check(m.holdSay == nil && !m.gone, "back, it goes: the task is there")
+    }
+    do {
+        // Saved again: the last line goes at the press.
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.actAnswers = [(400, #"{"error":"no"}"#)]
+        _ = await save(m)
+        check(m.holdSay == "no" && m.holdRefused, "premise: refused")
+        mac.holdTheNext()
+        let going = Task { await save(m) }
+        await waitUntil({ mac.holding }, "the second Save")
+        check(m.holdSay == nil && !m.holdRefused, "saved again: the last line goes at once")
+        mac.release()
+        _ = await going.value
+    }
+    do {
+        // Switched while it is out: a refusal says nothing on the page of the one there is now.
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.actAnswers = [(400, #"{"error":"no"}"#)]
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.epoch += 1 } }
+        let ok = await save(m)
+        check(!ok && posted(mac) == 1 && m.holdSay == nil && mac.asked.last == post, "switched while it is out: nothing said, nothing more asked")
+    }
+    do {
+        // Switched while the read after it is out: nothing is shown as saved here.
+        let mac = FakeMac(); mac.projects = bare; let m = await model(mac)
+        mac.onSend = { r in if r.url!.path == "/api/projects", mac.asked.contains(post) { mac.epoch += 1 } }
+        _ = await save(m)
+        check(mac.asked == [list, post, list] && m.holdShown == nil && m.holdSay == nil, "switched during the read after it: nothing is shown as saved")
     }
     do {
         // A time, all the way: sent, read back and said.

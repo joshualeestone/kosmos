@@ -754,7 +754,6 @@ final class TaskPageModel: ObservableObject {
         guard Board.holdReady(choice, stored: base, now: now()) else {
             // The time passed under a Save drawn while it was still ahead: said, not left as a press that does nothing.
             if Board.holdLate(choice, stored: base, now: now()) {
-                clearHoldSay()
                 said(Board.holdAhead, of: .some(held.stored))
             }
             return false
