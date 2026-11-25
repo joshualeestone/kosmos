@@ -31,3 +31,10 @@ Card: https://github.com/joshualeestone/kosmos/issues/9024 (claimed: april, nigh
 - tools.pwsh-cache-9024 + 6352 + the three tests + test-support.* + fixture-discipline + 1934 (from the repo root) + tools.windows-tests*: all pass.
 
 ## Challenge loop ledger
+
+### Round 1 (sonnet, 00:08 CST): no BLOCKER, no MAJOR, 4 MINOR
+- M1 the per-file check passed on any mention of pwshEnv( or XDG_CACHE_HOME, comments included: now each listed file pins its child_process call count and its pwshEnv( count, in code with comments taken out. Control: one 7820 start put back on the shared cache, with "pwshEnv(" left in a comment beside it, fails the check.
+- M2 a 60 s timeout (a cold cache on a loaded Mac) was blamed on the startup cache: it now says "pwsh did not answer 1+1 within N s on this machine (busy?)". Tested with a stand-in that sleeps, at a 500 ms limit.
+- M3 the cache folder is left on a SIGKILL: kept; it sits in the run root, which run-tests.sh removes.
+- M4 'pwsh.exe' or a built name is not swept: kept, said in the header; nothing in the repo does it today.
+- Measured: the five files, 85 pass, 0 fail, 0 skipped.
