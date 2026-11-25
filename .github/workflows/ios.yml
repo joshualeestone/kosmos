@@ -390,7 +390,8 @@ jobs:
     name: ui tests (sample board)
     needs: uibuild
     runs-on: macos-latest
-    timeout-minutes: 50
+    # kosmos#9075: a passing run takes about 45 minutes on a hosted runner, so 50 cancelled passing runs; split the job later.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
 
