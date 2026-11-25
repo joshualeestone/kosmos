@@ -401,10 +401,11 @@ struct AutomationView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(row.title).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
             if !row.stopped || heldShowWords.contains(row.id) {
+                // A stopped row's words, once asked for, show whole, as the page's; others clamp at 4 lines.
                 Text(row.words).font(.footnote).foregroundColor(Palette.secondary)
-                    .lineLimit(heldOpen.contains(row.id) ? nil : 4)
+                    .lineLimit(row.stopped || heldOpen.contains(row.id) ? nil : Held.clampLines)
                     .accessibilityIdentifier("automation-held-words-" + row.id)
-                if row.long {
+                if row.long && !row.stopped {
                     Button(heldOpen.contains(row.id) ? Held.Words.readLess : Held.Words.readAll) {
                         if heldOpen.contains(row.id) { heldOpen.remove(row.id) } else { heldOpen.insert(row.id) }
                     }.buttonStyle(.borderless).font(.footnote)
@@ -415,16 +416,16 @@ struct AutomationView: View {
                     if heldShowWords.contains(row.id) { heldShowWords.remove(row.id) } else { heldShowWords.insert(row.id) }
                 }.buttonStyle(.borderless).font(.footnote)
             }
-            if let link = row.postLink { Link(Held.Words.seePost, destination: link).font(.footnote) }
+            if let link = row.postLink { Link(Held.Words.seePost, destination: link).font(.footnote).buttonStyle(.borderless) }
             Text(row.meta).font(.footnote).foregroundColor(Palette.secondary)
             if let why = row.why { Text(why).font(.footnote).foregroundColor(Palette.secondary) }
             if heldAsking == row.id {
                 // openCommunityDiscard: the page's ask, with Keep it first.
                 Text(row.isComment ? Held.Words.askComment : Held.Words.askPost).font(.footnote).foregroundColor(Palette.primary)
                 HStack(spacing: 16) {
-                    Button(Held.Words.keep) { heldAsking = nil }.disabled(heldBusy == row.id)
+                    Button(Held.Words.keep) { heldAsking = nil }.disabled(heldBusy != nil)
                     Button(Held.Words.discardIt, role: .destructive) { Task { await discardHeld(row) } }
-                        .disabled(heldBusy == row.id)
+                        .disabled(heldBusy != nil)
                         .accessibilityIdentifier("automation-held-discard-it-" + row.id)
                 }
                 .buttonStyle(.borderless)

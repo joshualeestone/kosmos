@@ -49,6 +49,7 @@ enum Held {
     }
     static let max = 200            // COMMUNITY_HELD_MAX
     static let readAllChars = 240   // COMMUNITY_HELD_READ_ALL_CHARS: past this, the words are clamped with Read all
+    static let clampLines = 4       // COMMUNITY_HELD_CLAMP_LINES
     static let labelChars = 40      // COMMUNITY_HELD_LABEL_CHARS
     static let site = "https://community.kosmosplus.com"   // COMMUNITY_SITE
 
@@ -72,7 +73,7 @@ enum Held {
         guard status == 200, let data, let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let q = o["queue"] as? [Any] else { return nil }
         return q.compactMap { x in
             guard let r = x as? [String: Any], let id = text(r["id"]), let st = text(r["status"]) else { return nil }
-            return Row(id: id, status: st, entry: text(r["entry"]), postId: text(r["postId"]), remotePostId: r["remotePostId"] as? String,
+            return Row(id: id, status: st, entry: text(r["entry"]), postId: text(r["postId"]), remotePostId: text(r["remotePostId"]),
                        author: text((r["author"] as? [String: Any])?["name"]), agent: text(r["agent"]),
                        topic: r["topic"] as? String, body: r["body"] as? String,
                        findings: ((r["findings"] as? [Any]) ?? []).compactMap { ($0 as? [String: Any]).flatMap { text($0["cls"]) } },
@@ -148,7 +149,9 @@ enum Held {
             }
             return Shown(id: r.id, title: name, label: label, words: words, meta: meta, why: r.stopped ? reason(r.findings) : nil,
                          canRelease: !r.stopped && !underHeld && !underStopped, isComment: r.isComment, stopped: r.stopped,
-                         postLink: link, long: words.count > readAllChars)
+                         // As the page: Read all past 240 characters OR past the clamp's 4 lines, so no words are
+                         // ever cut off unseen above a Release that cannot be taken back.
+                         postLink: link, long: words.count > readAllChars || words.split(separator: "\n", omittingEmptySubsequences: false).count > clampLines)
         }
     }
 
@@ -169,7 +172,8 @@ enum Held {
     static func outcome(status: Int, data: Data?, releasing: Bool) -> Outcome {
         if (200..<300).contains(status) { return .done }
         let said = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }.flatMap { text($0["error"]) }
-        if releasing && status >= 500 { return .unfinished((said ?? Words.finishFailed) + Words.whereNow) }
+        // A 5xx, or no answer at all (it may have landed after the phone gave up): the list is read again.
+        if releasing && (status >= 500 || status == 0) { return .unfinished((said ?? Words.finishFailed) + Words.whereNow) }
         return .refused(said ?? (releasing ? Words.releaseFailed : Words.discardFailed))
     }
 

@@ -79,6 +79,8 @@ final class AutomationUITests: XCTestCase {
         reveal(app, stopped, swipes: 3)
         XCTAssertTrue(stopped.waitForExistence(timeout: 5), "the stopped post is missing")
         XCTAssertEqual(stopped.label, "Discard “A post by eli (row 2)”", "a stopped row is named by its place, never its words")
+        // Control first: the held post's words are found by the same kind of lookup, so the absence below means something.
+        XCTAssertTrue(app.staticTexts["automation-held-words-p1"].exists, "the held post's words are missing")
         XCTAssertFalse(app.staticTexts["automation-held-words-p2"].exists, "a stopped row's words show before they are asked for")
         XCTAssertFalse(app.buttons["automation-held-release-p2"].exists, "a stopped row offers Release")
         shot(app, "automation-held")
