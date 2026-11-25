@@ -65,7 +65,8 @@ test('kosmos#9094: patchBoardHtml writes whole whenever the last write is unknow
   const body = PAGE.slice(at, PAGE.indexOf('\n}\n', at));
   assert.match(body, /if \(prevHtml === null \|\| !prevParts \|\| live\.length !== prevParts\.length \|\| new Set\(keys\)\.size !== keys\.length\) \{\s*el\.replaceChildren\(\.\.\.next\);/,
     'a memo reset (null), a container someone else wrote, or a repeated agent key no longer forces a whole write');
-  assert.match(body, /n\.dataset\.agent/, 'pieces are no longer matched by agent, so a row that changes place redraws the rows between');
+  assert.match(body, /const old = x\.key \? byKey\.get\(x\.key\) : loose\[li\+\+\];/, 'pieces are no longer matched by agent, so a row that changes place redraws the rows between');
+  // The reorder itself is run, not read, in web.board-patch-9094.test.js.
 });
 
 test('kosmos#9094: My Agents is written through patchBoardHtml too, behind its memo', () => {

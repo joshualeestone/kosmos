@@ -27763,7 +27763,9 @@ let ALIST_PARTS = null;   // kosmos#9094: its top-level pieces as last written (
    is parsed into a template and each piece serialised there, so both sides of the comparison come from the same parser
    (never the live innerHTML, which the page may have touched). Written whole when the last write is unknown (prevHtml
    null: the empty-board and failed-poll paths), when the container's child count is not what we wrote (another writer
-   added or removed; one that swaps a child in place is not seen, and none does), or when an agent key repeats. prevParts is the last call's return: [{ key, ser }] in order. */
+   added or removed), or when an agent key repeats. A writer that keeps the count but swaps children is not seen: no
+   page code does that, and a browser check that writes a container directly must clear its memo first. Unkeyed
+   pieces matched by order mean one of them appearing or going redraws the unkeyed pieces after it (headers, notes). prevParts is the last call's return: [{ key, ser }] in order. */
 function patchBoardHtml(el, html, prevHtml, prevParts) {
   const t = document.createElement('template');
   t.innerHTML = html;

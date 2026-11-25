@@ -31,8 +31,12 @@ A changed piece count is patched, not written whole. Used by paintAgentListNow (
 - Other checks that repaint (render-star-6719, render-federation-invite-4649, render-ownseal-4658,
   render-working-pulse-3956, render-teamcreate-4557) reset the memo to null first, so they take the whole-write path.
 - Browser check arms: 1 one change (only alpha redrawn), 2 a star moves gamma up (alpha and beta not even detached),
-  4 un-star moves gamma down (same), 3 a new agent paints. Red controls in a queued job: always whole (fails 1, 2),
-  positional matching (fails 2), forward-only insertion (fails 4).
+  3 un-star moves gamma down (same), 4 a new agent paints. Red controls in a queued job (round 2): always whole fails
+  6, positional matching 4, moving every kept node 2.
+- web.board-patch-9094.test.js (review 3): the real patchBoardHtml on a fake DOM. One change, a move up, a move
+  down, the whole-write paths, and 400 seeded random runs (moves, inserts, removals, changes, headers, shuffles):
+  order right, unchanged rows keep their node, moves equal kept minus their longest in-order run. Red on all three
+  mutants (4 of 5 each).
 
 ## Weakest premise
 That no code puts per-row state on a row node expecting the next full rewrite to clear it. Under the patch an

@@ -14,11 +14,11 @@
  *      grid then show gamma first, and alpha's and beta's rows and cards are still the same nodes. (Gamma's own row
  *      is redrawn: its star is part of its markup.)
  *      Neither of their nodes is even detached (a move would restart their animations), counted by a MutationObserver.
- *   4. A ROW MOVING DOWN MOVES ALONE: gamma's star comes off, so it moves below alpha and beta; neither is detached.
- *   3. A NEW AGENT STILL PAINTS (run last): delta appears, and the list and grid then show all four, each once.
+ *   3. A ROW MOVING DOWN MOVES ALONE: gamma's star comes off, so it moves below alpha and beta; neither is detached.
+ *   4. A NEW AGENT STILL PAINTS: delta appears, and the list and grid then show all four, each once.
  * RED controls, run by hand in a queued job that edits web/index.html and restores it: patchBoardHtml forced to write
- * whole fails arms 1 and 2; matching by position instead of data-agent fails arm 2; forward-only insertion (no
- * in-order run kept) fails arm 4.
+ * whole fails arms 1 to 3; matching by position instead of data-agent fails arms 2 and 3; moving every kept node (no
+ * in-order run kept) fails arms 2 and 3. The reorder itself also runs in web.board-patch-9094.test.js.
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-board-patch-9094.js
  * Self-contained: a throwaway board (sandboxed data, fake tmux) on a free port, killed at the end.
@@ -178,7 +178,7 @@ const say = (n, cond, note) => {
     say('arm 2: gamma\'s own row and card were redrawn (its star is in its markup)', !!moved && moved.gammaRedrawn, JSON.stringify(moved));
     say('arm 2: alpha\'s and beta\'s nodes were never even moved', !!moved && moved.detached === 0, JSON.stringify(moved));
 
-    // Arm 4: un-star gamma, so it moves DOWN past alpha and beta; still only gamma moves.
+    // Arm 3: un-star gamma, so it moves DOWN past alpha and beta; still only gamma moves.
     await p.evaluate(() => { window.__det9094 = 0; });
     const unstar = await p.evaluate(async () => (await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'gamma', on: false }) })).status);
@@ -193,10 +193,10 @@ const say = (n, cond, note) => {
       });
       if (down.rows === 'alpha,beta,gamma' && down.cards === 'alpha,beta,gamma') break;
     }
-    say('arm 4: gamma is back after alpha and beta in the list and the grid', !!down && down.rows === 'alpha,beta,gamma' && down.cards === 'alpha,beta,gamma', JSON.stringify(down));
-    say('arm 4: moving gamma down moved neither alpha nor beta', !!down && down.detached === 0, JSON.stringify(down));
+    say('arm 3: gamma is back after alpha and beta in the list and the grid', !!down && down.rows === 'alpha,beta,gamma' && down.cards === 'alpha,beta,gamma', JSON.stringify(down));
+    say('arm 3: moving gamma down moved neither alpha nor beta', !!down && down.detached === 0, JSON.stringify(down));
 
-    // Arm 3: a new agent still paints, once each.
+    // Arm 4: a new agent still paints, once each.
     setFleet(['alpha', 'beta', 'gamma', 'delta']);
     let three = null;
     for (let i = 0; i < 40; i++) {
@@ -207,8 +207,8 @@ const say = (n, cond, note) => {
       }));
       if (three.rows === 'alpha,beta,delta,gamma' && three.cards === 'alpha,beta,delta,gamma') break;
     }
-    say('arm 3: the list shows all four agents once each', !!three && three.rows === 'alpha,beta,delta,gamma', JSON.stringify(three));
-    say('arm 3: the grid shows all four agents once each', !!three && three.cards === 'alpha,beta,delta,gamma', JSON.stringify(three));
+    say('arm 4: the list shows all four agents once each', !!three && three.rows === 'alpha,beta,delta,gamma', JSON.stringify(three));
+    say('arm 4: the grid shows all four agents once each', !!three && three.cards === 'alpha,beta,delta,gamma', JSON.stringify(three));
   } catch (e) {
     say('the check ran to the end', false, String(e && e.stack || e));
   } finally {
