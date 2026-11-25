@@ -294,3 +294,73 @@ test('#9018: a port something already answers on is refused before anything is d
     assert.deepStrictEqual(leftovers(w), []);
   } finally { s.close(); }
 });
+
+/* kosmos#9026: several seeds, and a ledger of the runs that reached the certificate step (Let's Encrypt gives one name
+   five certificates a week). */
+const ledger = require('./tools/lib/plus-seed-ledger');
+const SEED2 = 'hello+gate2@example.com';
+function secondSeed(w) {
+  fs.writeFileSync(path.join(w.env.HOME, '.config', 'secrets', 'kosmosplus-test-gate2-totp.meta'),
+    'purpose: a second fake seed for kosmos#9026\ntargets: kosmosplus-test-gate2-totp, ' + SEED2 + '\nformat: bare-token\n');
+}
+const ledgerOf = (w) => path.join(w.records, 'seed-certs.jsonl');
+function used(w, seed, n, agoMs = 60 * 60 * 1000) {
+  for (let i = 0; i < n; i += 1) ledger.record(ledgerOf(w), seed, Date.now() - agoMs - i * 1000);
+}
+
+test('#9026: with the first seed used up this week, the run signs in with the second, and counts it', async () => {
+  const w = world(); secondSeed(w); used(w, SEED, 5);
+  const port = await freePort();
+  const r = await run(w, ['--pointer', w.pointer, '--seed', SEED, '--seed', SEED2, '--port', String(port), '--base-url', 'file://' + w.dist]);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.match(r.out, /seed for this run: hello\+gate2@example\.com/);
+  assert.strictEqual(JSON.parse(fs.readFileSync(recordOf(w), 'utf8')).seed, SEED2, 'the record names another seed');
+  assert.match(calls(w.scLog)[1], /^code hello\+gate2@example\.com /, 'the code was read for another seed');
+  const rows = ledger.rows(ledgerOf(w));
+  assert.strictEqual(rows.filter((x) => x.seed === SEED2).length, 1, 'the run was not counted against its seed');
+  assert.strictEqual(rows.filter((x) => x.seed === SEED).length, 5, 'CONTROL: the first seed\'s count is unchanged');
+});
+
+test('#9026: with every seed used up, it says when the next frees and stops before ANY call', async () => {
+  const w = world(); secondSeed(w); used(w, SEED, 5); used(w, SEED2, 6);
+  const port = await freePort();
+  const r = await run(w, ['--pointer', w.pointer, '--seed', SEED, '--seed', SEED2, '--port', String(port), '--base-url', 'file://' + w.dist]);
+  assert.strictEqual(r.code, 2, r.out);
+  assert.match(r.out, /every seed given .* has had 5 certificates in the last 7 days.*the next one frees at \d{4}-\d\d-\d\dT/);
+  assert.deepStrictEqual(calls(w.boardLog), [], 'a board was started');
+  assert.deepStrictEqual(calls(w.scLog), [], 'the mailbox was read');
+  assert.deepStrictEqual(leftovers(w), [], 'a work folder was made, so the download ran');
+});
+
+test('#9026: runs older than a week do not count, and one seed alone works as before', async () => {
+  const w = world(); used(w, SEED, 7, 8 * 24 * 60 * 60 * 1000);
+  const port = await freePort();
+  const r = await run(w, ['--pointer', w.pointer, '--seed', SEED, '--port', String(port), '--base-url', 'file://' + w.dist]);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /seed for this run/, 'one seed needs no choosing line');
+});
+
+test('#9026: a second seed that is not a listed test address is refused before any call, however good the first is', async () => {
+  const w = world();
+  const port = await freePort();
+  const r = await run(w, ['--pointer', w.pointer, '--seed', SEED, '--seed', 'someone+x@example.com', '--port', String(port), '--base-url', 'file://' + w.dist]);
+  assert.strictEqual(r.code, 2, r.out);
+  assert.match(r.out, /someone\+x@example\.com is not listed in any kosmosplus-test-\*\.meta/);
+  assert.deepStrictEqual(calls(w.boardLog), []);
+  assert.deepStrictEqual(calls(w.scLog), []);
+});
+
+test('#9026: the ledger picks the least used under the limit, and frees a full seed when its fifth-newest run turns a week old', () => {
+  const dir = tmp(); const f = path.join(dir, 'l.jsonl');
+  const now = Date.parse('2026-11-25T10:00:00Z'); const day = 24 * 60 * 60 * 1000;
+  assert.deepStrictEqual(ledger.pick(f, ['a+x@e.com', 'b+y@e.com'], now), { seed: 'a+x@e.com', used: 0 }, 'an empty or missing ledger: the first');
+  for (let i = 1; i <= 3; i += 1) ledger.record(f, 'a+x@e.com', now - i * day);
+  assert.strictEqual(ledger.pick(f, ['a+x@e.com', 'b+y@e.com'], now).seed, 'b+y@e.com', 'the less used wins over the order');
+  for (let i = 4; i <= 6; i += 1) ledger.record(f, 'a+x@e.com', now - i * day);
+  const full = ledger.pick(f, ['A+X@e.com'], now);
+  assert.strictEqual(full.none, true, 'six runs in the week: used up (and the name is matched without case)');
+  /* Six runs, 1 to 6 days old: it drops below five when the second oldest (5 days old) leaves the week, in 2 days. */
+  assert.strictEqual(full.freesAtMs, now - 5 * day + 7 * day, 'it frees when the run that keeps it at five leaves the week');
+  fs.appendFileSync(f, 'not json\n{"seed":5}\n');
+  assert.strictEqual(ledger.pick(f, ['b+y@e.com'], now).seed, 'b+y@e.com', 'bad lines are skipped, not fatal');
+});

@@ -22,8 +22,12 @@
 #
 # Usage:
 #   KOSMOS_SEED_TOTP=<base32 or otpauth:// URL> \
-#   bash tools/plus-signin-auto.sh --pointer <latest-staging.json> --seed <local+tag@domain> \
+#   bash tools/plus-signin-auto.sh --pointer <latest-staging.json> --seed <local+tag@domain> [--seed <another> ...] \
 #        [--port 16977] [--base-url https://installkosmos.com/dist] [--tarball <file>] [--keep]
+#   kosmos#9026: --seed may be given more than once. Each run registers under the seed's own address and Let's Encrypt
+#   issues at most 5 certificates for one name a week, so one seed runs the gate about five times a week. The run uses
+#   the seed used least in the last week (tools/lib/plus-seed-ledger.js, a ledger beside the records), and with every
+#   seed used up it says so before any download (exit 2, with when the next frees). Every seed given passes the guard.
 #   With KOSMOS_SEED_TOTP unset, the seed's meta names its secret and `secrets-map.sh value <target>` reads it.
 #
 # Exit: plus-signin-fresh.js's contract. 0 = the record says pass; 1 = it says fail (the gate refuses);
@@ -35,12 +39,12 @@ set -uo pipefail
 say() { printf 'plus-signin-auto: %s\n' "$*"; }
 die() { say "$*"; exit 2; }
 
-POINTER="" SEED="" PORT=16977 BASE_URL="https://installkosmos.com/dist" TARBALL="" KEEP=0
+POINTER="" SEED="" SEEDS=() PORT=16977 BASE_URL="https://installkosmos.com/dist" TARBALL="" KEEP=0
 while [ $# -gt 0 ]; do
   case "$1" in --pointer|--seed|--port|--base-url|--tarball) [ $# -ge 2 ] || die "$1 needs a value" ;; esac
   case "$1" in
     --pointer) POINTER="${2:-}"; shift 2 ;;
-    --seed) SEED="${2:-}"; shift 2 ;;
+    --seed) SEEDS+=("${2:-}"); shift 2 ;;
     --port) PORT="${2:-}"; shift 2 ;;
     --base-url) BASE_URL="${2:-}"; shift 2 ;;
     --tarball) TARBALL="${2:-}"; shift 2 ;;
@@ -50,7 +54,10 @@ while [ $# -gt 0 ]; do
 done
 
 # 1. THE SEED GUARD. Nothing above this line touches the network, a board or the mailbox; nothing below runs
-#    unless it passes.
+#    unless every seed given passes it (kosmos#9026: a typo in a second seed is refused as loudly as in the first).
+[ "${#SEEDS[@]}" -gt 0 ] || die "the seed (none) is not a test address: refused before any call"
+guard_seed() {
+SEED="$1"
 SEED_LC="$(printf '%s' "$SEED" | tr '[:upper:]' '[:lower:]')"
 case "$SEED_LC" in
   *[!a-z0-9.+@_-]*|'') die "the seed ${SEED:-(none)} is not a test address: refused before any call" ;;
@@ -66,6 +73,16 @@ for m in "$HOME"/.config/secrets/kosmosplus-test-*.meta; do
        | tr '[:upper:]' '[:lower:]' | grep -cxF "$SEED_LC" >/dev/null; then META="$m"; break; fi
 done
 [ -n "$META" ] || die "the seed $SEED is not listed in any kosmosplus-test-*.meta under $HOME/.config/secrets: refused before any call"
+}
+for s_ in "${SEEDS[@]}"; do guard_seed "$s_"; done
+# kosmos#9026: the seed this run uses, the one used least this week, from the ledger beside the records. The guard
+# above has already checked it; its meta is found again below.
+LEDGER="$(node -e 'process.stdout.write(require("node:path").join(require(process.argv[1]).recordDir(), "seed-certs.jsonl"))' "$(cd "$(dirname "$0")" && pwd)/lib/plus-signin-record.js")" \
+  || die "could not find where the seed ledger lives"
+PICKED="$(node "$(cd "$(dirname "$0")" && pwd)/lib/plus-seed-ledger.js" pick "$LEDGER" "${SEEDS[@]}")"; prc=$?
+[ "$prc" = 0 ] || die "${PICKED:-the seed ledger could not be read}: nothing recorded"
+guard_seed "$PICKED"
+[ "${#SEEDS[@]}" -gt 1 ] && say "seed for this run: $PICKED (the least used this week of ${#SEEDS[@]})"
 
 case "$PORT" in *[!0-9]*|'') die "port $PORT is not numeric" ;; esac
 [ -n "$POINTER" ] && [ -f "$POINTER" ] || die "no staging pointer at ${POINTER:-(none)}"
@@ -179,21 +196,30 @@ done
 [ -n "$up" ] || { tail -5 "$WORK/board.log" | sed 's/^/  board: /'; die "the throwaway board did not come up on port $PORT"; }
 # The answer must be from the board this run booted, not another that took the port first.
 LISTENER="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | tr '\n' ' ')"
-[ "$LISTENER" = "$BOARD_PID " ] || die "port $PORT is answered by pid(s) ${LISTENER:-none}, not the throwaway board (pid $BOARD_PID): refused"
+if [ "$LISTENER" != "$BOARD_PID " ]; then
+  # #9018 round 8: the board plus another listener (IPv6 under another pid, say) is not "not the board".
+  case " $LISTENER" in
+    *" $BOARD_PID "*) die "port $PORT is answered by the throwaway board (pid $BOARD_PID) and also by pid(s) $(printf '%s' "$LISTENER" | tr ' ' '\n' | grep -vx "$BOARD_PID" | tr '\n' ' '): refused, since a request might reach the other" ;;
+    *) die "port $PORT is answered by pid(s) ${LISTENER:-none}, not the throwaway board (pid $BOARD_PID): refused" ;;
+  esac
+fi
 say "throwaway board up on :$PORT as $up (from the pointer's $V tarball, sha256 ${SHA:0:12})"
 
 # 4. The sign-in, through the record writer.
-export KOSMOS_STORE_ROOT="$D/Kosmos" KOSMOS_PLUS_VERIFIED_SHA256="$SHA"   # checked against the tarball above
+# Given only to the two plus-signin-fresh.js calls (#9018 round 9: exported, they reached every later child).
+# KOSMOS_PLUS_VERIFIED_SHA256 is checked against the tarball above.
 BASE_BOX="$(printf '%s' "$SEED_LC" | sed 's/+[^@]*@/@/')"
 HID="$("$SC" anchor "$BASE_BOX")" || die "could not anchor the seed mailbox $BASE_BOX"
 FA=(--pointer "$POINTER" --port "$PORT" --board-kind sandboxed)
 START_MS="$(node -e 'process.stdout.write(String(Date.now() - 1000))')"; STARTED=1   # before start: it writes the file
-node "$FRESH" start "${FA[@]}" --seed "$SEED_LC"; rc=$?
+KOSMOS_STORE_ROOT="$D/Kosmos" KOSMOS_PLUS_VERIFIED_SHA256="$SHA" node "$FRESH" start "${FA[@]}" --seed "$SEED_LC"; rc=$?
 [ "$rc" = 0 ] || exit "$rc"   # 1: start was refused and recorded; 2: setup, nothing recorded
 GOTC="$(KOSMOS_SIGNIN_PLACEMENT=1 "$SC" code "$SEED_LC" "$HID" "${KOSMOS_PLUS_CODE_S:-180}")" || die "no sign-in code reached $SEED: nothing recorded"
 CODE="${GOTC%% *}"; PLACE="${GOTC#* }"
 [[ "$CODE" =~ ^[0-9]{6}$ ]] || die "kosmos-signin-code gave no six-digit code: nothing recorded"
 case "$PLACE" in INBOX|SPAM|OTHER) ;; *) die "kosmos-signin-code gave no placement (is it older than kosmos#9018?): nothing recorded" ;; esac
 say "the code arrived (filed in $PLACE)"
-KOSMOS_SEED_TOTP="$SEED_SECRET" node "$FRESH" finish "${FA[@]}" --code "$CODE" --placement "$PLACE"
+# kosmos#9026: counted before the step that asks for the certificate, so a run that dies after the request still counts.
+node "$HERE/lib/plus-seed-ledger.js" record "$LEDGER" "$SEED_LC" || say "WARNING: could not add this run to the seed ledger $LEDGER"
+KOSMOS_SEED_TOTP="$SEED_SECRET" KOSMOS_STORE_ROOT="$D/Kosmos" KOSMOS_PLUS_VERIFIED_SHA256="$SHA" node "$FRESH" finish "${FA[@]}" --code "$CODE" --placement "$PLACE"
 exit $?
