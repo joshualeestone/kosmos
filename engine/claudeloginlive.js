@@ -37,7 +37,7 @@ function setReaderForTests(fn) { reader = typeof fn === 'function' ? fn : null; 
 const cache = new Map();      // service name -> { at, until, works, gen }: gen is the login generation it was read under (#5018);
                               // works (#5168) is when the access token Claude Code holds runs out
 const inflight = new Map();   // service name -> { gen, read }: the read under way and its generation
-function _clearForTest() { cache.clear(); inflight.clear(); refusedChecks.clear(); }
+function _clearForTest() { cache.clear(); inflight.clear(); moves.clear(); refusedChecks.clear(); }
 
 /* The row's login expiry (epoch ms), or null when there is none to read. Never rejects. */
 function validUntil(row, now = Date.now()) {
@@ -72,6 +72,7 @@ function validUntil(row, now = Date.now()) {
     works = Number.isFinite(works) ? works : null;
     const prev = cache.get(service);
     if (!prev || !(prev.gen > gen)) cache.set(service, { at: now, until, works, gen });   // an older read never overwrites a newer one
+    if (until !== null) noteDate(service, now, until);   // #9038
     if (inflight.get(service) === entry) inflight.delete(service);
     return until;
   })();
@@ -91,16 +92,24 @@ function worksUntil(row, now = Date.now()) {
   return Number.isFinite(hit.until) && hit.until <= now && Number.isFinite(hit.works) && hit.works > now ? hit.works : null;
 }
 
-/* #9038: the last read of this row's login date, { at: when that read began, until }, or null when none has settled under
-   the current login generation. Never waits; it asks for a new read when the last one is old, so the answer is there on a
-   later call. */
-function lastRead(row, now = Date.now()) {
+/* #9038: the latest moment (epoch ms) at which this row's login is known to have been the one BEFORE its last sign-in:
+   when the read began that last gave the earlier date. null when no sign-in has been seen since the board started. Never
+   waits; it asks for a new read when the last one is old, so the answer is there on a later call. */
+function signedInAfter(row, now = Date.now()) {
   if (!row || row.apiKey) return null;
   const ccd = row.isDefault ? undefined : row.dir;
   if (!row.isDefault && !ccd) return null;
   validUntil(row, now).catch(() => {});
-  const hit = cache.get(loginexpiry.serviceNameFor(ccd));
-  return hit && hit.gen === loginexpiry.loginGeneration() ? { at: hit.at, until: hit.until } : null;
+  const m = moves.get(loginexpiry.serviceNameFor(ccd));
+  return m ? m.after : null;
+}
+/* Every read that gave a date, in order. A renewal may move it earlier, never later, so later is a sign-in. An unread
+   date changes nothing: a sign-out then a sign-in is still later than the last date read. */
+const moves = new Map();   // service -> { at, until, after }
+function noteDate(service, at, until) {
+  const m = moves.get(service);
+  if (m && at < m.at) return;   // an older read that finished late
+  moves.set(service, { at, until, after: m && until > m.until ? m.at : (m ? m.after : null) });
 }
 
 /* validUntil, waited on for at most budgetMs: null when the read has not answered by then (it goes on). */
@@ -138,5 +147,5 @@ function checkRefused(dir, newerOutcomeAt = null) {
 /* Whether that good login also turns the row green: only with the switch on. */
 function greenFromLogin(args) { return GREEN_FROM_LOGIN && loginGood(args); }
 
-module.exports = { validUntil, validUntilWithin, lastRead, worksUntil, loginGood, greenFromLogin, noteCheck, checkRefused, setReaderForTests, _clearForTest,
+module.exports = { validUntil, validUntilWithin, signedInAfter, worksUntil, loginGood, greenFromLogin, noteCheck, checkRefused, setReaderForTests, _clearForTest,
   GREEN_FROM_LOGIN, CACHE_MS, MISS_CACHE_MS, READ_BUDGET_MS };
