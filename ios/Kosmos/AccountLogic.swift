@@ -286,6 +286,15 @@ enum Account {
         return e
     }
 
+    // MARK: - No computer yet (slice B3 review 2)
+
+    // The page's no-computer home (signin.html #no-addr-head and #no-addr): with the web page's row gone, this is where a
+    // person with no computer learns how to connect one. The words are the page's; the download link it adds beside them
+    // is not shown in the apps there (CAN_LINK_OUT), and is not here.
+    static let noComputerHead = "No computer is connected yet."
+    static let noComputerHow = "On the computer you want to reach, open Kosmos, go to Settings, then Kosmos+, "
+        + "and sign in with this email. If Kosmos isn't on it yet, install it there first."
+
     // MARK: - The Kosmos+ address (slice B3)
 
     // kosmos#8959 slice B3: the web account page's #addr-line and #name-offer (signin.html signedIn, kosmos#7481/#7483),
