@@ -9698,39 +9698,45 @@ function codexLiveAuthFor(name, readJobFn, verdictFn) {
 const LOGIN_ADV_TTL_MS = 5 * 60 * 1000;
 const loginAdvCache = { at: 0, value: [] }; // mutated in place by loginexpiry.cachedAdvisories
 
-/* #9038: whether the sign-in line on this screen is from before its account's last sign-in, and the account's last settled
-   check said HEALTHY. `dir` is the account the check probes (null: the default). Never waits: every read is asked for here
-   and answered on a later tick. */
-function signInLineOld(pane, dir, text, now) {
+/* #9038: whether the refusal this agent is stopped on is from before its account's last sign-in (oldsigninline), and the
+   account's last settled check said HEALTHY. `dir` is the account the check probes (null: the default). The tick waits on
+   no process: the date and the pane's process are asked for here and answered on a later tick. */
+function signInLineOld(pane, dir, now) {
+  const after = require('./claudeloginlive').signedInAfter({ isDefault: dir === null, dir }, now);
+  const proc = paneLogin(pane, now);
+  if (after === null || !proc || !require('./authprobe').lastSettledHealthy(dir, now)) return false;
   const le = require('./loginexpiry');
-  const old = require('./oldsigninline').isOld(pane.name, {
-    run: pane.tokenInstance,
-    service: le.serviceNameFor(dir),
-    reads: () => paneLoginService(pane.target),
-    text,
-    date: require('./claudeloginlive').lastRead({ isDefault: dir === null, dir }, now),
-    now,
-  });
-  return old && require('./authprobe').lastSettledHealthy(dir, now);
+  if (le.serviceNameFor(proc.ccd) !== le.serviceNameFor(dir)) return false;   // #2129, #6095: it reads another login
+  const at = require('./oldsigninline').refusedAt({ pid: proc.pid, root: proc.ccd || path.join(os.homedir(), '.claude') });
+  return at !== null && at < after;
 }
-/* The login (Keychain entry name) the Claude process in this pane reads, or null when that cannot be told. Read from the
-   process itself, as paneCcdRead below, without holding the board. The environment must show a PATH, so one that `ps`
-   would not show at all never reads as "CLAUDE_CONFIG_DIR is not set". */
+/* The Claude process in this pane and the login it uses, { pid, ccd }, or null until known. Asked once per run of the agent
+   (the instance the supervisor stamps on its session; none: never), one ask at a time, and again after PANE_LOGIN_RETRY_MS
+   when it could not be told. */
+const PANE_LOGIN_RETRY_MS = 60 * 1000;
+const paneLogins = new Map();   // agent -> { run, at, asking, got }
 let paneLoginReader = null;
-function setPaneLoginReaderForTests(fn) { paneLoginReader = typeof fn === 'function' ? fn : null; }
-async function paneLoginService(target) {
-  if (paneLoginReader) return paneLoginReader(target);
+function setPaneLoginReaderForTests(fn) { paneLoginReader = typeof fn === 'function' ? fn : null; paneLogins.clear(); }
+function paneLogin(pane, now) {
+  const run = pane.tokenInstance;
+  if (!run) return null;
+  let e = paneLogins.get(pane.name);
+  if (!e || e.run !== run) { e = { run, at: -Infinity, asking: false, got: null }; paneLogins.set(pane.name, e); }
+  if (!e.got && !e.asking && now - e.at >= PANE_LOGIN_RETRY_MS) {
+    e.asking = true; e.at = now;
+    Promise.resolve().then(() => (paneLoginReader || readPaneLogin)(pane.target)).then((got) => { e.got = got || null; }, () => {}).then(() => { e.asking = false; });
+  }
+  return e.got;
+}
+async function readPaneLogin(target) {
   if (paneSource || process.platform === 'win32') return null;   // an injected roster has no real pane behind it
   const d = await shDetailAsync(tmuxBin(), ['display-message', '-p', '-t', target, '#{pane_pid}']);
   const pid = d.ran && d.status === 0 ? String(d.out).trim() : '';
   if (!/^\d+$/.test(pid)) return null;
-  const p = await shDetailAsync('ps', ['eww', pid]);
-  return p.ran && p.status === 0 ? loginServiceOfPs(p.out) : null;
-}
-function loginServiceOfPs(text) {
-  if (!/\sPATH=\S/.test(String(text))) return null;
-  const le = require('./loginexpiry');
-  return le.serviceNameFor(le.ccdFromPsEnv(text));
+  const args = await shDetailAsync('ps', ['ww', '-o', 'command=', '-p', pid]);
+  const all = await shDetailAsync('ps', ['eww', '-o', 'command=', '-p', pid]);
+  const login = args.ran && args.status === 0 && all.ran && all.status === 0 ? require('./oldsigninline').loginOfPs(args.out, all.out) : null;
+  return login ? { pid, ccd: login.ccd } : null;
 }
 
 /* Resolve the CCD an agent's claude process actually reads. pane_pid IS the claude process (tmux
@@ -9929,13 +9935,13 @@ function snapshot() {
          evidence about the login now, so while a re-check of a HEALTHY account is under way (UNCHECKED) it stays cleared: no
          card flicker, no refusal recorded. A check that says signed out, or could not tell, is the last one settled then,
          and stands. */
-      try { if (probedDir !== undefined && signInLineOld(pane, probedDir, text, now)) liveAuth = LIVE_AUTH_HEALTHY; } catch { /* the check's own answer stands: never the tick */ }
+      try { if (probedDir !== undefined && signInLineOld(pane, probedDir, now)) liveAuth = LIVE_AUTH_HEALTHY; } catch { /* the check's own answer stands: never the tick */ }
       /* #7369 review 3: a Windows refusal is remembered as cleared only by a HEALTHY check that BEGAN after it (a cached
          HEALTHY from before a new sign-out must not hide it for good); reconcileReport reads this. */
       if (typeof scrapedStatus.authSince === 'string' && probedDir !== undefined) {
         scrapedStatus = { ...scrapedStatus, authCheckStartedAt: require('./authprobe').startedAt(probedDir) };
       }
-    } else if (isNamedOurs(pane)) require('./oldsigninline').forget(pane.name);   // #9038: a line that left and came back is a new one
+    }
     /* #2019: is this pane's agent one we are deliberately restarting right now?
        Only for a pane TIED to the name -- the same identity gate every
        name-keyed read here honours -- because the disruption record is filed
@@ -10914,7 +10920,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { setPaneLoginReaderForTests, loginServiceOfPs, /* kosmos#9038 */ panesWithCommands /* kosmos#8719 */, boardTmux /* kosmos#8719 */, isClaudeCommand /* kosmos#8719 */, paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, win32ReadText, win32LongForm, win32Powershell, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
+module.exports = { setPaneLoginReaderForTests /* kosmos#9038 */, panesWithCommands /* kosmos#8719 */, boardTmux /* kosmos#8719 */, isClaudeCommand /* kosmos#8719 */, paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, win32ReadText, win32LongForm, win32Powershell, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   backgroundShellsIn, backgroundShellsOf /* kosmos#8846 */, composerText, unsentInputOf, deliveryStallOf, restartedOf /* kosmos#8979 */, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)

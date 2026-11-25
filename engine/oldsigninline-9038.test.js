@@ -34,7 +34,6 @@ const RULE = '─'.repeat(60);
 const FOOT = ['', RULE, '❯ ', RULE, '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'];
 const screenOf = (...rows) => [...rows, ...FOOT].join('\n') + '\n';
 const ONE = screenOf('> do the thing', LINE);
-const TWO = screenOf('> do the thing', LINE, '', '> and again', LINE);
 
 const DAY = 24 * 3600000;
 const T0 = Date.parse('2026-11-25T10:00:00Z');
@@ -50,19 +49,39 @@ let until = D1;
 let job = { configDir: null };
 let run = 'a1';
 let up = true;
-let service = null;   // the login the agent's process reads
+const ROOT = path.join(SANDBOX, 'cfg');
+const PID = '4242';
+let proc = null;   // what the agent's process is and reads
+const transcript = (id) => path.join(ROOT, 'projects', '-w', `${id}.jsonl`);
+const session = (id, pid = PID, own = pid) => {
+  fs.mkdirSync(path.join(ROOT, 'sessions'), { recursive: true });
+  fs.writeFileSync(path.join(ROOT, 'sessions', `${pid}.json`), JSON.stringify({ pid: Number(own), sessionId: id }));
+};
+const stamp = () => new Date(clock).toISOString();
+const asked = () => ({ type: 'user', timestamp: stamp(), message: { role: 'user', content: 'go' } });
+const refused = () => ({ type: 'assistant', isApiErrorMessage: true, error: 'authentication_failed', timestamp: stamp(), message: { content: [] } });
+const answered = () => ({ type: 'assistant', timestamp: stamp(), message: { content: [] } });
+const say = (id, ...rows) => {
+  fs.mkdirSync(path.dirname(transcript(id)), { recursive: true });
+  fs.appendFileSync(transcript(id), [...rows, { type: 'last-prompt' }, { type: 'mode' }].map((r) => JSON.stringify(r) + '\n').join(''));
+};
+const S1 = '11111111-1111-4111-8111-111111111111';
+const S2 = '22222222-2222-4222-8222-222222222222';
 
 test.beforeEach(() => {
-  clock = T0; screen = ONE; live = CONNECTED; until = D1; job = { configDir: null }; run = 'a1'; up = true; service = loginexpiry.DEFAULT_SERVICE;
-  status.setPaneLoginReaderForTests(async () => service);
+  clock = T0; screen = ONE; live = CONNECTED; until = D1; run = 'a1'; up = true;
   Date.now = () => clock;
+  proc = { pid: PID, ccd: ROOT };
+  job = { configDir: ROOT };
+  fs.rmSync(ROOT, { recursive: true, force: true });
+  session(S1); say(S1, asked(), refused());
+  status.setPaneLoginReaderForTests(async () => proc);
   create.readJob = () => job;
   authprobe.resetForTest();
   authprobe.setChecker(async () => ({ state: live }));
   loginlive._clearForTest();
   loginlive.setReaderForTests(async () => until);
   observed._clearForTest();
-  oldline._clearForTest();
 });
 test.afterEach(() => {
   Date.now = realNow;
@@ -109,15 +128,6 @@ test('#9038 CONTROL: a revoked token (check says connected, date unchanged) keep
   assert.ok(longest <= 8, 'more than 40 s between two refusals: ' + longest + ' ticks');
 });
 
-test('#9038: a refusal printed again after the sign-in is a new line, refused again', async () => {
-  await ticks(3 * MIN);
-  until = D2;
-  await ticks(2 * MIN);
-  assert.equal(refusals(await ticks(2 * MIN)), 0, 'CONTROL: the old line had stopped');
-  screen = TWO;   // the same sentence, under a new prompt
-  assert.ok(refusals(await ticks(10 * MIN)) >= 10, 'a refusal printed after the sign-in was taken as old');
-});
-
 test('#9038: a check that says signed out, or cannot tell, stands over an old line', async () => {
   await ticks(3 * MIN);
   until = D2;
@@ -137,90 +147,118 @@ test('#9038: an account never checked HEALTHY is not cleared by its old line alo
   until = D2;
   await ticks(2 * MIN);
   authprobe.resetForTest();   // nothing settled: UNCHECKED
-  assert.equal(authprobe.lastSettledHealthy(null), false);
   assert.equal((await tick()).refused, true, 'cleared with no HEALTHY ever seen');
 });
 
-test('#9038: a login date that cannot be read, or moves earlier, leaves the board as it was', async () => {
-  for (const [first, then] of [[null, D2], [D1, null], [D2, D1]]) {
-    loginlive._clearForTest(); oldline._clearForTest(); authprobe.resetForTest();
-    until = first;
-    await ticks(3 * MIN);
-    until = then;
-    await ticks(2 * MIN);
-    assert.ok(refusals(await ticks(5 * MIN)) >= 5, `${first} then ${then} read as a new sign-in`);
-  }
-});
-
-const WORKING = fleet.SCREEN.working;
 const repaired = async () => {
   await ticks(3 * MIN);
   until = D2;
   await ticks(2 * MIN);
   assert.equal(refusals(await ticks(2 * MIN)), 0, 'CONTROL: the old line had stopped');
 };
-const revokedAgain = async (why) => assert.ok(refusals(await ticks(10 * MIN)) >= 10, why);
+const stands = async (why) => assert.ok(refusals(await ticks(10 * MIN)) >= 10, why);
 
-test('#9038: a line that left the screen and came back the same is a new refusal', async () => {
+test('#9038: a refusal since the sign-in counts, on a screen that did not change by one character', async () => {
   await repaired();
-  screen = WORKING;
-  await tick();
-  screen = ONE;   // revoked since: the same prompt, the same sentence
-  await revokedAgain('a refusal after a working turn was taken as old');
+  say(S1, asked(), refused());
+  await stands('a refusal after the sign-in was taken as old');
 });
 
-test('#9038: nor when the sign-in happened while the line was off the screen', async () => {
-  await ticks(3 * MIN);
-  screen = WORKING;
-  await tick();
-  until = D2;
-  await ticks(3 * MIN);
-  screen = ONE;
-  await revokedAgain('the first date outlived the line');
-});
-
-test('#9038: a restart that prints the same screen again inside one tick is a new refusal', async () => {
-  await repaired();
-  run = 'b2';
-  await revokedAgain('another run inherited the old line');
-});
-
-test('#9038: no run instance on the session: never old', async () => {
-  run = '';
-  await ticks(3 * MIN);
-  until = D2;
-  await ticks(2 * MIN);
-  await revokedAgain('cleared with no run known');
-});
-
-test('#9038: an agent gone from the pass for longer than the gap starts over', async () => {
-  await repaired();
-  up = false;
-  await tick(oldline.GAP_MS + 1000);
-  up = true;
-  await revokedAgain('an entry survived the gap');
-});
-
-test('#9038: an agent whose process reads another login, or one that could not be read, is never cleared', async () => {
-  for (const read of [loginexpiry.serviceNameFor('/Users/someone/.claude'), null, new Error('no')]) {
-    loginlive._clearForTest(); oldline._clearForTest(); authprobe.resetForTest();
-    until = D1;
-    status.setPaneLoginReaderForTests(async () => { if (read instanceof Error) throw read; return read; });
-    await ticks(3 * MIN);
-    until = D2;
-    await ticks(2 * MIN);
-    await revokedAgain(`cleared over ${read}`);
+test('#9038: nor is a turn under way, or an answer, or a row not yet whole, an old refusal', async () => {
+  for (const more of [() => say(S1, asked()), () => say(S1, asked(), answered()), () => fs.appendFileSync(transcript(S1), '{"type":"user","mess'),
+    () => fs.appendFileSync(transcript(S1), 'not json\n'), () => fs.rmSync(transcript(S1))]) {
+    await repaired();
+    more();
+    await stands('cleared over: ' + more);
+    until = D1; fs.rmSync(transcript(S1), { force: true }); say(S1, asked(), refused());
+    loginlive._clearForTest(); authprobe.resetForTest();
   }
 });
 
-test('#9038: an agent on its own account folder is cleared by that account\'s own sign-in', async () => {
-  const dir = path.join(SANDBOX, '.claude-two');
-  job = { configDir: dir };
-  service = loginexpiry.serviceNameFor(dir);
-  const asked = new Set();
-  loginlive.setReaderForTests(async (ccd) => { asked.add(ccd); return until; });
+test('#9038: a /clear or a restart (another session, another process) is asked about itself', async () => {
   await repaired();
-  assert.deepEqual([...asked], [dir], 'the date was read for another account');
+  session(S2);   // /clear: the same process, a new session with nothing in it yet
+  await stands('the cleared session inherited the old one');
+  say(S2, asked(), refused());
+  await stands('its own new refusal was taken as old');
+  proc = { pid: '4343', ccd: ROOT }; run = 'b2';   // a restart
+  session(S1, '4343'); say(S1, asked(), refused());
+  await stands('the restarted agent inherited it');
+});
+
+test('#9038: one look that could not read the screen changes nothing', async () => {
+  await repaired();
+  screen = null;
+  await tick();
+  screen = ONE;
+  assert.equal(refusals(await ticks(10 * MIN)), 0, 'an unread screen brought the old line back');
+});
+
+test('#9038: a repaired agent whose screen shows the old line again after the board looked away stays calm', async () => {
+  await repaired();
+  up = false;
+  await tick(10 * 60000);
+  up = true;
+  await ticks(2);   // the HEALTHY is ten minutes old: a first re-check settles
+  assert.equal(refusals(await ticks(10 * MIN)), 0);
+});
+
+test('#9038: an agent with no run instance, or whose process reads another login or could not be read, is never cleared', async () => {
+  for (const arm of [() => { run = ''; }, () => { proc = { pid: PID, ccd: '/Users/someone/.claude' }; }, () => { proc = { pid: PID, ccd: undefined }; },
+    () => { proc = null; }, () => status.setPaneLoginReaderForTests(async () => { throw new Error('no'); })]) {
+    loginlive._clearForTest(); authprobe.resetForTest();
+    run = 'a1'; until = D1; status.setPaneLoginReaderForTests(async () => proc);
+    arm();
+    await ticks(3 * MIN);
+    until = D2;
+    await ticks(2 * MIN);
+    await stands('cleared: ' + arm);
+  }
+});
+
+test('#9038: the date is the one of the account the check probes, not another account\'s', async () => {
+  const dates = { mine: D1, other: D1 };
+  loginlive.setReaderForTests(async (ccd) => (ccd === ROOT ? dates.mine : dates.other));
+  await ticks(3 * MIN);
+  dates.other = D2;   // someone signs in to the default account
+  await ticks(2 * MIN);
+  await stands('another account\'s sign-in cleared it');
+  dates.mine = D2;
+  await ticks(2 * MIN);
+  assert.equal(refusals(await ticks(5 * MIN)), 0, 'CONTROL: its own sign-in does');
+});
+
+test('#9038: the process is asked about once per run, one ask at a time, and once a minute while it cannot be told', async () => {
+  let asks = 0;
+  status.setPaneLoginReaderForTests(async () => { asks += 1; return proc; });
+  await ticks(5 * MIN);
+  assert.equal(asks, 1, 'known, and asked again');
+  run = 'b2';
+  await ticks(MIN);
+  assert.equal(asks, 2, 'a new run was not asked about');
+  proc = null; run = 'c3'; asks = 0;
+  await ticks(5 * MIN);
+  assert.ok(asks >= 4 && asks <= 6, 'asks while unknown, in five minutes: ' + asks);
+  asks = 0; run = 'd4';
+  status.setPaneLoginReaderForTests(() => { asks += 1; return new Promise(() => {}); });
+  await ticks(5 * MIN);
+  assert.equal(asks, 1, 'a second ask while one was open');
+});
+
+test('#9038: the default account: its own bare login, and its own folder', async () => {
+  job = { configDir: null };
+  const home = os.homedir;
+  os.homedir = () => SANDBOX;
+  const def = path.join(SANDBOX, '.claude');
+  try {
+    fs.rmSync(def, { recursive: true, force: true });
+    fs.renameSync(ROOT, def);
+    proc = { pid: PID, ccd: undefined };
+    await repaired();
+    proc = { pid: PID, ccd: def }; run = 'b2';   // the same folder, another Keychain entry (#2129)
+    await ticks(2);
+    await stands('an explicit folder read as the bare login');
+  } finally { os.homedir = home; fs.rmSync(def, { recursive: true, force: true }); }
 });
 
 test('#9038: a re-check that never settles does not stay calm', async () => {
@@ -231,100 +269,98 @@ test('#9038: a re-check that never settles does not stay calm', async () => {
   assert.equal(refusals(list), list.length, 'a hung check read healthy');
 });
 
-test('#9038: an identical exchange repeated on the screen is never old, however the sign-in went', async () => {
-  const same = [];
-  for (let i = 0; i < 5; i++) same.push('> nudge', '', LINE, '');
-  screen = screenOf(...same);
-  await ticks(3 * MIN);
+test('#9038: a login date that cannot be read, or moves earlier, leaves the board as it was', async () => {
+  for (const [first, then] of [[null, D2], [D1, null], [D2, D1]]) {
+    loginlive._clearForTest(); authprobe.resetForTest();
+    until = first;
+    await ticks(3 * MIN);
+    until = then;
+    await ticks(2 * MIN);
+    assert.ok(refusals(await ticks(5 * MIN)) >= 5, `${first} then ${then} read as a new sign-in`);
+  }
+});
+
+test('#9038: a refusal between the last read of the earlier date and the sign-in counts as new (it may be)', async () => {
+  await ticks(3 * MIN + 6);
+  say(S1, asked(), refused());   // after the last read of D1
   until = D2;
   await ticks(2 * MIN);
-  await revokedAgain('a screen of identical refusals was taken as old');
+  await stands('a refusal that may follow the sign-in was taken as old');
 });
 
-/* One call straight to the module; reads are answered by the next microtasks. */
-const base = { run: 'r', service: 's', reads: async () => 's', text: ONE, date: { at: 0, until: D1 }, now: 0 };
-const ask = async (o) => { const got = oldline.isOld('a', { ...base, ...o }); await settle(); return got; };
-
-test('#9038: the first date counts only when it was read after the line was first seen', async () => {
-  await ask({ now: 100, date: { at: 50, until: D1 } });
-  assert.equal(await ask({ now: 110, date: { at: 50, until: D1 } }), false);
-  /* A sign-in between that read and the line: the line is newer than it, and must not read old. */
-  assert.equal(await ask({ now: 170, date: { at: 160, until: D2 } }), false, 'a date from before the line was taken as its first');
-  assert.equal(await ask({ now: 230, date: { at: 220, until: D2 } }), false);
-  assert.equal(await ask({ now: 290, date: { at: 280, until: D2 + DAY } }), true, 'CONTROL: a later sign-in makes it old');
-});
-
-test('#9038: once old it stays old through an unread date; another login, run or line, a gap, or a forget starts over', async () => {
-  const make = async () => { oldline._clearForTest(); await ask({}); await ask({}); return ask({ date: { at: 9, until: D2 } }); };
-  const later = { date: { at: 9, until: D2 } };
-  assert.equal(await make(), true, 'CONTROL');
-  assert.equal(await ask({ date: null }), true, 'one unread date brought it back');
-  assert.equal(await ask({ date: { at: 10, until: D1 } }), true, 'an earlier date read since brought it back');
-  for (const [what, o] of [['login', { service: 't' }], ['run', { run: 'q' }], ['line', { text: TWO }], ['gap', { now: oldline.GAP_MS + 1 }]]) {
-    assert.equal(await make(), true);
-    assert.equal(await ask({ ...later, ...o }), false, `another ${what} inherited it`);
-  }
-  for (const [what, o] of [['no line', { text: screenOf('> hi', 'Done.') }], ['no run', { run: '' }]]) {
-    assert.equal(await make(), true);
-    assert.equal(await ask({ ...later, ...o }), false, what);
-    assert.equal(await ask(later), false, `inherited across ${what}`);
-  }
-  assert.equal(await make(), true);
-  oldline.forget('a');
-  assert.equal(await ask(later), false, 'forget kept it');
-});
-
-test('#9038: an unread first date is not taken as the first', async () => {
-  for (const unread of [null, NaN, undefined]) {
-    oldline._clearForTest();
-    await ask({}); await ask({ date: { at: 1, until: unread } }); await ask({ date: { at: 2, until: D1 } });
-    assert.equal(await ask({ date: { at: 3, until: D2 } }), true, String(unread));
-  }
-});
-
-test('#9038: agents do not share a line', async () => {
-  await ask({}); await ask({}); assert.equal(await ask({ date: { at: 9, until: D2 } }), true);
-  assert.equal(oldline.isOld('b', { ...base, date: { at: 9, until: D2 } }), false);
-});
-
-test('#9038: the login a process reads: its CLAUDE_CONFIG_DIR, the default when unset, unknown when ps shows no environment', () => {
-  const head = '  PID   TT  STAT      TIME COMMAND\n 123 s001  S+  0:01 claude --model x';
-  assert.equal(status.loginServiceOfPs(head + ' PATH=/bin CLAUDE_CONFIG_DIR=/u/two HOME=/u'), loginexpiry.serviceNameFor('/u/two'));
-  assert.equal(status.loginServiceOfPs(head + ' PATH=/bin HOME=/u'), loginexpiry.DEFAULT_SERVICE);
-  assert.equal(status.loginServiceOfPs(head), null);
-});
-
-test('#9038: the fingerprint: steady under what comes after the line, changed by a second refusal, null with none', () => {
-  assert.equal(oldline.fingerprint(ONE), oldline.fingerprint(ONE.replace('❯ ', '❯ half a draft')), 'the composer moved it');
-  assert.notEqual(oldline.fingerprint(ONE), oldline.fingerprint(TWO));
-  /* Two identical exchanges, more rows apart than the context: only the count tells them apart. */
-  const pad = Array.from({ length: oldline.CONTEXT_ROWS + 2 }, (_, i) => 'row ' + i);
-  const once = screenOf(...pad, '> go', LINE);
-  const twice = screenOf(...pad, '> go', LINE, ...pad, '> go', LINE);
-  assert.notEqual(oldline.fingerprint(once), null, 'CONTROL');
-  assert.equal(oldline.fingerprint(twice), null, 'a block that stands twice could be a later copy of itself');
-  assert.notEqual(oldline.fingerprint(once), oldline.fingerprint(screenOf(LINE, ...pad, '> go', LINE)), 'the count is not in it');
-  /* An old line scrolled off as a new one was printed: the count is the same, the prompt above it is not. */
-  assert.notEqual(oldline.fingerprint(ONE), oldline.fingerprint(screenOf('> a later thing', LINE)), 'the rows above are not in it');
-  assert.equal(oldline.fingerprint(ONE), oldline.fingerprint(ONE.replace(LINE, LINE + '   ')), 'trailing blanks moved it');
-  const envelope = 'API Error: 401 {"type":"error","error":{"type":"authentication' + '_error"}}';
-  assert.notEqual(oldline.fingerprint(screenOf('> hi', envelope)), null, 'the JSON form is not seen');
-  for (const none of ['', null, undefined, 'all good\n']) assert.equal(oldline.fingerprint(none), null);
-});
-
-test('#9038: lastRead never waits, reads again when old, and drops an answer from before a sign-in', async () => {
+test('#9038: signedInAfter: the start of the last read of the earlier date; an unread date or an earlier one is no sign-in', async () => {
   const row = { isDefault: true };
-  assert.equal(loginlive.lastRead(row, clock), null, 'nothing read yet');
+  const read = async (at, date) => { until = date; loginlive.signedInAfter(row, at); await settle(); return loginlive.signedInAfter(row, at); };
+  const step = loginlive.MISS_CACHE_MS + 1;
+  assert.equal(loginlive.signedInAfter(row, 1000), null, 'it waited');
+  assert.equal(await read(1000, D1), null);
+  assert.equal(await read(1000 + step, D1), null, 'the same date');
+  assert.equal(await read(1000 + 2 * step, null), null, 'an unread date');
+  assert.equal(await read(1000 + 3 * step, D2), 1000 + step, 'the last read that gave the earlier date');
+  assert.equal(await read(1000 + 4 * step, D1), 1000 + step, 'an earlier date is no sign-in');
+  assert.equal(await read(1000 + 5 * step, D1 + 1), 1000 + 4 * step, 'later than the earlier one is');
+  for (const none of [null, { apiKey: true, isDefault: true }, { isDefault: false, dir: '' }]) assert.equal(loginlive.signedInAfter(none, 1000), null);
+});
+
+test('#9038: an older read that finishes late changes nothing', async () => {
+  const row = { isDefault: true };
+  const open = [];
+  loginlive.setReaderForTests(() => new Promise((r) => open.push(r)));
+  loginlive.signedInAfter(row, 1000);
+  loginexpiry.loginChanged();   // a sign-in through Kosmos: the next read does not join the first
+  loginlive.signedInAfter(row, 2000);
   await settle();
-  assert.deepEqual(loginlive.lastRead(row, clock + 1000), { at: T0, until: D1 }, 'at is when the read began, not when it was asked for');
-  for (const none of [null, { apiKey: true, isDefault: true }, { isDefault: false, dir: '' }]) assert.equal(loginlive.lastRead(none, clock), null);
-  until = D2;
-  const later = clock + loginlive.CACHE_MS + 1;
-  assert.equal(loginlive.lastRead(row, later).until, D1, 'the last answer while the next is read');
-  await settle();
-  assert.deepEqual(loginlive.lastRead(row, later), { at: later, until: D2 });
-  loginexpiry.loginChanged();
-  assert.equal(loginlive.lastRead(row, later), null, 'an answer from before a sign-in was kept');
+  open[1](D1); await settle();
+  open[0](D2); await settle();
+  assert.equal(loginlive.signedInAfter(row, 2000), null, 'the late read was taken as a sign-in');
+});
+
+test('#9038: refusedAt: the session the process names, in this folder, once', () => {
+  assert.equal(oldline.refusedAt({ pid: PID, root: ROOT }), T0);
+  assert.equal(oldline.refusedAt({ pid: '1', root: ROOT }), null, 'no session file');
+  session(S1, '77', '78');
+  assert.equal(oldline.refusedAt({ pid: '77', root: ROOT }), null, 'a session file that names another process');
+  session('../../../x', '79');
+  fs.copyFileSync(transcript(S1), path.join(SANDBOX, 'x.jsonl'));
+  assert.equal(oldline.refusedAt({ pid: '79', root: ROOT }), null, 'a session id that is a path');
+  fs.mkdirSync(path.join(ROOT, 'projects', '-other'));
+  fs.copyFileSync(transcript(S1), path.join(ROOT, 'projects', '-other', `${S1}.jsonl`));
+  assert.equal(oldline.refusedAt({ pid: PID, root: ROOT }), null, 'the same session in two folders');
+});
+
+test('#9038: refusalAtEnd: only Claude Code\'s own sign-in refusal, as the last thing said', () => {
+  const file = path.join(SANDBOX, 't.jsonl');
+  const at = (...rows) => { fs.writeFileSync(file, rows.map((r) => JSON.stringify(r) + '\n').join('')); return oldline.refusalAtEnd(file); };
+  assert.equal(at(asked(), refused()), clock, 'CONTROL');
+  assert.equal(at(asked(), refused(), { type: 'system', subtype: 'turn_duration' }, { type: 'mode' }), clock, 'bookkeeping after it');
+  assert.equal(at(refused(), asked()), null);
+  assert.equal(at({ ...refused(), error: 'rate_limit' }), null);
+  assert.equal(at({ ...refused(), isApiErrorMessage: false }), null);
+  assert.equal(at({ ...refused(), type: 'user' }), null);
+  assert.equal(at({ ...refused(), timestamp: 'soon' }), null);
+  assert.equal(at({ type: 'mode' }), null);
+  assert.equal(oldline.refusalAtEnd(path.join(SANDBOX, 'none')), null);
+  const big = { type: 'mode', pad: 'x'.repeat(oldline.TAIL_BYTES) };
+  assert.equal(at(asked(), refused(), big), null, 'nothing said within the tail');
+  assert.equal(at(big, asked(), refused()), clock, 'a cut first line is not a row');
+});
+
+test('#9038: loginOfPs: the environment only, never what an argument says, and no other credential', () => {
+  const args = 'claude --model x';
+  const env = (e) => oldline.loginOfPs(args + '\n', `${args} ${e}\n`);
+  assert.deepEqual(env('PATH=/bin CLAUDE_CONFIG_DIR=/u/two HOME=/u'), { ccd: '/u/two' });
+  assert.deepEqual(env('PATH=/bin HOME=/u'), { ccd: undefined });
+  assert.equal(env(''), null, 'no environment shown');
+  assert.equal(env('HOME=/u'), null, 'no PATH shown');
+  assert.equal(env('PATH=/bin CLAUDE_CONFIG_DIR= HOME=/u'), null, 'set but empty');
+  assert.equal(env('PATH=/bin CLAUDE_CONFIG_DIR=/a CLAUDE_CONFIG_DIR=/b'), null, 'two values');
+  for (const k of ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX']) {
+    assert.equal(env(`PATH=/bin ${k}=x HOME=/u`), null, k);
+  }
+  const said = 'claude use PATH=/x and CLAUDE_CONFIG_DIR=/u/two';
+  assert.equal(oldline.loginOfPs(said, said), null, 'an argument read as environment');
+  assert.deepEqual(oldline.loginOfPs(said, said + ' PATH=/bin'), { ccd: undefined });
+  for (const none of [[null, null], ['', 'claude PATH=/bin'], ['claude', 'another PATH=/bin']]) assert.equal(oldline.loginOfPs(...none), null);
 });
 
 test('#9038: lastSettledHealthy is the last settled answer, for one re-check past its age', async () => {
