@@ -3,13 +3,13 @@ import UniformTypeIdentifiers
 
 // kosmos#8959 slice B1a: the Kosmos+ account, native. Opened from the Settings tab's "Your Kosmos+ account" row, where
 // the web page used to open. The computers on the account (each with the web page's words, and Retire), Sign out and
-// Sign out everywhere, and (slice B2) the plan line the in-app web page shows; billing, the subscription and the cloud
+// Sign out everywhere, and (slice B2) the plan line and standing note the in-app web page shows; billing, the subscription and the cloud
 // machine are never on the phone (kosmos#718's CAN_BUY_HERE, Josh's switch). The logic is
 // AccountLogic.swift; the second step (slice B1b) is AccountSecondLogic.swift; passkeys and sign-ins from new places
 // (slice B1c) are AccountSecurityLogic.swift, with Apple's passkey sheet in PasskeyMaker.swift.
 struct AccountView: View {
     let coordinator: URL
-    // The account's web page, for what is not here yet (the Kosmos+ address and choosing one; slice B3).
+    // The account's web page, for what is not here yet (Open my Kosmos, the Kosmos+ address and choosing one; slice B3).
     let openPage: (URL) -> Void
     // This iPhone signs out (the app's own path, PushNotificationManager), with the session that was ended.
     let signedOut: (String) -> Void

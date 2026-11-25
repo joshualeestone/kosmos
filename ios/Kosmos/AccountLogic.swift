@@ -214,9 +214,9 @@ enum Account {
 
     // MARK: - The plan (slice B2)
 
-    // kosmos#8959 slice B2: the plan line the web account page shows inside the app (signin.html #plan-line, #3479), and
-    // nothing more. Billing, the subscription and the cloud machine are never on the phone and never linked to from it:
-    // the page's ONE SWITCH (CAN_BUY_HERE, kosmos#718) keeps selling out of the apps, and only Josh changes that.
+    // kosmos#8959 slice B2: the plan line and the standing note the web account page shows inside the app (signin.html
+    // #plan-line, #3479, and #standing-note), and nothing more. Billing, the subscription and the cloud machine are never
+    // on the phone and never linked to from it: the page's ONE SWITCH (CAN_BUY_HERE, kosmos#718) keeps selling out of the apps, and only Josh changes that.
     static let mePath = "/v1/account/me"
     static let planActive = "Kosmos+ \u{00B7} Active"
     static let planSpoken = "Kosmos+, Active"
