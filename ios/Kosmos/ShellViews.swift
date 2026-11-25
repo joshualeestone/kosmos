@@ -145,7 +145,8 @@ struct LoadFailureView: View {
                 .foregroundColor(Self.onGold)
                 .background(Palette.starFill)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
-                // The bright gold is under 3:1 against cream, so its edge is drawn in the deep gold (Palette.starGold).
+                // The bright gold is under 3:1 against cream, so in light its edge is drawn in the deep gold (Palette.starGold);
+                // in dark starGold is the bright gold itself, and the fill already stands out on near-black.
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.starGold, lineWidth: 1))
                 .padding(.top, 8)
                 if Shell.offersOtherComputer(failure), let onOtherComputer = onOtherComputer {

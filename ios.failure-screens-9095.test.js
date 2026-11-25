@@ -44,6 +44,7 @@ test('#9095 they stand on the native ground, with the app\'s text colours and a 
 test('#9095 the palette it leans on is cream and gold, not blue (a change to Palette shows up here)', () => {
   assert.match(PALETTE, /static let ground = pair\(0xfaf9f7, 0x0c0d0f\)/, 'Palette.ground changed: re-check the failure screens');
   assert.match(PALETTE, /static let starFill = pair\(0xe3b341, 0xe3b341\)/, 'Palette.starFill changed: re-check Try again');
+  assert.match(PALETTE, /static let starGold = pair\(0x9c741b, 0xe3b341\)/, 'Palette.starGold changed: re-check the icon and the deep-gold edge on cream');
   assert.match(SHELL, /static let onGold = Color\(red: 0x14 \/ 255\.0, green: 0x16 \/ 255\.0, blue: 0x1A \/ 255\.0\)/, 'onGold changed');
 });
 
@@ -54,10 +55,9 @@ test('#9095 nothing laid over a failure screen forces the dark appearance (it wa
     let at = src.indexOf('LoadFailureView(');
     assert.ok(at > -1, name + ' no longer shows LoadFailureView; re-aim this test');
     for (; at > -1; at = src.indexOf('LoadFailureView(', at + 1)) {
-      const near = src.slice(at, at + 1500);
-      const end = near.search(/\n\s*case \.|\n\s*}\n\s*}\n/);   // up to the next case, or the end of the block
-      assert.doesNotMatch(end > 0 ? near.slice(0, end) : near, /colorScheme,\s*\.dark|preferredColorScheme\(\.dark\)|overrideUserInterfaceStyle/, name + ': a forced dark appearance over a failure screen');
+      // each use is found; the forced-appearance check below covers the whole file (an ancestor could force it too)
     }
+    assert.doesNotMatch(src, /colorScheme,\s*\.dark|preferredColorScheme\(\.dark\)|overrideUserInterfaceStyle/, name + ': the file forces a dark appearance somewhere a failure screen can sit under');
   }
   assert.match(agents, /MacSwitcher\(client: client\)\.frame\(minHeight: 44\)\.padding\(16\)/, 'the switcher over the Mac-not-answering screen changed; re-check it on cream');
 });

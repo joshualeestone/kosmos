@@ -32,3 +32,12 @@ two button edges. 5/5. Controls, run with `git stash -- <file>` then the test: m
 view tests; the old AgentsView.swift (forced dark) fails the overlay test.
 Still owed: an iOS build, and simulator screenshots of all four states in light and dark (queued after the App Store
 gate).
+
+## Review ledger
+3 blind rounds (1 opus, 2 sonnet, 3 opus). Converged at round 3: its two warnings were already recorded (the Close
+bar over Today's failure screen is #9101's; the build and screenshots are owed below). Fixed: the forced-dark Mac
+switcher (round 1, a BLOCKER), both button edges (1), the overlay test's coverage (2, 3), the starGold pin and the
+edge comment (3). Deferred: onGold duplicating Palette.primary's light value (a fixed value on purpose).
+
+## Still owed before the card is done
+An iOS build, then simulator screenshots of all four failure states in light and dark, including Trying.
