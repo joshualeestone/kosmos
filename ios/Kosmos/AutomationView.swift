@@ -10,6 +10,8 @@ struct AutomationView: View {
     var sample = false
     // Settings is still finding the computer (its own first read), so "no computer" would not be true yet (review 6).
     var finding = false
+    // Signed out of Kosmos+: what is needed is a sign-in, not a computer (review 7), as Settings itself says.
+    var signedOut = false
 
     private enum Load: Equatable {
         case reading
@@ -23,7 +25,7 @@ struct AutomationView: View {
     // The line a box's last save left: a refusal (problem) or what the save did ("Saved. ...").
     private struct Note: Equatable { let text: String; let problem: Bool }
     @State private var notes: [Automation.Box: Note] = [:]
-    // Bumped by every write to a box, so a read that started before it cannot paint the older state over the newer.
+    // Bumped by every read, every write and a change of computer, so an answer that started before any of them is dropped.
     @State private var generations: [Automation.Box: Int] = [:]
     // The computer the boxes on screen came from. Review 5: another computer starts the screen over.
     @State private var shownURL: URL?
@@ -36,6 +38,11 @@ struct AutomationView: View {
                         SweepDots(scales: false)
                         Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary)
                     }
+                }
+            } else if mac == nil && !sample && signedOut {
+                Section {
+                    Text("Sign in to Kosmos+ first, then your computer's settings show here.")
+                        .font(.subheadline).foregroundColor(Palette.secondary)
                 }
             } else if mac == nil && !sample {
                 Section {
@@ -291,8 +298,9 @@ struct AutomationView: View {
         }
         if let s = Automation.parse(box, status: status, data: data) {
             loads[box] = .loaded(s)
-            // Review 5: a read that worked answers "could not read it back" (Language keeps it, as the page does).
-            if !keepNote || (notes[box]?.text == Automation.Words.savedUnread && box != .language) { notes[box] = nil }
+            // Review 5 and 7: a read that worked answers "could not read it back", for every box (the page's next readable
+            // read clears its line too).
+            if !keepNote || notes[box]?.text == Automation.Words.savedUnread { notes[box] = nil }
         } else {
             let why = Automation.readRefusal(box, status: status, data: data)
             loads[box] = .failed(why)

@@ -332,7 +332,7 @@ struct SettingsView: View {
             // kosmos#8959 slice D1a: the board's Automation box, native. The board row stays for the rest until their
             // own slices land (D1b to D2 on the card).
             NavigationLink {
-                AutomationView(mac: mac, sample: Self.sample, finding: load == .reading)
+                AutomationView(mac: mac, sample: Self.sample, finding: load == .reading, signedOut: load == .signedOut)
             } label: {
                 Text("Automation").foregroundColor(Palette.primary)
             }
