@@ -26,12 +26,16 @@ final class UsageUITests: XCTestCase {
         let tokens = app.descendants(matching: .any)["usage-tokens"]
         XCTAssertTrue(tokens.waitForExistence(timeout: 5), "the total tokens figure is missing")
         XCTAssertTrue(tokens.label.contains("141.3M") && tokens.label.contains("Total Tokens Used"), tokens.label)
-        XCTAssertTrue(app.staticTexts["claude-opus-5-5"].exists, "the model table is missing its first model")
+        // Each row is one element (its parts combined), found by its identifier.
+        let model = app.descendants(matching: .any)["usage-model-0"]
+        XCTAssertTrue(model.waitForExistence(timeout: 5), "the model table is missing its first row")
+        XCTAssertTrue(model.label.hasPrefix("claude-opus-5-5"), model.label)
         shot(app, "usage-hero")
 
-        let dana = app.staticTexts["Dana"]
+        let dana = app.descendants(matching: .any)["usage-agent-0"]
         reveal(app, dana)
-        XCTAssertTrue(dana.exists, "By agent is missing its first agent")
+        XCTAssertTrue(dana.exists, "By agent is missing its first row")
+        XCTAssertTrue(dana.label.hasPrefix("Dana"), dana.label)
         let history = app.staticTexts["Usage history"]
         reveal(app, history)
         XCTAssertTrue(history.exists, "the history heading is missing")

@@ -23,7 +23,7 @@ section("the request")
 let r = U.request(mac)
 check(r.httpMethod == "GET" && r.url?.absoluteString == "https://studio.kosmosplus.com/api/usage?days=all", "GET /api/usage?days=all, as the page")
 check(r.value(forHTTPHeaderField: "Cookie") == "__Host-kosmos_tunnel_session=c00kie" && r.httpShouldHandleCookies == false && r.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin", "the kept cookie by hand and the board's header")
-check(r.timeoutInterval >= 120, "it waits past the page's \"up to a minute\"")
+check(r.timeoutInterval >= 600, "it waits for the count, as the page's fetch (no limit; \"the first time after an update it can take a few\")")
 check(page.contains("const res = await fetch('/api/usage?days=all');"), "the page reads the same route")
 
 section("toFixed and Math.round, as JavaScript")

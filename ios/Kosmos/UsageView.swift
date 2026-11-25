@@ -11,6 +11,7 @@ struct UsageView: View {
 
     @State private var screen: Usage.Screen?
     @State private var generation = 0
+    @State private var reading = false   // the page's USAGE_BUSY: one count on the computer at a time
     @State private var shownURL: URL?
 
     var body: some View {
@@ -78,7 +79,7 @@ struct UsageView: View {
         .navigationBarTitleDisplayMode(.inline)
         .dotsRefresh { await load() }
         .task(id: mac?.url) {
-            if shownURL != mac?.url { shownURL = mac?.url; screen = nil; generation += 1 }
+            if shownURL != mac?.url { shownURL = mac?.url; screen = nil; generation += 1; reading = false }
             await load()
         }
     }
@@ -99,20 +100,26 @@ struct UsageView: View {
                     Text("=").font(.title3).foregroundColor(Palette.secondary).accessibilityHidden(true)
                     figure(h.value, Usage.Words.humanCost, id: "usage-value")
                 }
-                HStack(alignment: .top, spacing: 10) {
-                    figure(h.hours, Usage.Words.workHours, small: true, id: "usage-hours")
-                    figure(h.years, Usage.Words.workYears, small: true, id: "usage-years")
-                    figure(h.api, Usage.Words.apiCost, small: true, id: "usage-api")
+                // Side by side while they fit; stacked at the largest text sizes, so no figure is cut short.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 10) { smallFigures(h) }
+                    VStack(alignment: .leading, spacing: 10) { smallFigures(h) }
                 }
             }
             .padding(.vertical, 6)
         }
     }
 
+    @ViewBuilder private func smallFigures(_ h: Usage.Hero) -> some View {
+        figure(h.hours, Usage.Words.workHours, small: true, id: "usage-hours")
+        figure(h.years, Usage.Words.workYears, small: true, id: "usage-years")
+        figure(h.api, Usage.Words.apiCost, small: true, id: "usage-api")
+    }
+
     private func figure(_ value: String, _ label: String, small: Bool = false, id: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value).font((small ? Font.headline : Font.title2).weight(.bold).monospacedDigit()).foregroundColor(Palette.primary)
-                .lineLimit(1).minimumScaleFactor(0.6)
+                .lineLimit(1).minimumScaleFactor(0.6).fixedSize(horizontal: small, vertical: false)
             Text(label).font(.caption).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -142,6 +149,7 @@ struct UsageView: View {
                     .accessibilityHidden(true)
                 }
                 .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("usage-" + label.lowercased() + "-\(i)")
             }
             if let note { Text(note).font(.footnote).foregroundColor(Palette.secondary).accessibilityIdentifier("usage-agents-note") }
         } header: {
@@ -166,6 +174,7 @@ struct UsageView: View {
                     }
                 }
                 .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("usage-history-row")
             }
         } header: {
             Text(Usage.Words.history)
@@ -182,7 +191,9 @@ struct UsageView: View {
             if screen == nil { screen = Usage.screen(status: 200, data: Data(Usage.sample.utf8)) }
             return
         }
-        guard let mac, mac.url == shownURL else { return }
+        guard let mac, mac.url == shownURL, !reading else { return }
+        reading = true
+        defer { reading = false }
         generation += 1
         let started = generation
         var status = 0
