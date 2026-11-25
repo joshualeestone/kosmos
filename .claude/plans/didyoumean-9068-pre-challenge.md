@@ -21,3 +21,17 @@ converged: true
 - The first full validation (on the round-3 head) failed one test: engine/feedbackday-7875.test.js read the feedback list's old literal Try line from install/kosmos's source. Fixed in 8b16892fe2 (it now reads the _unknown_sub list); a second search found no other source-reading pin on these lines.
 - Related set: 2132 tests across the community, parity, didyoumean, help-lines and Windows-CLI files, 0 fail.
 - Subdir audit: the branch changes no subdirectory CLAUDE.md.
+
+### Per-Iteration Breakdown
+#### Iteration 1 (sonnet)
+- 0 BLOCKERs, 0 WARNINGs. Byte-identity of every group's old Unknown line confirmed; each verb list matches its dispatch.
+- NIT: the comment named cli.didyoumean-groups-9068.test.js, which does not exist --> FIXED (engine/...)
+- NIT: a real name in another case ("Follow") got no suggestion though the dispatch rejects it --> FIXED (+ test)
+- NIT: the suggestion was indented by hand, not by say --> FIXED (printed through say)
+#### Iteration 2 (opus)
+- SHOULD: `kosmos community help` had become "Unknown" while every group treats help as the usage --> FIXED on both CLIs (+ tests; a case arm on the Mac, which the parity parser reads)
+- NIT: a top-level option could reach didyoumean.js as its own --group --> FIXED (the top-level helper skips -words); no test, since today's command list makes the misread print nothing
+- NIT: a padded real name ("follow ") gets no suggestion --> LEFT (as before this branch)
+#### Iteration 3 (sonnet)
+- 0 BLOCKERs, 0 WARNINGs; every argument shape on both CLIs with exit codes; both answer the same
+- NITs left: agent's comma-joined Try list (kept on purpose); Windows test lacks a capitalised verb (unit-tested, confirmed by hand)
