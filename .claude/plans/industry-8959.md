@@ -23,3 +23,14 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan 7157275680). St
 - run-automation.sh PASS 228/228 (its "points below" check: the check-ins and the kind of business yes, the held posts not yet). App and UI-test typecheck 0 errors.
 
 ## Challenge loop ledger
+
+### Round 1 (opus, 02:46 CST): no BLOCKER, 2 MAJOR, 6 MINOR
+- MAJOR 1 a failed re-read turned a readable setting into "could not be read", and could leave a "Saved." line beside it. The page refreshes quietly when something is shown. Now: a re-read that fails keeps a read setting. When the setting is unread, only a kept refusal may stay; a "Saved." line goes. Also the picker is now a menu, as the Language picker is, so choosing pushes no screen and the way back does not re-read at all.
+- MAJOR 2 the UI test read the picker's choice from its label only: it reads the label and the value together.
+- M3 the page's pending-choice queue (INDUSTRY_PENDING): not needed, because a menu closes on a pick and the picker is disabled during a save. Said in the code.
+- M4 kept: the unread entry is a choice that saves nothing. A Picker's selection must be one of its tags, and leaving it out would show a blank choice.
+- M5 a 200 whose body did not read said "could not save": it now says "Saved, but we could not read it back just now." and reads again.
+- M6 the pushed list's title and the truncated value: gone with the menu; the hint is its own line.
+- M7 kept: no pure reducer for the view's state rules. The rules are now small and spelled out in readIndustry.
+- M8 a JSON boolean or fraction counted as a picture count: not any more (Number.isInteger).
+- Measured: run-industry.sh PASS 40/40; app and UI-test typecheck 0 errors.
