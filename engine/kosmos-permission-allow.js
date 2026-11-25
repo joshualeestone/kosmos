@@ -54,12 +54,15 @@ function touchesProtected(input, depth = 0) {
 const PLAN_MENTION = /(?<![A-Za-z0-9_.-])\.claude[\\/]plans[\\/][A-Za-z0-9_.@+~-]+(?:[\\/][A-Za-z0-9_.@+~-]+)*/gi;
 // After a closing quote, a comma or a closing bracket is fine too (a path in a python call: edit('.claude/plans/x.md', ...)):
 // in a shell brace list the next element is then outside the match, where PROTECTED still sees it.
-const PLAN_END = /^(?:$|[\s;&|)<>]|['"](?:$|[\s;&|)<>,\]}]))/;
+const PLAN_END = /^(?:$|[\s;&|)<>,\]}]|['"](?:$|[\s;&|)<>,\]}]))/;
 const DOT_SEGMENT = /(?:^|[\\/])\.+(?=[\\/]|$)/;   // a segment made only of dots: . or .. (or ...) is not a file name here
 function withoutPlanPaths(command) {
   return command.replace(PLAN_MENTION, (m, at) => {
     const after = command.slice(at + m.length, at + m.length + 2);
-    return PLAN_END.test(after) && !DOT_SEGMENT.test(m.slice('.claude/plans/'.length)) ? ' ' : m;
+    const inner = m.slice('.claude/plans/'.length);
+    // review round 3: .claude/plans/x/.git/hooks/pre-commit is a .git path, not a plan
+    const protectedInside = inner.split(/[\\/]/).some((seg) => PROTECTED.test(seg));
+    return PLAN_END.test(after) && !DOT_SEGMENT.test(inner) && !protectedInside ? ' ' : m;
   });
 }
 // Judged on the command as the shell runs it (review round 2's over-catch: a plan's own words, "- rm the old file" in a
@@ -67,41 +70,79 @@ function withoutPlanPaths(command) {
 // are taken out first for these plain shell words. Safe because by now the only protected names left are plan files,
 // so a delete hidden inside a string could only reach a plan file, which git keeps.
 const SHELL_DELETES_OR_MOVES = [
-  /(?:^|[\s;&|()`'"\\/])(?:rm|rmdir|unlink|shred|trash|mv)(?=\s|$)/i,   // quotes count once the text is a shell's
+  /(?:^|[\s;&|()`'"\\/!\[,])(?:rm|rmdir|unlink|shred|trash|mv)(?=[\s'",\]]|$)/i,   // quotes count once the text is a shell's
   /\b(?:Remove-Item|Move-Item|Rename-Item)\b/i,
   /\bfind\b[^;&|]*?\s-(?:delete|exec)/i,
-  /\bgit\b[^;&|]*?\s(?:clean|rm|mv)\b/i,
+  /\bgit\b[^;&|]*?\s(?:clean|rm|mv|config)\b/i,   // config: core.hooksPath points git at code to run (review round 3)
 ];
+// PowerShell's own aliases for a delete or move, only for a PowerShell call (in a shell or Python they are other words)
+const POWERSHELL_DELETES_OR_MOVES = /(?:^|[\s;&|()])(?:del|erase|rd|ri|mi|ren|rni|move|copy)(?=\s|$)/i;
 // Judged on the full text, strings and heredocs included: code in a heredoc or a -c string really runs, and a link made
 // through a plan folder lets a later write reach anywhere (review round 2).
 const ANYWHERE_DELETES_MOVES_OR_LINKS = [
-  /(?:^|[\s;&|()`'"\\/])(?:ln|mklink)(?=\s|$)|\b(?:SymbolicLink|Junction|HardLink)\b|\bsymlinkSync\b|\bos\.(?:symlink|link)\b/i,
-  /\b(?:rmtree|rmSync|unlinkSync|rmdirSync|renameSync)\b|\bos\.(?:remove|unlink|rmdir|rename|replace)\b|\bshutil\.move\b/i,
+  // links (review rounds 2 and 3): any spelling a script or tool makes one with
+  /(?:^|[\s;&|()`'"\\/])(?:ln|mklink|link)(?=\s|$)|\b(?:SymbolicLink|Junction|HardLink|symlink|symlink_to|hardlink_to|symlinkSync|linkSync)\b|\bfs\.(?:promises\.)?(?:symlink|link)\b|\bcp\s+(?:-\w*[sl]\w*\s)|--link-dest\b/i,
+  // deletes and moves in code or by tools that remove the original (review rounds 1 and 3)
+  /\b(?:rmtree|rmSync|unlinkSync|rmdirSync|renameSync|File\.delete|File\.unlink|FileUtils\.rm\w*)\b|\bos\.(?:remove|unlink|rmdir|rename|replace)\b|\bshutil\.move\b|\.(?:rm|unlink|rename|rmdir)\(|\bfs\.(?:promises\.)?(?:rm|unlink|rmdir|rename)\b|\[IO\.(?:File|Directory)\]::(?:Delete|Move)/i,
+  /--remove-files\b|--remove-source-files\b|\btruncate\b|\b(?:gzip|bzip2|xz)\b(?![^\n;&|]*\s-\w*[ck])|\bzip\s+-\w*m|\bgit\b[^;&|]{0,400}?\sstash\b|\bcmd(?:\.exe)?\s+\/c\b/i,
 ];
 const SEGMENT_MAX = 8000;   // a longer piece is left to the person: these patterns stay linear-ish on what they read
 // The command with heredoc bodies and quoted strings taken out (a string that does not close runs to the end of its line).
+const RUNS_TEXT = /(?:^|[\s;&|(\/`])(?:ba|z|k|da|c|tc|fi)?sh\b|\b(?:python\d*(?:\.\d+)?|node|nodejs|deno|bun|perl|ruby|php|awk|gawk|osascript|pwsh|powershell|cmd)\b|\b(?:system|exec\w*|spawn\w*|popen|subprocess)\b|\balias\.|\benv\s+(?:-\w+\s+)*-S\b|\$\(|`|\beval\b|\bxargs\b|\bsource\b|(?:^|[\s;&|])\.\s/i;
+function canStrip(command) {
+  if (RUNS_TEXT.test(command)) return false;
+  if (/\bgit\b[^;&|\n]{0,400}?\s-c\s/.test(command)) return false;   // git -c (lower case: -C is a folder) runs config
+  for (const line of command.split('\n')) {
+    // a << the stripper would read as a heredoc but the shell does not: after a comment mark, or only inside quotes
+    const unquoted = line.replace(/'[^'\n]*'|"(?:[^"\\\n]|\\.)*"/g, ' ');
+    if (/<</.test(line) && (!/<</.test(unquoted) || /#.*<</.test(unquoted))) return false;
+  }
+  if (/\\['"]|\$'|<<<|\$\(\(|\r/.test(command)) return false;
+  // every heredoc tag must be a whole word the stripper can match, and every quote must close on its line
+  for (const line of command.split('\n')) {
+    if (/<</.test(line) && !/<<-?\s*(?:'[A-Za-z_][A-Za-z0-9_]*'|"[A-Za-z_][A-Za-z0-9_]*"|[A-Za-z_][A-Za-z0-9_]*)(?=$|[\s;&|)<>])/.test(line)) return false;
+  }
+  return true;
+}
 function shellWords(command) {
   const lines = command.split('\n');
   const kept = [];
   for (let i = 0; i < lines.length; i += 1) {
     kept.push(lines[i]);
-    const tag = /<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?/.exec(lines[i]);
+    const tag = /<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?(?=$|[\s;&|)<>])/.exec(lines[i]);
     if (tag) { while (i + 1 < lines.length && lines[i + 1].replace(/^\t+/, '') !== tag[1]) i += 1; }
   }
-  return kept.join('\n').replace(/'[^'\n]*'?|"(?:[^"\\\n]|\\.)*"?/g, ' ');
+  // Only quotes that close on their line are taken out; one left open means the stripper may read it otherwise than the
+  // shell does, so the full text is judged (null).
+  const out = kept.join('\n').replace(/'[^'\n]*'|"(?:[^"\\\n]|\\.)*"/g, ' ');
+  return /['"]/.test(out) ? null : out;
 }
-function bashLeftToPerson(command) {
-  if (!PROTECTED.test(command)) return false;   // names no protected place: answered, as before this change
+const COMMAND_MAX = 200000;   // review round 3: a command this long that names a protected place is a person's to read
+// The text as the shell joins it (review round 3: .g'i't and .cl\aude hid a name from PROTECTED): quotes taken out and
+// a shell's backslash escapes undone; for PowerShell, its backtick escapes (its backslashes are path separators).
+function joined(command, powershell) {
+  return powershell ? command.replace(/['"]/g, '').replace(/`(.)/g, '$1')
+    : command.replace(/['"]/g, '').replace(/\\(.)/g, '$1');
+}
+function bashLeftToPerson(command, powershell = false) {
+  if (!PROTECTED.test(command) && !PROTECTED.test(joined(command, powershell))) return false;   // names none: as before
+  if (command.length > COMMAND_MAX) return true;
+  if (PROTECTED.test(withoutPlanPaths(joined(command, powershell)))) return true;   // a name hidden by quoting
+  if (powershell && command.split(/[\n;&|]+/).some((piece) => POWERSHELL_DELETES_OR_MOVES.test(piece))) return true;
   const rest = withoutPlanPaths(command);
   if (PROTECTED.test(rest)) return true;        // another protected name than a plan file: #5406's rule, as before
   for (const piece of command.split(/[\n;&|]+/)) {
     if (piece.length > SEGMENT_MAX) return true;
     if (ANYWHERE_DELETES_MOVES_OR_LINKS.some((r) => r.test(piece))) return true;
   }
-  // Text a shell will run (sh -c '...', a heredoc fed to bash, | sh, eval, xargs) is not words about the work: then the
-  // plain shell words are judged on the full text after all.
-  const runsText = /(?:^|[\s;&|(])(?:ba|z|k|da)?sh\s+(?:-\w*[cs]\b|<<)|\|\s*(?:sudo\s+)?(?:ba|z|k|da)?sh\b|\beval\b|\bxargs\b|\bsource\b|(?:^|[\s;&|])\.\s/.test(command);
-  for (const piece of (runsText ? command : shellWords(command)).split(/[\n;&|]+/)) {
+  // Strings and heredoc bodies are taken out only when nothing in the command can run them (review round 3): no
+  // interpreter or shell (by name or path), no -c or -e flag, no system/exec/spawn, no git -c or alias, no env -S, no
+  // command substitution, eval, xargs or source; and only when the stripper reads the text as the shell does (no
+  // escaped quote, $'...', <<<, $((, carriage return, or a quote left open). Otherwise the full text is judged.
+  const words = canStrip(command) ? shellWords(command) : null;
+  const stripped = words === null ? command : words;
+  for (const piece of stripped.split(/[\n;&|]+/)) {
+    if (piece.length > SEGMENT_MAX) return true;
     if (SHELL_DELETES_OR_MOVES.some((r) => r.test(piece))) return true;
   }
   return false;
@@ -117,7 +158,7 @@ function decide(input) {
     // kosmos#9001 part 1b: only the command decides; a description is words about the call. A command that is not text
     // is read the old way (any string anywhere).
     if (t && typeof t === 'object' && typeof t.command === 'string') {
-      if (bashLeftToPerson(t.command)) return null;
+      if (bashLeftToPerson(t.command, req.tool_name === 'PowerShell')) return null;
     } else if (touchesProtected(t)) return null;
   } else if (touchesProtected(t)) return null;
   return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } };

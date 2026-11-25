@@ -77,3 +77,27 @@ It is a seatbelt on a prompt Josh asked to have answered, not a sandbox.
   judge in about 2 ms.
 - Mutations: the round 1 pattern back; no shell-runs-text rule; no stripping: each turns permission-mention-9001 red.
 - Still over-caught, accepted: a bare rm word as an argument outside quotes (grep -c rm .claude/plans/x.md).
+
+## Round 3 (opus, blind, whole branch): BLOCKERs, fixed; what it is and is not, said plainly
+This is a seatbelt against commands that visibly reach .claude or .git, as #5406's rule always was, not a sandbox:
+a command that hides the name entirely was answered before this change and still is. Fixed where this change made a
+command newly answered:
+- A plan path with a protected segment inside (.claude/plans/x/.git/hooks/pre-commit) is not a plan path.
+- Links made without ln: os.symlink, pathlib symlink_to/hardlink_to, fs.symlink and fs.link (sync, async, promises),
+  link, cp -s or -l, rsync --link-dest. Deletes by other verbs: pathlib .unlink() and .rename(, fs/promises rm,
+  File.delete, tar --remove-files, rsync --remove-source-files, truncate, gzip/bzip2/xz in place, zip -m, git stash,
+  cmd /c, [IO.File]::Delete and ::Move; git config (core.hooksPath runs code). PowerShell's del, rd, ri, mi and the
+  like count for a PowerShell call only (in Python, del is a keyword).
+- The stripper (strings and heredoc bodies taken out before the plain delete check) runs only when nothing in the
+  command can run text (any interpreter or shell by name or path, system/exec/spawn/popen/subprocess, git -c, alias.,
+  env -S, $( or a backtick, eval, xargs, source) and only when it reads the text as the shell would (no escaped quote,
+  $'...', <<<, $((, carriage return, a quote left open, a << after a comment mark or only inside quotes, or a heredoc
+  tag that is not a whole word). Otherwise the full text is judged.
+- A protected name split by quotes or a backslash (.g'i't, .cl\aude) is seen: the text is also checked as the shell
+  joins it (PowerShell: backtick escapes, its backslashes are separators).
+- Size: a command over 200,000 characters that names a protected place is left to the person, and the per-piece cap
+  applies after stripping too. Adversarial inputs of 1.5 MB judge in 2 to 4 ms.
+- Left, with reason: a write through a link that an EARLIER command made (making the link now waits for a person);
+  cp <plan> ~/.zshrc and other writes that name no protected place (answered before this change).
+- Mutations: each of the four fixes (protected segment, joined text, the strip conditions, PowerShell aliases)
+  turns permission-mention-9001 red when taken out.

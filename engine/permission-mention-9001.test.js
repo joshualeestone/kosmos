@@ -91,9 +91,37 @@ test('#9001 1b: any other protected name, a plan path with .., or a delete or mo
     // review round 2: a link through a plan folder, and a delete the shell really runs from a string
     'ln -sfn /p .claude/plans/l', 'ln -sfn "$PWD" .claude/plans/l; echo x > .claude/plans/l/.git/hooks/pre-commit',
     'sh -c "rm -rf .claude/plans"', "bash <<'E'\nrm -rf .claude/plans\nE", 'printf "rm .claude/plans/x" | bash',
-    'eval "rm .claude/plans/x"', 'echo .claude/plans/x | xargs rm']) {
+    'eval "rm .claude/plans/x"', 'echo .claude/plans/x | xargs rm',
+    // review round 3: links without ln, a protected segment inside a plan path, more delete verbs
+    'python3 -c "from os import symlink; symlink(\'..\', \'.claude/plans/up\')"', "python3 -c \"import pathlib; pathlib.Path('.claude/plans/up').symlink_to('..')\"",
+    "node -e \"require('fs').symlink('../..','.claude/plans/up2',()=>{})\"", 'link /tmp/x .claude/plans/x', 'cp -s /p/a .claude/plans/a',
+    'rsync -a --link-dest=/p .claude/plans/ /tmp/b', 'echo x > .claude/plans/x/.git/hooks/pre-commit',
+    "python3 -c \"import pathlib; pathlib.Path('.claude/plans/x.md').unlink()\"", "node -e \"require('fs/promises').rm('.claude/plans/sub',{recursive:true})\"",
+    'ruby -e \'File.delete(".claude/plans/x.md")\'', 'tar --remove-files -cf /tmp/a.tar .claude/plans/x.md',
+    'rsync --remove-source-files .claude/plans/x.md /tmp/', 'gzip .claude/plans/x.md', 'zip -m /tmp/a.zip .claude/plans/x.md',
+    'git stash push -u -- .claude/plans/x.md', 'cmd /c del .claude\\plans\\x.md', "[IO.File]::Delete('.claude\\plans\\x.md')",
+    'truncate -s 0 .claude/plans/x.md', 'git -C .claude/plans/sub config core.hooksPath /tmp/evil',
+    // review round 3: a delete the stripper must not hide (interpreters, launchers, quoting it would misread)
+    "python3 - <<'E'\nimport os\nos.system('rm -rf .claude/plans/sub')\nE", "python3 -c \"import subprocess; subprocess.run(['rm','-rf','.claude/plans/x.md'])\"",
+    "node -e \"require('child_process').execSync('rm .claude/plans/x.md')\"", "perl -e 'system(\"rm .claude/plans/x.md\")'",
+    "awk 'BEGIN{system(\"rm .claude/plans/x.md\")}'", "git -c alias.z='!rm -f .claude/plans/x.md' z", "env -S 'rm .claude/plans/x.md'",
+    "bash -e -c 'rm .claude/plans/x.md'", "/bin/sh -c 'rm .claude/plans/x.md'", "echo 'rm .claude/plans/x.md' | /bin/bash",
+    "pwsh -c 'Remove-Item .claude/plans/x.md'", 'echo "PID(rm -f .claude/plans/x.md)"'.replace('PID(', '$('),
+    "echo don\\'t; rm -f .claude/plans/x.md; echo 'x'", "echo $'it\\'s'; rm -f .claude/plans/x.md",
+    "echo '<<E'\nrm -f .claude/plans/x.md", 'cat .claude/plans/x.md # <<E\nrm -f .claude/plans/x.md',
+    'cat <<<w\nrm -f .claude/plans/x.md', "cat <<'E'X\nrm -f .claude/plans/x.md\nEX",
+    "cat > .claude/plans/x.md <<'E'\r\nhi\r\nE\r\nrm -f .claude/plans/x.md",
+    // review round 3: a protected name split by quotes or a backslash, beside a plan path
+    "cat .claude/plans/x.md; echo bad > .g'i't/hooks/pre-commit", "cat .claude/plans/x.md; echo '{}' > ~/.cl\\aude/settings.json"]) {
     assert.equal(answers(c), false, c);
   }
+});
+
+test('#9001 1b: PowerShell: its own delete aliases count only for a PowerShell call', () => {
+  assert.equal(answers('del .claude/plans/x.md', 'PowerShell'), false, 'del is a delete in PowerShell');
+  assert.equal(answers('ri .claude\\plans\\x.md', 'PowerShell'), false);
+  assert.equal(answers('Get-Content .claude\\plans\\x.md', 'PowerShell'), true, 'a read of a plan: answered');
+  assert.equal(answers("python3 - <<'PY'\nd={}\ndel d['k']\nopen('.claude/plans/x.md','w').write('x')\nPY"), true, "Python's del in a shell call is not a delete");
 });
 
 test('#9001 1b: controls; nothing changes where no protected place is named, or for the file tools', () => {
