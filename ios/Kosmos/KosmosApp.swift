@@ -19,9 +19,8 @@ struct KosmosApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(pushManager: appDelegate.pushManager)
-                .readsTwoPanes()   // kosmos#9002
                 #if DEBUG
-                .onAppear { DuoSample.apply() }
+                .onAppear { DuoSample.apply() }   // kosmos#9002
                 #endif
         }
     }
