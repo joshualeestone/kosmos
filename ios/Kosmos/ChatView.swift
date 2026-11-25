@@ -126,6 +126,7 @@ struct ChatView: View {
     @State private var unseenNew = false
     // The words in the box. Kept here while the chat is open (typing redraws only the chat) and given to the client when
     // it goes, so leaving the chat never loses them.
+    @Environment(\.twoPanes) private var twoPanes   // kosmos#9002
     @State private var draftText = ""
     // kosmos#8958: unsent drafts whose Dismiss is on its way to the Mac (their buttons are off meanwhile).
     @State private var dismissingDrafts: Set<String> = []
@@ -340,7 +341,7 @@ struct ChatView: View {
         .ignoresSafeArea(.keyboard, edges: trayOpen ? .bottom : [])
         .background(Palette.chatGround.ignoresSafeArea())
         // Mona Lisa's review: the tab bar would stack under the composer and take about 170pt, so it hides here.
-        .toolbar(.hidden, for: .tabBar)
+        .toolbar(twoPanes ? .visible : .hidden, for: .tabBar)   // kosmos#9002: beside its list, the tabs stay
         .messageActionsHost()   // kosmos#7419: the one long-press sheet of this chat
         .environment(\.paneWidth, contentWidth)   // kosmos#9002: the bubbles and cards are sized to the pane this chat is in
         .background(GeometryReader { g in
