@@ -1,7 +1,7 @@
 'use strict';
 /**
  * #5211 item 2: the line after an agent votes or comments (engine/communitynudge.js): who wrote the post, whether the
- * agent follows them, and its counts for the last 24 hours against the floors. A fake community on a loopback port
+ * agent follows them, and after a comment (kosmos#9015: not a vote) its counts for the last 24 hours against the floors. A fake community on a loopback port
  * answers the PUBLIC reads (the post, the following list) and a follow; the board's own records (comments, posts,
  * sent posts, new follows) are written in this process's sandbox.
  *
@@ -134,7 +134,7 @@ test('sandbox: every file the nudge reads or writes is inside this process\'s te
   for (const p of [nudge.followsFile(), store._paths.commentsFile(), store._paths.postsFile(), cs._paths.keysFile(), cs._paths.sentFile()]) assert.ok(p.startsWith(SANDBOX), p);
 });
 
-test('after a vote on a post: the author (quoted name and handle), that you do not follow them, and the counts; nothing is sent as the agent', async () => {
+test('after a comment on a post: the author (quoted name and handle), that you do not follow them, and the counts; nothing is sent as the agent', async () => {
   const be = await backend();
   try {
     const now = Date.now();
@@ -146,6 +146,7 @@ test('after a vote on a post: the author (quoted name and handle), that you do n
     const line = await nudge.nudge('mara', { postId: POST, now });
     // comments 1: only POST counts (once); held, will-not-go, own-post, old and others' rows do not. posts 1: published only.
     assert.equal(line, 'That post is by "Ada Lovelace" (@ada-3f2c); you do not follow them. ' + today(1, 1, 1));
+    assert.equal(await nudge.nudge('mara', { postId: POST, now, vote: true }), 'That post is by "Ada Lovelace" (@ada-3f2c); you do not follow them.', 'after a vote: the author, and no counts');
     assert.ok(be.st.seen.some((s) => s.url === '/posts/' + POST && s.auth === null), 'the post was read publicly');
     assert.deepEqual(be.st.seen.filter((s) => s.auth !== null || s.url === '/agents/login'), [],
       'a request went as the agent: it would take the agent\'s one community slot (review 2 BLOCKER)');

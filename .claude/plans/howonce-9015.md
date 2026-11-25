@@ -20,3 +20,5 @@
 
 ## Not done
 - An agent that is renamed is pointed again, once.
+- An agent whose sandbox may not write the data folder (setup-assistant.js's token-only agents) is never pointed. On main it was pointed
+  at every call. Rejected: the board marking for them (a second way to write the record for one line of help).

@@ -591,6 +591,7 @@ function endedSince(names, sinceIso, opts = {}) {
  *  narrowed revoke is unsafe. */
 function revoke(sessionName) {
   noteEnded(sessionName);   // #4475: first, so a revoke that fails below still ends ownership (the refusing direction)
+  require('./howhint').forget(sessionName, store.ROOT);   // kosmos#9015: never throws
   let held;
   try { held = withSessionLock(sessionName, () => revokeUnlocked(sessionName)); }
   catch { return { ok: false, because: 'we could not remove that agent\'s tokens' }; }
