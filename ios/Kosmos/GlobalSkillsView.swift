@@ -156,7 +156,7 @@ struct GlobalSkillsView: View {
                     if adding { SweepDots(size: 16, label: "Adding", scales: false) }
                 }
             }
-            .disabled(adding || !GlobalSkills.canAdd(name: name, body: words))
+            .disabled(adding)
             .accessibilityIdentifier("gskill-add")
         } header: {
             Text(GlobalSkills.Words.addLabel)
@@ -235,6 +235,11 @@ struct GlobalSkillsView: View {
     @MainActor private func add() async {
         armed = nil
         if sample {
+            // The engine's own refusal for a blank name (engine/skills.js), so the sample answers as a computer would.
+            if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                addNote = (GlobalSkills.sampleBlankName, true)
+                return
+            }
             if case .got(let s) = load {
                 load = .got(s + [Board.Skill(key: name.lowercased().replacingOccurrences(of: " ", with: "-"), name: name)])
             }
@@ -244,6 +249,7 @@ struct GlobalSkillsView: View {
         }
         guard let mac, !adding, let request = GlobalSkills.addRequest(mac, name: name, body: words) else { return }
         adding = true
+        addNote = nil   // review 2: the last refusal goes while this one is out, as the page's "Adding…"
         let sentTo = mac.url
         let (status, data) = await send(request)
         guard sentTo == shownURL else { return }

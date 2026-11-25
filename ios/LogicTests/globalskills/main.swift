@@ -33,15 +33,15 @@ let sentAdd = add?.httpBody.flatMap { (try? JSONSerialization.jsonObject(with: $
 check(add?.httpMethod == "POST" && add?.url?.path == "/api/skills" && sentAdd == ["name": "How we write emails", "body": "Short sentences.\n"],
       "add POSTs { name, body }, the name trimmed and the words as written (the page trims only the name)")
 check(add?.value(forHTTPHeaderField: "Content-Type") == "application/json", "as JSON")
-check(G.addRequest(mac, name: "  ", body: "x") == nil && G.addRequest(mac, name: "x", body: " \n") == nil, "a blank name or blank words is not sent")
-check(G.addRequest(mac, name: String(repeating: "n", count: 81), body: "x") == nil && G.addRequest(mac, name: String(repeating: "n", count: 80), body: "x") != nil,
-      "the page's 80-character name limit")
+let blank = G.addRequest(mac, name: "  ", body: " ").flatMap { $0.httpBody }.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: String] }
+check(blank == ["name": "", "body": " "], "blank fields are sent as the page sends them, for the engine's own sentence (review 2)")
+check(G.clipped(String(repeating: "n", count: 81), utf16: G.nameMax).count == 80, "the name field stops at the page's 80")
 check(G.addRequest(mac, name: "x", body: String(repeating: "語", count: 25_000)) != nil,
       "long words are sent (75 KB of CJK): the engine refuses an oversized skill in its own sentence, not a grey button (review 1)")
 check(G.clipped(String(repeating: "w", count: 65537), utf16: G.bodyMax).utf16.count == 65536, "the words field stops at the page's 65536")
 check(G.clipped("ab😀c", utf16: 3) == "ab" && G.clipped("ab😀c", utf16: 4) == "ab😀" && G.clipped("abc", utf16: 3) == "abc",
       "counted in UTF-16 units as maxlength does, and never cut inside a character")
-check(G.canAdd(name: String(repeating: "😀", count: 40), body: "x") && !G.canAdd(name: String(repeating: "😀", count: 41), body: "x"),
+check(G.clipped(String(repeating: "😀", count: 41), utf16: G.nameMax) == String(repeating: "😀", count: 40),
       "the name's 80 is UTF-16 units too (40 emoji fit, 41 do not)")
 let rm = G.removeRequest(mac, key: "how-we-write-emails")
 check(rm?.httpMethod == "DELETE" && rm?.url?.absoluteString == "https://studio.kosmosplus.com/api/skills/how-we-write-emails", "remove is DELETE /api/skills/<key>")
@@ -70,7 +70,10 @@ check(G.added(status: 400, data: json(#"{"ok":false,"because":"there is already 
 check(G.added(status: 400, data: json(#"{"ok":false}"#)) == .refused("We could not add that skill."), "with none, the page's default")
 check(G.added(status: 200, data: json(#"{"ok":false,"because":"we could not write the skill file"}"#)) == .refused("We could not write the skill file."),
       "a 200 that says ok:false is not done")
-check(G.added(status: 200, data: json("<html>signed in</html>")) == .refused(G.Words.addFailed), "a page that is not the computer's answer is not done")
+check(G.added(status: 200, data: json("<html>signed in</html>")) == .refused("We could not add that skill."),
+      "an add answer that is not JSON is the page's \"We could not add that skill.\" (its json().catch)")
+check(G.added(status: 502, data: json("<html>bad gateway</html>")) == .refused("We could not add that skill."), "a 5xx page, the same")
+check(G.removed(status: 502, data: json("<html>bad gateway</html>")) == .refused(G.Words.removeFailed), "a remove answer that is not JSON is could-not-reach (its json() throws)")
 check(G.added(status: 0, data: json("")) == .refused(G.Words.addFailed), "no answer: the page's could-not-reach line")
 check(G.removed(status: 200, data: json(#"{"ok":true}"#)) == .done, "removed")
 check(G.removed(status: 400, data: json(#"{"ok":false,"because":"there is no skill by this name here"}"#)) == .refused("There is no skill by this name here."), "a remove refused")
@@ -97,12 +100,16 @@ check(sectionHTML.count > 500 && script.count > 2000, "the section and its scrip
 for w in [W.title, W.hint, W.addLabel, W.addHint, W.namePlaceholder, W.bodyPlaceholder, W.addButton] {
     check(sectionHTML.contains(w), "in the section: \(w.prefix(50))")
 }
-for w in [W.none, W.added, W.remove, W.removeArmed, W.listFailed, W.addFailed, W.removeFailed, W.addRefusedDefault,
+check(repoText("engine/skills.js").contains("'" + G.sampleBlankName.dropLast().lowercased() + "'"),
+      "the sample's blank-name sentence is the engine's own (engine/skills.js)")
+check(script.contains("rm.textContent = 'Remove';"), "the Remove button's own word in the script (review 2: the bare word is in other sentences)")
+for w in [W.none, W.added, W.removeArmed, W.listFailed, W.addFailed, W.removeFailed, W.addRefusedDefault,
           W.removeRefusedDefault, W.listRefusedDefault, "Looking…"] {
     check(script.contains(w), "in the page's script: \(w.prefix(50))")
 }
 check(!sectionHTML.contains("Remove it for good?"), "control: a script sentence is not in the section's markup, so the cut is the section")
-check(sectionHTML.contains("Ask your agent: <b>“What skills should we install?”</b>"), "the page's Ask your agent line")
+check(sectionHTML.replacingOccurrences(of: "<b>", with: "").replacingOccurrences(of: "</b>", with: "").contains(W.ask),
+      "the app's Ask your agent line is the page's, its bold dropped")
 check(page.contains(#"id="g-skill-name" maxlength="80""#) && page.contains(#"id="g-skill-body" rows="5" maxlength="65536""#), "the two limits are the page's")
 check(server.contains("pathname === '/api/skills' && (req.method === 'GET'") && server.contains("pathname === '/api/skills' && req.method === 'POST'")
       && server.contains(#"pathname.match(/^\/api\/skills\/([^/]+)$/)"#), "the computer has the three routes")

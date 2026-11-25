@@ -67,11 +67,11 @@ enum GlobalSkills {
         return r
     }
 
-    // nil when there is nothing to send: a blank name or blank words (the engine refuses them; the button waits).
+    // As the page's Add skill, whatever is written is sent (the name trimmed): a blank name or blank words are the
+    // engine's to refuse, in its own sentence, not a grey button with no reason (review 2).
     static func addRequest(_ mac: Settings.Mac, name: String, body: String) -> URLRequest? {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard canAdd(name: name, body: body),
-              let data = try? JSONSerialization.data(withJSONObject: ["name": n, "body": body], options: [.sortedKeys]) else { return nil }
+        guard let data = try? JSONSerialization.data(withJSONObject: ["name": n, "body": body], options: [.sortedKeys]) else { return nil }
         var r = URLRequest(url: URL(string: "/api/skills", relativeTo: mac.url)!.absoluteURL)
         r.httpMethod = "POST"
         sign(&r, mac)
@@ -80,10 +80,6 @@ enum GlobalSkills {
         return r
     }
 
-    static func canAdd(name: String, body: String) -> Bool {
-        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !n.isEmpty && n.utf16.count <= nameMax && !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
 
     // The key is the board's (engine/skills.js), one path segment, encoded as the page's encodeURIComponent.
     static func removeRequest(_ mac: Settings.Mac, key: String) -> URLRequest? {
@@ -120,15 +116,20 @@ enum GlobalSkills {
     // A write's answer: done, or the computer's own reason (its `because`), or the page's words when it gave none.
     enum Done: Equatable { case done, refused(String) }
 
-    static func added(status: Int, data: Data) -> Done { done(status, data, refusedDefault: Words.addRefusedDefault, failed: Words.addFailed) }
-    static func removed(status: Int, data: Data) -> Done { done(status, data, refusedDefault: Words.removeRefusedDefault, failed: Words.removeFailed) }
+    // The page's two scripts differ here, and each is followed: Add reads its answer with json().catch(() => null), so an
+    // answer that is not JSON is "We could not add that skill."; Remove's res.json() throws on one, so it is the
+    // could-not-reach line (review 2). No answer at all is could-not-reach for both.
+    static func added(status: Int, data: Data) -> Done {
+        done(status, data, refusedDefault: Words.addRefusedDefault, failed: Words.addFailed, notJSON: Settings.sentence(Words.addRefusedDefault))
+    }
+    static func removed(status: Int, data: Data) -> Done {
+        done(status, data, refusedDefault: Words.removeRefusedDefault, failed: Words.removeFailed, notJSON: Words.removeFailed)
+    }
 
-    private static func done(_ status: Int, _ data: Data, refusedDefault: String, failed: String) -> Done {
+    private static func done(_ status: Int, _ data: Data, refusedDefault: String, failed: String, notJSON: String) -> Done {
         if status == 401 || status == 403 { return .refused(Board.phoneShutOut) }
-        guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            // No answer, or not the computer's (a gate's page): the page's could-not-reach line.
-            return .refused(failed)
-        }
+        if status == 0 { return .refused(failed) }
+        guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return .refused(notJSON) }
         if status == 200 && (obj["ok"] as? Bool) != false { return .done }
         return .refused(Settings.sentence(text(obj["because"]) ?? refusedDefault))
     }
@@ -137,6 +138,9 @@ enum GlobalSkills {
         guard let s = v as? String, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return s
     }
+
+    // The engine's sentence for a blank name, as the phone shows it (a sample build has no engine to ask).
+    static let sampleBlankName = "Give the skill a short name in letters and numbers."
 
     // A sample build's computer (KOSMOS_SAMPLE_AGENTS, Debug only), in the route's own shape, for screenshots.
     static let sampleList = #"{"ok":true,"skills":[{"key":"how-we-write-emails","name":"How we write emails"},{"key":"release-notes","name":"Release notes"}]}"#
