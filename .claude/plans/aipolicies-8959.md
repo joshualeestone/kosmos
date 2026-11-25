@@ -38,3 +38,11 @@ Branch `aipolicies-8959`, stacked on D1b1 (16b7bfd952), which is stacked on D1a:
 - iOS sources type-check.
 
 ## Challenge loop ledger
+
+### Round 1 (opus, 2026-11-25 00:04 CST): no BLOCKER, no MAJOR, 5 MINOR
+- M1 a refused first save dropped the first load in flight, leaving "Reaching your computer" up: fixed, a refusal reloads when `read == nil`.
+- M2 a 500 with `{error}` on GET: the page shows "No policies here yet.", the phone says it could not reach Kosmos. Kept on purpose (the phone's sentence is the true one); recorded here as a deliberate difference.
+- M3 Keep / Leave it were checked by substring: now anchored to `keep.textContent = 'Keep';` and `leave.textContent = 'Leave it';`. Control: rewording the page's Keep to "Keep it" fails 1 of 104.
+- M4 a refused Remove dropped back to "Remove": now re-armed, as the page.
+- M5 sample build: an add after removing every policy did nothing: `.none` now starts an empty list. Also fixed (found while there): sample ids `s<count+1>` collided after a removal; now unique.
+- Measured: run-aipolicies.sh PASS 104/104 (two loose checks became one anchored one); typecheck rc 0, 0 errors.

@@ -121,13 +121,14 @@ for w in [W.title, W.hint, W.addLabel, W.addHint, W.namePlaceholder, W.linkLabel
     check(sectionHTML.contains(w), "in the section: \(w.prefix(48))")
 }
 for w in [W.confirmSmall, W.confirmNo, W.confirmGo] { check(modal.contains(w), "in the confirm: \(w.prefix(48))") }
-for w in [W.leadOne, W.leadMany, W.companyOnly, W.companyFrom, W.none, W.listFailed, W.replaceHint, W.saveReplace, W.keep, W.leave,
+for w in [W.leadOne, W.leadMany, W.companyOnly, W.companyFrom, W.none, W.listFailed, W.replaceHint, W.saveReplace,
           W.nameFirst, W.linkFirst, W.textFirst, W.saveFailed, W.renameFailed, W.removeFailed, W.saveRefusedDefault,
           W.renameRefusedDefault, W.removeRefusedDefault, W.fetching, W.saving, W.renaming, W.removing, W.removeArmed, W.unreadDefault] {
     check(script.contains(w), "in the script: \(w.prefix(48))")
 }
 check(script.contains("rename.textContent = '" + W.rename + "';") && script.contains("swap.textContent = '" + W.replace + "';")
       && script.contains("rm.textContent = '" + W.remove + "';"), "the three buttons' own words")
+check(script.contains("keep.textContent = '" + W.keep + "';") && script.contains("leave.textContent = '" + W.leave + "';"), "the rename field's two buttons' own words")
 check(script.contains("' (' + pjSentence(m.because || 'could not be told') + ')'") && script.contains("'. Not yet: '"), "polSaid's miss list, as the app writes it")
 check(page.contains(#"id="pol-name" maxlength="60""#) && page.contains(#"id="pol-url" maxlength="2000""#) && page.contains(#"id="pol-text" rows="6" maxlength="16384""#)
       && script.contains("inp.maxLength = 60"), "the field limits are the page's")
