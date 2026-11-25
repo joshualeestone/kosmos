@@ -45,8 +45,10 @@ struct AutomationView: View {
         .background(Palette.ground.ignoresSafeArea())
         .navigationTitle("Automation")
         .navigationBarTitleDisplayMode(.inline)
-        .dotsRefresh { await readAll() }
-        .task { await readAll() }
+        // A pull clears each box's last line; coming back to the screen (from the Language list, say) keeps it, so a
+        // "Saved. ..." or a refusal is not wiped by the read that follows (review 2).
+        .dotsRefresh { await readAll(keepNotes: false) }
+        .task { await readAll(keepNotes: true) }
         .accessibilityIdentifier("automation-list")
     }
 
@@ -234,9 +236,9 @@ struct AutomationView: View {
         return (answer.statusCode, data)
     }
 
-    @MainActor private func readAll() async {
+    @MainActor private func readAll(keepNotes: Bool) async {
         await withTaskGroup(of: Void.self) { group in
-            for box in Automation.Box.allCases { group.addTask { await read(box) } }
+            for box in Automation.Box.allCases { group.addTask { await read(box, keepNote: keepNotes) } }
         }
     }
 

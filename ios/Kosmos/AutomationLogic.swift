@@ -328,7 +328,10 @@ enum Automation {
             if case .language(let l) = s, l.choice == nil { return .savedUnread }
             return .saved(s)
         }
-        if status == 200 { return .savedUnread }
+        // Review 2: only a JSON answer counts as the computer's (a gate or captive page can answer 200 with HTML, and
+        // the setting did not change); anything else is refused, and the screen reads again to show what is there.
+        if object(status, data) != nil { return .savedUnread }
+        if status == 200 { return .refused(Words.saveFailed) }
         return .refused(refusal(status: status, data: data, writing: true))
     }
 
