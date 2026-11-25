@@ -262,18 +262,22 @@ test('#7820 a failed delete reads "remove its startup job", never "move" it', ()
 /* Both scripts parse as PowerShell. Runs wherever pwsh is installed (the fleet's Macs have it); on Windows the board
    runs them under Windows PowerShell 5.1, whose parser this does not prove. */
 const PWSH = ['/opt/homebrew/bin/pwsh', '/usr/local/bin/pwsh', '/usr/bin/pwsh'].find((p) => fs.existsSync(p));
+// #9024: each pwsh start gets this process's own startup cache, and a pwsh that cannot start says so first.
+const { pwshEnv, pwshState } = require('../test-support/pwsh');
 test('#7820 the PowerShell scripts parse', { skip: PWSH ? false : 'no pwsh on this machine' }, () => {
   const { execFileSync } = require('node:child_process');
+  const state = pwshState(PWSH);
+  assert.equal(state, 'ok', state);
   for (const script of [leftover.DRIVE_SCRIPT, leftover.RECYCLE_SCRIPT]) {
     const out = execFileSync(PWSH, ['-NoProfile', '-NonInteractive', '-Command',
       '$e=$null; [void][System.Management.Automation.Language.Parser]::ParseInput($env:K7820, [ref]$null, [ref]$e); if ($e.Count) { $e | ForEach-Object { $_.Message } } else { "PARSED" }'],
-    { encoding: 'utf8', env: { ...process.env, K7820: script }, timeout: 60000 }).trim();
+    { encoding: 'utf8', env: pwshEnv({ K7820: script }), timeout: 60000 }).trim();
     assert.equal(out, 'PARSED', script);
   }
   // CONTROL: a broken script is reported, so PARSED above can fail.
   const bad = execFileSync(PWSH, ['-NoProfile', '-NonInteractive', '-Command',
     '$e=$null; [void][System.Management.Automation.Language.Parser]::ParseInput($env:K7820, [ref]$null, [ref]$e); if ($e.Count) { "BROKEN" } else { "PARSED" }'],
-  { encoding: 'utf8', env: { ...process.env, K7820: 'if ($x { "y" }' }, timeout: 60000 }).trim();
+  { encoding: 'utf8', env: pwshEnv({ K7820: 'if ($x { "y" }' }), timeout: 60000 }).trim();
   assert.equal(bad, 'BROKEN');
 });
 
