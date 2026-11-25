@@ -600,9 +600,10 @@ function latestOf(rows, cut) {
     latest = row;
     /* stopped ends a run; started begins one (a crash leaves no stopped row, so
        a new run must not inherit the old run's project and light it on the
-       first question). The cost: the hook reports started on every session
-       start, compaction and resume included, so after each the questions go
-       unattributed until the agent names a project again. A missed light,
+       first question). The cost: a new session (and, for gemini and grok, a
+       /clear) reports started, so after each the questions go unattributed
+       until the agent names a project again; a compaction or resume reports
+       nothing (#1058, and #9048 for the gemini and grok bridges). A missed light,
        never a wrong one (the direction ruled 2026-08-24 23:05). */
     if (row.state === 'stopped' || row.state === 'started') { project = null; final = null; }
     { const f = finalOf(row.state, row.final); if (f) final = f; }
