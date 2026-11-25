@@ -46,6 +46,29 @@ const ABSENT = { kind: 'absent', share: null };
 /* kosmos#8232: filesLines on win32 walks each path's links with lstat; this filesystem has only plain folders, so the
    simulated arms below never look at the host's own C: or D:. */
 const NO_LINKS = { lstatSync: () => ({ isSymbolicLink: () => false }), readlinkSync: () => { throw new Error('no links here'); } };
+/* kosmos#9020: the real drive table, learned fresh with room for a cold PowerShell. On a busy Windows CI runner item 1
+   took 10,199 ms on 11-24 (run 45509671346, the whole test), consistent with its drive read being killed at the CLI's
+   one-shot bound (windrives.ONE_SHOT_TIMEOUT_MS, 10 s). The table stayed unknown, and windrives waits REFRESH_MS before
+   reading again, so item 4 in the same process inherited it and its path was not sent.
+   These tests are about what the CLI sends once the kind is known, not about that bound (the bound has its own arm
+   through setLearnForTests, below), so the first real read gets 30 s, after forgetting any failed read before it. That
+   is well inside the runner's 60 s per-test limit, so a slow read fails with its own message; each Windows arm also
+   gets 120 s (its timeout option, which overrides --test-timeout: measured on node 26.8.1 by review round 2). Each
+   read's time is printed as a MEASURED line, which tools/windows-tests.js keeps in the log even when the file passes:
+   the one place a real cold read is measured against the product's 10 s bound. What the CLI does when the read times
+   out (not sent, and why) is the designed fail-closed behaviour and is tested through the seam. */
+const WARM_MS = 30000;
+const ARM_TIMEOUT_MS = 120000;
+function learnRealTable(letter) {
+  windrives.setLearnForTests(null);   // forget a failed read from earlier in this process, which would block a retry
+  const t0 = Date.now();
+  const info = windrives.infoOf(letter, { timeoutMs: WARM_MS });
+  const ms = Date.now() - t0;
+  // Past the product's bound, the CLI on this computer would have refused the path: said loudly, not failed (review 2).
+  const over = ms > windrives.ONE_SHOT_TIMEOUT_MS ? ' EXCEEDS THE ONE-SHOT BOUND: the CLI here would not have sent this path' : '';
+  console.log(`MEASURED: drive read took ${ms} ms (one-shot bound ${windrives.ONE_SHOT_TIMEOUT_MS} ms)${over} kosmos#9020`);
+  return { info, ms };
+}
 const kinds = (byLetter) => (letter) => (Object.prototype.hasOwnProperty.call(byLetter, letter.toUpperCase()) ? byLetter[letter.toUpperCase()] : null);
 
 /* The Windows CLI, in-process, against a scripted board: every request is recorded; a mark is answered as changed,
@@ -163,13 +186,15 @@ test('#8227 item 1: with no seam, task files asks engine/windrives.js (the #7232
 });
 
 // ── item 1: the record side and the real table, on Windows ──────────────────
-test('#8227 item 1 Windows: built --file sends a local drive path, and never one on a network drive', { skip: NEEDS_WINDOWS }, async () => {
+test('#8227 item 1 Windows: built --file sends a local drive path, and never one on a network drive', { skip: NEEDS_WINDOWS, timeout: ARM_TIMEOUT_MS }, async () => {
   const file = path.join(OUT, 'drive.txt');
   fs.writeFileSync(file, 'on a drive');
   const FP = sha('on a drive');
   const letter = file.charAt(0).toUpperCase();
-  // The real table (engine/windrives.js, no seam, its own one-shot bound): this test's own drive is a local one.
-  assert.deepEqual(windrives.infoOf(letter), LOCAL, 'Windows did not read the drive this test runs on as local');
+  // The real table (engine/windrives.js, no seam), learned with room for a cold PowerShell (kosmos#9020): this test's
+  // own drive is a local one. Later calls in this test (the CLI's, with its own bound) read the table learned here.
+  const learned = learnRealTable(letter);
+  assert.deepEqual(learned.info, LOCAL, `Windows did not read the drive this test runs on as local (the read took ${learned.ms} ms of ${WARM_MS})`);
   const kept = await win(['task', 'built', 'proj-1', '1', 'done', '--file', 'drive.txt'], { cwd: OUT });
   assert.equal(kept.code, 0, kept.err);
   assert.equal(sentMark(kept).file_path, file, 'a local drive path was not sent');
@@ -206,8 +231,12 @@ test('#8227 item 1 Windows: built --file sends a local drive path, and never one
 });
 
 // ── item 4: the CLI seam under Windows rules, on Windows ────────────────────
-test('#8227 item 4 Windows: pathRules.resolve then keptPath, for a drive path, a UNC path and a folder link', { skip: NEEDS_WINDOWS }, async () => {
+test('#8227 item 4 Windows: pathRules.resolve then keptPath, for a drive path, a UNC path and a folder link', { skip: NEEDS_WINDOWS, timeout: ARM_TIMEOUT_MS }, async () => {
   const w = path.win32;
+  // kosmos#9020: the CLI's task built --file below asks the real table for this drive's kind; learned here first, so
+  // this test does not depend on item 1 having run (a filtered run) or on the CLI's 10 s bound on a busy runner.
+  const learned = learnRealTable(OUT.charAt(0).toUpperCase());
+  assert.deepEqual(learned.info, LOCAL, `CONTROL: Windows did not read this test's drive as local (the read took ${learned.ms} ms of ${WARM_MS})`);
   // A drive path: resolved against the folder it runs in, kept whole.
   const drive = w.resolve(OUT, 'sub\\..\\x.txt');
   assert.equal(drive, w.join(OUT, 'x.txt'), 'a drive path did not resolve lexically');
