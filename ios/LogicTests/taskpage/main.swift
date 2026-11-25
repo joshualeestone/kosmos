@@ -1559,6 +1559,9 @@ do {
         check(got == want, "the board's words: \(want)" + (got == want ? "" : " (the phone: \(got))"))
     }
     check(Board.activityPhrase(["kind": "hold-set", "until": "2026-11-02T15:00:00.000Z"], name: { $0 }).contains("Nov") && Board.activityPhrase(["kind": "hold-set", "until": "soon"], name: { $0 }) == "Put on hold until soon", "a time on the phone's clock, anything else as it is")
+    // The phone's own parser reads a looser time than the board takes for one.
+    check(Board.activityPhrase(["kind": "hold-set", "until": "2026-1-2T15:00:00Z"], name: { $0 }) == "Put on hold until 2026-1-2T15:00:00Z", "a time written any other way stays as it is")
+    check(!Board.activityPhrase(["kind": "check-reported", "check": 1, "met": true, "how": "seen", "movedTo": 4], name: { $0 }).contains("Moved"), "a check that is met did not move")
     let quiet: [[String: Any]] = [["kind": "run", "at": "2026-11-24T10:00:00.000Z", "unchanged": true, "by": "dana", "note": "same"], ["kind": "run", "at": "2026-11-24T11:00:00.000Z", "unchanged": true, "by": "dana"], ["kind": "closed", "at": "2026-11-24T12:00:00.000Z", "replacedBy": 7]]
     let rows = Board.activityRows(quiet, name: { $0 == "dana" ? "Dana" : $0 })
     check(rows.map(\.text) == ["2 runs found nothing new", "Closed as replaced by task 7"] && rows[0].folded.map(\.text) == ["Dana ran it, nothing new: same", "Dana ran it, nothing new"] && rows[0].folded.map(\.at) == [Tasks.parseISO("2026-11-24T10:00:00.000Z"), Tasks.parseISO("2026-11-24T11:00:00.000Z")], "a folded row holds each run")
