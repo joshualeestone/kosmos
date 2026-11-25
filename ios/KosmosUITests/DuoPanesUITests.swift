@@ -20,6 +20,15 @@ final class DuoPanesUITests: XCTestCase {
         app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Message Dana'")).firstMatch
     }
     private func row(_ app: XCUIApplication) -> XCUIElement { app.staticTexts["Cleo"].firstMatch }
+    // Beside: the message box starts right of the list's row. Judged by frames, never by isHittable: asking that of a row a
+    // fold is taking away fails the test by itself.
+    private func beside(_ app: XCUIApplication) -> Bool {
+        guard box(app).exists, row(app).exists else { return false }
+        let b = box(app).frame, r = row(app).frame
+        return b.width > 0 && r.width > 0 && r.maxX > 0 && b.minX > r.maxX
+    }
+    // Alone: the box starts near the left edge, so the chat has the whole width.
+    private func alone(_ app: XCUIApplication) -> Bool { box(app).exists && box(app).frame.width > 0 && box(app).frame.minX < app.frame.width * 0.25 }
     private func shot(_ app: XCUIApplication, _ name: String) {
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = name; a.lifetime = .keepAlways; add(a)
     }
@@ -36,23 +45,21 @@ final class DuoPanesUITests: XCTestCase {
         XCTAssertTrue(box(app).waitForExistence(timeout: 40), "Dana's chat did not open")
         sleep(2)
         shot(app, "control, one column")
-        XCTAssertFalse(row(app).exists && row(app).isHittable, "the list is beside the chat without the stand-in")
+        XCTAssertTrue(alone(app) && !beside(app), "without the stand-in the chat does not have the whole width (box \(box(app).frame))")
     }
 
     func testTheListIsBesideTheChatAndAFoldKeepsTheChatAndTheDraft() throws {
         let app = try launch("fold:40")
         XCTAssertTrue(box(app).waitForExistence(timeout: 30), "Dana's chat did not open")
         shot(app, "unfolded")
-        XCTAssertTrue(row(app).waitForExistence(timeout: 5) && row(app).isHittable, "unfolded, the list is not beside the chat")
+        XCTAssertTrue(holds(8) { self.beside(app) }, "unfolded, the list is not beside the chat (row \(row(app).frame), box \(box(app).frame))")
         box(app).tap()
         box(app).typeText("kept words")
         XCTAssertTrue(((box(app).value as? String) ?? "").contains("kept words"), "CONTROL: the words were not typed")
-        XCTAssertTrue(holds(50) { !self.row(app).exists || !self.row(app).isHittable }, "the fold never came: the list is still beside the chat")
-        XCTAssertTrue(box(app).waitForExistence(timeout: 10), "folded, Dana's chat is gone")
+        XCTAssertTrue(holds(50) { self.alone(app) }, "the fold never came, or Dana's chat is gone (box exists \(box(app).exists))")
         shot(app, "folded")
         XCTAssertTrue(((box(app).value as? String) ?? "").contains("kept words"), "folded, the draft is gone (the box reads \((box(app).value as? String ?? "").debugDescription))")
-        XCTAssertTrue(holds(60) { self.row(app).exists && self.row(app).isHittable }, "the unfold never came")
-        XCTAssertTrue(box(app).waitForExistence(timeout: 10), "unfolded again, Dana's chat is gone")
+        XCTAssertTrue(holds(60) { self.beside(app) }, "the unfold never came, or Dana's chat is gone (box exists \(box(app).exists))")
         XCTAssertTrue(((box(app).value as? String) ?? "").contains("kept words"), "unfolded again, the draft is gone")
         shot(app, "unfolded again")
     }
