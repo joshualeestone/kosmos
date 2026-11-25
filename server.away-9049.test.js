@@ -198,6 +198,15 @@ test('kosmos#9057: a Windows resume long after a quit is reminded of its own wai
       const r = await ask(tok, 'as=waithook');
       assert.equal(r.code, 200, r.text);
       assert.match(JSON.parse(r.text).hookSpecificOutput.additionalContext, /The board has since set that waiting report aside/);
+      /* Review 2: the hook's own request (engine/kosmos-report-hook.js takeAway: from_pane=, the board token, the world
+         header) against this real board, also with the board enforcing its token, is answered the same reminder. */
+      const hook = require('./engine/kosmos-report-hook');
+      const viaHook = await hook.takeAway({ url: base, agentToken: tok, boardToken: TOK, waitOnly: true });
+      assert.match(viaHook, /^\{"hookSpecificOutput":/, 'the real hook request was not answered: ' + JSON.stringify(viaHook));
+      boardAuthState.on = true;
+      try {
+        assert.match(await hook.takeAway({ url: base, agentToken: tok, boardToken: TOK, waitOnly: true }), /The board has since set that waiting report aside/);
+      } finally { boardAuthState.on = false; }
       assert.notEqual(liveness.alive('winana'), true, 'the ask wrote no heartbeat');
       assert.equal(selfreport.history('winana', selfreport.HISTORY_MAX_BYTES).length, 2, 'the ask recorded no report');
       // Only the hooks' resume question is widened: the startup ask (which follows a `started`) and the by-hand forms are not.
