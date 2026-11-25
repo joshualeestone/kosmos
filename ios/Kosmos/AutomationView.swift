@@ -25,6 +25,16 @@ struct AutomationView: View {
     @State private var industryNote: String?
     @State private var industrySaving: String?       // the choice being saved, shown until the board answers
     @State private var industryGeneration = 0
+    // kosmos#8959 slice D1d2b: Community's held posts (the page's #community-held-list), read on their own.
+    private enum HeldLoad: Equatable { case reading, read(Held.Read), failed }
+    @State private var held: HeldLoad = .reading
+    @State private var heldGeneration = 0
+    @State private var heldBusy: String?            // the row being released or discarded
+    @State private var heldNotes: [String: String] = [:]   // each row's own line (a refusal, "Releasing…")
+    @State private var heldSay: String?             // a 5xx: said where the list says things
+    @State private var heldAsking: String?          // the row whose Discard ask is open
+    @State private var heldShowWords: Set<String> = []     // stopped rows whose words were asked for
+    @State private var heldOpen: Set<String> = []           // long rows read in full
 
     private enum Load: Equatable {
         case reading
@@ -86,6 +96,7 @@ struct AutomationView: View {
                 shownURL = mac?.url
                 loads = [:]; notes = [:]; pending = [:]; checkins = nil; checkinsGeneration += 1
                 industry = nil; industryRead = false; industryKept = []; industryNote = nil; industrySaving = nil; industryGeneration += 1
+                held = .reading; heldGeneration += 1; heldBusy = nil; heldNotes = [:]; heldSay = nil; heldAsking = nil; heldShowWords = []; heldOpen = []
                 for box in Automation.Box.allCases { generations[box, default: 0] += 1 }
             }
             await readAll(keepNotes: true)
@@ -120,6 +131,7 @@ struct AutomationView: View {
             // the box's own read did); hidden while there are none.
             if box == .prompter, let rows = checkins, !rows.isEmpty { checkinRows(rows) }
             if box == .community, industryRead { industryRows() }
+            if box == .community { heldRows() }
         } header: {
             Text(box.title)
         } footer: {
@@ -302,6 +314,7 @@ struct AutomationView: View {
             for box in Automation.Box.allCases { group.addTask { await read(box, keepNote: keepNotes) } }
             group.addTask { await readCheckins() }
             group.addTask { await readIndustry(keepNote: keepNotes) }
+            group.addTask { await readHeld() }
         }
     }
 
@@ -363,6 +376,130 @@ struct AutomationView: View {
         }
         if let s = industry, s.picturesStuck > 0 { Text(Industry.Words.stuck(s.picturesStuck)).font(.footnote).foregroundColor(Palette.secondary) }
         if let s = industry, s.picturesUnsendable > 0 { Text(Industry.Words.unsendable(s.picturesUnsendable)).font(.footnote).foregroundColor(Palette.secondary) }
+    }
+
+    // communityHeldPaint: "Waiting for you", the off line, and each row with Release and Discard.
+    @ViewBuilder private func heldRows() -> some View {
+        let community: Automation.Community? = { if case .loaded(.community(let c))? = loads[.community] { return c } else { return nil } }()
+        Text(Held.Words.heading).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
+        if let off = Held.offLine(on: community?.on, policyStopped: community?.stopped) {
+            Text(off).font(.footnote).foregroundColor(Palette.secondary)
+        }
+        if let say = heldSay { Text(say).font(.footnote).foregroundColor(Palette.dangerWord) }
+        switch held {
+        case .reading:
+            HStack(spacing: 10) { SweepDots(scales: false); Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary) }
+        case .failed:
+            Text(Held.Words.unread).font(.footnote).foregroundColor(Palette.secondary).accessibilityIdentifier("automation-held-msg")
+        case .read(let r):
+            if let line = Held.listLine(r) { Text(line).font(.footnote).foregroundColor(Palette.secondary).accessibilityIdentifier("automation-held-msg") }
+            ForEach(Held.shown(r.rows, policyStopped: community?.stopped)) { row in heldRow(row) }
+        }
+    }
+
+    @ViewBuilder private func heldRow(_ row: Held.Shown) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(row.title).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
+            if !row.stopped || heldShowWords.contains(row.id) {
+                Text(row.words).font(.footnote).foregroundColor(Palette.secondary)
+                    .lineLimit(heldOpen.contains(row.id) ? nil : 4)
+                    .accessibilityIdentifier("automation-held-words-" + row.id)
+                if row.long {
+                    Button(heldOpen.contains(row.id) ? Held.Words.readLess : Held.Words.readAll) {
+                        if heldOpen.contains(row.id) { heldOpen.remove(row.id) } else { heldOpen.insert(row.id) }
+                    }.buttonStyle(.borderless).font(.footnote)
+                }
+            }
+            if row.stopped {
+                Button(heldShowWords.contains(row.id) ? Held.Words.hide : Held.Words.show) {
+                    if heldShowWords.contains(row.id) { heldShowWords.remove(row.id) } else { heldShowWords.insert(row.id) }
+                }.buttonStyle(.borderless).font(.footnote)
+            }
+            if let link = row.postLink { Link(Held.Words.seePost, destination: link).font(.footnote) }
+            Text(row.meta).font(.footnote).foregroundColor(Palette.secondary)
+            if let why = row.why { Text(why).font(.footnote).foregroundColor(Palette.secondary) }
+            if heldAsking == row.id {
+                // openCommunityDiscard: the page's ask, with Keep it first.
+                Text(row.isComment ? Held.Words.askComment : Held.Words.askPost).font(.footnote).foregroundColor(Palette.primary)
+                HStack(spacing: 16) {
+                    Button(Held.Words.keep) { heldAsking = nil }.disabled(heldBusy == row.id)
+                    Button(Held.Words.discardIt, role: .destructive) { Task { await discardHeld(row) } }
+                        .disabled(heldBusy == row.id)
+                        .accessibilityIdentifier("automation-held-discard-it-" + row.id)
+                }
+                .buttonStyle(.borderless)
+            } else {
+                HStack(spacing: 16) {
+                    if row.canRelease {
+                        Button(Held.Words.release) { Task { await releaseHeld(row) } }
+                            .accessibilityLabel("Release “" + row.label + "”")
+                            .accessibilityIdentifier("automation-held-release-" + row.id)
+                    }
+                    Button(Held.Words.discard, role: .destructive) { heldAsking = row.id }
+                        .accessibilityLabel("Discard “" + row.label + "”")
+                        .accessibilityIdentifier("automation-held-discard-" + row.id)
+                }
+                .buttonStyle(.borderless)
+                .disabled(heldBusy != nil)
+            }
+            if let note = heldNotes[row.id] { Text(note).font(.footnote).foregroundColor(Palette.dangerWord) }
+        }
+        .padding(.vertical, 4)
+    }
+
+    // refreshCommunityHeld: both reads must answer.
+    @MainActor private func readHeld() async {
+        if sample {
+            if case .reading = held {
+                held = Held.read(held: Held.queue(status: 200, data: Data(Held.sampleHeld.utf8)), stopped: Held.queue(status: 200, data: Data(Held.sampleStopped.utf8))).map { .read($0) } ?? .failed
+            }
+            return
+        }
+        guard let mac, mac.url == shownURL, heldBusy == nil else { return }
+        heldGeneration += 1
+        let mine = heldGeneration
+        async let a = fetch(Held.queueRequest(mac, stopped: false))
+        async let b = fetch(Held.queueRequest(mac, stopped: true))
+        let (ha, hb) = await (a, b)
+        guard !Task.isCancelled, mine == heldGeneration, mac.url == shownURL else { return }
+        held = Held.read(held: Held.queue(status: ha.0, data: ha.1), stopped: Held.queue(status: hb.0, data: hb.1)).map { .read($0) } ?? .failed
+    }
+
+    @MainActor private func releaseHeld(_ row: Held.Shown) async {
+        guard heldBusy == nil else { return }
+        heldSay = nil
+        if sample { removeSampleHeld(row.id); return }
+        guard let mac else { return }
+        heldBusy = row.id
+        heldNotes[row.id] = Held.Words.releasing
+        let (status, data) = await fetch(Held.releaseRequest(mac, id: row.id))
+        guard mac.url == shownURL else { return }
+        heldBusy = nil
+        switch Held.outcome(status: status, data: data, releasing: true) {
+        case .done: heldNotes[row.id] = nil; await readHeld()
+        case .refused(let said): heldNotes[row.id] = said
+        case .unfinished(let said): heldNotes[row.id] = nil; heldSay = said; await readHeld()
+        }
+    }
+
+    @MainActor private func discardHeld(_ row: Held.Shown) async {
+        guard heldBusy == nil else { return }
+        heldSay = nil
+        if sample { heldAsking = nil; removeSampleHeld(row.id); return }
+        guard let mac else { return }
+        heldBusy = row.id
+        heldNotes[row.id] = Held.Words.discarding
+        let (status, data) = await fetch(Held.discardRequest(mac, id: row.id))
+        guard mac.url == shownURL else { return }
+        heldBusy = nil
+        switch Held.outcome(status: status, data: data, releasing: false) {
+        case .done: heldNotes[row.id] = nil; heldAsking = nil; await readHeld()
+        case .refused(let said), .unfinished(let said): heldNotes[row.id] = said
+        }
+    }
+
+    private func removeSampleHeld(_ id: String) {
+        if case .read(var r) = held { r.rows.removeAll { $0.id == id }; held = .read(r) }
     }
 
     @MainActor private func readIndustry(keepNote: Bool, after saved: String? = nil) async {

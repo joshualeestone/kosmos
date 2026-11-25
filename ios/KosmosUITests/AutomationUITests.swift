@@ -69,6 +69,20 @@ final class AutomationUITests: XCTestCase {
         XCTAssertTrue(stuck.exists, "the shut-out picture line is missing")
         shot(app, "automation-industry")
 
+        // kosmos#8959 slice D1d2b: the held posts under the kind of business: the sample's post waiting with Release, and
+        // one stopped by the safety check, whose words show only when asked for. Nothing is pressed that changes it.
+        let release = app.buttons["automation-held-release-p1"]
+        reveal(app, release, swipes: 4)
+        XCTAssertTrue(release.waitForExistence(timeout: 5), "the held post's Release is missing")
+        XCTAssertEqual(release.label, "Release “What we shipped this week”")
+        let stopped = app.buttons["automation-held-discard-p2"]
+        reveal(app, stopped, swipes: 3)
+        XCTAssertTrue(stopped.waitForExistence(timeout: 5), "the stopped post is missing")
+        XCTAssertEqual(stopped.label, "Discard “A post by eli (row 2)”", "a stopped row is named by its place, never its words")
+        XCTAssertFalse(app.staticTexts["automation-held-words-p2"].exists, "a stopped row's words show before they are asked for")
+        XCTAssertFalse(app.buttons["automation-held-release-p2"].exists, "a stopped row offers Release")
+        shot(app, "automation-held")
+
         // The Recommender is on in the sample, so its three guards show, each in the board's words.
         // Each guard is revealed on its own, as the check-ins are: a lazy List draws a row only near the screen, so the
         // first guard being on screen did not mean the other two were drawn yet (D1d1's light run failed here while its
