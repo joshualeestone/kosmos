@@ -11,3 +11,6 @@ is accepted and now said so in the plan: a read before every Add would slow each
 lost answer and the same few seconds. Fixed: the view kept alive by an unsettled write, one unsettled Add forgetting another, a
 comment. Not changed, as the board: a typed part is not kept past the page; a refusal after the Mac moved the part (its tell
 threw) reads as refused.
+
+Combined review of B5, B6 and B7 on main (opus, blind, 5c231f5c28): 0 B, 1 W, 2 N, all fixed. The undo link and the undo itself did
+not know B7's part writes, two of which (Put back, Add a part) can take a task out of its close; both now wait for them, tested.

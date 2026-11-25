@@ -2347,6 +2347,24 @@ func b5ModelTests() async {
         await reading?.value
         check(f.undoSay == nil && shown(f) == ["a.js"], "read again: the line goes")
     }
+    for what in ["a part write", "a press"] {
+        // Either can take the task out of its close, so the undo beside it sends nothing.
+        let mac = FakeMac(); let f = model(mac)
+        mac.projects = with(closedAt: at1); mac.undo = offer("a.js")
+        await settle(f)
+        check(f.undoPlan != nil, "premise: offered, for \(what)")
+        mac.holdTheNext()
+        let going = Task {
+            if what == "a press" { await f.press(.reopen, names: [:]) } else { _ = await f.writePart(.add("More"), name: { $1 }, names: [:]) }
+        }
+        await waitUntil({ mac.holding }, what)
+        await press(f, ["/w/a.js"])
+        check(posts(mac) == 0 && !f.undoing, "no undo beside \(what)")
+        mac.release()
+        await going.value
+        if f.undoPlan != nil { await press(f, ["/w/a.js"]) }
+        check(posts(mac) == 1, "and one after \(what)")
+    }
     // Put back, or the Mac switched, while an undo is out: its answer draws nothing.
     do {
         let fm = FakeMac(); let f = model(fm)

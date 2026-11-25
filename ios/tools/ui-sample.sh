@@ -5,8 +5,8 @@
 # keyboard in that long room (RoomKeyboardUITests, #7690), and the launch screen's hand-over to the Connecting wait
 # (LaunchHandoverUITests, #7945), a sent message settling without a step (SendMovesOnceUITests, #7348), text-message
 # second-step setup on the phone, not the web page (TextSetupUITests, #8959), a web page opening on the phone while
-# reaching nothing (WebFileUITests, #8953), and a task page's message, due date, edit, repeat, receipt and undo, natively
-# (TaskPageActionsUITests, #8958).
+# reaching nothing (WebFileUITests, #8953), and a task page's message, due date, edit, repeat, receipt, undo,
+# subtask and parts, natively (TaskPageActionsUITests, #8958).
 # Run by the ios workflow's "ui tests (sample board)" job, with --uikit by its two "uikit list (sample board) 1/2" and "2/2" jobs (--shard, kosmos#8453),
 # with --build-only by its "ui build (sample board)" job (kosmos#8993), and by
 # hand. Prints PASS, or FAIL with the failing check's own words.
@@ -89,8 +89,7 @@ classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpen
 # kosmos#8958: on their own line, so a change here and one to the list above never conflict. UnsentDraftUITests, an unsent
 #   draft drawn in the chat with Put in the message box and Dismiss, never the board (3 checks). TaskPageActionsUITests, a
 #   task page's message box, due date and Edit title or detail (3), Repeats changed and saved (1), a done task's
-#   receipt (1), its file changes undone (1), and Add subtask
-#   opening New Task for it (1), and a part added, given and done (1).
+#   receipt (1), its file changes undone (1), Add subtask opening New Task for it (1), and a part added, given and done (1).
 classes="$classes UnsentDraftUITests:3 TaskPageActionsUITests:8"
 skip=""
 arm="lazy"
