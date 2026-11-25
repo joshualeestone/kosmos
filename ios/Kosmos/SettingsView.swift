@@ -355,6 +355,13 @@ struct SettingsView: View {
                 Text(AIPolicies.Words.title).foregroundColor(Palette.primary)
             }
             .accessibilityIdentifier("settings-ai-policies")
+            // kosmos#8959 slice D1c2a: the board's Token usage figures, native (its charts are D1c2b).
+            NavigationLink {
+                UsageView(mac: mac, sample: Self.sample, finding: load == .reading, signedOut: load == .signedOut)
+            } label: {
+                Text(Usage.Words.title).foregroundColor(Palette.primary)
+            }
+            .accessibilityIdentifier("settings-usage")
             // kosmos#8959 slice D1c1: the board's Updates card, native.
             NavigationLink {
                 UpdatesView(mac: mac, sample: Self.sample, finding: load == .reading, signedOut: load == .signedOut)
