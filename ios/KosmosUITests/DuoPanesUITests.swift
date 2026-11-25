@@ -3,11 +3,11 @@ import XCTest
 // kosmos#9002: on an unfolded iPhone Duo (both size classes regular) the Agents list and the open chat are side by side, and
 // a fold or an unfold keeps the chat and the words typed into it. Sample agents, with KOSMOS_SAMPLE_REGULAR standing in for
 // Duo (this Mac's Xcode has no Duo simulator). Sideways, for a width two panes need. Opt-in with TEST_RUNNER_KOSMOS_UI_PLUS=1.
-final class DuoPanesUITests: XCTestCase {
+class DuoPanesCase: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
     override func tearDown() { XCUIDevice.shared.orientation = .portrait; super.tearDown() }
 
-    private func launch(_ regular: String?, _ env: [String: String] = ["KOSMOS_SAMPLE_OPEN": "dana"]) throws -> XCUIApplication {
+    func launch(_ regular: String?, _ env: [String: String] = ["KOSMOS_SAMPLE_OPEN": "dana"]) throws -> XCUIApplication {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         XCUIDevice.shared.orientation = .landscapeLeft
         let app = XCUIApplication()
@@ -17,39 +17,53 @@ final class DuoPanesUITests: XCTestCase {
         app.launch()
         return app
     }
-    private func box(_ app: XCUIApplication) -> XCUIElement {
+    func box(_ app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Message Dana'")).firstMatch
     }
-    private func row(_ app: XCUIApplication) -> XCUIElement { app.staticTexts["Cleo"].firstMatch }
+    func row(_ app: XCUIApplication) -> XCUIElement { app.staticTexts["Cleo"].firstMatch }
     // Beside: the message box starts right of the list's row. Judged by frames, never by isHittable: asking that of a row a
     // fold is taking away fails the test by itself.
-    private func beside(_ app: XCUIApplication) -> Bool {
+    func beside(_ app: XCUIApplication) -> Bool {
         guard box(app).exists, row(app).exists else { return false }
         let b = box(app).frame, r = row(app).frame
         return b.width > 0 && r.width > 0 && r.maxX > 0 && b.minX > r.maxX
     }
     // Alone: the box starts near the left edge, so the chat has the whole width.
-    private func alone(_ app: XCUIApplication) -> Bool { box(app).exists && box(app).frame.width > 0 && box(app).frame.minX < app.frame.width * 0.25 }
-    private func shot(_ app: XCUIApplication, _ name: String) {
+    func alone(_ app: XCUIApplication) -> Bool { box(app).exists && box(app).frame.width > 0 && box(app).frame.minX < app.frame.width * 0.25 }
+    func shot(_ app: XCUIApplication, _ name: String) {
         let a = XCTAttachment(screenshot: XCUIScreen.main.screenshot());   // the app's own picture of a sideways window is cut off
          a.name = name; a.lifetime = .keepAlways; add(a)
     }
     // Polled, since the size classes change on a timer: true as soon as it holds, false at the end of the wait.
-    private func holds(_ seconds: TimeInterval, _ what: () -> Bool) -> Bool {
+    func holds(_ seconds: TimeInterval, _ what: () -> Bool) -> Bool {
         let end = Date().addingTimeInterval(seconds)
         while Date() < end { if what() { return true }; usleep(300_000) }
         return what()
     }
 
     // Back belongs to one column: beside its list there is nothing to go back to.
-    private func backShows(_ app: XCUIApplication) -> Bool {
+    func backShows(_ app: XCUIApplication) -> Bool {
         app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label == 'Back'")).allElementsBoundByIndex.contains { $0.frame.width > 0 }
     }
 
-    private func back(_ app: XCUIApplication) {
+    func back(_ app: XCUIApplication) {
         app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label == 'Back'")).firstMatch.tap()
     }
 
+    // The tabs show beside a list and never over an open page on one column.
+    func tabsShow(_ app: XCUIApplication) -> Bool {
+        let b = app.tabBars.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Settings'")).firstMatch
+        return b.exists && b.frame.width > 0 && b.frame.maxY <= app.frame.height && b.frame.minY >= 0
+    }
+    func words(_ app: XCUIApplication, _ text: String) -> XCUIElement { app.staticTexts[text].firstMatch }
+    func labelled(_ app: XCUIApplication, _ format: String, _ arg: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: format, arg)).firstMatch
+    }
+    func pastMiddle(_ app: XCUIApplication, _ e: XCUIElement) -> Bool { e.exists && e.frame.width > 0 && e.frame.minX > app.frame.width * 0.25 }
+    func atLeft(_ app: XCUIApplication, _ e: XCUIElement) -> Bool { e.exists && e.frame.width > 0 && e.frame.minX < app.frame.width * 0.25 }
+}
+
+final class DuoPanesUITests: DuoPanesCase {
     // CONTROL: an upright phone with no stand-in (regular height, compact width) is one column, with its back button.
     func testAnUprightPhoneIsOneColumn() throws {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
@@ -64,12 +78,6 @@ final class DuoPanesUITests: XCTestCase {
         XCTAssertTrue(alone(app) && !beside(app), "an upright phone is not one column (box \(box(app).frame))")
         XCTAssertFalse(tabsShow(app), "an upright phone shows the tabs over an open chat")
         XCTAssertTrue(backShows(app), "an upright phone has no back button on an open chat")
-    }
-
-    // The tabs show beside a list and never over an open page on one column.
-    private func tabsShow(_ app: XCUIApplication) -> Bool {
-        let b = app.tabBars.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Settings'")).firstMatch
-        return b.exists && b.frame.width > 0 && b.frame.maxY <= app.frame.height && b.frame.minY >= 0
     }
 
     // CONTROL: the same phone, sideways, with no stand-in, keeps its one column.
@@ -100,12 +108,6 @@ final class DuoPanesUITests: XCTestCase {
         shot(app, "unfolded again")
     }
 
-    private func words(_ app: XCUIApplication, _ text: String) -> XCUIElement { app.staticTexts[text].firstMatch }
-    private func labelled(_ app: XCUIApplication, _ format: String, _ arg: String) -> XCUIElement {
-        app.descendants(matching: .any).matching(NSPredicate(format: format, arg)).firstMatch
-    }
-    private func pastMiddle(_ app: XCUIApplication, _ e: XCUIElement) -> Bool { e.exists && e.frame.width > 0 && e.frame.minX > app.frame.width * 0.25 }
-    private func atLeft(_ app: XCUIApplication, _ e: XCUIElement) -> Bool { e.exists && e.frame.width > 0 && e.frame.minX < app.frame.width * 0.25 }
 
     // A reader higher up a long chat is still looking at the same message after a fold and after the unfold.
     func testAFoldKeepsTheReadersPlaceInALongChat() throws {
@@ -165,27 +167,7 @@ final class DuoPanesUITests: XCTestCase {
         shot(app, "another project")
     }
 
-    // The other order: the page is opened while folded, then the phone unfolds. And an upright phone, as it always was:
-    // no tabs in a room or its page, the tabs back with the list.
-    func testAPageOpenedFoldedHasTheTabsBackOnAnUnfold() throws {
-        let app = try launch("fold:25", ["KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"])
-        let info = app.buttons["room-info"], plus = app.buttons["Add a file to this conversation"]
-        XCTAssertTrue(info.waitForExistence(timeout: 30), "the room did not open")
-        XCTAssertTrue(holds(8) { self.pastMiddle(app, plus) && self.tabsShow(app) }, "CONTROL: unfolded, the room is not beside its list with the tabs")
-        XCTAssertTrue(holds(40) { self.atLeft(app, plus) && !self.tabsShow(app) }, "folded, the room is not alone without the tabs")
-        info.tap()
-        let about = words(app, "What it is for")
-        XCTAssertTrue(about.waitForExistence(timeout: 10) && !tabsShow(app), "the page opened folded has the tab bar over it")
-        XCTAssertTrue(holds(40) { self.pastMiddle(app, about) && self.tabsShow(app) }, "unfolded, the page is not beside its list with the tabs")
-        shot(app, "opened folded, unfolded")
-        // Three pages deep: a member's chat from that page.
-        let member = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Cleo'")).firstMatch
-        XCTAssertTrue(member.waitForExistence(timeout: 5), "CONTROL: no Cleo in the page's members")
-        member.tap()
-        let chat = labelled(app, "label == %@", "Message Cleo")
-        XCTAssertTrue(holds(10) { self.pastMiddle(app, chat) && self.tabsShow(app) }, "a chat three pages deep is not beside the list with the tabs")
-        shot(app, "three deep")
-    }
+    // An upright phone, as it always was: no tabs in a room or its page, the tabs back with the list.
     func testAnUprightPhoneHidesTheTabsInAProjectAndShowsThemInTheList() throws {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         XCUIDevice.shared.orientation = .portrait
