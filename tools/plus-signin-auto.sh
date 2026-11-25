@@ -76,7 +76,8 @@ SC="${KOSMOS_SIGNIN_CODE_BIN:-$(command -v kosmos-signin-code || true)}"
 # The authenticator secret: given, or read through the secrets map from the seed's own meta. An otpauth:// URL is
 # reduced to its secret= value (plus-signin-fresh.js takes base32 only). Never printed.
 if [ -z "${KOSMOS_SEED_TOTP:-}" ]; then
-  TARGET="$(sed -n 's/^targets:[[:space:]]*//p' "$META" | cut -d, -f1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  # The secret's own name, which is the target on the line that is not an address (an address resolves to nothing).
+  TARGET="$(sed -n 's/^targets:[[:space:]]*//p' "$META" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '@' | head -1)"
   KOSMOS_SEED_TOTP="$(secrets-map.sh value "$TARGET" 2>/dev/null || true)"
 fi
 case "${KOSMOS_SEED_TOTP:-}" in
@@ -96,10 +97,23 @@ if (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; then die "something already
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/kplusgate.XXXXXX")" || die "could not make a work folder"
 SOCK="kplusgate-$$"
 TMUX_REAL="$(command -v tmux || echo /usr/bin/false)"
-BOARD_PID=""
+BOARD_PID="" STARTED=0
+# Everything the board started runs from inside $WORK (a fresh mktemp folder), including the kosmos-tunnel connector,
+# which outlives a stopped board by design (engine/remote.js). So after the board, stop every process whose command
+# line names $WORK, then check none is left. Matching the unique work folder, never a program name, is what keeps this
+# from reaching any other process on the machine.
+under_work() { ps -axo pid=,command= | while read -r p c; do case "$c" in *"$WORK/"*) [ "$p" != "$$" ] && echo "$p" ;; esac; done; }
 cleanup() {
   if [ -n "$BOARD_PID" ]; then kill "$BOARD_PID" 2>/dev/null; wait "$BOARD_PID" 2>/dev/null; fi
+  for p in $(under_work); do kill "$p" 2>/dev/null; done
+  for _ in 1 2 3 4 5; do [ -z "$(under_work)" ] && break; sleep 1; done
+  for p in $(under_work); do kill -9 "$p" 2>/dev/null; done
+  [ -z "$(under_work)" ] || say "WARNING: processes from $WORK are still running: $(under_work | tr '\n' ' ')"
   "$TMUX_REAL" -L "$SOCK" kill-server >/dev/null 2>&1 || true
+  # A run that got past start and ends here leaves start's progress file, which the gate reads as "an attempt is in
+  # flight" (cannot tell) until removed. The board it names is gone, so nothing is in flight: remove it. finish
+  # removes it itself when it writes a record.
+  [ "$STARTED" = 1 ] && rm -f "$(node -e 'process.stdout.write(require(process.argv[1]).recordPath(process.argv[2]).replace(/\.json$/, ".progress.json"))' "$HERE/lib/plus-signin-record.js" "$SHA")"
   if [ "$KEEP" = 1 ]; then say "kept the work folder $WORK"; else rm -rf "${WORK:?}"; fi
 }
 trap cleanup EXIT
@@ -122,8 +136,9 @@ printf '#!/bin/sh\nexec "%s" -L "%s" "$@"\n' "$TMUX_REAL" "$SOCK" > "$WORK/tmux"
     AGENT_WORKFORCE_WORKERS="$WORK/workers" AGENT_WORKFORCE_PROJECTS="$WORK/projects" AGENT_WORKFORCE_TMUX_BIN="$WORK/tmux" \
     PORT="$PORT" "$WORK/tree/runtime/bin/node" server.js ) > "$WORK/board.log" 2>&1 &
 BOARD_PID=$!
-UP_S="${KOSMOS_PLUS_BOARD_UP_S:-90}"; up=""
-for _ in $(seq 1 "$UP_S"); do
+UP_S="${KOSMOS_PLUS_BOARD_UP_S:-90}"; up=""; i=0
+while [ "$i" -lt "$UP_S" ]; do
+  i=$((i + 1))
   kill -0 "$BOARD_PID" 2>/dev/null || break
   up="$(curl -s -o /dev/null -D - --max-time 2 "http://127.0.0.1:$PORT/" 2>/dev/null | tr -d '\r' | sed -n 's/^[Xx]-[Kk]osmos-[Bb]oard: //p' | head -1)"
   [ -n "$up" ] && break
@@ -137,6 +152,7 @@ export KOSMOS_STORE_ROOT="$D/Kosmos"
 BASE_BOX="$(printf '%s' "$SEED_LC" | sed 's/+[^@]*@/@/')"
 HID="$("$SC" anchor "$BASE_BOX")" || die "could not anchor the seed mailbox $BASE_BOX"
 FA=(--pointer "$POINTER" --port "$PORT" --board-kind sandboxed)
+STARTED=1
 node "$FRESH" start "${FA[@]}" --seed "$SEED"; rc=$?
 [ "$rc" = 0 ] || exit "$rc"   # 1: start was refused and recorded; 2: setup, nothing recorded
 GOTC="$(KOSMOS_SIGNIN_PLACEMENT=1 "$SC" code "$SEED" "$HID" "${KOSMOS_PLUS_CODE_S:-180}")" || die "no sign-in code reached $SEED: nothing recorded"

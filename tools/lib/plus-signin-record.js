@@ -114,6 +114,6 @@ if (require.main === module) {
     process.exit(1);
   }
   if (inFlight) { console.log('plus-signin-verified: a new attempt for ' + version + ' is in flight (start ran, finish has not) - not verified yet'); process.exit(2); }
-  console.log('plus-signin-verified: the first Kosmos+ sign-in PASSED on ' + version + ' (code email in ' + rec.placement + ', ' + rec.at + ')');
+  console.log('plus-signin-verified: the first Kosmos+ sign-in PASSED on ' + version + ' (code email in ' + rec.placement + ', ' + rec.at + (rec.board_kind ? ', on a ' + rec.board_kind + ' board' : '') + ')');
   process.exit(0);
 }

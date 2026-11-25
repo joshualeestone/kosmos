@@ -38,7 +38,12 @@ http.createServer((req, res) => {
     if (req.url === '/api/remote/signin-cancel') return send(200, { ok: true });
     if (req.url === '/api/remote/signin-verify') return o.verifyFails ? send(400, { error: 'that code is not right' }) : send(200, { ok: true, stage: 'second', second_kind: 'totp' });
     if (req.url === '/api/remote/signin-second') return send(200, { ok: true, stage: 'session' });
-    if (req.url === '/api/remote/signin-register') { st.enrolled = true; st.on = true; st.up = true; return send(200, { ok: true }); }
+    if (req.url === '/api/remote/signin-register') {
+      /* Like kosmos-tunnel: a connector started from inside the work folder, detached, which outlives its board. */
+      const c = require('node:child_process').spawn(process.execPath, [path.join(__dirname, 'child.js')], { detached: true, stdio: 'ignore' });
+      c.unref(); log('child ' + c.pid);
+      st.enrolled = true; st.on = true; st.up = true; return send(200, { ok: true });
+    }
     if (req.url === '/api/remote/forget') { const had = st.enrolled; st.enrolled = st.on = st.up = false; return send(200, had ? { ok: true, retired: true } : { ok: true, retired: false, because: 'nothing to retire' }); }
     send(404, {});
   });
@@ -60,6 +65,7 @@ function world(opts = {}) {
   const src = path.join(dir, 'src');
   fs.mkdirSync(path.join(src, 'app'), { recursive: true }); fs.mkdirSync(path.join(src, 'runtime', 'bin'), { recursive: true });
   fs.writeFileSync(path.join(src, 'app', 'server.js'), FAKE_SERVER);
+  fs.writeFileSync(path.join(src, 'app', 'child.js'), 'setInterval(() => {}, 1e6);\n');
   fs.writeFileSync(path.join(src, 'app', 'fake.json'), JSON.stringify({ log: boardLog, identity: opts.identity || VER + '@default', verifyFails: !!opts.verifyFails }));
   fs.writeFileSync(path.join(src, 'runtime', 'bin', 'node'), '#!/bin/sh\nexec "' + process.execPath + '" "$@"\n', { mode: 0o755 });
   const dist = path.join(dir, 'dist'); fs.mkdirSync(dist);
@@ -95,6 +101,7 @@ function run(w, args) {
 }
 const calls = (f) => fs.readFileSync(f, 'utf8').split('\n').filter(Boolean);
 const recordOf = (w) => record.recordPath(w.sha, { KOSMOS_PLUS_VERIFY_DIR: w.records });
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const leftovers = (w) => fs.readdirSync(w.scratch).filter((n) => n.startsWith('kplusgate.'));
 
 test('#9018: one command takes the pointer\'s own tarball through a first sign-in, the gate then says yes, and nothing is left running', async () => {
@@ -109,6 +116,7 @@ test('#9018: one command takes the pointer\'s own tarball through a first sign-i
   assert.strictEqual(rec.seed, SEED);
   const g = spawnSync('bash', [GATE, w.pointer], { encoding: 'utf8', env: Object.assign({}, process.env, { KOSMOS_PLUS_VERIFY_DIR: w.records }) });
   assert.strictEqual(g.status, 0, g.stdout + g.stderr);
+  assert.match(g.stdout, /on a sandboxed board\)/, 'the gate\'s pass line does not say the board was sandboxed');
   // The board ran fully sandboxed, from a clean environment.
   const envLine = JSON.parse(calls(w.boardLog)[0].replace(/^env /, ''));
   assert.ok(envLine.data.startsWith(w.scratch), 'the board\'s data root is not in the work folder: ' + envLine.data);
@@ -121,6 +129,10 @@ test('#9018: one command takes the pointer\'s own tarball through a first sign-i
   // Torn down: nothing answers on the port, the work folder is gone.
   assert.strictEqual(await portAnswers(port), false, 'the throwaway board is still running');
   assert.deepStrictEqual(leftovers(w), [], 'the work folder was left behind');
+  // The detached child it started (the tunnel's stand-in) is stopped too.
+  const child = calls(w.boardLog).find((l) => l.startsWith('child '));
+  assert.ok(child, 'fixture: the fake board started no child');
+  assert.strictEqual(alive(Number(child.split(' ')[1])), false, 'a process the board started is still running');
 });
 
 test('#9018: a seed that is not a listed plus-tag test address is refused before ANY call: no download, no board, no mail', async () => {
@@ -182,6 +194,7 @@ test('#9018: no code arriving records nothing (the gate cannot tell), and the bo
   assert.strictEqual(r.code, 2, r.out);
   assert.match(r.out, /no sign-in code reached/);
   assert.ok(!fs.existsSync(recordOf(w)), 'something was recorded');
+  assert.ok(!fs.existsSync(recordOf(w).replace(/\.json$/, '.progress.json')), 'start\'s progress file was left, so the gate reads an attempt in flight');
   assert.strictEqual(await portAnswers(port), false, 'the throwaway board is still running');
   assert.deepStrictEqual(leftovers(w), [], 'the work folder was left behind');
 });
