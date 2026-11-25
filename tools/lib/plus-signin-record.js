@@ -103,7 +103,7 @@ if (require.main === module) {
   // exists but cannot be read (permissions, a directory in its place) may be a FAIL: refuse. That
   // includes a transient read error (EIO, EMFILE): deliberately, since a rerun clears it, while
   // reading it as "no record" could put a build with a FAIL record on prod.
-  try { raw = fs.readFileSync(f, 'utf8'); } catch (e) { if (!e || e.code !== 'ENOENT') { console.log('plus-signin-verified: the record at ' + f + ' exists but cannot be read (' + ((e && e.code) || 'unknown error') + ') - refusing'); process.exit(1); } console.log('plus-signin-verified: no record for ' + sha256 + ' at ' + f + (inFlight ? ' (an attempt is in flight)' : '') + ' - not verified (to verify, run tools/plus-signin-fresh.js against the fresh staging board)'); process.exit(2); }
+  try { raw = fs.readFileSync(f, 'utf8'); } catch (e) { if (!e || e.code !== 'ENOENT') { console.log('plus-signin-verified: the record at ' + f + ' exists but cannot be read (' + ((e && e.code) || 'unknown error') + ') - refusing'); process.exit(1); } console.log('plus-signin-verified: no record for ' + sha256 + ' at ' + f + (inFlight ? ' (an attempt is in flight)' : '') + ' - not verified (to verify, run tools/plus-signin-auto.sh --pointer <this pointer> --seed <a test seed> on a Mac that can read the seed inbox, kosmos#9018, and copy its record here)'); process.exit(2); }
   let rec;
   try { rec = JSON.parse(raw); } catch { console.log('plus-signin-verified: the record at ' + f + ' is not JSON - refusing'); process.exit(1); }
   const v = validate(rec, { version, sha256 });
