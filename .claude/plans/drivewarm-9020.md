@@ -14,7 +14,8 @@ still fails, and the message now says how long the read took.
 ## Built
 - A test helper, learnRealTable(letter): setLearnForTests(null) (forgets a failed read, the test-only reset), then
   infoOf with a 60 s bound, and the time it took. Item 1 uses it in place of its bare infoOf; item 4 calls it first
-  (so it no longer depends on item 1 having run, or on the 10 s bound). Both messages say the read's time.
+  (so it no longer depends on item 1 having run, or on the 10 s bound). Both messages say the read's time; each arm
+  has a 120 s timeout.
 
 ## Rejected
 - Raising ONE_SHOT_TIMEOUT_MS in the product: the 10 s bound is the CLI's promise to a person waiting on it, and a
@@ -22,6 +23,16 @@ still fails, and the message now says how long the read took.
 - Retrying in the CLI on a timeout: same reason; and the card's red is the test's, not a user-visible wrong answer.
 - Listing it as FLAKY in tools/windows-tests.js: hides a red whose cause is known and fixable.
 
+## Round 1 (opus, blind) fixes
+- WARNING fixed: the first version gave the read 60 s, which is exactly the runner's per-test limit
+  (tools/windows-tests.js runs each file with --test-timeout=60000), so a slow read would have ended as a bare test
+  timeout, not the new message, and my weakest-premise sentence claimed the opposite. Now the read gets 30 s and each
+  Windows arm 120 s (its own timeout option), so a read past 30 s fails with its time in the message.
+- NIT taken: every read prints "MEASURED: drive read took N ms (one-shot bound 10000 ms)", which windows-tests.js keeps
+  in the log on a pass: the one place a real cold read on Windows is measured against the product's bound.
+- NIT fixed: 10,199 ms was the whole of item 1, not the read alone; the comment now says so.
+
 ## Weakest premise
-That PowerShell's cold start is all of the 10 s. If the runner is slower than a minute, this still fails, but with
-the read's time in the message, so the next red is diagnosable instead of re-run.
+That PowerShell's cold start is all of the 10 s. If a runner needs more than 30 s, this still fails, with the read's
+time in the message; and the MEASURED lines will show whether the product's 10 s bound is too tight for real
+computers, which is the question a person would care about.
