@@ -707,7 +707,8 @@ case "$EVENT" in
               # A /clear (or an in-session /resume) follows its own SessionEnd at once, and that hook sent `stopped` in
               # the background, so the ask can beat it. The board then answers {"pending":true} (a wait with no session
               # event after it yet), and only then is it asked once more after a short pause. An empty answer (no wait,
-              # a refusal, no board) is never asked again.
+              # a refusal, no board) is never asked again. kosmos#9058: so this path costs up to about 2.8 s (two asks
+              # capped at 1 s each, and the pause), not the startup ask's one second, still inside the hook's 15 s.
               if [ "$WAIT_OUT" = '{"pending":true}' ]; then
                 sleep "${KOSMOS_WAIT_RETRY_S:-0.8}"
                 WAIT_OUT=$("$KOSMOS" away --hook --wait-only ${WAIT_CLEAR:+--after-clear} </dev/null 2>/dev/null) || WAIT_OUT=""

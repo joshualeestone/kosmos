@@ -104,6 +104,34 @@ function sessionAfter(history, atMs) {
   return null;
 }
 
+/* kosmos#9058: how many sessions the agent has had, since this wait, that began after the wait was set aside (a
+   startup's `started`, or a /clear's or quit's `stopped`), in which it took a turn (an automatic `working` or `idle`,
+   which the hook writes on every turn), and that have ended (a later `stopped`). Each such session began with a
+   reminder (#8634 at a startup, #9049 after a session end) and the agent went on without reporting a wait again or
+   anything else of its own. The session the wait was raised in does not count. A /clear or a resume is reminded while
+   this is under REMIND_SESSIONS: the first session end, and one repeat (a /clear wipes the context that held the
+   reminder, which is why #9049 reminds a /clear after a startup), then no more, instead of at every /clear and resume
+   for 7 days. Reasoned from the history, not recorded: a reminder that never reached the agent (its ask lost a race,
+   or was refused) still counts, so it fails silent, never false. */
+const REMIND_SESSIONS = 2;
+function sessionsSinceWait(history, atMs) {
+  const rows = Array.isArray(history) ? history : [];
+  let open = false;     // inside a session that began at a started/stopped after the wait
+  let turned = false;   // and the agent took a turn in it
+  let count = 0;
+  for (const r of rows) {
+    if (!r || !Number.isFinite(r.at) || r.at <= atMs) continue;
+    if (r.state === 'stopped' || r.state === 'started') {
+      if (open && turned && r.state === 'stopped') count += 1;
+      open = true;
+      turned = false;
+      continue;
+    }
+    if (open && r.by === 'auto' && (r.state === 'working' || r.state === 'idle')) turned = true;
+  }
+  return count;
+}
+
 /** Pure. rows: the message log (engine/messages.readLog). direct: the person's direct thread messages
  *  (engine/chat.readThread('@you', name).messages; the person's rows have no `from`). */
 function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
@@ -199,7 +227,7 @@ function waitText(wait, opts) {
   const otherwise = ended ? '; if not, report what it is doing (kosmos report working ...) so Kosmos stops reminding it.'
     : '; if not, there is nothing to do.';
   return 'Kosmos: before this session, this agent last reported that it was waiting (' + wait.state + ', at '
-    + isoSecond(wait.atMs) + '), and it has not said otherwise since. ' + why
+    + isoSecond(wait.atMs) + '), and it has made no report of its own since. ' + why
     + 'so the board no longer shows it. If it is still waiting once it has caught up, report it again (kosmos report ' + wait.state
     + (wait.held === true ? ' --held' : '') + ' ...'
     + (wait.held === true ? ', held as before, so nothing buzzes the person' : '') + ')' + otherwise;
@@ -223,4 +251,4 @@ function hookJson(digest, wait, opts) {
   return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text } });
 }
 
-module.exports = { build, windowFrom, lastWait, sessionAfter, waitText, contextText, hookJson, MAX_WINDOW_MS, SHOWN, MAX_ROOMS, MAX_SENDERS, INBOX_LIMIT };
+module.exports = { build, windowFrom, lastWait, sessionAfter, sessionsSinceWait, REMIND_SESSIONS, waitText, contextText, hookJson, MAX_WINDOW_MS, SHOWN, MAX_ROOMS, MAX_SENDERS, INBOX_LIMIT };
