@@ -36,7 +36,8 @@ and a gate that skipped it would have passed on a secondary account. The default
 - Review 1: a skipped secondary row is named in the log, with its reason.
 - The existing "create refused (400, sign-in) -> do-not-promote (1)" case is unchanged and still passes: the strict
   arm stands.
-- Result: 83 pass, 0 fail. Mutant (the skip line removed, on a scratch copy): all three new cases red.
+- Result: 85 pass, 0 fail. Mutants, each on a scratch copy: the skip line removed turns the three skip cases red;
+  the default guard removed (review 1) turns the default-row case red.
 
 ## Weakest premise
 That a build defect never shows only as a false dead mark on a SECONDARY account. The default is safe by the rule
