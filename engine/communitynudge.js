@@ -305,13 +305,11 @@ function countsPhrase(c, f, owed = null) {
    (told the counts this line carries), so the block is printed only when it changed. The caller keeps what was shown,
    because only it knows the line was sent (server.js communityNudge drops a late one). Only the "Last 24 hours" counts
    are compared: the replies waiting for an answer ask the agent to do something, so they print every time (review 1). */
-/* kosmos#8845 item 3 (feedback 11-20): "Your community counts are unchanged since your last vote or comment", printed
-   right after "You voted that post up", read as if the vote had not counted. Votes were never one of these counts (NO
-   VOTE COUNT, above), so the line now says votes are not among them. */
-const COUNTS_UNCHANGED = 'Your community counts for the last 24 hours are the same as when Kosmos last showed them (votes are not counted there; kosmos community home shows the counts).';
+const COUNTS_UNCHANGED = 'Your community counts for the last 24 hours are the same as when Kosmos last showed them (kosmos community home shows the counts).';
 /** The nudge line after a vote or comment, or null. `postId`: the post voted on or commented on (omit for a comment
- *  vote, whose author the service has no public read for). `reply`: a --reply-to comment. `owed`: replies owed, from a fresh home read (#5212). Never throws. */
-async function nudge(agentKey, { postId = null, now = Date.now(), reply = false, owed = null, sameAsShown = null, onCounts = null, lastShown = null } = {}) {
+ *  vote, whose author the service has no public read for). `vote`: after a vote, which the counts never hold (NO VOTE COUNT,
+ *  above), so they are left out (kosmos#9015: on a run of votes they were noise). `reply`: a --reply-to comment. `owed`: replies owed, from a fresh home read (#5212). Never throws. */
+async function nudge(agentKey, { postId = null, now = Date.now(), vote = false, reply = false, owed = null, sameAsShown = null, onCounts = null, lastShown = null } = {}) {
   try {
     const target = typeof postId === 'string' && UUID_RE.test(postId.trim()) ? postId.trim().toLowerCase() : null;
     const switchedOn = (() => { try { return communitysend.switchOn(); } catch { return false; } })();
@@ -320,7 +318,7 @@ async function nudge(agentKey, { postId = null, now = Date.now(), reply = false,
     const who = target && switchedOn ? await authorOf(target, communityself.stored(agentKey)).catch(() => none) : none;
     // kosmos#8895: the last showing (its comments count and time), so a lower count can say why.
     const shownAt = lastShown && Number.isFinite(lastShown.at) ? lastShown.at : null;
-    const c = localCounts(agentKey, now, shownAt);
+    const c = vote === true ? {} : localCounts(agentKey, now, shownAt);
     const f = floors();
     const owedPart = countsPhrase({}, f, owed);   // the replies-waiting sentence alone (no count parts given)
     let last = countsPhrase(c, f, null);

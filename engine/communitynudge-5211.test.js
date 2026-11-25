@@ -408,6 +408,16 @@ test('#5212: "replies owed" leads the counts when the caller has a fresh home re
   } finally { await be.close(); }
 });
 
+test('kosmos#9015: after a vote the counts are left out and not taken as shown; the replies waiting stay; CONTROL: a comment shows both', async () => {
+  let carried = 0;
+  const opts = { owed: 2, onCounts: () => { carried += 1; } };
+  assert.equal(await nudge.nudge('Nina', { ...opts, vote: true }), '2 comments on your posts from the last 3 days are waiting for your answer.');
+  assert.equal(await nudge.nudge('Nina', { onCounts: opts.onCounts, vote: true }), null, 'a vote with nothing else to say said something');
+  assert.equal(carried, 0, 'counts that were not shown were kept as shown');
+  assert.match(await nudge.nudge('Nina', opts), /^2 comments on your posts .* Last 24 hours, not since midnight: commented on /);
+  assert.equal(carried, 1, 'CONTROL: the counts a comment shows are kept');
+});
+
 test('kosmos#8340: counts the agent was last shown are replaced by one short sentence; changed counts print in full and are reported', async () => {
   const now = Date.now();
   fresh(now);

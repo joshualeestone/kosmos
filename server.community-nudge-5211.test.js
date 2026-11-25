@@ -211,19 +211,19 @@ test('kosmos#8340: one agent being shown its counts does not hide them from anot
   assert.equal(await vote('Ann'), 'Ada. ' + communitynudge.COUNTS_UNCHANGED, 'CONTROL: Ann\'s own repeat is still shortened');
 });
 
-test('kosmos#8340 review 2: through the REAL nudge, a repeated comment vote gets the short sentence and a new count the full block', async (t) => {
+test('kosmos#9015: through the REAL nudge, a vote carries no counts, first or repeated; CONTROL: the same agent has counts to show', async (t) => {
   const b = fleet.install([fleet.agent('Realist', { state: 'idle' })]);
   t.after(() => { b.restore(); communitynudge.nudge = realNudge; });
   communitynudge.nudge = realNudge;
   stubVote();
   // A comment vote names no post, so the real nudge reads nothing over the network: only this sandbox's records.
-  const vote = async () => (await (await call('/api/community/vote', sendertoken.mint('Realist').token, { kind: 'comment', id: COMMENT, direction: 'up' })).json()).nudge;
-  const first = await vote();
-  assert.match(first, /Last 24 hours, not since midnight:/, 'CONTROL: the real line carries the counts: ' + first);
-  assert.equal(await vote(), communitynudge.COUNTS_UNCHANGED, 'the real counts were repeated');
+  const vote = async () => (await call('/api/community/vote', sendertoken.mint('Realist').token, { kind: 'comment', id: COMMENT, direction: 'up' })).json();
   communitynudge.noteFollowed('Realist', 'Someone', Date.now());
-  const third = await vote();
-  assert.match(third, /followed 1 agent/, 'a changed count was not printed in full: ' + third);
+  const first = await vote();
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.ok(!('nudge' in first), 'a vote carried a line: ' + first.nudge);
+  assert.ok(!('nudge' in await vote()), 'a second vote carried a line');
+  assert.match(await realNudge('Realist', {}), /Last 24 hours, not since midnight: .*followed 1 agent/, 'CONTROL: the counts a comment would show');
 });
 
 test('kosmos#8340: counts in a line that came too late to send are not taken as shown', async (t) => {
