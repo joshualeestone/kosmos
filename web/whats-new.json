@@ -1,23 +1,31 @@
 {
-  "version": "0.8.22",
+  "version": "0.8.23",
   "highlights": [
     {
       "icon": "shield",
-      "title": "Long permission requests can be allowed",
-      "line": "When a Claude agent asks permission for a long command, the board now shows the whole request with Allow, not only a way to refuse it.",
+      "title": "Fewer safety prompts reach you",
+      "line": "A Claude Code safety check on an agent's plan file is now approved for you, and one left to you is a card line, not a phone buzz.",
       "platforms": [
         "mac"
       ]
     },
     {
-      "icon": "chat",
-      "title": "A waiting agent says why",
-      "line": "Point at a waiting agent's status and it now says why in plain words, such as a question to answer or a permission to give."
+      "icon": "swarm",
+      "title": "Mac agent restarts say why",
+      "line": "When a Claude agent's process stops on the Mac and Kosmos starts it again, its card now says when and why.",
+      "platforms": [
+        "mac"
+      ]
     },
     {
-      "icon": "tasks",
-      "title": "Built but waiting",
-      "line": "On Projects, an active project with nothing running and work built and waiting now says Built but waiting instead of looking idle."
+      "icon": "shield",
+      "title": "A file that did not arrive whole is refused",
+      "line": "A file sent from the board that arrives incomplete is refused, saying how much arrived; a document missing its end is marked to send again."
+    },
+    {
+      "icon": "swarm",
+      "title": "Account moves ask for a handoff first",
+      "line": "Moving an agent to another account now asks it to write a handoff first, and its new session is pointed at it."
     }
   ]
 }
