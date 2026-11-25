@@ -64,3 +64,6 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7155802
 - M2 the agents' tie-break (localeCompare) followed the machine's locale: pinned to en-US beside the grouping. Passes under LC_ALL=sv_SE.UTF-8 too.
 - M3 the API cost summed in dictionary order: now days then models in sorted order, as the page's key order, so a fractional total adds up the same.
 - Measured: parity test 2/2 (default and sv_SE); run-usage.sh PASS 63/63; typecheck 0 errors.
+
+### Round 6 (sonnet, 01:59 CST): nothing material. Loop ends here.
+- The reviewer verified round 5 (parity 2/2, the suite 63/63). Its doubt that the locale-call count double-counts toLocaleString( is unfounded: an alternation consumes the call with its first branch, and the assertion passes on the page. The sum-order comment is reworded: sorting is for a stable sum, and order changes only the last bits.
