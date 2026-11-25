@@ -58,9 +58,8 @@ test('#9001 1b: plan files are answered: read, grepped, written, edited by a her
     'echo hi > /p/.claude/plans/x.md', 'echo x >> .claude/plans/x.md 2>&1', 'cp notes.md /p/.claude/plans/notes.md',
     "sed -i '' s/a/b/ /p/.claude/plans/x.md", 'gh pr create --body-file /p/.claude/plans/x.md',
     'git -C /p add .claude/plans/x-pre-challenge.md', 'echo ZF(f)x} >> .claude/plans/x.md',
-    // review round 2: a plan's own words are not a delete (heredoc text, a commit message, a PR title)
-    "cat > .claude/plans/x.md <<'E'\n- rm the old file\nuse mv here\nE", 'git -C /p commit -m "rm old step" .claude/plans/x.md',
-    'gh pr create --title "mv things" --body-file .claude/plans/x.md', "edit('.claude/plans/x.md', [('a', 'b')])"]) {
+    "edit('.claude/plans/x.md', [('a', 'b')])", 's=s.replace(a,b) # .claude/plans/x.md', 'ls .claude/plans', 'cat .claude/plans/*.md',
+    'ls -t .claude/plans/ | head -3', 'git -C /p commit --amend -m y -- .claude/plans/x.md']) {
     assert.equal(answers(c), true, c);
   }
 });
@@ -92,6 +91,21 @@ test('#9001 1b: any other protected name, a plan path with .., or a delete or mo
     'ln -sfn /p .claude/plans/l', 'ln -sfn "$PWD" .claude/plans/l; echo x > .claude/plans/l/.git/hooks/pre-commit',
     'sh -c "rm -rf .claude/plans"', "bash <<'E'\nrm -rf .claude/plans\nE", 'printf "rm .claude/plans/x" | bash',
     'eval "rm .claude/plans/x"', 'echo .claude/plans/x | xargs rm',
+    // review round 4: a plan's own words that name a delete wait too, since every check reads the full text (the
+    // earlier stripping of strings, kept to spare plan prose, hid real commands twice and was taken out)
+    "cat > .claude/plans/x.md <<'E'\n- rm the old file\nE", 'git -C /p commit -m "rm old step" .claude/plans/x.md',
+    // review round 4: a walk out after a cd into the plan folder, git verbs that change state or behaviour, trees
+    'cd .claude/plans/x && echo y > ../../settings.json', 'pushd .claude/plans/x; echo y > ../../hooks/h',
+    'git checkout -- .claude/plans/x.md', 'git -C .claude/plans/x reset --hard', 'git branch -D x # .claude/plans/x.md',
+    'git submodule add https://example.invalid/x .claude/plans/x', 'git remote set-url origin /tmp/x # .claude/plans/x.md',
+    'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/tmp/h git commit -- .claude/plans/x.md',
+    'git --config-env=core.hooksPath=H commit -- .claude/plans/x.md', 'git --exec-path=/tmp/evil add .claude/plans/x.md',
+    'git -c core.hooksPath=/tmp/h commit -- .claude/plans/x.md', "perl -e 'unlink(\".claude/plans/x.md\")'",
+    "python3 -c 'from os import remove; remove(\".claude/plans/x.md\")'", "[System.IO.File]::Delete('.claude/plans/x.md')",
+    'rsync -a --delete /tmp/empty/ .claude/plans/x', 'cp -a /tmp .claude/plans/t', 'tar xf a.tar -C .claude/plans/x',
+    "r\\\nm -f .claude/plans/x.md", 'shred .claude/plans/x.md', 'trash .claude/plans/x.md', 'rmdir .claude/plans/old',
+    'unlink .claude/plans/x.md', 'bzip2 .claude/plans/x.md', 'mklink /D x .claude\\plans',
+    
     // review round 3: links without ln, a protected segment inside a plan path, more delete verbs
     'python3 -c "from os import symlink; symlink(\'..\', \'.claude/plans/up\')"', "python3 -c \"import pathlib; pathlib.Path('.claude/plans/up').symlink_to('..')\"",
     "node -e \"require('fs').symlink('../..','.claude/plans/up2',()=>{})\"", 'link /tmp/x .claude/plans/x', 'cp -s /p/a .claude/plans/a',

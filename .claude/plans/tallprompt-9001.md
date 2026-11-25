@@ -101,3 +101,31 @@ command newly answered:
   cp <plan> ~/.zshrc and other writes that name no protected place (answered before this change).
 - Mutations: each of the four fixes (protected segment, joined text, the strip conditions, PowerShell aliases)
   turns permission-mention-9001 red when taken out.
+
+## Round 4 (sonnet, blind, whole branch): BLOCKERs, and the threat model settled
+- Found: a walk out after cd into the plan folder (cd .claude/plans/x && echo > ../../settings.json); the stripper
+  hiding a delete the shell runs ('rm', r''m, ssh '...', sed's e flag, a heredoc fed to ssh); code deletes not listed
+  (perl unlink(, from os import remove, System.IO, (Get-Item).Delete(), rsync --delete); git verbs that change state
+  or behaviour (checkout --, reset, branch -D, submodule, remote set-url, GIT_CONFIG_*, --config-env, --exec-path);
+  trees extracted or copied into a plan folder; an 11.5 s pattern in the stripper's checks; reads of the plan folder
+  or a glob refused.
+- Settled what this guards against: an honest agent's command that VISIBLY reaches .claude or .git, as #5406's rule
+  always did, not a hostile one. Obfuscation that hides the name or the verb entirely was answered before this change
+  and still is. Four rounds showed a spelling list cannot be complete against obfuscation, so the rules were made
+  simpler and stricter, not longer:
+  - the stripping of strings and heredoc bodies is GONE: every check reads the full text, and the text as the shell
+    joins it (quotes out, escapes and backslash-newlines undone). Cost: plan prose that names a delete ("- rm the old
+    file", a commit message "rm old step") waits for a person, as it did before this change. None of the six real
+    plan-only commands had such a word (measured).
+  - any .. segment anywhere in a command that names a plan: waits.
+  - git with a plan named: only add, commit, diff, show, log, status, grep, ls-files, rev-parse, blame, push, fetch
+    (the real ones used add, commit, diff, show, grep, ls-files, rev-parse, push); git -c, GIT_CONFIG*/GIT_DIR/
+    GIT_WORK_TREE/GIT_EXEC_PATH=, --config-env, --exec-path, --git-dir, --work-tree, alias.: wait.
+  - code deletes by any call named like one (remove(, unlink(, rename(, move(...), System.IO, [IO.File], .Delete(,
+    .MoveTo(); --delete; tar x, unzip, cp -a/-R/-r, ditto, rsync: wait.
+  - the plan folder itself and globs under it count as plan mentions (ls .claude/plans, cat .claude/plans/*.md).
+  - COMMAND_MAX 100,000; the worst probe of round 4 now judges in 1 ms (no stripper, no quadratic check).
+- Left, with reason: .gitattributes writes (not a protected name; a filter needs config, and config waits); a write
+  through a link an earlier command made (making it waits); cp <plan> ~/.zshrc (names no protected place).
+- Mutations: no .. rule, no git allowlist, no joined text, no protected-segment check, no delete list: each turns
+  permission-mention-9001 red.
