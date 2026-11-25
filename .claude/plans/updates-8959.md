@@ -55,3 +55,12 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7154958
 - M3 a cancelled wait left "This screen will wait" up, and its defer could clear a newer action's busy: the note goes with a cancelled wait, and busy is held by a token (`acting`), cleared only by the action that set it, reset on a computer change.
 - M4 no retry for an unanswered switch other than pull to refresh: kept, as the page (it has none at all).
 - Measured: run-updates.sh PASS 118/118; typecheck 0 errors.
+
+### Round 3 (opus, 01:08 CST): no BLOCKER, 1 MAJOR, 5 MINOR
+- MAJOR 1 "already on" named the version the screen had shown, which is stale in exactly the case this 409 exists for (the computer updated itself since): `.already` now reads the status again and names what the computer runs, or "the latest version".
+- M2 a request cancelled because the screen went came back as status 0 and read as unanswered: a cancelled install now stops without waiting or saying anything.
+- M3 leaving mid-wait lost the wait: a wait cut short that way is kept (`resume`, with its own start time) and resumes when the screen comes back; a computer change drops it.
+- M4 a switch save on one computer could clear another's, and a read sent before a save could land after it: the save holds a token (`autoActing`) and reads carry the page's AUTO_EPOCH.
+- M5 "Checking." never cleared without a pull: while the first look is under way the screen asks again every 5 s, as the page's poll repaints. An older board with no updateLook keeps the page's last arm.
+- M6 the check now lays its answer over the current state, not the snapshot from before; the suite reads the page first (and asserts it was read); the UI test reads the done sentence by identifier; a misplaced comment moved.
+- Measured: run-updates.sh PASS 121/121; app and UI-test typecheck 0 errors.

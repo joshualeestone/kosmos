@@ -45,7 +45,9 @@ final class UpdatesUITests: XCTestCase {
         app.buttons["updates-button"].tap()
         XCTAssertTrue(ask.waitForExistence(timeout: 5))
         ask.buttons["Update"].tap()
-        XCTAssertTrue(app.staticTexts["Kosmos is now on 0.8.22."].waitForExistence(timeout: 5), "the screen does not say it updated")
+        let said = app.staticTexts["updates-line"]
+        XCTAssertTrue(said.waitForExistence(timeout: 5))
+        XCTAssertEqual(said.label, "Kosmos is now on 0.8.22.", "the screen does not say it updated")
         XCTAssertEqual(app.staticTexts["updates-version"].label, "Kosmos 0.8.22", "the version did not move on")
         XCTAssertEqual(app.buttons["updates-button"].label, "Check for Update", "up to date, the button is Check for Update")
         shot(app, "updates-done")

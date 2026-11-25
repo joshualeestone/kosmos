@@ -19,6 +19,8 @@ let repo = URL(fileURLWithPath: ProcessInfo.processInfo.environment["KOSMOS_REPO
 func repoText(_ path: String) -> String { (try? String(contentsOf: repo.appendingPathComponent(path), encoding: .utf8)) ?? "" }
 func json(_ s: String) -> Data { Data(s.utf8) }
 let mac = Settings.Mac(name: "Studio Mac", url: URL(string: "https://studio.kosmosplus.com/")!, cookie: "c00kie")
+let page = repoText("web/index.html")
+check(page.count > 1_000_000, "the board page was read (\(page.count) characters)")
 let U = Updates.self
 let W = Updates.Words.self
 
@@ -88,17 +90,19 @@ check(page.contains("paintSwitch('auto-toggle', unread ? null : r.on === true);"
 check(U.autoRefused(status: 403, data: json(#"{"error":"\#(stepSaid)"}"#)) == stepSaid && U.autoRefused(status: 400, data: json("x")) == W.autoSaveFailed, "a refused save: the computer's sentence, else the page's")
 
 section("installing")
-check(U.started(status: 200, data: json(#"{"ok":true,"startedAt":"S9","updating":"0.8.22"}"#), version: "0.8.22") == .started(myStart: "S9", updating: "0.8.22"), "started, with the attempt's start and the version it fetches")
-check(U.started(status: 202, data: json("{}"), version: nil) == .started(myStart: nil, updating: nil), "started with no start time")
+check(U.started(status: 200, data: json(#"{"ok":true,"startedAt":"S9","updating":"0.8.22"}"#)) == .started(myStart: "S9", updating: "0.8.22"), "started, with the attempt's start and the version it fetches")
+check(U.started(status: 202, data: json("{}")) == .started(myStart: nil, updating: nil), "started with no start time")
 check(U.overlayLead(reached: true, version: "0.8.22", windows: true) == "Downloading 0.8.22." && U.overlayLead(reached: false, version: "0.8.22", windows: true) == "Updating.",
       "Windows: downloading while it answers, updating once it goes")
 check(U.overlayLead(reached: true, version: "0.8.22", windows: false) == "Updating." && U.overlayLead(reached: true, version: nil, windows: true) == "Updating.", "elsewhere, or no version named: Updating.")
 check(page.contains("if (!onWindows(platform)) return 'Updating.';") && page.contains("return reached ? ('Downloading ' + version + '.') : 'Updating.';")
       && page.contains("(body && body.updating ? String(body.updating) : '')"), "the page's updateOverlayLead and its version from the install's answer")
-check(U.started(status: 409, data: json(#"{"error":"there is no update to install"}"#), version: "0.8.22") == .refused("Kosmos is already on 0.8.22."), "nothing to install: it already has it")
-check(U.started(status: 403, data: json(#"{"code":"remote_step_up","error":"\#(stepSaid)"}"#), version: nil) == .refused(stepSaid), "the step-up refusal, as is")
-check(U.started(status: 500, data: json("{}"), version: nil) == .refused("Kosmos could not start the update (it answered 500 with no reason). Try again in a minute."), "no reason: the page's sentence")
-check(U.started(status: 0, data: nil, version: "0.8.21") == .unanswered, "no answer at all is not a refusal (#7207): the screen waits")
+check(U.started(status: 409, data: json(#"{"error":"there is no update to install"}"#)) == .already, "nothing to install: it already has it (the screen reads the status again)")
+check(W.already("0.8.22") == "Kosmos is already on 0.8.22." && W.already(nil) == "Kosmos is already on the latest version.", "named by the status read after, or the latest version")
+check(U.started(status: 409, data: json(#"{"error":"another update is under way"}"#)) == .refused("another update is under way"), "another 409 is the computer's sentence")
+check(U.started(status: 403, data: json(#"{"code":"remote_step_up","error":"\#(stepSaid)"}"#)) == .refused(stepSaid), "the step-up refusal, as is")
+check(U.started(status: 500, data: json("{}")) == .refused("Kosmos could not start the update (it answered 500 with no reason). Try again in a minute."), "no reason: the page's sentence")
+check(U.started(status: 0, data: nil) == .unanswered, "no answer at all is not a refusal (#7207): the screen waits")
 
 section("an unanswered press, as unansweredPressVerdict")
 func un(_ e: TimeInterval, reached: Bool = true, now: String? = "0.8.21", boot: String? = "B1") -> Updates.Unanswered {
@@ -129,7 +133,6 @@ check(v(5, attempt: ok0) == .waiting, "an attempt that ended with code 0 is not 
 check(v(5, boot: "B2") == .didNotTake, "a new boot on the same version: it did not take")
 check(v(89) == .waiting && v(90) == .slow && v(100, boot: "B2") == .didNotTake && v(100, reached: false, now: nil, boot: nil) == .waiting, "slow at 90 s, only while the same boot answers")
 check(v(179) == .slow && v(180) == .deadline && v(180, reached: false, now: nil, boot: nil) == .deadline, "three minutes is the deadline")
-let page = repoText("web/index.html")
 check(page.contains("if (v.elapsedMs >= 3 * 60 * 1000) return 'deadline';") && page.contains("if (v.elapsedMs >= 90 * 1000 && v.reached && !rebooted) return 'slow';"), "the page's limits are still 3 min and 90 s")
 
 section("the settle sentences, as updateSettleText")

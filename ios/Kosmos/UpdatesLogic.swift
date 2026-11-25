@@ -204,16 +204,18 @@ enum Updates {
 
     // MARK: Installing
 
-    enum Started: Equatable { case started(myStart: String?, updating: String?), unanswered, refused(String) }
+    enum Started: Equatable { case started(myStart: String?, updating: String?), unanswered, already, refused(String) }
     // POST /api/update's answer. A refusal is the computer's own sentence (the step-up's too); "no update to install"
     // means it already has it. No answer at all is not a refusal (#7207): it is very often the board restarting to
     // install the update this press started, so the screen waits, as the page's waitForUnansweredPress.
-    static func started(status: Int, data: Data?, version: String?) -> Started {
+    static func started(status: Int, data: Data?) -> Started {
         if status == 0 { return .unanswered }
         let o = object(data)
         if (200..<300).contains(status) { return .started(myStart: o.flatMap { text($0["startedAt"]) }, updating: o.flatMap { text($0["updating"]) }) }
         let said = o.flatMap { text($0["error"]) } ?? Words.noReason(status)
-        if status == 409, said.contains("no update to install") { return .refused(Words.already(version)) }
+        // It already has it: very often because it updated itself since the screen was read, so the screen reads the
+        // status again and names what it runs now (Words.already), not the version it showed.
+        if status == 409, said.contains("no update to install") { return .already }
         return .refused(said)
     }
 
