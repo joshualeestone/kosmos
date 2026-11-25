@@ -9,3 +9,7 @@
 Round 3: W1 (a link pushes a task already under this one) is accepted and now in the plan: the page's other task links do the same,
 and the engine refuses a task that replaces or moves to itself. W2 and W3 (the UI test's swipes) fixed; a repeated number in the
 state's links fixed. Not changed: values the engine never writes.
+
+Combined review of B8 and B9 on B5 to B7 (opus, blind, 807b8352fd): 0 B, 0 W, 3 N. Fixed: a Save's base and choice are read
+together; a test arm that could not fail is gone. Accepted: a hold Save whose answer was lost says the board's words for a failure,
+and the next read that shows it saved takes them down.

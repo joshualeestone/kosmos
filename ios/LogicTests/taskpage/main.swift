@@ -1821,7 +1821,7 @@ func b8ModelTests() async {
         mac.release()
         await going.value
     }
-    for what in ["button", "done", "part", "save"] {
+    for what in ["button", "done", "part"] {
         let mac = FakeMac(); mac.projects = heldTasks("", others: open5, own: #","parts":[{"id":1,"sentence":"All"},{"id":2,"sentence":"Two"}]"#); let m = await model(mac)
         mac.holdTheNext()
         let going = Task { _ = await save(m) }
@@ -1830,8 +1830,7 @@ func b8ModelTests() async {
         switch what {
         case "button": await m.toggleHold(wasOnHold: true, names: [:])
         case "done": await m.press(.close, names: [:])
-        case "part": _ = await m.writePart(.close(part: "2"), name: { $1 }, names: [:])
-        default: m.clearHoldFormSay()
+        default: _ = await m.writePart(.close(part: "2"), name: { $1 }, names: [:])
         }
         check(mac.asked.count == before, "no \(what) while a Save is out")
         mac.release()
