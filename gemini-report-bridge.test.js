@@ -261,3 +261,20 @@ test('#4491: token-only sends the agent\'s token alone; anything else keeps the 
     fsB.rmSync(data, { recursive: true, force: true });
   }
 });
+
+/* #9048: a resumed gemini session (source `resume`) is the same conversation going on, so it must not report `started`
+   over the agent's own wait. `startup`, a missing source and an unseen value still report `started`. `clear` does too,
+   on purpose: gemini's /clear fires SessionEnd (stopped) first, so skipping `started` there would only leave a live
+   agent showing stopped. Driven end to end as well, so a resumed session reaches no board. */
+test('#9048: a resumed gemini session does not report started; startup and clear still do', async () => {
+  const { reportFor } = require('./bin/gemini-report-bridge');
+  assert.equal(reportFor({ hook_event_name: 'SessionStart', source: 'resume' }), null);
+  assert.equal(reportFor({ hook_event_name: 'SessionStart', source: 'startup' }).state, 'started');
+  assert.equal(reportFor({ hook_event_name: 'SessionStart', source: 'clear' }).state, 'started');
+  assert.equal(reportFor({ hook_event_name: 'SessionStart' }).state, 'started', 'an older gemini with no source');
+  assert.equal(reportFor({ hook_event_name: 'SessionStart', source: 'something-later' }).state, 'started');
+  const resumed = await drive(JSON.stringify({ hook_event_name: 'SessionStart', source: 'resume' }));
+  assert.equal(resumed.length, 0, 'a resumed session must not reach the board');
+  const fresh = await drive(JSON.stringify({ hook_event_name: 'SessionStart', source: 'startup' }));
+  assert.equal(JSON.parse(fresh[0].body).state, 'started');
+});
