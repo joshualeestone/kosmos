@@ -36,6 +36,10 @@ struct AutomationView: View {
     @State private var heldShowWords: Set<String> = []     // stopped rows whose words were asked for
     @State private var heldOpen: Set<String> = []           // long rows read in full
     @State private var lastCommunity: Automation.Community? // the last Community setting read, kept through a failed read
+    // kosmos#8959 slice D1d3a: "Where each agent stands" (the page's #community-ready-list), read on its own.
+    @State private var ready: Ready.Load = .looking
+    @State private var readyOpen: Set<String> = []      // rows opened, kept per agent across reads (COMMUNITY_READY_OPEN)
+    @State private var readyGeneration = 0
 
     private enum Load: Equatable {
         case reading
@@ -97,7 +101,7 @@ struct AutomationView: View {
                 shownURL = mac?.url
                 loads = [:]; notes = [:]; pending = [:]; checkins = nil; checkinsGeneration += 1
                 industry = nil; industryRead = false; industryKept = []; industryNote = nil; industrySaving = nil; industryGeneration += 1
-                held = .reading; lastCommunity = nil; heldGeneration += 1; heldBusy = nil; heldNotes = [:]; heldSay = nil; heldAsking = nil; heldShowWords = []; heldOpen = []
+                held = .reading; lastCommunity = nil; ready = .looking; readyOpen = []; readyGeneration += 1; heldGeneration += 1; heldBusy = nil; heldNotes = [:]; heldSay = nil; heldAsking = nil; heldShowWords = []; heldOpen = []
                 for box in Automation.Box.allCases { generations[box, default: 0] += 1 }
             }
             await readAll(keepNotes: true)
@@ -134,6 +138,7 @@ struct AutomationView: View {
             if box == .prompter, let rows = checkins, !rows.isEmpty { checkinRows(rows) }
             if box == .community, industryRead { industryRows() }
             if box == .community { heldRows() }
+            if box == .community { readyRows() }
         } header: {
             Text(box.title)
         } footer: {
@@ -317,6 +322,7 @@ struct AutomationView: View {
             group.addTask { await readCheckins() }
             group.addTask { await readIndustry(keepNote: keepNotes) }
             group.addTask { await readHeld() }
+            group.addTask { await readReady() }
         }
     }
 
@@ -457,6 +463,58 @@ struct AutomationView: View {
         .padding(.vertical, 4)
     }
 
+    // communityReadyPaint: the heading, its note, and one row per agent that opens to its lines.
+    @ViewBuilder private func readyRows() -> some View {
+        Text(Ready.Words.heading).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
+        Text(Ready.Words.note).font(.footnote).foregroundColor(Palette.secondary)
+        switch ready {
+        case .looking: Text(Ready.Words.looking).font(.footnote).foregroundColor(Palette.secondary)
+        case .none: Text(Ready.Words.none).font(.footnote).foregroundColor(Palette.secondary)
+        case .couldNot: Text(Ready.Words.couldNot).font(.footnote).foregroundColor(Palette.secondary).accessibilityIdentifier("automation-ready-msg")
+        case .rows(let rows):
+            ForEach(rows) { r in
+                DisclosureGroup(isExpanded: Binding(
+                    get: { readyOpen.contains(r.session) },
+                    set: { if $0 { readyOpen.insert(r.session) } else { readyOpen.remove(r.session) } }
+                )) {
+                    ForEach(Array(r.lines.enumerated()), id: \.offset) { _, l in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            if l.needsYou { needsYouDot() }
+                            Text(Ready.lineText(l)).font(.footnote).foregroundColor(Palette.secondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(r.name).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
+                        if let n = r.needsYou { needsYouDot(); Text(n + r.rest).font(.footnote).foregroundColor(Palette.secondary) }
+                        else { Text(r.rest).font(.footnote).foregroundColor(Palette.secondary) }
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                .accessibilityIdentifier("automation-ready-" + r.session)
+            }
+        }
+    }
+
+    // communityReadyDot: the mark, and "Needs you: " for a screen reader.
+    private func needsYouDot() -> some View {
+        Circle().fill(Palette.dangerWord).frame(width: 7, height: 7).alignmentGuide(.firstTextBaseline) { d in d[.bottom] - 1 }
+            .accessibilityLabel(Ready.Words.needsYou)
+    }
+
+    @MainActor private func readReady() async {
+        if sample { if ready == .looking { ready = Ready.read(status: 200, data: Data(Ready.sample.utf8)) }; return }
+        guard let mac, mac.url == shownURL else { return }
+        readyGeneration += 1
+        let mine = readyGeneration
+        let (status, data) = await fetch(Ready.request(mac))
+        guard !Task.isCancelled, mine == readyGeneration, mac.url == shownURL else { return }
+        ready = Ready.read(status: status, data: data)
+        // An agent no longer listed is forgotten (the page's open set does the same).
+        if case .rows(let rows) = ready { readyOpen.formIntersection(rows.map(\.session)) }
+    }
+
     // refreshCommunityHeld: both reads must answer.
     @MainActor private func readHeld(during busy: Bool = false) async {
         if sample {
@@ -486,7 +544,7 @@ struct AutomationView: View {
         guard mac.url == shownURL else { return }
         switch Held.outcome(status: status, data: data, releasing: true) {
         // Done: the buttons stay disabled until the list is read again, so a released post never looks untouched.
-        case .done: await readHeld(during: true); heldNotes[row.id] = nil; heldBusy = nil
+        case .done: await readHeld(during: true); heldNotes[row.id] = nil; heldBusy = nil; await readReady()
         case .refused(let said): heldBusy = nil; heldNotes[row.id] = said
         case .unfinished(let said): heldNotes[row.id] = nil; await settleUnfinished(said)
         }
@@ -502,7 +560,7 @@ struct AutomationView: View {
         let (status, data) = await fetch(Held.discardRequest(mac, id: row.id))
         guard mac.url == shownURL else { return }
         switch Held.outcome(status: status, data: data, releasing: false) {
-        case .done: heldAsking = nil; await readHeld(during: true); heldNotes[row.id] = nil; heldBusy = nil
+        case .done: heldAsking = nil; await readHeld(during: true); heldNotes[row.id] = nil; heldBusy = nil; await readReady()
         case .refused(let said): heldBusy = nil; heldNotes[row.id] = said
         case .unfinished(let said): heldNotes[row.id] = nil; heldAsking = nil; await settleUnfinished(said)
         }
@@ -513,6 +571,7 @@ struct AutomationView: View {
         await readHeld(during: true)
         heldBusy = nil
         heldSay = held == .failed ? String(said.dropLast(Held.Words.whereNow.count)) : said
+        await readReady()   // as the page's communityHeldDone: the rows name what is held
     }
 
     private func removeSampleHeld(_ id: String) {

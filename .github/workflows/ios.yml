@@ -330,6 +330,13 @@ jobs:
           ios/LogicTests/run-held.sh | tee "$RUNNER_TEMP/held.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/held.log"
 
+      # kosmos#8959 slice D1d3a: Community's "Where each agent stands", against web/index.html and the engine's words.
+      - name: Community ready logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-ready.sh | tee "$RUNNER_TEMP/ready.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/ready.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build

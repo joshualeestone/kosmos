@@ -85,6 +85,13 @@ final class AutomationUITests: XCTestCase {
         XCTAssertFalse(app.buttons["automation-held-release-p2"].exists, "a stopped row offers Release")
         shot(app, "automation-held")
 
+        // kosmos#8959 slice D1d3a: "Where each agent stands" under the held posts, one row per agent in the board's words.
+        let eli = app.descendants(matching: .any)["automation-ready-eli"]
+        reveal(app, eli, swipes: 4)
+        XCTAssertTrue(eli.waitForExistence(timeout: 5), "Where each agent stands is missing")
+        XCTAssertTrue(app.descendants(matching: .any)["automation-ready-dana"].exists, "the first agent's row is missing")
+        shot(app, "automation-ready")
+
         // The Recommender is on in the sample, so its three guards show, each in the board's words.
         // Each guard is revealed on its own, as the check-ins are: a lazy List draws a row only near the screen, so the
         // first guard being on screen did not mean the other two were drawn yet (D1d1's light run failed here while its
