@@ -56,7 +56,10 @@ enum Automation {
         static let autoSaveHint = "When an agent's context is nearly full, it will automatically be asked to write a handoff document for its future self. On by default."
         static let autoSaveLevel = "Save when context reaches"
         static let prompterLabel = "Check on your agents"
-        static let prompterHint = "Every so often, Kosmos checks on your agents that have stopped while they still have tasks to finish, or that need reconnecting. It can remind the ones with tasks to pick their work back up, and shows a check-in below so you can look in on it. Everything stays on this computer. On by default."
+        // Review 1: the page's line goes on to "shows a check-in below", a list the phone does not have yet (D1d), so the
+        // phone says the line up to there, and the rest of it. Each piece is the page's own (the logic suite checks).
+        static let prompterHintPieces = ["Every so often, Kosmos checks on your agents that have stopped while they still have tasks to finish, or that need reconnecting. It can remind the ones with tasks to pick their work back up", "Everything stays on this computer. On by default."]
+        static var prompterHint: String { prompterHintPieces[0] + ". " + prompterHintPieces[1] }
         static let prompterEvery = "Check every"
         static let capLabel = "Working at the same time"
         static let geminiCapHint = "Gemini agents signed in with a Google subscription on this computer share one Google account's quota, so several working at once can use it up together. Gemini agents on an API key are not counted. With a limit, Kosmos holds its own automatic messages, room posts and the tasks it hands out to the others while that many are working, counting each one it just started for a few minutes, so those can arrive late. Your own messages, and a restart or new team you start, are not held by this limit, though a restart or new team counts toward it. No limit by default."
@@ -71,8 +74,11 @@ enum Automation {
         static let dailyReportLabel = "Make Kosmos work better for everyone."
         static let dailyReportHint = "Allow an agent to send a daily note with any system issues or improvement suggestions."
         static let communityLabel = "My agents take part in the Kosmos+ community"
-        static let communityHint = "They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles show each agent’s picture, and the kind of business you pick below, if you pick one. Once three or more of your agents on this Kosmos take part, each one’s profile also lists the others as working alongside it."
-        static let communityOff = "Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them under “View all of them here, to delete one” below, which says when one cannot be removed."
+        // Review 1: as the Prompter's, without the clauses that point "below" to the held posts, the kind of business and
+        // the list of posts, which stay on the board until D1d.
+        static let communityHintPieces = ["They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it", "Their public profiles show each agent’s picture", "Once three or more of your agents on this Kosmos take part, each one’s profile also lists the others as working alongside it."]
+        static var communityHint: String { communityHintPieces[0] + ". " + communityHintPieces[1] + ". " + communityHintPieces[2] }
+        static let communityOff = "Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up."
         static let communityUnread = "We could not read this setting just now, so it is not shown. It stays as it was; try again in a moment."
         static let languageLabel = "The language your agents write to you in"
         static let languageHint = "Your agents write to you and in your project rooms in this language. Kosmos+ community posts stay in English."
@@ -80,6 +86,7 @@ enum Automation {
         static let languageUnread = "We could not read which language you chose just now. Pick one to set it again; until then your agents keep the language they have."
         static let recommenderLabel = "Let blocked agents recommend and act"
         static let recommenderHint = "When an agent reports it needs a decision, Kosmos asks up to two of its teammates for their view. The agent then decides, writes down why, and carries it out, within the guards below."
+        static let recommenderGuardsHead = "Never let a recommendation:"
         static let recommenderGuardsNote = "Your agents are given these as instructions. Kosmos cannot yet stop these actions on its own."
         static let recommenderOff = "Off by default. Your agents will still tell you when they are stuck; they just will not act on it themselves."
         static let assignerLabel = "Turn your goals into assigned work"
@@ -89,8 +96,12 @@ enum Automation {
         static let failoverOff = "Off by default."
         static let readFailed = "We could not read this setting just now."
         static let saveFailed = "We could not save that setting."
-        // The Settings rows left on the computer's board until their own slices land (card #8959, D1b to D2).
-        static let elsewhere = "Your computer's other settings are still on its board, under Settings on your computer's board."
+        static let savedUnread = "Saved, but we could not read it back just now."
+        static let dailyReportDamaged = "Your Daily report setting could not be read, so no report is being sent. Turn it on to set it again."
+        static let messagesDefault = "We could not read this setting, so Kosmos is using the default shown here."
+        static let languageCouldNotRead = "Could not be read just now"
+        // Not the page's: the phone's own line for what is not on this screen yet (card #8959, D1b to D2).
+        static let elsewhere = "The Prompter's check-ins, the Community's posts and kind of business, and the rest of your computer's settings are in Settings on your computer's board."
     }
 
     // The recommender's three guards, in the board's order, with its words.
@@ -118,11 +129,11 @@ enum Automation {
     struct AutoSave: Equatable { let on: Bool; let threshold: Int }
     struct Prompter: Equatable { let on: Bool; let minutes: Int; let choices: [Int] }
     struct Cap: Equatable { let max: Int; let choices: [Int]; let savedUnread: Bool }
-    struct Messages: Equatable { let on: Bool; let perHour: Int; let tiers: [Int] }
+    struct Messages: Equatable { let on: Bool; let perHour: Int; let tiers: [Int]; var defaultInUse = false }
     struct Community: Equatable { let on: Bool; let stopped: String? }
     struct LanguageOption: Equatable, Identifiable { let tag: String; let name: String; var id: String { tag } }
     struct Language: Equatable {
-        let choice: String          // "auto" or a tag on the list
+        let choice: String?         // "auto" or a tag on the list; nil when the computer could not read it
         let options: [LanguageOption]
         let automaticName: String?  // what Automatic reads on this computer, when it is sure
         var automaticLabel: String { automaticName.map { "Automatic: \($0), from this computer" } ?? "Automatic: English for now" }
@@ -132,7 +143,8 @@ enum Automation {
 
     // One box's state, as the screen paints it.
     enum State: Equatable {
-        case autoSave(AutoSave), prompter(Prompter), cap(Cap), messages(Messages), dailyReport(Bool)
+        // dailyReport's damaged: the computer found its file unreadable and treats it as Off (the page says so).
+        case autoSave(AutoSave), prompter(Prompter), cap(Cap), messages(Messages), dailyReport(on: Bool, damaged: Bool)
         case community(Community), language(Language), recommender(Recommender), assigner(Assigner)
     }
 
@@ -177,23 +189,30 @@ enum Automation {
             return .cap(Cap(max: int(o["maxWorking"]) ?? 0, choices: choices, savedUnread: bool(o["ok"]) == false))
         case .messages:
             guard let on = bool(o["on"]), let tiers = ints(o["tiers"]), let per = int(o["perHour"]) else { return nil }
-            return .messages(Messages(on: on, perHour: per, tiers: tiers))
+            return .messages(Messages(on: on, perHour: per, tiers: tiers, defaultInUse: bool(o["ok"]) == false))
         case .dailyReport:
+            // As the page reads this privacy switch: readable is exactly ok:true with a boolean on; damaged is exactly
+            // {on:false, ok:false}; any other shape is unread, so no unexpected answer is drawn as a position.
             guard let on = bool(o["on"]) else { return nil }
-            return .dailyReport(on)
+            let ok = bool(o["ok"])
+            if ok == false && on == false { return .dailyReport(on: false, damaged: true) }
+            guard ok == true else { return nil }
+            return .dailyReport(on: on, damaged: false)
         case .community:
             // The board treats ok:false as unread (web/index.html communityPaint).
             guard bool(o["ok"]) != false, let on = bool(o["on"]) else { return nil }
             return .community(Community(on: on, stopped: text(o["stopped"])))
         case .language:
-            guard bool(o["ok"]) == true, let list = o["options"] as? [[String: Any]] else { return nil }
+            // As the page: a choice it could not read still shows the list (so the person can set it again), with no
+            // choice picked. Only an answer with no list at all is unread.
+            guard let list = o["options"] as? [[String: Any]] else { return nil }
             let options = list.compactMap { e -> LanguageOption? in
                 guard let tag = text(e["tag"]) else { return nil }
                 return LanguageOption(tag: tag, name: text(e["name"]) ?? tag)
             }
             let auto = o["automatic"] as? [String: Any]
             let sure = bool(auto?["sure"]) == true
-            return .language(Language(choice: text(o["choice"]) ?? "auto", options: options,
+            return .language(Language(choice: bool(o["ok"]) == true ? (text(o["choice"]) ?? "auto") : nil, options: options,
                                       automaticName: sure ? text(auto?["name"]) : nil))
         case .recommender:
             guard let on = bool(o["on"]) else { return nil }
@@ -293,22 +312,60 @@ enum Automation {
         return writing ? Words.saveFailed : Words.readFailed
     }
 
+    // Why a read gave no state. A 200 the box could not read is the page's own sentence where it has one (Community's).
+    static func readRefusal(_ box: Box, status: Int, data: Data) -> String {
+        if status == 200 && box == .community { return Words.communityUnread }
+        return refusal(status: status, data: data, writing: false)
+    }
+
+    // What a write's answer means. saved: the box's new state. savedUnread: a 200 the box could not read (the setting
+    // is saved; the page says "Saved, but we could not read it back just now." and the screen reads it again).
+    // refused: nothing changed, with why (the screen still reads again: a write with no answer may have landed).
+    enum WriteOutcome: Equatable { case saved(State), savedUnread, refused(String) }
+    static func writeOutcome(_ box: Box, status: Int, data: Data) -> WriteOutcome {
+        if let s = parse(box, status: status, data: data) {
+            // Language: a save the computer could not read back is saved, unread (the page's first case).
+            if case .language(let l) = s, l.choice == nil { return .savedUnread }
+            return .saved(s)
+        }
+        if status == 200 { return .savedUnread }
+        return .refused(refusal(status: status, data: data, writing: true))
+    }
+
+    // After a Language save, what happens to running agents, in the page's words (web/index.html agentLanguageChange).
+    static func languageSaved(status: Int, data: Data) -> String? {
+        guard let o = object(status, data) else { return nil }
+        if bool(o["ok"]) != true { return Words.savedUnread }
+        let n = (o["couldNot"] as? NSNumber)?.intValue ?? 0
+        let changed = (o["changed"] as? NSNumber)?.intValue ?? 0
+        let removed = (o["removed"] as? NSNumber)?.intValue ?? 0
+        if n < 0 { return "Saved. Your agents pick it up the next time Kosmos starts." }
+        if n > 0 { return "Saved. \(n)" + (n == 1 ? " agent" : " agents") + " could not be changed just now and keep the language they have until Kosmos next starts." }
+        if changed == 0 { return "Saved." }
+        if removed == changed { return "Saved. New agents use it now. Agents already running drop their old language the next time they start." }
+        if removed > 0 { return "Saved. Some agents switch to it once they finish what they are doing; the rest drop their old language the next time they start." }
+        return "Saved. Your agents switch to it once they finish what they are doing."
+    }
+
     // The lines under each box, as the board shows them for that state (web/index.html paint functions).
     static func notes(_ state: State) -> [String] {
         switch state {
         case .cap(let c): return c.savedUnread ? [Words.capUnreadSaved] : []
         case .messages(let m):
-            if !m.on { return [Words.messagesOff] }
-            return m.perHour == 100 ? [Words.messagesHigh] : []
+            var out = m.defaultInUse ? [Words.messagesDefault] : []
+            if !m.on { out.append(Words.messagesOff) } else if m.perHour == 100 { out.append(Words.messagesHigh) }
+            return out
+        case .dailyReport(_, let damaged): return damaged ? [Words.dailyReportDamaged] : []
         case .community(let c):
             var out: [String] = []
             if !c.on { out.append(Words.communityOff) }
             if let s = c.stopped { out.append(Settings.sentence(s)) }
             return out
         case .language(let l):
+            if l.choice == nil { return [Words.languageUnread] }
             return l.choice == "auto" && l.automaticName == nil ? [Words.languageAutoUnsure] : []
         case .recommender(let r): return r.on ? [Words.recommenderGuardsNote] : [Words.recommenderOff]
-        case .assigner, .autoSave, .prompter, .dailyReport: return []
+        case .assigner, .autoSave, .prompter: return []
         }
     }
 
@@ -343,7 +400,7 @@ enum Automation {
         case (.prompter(let p), .prompterMinutes(let m)): return .prompter(Prompter(on: p.on, minutes: m, choices: p.choices))
         case (.cap(let c), .cap(let n)): return .cap(Cap(max: n, choices: c.choices, savedUnread: false))
         case (.messages(let m), .messages(let on, let per)): return .messages(Messages(on: on, perHour: per, tiers: m.tiers))
-        case (.dailyReport, .dailyReport(let on)): return .dailyReport(on)
+        case (.dailyReport, .dailyReport(let on)): return .dailyReport(on: on, damaged: false)
         case (.community(let c), .community(let on)): return .community(Community(on: on, stopped: c.stopped))
         case (.language(let l), .language(let choice)):
             return .language(Language(choice: choice, options: l.options, automaticName: l.automaticName))

@@ -36,11 +36,12 @@ So the weakest premise held for Automation: nothing to file.
 - ios/Kosmos/AutomationLogic.swift: per-box route, request, answer parse, refusal, notes, the page's words.
 - ios/Kosmos/AutomationView.swift: one section per box; SettingsView gets an Automation row above the board row.
 - ios/LogicTests/automation + run-automation.sh (in ios.yml); server.ios-routes-6838.test.js SITES entry.
-- ios/KosmosUITests/AutomationUITests.swift (light and dark shots).
+- ios/KosmosUITests/AutomationUITests.swift: three shots per run; ui-class.sh runs it once in light and once in dark (simctl appearance), so light and dark shots come from the runner, not the test.
 
 ## Measured
-- run-automation.sh: VERDICT PASS 180/180; a copy with accountCap pointed at agycap fails 1 of 165 (control).
+- run-automation.sh (after review 1): VERDICT PASS 214/214. Controls on that suite: accountCap pointed at agycap fails 1 of 214; Daily report damaged-rule loosened to `ok == false` fails 1 of 214.
 - iOS sources type-check for arm64-apple-ios16.0-simulator; a planted type error is reported (control).
 - node --test ios*/server.ios*/web.ios* + engine.reachable, fixture-discipline, verbs parity: 108/108; a bogus PUT /api/limitsx in SITES fails against a real board (control).
 
 ## Challenge loop ledger
+- r1 opus: 3B/9W, all fixed. B1 guards heading ("Never let a recommendation:") added; B2 hints cut where they point "below" to lists the phone lacks (pieces checked against the page), closing line names what is still on the board; B3 plan lines corrected and controls rerun on the current suite. W1/W2 a write that does not come back clean re-reads, and a 200 the box cannot read is "Saved, but we could not read it back just now."; W3 no read while a save is out, and the save's end bumps the generation; W4 Language keeps its list when the choice is unread (page's "Could not be read just now" plus its sentence); W5 Community's own unread sentence; W6 Daily report read exactly as the page (damaged file is Off with its sentence, any other shape unread); W7 the messages limit's default-in-use sentence; W8 Language save says what happens to running agents, in the page's six sentences; W9 closing line reworded, and the unread sentences are now shown.
