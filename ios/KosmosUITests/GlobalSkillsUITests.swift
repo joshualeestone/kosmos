@@ -31,15 +31,18 @@ final class GlobalSkillsUITests: XCTestCase {
         remove.tap()
         XCTAssertTrue(waitGone(app.staticTexts["Release notes"]), "the second press did not remove the skill")
 
-        // Adding: the button waits for a name and words, then the skill joins the list with the page's sentence.
+        // Adding: with nothing written the computer refuses in its own words (as the page, the button is never grey);
+        // with a name and words the skill joins the list with the page's sentence.
         let add = app.buttons["gskill-add"]
         reveal(app, add)
-        XCTAssertFalse(add.isEnabled, "Add skill is pressable with nothing written")
+        XCTAssertTrue(add.isEnabled, "Add skill is grey; the page's button never is")
+        add.tap()
+        XCTAssertTrue(app.staticTexts["Give the skill a short name in letters and numbers."].waitForExistence(timeout: 5),
+                      "a blank name is not refused in the engine's own words")
         let name = app.textFields["gskill-name"]
         name.tap(); name.typeText("Meeting notes")
         let body = app.textViews["gskill-body"]
         body.tap(); body.typeText("One line per decision.")
-        XCTAssertTrue(add.isEnabled, "Add skill stays off with a name and words")
         add.tap()
         XCTAssertTrue(app.staticTexts["Added. Every agent picks it up at its next restart."].waitForExistence(timeout: 5), "the page's added sentence is missing")
         XCTAssertTrue(app.staticTexts["Meeting notes"].exists, "the added skill is not in the list")
