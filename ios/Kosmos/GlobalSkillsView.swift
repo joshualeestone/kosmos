@@ -2,7 +2,8 @@ import SwiftUI
 
 // kosmos#8959 slice D1b1: the computer's Global skills, native (the board's Settings > Global skills): the list, names
 // only, each with a Remove that asks once before it acts, and the add form. The list is read again after every change,
-// as the page's: it is the receipt. The logic is GlobalSkillsLogic.swift.
+// as the page's: it is the receipt. The logic is GlobalSkillsLogic.swift. The UI test drives only the sample build's
+// path; the real reads and changes are covered by the logic suite's requests and answers, not by the UI test.
 struct GlobalSkillsView: View {
     let mac: Settings.Mac?
     var sample = false
@@ -13,7 +14,10 @@ struct GlobalSkillsView: View {
 
     @State private var load: Load = .reading
     @State private var listNote: String?
-    // The one Remove asking "for good?" (the page's armed button); any other press or leaving disarms it.
+    // A refused remove's sentence, said by the one read that follows it, then gone (review 1).
+    @State private var removeRefusal: String?
+    // The one Remove asking "for good?" (the page's armed button, which disarms on blur): typing, a read, another
+    // press or leaving disarms it.
     @State private var armed: String?
     @State private var removing: String?
     @State private var name = ""
@@ -24,10 +28,6 @@ struct GlobalSkillsView: View {
     // list came from, so another computer starts the screen over.
     @State private var generation = 0
     @State private var shownURL: URL?
-
-    private var sampleMac: Settings.Mac? {
-        sample ? Settings.Mac(name: "Studio Mac", url: URL(string: "https://studio.kosmosplus.com/")!, cookie: "sample") : nil
-    }
 
     var body: some View {
         List {
@@ -58,12 +58,23 @@ struct GlobalSkillsView: View {
         .task(id: mac?.url) {
             if shownURL != mac?.url {
                 shownURL = mac?.url
-                load = .reading; listNote = nil; armed = nil; removing = nil; addNote = nil
+                load = .reading; listNote = nil; removeRefusal = nil; armed = nil; removing = nil; adding = false; addNote = nil
                 generation += 1
             }
             await read()
         }
         .onDisappear { armed = nil }
+        // The page's fields stop at their maxlength (UTF-16 units); typing anywhere disarms a Remove, as the page's blur.
+        .onChange(of: name) { v in
+            armed = nil
+            let c = GlobalSkills.clipped(v, utf16: GlobalSkills.nameMax)
+            if c != v { name = c }
+        }
+        .onChange(of: words) { v in
+            armed = nil
+            let c = GlobalSkills.clipped(v, utf16: GlobalSkills.bodyMax)
+            if c != v { words = c }
+        }
     }
 
     // MARK: The list
@@ -124,7 +135,7 @@ struct GlobalSkillsView: View {
 
     private var addSection: some View {
         Section {
-            TextField(GlobalSkills.Words.namePlaceholder, text: Binding(get: { name }, set: { name = String($0.prefix(GlobalSkills.nameMax)) }))
+            TextField(GlobalSkills.Words.namePlaceholder, text: $name)
                 .accessibilityIdentifier("gskill-name")
                 .accessibilityLabel(GlobalSkills.Words.addLabel)
             ZStack(alignment: .topLeading) {
@@ -176,6 +187,7 @@ struct GlobalSkillsView: View {
             return
         }
         guard let mac, mac.url == shownURL else { return }
+        armed = nil
         generation += 1
         let started = generation
         if case .got = load {} else { load = .reading }
@@ -188,10 +200,14 @@ struct GlobalSkillsView: View {
         switch GlobalSkills.list(status: status, data: data) {
         case .got(let skills):
             load = .got(skills)
-            if let a = armed, !skills.contains(where: { $0.key == a }) { armed = nil }
+            // Review 1: a fresh list says nothing old; only a refused remove's sentence is said, once, under it.
+            listNote = removeRefusal
+            removeRefusal = nil
         case .failed(let why):
-            // A list already shown is kept, with why under it; with nothing shown, why is the section.
-            if case .got = load { listNote = why } else { load = .failed(why) }
+            // As the page: a failed read empties the list (nothing it cannot vouch for stays pressable) and says why.
+            load = .failed(why)
+            listNote = nil
+            removeRefusal = nil
         }
     }
 
@@ -206,11 +222,12 @@ struct GlobalSkillsView: View {
         generation += 1
         let sentTo = mac.url
         let (status, data) = await send(request)
-        removing = nil
+        // Review 1: an answer from a computer no longer shown touches nothing, not even this computer's spinner.
         guard sentTo == shownURL else { return }
+        if removing == skill.key { removing = nil }
         switch GlobalSkills.removed(status: status, data: data) {
-        case .done: listNote = nil
-        case .refused(let why): listNote = why
+        case .done: removeRefusal = nil
+        case .refused(let why): removeRefusal = why
         }
         await read()
     }
@@ -229,8 +246,8 @@ struct GlobalSkillsView: View {
         adding = true
         let sentTo = mac.url
         let (status, data) = await send(request)
-        adding = false
         guard sentTo == shownURL else { return }
+        adding = false
         switch GlobalSkills.added(status: status, data: data) {
         case .done:
             // As the page: the fields empty, the sentence said, and the list read again as the receipt.

@@ -31,9 +31,24 @@ enum GlobalSkills {
         static let listRefusedDefault = "we could not read the skills folder"
     }
 
-    // The page's own limits on the two fields (web/index.html g-skill-name maxlength 80, g-skill-body 65536).
+    // The page's own limits on the two fields (web/index.html g-skill-name maxlength 80, g-skill-body 65536). A browser's
+    // maxlength counts UTF-16 units, so these do too (clipped). The engine's own size check stays the engine's: it
+    // refuses in its own sentence (review 1).
     static let nameMax = 80
     static let bodyMax = 65536
+
+    // The text cut, as a field with maxlength stops typing: at most `max` UTF-16 units, never inside a character.
+    static func clipped(_ s: String, utf16 max: Int) -> String {
+        guard s.utf16.count > max else { return s }
+        var out = ""
+        var used = 0
+        for ch in s {
+            let n = String(ch).utf16.count
+            if used + n > max { break }
+            out.append(ch); used += n
+        }
+        return out
+    }
 
     // Every request carries the computer's cookie by hand and the board's header, as Settings' own do.
     private static func sign(_ r: inout URLRequest, _ mac: Settings.Mac) {
@@ -67,7 +82,7 @@ enum GlobalSkills {
 
     static func canAdd(name: String, body: String) -> Bool {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !n.isEmpty && n.count <= nameMax && !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && body.utf8.count <= bodyMax
+        return !n.isEmpty && n.utf16.count <= nameMax && !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // The key is the board's (engine/skills.js), one path segment, encoded as the page's encodeURIComponent.
