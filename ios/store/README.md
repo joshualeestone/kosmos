@@ -2,7 +2,7 @@
 
 Files and drafts. **Entered in App Store Connect for 1.0 on 2026-11-24 (kosmos #7352):** the words and links in
 `listing.md`, the answers in `age-rating.md`, the price (Free), content rights, and the countries (every storefront but
-the 27 in the EU). The screenshots and App Privacy were not, as of that evening. The app record exists (created by
+mainland China and the 27 in the EU). The screenshots and App Privacy were not, as of that evening. The app record exists (created by
 Josh 2026-10-17, "Kosmos: AI Agent Manager", per #6262) and build 1 is in TestFlight; nothing has been submitted
 for review.
 
