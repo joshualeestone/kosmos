@@ -104,6 +104,7 @@ struct AccountView: View {
     @State private var naming = false                    // the name sheet is open
     @State private var nameText = ""
     @State private var nameWasSuggested = false
+    @State private var nameSuggestion = ""              // what was prefilled; the suggestion line stays only while it is untouched
     @State private var nameBusy = false
     @State private var nameFor: String?                  // the sign-in the sheet belongs to
     @State private var nameError: String?
@@ -138,7 +139,7 @@ struct AccountView: View {
             passkeys = .reading; newPlaces = []; notMeFor = nil; notMeBusy = false; notMeBusyFor = nil; notMeNote = nil
             removingFor = nil; notMeAskedFor = nil; heldAdd = nil; renewedFrom = [:]; passkeyListNote = nil
             plan = nil; standing = nil; email = nil; nameState = .none; naming = false; nameBusy = false; nameFor = nil
-            nameError = nil; nameSaved = nil; nameText = ""
+            nameError = nil; nameSaved = nil; nameText = ""; nameWasSuggested = false; nameSuggestion = ""
             load = .reading
             Task { await read() }
         }
@@ -522,6 +523,7 @@ struct AccountView: View {
             Section {
                 Text(saved).foregroundColor(Palette.primary).accessibilityIdentifier("account-address")
             } header: { Text("Your Kosmos+ address") } footer: {
+                // Shown until this screen is left or the sign-in changes.
                 Text("Saved. This is your permanent private address.").font(.footnote).foregroundColor(Palette.secondary)
             }
         case (.address(let a), nil):
@@ -553,7 +555,10 @@ struct AccountView: View {
                         .onChange(of: nameText) { v in
                             let c = Account.nameClean(v)
                             if c != v { nameText = c }
+                            // Review 1: the page hides the suggestion line on the first keystroke.
+                            nameWasSuggested = !nameSuggestion.isEmpty && c == nameSuggestion
                         }
+                        .accessibilityHint(Account.nameHint)
                         .onSubmit { Task { await saveName() } }
                         .disabled(nameBusy)
                         .accessibilityIdentifier("account-name-field")
@@ -584,7 +589,7 @@ struct AccountView: View {
     private func openName() {
         nameError = nil
         // The page prefills a suggestion once, and keeps what was typed if the step is opened again.
-        if nameText.isEmpty { nameText = Account.nameSuggest(); nameWasSuggested = true }
+        if nameText.isEmpty { nameSuggestion = Account.nameSuggest(); nameText = nameSuggestion; nameWasSuggested = true }
         nameFor = sample ? "sample" : currentSession()
         naming = true
     }
@@ -611,9 +616,11 @@ struct AccountView: View {
         switch Account.nameAnswer(status: status, data: data) {
         case .saved(let address):
             nameSaved = address; nameState = .none; naming = false; nameFor = nil; nameText = ""; nameWasSuggested = false
+            nameSuggestion = ""
             Task { await readPlan() }   // Kosmos+ now says has_name, and the address while no computer holds it
         case .refused(let why):
             nameError = why
+            UIAccessibility.post(notification: .announcement, argument: why)
         }
     }
 
@@ -742,6 +749,8 @@ struct AccountView: View {
     @MainActor private func readPlan() async {
         if sample {
             plan = Account.planActive; standing = nil; email = "ada@example.com"
+            // Deliberately not a state the server sends: it says has_name with a computer that answers. The sample keeps
+            // its computers for the other checks and offers the address too, so one run shows every row (review 1).
             if nameSaved == nil { nameState = .offer }
             return
         }

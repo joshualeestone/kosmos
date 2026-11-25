@@ -68,6 +68,7 @@ final class AccountScreenUITests: XCTestCase {
         XCTAssertEqual(suggested.count, 8, "the field is not prefilled with an eight-character suggestion")
         XCTAssertTrue(app.staticTexts["We picked a private one. Type over it to choose your own."].exists, "the suggestion is not said")
         XCTAssertEqual(app.staticTexts["account-name-echo"].label, suggested + ".kosmosplus.com", "the preview does not echo the suggestion")
+        noSelling(app, "the address sheet")
         shot(app, "account-name-suggested")
         // Tap at the end of the field, so every delete takes a character of the suggestion.
         field.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
@@ -78,6 +79,7 @@ final class AccountScreenUITests: XCTestCase {
         XCTAssertFalse(app.buttons["account-name-save"].isEnabled, "Save works with no name")
         field.typeText("Ada Love!")
         XCTAssertEqual(field.value as? String, "ada-love", "the name is not cleaned as it is typed")
+        XCTAssertFalse(app.staticTexts["We picked a private one. Type over it to choose your own."].exists, "the suggestion line stays after typing over it")
         XCTAssertEqual(app.staticTexts["account-name-echo"].label, "ada-love.kosmosplus.com", "the preview does not echo the cleaned name")
         XCTAssertTrue(app.buttons["account-name-save"].isEnabled, "Save does not work with a valid name")
         shot(app, "account-name-typed")
