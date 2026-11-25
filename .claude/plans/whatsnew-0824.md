@@ -19,8 +19,8 @@ Read from each PR's description of what changes for the person, or from its code
   #9031 still does once createdead-9031 lands (m6678): the card shows a sign-in issue, kosmos accounts says the login
   has expired, and agents are not moved onto it. It no longer changes creating an agent or Check now.
 - **An old sign-in message no longer misleads** (#9038, PR #9061, rank 13, mac, since 0.8.23), in Renet's words.
-- Both rank below the five pending, so they wait for the next window. If Renet's review of #9031 and #9038 finds the
-  same trap in either, its line comes out before the cut.
+- Both rank below the five pending, so they wait for the next window. Renet's blind review of createdead-9031 checked
+  the rest of #9031 and #9038 for the same trap and found none, so both lines stand (m6684).
 - notesOnly: **A wait outlives a /clear** (#9049 PR #9059, #9057 PR #9066, #9058 PR #9073, #9048 PR #9056). An agent
   is reminded of its own wait after a /clear or a late resume, twice; a reopened Grok or Gemini session keeps it
   (#9056, review 1).
