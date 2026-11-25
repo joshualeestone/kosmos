@@ -750,6 +750,7 @@ struct AutomationView: View {
             // the footer says why.
             notes[box] = Note(text: why, problem: true)
             await read(box, keepNote: true)
+            if box == .community || box == .prompter { await readReady() }   // a save with no answer may have landed
         }
     }
 }
