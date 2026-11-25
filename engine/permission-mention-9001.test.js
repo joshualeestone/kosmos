@@ -61,7 +61,8 @@ test('#9001 1b: plan files are answered: read, grepped, written, edited by a her
     "edit('.claude/plans/x.md', [('a', 'b')])", 's=s.replace(a,b) # .claude/plans/x.md', 'ls .claude/plans', 'cat .claude/plans/*.md',
     'ls -t .claude/plans/ | head -3', 'git -C /p commit --amend -m y -- .claude/plans/x.md',
     // review round 5: a plan's own words that are not a delete (link), and git's own options before an allowed verb
-    'git commit -m "plan: fix the link to the spec" -- .claude/plans/x.md', 'git --no-pager diff -- .claude/plans/x.md']) {
+    'git commit -m "plan: fix the link to the spec" -- .claude/plans/x.md', 'git --no-pager diff -- .claude/plans/x.md',
+    'git add .claude/plans/x.md && git commit -m plan && git push -u origin x']) {
     assert.equal(answers(c), true, c);
   }
 });
@@ -109,7 +110,10 @@ test('#9001 1b: any other protected name, a plan path with .., or a delete or mo
     // review round 5: an option git's verb check did not know hid the verb; a glob that bash 3.2 can expand to ..
     'git -C/p reset --hard origin/main && cat .claude/plans/x.md', 'git -p checkout main -- .claude/plans/x.md',
     'git --bare reset --soft HEAD~1 # .claude/plans/x.md', 'git -C /p --no-pager -p stash drop # .claude/plans/x.md',
-    'git -c core.x=1 log -- .claude/plans/x.md', 'echo x > .claude/plans/.?/settings.json', 'shred .claude/plans/x.md', 'trash .claude/plans/x.md', 'rmdir .claude/plans/old',
+    'git -c core.x=1 log -- .claude/plans/x.md', 'echo x > .claude/plans/.?/settings.json',
+    // review round 6: a push that rewrites or deletes on the remote
+    'git push --force origin x # .claude/plans/x.md', 'git push -f # .claude/plans/x.md', 'git push origin :main # .claude/plans/x.md',
+    'git push --force-with-lease # .claude/plans/x.md', 'git push origin +main # .claude/plans/x.md', 'shred .claude/plans/x.md', 'trash .claude/plans/x.md', 'rmdir .claude/plans/old',
     'unlink .claude/plans/x.md', 'bzip2 .claude/plans/x.md', 'mklink /D x .claude\\plans',
     
     // review round 3: links without ln, a protected segment inside a plan path, more delete verbs

@@ -106,6 +106,8 @@ function gitLeftToPerson(piece) {
       if (w === '-c' || /^-c./.test(w) || /^--config/.test(w)) return true;
       if (w.startsWith('-')) continue;
       if (!GIT_READ_OR_RECORD.has(w)) return true;
+      // review round 6: a push that rewrites or deletes on the remote (--force, -f, +ref, :ref) is a person's call
+      if (w === 'push' && words.slice(i + 1).some((x) => /^(?:--force(?:-with-lease)?(?:=\S*)?|-f|--mirror|--delete|-d|\+\S+|:\S+)$/.test(x))) return true;
       break;
     }
   }

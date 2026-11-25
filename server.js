@@ -17,6 +17,8 @@
  * See the ⚠️ block above `start()` for what protects it, and what does not.
  */
 
+// kosmos#9001 1b: per agent, the one long permission report taken for the cut self-declining box on its screen.
+const SELF_EXPIRING_CUT_TAKEN = new Map();
 const http = require('node:http');
 const { pipeline } = require('node:stream');
 const fs = require('node:fs');
@@ -20264,8 +20266,15 @@ const server = http.createServer(async (req, res) => {
                once, one of them a real wait, could have that one's report kept back until the safety prompt declines
                (about two minutes) and the real one shows on screen. */
             const cutTail = !boxed && seen && typeof seen.text === 'string' ? require('./engine/status').selfExpiringCutTail(seen.text) : null;
-            if ((boxed && sent && (boxed === sent || (capped && sent.length >= 40 && boxed.startsWith(sent))))
-              || (cutTail && sent && capped && sent.length >= 40)) {
+            // Review round 6: at most ONE long report per cut box on screen is taken for it. A second long report with
+            // another start, while the same cut box is up, is another request (parallel Bash calls), and is kept.
+            let cutTie = false;
+            if (cutTail && sent && capped && sent.length >= 40) {
+              const prior = SELF_EXPIRING_CUT_TAKEN.get(who);
+              cutTie = !prior || prior.tail !== cutTail || prior.sent === sent;
+              if (cutTie) SELF_EXPIRING_CUT_TAKEN.set(who, { tail: cutTail, sent });
+            }
+            if ((boxed && sent && (boxed === sent || (capped && sent.length >= 40 && boxed.startsWith(sent)))) || cutTie) {
               body.state = 'working';
               body.text = require('./engine/status').SELF_EXPIRING_DECLINE;
             }

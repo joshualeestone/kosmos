@@ -156,3 +156,16 @@ command newly answered:
 - Noted: git push --force and git push origin :main are answered with a plan named; the damage is to the remote, and
   the same commands without a plan were always answered.
 - After the fixes: every status and permission suite (117 files): 1,616 pass, 0 fail, 1 skipped (a live test).
+
+## Round 6 (sonnet, blind, whole branch): nothing above WARNING. Converged.
+- WARNING fixed: the cut-box tie by length could take a second long report (parallel Bash calls) for the safety
+  prompt. Now, per agent, at most one long report per cut box on screen is taken; another long report with a different
+  start while the same box is up is kept and pushes (the same report again, the hook firing twice, is still taken).
+- NIT fixed: between the box's closing rule and the question only the reason, the timer and blank rows may sit; an
+  agent's output there (an earlier box's rule reused) means it is not this prompt.
+- NIT fixed: git push that rewrites or deletes on the remote (--force, --force-with-lease, -f, --mirror, --delete, -d,
+  +ref, :ref) waits when a plan is named; a plain push is answered.
+- NITs left, safe side (they push, as before): a timed line wrapped across two rows, a blank box row drawn without its
+  border, a tall box whose hook copy is under 190 bytes; plan prose with delete-like words.
+- Mutations: one-per-box rule, the stale-row check, the push rule: each red. Every status, permission, chat and
+  report-hook suite: 2,068 pass, 0 fail, 1 skipped (live). Tree guards clean.

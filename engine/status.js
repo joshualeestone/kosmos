@@ -2846,6 +2846,9 @@ function selfExpiringCutTail(text) {
     if (CLAUDE_SAFETY_REASON.test(lines[i])) reason = true;
   }
   if (!timed || !reason) return null;
+  // review round 6: between the rule and the question only the reason, the timer and blank rows (never an agent's
+  // output, which would mean the rule belongs to an earlier box and this question to another prompt)
+  for (let i = close + 1; i < pp.at; i += 1) if (/^\s*[⏺⎿✻❯]/.test(lines[i])) return null;
   if (!lines.slice(pp.at + 1).some((l) => CLAUDE_SCROLL_HINT.test(l))) return null;
   // Every row above the closing rule, to the top of the screen, is inside the box: the box's top is off screen. A
   // header, another rule, or any row outside the box means it is not a cut box (selfExpiringCommand reads whole ones).

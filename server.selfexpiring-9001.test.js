@@ -268,3 +268,28 @@ test('1b: only a cut box with the timed line BELOW it, the safety reason and Cla
   // no safety reason below the rule
   assert.equal(status.selfExpiringCutTail(lines.filter((l) => !/rule out|not ruled out/.test(l)).join('\n')), null, 'no reason');
 });
+
+test('1b review round 6: a second long report with another start, while the same cut box is up, is kept and pushes', async () => {
+  const other = 'asking permission to use Bash: ' + Buffer.from('cd /tmp/work && node tools/another-long-step.js ' + 'y'.repeat(400)).subarray(0, 200).toString('utf8');
+  await withAgent(TALL, async (pushes) => {
+    await report({ state: 'needs_you', text: LONG, auto: true });
+    assert.equal(selfreport.read(WHO).state, 'working', 'premise: the first long report is the safety prompt');
+    await report({ state: 'needs_you', text: other, auto: true });
+    assert.equal(selfreport.read(WHO).state, 'needs_you', 'a second, different long request is kept');
+    assert.equal(pushes.length, 1, 'and pushed');
+  });
+  // The same report again (the hook firing twice for one prompt) is still the safety prompt.
+  await withAgent(TALL, async (pushes) => {
+    await report({ state: 'needs_you', text: LONG, auto: true });
+    await report({ state: 'needs_you', text: LONG, auto: true });
+    assert.equal(selfreport.read(WHO).state, 'working');
+    assert.deepEqual(pushes, []);
+  });
+});
+
+test('1b review round 6: an agent\'s output between the closing rule and the question means it is not this box', () => {
+  const lines = TALL.split('\n');
+  const rule = lines.findIndex((l) => /^\s*╌{8,}\s*$/.test(l));
+  const stale = lines.slice(); stale.splice(rule + 1, 0, '⏺ an earlier answer');
+  assert.equal(status.selfExpiringCutTail(stale.join('\n')), null);
+});
