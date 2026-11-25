@@ -204,17 +204,24 @@ enum Updates {
 
     // MARK: Installing
 
-    enum Started: Equatable { case started(myStart: String?), unanswered, refused(String) }
+    enum Started: Equatable { case started(myStart: String?, updating: String?), unanswered, refused(String) }
     // POST /api/update's answer. A refusal is the computer's own sentence (the step-up's too); "no update to install"
     // means it already has it. No answer at all is not a refusal (#7207): it is very often the board restarting to
     // install the update this press started, so the screen waits, as the page's waitForUnansweredPress.
     static func started(status: Int, data: Data?, version: String?) -> Started {
         if status == 0 { return .unanswered }
         let o = object(data)
-        if (200..<300).contains(status) { return .started(myStart: o.flatMap { text($0["startedAt"]) }) }
+        if (200..<300).contains(status) { return .started(myStart: o.flatMap { text($0["startedAt"]) }, updating: o.flatMap { text($0["updating"]) }) }
         let said = o.flatMap { text($0["error"]) } ?? Words.noReason(status)
         if status == 409, said.contains("no update to install") { return .refused(Words.already(version)) }
         return .refused(said)
+    }
+
+    // updateOverlayLead: on Windows the board downloads first while it still answers, then goes away to swap it in;
+    // elsewhere it is "Updating." throughout. (With no version named, "Updating.", where the page would print "Downloading .")
+    static func overlayLead(reached: Bool, version: String?, windows: Bool) -> String {
+        guard windows, reached, let version else { return Words.updating }
+        return "Downloading " + version + "."
     }
 
     // While an unanswered press waits: the page's words, "this page" said as this screen.

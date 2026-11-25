@@ -88,8 +88,13 @@ check(page.contains("paintSwitch('auto-toggle', unread ? null : r.on === true);"
 check(U.autoRefused(status: 403, data: json(#"{"error":"\#(stepSaid)"}"#)) == stepSaid && U.autoRefused(status: 400, data: json("x")) == W.autoSaveFailed, "a refused save: the computer's sentence, else the page's")
 
 section("installing")
-check(U.started(status: 200, data: json(#"{"ok":true,"startedAt":"S9"}"#), version: "0.8.22") == .started(myStart: "S9"), "started, with the attempt's start")
-check(U.started(status: 202, data: json("{}"), version: nil) == .started(myStart: nil), "started with no start time")
+check(U.started(status: 200, data: json(#"{"ok":true,"startedAt":"S9","updating":"0.8.22"}"#), version: "0.8.22") == .started(myStart: "S9", updating: "0.8.22"), "started, with the attempt's start and the version it fetches")
+check(U.started(status: 202, data: json("{}"), version: nil) == .started(myStart: nil, updating: nil), "started with no start time")
+check(U.overlayLead(reached: true, version: "0.8.22", windows: true) == "Downloading 0.8.22." && U.overlayLead(reached: false, version: "0.8.22", windows: true) == "Updating.",
+      "Windows: downloading while it answers, updating once it goes")
+check(U.overlayLead(reached: true, version: "0.8.22", windows: false) == "Updating." && U.overlayLead(reached: true, version: nil, windows: true) == "Updating.", "elsewhere, or no version named: Updating.")
+check(page.contains("if (!onWindows(platform)) return 'Updating.';") && page.contains("return reached ? ('Downloading ' + version + '.') : 'Updating.';")
+      && page.contains("(body && body.updating ? String(body.updating) : '')"), "the page's updateOverlayLead and its version from the install's answer")
 check(U.started(status: 409, data: json(#"{"error":"there is no update to install"}"#), version: "0.8.22") == .refused("Kosmos is already on 0.8.22."), "nothing to install: it already has it")
 check(U.started(status: 403, data: json(#"{"code":"remote_step_up","error":"\#(stepSaid)"}"#), version: nil) == .refused(stepSaid), "the step-up refusal, as is")
 check(U.started(status: 500, data: json("{}"), version: nil) == .refused("Kosmos could not start the update (it answered 500 with no reason). Try again in a minute."), "no reason: the page's sentence")
