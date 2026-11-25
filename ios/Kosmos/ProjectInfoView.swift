@@ -75,7 +75,7 @@ struct ProjectInfoView: View {
         .onAppear { onScreen = true }   // review 3: see onScreen
         .onDisappear { onScreen = false }
         .navigationTitle(project.name)
-        .toolbar(.hidden, for: .tabBar)
+        .hidesTabBarInOneColumn()
         .background(
             NavigationLink(isActive: Binding(get: { openTask != nil }, set: { if !$0 { openTask = nil } })) {
                 if let ref = openTask { TaskPageView(client: client, ref: ref) }

@@ -21,7 +21,7 @@ struct TasksTab: View {
     @State private var newTaskHeld: NewTask.Held?        // words that got "could not tell", kept with the draft
 
     var body: some View {
-        NavigationView {
+        ListAndOpen(isOpen: somethingOpen, nothingOpen: "Choose a task") {
             Group {
                 // kosmos#8054: the list is read only through a computer this phone is let into (BoardClient.refreshTasks).
                 // kosmos#8055: not while a chat or a task is open on top through a brief state (swapping the page closes what
@@ -33,7 +33,7 @@ struct TasksTab: View {
                                 signedOutDetail: "Your tasks show here once you are signed in.") { EmptyView() }
                 } else {
                     TasksView(read: client.tasksList, failed: client.tasksListFailed, agentName: name,
-                              open: { t in openTask = TaskPageRef(project: t.projectId, number: t.number) },
+                              open: { t in openAgent = nil; openTask = TaskPageRef(project: t.projectId, number: t.number) },
                               answer: answer,
                               answerAgent: { who in answer(who: who) },
                               answersOnBoard: { who in Board.opensBoardFor(who, agents: client.agents) && client.chatURL(session: who) != nil },   // review 6: only when the tap can open it
@@ -42,18 +42,15 @@ struct TasksTab: View {
                               notice: notice, switcher: AnyView(MacSwitcher(client: client)))
                 }
             }
-            // Outside the branch: the links and the sheet belong to the tab, not to the list.
-            .background(chatLink)
-            .background(taskLink)
-            .sheet(item: $newTaskFor) { start in
-                NewTaskView(client: client, tasks: client.tasksList, picked: start.picked, draft: $newTaskDraft,
-                            held: $newTaskHeld, heldFound: heldFound(in:)) { line in
-                    notice = line
-                    Task { await client.refreshTasks() }
-                }
+        } open: { opened }
+        // On the tab, not its list: a fold moves the list (kosmos#9002), and would close a sheet on it.
+        .sheet(item: $newTaskFor) { start in
+            NewTaskView(client: client, tasks: client.tasksList, picked: start.picked, draft: $newTaskDraft,
+                        held: $newTaskHeld, heldFound: heldFound(in:)) { line in
+                notice = line
+                Task { await client.refreshTasks() }
             }
         }
-        .navigationViewStyle(.stack)
         // A Tasks read that shows the held task: it was made. Said as any create is (the sheet closes, the added line
         // shows), and the hold and its words go.
         .onChange(of: client.tasksList) { read in
@@ -111,27 +108,17 @@ struct TasksTab: View {
         answer(who: who)
     }
     private func answer(who: String) {
-        if let agent = client.agents.first(where: { $0.session == who }) { openAgent = agent; return }
+        if let agent = client.agents.first(where: { $0.session == who }) { openTask = nil; openAgent = agent; return }
         if let url = client.chatURL(session: who) { openPage(url) }
     }
-    // Built in typed steps, as Today's (a single expression type-checks slowly on CI's Xcode).
-    private var chatOpen: Binding<Bool> {
-        Binding(get: { openAgent != nil }, set: { if !$0 { openAgent = nil } })
+    // One link for both (kosmos#9002): beside the list a person can go from a task to a chat and back, so the newer one takes
+    // the other's place instead of two pushes being asked for at once.
+    private var somethingOpen: Binding<Bool> {
+        Binding(get: { openAgent != nil || openTask != nil }, set: { if !$0 { openAgent = nil; openTask = nil } })
     }
-    private var chatLink: some View {
-        NavigationLink(isActive: chatOpen, destination: chatDestination, label: { EmptyView() }).hidden()
-    }
-    @ViewBuilder private func chatDestination() -> some View {
-        if let agent = openAgent { chat(for: agent) }
-    }
-    private var taskOpen: Binding<Bool> {
-        Binding(get: { openTask != nil }, set: { if !$0 { openTask = nil } })
-    }
-    private var taskLink: some View {
-        NavigationLink(isActive: taskOpen, destination: taskDestination, label: { EmptyView() }).hidden()
-    }
-    @ViewBuilder private func taskDestination() -> some View {
-        if let ref = openTask { TaskPageView(client: client, ref: ref) }
+    @ViewBuilder private var opened: some View {
+        if let agent = openAgent { chat(for: agent).id(agent.session) }
+        else if let ref = openTask { TaskPageView(client: client, ref: ref).id("\(ref.project)#\(ref.number)") }
     }
     private func chat(for agent: Board.Agent) -> ChatView {
         let onBoard: () -> Void = { if let url = client.chatURL(for: agent) { openPage(url) } }

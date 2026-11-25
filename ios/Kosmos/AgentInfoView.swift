@@ -100,7 +100,7 @@ struct AgentInfoView: View {
         .navigationBarTitleDisplayMode(.inline)
         .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
         .navigationTitle(live.name)
-        .toolbar(.hidden, for: .tabBar)
+        .hidesTabBarInOneColumn()
         .task { await load() }
         // Review 6: a refresh clears a success or a "cannot tell" line (the refresh answers it); a refusal or a switch
         // saved but not started stays, as it is still true.

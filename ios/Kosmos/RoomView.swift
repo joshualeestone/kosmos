@@ -1537,7 +1537,7 @@ struct RoomView: View {
         // kosmos#7847 (Josh, 11-03 06:49: "I don't want to see the nav if I am inside a project"): no tab bar in a
         // project's room, as a direct conversation has none (ChatView); Back returns to the list with it. The composer
         // then sits on the bottom safe area, and the emoji panel (#7268) no longer needs the bar hidden on its own.
-        .toolbar(.hidden, for: .tabBar)
+        .hidesTabBarInOneColumn()
         #if DEBUG
         // KOSMOS_SAMPLE_EMOJI=open (with the room samples): the panel open, for the design shots.
         .onAppear { if RoomStore.sample, ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }

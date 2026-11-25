@@ -738,33 +738,34 @@ struct ProjectsView: View {
 
     private var sort: Board.ProjectSort { Board.ProjectSort(rawValue: sortRaw) ?? Board.projectSortDefault }
 
-    var body: some View {
-        NavigationView {
-            content
-                .navigationTitle("Projects")
-                .navigationBarTitleDisplayMode(.inline)   // kosmos#7343: the shared bar, no big title
-                .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
-                .toolbar {
-                    ToolbarItem(placement: .principal) { ScreenHeading(title: "Projects") }
-                    KosmosBarLeading(switcher: MacSwitcher(client: client))
-                    // kosmos#7266 review 1: two items, not one HStack, so each keeps the toolbar's full tap target.
-                    ToolbarItemGroup(placement: .navigationBarTrailing) {
-                        sortMenu
-                        Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
-                            .accessibilityLabel("Add project")   // the board's own button says Add Project
-                    }
+    // The list, with its bar; ListAndOpen (kosmos#9002) shows the open room over it or beside it.
+    private var listPage: some View {
+        content
+            .navigationTitle("Projects")
+            .navigationBarTitleDisplayMode(.inline)   // kosmos#7343: the shared bar, no big title
+            .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
+            .toolbar {
+                ToolbarItem(placement: .principal) { ScreenHeading(title: "Projects") }
+                KosmosBarLeading(switcher: MacSwitcher(client: client))
+                // kosmos#7266 review 1: two items, not one HStack, so each keeps the toolbar's full tap target.
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    sortMenu
+                    Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
+                        .accessibilityLabel("Add project")   // the board's own button says Add Project
                 }
-                .background(Palette.ground.ignoresSafeArea())
-                .background(
-                    NavigationLink(isActive: Binding(get: { openProject != nil }, set: { if !$0 { openProject = nil } })) {
-                        // One view per room: a notification for another room while one is open starts fresh, never
-                        // with the first room's draft, reply or polling.
-                        if let p = openProject { RoomView(store: store, client: store.clientForChat, opened: p, openPage: openPage).id(p.id) }
-                    } label: { EmptyView() }
-                    .hidden()
-                )
-        }
-        .navigationViewStyle(.stack)
+            }
+            .background(Palette.ground.ignoresSafeArea())
+    }
+
+    // One view per room: a notification for another room while one is open starts fresh, never with the first room's draft,
+    // reply or polling.
+    @ViewBuilder private var openRoomPage: some View {
+        if let p = openProject { RoomView(store: store, client: store.clientForChat, opened: p, openPage: openPage).id(p.id) }
+    }
+
+    var body: some View {
+        ListAndOpen(isOpen: Binding(get: { openProject != nil }, set: { if !$0 { openProject = nil } }),
+                    nothingOpen: "Choose a project") { listPage } open: { openRoomPage }
         .onAppear { listShown = true; client.show(BoardClient.projectsViewer) }
         .onDisappear { listShown = false; client.hide(BoardClient.projectsViewer) }
         // The list is read again whenever the connection changes (a cold start reaches the Mac first), and on pull to refresh.
