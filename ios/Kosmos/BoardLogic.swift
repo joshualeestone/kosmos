@@ -2364,10 +2364,41 @@ enum Board {
         case refused(String)
     }
 
+    // kosmos#9016: the sentence for a file whose copy is not the whole of it, the same words the Mac uses when the bytes
+    // it receives do not match the size the phone said (Angel's contract on #9016).
+    static let notWhole = "That file did not arrive whole; please send it again."
+
+    // kosmos#9016: the copy is whole when the source's size, read just before and just after the copy, is the same
+    // and equals the copy's. A size the phone could not read is not held against the file (as before); only a size it
+    // did read and that differs refuses it.
+    static func copyIsWhole(sourceBefore: Int?, sourceAfter: Int?, copy: Int) -> Bool {
+        if let before = sourceBefore, before != copy { return false }
+        if let after = sourceAfter, after != copy { return false }
+        return true
+    }
+
+    // kosmos#9016: a file's size read from the disk now. URL.resourceValues can answer from a cache kept on the URL,
+    // so a size read twice could repeat the first answer: the cache is cleared first. (Not attributesOfItem: that is
+    // a required-reason API, file timestamps, which the privacy manifest does not declare: ios.privacy-manifest-7352.)
+    static func freshSize(_ url: URL) -> Int? {
+        var fresh = url
+        fresh.removeAllCachedResourceValues()
+        return (try? fresh.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+    }
+
+    // kosmos#9016: the request says how many bytes it carries, so the Mac (and the relay between) can refuse a body
+    // that arrives shorter or longer (X-Attachment-Size, Angel's contract on #9016). Decimal digits only.
+    static func withSize(_ request: URLRequest, _ size: Int) -> URLRequest {
+        var r = request
+        r.setValue(String(size), forHTTPHeaderField: "X-Attachment-Size")
+        return r
+    }
+
     // A file from Files: its size and kind checked first, so nothing too large and no folder is ever copied, then
     // copied, so the person's own file is never the one removed. Reads it under its security scope (a picked file
     // outside the app's own folders needs it). Off the main thread: a copy can be 100 MB.
-    static func prepareUpload(from url: URL, root: URL) -> Prepared {
+    // `sizeOf` reads a file's size; the tests hand in their own to make a source change under the copy (kosmos#9016).
+    static func prepareUpload(from url: URL, root: URL, sizeOf: (URL) -> Int? = freshSize) -> Prepared {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let name = url.lastPathComponent
@@ -2383,20 +2414,43 @@ enum Board {
         var copied = false
         var coordinated: NSError?
         var tooLarge: String?
+        var sourceBefore: Int?
+        var sourceAfter: Int?
+        var aFolder = false
         NSFileCoordinator().coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinated) { readable in
+            // kosmos#9016 review 1: a link is followed, so what is measured and copied is the file the upload would
+            // send (a copied link measured as itself, a few bytes, while the upload sent the whole file behind it).
+            let real = readable.resolvingSymlinksInPath()
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: real.path, isDirectory: &isDir), isDir.boolValue {
+                aFolder = true   // a link to a folder: refused as a folder is, never copied whole
+                return
+            }
             // Measured again here, where the file is really on the phone (the size Files gave first may have been a
             // cloud placeholder's, or none), so nothing too large is ever copied.
-            if let refusal = uploadRefusal(size: (try? readable.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, waiting: 0) {
+            sourceBefore = sizeOf(real)
+            if let refusal = uploadRefusal(size: sourceBefore, waiting: 0) {
                 tooLarge = refusal
                 return
             }
-            copied = (try? FileManager.default.copyItem(at: readable, to: file)) != nil
+            copied = (try? FileManager.default.copyItem(at: real, to: file)) != nil
+            sourceAfter = sizeOf(real)   // kosmos#9016: a file still being written changes under the copy
+        }
+        if aFolder {
+            try? FileManager.default.removeItem(at: folder)
+            return .refused("\(name) is a folder, so it cannot go in a message. Add the files inside it, or a zip of it.")
         }
         if let tooLarge { try? FileManager.default.removeItem(at: folder); return .refused(tooLarge) }
-        guard copied, coordinated == nil,
-              let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
+        guard copied, coordinated == nil, let size = sizeOf(file) else {
             try? FileManager.default.removeItem(at: folder)
             return .refused("We could not read \(name).")
+        }
+        // kosmos#9016: the copy is what goes, so it must be the whole of the person's file. A source that is still
+        // being written, or a provider that hands over part of it, gives a shorter (or longer) copy, and the size the
+        // phone tells the Mac would then be the copy's, so only this check, here, can catch it.
+        guard copyIsWhole(sourceBefore: sourceBefore, sourceAfter: sourceAfter, copy: size) else {
+            try? FileManager.default.removeItem(at: folder)
+            return .refused(notWhole)
         }
         return .ready(file: file, name: name, type: mimeType(forName: name), size: size)
     }
