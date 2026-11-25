@@ -21,6 +21,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+// #9024: pwsh gets this process's own startup cache, and a pwsh that is here but cannot start fails, never skips.
+const { pwshEnv, pwshState } = require('../test-support/pwsh');
 
 const SCRIPT = path.join(__dirname, '..', 'tools', 'windows', 'kosmos.ps1');
 const REFUSAL = 'PowerShell would have changed this text before kosmos saw it';
@@ -29,7 +31,9 @@ const NO_RUNTIME = 'the runtime is missing';
 function shells() {
   const found = [];
   const has = (exe) => spawnSync(exe, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'], { stdio: 'ignore', windowsHide: true, timeout: 20000 }).status === 0;
-  if (has('pwsh')) found.push('pwsh');
+  const pwsh = pwshState('pwsh');
+  if (pwsh === 'ok') found.push('pwsh');
+  else if (pwsh !== 'missing') test('#8213 pwsh starts on this machine', () => assert.fail(pwsh));
   if (process.platform === 'win32' && has('powershell.exe')) found.push('powershell.exe');
   return found;
 }
@@ -53,7 +57,7 @@ function run(shell, rest, name) {
   const line = rest.includes('{K}') ? rest.replace('{K}', call) : call + ' ' + rest;
   // A byte-order mark, so Windows PowerShell 5.1 reads the curly quotes as UTF-8 (it reads a .ps1 without one as ANSI).
   fs.writeFileSync(driver, '\ufeff' + line + '\nWrite-Output ("RC=" + $LASTEXITCODE)\n', 'utf8');
-  const r = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', driver], { encoding: 'utf8', windowsHide: true, timeout: 60000 });
+  const r = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', driver], { encoding: 'utf8', windowsHide: true, timeout: 60000, env: shell === 'pwsh' ? pwshEnv() : process.env });
   const m = /RC=(-?\d+)/.exec(r.stdout || '');
   return { rc: m ? Number(m[1]) : null, err: String(r.stderr || '') + String(r.stdout || '') };
 }

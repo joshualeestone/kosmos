@@ -21,15 +21,18 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+// #9024: pwsh gets this process's own startup cache, and a pwsh that is here but cannot start fails, never skips.
+const { pwshEnv, pwshState } = require('./test-support/pwsh');
 
 const SCRIPT = path.join(__dirname, 'tools', 'windows', 'publish-r2.ps1');
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8316-'));
 test.after(() => fs.rmSync(SB, { recursive: true, force: true }));
 
-function has(ps) { return spawnSync(ps, ['-NoProfile', '-Command', 'exit 0']).status === 0; }
+const PWSH_STATE = pwshState('pwsh');
 const RUNTIMES = process.platform === 'win32'
-  ? ['powershell.exe', ...(has('pwsh') ? ['pwsh'] : [])]
-  : (has('pwsh') ? ['pwsh'] : []);
+  ? ['powershell.exe', ...(PWSH_STATE === 'ok' ? ['pwsh'] : [])]
+  : (PWSH_STATE === 'ok' ? ['pwsh'] : []);
+if (PWSH_STATE !== 'ok' && PWSH_STATE !== 'missing') test('#8316 pwsh starts on this machine', () => assert.fail(PWSH_STATE));
 const NEEDS_PS = !RUNTIMES.length && 'no PowerShell on this host to run the script\'s function in';
 
 /* $args: script, LOCALAPPDATA, stub mode, calls. Stub modes: throw (a plain read failure), noload (the command cannot
@@ -107,7 +110,7 @@ function run(ps, mode, calls, laterPath) {
   fs.writeFileSync(app, '');
   const h = path.join(SB, 'h' + n + '.ps1');
   fs.writeFileSync(h, HARNESS);
-  const env = { ...process.env };
+  const env = ps === 'pwsh' ? pwshEnv() : { ...process.env };
   if (ps === 'powershell.exe') for (const k of Object.keys(env)) if (/^psmodulepath$/i.test(k)) delete env[k];
   const r = spawnSync(ps, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', h, SCRIPT, lad, mode, String(calls), ...(laterPath ? [laterPath] : [])], { env, encoding: 'utf8', timeout: 60000 });
   assert.strictEqual(r.status, 0, ps + ' harness failed: ' + r.stderr);
