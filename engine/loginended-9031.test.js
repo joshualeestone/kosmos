@@ -1,7 +1,7 @@
 'use strict';
 /**
  * kosmos#9031: an account whose Claude login has run out. Three things that missed it: the patterns that read Claude
- * Code's own sentence (the screen, the Windows stream, Check now), the line `kosmos accounts` prints, and the mover's
+ * Code's own sentence (the screen, the Windows stream; NOT Check now, see its test), the line `kosmos accounts` prints, and the mover's
  * idea of a usable account. Pure: no board, no Keychain, no real claude.
  *
  *   node --test engine/loginended-9031.test.js
