@@ -294,6 +294,25 @@ enum Account {
     static let noComputerHead = "No computer is connected yet."
     static let noComputerHow = "On the computer you want to reach, open Kosmos, go to Settings, then Kosmos+, "
         + "and sign in with this email. If Kosmos isn't on it yet, install it there first."
+    // Review 3: "this email" points at the Signed in as line; with no email shown, the sentence says which one.
+    static func noComputerHow(email: String?) -> String {
+        email == nil ? noComputerHow.replacingOccurrences(of: "with this email", with: "with the email you signed in with")
+                     : noComputerHow
+    }
+
+    // Review 3: whether to say there is no computer is the page's decision (noMac, from /me), not the computer list's:
+    // /v1/account/macs also lists retired and held computers, and a refused device is shown only its own. Until /me
+    // answers, the list stands in for it, counting only a computer that is neither retired nor held.
+    enum Computers: Equatable { case zero, some, refused }   // not "none": as an Optional, .none is nil
+    static func computers(_ data: Data?) -> Computers? {
+        guard let data, let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        if (obj["device_status"] as? String) == "denied" { return .refused }
+        return ((obj["addresses"] as? [Any])?.isEmpty ?? true) ? .zero : .some
+    }
+    static func sayNoComputer(me: Computers?, rows: [Computer]) -> Bool {
+        if let me { return me == .zero }
+        return !rows.contains { !$0.retired && !$0.held }
+    }
 
     // MARK: - The Kosmos+ address (slice B3)
 

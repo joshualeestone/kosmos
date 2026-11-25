@@ -100,6 +100,7 @@ struct AccountView: View {
     @State private var plan: String?          // slice B2: Account.planActive, or nil (no line)
     @State private var standing: Account.StandingNote?   // slice B2: the server's sentence when the plan is not good
     @State private var email: String?                    // slice B3: who is signed in, from /me
+    @State private var meComputers: Account.Computers?   // slice B3 review 3: /me's own word on computers, nil until read
     @State private var nameState: Account.NameState = .none   // slice B3: the address line, or the offer of one
     @State private var naming = false                    // the name sheet is open
     @State private var nameText = ""
@@ -139,6 +140,7 @@ struct AccountView: View {
             passkeys = .reading; newPlaces = []; notMeFor = nil; notMeBusy = false; notMeBusyFor = nil; notMeNote = nil
             removingFor = nil; notMeAskedFor = nil; heldAdd = nil; renewedFrom = [:]; passkeyListNote = nil
             plan = nil; standing = nil; email = nil; nameState = .none; naming = false; nameBusy = false; nameFor = nil
+            meComputers = nil
             nameError = nil; nameSaved = nil; nameText = ""; nameWasSuggested = false; nameSuggestion = ""
             load = .reading
             Task { await read() }
@@ -207,13 +209,16 @@ struct AccountView: View {
             case .failed(let why):
                 Text(why).foregroundColor(Palette.secondary)
             case .loaded(let rows):
-                if rows.isEmpty {
+                if Account.sayNoComputer(me: meComputers, rows: rows) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(Account.noComputerHead).foregroundColor(Palette.primary)
-                        Text(Account.noComputerHow).font(.footnote).foregroundColor(Palette.secondary)
+                        Text(Account.noComputerHow(email: email)).font(.footnote).foregroundColor(Palette.secondary)
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("account-no-computer")
+                } else if rows.isEmpty {
+                    // A refused device is shown none of the account's computers; that is not "no computer yet" (relay#217).
+                    Text("No computers to show.").foregroundColor(Palette.secondary)
                 }
                 let now = Date().timeIntervalSince1970
                 let canAllow = Account.canAllow(rows)
@@ -758,7 +763,7 @@ struct AccountView: View {
     // A failed read keeps what is shown; a first read that fails shows nothing (the page shows nothing either).
     @MainActor private func readPlan() async {
         if sample {
-            plan = Account.planActive; standing = nil; email = "ada@example.com"
+            plan = Account.planActive; standing = nil; email = "ada@example.com"; meComputers = .some
             // Deliberately not a state the server sends: it says has_name with a computer that answers. The sample keeps
             // its computers for the other checks and offers the address too, so one run shows every row (review 1).
             if nameSaved == nil { nameState = .offer }
@@ -770,8 +775,9 @@ struct AccountView: View {
         let (status, data) = await send(Account.meRequest(coordinator: coordinator, session: session))
         guard !Task.isCancelled, ticket == planTicket, currentSession() == session else { return }
         switch Account.planAnswer(status: status, data: data) {
-        case .show(let line, let note, let name, let who): plan = line; standing = note; nameState = name; email = who
-        case .clear: plan = nil; standing = nil; nameState = .none; email = nil
+        case .show(let line, let note, let name, let who):
+            plan = line; standing = note; nameState = name; email = who; meComputers = Account.computers(data)
+        case .clear: plan = nil; standing = nil; nameState = .none; email = nil; meComputers = nil
         case .keep: break
         }
     }
