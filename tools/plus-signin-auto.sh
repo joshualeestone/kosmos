@@ -129,13 +129,15 @@ mkdir -p "$WORK/tree" && tar -xzf "$T" -C "$WORK/tree" || die "could not unpack 
 [ -x "$WORK/tree/runtime/bin/node" ] && [ -f "$WORK/tree/app/server.js" ] || die "the tarball has no runtime/bin/node and app/server.js"
 
 # 3. The fully sandboxed throwaway board. Auto-update is switched off BEFORE it first starts (no file means on).
-D="$WORK/data"; mkdir -p "$D/Kosmos" "$WORK/home" "$WORK/awhome" "$WORK/launch" "$WORK/workers" "$WORK/projects"
+#    The agents' own browser is switched off too: a board fetches it at start (about 100 MB, engine/agentbrowser.js),
+#    and its download outlived a stopped board and wrote into a removed work folder (measured, 0.8.21 run).
+D="$WORK/data"; mkdir -p "$D/Kosmos" "$WORK/runners" "$WORK/home" "$WORK/awhome" "$WORK/launch" "$WORK/workers" "$WORK/projects"
 printf '{"on":false}\n' > "$D/Kosmos/autoupdate.json"
 printf '#!/bin/sh\nexec "%s" -L "%s" "$@"\n' "$TMUX_REAL" "$SOCK" > "$WORK/tmux"; chmod +x "$WORK/tmux"
 ( cd "$WORK/tree/app" && exec env -i HOME="$WORK/home" PATH=/usr/bin:/bin:/usr/sbin:/sbin LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
     AGENT_WORKFORCE_DATA="$D" AGENT_WORKFORCE_HOME="$WORK/awhome" AGENT_WORKFORCE_LAUNCH="$WORK/launch" \
     AGENT_WORKFORCE_WORKERS="$WORK/workers" AGENT_WORKFORCE_PROJECTS="$WORK/projects" AGENT_WORKFORCE_TMUX_BIN="$WORK/tmux" \
-    PORT="$PORT" "$WORK/tree/runtime/bin/node" server.js ) > "$WORK/board.log" 2>&1 &
+    AGENT_WORKFORCE_RUNNERS_DIR="$WORK/runners" KOSMOS_AGENT_BROWSER=off PORT="$PORT" "$WORK/tree/runtime/bin/node" server.js ) > "$WORK/board.log" 2>&1 &
 BOARD_PID=$!
 UP_S="${KOSMOS_PLUS_BOARD_UP_S:-90}"; up=""; i=0
 while [ "$i" -lt "$UP_S" ]; do
