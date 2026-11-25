@@ -293,6 +293,8 @@ struct AIPoliciesView: View {
             return true
         case .refused(let why):
             note = (why, true)
+            // This change dropped a first load still in flight (the generation bump above); fetch the list again.
+            if read == nil { await load() }
             return false
         }
     }
@@ -324,15 +326,23 @@ struct AIPoliciesView: View {
         armed = nil
         if sample { sampleChange(.remove(p.id)); return }
         guard let mac else { return }
-        if await change(AIPolicies.removeRequest(mac, id: p.id), did: .removed, doing: AIPolicies.Words.removing), replacing?.id == p.id {
-            replacing = nil
+        if await change(AIPolicies.removeRequest(mac, id: p.id), did: .removed, doing: AIPolicies.Words.removing) {
+            if replacing?.id == p.id { replacing = nil }
+        } else {
+            armed = p.id   // as the page: a refused removal still shows "Remove it for good?"
         }
     }
 
     // A sample build changes its own copy, with the page's sentence for a computer with no agents running.
     private enum SampleChange { case save([String: String]), rename(String, String), remove(String) }
     @MainActor private func sampleChange(_ c: SampleChange) {
-        guard case .saved(var list, let company)? = read else { return }
+        var list: [AIPolicies.Policy]
+        let company: AIPolicies.Company?
+        switch read {
+        case .saved(let l, let c)?: list = l; company = c
+        case .none(let c)?: list = []; company = c   // every sample policy removed: an add starts the list again
+        default: return
+        }
         switch c {
         case .save(let body):
             if let id = body["id"], let i = list.firstIndex(where: { $0.id == id }) {
@@ -342,7 +352,7 @@ struct AIPoliciesView: View {
                 note = (AIPolicies.said([], did: .replaced), false)
             } else {
                 let text = body["text"] ?? ("Words fetched from " + (body["url"] ?? ""))
-                list.append(AIPolicies.Policy(id: "s\(list.count + 1)", name: body["name"] ?? "", source: body["url"] ?? "pasted",
+                list.append(AIPolicies.Policy(id: "s-" + UUID().uuidString, name: body["name"] ?? "", source: body["url"] ?? "pasted",
                                               savedAt: Date(), chars: text.count, opening: String(text.prefix(240))))
                 note = (AIPolicies.said([], did: .handed), false)
             }
