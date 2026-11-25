@@ -175,7 +175,7 @@ test('the parser really reads subcommands (a guard that cannot find any would pa
   assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'task')), ['activity', 'add', 'assign', 'built', 'check', 'close', 'done-when', 'edit', 'files', 'hold', 'list', 'message', 'ran', 'reopen', 'repeat', 'show', 'told', 'unhold', 'wake']);   // edit: kosmos#8664; wake: #8669; reopen: #6157; built: #3951; hold, unhold: #4771; assign: #4914; repeat, ran: #4787; done-when: #5152; told: #5836; activity: #5874
   assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'room')), ['reopen']);
   assert.ok(macSubcommands(MAC_CLI, 'feedback').includes('write'));
-  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'community')), ['comment', 'edit', 'endorse', 'follow', 'home', 'post', 'read', 'ready', 'status', 'unendorse', 'unfollow', 'vote', 'votes', 'withdraw'], 'the first-argument compare is not read, or a board answer ($status) is');   // ready: #5958; #4330; read: #4373; comment: #4373 part B; follow, unfollow: #4774; status: #4939   // vote, votes: #4884; endorse, unendorse: #4913; withdraw, edit: #5574
+  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'community')), ['comment', 'edit', 'endorse', 'follow', 'following', 'home', 'post', 'read', 'ready', 'status', 'unendorse', 'unfollow', 'vote', 'votes', 'withdraw'], 'the first-argument compare is not read, or a board answer ($status) is');   // following: #9017; ready: #5958; #4330; read: #4373; comment: #4373 part B; follow, unfollow: #4774; status: #4939   // vote, votes: #4884; endorse, unendorse: #4913; withdraw, edit: #5574
 });
 
 test('the verbs that require a subcommand are the same on both (Windows by behaviour)', async () => {
