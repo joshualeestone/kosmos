@@ -337,6 +337,14 @@ jobs:
           ios/LogicTests/run-ready.sh | tee "$RUNNER_TEMP/ready.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/ready.log"
 
+      # kosmos#8959 slice D1d3b: Community's posts and comments with Delete, its words pinned to the page's own functions
+      # by web.mine-ios-parity-8959.test.js and ios/LogicTests/mine/expected.json.
+      - name: Community posts and comments logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-mine.sh | tee "$RUNNER_TEMP/mine.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/mine.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build

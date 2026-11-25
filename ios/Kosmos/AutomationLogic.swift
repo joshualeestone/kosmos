@@ -105,7 +105,8 @@ enum Automation {
         static let languageCouldNotRead = "Could not be read just now"
         // Not the page's: the phone's own line for what is not on this screen yet (card #8959, D1d2 to D2). The Prompter's
         // check-ins left it with slice D1d1, which put them under the Prompter box, and the kind of business with D1d2a.
-        static let elsewhere = "The Community's posts and the rest of your computer's settings are in Settings on your computer's board."
+        // With slice D1d3b the whole Community box is native too.
+        static let elsewhere = "The rest of your computer's settings are in Settings on your computer's board."
     }
 
     // The recommender's three guards, in the board's order, with its words.
