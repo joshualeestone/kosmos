@@ -9708,7 +9708,7 @@ function signInLineOld(pane, dir, now, liveAuth) {
   if (after === null || !proc || !require('./authprobe').lastSettledHealthy(dir, now)) return false;
   const le = require('./loginexpiry');
   if (le.serviceNameFor(proc.ccd) !== le.serviceNameFor(dir)) return false;   // #2129, #6095: it reads another login
-  const at = require('./oldsigninline').refusedAt({ pid: proc.pid, root: proc.ccd || path.join(os.homedir(), '.claude') });
+  const at = require('./oldsigninline').refusedAt(proc);
   return at !== null && at < after;
 }
 /* The Claude process in this pane and the login it uses, { pid, ccd }, or null until known. Asked once per run of the agent

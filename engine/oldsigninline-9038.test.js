@@ -396,16 +396,16 @@ test('#9038: readPaneLogin: the pane\'s own process, its arguments apart from it
 });
 
 test('#9038: refusedAt: the session the process names, in this folder, once', () => {
-  assert.equal(oldline.refusedAt({ pid: PID, root: ROOT }), T0);
-  assert.equal(oldline.refusedAt({ pid: '1', root: ROOT }), null, 'no session file');
+  assert.equal(oldline.refusedAt({ pid: PID, ccd: ROOT }), T0);
+  assert.equal(oldline.refusedAt({ pid: '1', ccd: ROOT }), null, 'no session file');
   session(S1, '77', '78');
-  assert.equal(oldline.refusedAt({ pid: '77', root: ROOT }), null, 'a session file that names another process');
+  assert.equal(oldline.refusedAt({ pid: '77', ccd: ROOT }), null, 'a session file that names another process');
   session('../../../x', '79');
   fs.copyFileSync(transcript(S1), path.join(SANDBOX, 'x.jsonl'));
-  assert.equal(oldline.refusedAt({ pid: '79', root: ROOT }), null, 'a session id that is a path');
+  assert.equal(oldline.refusedAt({ pid: '79', ccd: ROOT }), null, 'a session id that is a path');
   fs.mkdirSync(path.join(ROOT, 'projects', '-other'));
   fs.copyFileSync(transcript(S1), path.join(ROOT, 'projects', '-other', `${S1}.jsonl`));
-  assert.equal(oldline.refusedAt({ pid: PID, root: ROOT }), null, 'the same session in two folders');
+  assert.equal(oldline.refusedAt({ pid: PID, ccd: ROOT }), null, 'the same session in two folders');
 });
 
 test('#9038: refusalAtEnd: only Claude Code\'s own sign-in refusal, as the last thing said', () => {
