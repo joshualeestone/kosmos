@@ -1542,6 +1542,7 @@ const HOME_ROUTE_REUSE_MS = 30 * 1000;
    community's request limit (up to 11 public requests a read). */
 const FOLLOWING_ROUTE = new Map();     // agent -> { p, done }
 const FOLLOWING_ROUTE_REUSE_MS = 30 * 1000;
+const FOLLOWING_ROUTE_FAIL_MS = 5 * 1000;   // review 2: a failure or a cut list is kept this long, so a loop does not hammer
 const HOME_ROUTE_DEADLINE_MS = 40 * 1000;
 /* kosmos#7796: each agent's vote standing as `kosmos community votes` last read it ({ held, required, remaining } or
    { none: true }, and when), for community home. Marked as from before the agent's latest vote when a vote through
@@ -12960,7 +12961,11 @@ const server = http.createServer(async (req, res) => {
         return communityfollow.follow(who.card.sessionName, name, { unfollow: body && body.unfollow === true })
           /* Review 1: 429 over the engine's hourly follow cap (communityfollow.FOLLOW_PER_HOUR), 502 when the service
              failed, 400 for everything on this side (a bad name, the switch off, busy). */
-          .then((r) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.upstream ? 502 : 400)), r.ok ? { ok: true, text: r.text } : { error: r.because }))
+          .then((r) => {
+            // kosmos#9017 review 2: a follow or unfollow changes the list, so the next `following` reads it again.
+            if (r && r.ok) FOLLOWING_ROUTE.delete(String(who.card.sessionName));
+            sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.upstream ? 502 : 400)), r.ok ? { ok: true, text: r.text } : { error: r.because });
+          })
           .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
@@ -12978,10 +12983,14 @@ const server = http.createServer(async (req, res) => {
     if (!who.ok || !who.card || !who.card.sessionName) { sendJson(res, 403, { error: who.because || 'we could not verify which agent this is' }); return; }
     const agentKey = String(who.card.sessionName);
     let pending = FOLLOWING_ROUTE.get(agentKey);
-    if (!pending || (pending.done && Date.now() - pending.done > FOLLOWING_ROUTE_REUSE_MS)) {
-      pending = { done: 0, p: Promise.resolve().then(() => communityfollow.listFollowing(agentKey)) };
-      pending.p.then((r) => { if (r && r.ok) pending.done = Date.now(); else FOLLOWING_ROUTE.delete(agentKey); }, () => { FOLLOWING_ROUTE.delete(agentKey); });
-      FOLLOWING_ROUTE.set(agentKey, pending);
+    if (!pending || (pending.done && Date.now() - pending.done > pending.keepMs)) {
+      const mine = { done: 0, keepMs: FOLLOWING_ROUTE_REUSE_MS, p: Promise.resolve().then(() => communityfollow.listFollowing(agentKey)) };
+      /* Review 2: a whole good list is kept 30 s; a failure or a list cut short only 5 s (soon tried again, never in a
+         loop); a throw is not kept. Only this read's own entry is touched: a follow may have replaced it meanwhile. */
+      mine.p.then((r) => { mine.keepMs = r && r.ok && !r.cut ? FOLLOWING_ROUTE_REUSE_MS : FOLLOWING_ROUTE_FAIL_MS; mine.done = Date.now(); },
+        () => { if (FOLLOWING_ROUTE.get(agentKey) === mine) FOLLOWING_ROUTE.delete(agentKey); });
+      FOLLOWING_ROUTE.set(agentKey, mine);
+      pending = mine;
     }
     pending.p
       .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
@@ -31523,6 +31532,7 @@ function start(port = PORT) {
           // April's review: the route's reads are swept too once past their reuse window (HOME_GEN stays: a counter per
           // agent that ever commented, small, and dropping one could let an in-flight read through).
           for (const [s, e] of HOME_ROUTE) if (e.done && Date.now() - e.done > HOME_ROUTE_REUSE_MS) HOME_ROUTE.delete(s);
+          for (const [s, e] of FOLLOWING_ROUTE) if (e.done && Date.now() - e.done > e.keepMs) FOLLOWING_ROUTE.delete(s);   // kosmos#9017
           for (const [s, e] of VOTE_STANDING) if (!(Date.now() - e.at < VOTE_STANDING_MAX_MS)) VOTE_STANDING.delete(s);   // kosmos#7796
         } catch { /* the generic line stands in */ }
         })().catch(() => null).finally(() => { communityTurnRunning = false; });

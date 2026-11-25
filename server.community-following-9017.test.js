@@ -28,6 +28,8 @@ const { start, server } = require('./server');
 const fleet = require('./test-support/fleet');
 const sendertoken = require('./engine/sendertoken');
 const communityfollow = require('./engine/communityfollow');
+const realFollow = communityfollow.follow;
+communityfollow.follow = async () => ({ ok: true, text: 'You now follow quill.' });
 
 const real = communityfollow.listFollowing;
 let asked = [];
@@ -35,7 +37,7 @@ let answer = { ok: true, count: 1, text: 'You follow 1 agent, newest follow firs
 communityfollow.listFollowing = async (agentKey) => { asked.push(agentKey); return typeof answer === 'function' ? answer() : answer; };
 
 test.before(async () => { await start(0); });
-test.after(() => { communityfollow.listFollowing = real; try { server.closeAllConnections(); server.close(); } catch { /* best effort */ } });
+test.after(() => { communityfollow.listFollowing = real; communityfollow.follow = realFollow; try { server.closeAllConnections(); server.close(); } catch { /* best effort */ } });
 
 const get = (tok, query = '') => fetch(`http://127.0.0.1:${server.address().port}/api/community/following${query}`, { headers: tok ? { 'x-kosmos-agent-token': tok } : {} });
 
@@ -61,20 +63,20 @@ test('#9017: the reader is the authenticated agent, whatever the query names; th
   assert.match(String(asked[0]), /Reader/i);
 });
 
-test('#9017: a refusal on this side is 400, a service failure 502, a throw 500, each with words, none reused', async (t) => {
-  const b = fleet.install([fleet.agent('Refused', { state: 'idle' })]);
+test('#9017: a refusal on this side is 400, a service failure 502, a throw 500, each with words', async (t) => {
+  const b = fleet.install([fleet.agent('Refused', { state: 'idle' }), fleet.agent('Upstream', { state: 'idle' }), fleet.agent('Thrower', { state: 'idle' })]);
   t.after(() => b.restore());
-  const tok = sendertoken.mint('Refused').token;
+  // One agent per case: a failure is kept a few seconds (FOLLOWING_ROUTE_FAIL_MS), so one agent would see the first.
   answer = { ok: false, because: 'the Kosmos+ community is switched off on this board, so nothing was read' };
-  let r = await get(tok);
+  let r = await get(sendertoken.mint('Refused').token);
   assert.equal(r.status, 400);
   assert.deepEqual(await r.json(), { error: answer.because });
   answer = { ok: false, upstream: true, because: 'the community could not be reached' };
-  r = await get(tok);
+  r = await get(sendertoken.mint('Upstream').token);
   assert.equal(r.status, 502);
   assert.deepEqual(await r.json(), { error: 'the community could not be reached' });
   answer = () => { throw new Error('boom'); };
-  r = await get(tok);
+  r = await get(sendertoken.mint('Thrower').token);
   assert.equal(r.status, 500);
   assert.match((await r.json()).error, /could not reach the community/);
 });
@@ -92,4 +94,25 @@ test('#9017 review 1: a good answer is reused for a while, one read per agent, s
   // Control: another agent is its own read.
   assert.equal((await get(sendertoken.mint('Second').token)).status, 200);
   assert.equal(asked.length, 2, 'one agent\'s answer was given to another');
+});
+
+test('#9017 review 2: a follow clears the kept list, so the next read sees it; a failure is not kept for 30 s', async (t) => {
+  const b = fleet.install([fleet.agent('Follower', { state: 'idle' }), fleet.agent('Failing', { state: 'idle' })]);
+  t.after(() => b.restore());
+  asked = [];
+  answer = { ok: true, count: 0, text: 'You follow no agents yet. Follow one with: kosmos community follow <name>' };
+  const tok = sendertoken.mint('Follower').token;
+  await get(tok); await get(tok);
+  assert.equal(asked.length, 1, 'control: the second read was not reused');
+  const f = await fetch(`http://127.0.0.1:${server.address().port}/api/community/follow`, { method: 'POST', headers: { 'x-kosmos-agent-token': tok, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'quill' }) });
+  assert.equal(f.status, 200);
+  await get(tok);
+  assert.equal(asked.length, 2, 'the list after a follow was the one kept from before it');
+  // A failure is kept only briefly (FOLLOWING_ROUTE_FAIL_MS): at once it is reused, so a loop does not hammer.
+  asked = [];
+  answer = { ok: false, upstream: true, because: 'the community could not be reached' };
+  const ft = sendertoken.mint('Failing').token;
+  assert.equal((await get(ft)).status, 502);
+  assert.equal((await get(ft)).status, 502);
+  assert.equal(asked.length, 1, 'a failure was asked again at once');
 });
