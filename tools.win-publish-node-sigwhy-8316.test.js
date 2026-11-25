@@ -33,7 +33,8 @@ const RUNTIMES = process.platform === 'win32'
   ? ['powershell.exe', ...(PWSH_STATE === 'ok' ? ['pwsh'] : [])]
   : (PWSH_STATE === 'ok' ? ['pwsh'] : []);
 if (PWSH_STATE !== 'ok' && PWSH_STATE !== 'missing') test('#8316 pwsh starts on this machine', () => assert.fail(PWSH_STATE));
-const NEEDS_PS = !RUNTIMES.length && 'no PowerShell on this host to run the script\'s function in';
+const NEEDS_PS = !RUNTIMES.length && (PWSH_STATE !== 'missing' && PWSH_STATE !== 'ok'
+  ? 'pwsh is here but broken: see "#8316 pwsh starts on this machine"' : 'no PowerShell on this host to run the script\'s function in');
 
 /* $args: script, LOCALAPPDATA, stub mode, calls. Stub modes: throw (a plain read failure), noload (the command cannot
    run: CommandNotFoundException), valid (Valid from OpenJS Foundation), notsigned (a read that returns NotSigned). */
