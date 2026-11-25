@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import JavaScriptCore
 // Tests for the native task page (kosmos#7074), compiled for macOS with the app files run-taskpage.sh lists.
 // projects-tasks.json and activity-<n>.json are what the Mac's own engine produced (engine/projects.js list, engine/
 // tasks.js create/close/setBuilt/setDue/addPart/setPartClosed/setOnHold/say, engine/taskchat.js read) in a throwaway
@@ -1516,6 +1517,7 @@ do {
     let moved = one("", others: #",{"number":9,"doneWhen":["N1","N2"],"doneWhenResults":[null,{"met":false,"how":"x","movedTo":1}]},{"number":4,"doneWhen":["F1","F2","F3"],"doneWhenResults":[{"met":false,"how":"x","movedTo":1},{"met":false,"how":"x","movedTo":2},{"met":false,"how":"x","movedTo":1}]}"#)
     check(moved?.movedHere == [Board.MovedCheck(from: 4, check: 1, words: "F1"), Board.MovedCheck(from: 4, check: 3, words: "F3"), Board.MovedCheck(from: 9, check: 2, words: "N2")], "those moved here, by task and check")
     check(one(#","doneWhen":["A"],"doneWhenResults":[{"met":false,"how":"x","movedTo":1}]"#)?.movedHere == [], "never its own")
+    check(one(#","doneWhen":["A","B"],"doneWhenResults":[{"met":1,"how":"x"},{"met":0,"how":"y","movedTo":3}]"#)?.checks.map(\.met) == [nil, nil], "nor a number for yes or no, as the board")
     // The wake line.
     func wake(_ own: String) -> String? { one(own)?.wakeLine }
     check(wake(#","wakeWords":"waits for PR #1 in a/b to merge""#) == "Waits for PR #1 in a/b to merge.", "what it waits for, as a sentence")
@@ -1533,6 +1535,33 @@ do {
     check(one(#","closedHow":"change""#)?.stateLine(roster: [:]) == "Open", "an open task was not closed any way")
     check(one(shut + #","closedUnrun":true"#)?.stateLine(roster: [:]) == "Closed, not run" && one(#","closedUnrun":true"#)?.stateLine(roster: [:]) == "Open" && one(shut + #","closedUnrun":true,"replacedBy":3"#)?.stateLine(roster: [:]) == "Replaced by task 3", "closed, not run; replaced before it")
     check(one(shut + #","closedUnrun":true,"progress":{"done":2,"total":2,"closed":true}"#)?.stateLine(roster: [:]) == "Closed, not run", "and before the parts' count")
+    check(one(shut + #","replacedBy":3"#, others: #",{"number":9,"replacedBy":1,"closedAt":"2026-11-24T15:00:00.000Z"}"#)?.stateTasks == [3, 9] && one(#","replacedBy":3"#)?.stateTasks == [] && one("")?.stateTasks == [], "the tasks its state names")
+    // Every event's words are the board's: its own tkActPhrase is run on engine/taskactphrase.test.js's events, which hold every
+    // kind it knows, and the phone's are compared with it.
+    let testURL = here.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("engine/taskactphrase.test.js")
+    let engineTest = (try? String(contentsOf: testURL, encoding: .utf8)) ?? ""
+    func lifted(_ src: String, _ from: String, _ to: String) -> String {
+        guard let a = src.range(of: from), let b = src.range(of: to, range: a.upperBound..<src.endIndex) else { return "" }
+        return String(src[a.lowerBound..<b.upperBound])
+    }
+    let js = JSContext()!
+    js.evaluateScript("const NAMES = {'mara-discord': 'Mara', 'leo-discord': 'Leo'}; function tkMemberName(p, s) { return NAMES[s] || s; } Date.prototype.toLocaleString = () => 'WHEN';")
+    js.evaluateScript(lifted(html, "function tkActPhrase(ev, p) {", "\n}\n"))
+    js.evaluateScript(lifted(engineTest, "const EVENTS = [", "\n];\n").replacingOccurrences(of: "const EVENTS", with: "var EVENTS"))
+    let events = (js.evaluateScript("JSON.stringify(EVENTS)")?.toString()).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [[String: Any]] } ?? []
+    let words = js.evaluateScript("EVENTS.map((ev) => tkActPhrase(ev, {}))")?.toArray() as? [String] ?? []
+    check(events.count > 90 && words.count == events.count, "premise: the board's words for every event (\(events.count))")
+    let names = ["mara-discord": "Mara", "leo-discord": "Leo"]
+    for (ev, want) in zip(events, words) {
+        let got = Board.activityPhrase(ev, name: { names[$0] ?? $0 }, when: { _ in "WHEN" })
+        check(got == want, "the board's words: \(want)" + (got == want ? "" : " (the phone: \(got))"))
+    }
+    check(Board.activityPhrase(["kind": "hold-set", "until": "2026-11-02T15:00:00.000Z"], name: { $0 }).contains("Nov") && Board.activityPhrase(["kind": "hold-set", "until": "soon"], name: { $0 }) == "Put on hold until soon", "a time on the phone's clock, anything else as it is")
+    let quiet: [[String: Any]] = [["kind": "run", "at": "2026-11-24T10:00:00.000Z", "unchanged": true, "by": "dana", "note": "same"], ["kind": "run", "at": "2026-11-24T11:00:00.000Z", "unchanged": true, "by": "dana"], ["kind": "closed", "at": "2026-11-24T12:00:00.000Z", "replacedBy": 7]]
+    let rows = Board.activityRows(quiet, name: { $0 == "dana" ? "Dana" : $0 })
+    check(rows.map(\.text) == ["2 runs found nothing new", "Closed as replaced by task 7"] && rows[0].folded.map(\.text) == ["Dana ran it, nothing new: same", "Dana ran it, nothing new"] && rows[0].folded.map(\.at) == [Tasks.parseISO("2026-11-24T10:00:00.000Z"), Tasks.parseISO("2026-11-24T11:00:00.000Z")], "a folded row holds each run")
+    check(Set((rows + rows[0].folded).map(\.id)).count == 4 && rows.map(\.task) == [nil, 7] && rows[1].folded.isEmpty, "each with its own id; the replacing task is the row's to open")
+    check(Board.activityRows([["kind": "replaced", "replacedBy": 7], ["kind": "closed"], ["kind": "said", "text": "see task 7", "replacedBy": 7]], name: { $0 }).map(\.task) == [7, nil, nil], "no other row's")
 }
 
 @MainActor

@@ -6,7 +6,8 @@ import SwiftUI
 // task, its due date, and editing its title or detail, (slice B2) Put on hold / Take off hold, and (slice B3) how often
 // it repeats, and (B3b) who is told when a run is missed; (B4) a closed task's receipt; (B5) undoing its file changes; and
 // (B6) its subtasks; (B7) who is on each part, Done and Put back, and adding one; (B8) what a hold waits for and why; and (B9)
-// when it is done and what it waits to wake on. That is all the board's page has, so there is no way out to it from here.
+// when it is done and what it waits to wake on. What is left on the board's page alone is in taskchecks-8958's plan, and none of
+// it needs a way out to it from here.
 struct TaskPageRef: Hashable {
     let project: String
     let number: Int
@@ -50,6 +51,8 @@ struct TaskPageView: View {
     private static var subKept = NewTask.KeptDrafts()
     // kosmos#8958 slice B7: the part being typed.
     @State private var newPart = ""
+    // kosmos#8958 slice B9: the folded runs that are open.
+    @State private var runsOpen: Set<String> = []
     // kosmos#8958 slice B8: what the hold form holds while it differs from the stored hold, and the stored hold it was made
     // against, or last followed.
     @State private var holdDraft: Board.HoldChoice?
@@ -194,9 +197,9 @@ struct TaskPageView: View {
     private func pageBody(_ p: Board.TaskPage) -> some View {
         VStack(alignment: .leading, spacing: 20) {
             header(p)
-            if !p.checks.isEmpty || !p.movedHere.isEmpty { checksBlock(p) }
             doneBlock(p)
             if let hold = p.hold { holdBlock(p, hold) }
+            if !p.checks.isEmpty || !p.movedHere.isEmpty { checksBlock(p) }
             dueBlock(p)
             if !p.closed { repeatBlock(p) }
             whoBlock(p)
@@ -243,6 +246,8 @@ struct TaskPageView: View {
             .buttonStyle(.plain)
             Text(p.stateLine(roster: roster)).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
                 .padding(.top, 4)
+            // The board's links inside that line.
+            ForEach(p.stateTasks, id: \.self) { n in taskLink("Open task \(n)", n) }
             if let w = p.whoLeftLine(roster: roster) {
                 Text(w).font(.subheadline).foregroundColor(Palette.primary).fixedSize(horizontal: false, vertical: true)
             }
@@ -270,10 +275,15 @@ struct TaskPageView: View {
                 sectionTitle(Board.checksTitle)
                 ForEach(Array(p.checks.enumerated()), id: \.offset) { i, c in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("\(i + 1).").font(.body).foregroundColor(Palette.secondary)
+                        // Hidden from VoiceOver: the check says its own number.
+                        Text("\(i + 1).").font(.body).foregroundColor(Palette.secondary).accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(verbatim: c.words).font(.body).foregroundColor(Palette.primary).fixedSize(horizontal: false, vertical: true)
-                            Text(verbatim: p.checkSays(c, roster: roster)).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(verbatim: c.words).font(.body).foregroundColor(Palette.primary).fixedSize(horizontal: false, vertical: true)
+                                Text(verbatim: p.checkSays(c, roster: roster)).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+                            }
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Check \(i + 1): " + c.words + ". " + p.checkSays(c, roster: roster))
                             if let n = c.movedTo { taskLink("Moved to task \(n)", n) }
                         }
                     }
@@ -292,7 +302,7 @@ struct TaskPageView: View {
     }
     private func taskLink(_ words: String, _ n: Int) -> some View {
         Button { openSub = n } label: {
-            Text(words).font(.footnote).foregroundColor(Palette.link).fixedSize(horizontal: false, vertical: true)
+            Text(words).font(.footnote).foregroundColor(Palette.link).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
                 .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1098,19 +1108,43 @@ struct TaskPageView: View {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(rows) { row in
                         VStack(alignment: .leading, spacing: 2) {
-                            if let at = row.at {
-                                // Secondary, not tertiary: small text needs AA contrast in dark mode too.
-                                Text(Tasks.agoWords(Date().timeIntervalSince(at) * 1000)).font(.caption).foregroundColor(Palette.secondary)
+                            if row.folded.isEmpty {
+                                activityRow(row)
+                            } else {
+                                // kosmos#8958 slice B9: the runs a row folds (the board's tkact-roll), opened and closed here.
+                                let open = runsOpen.contains(row.id)
+                                Button { if open { runsOpen.remove(row.id) } else { runsOpen.insert(row.id) } } label: {
+                                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                        activityRow(row)
+                                        Image(systemName: open ? "chevron.down" : "chevron.right").font(.caption).foregroundColor(Palette.secondary).accessibilityHidden(true)
+                                    }
+                                    .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityValue(open ? "Open" : "Closed")
+                                if open {
+                                    ForEach(row.folded) { activityRow($0) }.padding(.leading, 16)
+                                }
                             }
-                            Text(row.text).font(.subheadline).foregroundColor(Palette.primary).fixedSize(horizontal: false, vertical: true)
+                            if let n = row.task { taskLink("Open task \(n)", n) }
                         }
-                        .accessibilityElement(children: .combine)
                     }
                 }
             } else if model.activityFailed {
                 Text(Board.activityUnread).font(.footnote).foregroundColor(Palette.secondary)
             }
         }
+    }
+
+    private func activityRow(_ row: Board.ActivityRow) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let at = row.at {
+                // Secondary, not tertiary: small text needs AA contrast in dark mode too.
+                Text(Tasks.agoWords(Date().timeIntervalSince(at) * 1000)).font(.caption).foregroundColor(Palette.secondary)
+            }
+            Text(row.text).font(.subheadline).foregroundColor(Palette.primary).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     // kosmos#8958 slice B4: the board's tk-receipt, under a closed task's activity. The put-back line ends the history
