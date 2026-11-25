@@ -36,8 +36,13 @@ check(add?.value(forHTTPHeaderField: "Content-Type") == "application/json", "as 
 check(G.addRequest(mac, name: "  ", body: "x") == nil && G.addRequest(mac, name: "x", body: " \n") == nil, "a blank name or blank words is not sent")
 check(G.addRequest(mac, name: String(repeating: "n", count: 81), body: "x") == nil && G.addRequest(mac, name: String(repeating: "n", count: 80), body: "x") != nil,
       "the page's 80-character name limit")
-check(G.addRequest(mac, name: "x", body: String(repeating: "w", count: 65537)) == nil && G.addRequest(mac, name: "x", body: String(repeating: "w", count: 65536)) != nil,
-      "the page's 65536 limit on the words")
+check(G.addRequest(mac, name: "x", body: String(repeating: "語", count: 25_000)) != nil,
+      "long words are sent (75 KB of CJK): the engine refuses an oversized skill in its own sentence, not a grey button (review 1)")
+check(G.clipped(String(repeating: "w", count: 65537), utf16: G.bodyMax).utf16.count == 65536, "the words field stops at the page's 65536")
+check(G.clipped("ab😀c", utf16: 3) == "ab" && G.clipped("ab😀c", utf16: 4) == "ab😀" && G.clipped("abc", utf16: 3) == "abc",
+      "counted in UTF-16 units as maxlength does, and never cut inside a character")
+check(G.canAdd(name: String(repeating: "😀", count: 40), body: "x") && !G.canAdd(name: String(repeating: "😀", count: 41), body: "x"),
+      "the name's 80 is UTF-16 units too (40 emoji fit, 41 do not)")
 let rm = G.removeRequest(mac, key: "how-we-write-emails")
 check(rm?.httpMethod == "DELETE" && rm?.url?.absoluteString == "https://studio.kosmosplus.com/api/skills/how-we-write-emails", "remove is DELETE /api/skills/<key>")
 check(G.removeRequest(mac, key: "a/b")?.url?.absoluteString == "https://studio.kosmosplus.com/api/skills/a%2Fb", "a key is one path segment, as encodeURIComponent")
@@ -80,17 +85,33 @@ let pageFlat = page.replacingOccurrences(of: #"\s+"#, with: " ", options: .regul
 let server = repoText("server.js")
 check(page.count > 100_000 && server.count > 100_000, "the page and the server were read")
 let W = G.Words.self
-let shown = [W.title, W.hint, W.none, W.addLabel, W.addHint, W.namePlaceholder, W.bodyPlaceholder, W.addButton, W.added, W.remove,
-             W.removeArmed, W.listFailed, W.addFailed, W.removeFailed, W.addRefusedDefault, W.removeRefusedDefault, W.listRefusedDefault,
-             "Looking…"]
-for w in shown { check(pageFlat.contains(w), "on the page: \(w.prefix(50))") }
-check(pageFlat.contains("Ask your agent: <b>“What skills should we install?”</b>"), "the page's Ask your agent line")
+// Review 1: each word is looked for only where the page uses it (the section's markup and the two script functions), so
+// a one-word string such as "Remove" cannot pass on some other part of a 100,000-line page.
+func cut(_ from: String, _ to: String) -> String {
+    guard let a = pageFlat.range(of: from), let b = pageFlat.range(of: to, range: a.upperBound..<pageFlat.endIndex) else { return "" }
+    return String(pageFlat[a.lowerBound..<b.lowerBound])
+}
+let sectionHTML = cut(#"<section class="dsec" id="s-sec-gskills""#, #"<section class="dsec" id="s-sec-policy""#)
+let script = cut("async function loadSkills(url, listId, msgId) {", "/* --- the company AI policy (#479)")
+check(sectionHTML.count > 500 && script.count > 2000, "the section and its script were found (\(sectionHTML.count), \(script.count) characters)")
+for w in [W.title, W.hint, W.addLabel, W.addHint, W.namePlaceholder, W.bodyPlaceholder, W.addButton] {
+    check(sectionHTML.contains(w), "in the section: \(w.prefix(50))")
+}
+for w in [W.none, W.added, W.remove, W.removeArmed, W.listFailed, W.addFailed, W.removeFailed, W.addRefusedDefault,
+          W.removeRefusedDefault, W.listRefusedDefault, "Looking…"] {
+    check(script.contains(w), "in the page's script: \(w.prefix(50))")
+}
+check(!sectionHTML.contains("Remove it for good?"), "control: a script sentence is not in the section's markup, so the cut is the section")
+check(sectionHTML.contains("Ask your agent: <b>“What skills should we install?”</b>"), "the page's Ask your agent line")
 check(page.contains(#"id="g-skill-name" maxlength="80""#) && page.contains(#"id="g-skill-body" rows="5" maxlength="65536""#), "the two limits are the page's")
 check(server.contains("pathname === '/api/skills' && (req.method === 'GET'") && server.contains("pathname === '/api/skills' && req.method === 'POST'")
       && server.contains(#"pathname.match(/^\/api\/skills\/([^/]+)$/)"#), "the computer has the three routes")
 let stepUp = server.range(of: "const REMOTE_STEP_UP_EXACT = new Set([").flatMap { s in
     server.range(of: "]);", range: s.upperBound..<server.endIndex).map { String(server[s.upperBound..<$0.lowerBound]) } } ?? ""
-check(stepUp.contains("'POST /api/update'") && !stepUp.contains("/api/skills"), "none of them needs the remote step-up (control: the list holds POST /api/update)")
+let patterns = server.range(of: "const REMOTE_STEP_UP_PATTERNS = [").flatMap { s in
+    server.range(of: "];", range: s.upperBound..<server.endIndex).map { String(server[s.upperBound..<$0.lowerBound]) } } ?? ""
+check(stepUp.contains("'POST /api/update'") && !stepUp.contains("/api/skills"), "not on the exact step-up list (control: the list holds POST /api/update)")
+check(patterns.contains("svc") && !patterns.contains("skills"), "nor matched by a step-up pattern (control: the patterns hold the svc token route)")
 
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
