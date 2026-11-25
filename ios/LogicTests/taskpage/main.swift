@@ -1537,7 +1537,7 @@ do {
     check(one(#","closedHow":"change""#)?.stateLine(roster: [:]) == "Open", "an open task was not closed any way")
     check(one(shut + #","closedUnrun":true"#)?.stateLine(roster: [:]) == "Closed, not run" && one(#","closedUnrun":true"#)?.stateLine(roster: [:]) == "Open" && one(shut + #","closedUnrun":true,"replacedBy":3"#)?.stateLine(roster: [:]) == "Replaced by task 3", "closed, not run; replaced before it")
     check(one(shut + #","closedUnrun":true,"progress":{"done":2,"total":2,"closed":true}"#)?.stateLine(roster: [:]) == "Closed, not run", "and before the parts' count")
-    check(one(shut + #","replacedBy":3"#, others: #",{"number":9,"replacedBy":1,"closedAt":"2026-11-24T15:00:00.000Z"}"#)?.stateTasks == [3, 9] && one(#","replacedBy":3"#)?.stateTasks == [] && one("")?.stateTasks == [], "the tasks its state names")
+    check(one(shut + #","replacedBy":3"#, others: #",{"number":9,"replacedBy":1,"closedAt":"2026-11-24T15:00:00.000Z"}"#)?.stateTasks == [3, 9] && one(shut + #","replacedBy":9"#, others: #",{"number":9,"replacedBy":1,"closedAt":"2026-11-24T15:00:00.000Z"}"#)?.stateTasks == [9] && one(#","replacedBy":3"#)?.stateTasks == [] && one("")?.stateTasks == [], "the tasks its state names")
     // Every event's words are the board's: its own tkActPhrase is run on engine/taskactphrase.test.js's events, which hold every
     // kind it knows, and the phone's are compared with it.
     let testURL = here.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("engine/taskactphrase.test.js")
