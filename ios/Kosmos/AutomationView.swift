@@ -333,7 +333,12 @@ struct AutomationView: View {
         let choices = Industry.choices(industry, kept: industryKept)
         Picker(selection: Binding(
             get: { industrySaving ?? Industry.selected(industry) },
-            set: { key in Task { await saveIndustry(key) } }
+            // The choice shows from the moment it is picked (industrySaving is set here, before the save's first await).
+            set: { key in
+                guard industrySaving == nil, key != Industry.unknownKey, key != Industry.selected(industry) else { return }
+                industrySaving = key
+                Task { await saveIndustry(key) }
+            }
         )) {
             ForEach(choices) { c in Text(c.text).tag(c.key) }
         } label: {
@@ -349,20 +354,27 @@ struct AutomationView: View {
         .disabled(industrySaving != nil)
         .accessibilityIdentifier("automation-community-industry")
         Text(Industry.Words.hint).font(.footnote).foregroundColor(Palette.secondary)
-        if let said = industryNote ?? Industry.readSaid(industry, kept: industryKept) {
+        // The note (a save's line or a refusal) and, when the setting is unread, the unread sentence too.
+        if let said = industryNote {
             Text(said).font(.footnote).foregroundColor(Palette.secondary).accessibilityIdentifier("automation-community-industry-msg")
+        }
+        if let unread = Industry.readSaid(industry, kept: industryKept), industryNote == nil || Industry.isRefusal(industryNote!) {
+            Text(unread).font(.footnote).foregroundColor(Palette.secondary)
         }
         if let s = industry, s.picturesStuck > 0 { Text(Industry.Words.stuck(s.picturesStuck)).font(.footnote).foregroundColor(Palette.secondary) }
         if let s = industry, s.picturesUnsendable > 0 { Text(Industry.Words.unsendable(s.picturesUnsendable)).font(.footnote).foregroundColor(Palette.secondary) }
     }
 
-    @MainActor private func readIndustry(keepNote: Bool) async {
+    @MainActor private func readIndustry(keepNote: Bool, after saved: String? = nil) async {
         if sample {
             if industry == nil { industry = Industry.read(status: 200, data: Data(Industry.sample.utf8)); industryKept = industry?.list ?? [] }
             industryRead = true
             return
         }
         guard let mac, mac.url == shownURL, industrySaving == nil else { return }
+        // A re-read after a save whose answer did not read shows the saved choice until it answers.
+        if let saved { industrySaving = saved }
+        defer { if saved != nil && industrySaving == saved { industrySaving = nil } }
         industryGeneration += 1
         let mine = industryGeneration
         let (status, data) = await fetch(Industry.readRequest(mac))
@@ -374,6 +386,8 @@ struct AutomationView: View {
         industry = next
         if let l = industry?.list, !l.isEmpty { industryKept = l }
         // A note never stays beside an unread setting it no longer describes ("Saved. ..." under "Could not be read").
+        // "Saved, but we could not read it back" is answered by a read that worked.
+        if industry?.unread == false, industryNote == Industry.Words.savedUnread { industryNote = nil }
         if industry?.unread != false {
             // Unread now: only a refusal being kept may stay (it says why); a "Saved." line goes.
             if !(keepNote && industryNote.map(Industry.isRefusal) == true) { industryNote = nil }
@@ -384,30 +398,35 @@ struct AutomationView: View {
     }
 
     @MainActor private func saveIndustry(_ key: String) async {
-        guard industrySaving == nil, key != Industry.unknownKey, key != Industry.selected(industry) else { return }
+        // industrySaving was set by the picker's Binding, so the choice already shows.
+        guard industrySaving == key else { return }
         if sample {
             industry?.industry = key == Industry.noneKey ? nil : key
             if let s = industry { industryNote = Industry.savedSaid(s) }
+            industrySaving = nil
             return
         }
-        guard let mac, let request = Industry.saveRequest(mac, key: key) else { return }
-        industrySaving = key
+        guard let mac, let request = Industry.saveRequest(mac, key: key) else { industrySaving = nil; return }
         industryGeneration += 1
         let mine = industryGeneration
         let sentTo = mac.url
         let (status, data) = await fetch(request)
         guard mine == industryGeneration, sentTo == shownURL else { return }
-        industrySaving = nil
         if status == 200, let s = Industry.read(status: status, data: data) {
+            industrySaving = nil
             industry = s
             if !s.list.isEmpty { industryKept = s.list }
             industryNote = Industry.savedSaid(s)
         } else if status == 200 {
-            // Saved, but the answer did not read: the page's res.json().catch(() => ({})) then "Saved, but ...".
+            // Saved, but the answer did not read: the page's res.json().catch(() => ({})) then "Saved, but ...". The
+            // choice stays shown until the re-read answers.
             industryNote = Industry.Words.savedUnread
-            await readIndustry(keepNote: true)
+            industrySaving = nil
+            await readIndustry(keepNote: true, after: key)
         } else {
+            // Refused: the old choice is shown again by the re-read, not before it.
             industryNote = Industry.refused(status: status, data: data)
+            industrySaving = nil
             await readIndustry(keepNote: true)
         }
     }
