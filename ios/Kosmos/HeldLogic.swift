@@ -174,6 +174,8 @@ enum Held {
         let said = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }.flatMap { text($0["error"]) }
         // A 5xx, or no answer at all (it may have landed after the phone gave up): the list is read again.
         if releasing && (status >= 500 || status == 0) { return .unfinished((said ?? Words.finishFailed) + Words.whereNow) }
+        // A discard with no answer may have landed too: the list is read again, and the row says it could not tell.
+        if !releasing && status == 0 { return .unfinished(Words.discardFailed + Words.whereNow) }
         return .refused(said ?? (releasing ? Words.releaseFailed : Words.discardFailed))
     }
 

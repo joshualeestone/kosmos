@@ -401,9 +401,11 @@ struct AutomationView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(row.title).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
             if !row.stopped || heldShowWords.contains(row.id) {
-                // A stopped row's words, once asked for, show whole, as the page's; others clamp at 4 lines.
+                // Clamped only when Read all is offered beside it (round 2: the phone wraps by width, so a short post
+                // can run past 4 lines on a narrow screen). Otherwise whole, so nothing is ever cut off unseen above a
+                // Release that cannot be taken back. A stopped row's words, once asked for, show whole, as the page's.
                 Text(row.words).font(.footnote).foregroundColor(Palette.secondary)
-                    .lineLimit(row.stopped || heldOpen.contains(row.id) ? nil : Held.clampLines)
+                    .lineLimit(row.long && !row.stopped && !heldOpen.contains(row.id) ? Held.clampLines : nil)
                     .accessibilityIdentifier("automation-held-words-" + row.id)
                 if row.long && !row.stopped {
                     Button(heldOpen.contains(row.id) ? Held.Words.readLess : Held.Words.readAll) {
@@ -495,7 +497,8 @@ struct AutomationView: View {
         heldBusy = nil
         switch Held.outcome(status: status, data: data, releasing: false) {
         case .done: heldNotes[row.id] = nil; heldAsking = nil; await readHeld()
-        case .refused(let said), .unfinished(let said): heldNotes[row.id] = said
+        case .refused(let said): heldNotes[row.id] = said
+        case .unfinished(let said): heldNotes[row.id] = nil; heldAsking = nil; heldSay = said; await readHeld()
         }
     }
 
