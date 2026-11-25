@@ -64,3 +64,10 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7154958
 - M5 "Checking." never cleared without a pull: while the first look is under way the screen asks again every 5 s, as the page's poll repaints. An older board with no updateLook keeps the page's last arm.
 - M6 the check now lays its answer over the current state, not the snapshot from before; the suite reads the page first (and asserts it was read); the UI test reads the done sentence by identifier; a misplaced comment moved.
 - Measured: run-updates.sh PASS 121/121; app and UI-test typecheck 0 errors.
+
+### Round 4 (sonnet, 01:14 CST): no BLOCKER, 2 MAJOR, 3 MINOR
+- MAJOR 1 a resume could start after the screen had gone (load returns on cancel, the unstructured Task did not inherit it) and a second resume could start beside the first: it starts only while the task is not cancelled, and cancels any earlier one first.
+- MAJOR 2 an install cancelled while its POST was out was never waited for, though the computer may have started: it now keeps a resume, judged as unanswered (by version and boot), and says nothing until the screen is back.
+- M3 a switch read started during a save could land over it: the epoch moves again when the save ends.
+- M4 and M5 the 5 s re-read could fire during a press or a check, and never restarted: it now checks after each sleep (no wait, no resume, not busy, first look under way) for as long as the screen is shown, asking nothing otherwise.
+- Measured: run-updates.sh PASS 121/121 (view-only changes); typecheck 0 errors.

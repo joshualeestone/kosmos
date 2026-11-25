@@ -69,16 +69,20 @@ struct UpdatesView: View {
                 generation += 1
             }
             await load()
-            if let r = resume, let mac, mac.url == shownURL {
+            // Only while this screen is still shown (load can return because the task was cancelled), and never two.
+            if !Task.isCancelled, let r = resume, let mac, mac.url == shownURL {
+                installing?.cancel()
                 installing = Task {
                     if r.unanswered { await waitUnanswered(mac, before: r.before, t0: r.t0) }
                     else { await wait(mac, before: r.before, myStart: r.myStart, updating: r.updating, t0: r.t0) }
                 }
             }
-            // The page repaints from its 5 s poll; while the computer's first look is under way, ask again.
-            while !Task.isCancelled, resume == nil, waitLead == nil, state?.look?.looked == false {
+            // The page repaints from its 5 s poll; while the computer's first look is under way, ask again. Checked after
+            // each sleep, so it never reads during a check, an install or its wait, and starts again after them. It asks
+            // nothing while the look is done.
+            while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
-                if !Task.isCancelled { await load() }
+                if !Task.isCancelled, resume == nil, waitLead == nil, !busy, state?.look?.looked == false { await load() }
             }
         }
         .onDisappear {
@@ -258,8 +262,10 @@ struct UpdatesView: View {
         defer { if acting == me { busy = false; acting = nil } }
         let sentTo = mac.url
         let (status, data) = await send(Updates.installRequest(mac))
-        // Cancelled (the screen went) is not "no answer": nothing is waited for, nothing is said.
-        guard sentTo == shownURL, !Task.isCancelled else { return }
+        guard sentTo == shownURL else { return }
+        // Cancelled because the screen went: the press may have reached the computer, so the wait is kept to resume when
+        // the screen comes back, judged as unanswered (by version and boot), and nothing is said now.
+        if Task.isCancelled { resume = (shown, nil, nil, Date(), true); return }
         switch Updates.started(status: status, data: data) {
         case .refused(let said):
             note = said
@@ -341,7 +347,8 @@ struct UpdatesView: View {
         autoPending = on
         autoEpoch += 1   // a read already out cannot land over this save
         let me = UUID(); autoActing = me
-        defer { if autoActing == me { autoSaving = false; autoPending = nil; autoActing = nil } }
+        // On the way out the epoch moves again, so a read that started during the save cannot land over it.
+        defer { if autoActing == me { autoSaving = false; autoPending = nil; autoActing = nil; autoEpoch += 1 } }
         let sentTo = mac.url
         let (status, data) = await send(Updates.autoSaveRequest(mac, on: on))
         guard sentTo == shownURL, autoActing == me else { return }
