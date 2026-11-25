@@ -138,12 +138,17 @@ enum Usage {
 
     /// toLocaleString on a whole number: the person's grouping. `locale` is a seam for the suite.
     static func grouped(_ n: Double, locale: Locale = .current) -> String {
-        let f = NumberFormatter()
-        f.locale = locale
-        f.numberStyle = .decimal
-        f.maximumFractionDigits = 3
+        let f: NumberFormatter
+        if let kept = formatters[locale.identifier] { f = kept } else {
+            f = NumberFormatter()
+            f.locale = locale
+            f.numberStyle = .decimal
+            f.maximumFractionDigits = 3
+            formatters[locale.identifier] = f   // one per locale: the history formats every row twice
+        }
         return f.string(from: NSNumber(value: n)) ?? String(n)
     }
+    private static var formatters: [String: NumberFormatter] = [:]
 
     // usageAbbr
     static func abbr(_ n: Double) -> String {
@@ -347,7 +352,9 @@ enum Usage {
     static func request(_ mac: Settings.Mac) -> URLRequest {
         var r = URLRequest(url: URL(string: "/api/usage?days=all", relativeTo: mac.url)!.absoluteURL)
         r.cachePolicy = .reloadIgnoringLocalCacheData
-        r.timeoutInterval = 120   // "on a busy day this takes up to a minute"
+        // The page's fetch has no limit, and says the first read after an update "can take a few" minutes. The board
+        // sends nothing until its count is done, so this is the wait for that one answer.
+        r.timeoutInterval = 600
         r.httpShouldHandleCookies = false
         r.setValue("\(Board.macCookieName)=\(mac.cookie)", forHTTPHeaderField: "Cookie")
         r.setValue("same-origin", forHTTPHeaderField: Board.fetchSiteHeader)

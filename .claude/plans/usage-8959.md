@@ -29,3 +29,12 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7155802
 - The app and the UI test type-check. The ios*, server.ios* and web.ios* node tests (13 files): 72 pass, 0 fail.
 
 ## Challenge loop ledger
+
+### Round 1 (opus, 01:38 CST): no BLOCKER, 2 MAJOR, 8 MINOR. Every figure checked by the reviewer matches the page, and every field name matches engine/usage.js.
+- MAJOR 1 the UI test looked for a model's and an agent's name as their own texts, but each row is one combined element: rows now carry identifiers (usage-model-N, usage-agent-N, usage-history-row) and the test checks the row's label starts with the name.
+- MAJOR 2 a 120 s limit gave up on reads the page waits for (its fetch has no limit; "the first time after an update it can take a few" minutes, and the board sends nothing until the count is done): 600 s, and the suite pins it.
+- M4 a pull during a read started a second count on the computer: one read at a time, the page's USAGE_BUSY.
+- M5 a NumberFormatter per call, twice per history row: one kept per locale.
+- M6 the three small figures could be cut short at the largest text sizes: side by side while they fit (ViewThatFits), stacked otherwise.
+- Kept: M1 and M2, equal totals ordering by name, where the page keeps the server's key order, which JSON parsing does not carry (rare; colours go by rank). M3 grouping follows the phone's region, the page the browser's language: on one person's devices they agree, and the region is the phone's own setting for numbers. M7 a null body or a boolean count, which the server never sends. M8 "per class" in the hint, true once D1c2b's per-class charts land.
+- Measured: run-usage.sh PASS 57/57; app and UI-test typecheck 0 errors.
