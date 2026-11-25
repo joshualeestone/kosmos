@@ -62,3 +62,9 @@ Branch `aipolicies-8959`, stacked on D1b1 (16b7bfd952), which is stacked on D1a:
 - M4 the UI test did not check where the note shows: it now asserts the note is shown once, says the sentence, sits under Save after an add and above the add form after a remove.
 - M5 a rename to the same name moved an existing note: the note's place is set only where a note is set.
 - Measured: app typecheck rc 0; the UI test type-checks against XCTest (control: a planted error reports 2 errors); run-aipolicies.sh PASS 104/104.
+
+### Round 4 (sonnet, 00:25 CST): no BLOCKER, no MAJOR, 3 MINOR
+- M1 the change's `defer { busy = false }` could clear busy for a change on another computer after a switch: it now clears only while the same computer is shown.
+- M2 a refusal whose reload also fails now replaces the list with the error (wider since round 3's always-reload): kept, as round 2's M5 (the page does the same, and a stale list would hide that the computer did not answer); the refusal's note stays, it sits in the footer.
+- M3 the UI test's placement checks were skipped when the reference was not drawn (a lazy List): replaced by identifiers. Each footer's note has its own (`policy-note-list`, `policy-note-form`), and the test asserts the right one says the sentence and the other is absent. No frames, nothing to skip.
+- Measured: app and UI-test typecheck rc 0, 0 errors; run-aipolicies.sh PASS 104/104.
