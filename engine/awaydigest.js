@@ -106,7 +106,8 @@ function sessionAfter(history, atMs) {
 
 /* kosmos#9058: how many sessions the agent has had, since this wait, that began after the wait was set aside (a
    startup's `started`, or a /clear's or quit's `stopped`), in which it took a turn (an automatic `working` or `idle`,
-   which the hook writes on every turn), and that have ended (a later `stopped` or `started`). Each such session began
+   which the hook writes on every turn), and that have ended (a later `stopped` or `started`, or a row of a new run
+   instance: a relaunch with --resume, review 5). Each such session began
    where a reminder is given (#8634 at a startup, #9049 after a session end; whether it reached the agent is not
    recorded) and the agent went on without reporting a wait again or anything else of its own. The session the wait
    was raised in does not count. A startup, a /clear or a resume is reminded while this is under REMIND_SESSIONS: the
@@ -124,8 +125,21 @@ function sessionsSinceWait(history, atMs, opts) {
   let open = false;     // inside a session that began at a started/stopped after the wait
   let turned = false;   // and the agent took a turn in it
   let count = 0;
+  let run = null;       // the newest run instance seen after the wait
   for (const r of rows) {
     if (!r || !Number.isFinite(r.at) || r.at <= atMs) continue;
+    /* Review 5: a run that crashed and was relaunched with --resume (the Windows supervisor does; so can a person)
+       writes neither a `stopped` (no SessionEnd) nor a `started` (a resume is not a startup), so its sessions ran
+       together. Each row carries its run's `instance`, and a relaunch is a new run: a change of instance between two
+       rows that both carry one ends the session too (seen 11-25: it changes at every `started` in the selfreports). */
+    const inst = typeof r.instance === 'string' && r.instance ? r.instance : null;
+    const newRun = inst !== null && run !== null && inst !== run;
+    if (inst !== null) run = inst;
+    if (newRun && r.state !== 'stopped' && r.state !== 'started') {
+      if (open && turned) count += 1;
+      open = true;
+      turned = false;
+    }
     if (r.state === 'stopped' || r.state === 'started') {
       /* Review 3: a session ends at the next `started` too. A killed or relaunched run sends no SessionEnd, and on this
          fleet most restarts leave no `stopped` at all (measured 11-25 in the selfreports: started after started 17, 9,
