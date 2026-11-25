@@ -159,7 +159,7 @@ check(Automation.writeOutcome(.dailyReport, status: 200, data: json("<html>sign 
       "a 200 page that is not JSON (a gate, a captive page) is not a save")
 check(Automation.writeOutcome(.language, status: 200, data: json(#"{"choice":null,"ok":false,"options":[],"changed":0,"removed":0,"couldNot":0}"#)) == .savedUnread,
       "a Language save the computer could not read back is saved, unread (the page's first case)")
-check(Automation.writeOutcome(.geminiCap, status: 403, data: json(#"{"error":"only you can change this, from Settings"}"#)) == .refused("Only you can change this, from Settings."),
+check(Automation.writeOutcome(.geminiCap, status: 400, data: json(#"{"error":"the limit must be one of 0, 1, 2, 3, 4 (0 is no limit)"}"#)) == .refused("The limit must be one of 0, 1, 2, 3, 4 (0 is no limit)."),
       "a refusal, with the computer's sentence")
 check(Automation.writeOutcome(.assigner, status: 0, data: json("")) == .refused("Your computer is not answering. Try again in a moment."), "no answer is a refusal (and the screen reads again)")
 func lang(_ s: String) -> String? { Automation.languageSaved(status: 200, data: json(s)) }
@@ -172,6 +172,9 @@ check(lang(#"{"ok":true,"changed":0,"removed":0,"couldNot":-1}"#) == "Saved. You
 check(lang(#"{"ok":false}"#) == Automation.Words.savedUnread, "saved, unread")
 check(Automation.readRefusal(.community, status: 200, data: json(#"{"on":true,"ok":false}"#)) == Automation.Words.communityUnread, "Community's own could-not-read sentence")
 check(Automation.readRefusal(.prompter, status: 200, data: json("{}")) == Automation.Words.readFailed, "the others say the page's general one")
+check(Automation.readRefusal(.community, status: 500, data: json("")) == Automation.Words.communityUnread, "Community's sentence for a 500 too, as the page's")
+check(Automation.readRefusal(.community, status: 0, data: json("")) == "Your computer is not answering. Try again in a moment.", "but no answer says so")
+check(Automation.readRefusal(.community, status: 401, data: json("")) == Board.phoneShutOut, "and a 401 is the sign-in line")
 
 section("labels and lists")
 check(Automation.capLabel(0) == "No limit" && Automation.capLabel(1) == "1 agent" && Automation.capLabel(4) == "4 agents", "cap labels, as the board's capLabel")
@@ -179,8 +182,8 @@ check(Automation.minutesLabel(15) == "15 minutes" && Automation.percentLabel(85)
 check(Automation.choices([15, 30], keeping: 45) == [15, 30, 45] && Automation.choices([15, 30], keeping: 30) == [15, 30], "a stored value not on the list still shows as itself")
 
 section("refusals: the computer's own reason for a save, the page's words for a read, never a gate's")
-check(Automation.refusal(status: 403, data: json(#"{"error":"only you can change this, from Settings"}"#), writing: true) == "Only you can change this, from Settings.",
-      "the computer's isViaScreen 403 is its sentence")
+check(Automation.refusal(status: 403, data: json(#"{"error":"only you can change this, from Settings"}"#), writing: true) == Board.phoneShutOut,
+      "even the computer's isViaScreen 403 is the sign-in line (review 5: 'from Settings' means nothing in Settings)")
 check(Automation.refusal(status: 403, data: json(#"{"error":"Access denied by the gate"}"#), writing: true) == Board.phoneShutOut,
       "any other 403 is the phone's sign-in, never the gate's words (kosmos#7840)")
 check(Automation.refusal(status: 401, data: json(#"{"error":"x"}"#), writing: false) == Board.phoneShutOut, "a 401 is the phone's sign-in")
@@ -193,7 +196,6 @@ check(Automation.refusal(status: 500, data: json(#"{"error":"that setting could 
 check(Automation.refusal(status: 500, data: json(""), writing: true) == Automation.Words.saveFailed, "a failed save, in the board's words")
 check(Automation.refusal(status: 500, data: json(""), writing: false) == Automation.Words.readFailed, "a failed read is not called a save")
 check(Automation.refusal(status: 0, data: json(""), writing: false) == "Your computer is not answering. Try again in a moment.", "no answer says so")
-check(repoText("server.js").contains("'" + Automation.viaScreenRefusal + "'"), "the kept 403 sentence is the computer's own (server.js)")
 
 section("the words are the board page's own, and the routes are the computer's")
 let page = repoText("web/index.html")

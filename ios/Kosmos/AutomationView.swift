@@ -23,6 +23,8 @@ struct AutomationView: View {
     @State private var notes: [Automation.Box: Note] = [:]
     // Bumped by every write to a box, so a read that started before it cannot paint the older state over the newer.
     @State private var generations: [Automation.Box: Int] = [:]
+    // The computer the boxes on screen came from. Review 5: another computer starts the screen over.
+    @State private var shownURL: URL?
 
     var body: some View {
         List {
@@ -49,7 +51,15 @@ struct AutomationView: View {
         // "Saved. ..." or a refusal is not wiped by the read that follows (review 2).
         .dotsRefresh { await readAll(keepNotes: false) }
         // Review 4: keyed on the computer, so a computer that arrives after the screen opened is read too.
-        .task(id: mac?.url) { await readAll(keepNotes: true) }
+        .task(id: mac?.url) {
+            if shownURL != mac?.url {
+                // Another computer: nothing from the last one may show or be saved as this one's.
+                shownURL = mac?.url
+                loads = [:]; notes = [:]; pending = [:]
+                for box in Automation.Box.allCases { generations[box, default: 0] += 1 }
+            }
+            await readAll(keepNotes: true)
+        }
         .accessibilityIdentifier("automation-list")
     }
 
@@ -270,9 +280,12 @@ struct AutomationView: View {
         }
         if let s = Automation.parse(box, status: status, data: data) {
             loads[box] = .loaded(s)
-            if !keepNote { notes[box] = nil }
+            // Review 5: a read that worked answers "could not read it back" (Language keeps it, as the page does).
+            if !keepNote || (notes[box]?.text == Automation.Words.savedUnread && box != .language) { notes[box] = nil }
         } else {
-            loads[box] = .failed(Automation.readRefusal(box, status: status, data: data))
+            let why = Automation.readRefusal(box, status: status, data: data)
+            loads[box] = .failed(why)
+            if notes[box]?.text == why { notes[box] = nil }   // review 5: one sentence, not the same one twice
         }
     }
 
@@ -289,7 +302,10 @@ struct AutomationView: View {
             pending[box] = nil
             return
         }
+        let sentTo = mac.url
         let (status, data) = await send(box, request)
+        // Review 5: the computer changed while this was out; its answer is the other computer's, so it is dropped.
+        guard sentTo == shownURL || (shownURL == nil && sample) else { return }
         // Ends the save and makes any read that started during it stale, so it cannot paint over this answer.
         generations[box, default: 0] += 1
         pending[box] = nil

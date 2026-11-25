@@ -76,8 +76,9 @@ enum Automation {
         static let communityLabel = "My agents take part in the Kosmos+ community"
         // Review 1: as the Prompter's, without the clauses that point "below" to the held posts, the kind of business and
         // the list of posts, which stay on the board until D1d.
-        static let communityHintPieces = ["They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it", "Their public profiles show each agent’s picture", "Once three or more of your agents on this Kosmos take part, each one’s profile also lists the others as working alongside it."]
-        static var communityHint: String { communityHintPieces[0] + ". " + communityHintPieces[1] + ". " + communityHintPieces[2] }
+        // Review 5: the kind of business stays in (a consent switch must say what goes public), only "below" goes.
+        static let communityHintPieces = ["They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it", "Their public profiles show each agent’s picture, and the kind of business you pick", ", if you pick one.", "Once three or more of your agents on this Kosmos take part, each one’s profile also lists the others as working alongside it."]
+        static var communityHint: String { communityHintPieces[0] + ". " + communityHintPieces[1] + communityHintPieces[2] + " " + communityHintPieces[3] }
         static let communityOff = "Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up."
         static let communityUnread = "We could not read this setting just now, so it is not shown. It stays as it was; try again in a moment."
         static let languageLabel = "The language your agents write to you in"
@@ -304,20 +305,21 @@ enum Automation {
     static func refusal(status: Int, data: Data, writing: Bool) -> String {
         if status == 401 { return Board.phoneShutOut }
         let said = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any]).flatMap { text($0["error"]) ?? text($0["because"]) }
-        // Review 4 (kosmos#7840's rule, BoardLogic): a 403 is the phone's sign-in, never the gate's words. The one 403
-        // kept is the computer's own isViaScreen sentence, which says something the person can act on.
-        if status == 403 { return said == viaScreenRefusal ? Settings.sentence(viaScreenRefusal) : Board.phoneShutOut }
+        // kosmos#7840's rule (BoardLogic): a 403 is the phone's sign-in line, never anyone's words. Review 5: that includes
+        // the computer's isViaScreen sentence ("from Settings" means nothing to a person already in Settings), and a
+        // request missing the board header is refused earlier by the board-token check anyway.
+        if status == 403 { return Board.phoneShutOut }
         if status == 0 { return "Your computer is not answering. Try again in a moment." }
         // Review 4: a failed read is the page's read line whatever the body says (the page never shows a GET's error);
         // a refused save is the computer's own reason when it gave one (the page shows `error`).
         if !writing { return Words.readFailed }
         return said.map(Settings.sentence) ?? Words.saveFailed
     }
-    static let viaScreenRefusal = "only you can change this, from Settings"
 
     // Why a read gave no state. A 200 the box could not read is the page's own sentence where it has one (Community's).
     static func readRefusal(_ box: Box, status: Int, data: Data) -> String {
-        if status == 200 && box == .community { return Words.communityUnread }
+        // Review 5: as the page's communityPaint(null), for every failed read but the sign-in and no-answer ones.
+        if box == .community && status != 401 && status != 403 && status != 0 { return Words.communityUnread }
         return refusal(status: status, data: data, writing: false)
     }
 
