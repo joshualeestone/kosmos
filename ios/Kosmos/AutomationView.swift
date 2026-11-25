@@ -18,6 +18,13 @@ struct AutomationView: View {
     // The Prompter's check-ins (the page's #hb-nudges): nil hides them, as any failure does on the page.
     @State private var checkins: [Checkins.Row]?
     @State private var checkinsGeneration = 0
+    // kosmos#8959 slice D1d2a: Community's kind of business (the page's #community-industry-row), read on its own.
+    @State private var industry: Industry.State?
+    @State private var industryRead = false          // the first answer (or none) has come
+    @State private var industryKept: [Industry.Choice] = []   // the board's list from the last good read
+    @State private var industryNote: String?
+    @State private var industrySaving: String?       // the choice being saved, shown until the board answers
+    @State private var industryGeneration = 0
 
     private enum Load: Equatable {
         case reading
@@ -78,6 +85,7 @@ struct AutomationView: View {
                 // Another computer: nothing from the last one may show or be saved as this one's.
                 shownURL = mac?.url
                 loads = [:]; notes = [:]; pending = [:]; checkins = nil; checkinsGeneration += 1
+                industry = nil; industryRead = false; industryKept = []; industryNote = nil; industrySaving = nil; industryGeneration += 1
                 for box in Automation.Box.allCases { generations[box, default: 0] += 1 }
             }
             await readAll(keepNotes: true)
@@ -111,6 +119,7 @@ struct AutomationView: View {
             // The check-ins, under the Prompter box's controls as on the page, read on their own (round 1: whatever
             // the box's own read did); hidden while there are none.
             if box == .prompter, let rows = checkins, !rows.isEmpty { checkinRows(rows) }
+            if box == .community, industryRead { industryRows() }
         } header: {
             Text(box.title)
         } footer: {
@@ -292,6 +301,7 @@ struct AutomationView: View {
         await withTaskGroup(of: Void.self) { group in
             for box in Automation.Box.allCases { group.addTask { await read(box, keepNote: keepNotes) } }
             group.addTask { await readCheckins() }
+            group.addTask { await readIndustry(keepNote: keepNotes) }
         }
     }
 
@@ -316,6 +326,75 @@ struct AutomationView: View {
             phases = Checkins.phases(status: s2, data: d2)
         }
         checkins = Checkins.rows(ns, phases: phases)
+    }
+
+    // industryPaint: the picker, its hint, the line under it, and the two picture lines.
+    @ViewBuilder private func industryRows() -> some View {
+        let choices = Industry.choices(industry, kept: industryKept)
+        Picker(selection: Binding(
+            get: { industrySaving ?? Industry.selected(industry) },
+            set: { key in Task { await saveIndustry(key) } }
+        )) {
+            ForEach(choices) { c in Text(c.text).tag(c.key) }
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(Industry.Words.label).foregroundColor(Palette.primary)
+                    if industrySaving != nil { SweepDots(size: 16, label: "Loading", scales: false) }
+                }
+                Text(Industry.Words.hint).font(.footnote).foregroundColor(Palette.secondary)
+            }
+        }
+        .pickerStyle(.navigationLink)
+        .disabled(industrySaving != nil)
+        .accessibilityIdentifier("automation-community-industry")
+        if let said = industryNote ?? Industry.readSaid(industry, kept: industryKept) {
+            Text(said).font(.footnote).foregroundColor(Palette.secondary).accessibilityIdentifier("automation-community-industry-msg")
+        }
+        if let s = industry, s.picturesStuck > 0 { Text(Industry.Words.stuck(s.picturesStuck)).font(.footnote).foregroundColor(Palette.secondary) }
+        if let s = industry, s.picturesUnsendable > 0 { Text(Industry.Words.unsendable(s.picturesUnsendable)).font(.footnote).foregroundColor(Palette.secondary) }
+    }
+
+    @MainActor private func readIndustry(keepNote: Bool) async {
+        if sample {
+            if industry == nil { industry = Industry.read(status: 200, data: Data(Industry.sample.utf8)); industryKept = industry?.list ?? [] }
+            industryRead = true
+            return
+        }
+        guard let mac, mac.url == shownURL, industrySaving == nil else { return }
+        industryGeneration += 1
+        let mine = industryGeneration
+        let (status, data) = await fetch(Industry.readRequest(mac))
+        guard !Task.isCancelled, mine == industryGeneration, mac.url == shownURL else { return }
+        industry = Industry.read(status: status, data: data)
+        if let l = industry?.list, !l.isEmpty { industryKept = l }
+        if !keepNote { industryNote = nil }
+        industryRead = true
+    }
+
+    @MainActor private func saveIndustry(_ key: String) async {
+        guard industrySaving == nil, key != Industry.unknownKey, key != Industry.selected(industry) else { return }
+        if sample {
+            industry?.industry = key == Industry.noneKey ? nil : key
+            if let s = industry { industryNote = Industry.savedSaid(s) }
+            return
+        }
+        guard let mac, let request = Industry.saveRequest(mac, key: key) else { return }
+        industrySaving = key
+        industryGeneration += 1
+        let mine = industryGeneration
+        let sentTo = mac.url
+        let (status, data) = await fetch(request)
+        guard mine == industryGeneration, sentTo == shownURL else { return }
+        industrySaving = nil
+        if status == 200, let s = Industry.read(status: status, data: data) {
+            industry = s
+            if !s.list.isEmpty { industryKept = s.list }
+            industryNote = Industry.savedSaid(s)
+        } else {
+            industryNote = Industry.refused(status: status, data: data)
+            await readIndustry(keepNote: true)
+        }
     }
 
     @ViewBuilder private func checkinRows(_ rows: [Checkins.Row]) -> some View {

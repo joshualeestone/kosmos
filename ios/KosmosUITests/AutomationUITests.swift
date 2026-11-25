@@ -53,6 +53,18 @@ final class AutomationUITests: XCTestCase {
         XCTAssertTrue(waitFor(report, value: "1"), "pressing the Daily report switch did not turn it on")
         shot(app, "automation-middle")
 
+        // kosmos#8959 slice D1d2a: Community's kind of business under its box (between the Daily report and the
+        // Recommender), with the sample's one picture the community shut out.
+        let business = app.buttons["automation-community-industry"]
+        reveal(app, business, swipes: 6)
+        XCTAssertTrue(business.waitForExistence(timeout: 5), "the kind of business is missing")
+        XCTAssertTrue(business.label.contains("Your kind of business, shown on your agents’ public profiles"), business.label)
+        XCTAssertTrue(business.label.contains("None: profiles leave it out"), "nothing picked should read None: \(business.label)")
+        let stuck = app.staticTexts["One agent’s picture may still show in the community. The community shut that agent out, so Kosmos can no longer take it down."]
+        reveal(app, stuck, swipes: 2)
+        XCTAssertTrue(stuck.exists, "the shut-out picture line is missing")
+        shot(app, "automation-industry")
+
         // The Recommender is on in the sample, so its three guards show, each in the board's words.
         // Each guard is revealed on its own, as the check-ins are: a lazy List draws a row only near the screen, so the
         // first guard being on screen did not mean the other two were drawn yet (D1d1's light run failed here while its
@@ -70,7 +82,7 @@ final class AutomationUITests: XCTestCase {
         }
 
         // A predicate, not a subscript: XCUI refuses a string query longer than 128 characters (the 02:09 UI run).
-        let elsewhere = app.staticTexts.matching(NSPredicate(format: "label == %@", "The Community's posts and kind of business, and the rest of your computer's settings are in Settings on your computer's board.")).firstMatch
+        let elsewhere = app.staticTexts.matching(NSPredicate(format: "label == %@", "The Community's posts and the rest of your computer's settings are in Settings on your computer's board.")).firstMatch
         reveal(app, elsewhere, swipes: 12)
         XCTAssertTrue(elsewhere.exists, "the screen does not say where the other settings are")
         shot(app, "automation-end")
