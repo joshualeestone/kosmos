@@ -119,7 +119,7 @@ jobs:
           fix="to send this job back to macos-latest, take build out of the repo variable KOSMOS_CI_IOS_JOBS (kosmos#8993)"
           xcodebuild -version > /dev/null 2>&1 || { echo "::error::no working full Xcode on this runner (xcodebuild -version failed); $fix"; exit 1; }
           xcodebuild -checkFirstLaunchStatus > /dev/null 2>&1 || { echo "::error::Xcode's first-launch setup or licence is not done on this runner; $fix"; exit 1; }
-          xcrun simctl list runtimes 2>/dev/null | grep -q '^iOS ' || { echo "::error::no iOS simulator runtime on this runner (the asset catalog needs one); $fix"; exit 1; }
+          xcrun simctl list runtimes 2>/dev/null | grep '^iOS ' | grep -vq unavailable || { echo "::error::no iOS simulator runtime on this runner (the asset catalog needs one); $fix"; exit 1; }
           echo "this runner has Xcode, its first-launch setup and an iOS simulator runtime"
 
       - name: Toolchain versions

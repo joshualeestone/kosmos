@@ -49,3 +49,15 @@ build per iPhone run there could make test.yml wait. Measured after merge; unset
 - NIT fixed: if route fails, build still runs (if: !cancelled()) on macos-latest (fromJSON with a fallback).
 - NIT fixed: the comment no longer says "one user"; it says both runners are on one machine (#4601's note).
 - NIT fixed: the control now runs a never-routing body and requires all three self-hosted cases to come out wrong.
+
+## Round 2 (sonnet, blind, whole branch): nothing above nit. Converged.
+- Checked by the reviewer: !cancelled() with the fromJSON fallback sends a failed route's build to macos-latest and
+  still skips a cancelled (superseded) run; runner.environment is a real context value; the preflight's three checks
+  pass on a set-up Mac (Xcode 27, iOS 26.5 and 27.0 runtimes listed here); -derivedDataPath changes nothing the later
+  checks read; the test behaves the same in bash 3.2 and 5.
+- NIT taken: a second control for the dangerous direction. A body that always routes makes all 6 macos-latest cases
+  (fork, no head repo, switch off, switch unset, no list, dispatch) come out wrong.
+- NIT taken: the preflight ignores an iOS runtime listed as unavailable.
+- Re-measured after the new cases: the always-route mutation still turns 6 cases red.
+- NITs left: the test skips without ruby (as test-ci-runner-route-5488 does; ubuntu runners have it); the decide
+  body is run with pipefail where GitHub uses bash -e (the body has no pipe).

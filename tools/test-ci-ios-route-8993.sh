@@ -84,5 +84,16 @@ done
 [ "$wrong" = 3 ] && pass "CONTROL: with a body that never routes, all 3 self-hosted cases come out wrong" \
   || fail "CONTROL: a never-routing body still passed $((3 - wrong)) of the 3 self-hosted cases"
 
+# CONTROL, the dangerous direction (review round 2): a body that ALWAYS routes to the self-hosted Mac makes every
+# macos-latest case wrong, so the cases that keep a fork, a switched-off machine or another event off it can fail.
+printf '%s\n' "echo 'build_runner=$SELF' >> \"\$GITHUB_OUTPUT\"" > "$T/decide.sh"
+wrong=0
+for args in "on build pull_request someone/kosmos" "on build pull_request x" "off build push x" "x build push x" "on x push x" "on build workflow_dispatch x"; do
+  set -- $args; c="$1"; [ "$c" = x ] && c=""; j="$2"; [ "$j" = x ] && j=""; h="$4"; [ "$h" = x ] && h=""
+  [ "$(route "$c" "$j" "$3" "$h")" = "$HOSTED" ] || wrong=$((wrong + 1))
+done
+[ "$wrong" = 6 ] && pass "CONTROL: with a body that always routes, all 6 macos-latest cases (fork, no head, off, unset, no list, dispatch) come out wrong" \
+  || fail "CONTROL: an always-routing body still passed $((6 - wrong)) of the 6 macos-latest cases"
+
 if [ "$fails" -ne 0 ]; then echo "test-ci-ios-route-8993: $fails failed"; exit 1; fi
 echo "test-ci-ios-route-8993: all passed"
