@@ -67,16 +67,10 @@ extension UIColor {
     static let kosmosNavy = UIColor(red: 0x17 / 255.0, green: 0x23 / 255.0, blue: 0x3D / 255.0, alpha: 1)
 }
 
-// Mona's sign-in tokens (coordinator signin.html --gold, --ink, --muted, --accent).
-enum KosmosColor {
-    static let gold = Color(red: 0xE3 / 255.0, green: 0xB3 / 255.0, blue: 0x41 / 255.0)
-    static let ink = Color(red: 0xE6 / 255.0, green: 0xEB / 255.0, blue: 0xF7 / 255.0)
-    static let muted = Color(red: 0x8F / 255.0, green: 0xA0 / 255.0, blue: 0xC4 / 255.0)
-    static let accent = Color(red: 0x2F / 255.0, green: 0x57 / 255.0, blue: 0xC4 / 255.0)
-}
-
 // Shown in place of a blank WebView when a page cannot load.
 struct LoadFailureView: View {
+    // kosmos#9095: the words on the gold Try again, dark in both appearances (the bright gold is light in both).
+    static let onGold = Color(red: 0x14 / 255.0, green: 0x16 / 255.0, blue: 0x1A / 255.0)
     let failure: Shell.LoadFailure
     let detail: String
     let retrying: Bool
@@ -119,34 +113,36 @@ struct LoadFailureView: View {
 
     var body: some View {
         ZStack {
-            Color(uiColor: .kosmosNavy).ignoresSafeArea()
+            // kosmos#9095 (Josh 11-25: no blue background anywhere in the app): the native screens' own ground, cream in
+            // light and near-black in dark (Palette.ground), with the app's text colours and the board's gold.
+            Palette.ground.ignoresSafeArea()
             VStack(spacing: 16) {
                 Image(systemName: icon)
                     .font(.system(size: 44, weight: .regular))
-                    .foregroundColor(KosmosColor.gold)
+                    .foregroundColor(Palette.starGold)
                     .accessibilityHidden(true)
                 Text(title)
                     .font(.title3.weight(.semibold))
-                    .foregroundColor(KosmosColor.ink)
+                    .foregroundColor(Palette.primary)
                 // kosmos#7416 review 1: redrawn each minute, so a screen left up over midnight says "yesterday at".
                 TimelineView(.everyMinute) { context in
                     Text(message(at: context.date))
                         .font(.body)
                         .multilineTextAlignment(.center)
-                        .foregroundColor(KosmosColor.muted)
+                        .foregroundColor(Palette.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Button(action: onRetry) {
                     HStack(spacing: 8) {
-                        if retrying { SweepDots(colour: .white, scales: false) }   // "Trying" beside it says what is happening
+                        if retrying { SweepDots(colour: Self.onGold, scales: false) }   // "Trying" beside it says what is happening
                         Text(retrying ? "Trying" : "Try again")
                             .font(.body.weight(.semibold))
                     }
                     .frame(maxWidth: .infinity, minHeight: 50)
                 }
                 .disabled(retrying)
-                .foregroundColor(.white)
-                .background(KosmosColor.accent)
+                .foregroundColor(Self.onGold)
+                .background(Palette.starFill)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .padding(.top, 8)
                 if Shell.offersOtherComputer(failure), let onOtherComputer = onOtherComputer {
@@ -158,13 +154,13 @@ struct LoadFailureView: View {
                             // and a button's hit area is its label's (review 2).
                             .contentShape(Rectangle())
                     }
-                    .foregroundColor(KosmosColor.ink)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(KosmosColor.muted, lineWidth: 1))
+                    .foregroundColor(Palette.primary)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.separator, lineWidth: 1))
                 }
                 if let onBack {
                     Button("Back to Kosmos", action: onBack)
                         .font(.body)
-                        .foregroundColor(KosmosColor.ink)
+                        .foregroundColor(Palette.primary)
                         .frame(minHeight: 44)
                 }
             }
