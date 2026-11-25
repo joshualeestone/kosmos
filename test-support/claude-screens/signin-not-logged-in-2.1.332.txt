@@ -1,0 +1,13 @@
+ ▐▛███▛█   Claude Code v2.1.332
+▝▜██████▀  Opus 5.5 · API Usage Billing
+ ▝▝   ▝▝   /…/wd
+
+
+❯ say ok                                                                                            
+  ⎿  Not logged in · Please run /{LOGIN}
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Once fixed, resend your message                                                                   
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker · restart with CLAUDE_C…  
+  ⏵⏵ auto mode on (shift+tab to cycle)                                  Not logged in · run /{LOGIN}

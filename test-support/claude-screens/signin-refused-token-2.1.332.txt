@@ -1,0 +1,16 @@
+ ▐▛███▛█   Claude Code v2.1.332
+▝▜██████▀  Sonnet 5.5 · Claude API
+ ▝▝   ▝▝   /…/wd
+
+⚠ Remote managed settings failed to load (authentication rejected (401)) · no remote policy applied 
+  · /status for details
+
+❯ say ok                                                                                            
+
+⏺ Please run /{LOGIN} · API Error: 401 OAuth access token is invalid.                                 
+                                                                                                  
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Once fixed, resend your message
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker · restart with CLAUDE_C…
+  ⏸ manual mode on · ? for shortcuts
