@@ -211,6 +211,24 @@ enum Shell {
         case pageFlow
         // A request for a new window (target=_blank, window.open).
         case newWindow
+        // Back, forward or a reload: a page that was let in when it first opened.
+        case history
+    }
+
+    // kosmos#9028: what a link is judged against, beyond its own address.
+    struct Known: Equatable {
+        // The signed-in person's own computers (their addresses, lowercased) and the one the app itself is opening.
+        var own: Set<String> = []
+        // The names Kosmos+ keeps for itself (Download.reservedLabels): never a computer, so never in the app.
+        var reserved: Set<String> = []
+        // The page this navigation comes from: the one showing, or the one a redirect is leaving. nil before any.
+        var from: URL?
+    }
+
+    // The hosts of the person's own computers: every one on the account, the one connected and the one remembered (the
+    // account's list is not read on every launch).
+    static func ownHosts(addresses: [String], connected: URL?, remembered: String?, opening: String?) -> Set<String> {
+        Set((addresses + [connected?.host, remembered, opening].compactMap { $0 }).map { $0.lowercased() }.filter { !$0.isEmpty })
     }
 
     // Kosmos+ itself or one of the person's Macs, over https: the plain host with no
@@ -229,7 +247,10 @@ enum Shell {
 
     // Decides a MAIN-FRAME navigation or a new-window request. Subframe loads never
     // come here.
-    // - Kosmos+ itself and the person's Macs, over https: in the app.
+    // - Kosmos+ itself and the person's own computers, over https: in the app. kosmos#9028: an address that only LOOKS like
+    //   a computer's (one label under the Kosmos+ domain) is not enough, or the public community site opened in here. It
+    //   must be one of the person's own, the page already showing, one opened before (back, a reload), or where Kosmos+
+    //   itself sends a sign-in (its redirect comes before the account's computers are read). A name Kosmos+ keeps is never.
     // - Any other https site, however it is reached (a tap, a new window, a redirect,
     //   a script): Safari. Kosmos+ sign-in is email plus a code with no third-party
     //   identity provider, and the iOS app shows no purchase (Liu Kang's default,
@@ -242,12 +263,18 @@ enum Shell {
     //   which would replace the board with a blank page.
     // - Every other scheme (javascript:, file:, data:, blob:, custom schemes): refused.
     //   A data: or blob: download is refused on purpose: the board has none today.
-    static func linkDecision(for url: URL, coordinator: URL, origin: Origin) -> LinkDecision {
+    static func linkDecision(for url: URL, coordinator: URL, origin: Origin, known: Known) -> LinkDecision {
         let scheme = url.scheme?.lowercased() ?? ""
         switch scheme {
         case "https":
-            if isOurs(url, coordinator: coordinator) { return .inApp }
-            guard let host = url.host, !host.isEmpty else { return .block }
+            guard let host = url.host?.lowercased(), !host.isEmpty else { return .block }
+            guard isOurs(url, coordinator: coordinator) else { return .external }
+            if host == coordinator.host?.lowercased() { return .inApp }
+            if known.reserved.contains(host.split(separator: ".").first.map(String.init) ?? "") { return .external }
+            if known.own.contains(host) || origin == .history || known.from?.host?.lowercased() == host { return .inApp }
+            // Kosmos+'s own redirect only: nothing the person taps there, and no page of any other site.
+            if origin == .pageFlow, let from = known.from, from.scheme?.lowercased() == "https",
+               from.host?.lowercased() == coordinator.host?.lowercased() { return .inApp }
             return .external
         case "http":
             guard let host = url.host, !host.isEmpty else { return .block }
