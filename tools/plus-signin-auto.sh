@@ -80,6 +80,7 @@ if [ -z "${KOSMOS_SEED_TOTP:-}" ]; then
   command -v secrets-map.sh >/dev/null 2>&1 || die "KOSMOS_SEED_TOTP is unset and secrets-map.sh is not installed, so the seed's authenticator secret cannot be read"
   # The secret's own name, which is the target on the line that is not an address (an address resolves to nothing).
   TARGET="$(sed -n 's/^targets:[[:space:]]*//p' "$META" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '@' | head -1)"
+  [ -n "$TARGET" ] || die "the meta for $SEED ($META) names no secret on its targets: line, only addresses"
   KOSMOS_SEED_TOTP="$(secrets-map.sh value "$TARGET" 2>/dev/null || true)"
 fi
 case "${KOSMOS_SEED_TOTP:-}" in
@@ -109,13 +110,14 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/kplusgate.XXXXXX")" || die "could not make a 
 # Canonical, because the sweep below matches it against command lines, and the board's children name their paths
 # from node's realpath'd __dirname: on a Mac TMPDIR is /var/folders/.../T/ (a symlinked /var and a trailing slash),
 # so the raw mktemp answer matched none of them.
-WORK="$(cd "$WORK" && pwd -P)" || die "could not resolve the work folder"
+CANON="$(cd "$WORK" && pwd -P)" || { rm -rf "${WORK:?}"; die "could not resolve the work folder"; }
+WORK="$CANON"
 SOCK="kplusgate-$$"
 TMUX_REAL="$(command -v tmux || echo /usr/bin/false)"
 BOARD_PID="" STARTED=0
 # A backstop for anything still running from inside $WORK (a fresh mktemp folder) once the board is stopped: stop
-# every process whose command line names $WORK, then check none is left. Matching the unique work folder, never a program name, is what keeps this
-# from reaching any other process on the machine.
+# every process whose command line names $WORK, then check none is left. Matching the unique work folder, never a
+# program name, is what keeps this from reaching any other process on the machine.
 under_work() { ps -axo pid=,command= | while read -r p c; do case "$c" in *"$WORK/"*) [ "$p" != "$$" ] && echo "$p" ;; esac; done; }
 cleanup() {
   if [ -n "$BOARD_PID" ]; then
