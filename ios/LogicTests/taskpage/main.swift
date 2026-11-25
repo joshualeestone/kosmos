@@ -1284,6 +1284,8 @@ do {
 await b5ModelTests()
 
 section("#8958 slice B6: subtasks")
+check(Board.subtasksDoneLine(unrun: true) == "All subtasks closed." && Board.subtasksDoneLine(unrun: false) == "All subtasks done.", "all done, unless one was closed without running")
+check(["Done", "Replaced", "Not run"].allSatisfy { Board.SubtaskRow(number: 1, sentence: "", status: $0).closed } && ["Built", "On hold", "Open"].allSatisfy { !Board.SubtaskRow(number: 1, sentence: "", status: $0).closed }, "which subtasks are closed")
 do {
     // The board's own words, read from the page.
     let pageURL = here.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("web/index.html")
@@ -2377,6 +2379,43 @@ func b6ModelTests() async {
         check(closes(mac).isEmpty, "nor a hold")
         mac.release()
         await hold.value
+    }
+    do {
+        // Switched while the check is out: nothing is closed on the Mac there is now.
+        let mac = FakeMac(); mac.projects = tasks(built, built); let m = await model(mac)
+        mac.holdTheNext()
+        let going = Task { await m.closeWithSubtasks(names: [:]) }
+        await waitUntil({ mac.holding }, "the check")
+        mac.epoch += 1
+        mac.release()
+        _ = await going.value
+        check(closes(mac).isEmpty && mac.asked.count == 1, "switched while the check is out: nothing is closed")
+    }
+    do {
+        // Every subtask reads closed, but this task was refused: it is not said to be closed.
+        let mac = FakeMac(); mac.projects = tasks(built, built); let m = await model(mac)
+        mac.actAnswers = [(200, "{}"), (200, "{}"), (409, #"{"error":"no"}"#)]
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = tasks(closed, closed) } }
+        let said = await m.closeWithSubtasks(names: [:])
+        check(!said && m.refusal == "no. Its built subtasks are closed.", "this task refused, its subtasks closed: not said to be closed")
+        await m.read()
+        check(m.refusal != nil, "a read of the same leaves the line")
+        mac.projects = tasks(closed, built)
+        await m.read()
+        check(m.refusal == nil, "and one that finds them changed takes it away")
+    }
+    do {
+        // Pressed again: the last line goes at the press.
+        let mac = FakeMac(); mac.projects = tasks(built, built); let m = await model(mac)
+        mac.actAnswers = [(409, #"{"error":"no"}"#)]
+        await m.closeWithSubtasks(names: [:])
+        check(m.refusal != nil, "premise: refused")
+        mac.holdTheNext()
+        let going = Task { await m.closeWithSubtasks(names: [:]) }
+        await waitUntil({ mac.holding }, "the second press")
+        check(m.refusal == nil, "pressed again: the last line goes at once")
+        mac.release()
+        _ = await going.value
     }
     // The page is old: what it would close is not what is there.
     for (what, now) in [("one open since", tasks(built, [:])), ("one held since", tasks(built, ["builtAt": "x", "onHold": true])), ("one closed since", tasks(built, closed)),
