@@ -283,7 +283,7 @@ struct TaskPageView: View {
                                 Text(verbatim: p.checkSays(c, roster: roster)).font(.footnote).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
                             }
                             .accessibilityElement(children: .ignore)
-                            .accessibilityLabel("Check \(i + 1): " + c.words + ". " + p.checkSays(c, roster: roster))
+                            .accessibilityLabel(p.checkSpoken(i, c, roster: roster))
                             if let n = c.movedTo { taskLink("Moved to task \(n)", n) }
                         }
                     }
@@ -1121,12 +1121,14 @@ struct TaskPageView: View {
                                     .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityValue(open ? "Open" : "Closed")
-                                if open {
-                                    ForEach(row.folded) { activityRow($0) }.padding(.leading, 16)
-                                }
+                                .accessibilityValue(open ? "expanded" : "collapsed")
+                                .accessibilityInputLabels([row.text])
                             }
                             if let n = row.task { taskLink("Open task \(n)", n) }
+                        }
+                        // Beside the row, not inside it: inside, every run of a long fold would be laid out at once.
+                        if runsOpen.contains(row.id) {
+                            ForEach(row.folded) { activityRow($0).padding(.leading, 16) }
                         }
                     }
                 }
@@ -1407,7 +1409,8 @@ struct TaskPageView: View {
             body = #"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","paused":false,"agents":[{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"tasks":["#
                 + #"{"number":3,"sentence":"Print-ready catalogue","addedBy":"operator","addedVia":"screen","createdAt":""# + iso(4000) + #"",\#(closed(3, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":null,"sentence":"Print-ready catalogue"}]},"#
                 + #"{"number":4,"sentence":"# + Self.jsonString(titleNow[4] ?? "Pages 1 to 8") + #","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","# + (dueNow[4].map { $0.isEmpty ? "" : #""dueDate":"# + Self.jsonString($0) + "," } ?? #""dueDate":"2026-10-30","#) + (repeatNow[4].map { #""repeat":"# + $0.rule + #","repeatWords":"# + Self.jsonString($0.words) + "," } ?? "") + #""builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check","doneWhen":["Every caption matches the price sheet","The proofs are signed off"],"doneWhenResults":[{"met":true,"how":"checked all eight pages","by":"dana"},{"met":false,"how":"eli has the proofs","by":"dana","movedTo":8}],"wakeWords":"waits for PR #12 in acme/catalogue to merge",\#(holdNow)\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":["# + partsNow + #"],"claim":{"claimed":true,"about":"dana"}},"#
-                + #"{"number":8,"sentence":"Pages 9 to 12","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2800) + #"",\#(closed(8, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 9 to 12"}]}"#
+                + #"{"number":8,"sentence":"Pages 9 to 12","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2800) + #"",\#(closed(8, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 9 to 12"}]},"#
+                + #"{"number":9,"sentence":"Old pages 9 to 12","createdAt":""# + iso(5000) + #"","closedAt":""# + iso(2800) + #"","replacedBy":8,"progress":{"done":1,"total":1,"closed":true},"parts":[{"id":1,"who":null,"sentence":"Old pages 9 to 12"}]}"#
                 + #"]}]}"#
         } else if path.contains("/part"), path.hasSuffix("/who"),
                   let who = (r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["who"] as? String {
@@ -1426,6 +1429,10 @@ struct TaskPageView: View {
             body = #"{"on":true,"ready":true,"savedRoot":"/Users/sam/Kosmos/undo-saved","files":["#
                 + [f("captions.md", #""action":"restore","ok":true"#), f("pages-1-8.md", #""action":"move-aside","ok":true"#),
                    f("prices.md", #""action":"restore","ok":false,"why":"shared""#), f("style.md", #""action":"restore","ok":false,"why":"changed-since""#)].joined(separator: ",") + "]}"
+        } else if path.hasSuffix("/activity"), path.contains("/task/8/") {
+            body = #"{"events":[{"at":""# + iso(4000) + #"","kind":"created"},{"at":""# + iso(300) + #"","kind":"run","by":"dana","unchanged":true,"note":"no new prices"},{"at":""# + iso(200) + #"","kind":"run","by":"eli","unchanged":true}]}"#
+        } else if path.hasSuffix("/activity"), path.contains("/task/9/") {
+            body = #"{"events":[{"at":""# + iso(2800) + #"","kind":"closed","replacedBy":8}]}"#
         } else if path.hasSuffix("/activity") && !path.contains("/task/4/") {
             body = #"{"events":[{"at":""# + iso(4000) + #"","kind":"created"}]}"#
         } else if path.hasSuffix("/activity") {
