@@ -99,18 +99,35 @@ test('#1903 CONTROL: a create on a CONNECTED account is not blocked by the gate'
 /* kosmos#9031, caught by 0.8.23's promote gate. The gate's probe names the default account's folder (CLAUDE_CONFIG_DIR), and Claude Code
    then reads another Keychain entry from the one the plain login is in, usually none. A stand-in claude that answers as 2.1.332 does
    there; the REAL probe runs it, so this holds whichever words the gate knows. */
-test('#9031: a signed-in DEFAULT account whose folder has no login entry of its own is not refused', async () => {
+test('kosmos#9082: a signed-in DEFAULT account is probed UNSET, the login its agents use, and is not refused', async () => {
+  /* The fake claude answers as Claude Code does: with CLAUDE_CONFIG_DIR set it reads another Keychain entry and says
+     "Not logged in" (0.8.23's promote gate, #9031's words now back in the dead list); unset, it answers ok. It records
+     the variable and the USER it was given. The second arm takes USER and LOGNAME out of the board's environment (#3136's
+     likely cause) and the probe must fill them from the operating system (create.fillLoginIdentity). */
   create.setClaudeProbe(null);
   const bin = path.join(SANDBOX, 'claude-no-entry');
   const seen = path.join(SANDBOX, 'claude-no-entry.seen');
-  fs.writeFileSync(bin, '#!/bin/sh\nprintf "%s\\n" "${CLAUDE_CONFIG_DIR-unset}" >> "' + seen + '"\n'
-    + 'if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then echo "Not logged in · Please run /' + 'login"; exit 1; fi\necho ok\n', { mode: 0o755 });
+  fs.writeFileSync(bin, '#!/bin/sh\nprintf "%s %s\\n" "${CLAUDE_CONFIG_DIR-unset}" "${USER-nouser}" >> "' + seen + '"\n'
+    + 'if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then echo "Not logged in · Please run /' + 'login"; exit 1; fi\n'
+    + 'if [ -z "${USER:-}" ]; then echo "Not logged in · Please run /' + 'login"; exit 1; fi\necho ok\n', { mode: 0o755 });
   const was = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  const wasUser = process.env.USER; const wasLog = process.env.LOGNAME;
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
   try {
     const r = await post({ name: 'plainlogin', role: 'pm' });
     assert.doesNotMatch((r.json && r.json.error) || '', /sign-in is not working/, 'an ordinary default login was refused: ' + JSON.stringify(r.json));
-    const asked = fs.readFileSync(seen, 'utf8').trim().split('\n');
-    assert.deepEqual(asked, [path.join(HOME, '.claude')], 'CONTROL: the real probe did not run, or no longer names the default folder: ' + asked);
-  } finally { process.env.AGENT_WORKFORCE_CLAUDE_BIN = was; }
+    let asked = fs.readFileSync(seen, 'utf8').trim().split('\n');
+    assert.deepEqual(asked.map((l) => l.split(' ')[0]), ['unset'], 'CONTROL: the real probe did not run, or named the default folder again: ' + asked);
+    // Second arm: no USER or LOGNAME in the board's environment.
+    fs.writeFileSync(seen, '');
+    delete process.env.USER; delete process.env.LOGNAME;
+    const r2 = await post({ name: 'plainlogin2', role: 'pm' });
+    assert.doesNotMatch((r2.json && r2.json.error) || '', /sign-in is not working/, 'a default login was refused when the board had no USER: ' + JSON.stringify(r2.json));
+    asked = fs.readFileSync(seen, 'utf8').trim().split('\n');
+    assert.deepEqual(asked, ['unset ' + require('node:os').userInfo().username], 'the probe did not fill USER from the operating system: ' + asked);
+  } finally {
+    process.env.AGENT_WORKFORCE_CLAUDE_BIN = was;
+    if (wasUser === undefined) delete process.env.USER; else process.env.USER = wasUser;
+    if (wasLog === undefined) delete process.env.LOGNAME; else process.env.LOGNAME = wasLog;
+  }
 });

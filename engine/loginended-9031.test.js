@@ -53,17 +53,20 @@ test('#9031: the Windows stream reads the same two, and the headless sentences',
   }
 });
 
-test('#9031: create and Check now do NOT take "not logged in" or an ended login from their probe as a dead sign-in (0.8.23\'s promote gate)', async () => {
-  /* The probe names the default account's folder, so Claude Code reads an entry the plain login is not in: a working account answers
-     this way. Unknown: create goes on, and Check now marks nothing rejected. */
-  const check = async (out, exitCode) => { create.setClaudeProbe(async () => ({ exitCode, out })); return create.claudeAccountCheck('/u/x/.claude'); };
+test('kosmos#9082: create and Check now take "not logged in" and an ended login from their probe as a dead sign-in again', async () => {
+  /* #9031's words came out after 0.8.23's promote gate (the probe named the default account's folder, so Claude Code read an
+     entry the plain login is not in). kosmos#9082 makes the default probe UNSET, the login its agents use, so these mean a
+     dead login again. The folder passed here is a labelled account's (its own entry), not the default. */
+  const check = async (out, exitCode) => { create.setClaudeProbe(async () => ({ exitCode, out })); return create.claudeAccountCheck('/u/x/labelled'); };
   for (const out of [NONE, LIMIT, HEADLESS_LIMIT, HEADLESS_REFRESH]) {
     const got = await check(out, 1);
-    assert.equal(got.state, subscription.STATE.UNKNOWN, 'refused: ' + out);
+    assert.equal(got.state, subscription.STATE.NONE, 'not read as dead: ' + out);
   }
   assert.equal((await check('ok', 0)).state, subscription.STATE.CONNECTED, 'CONTROL: a real answer');
-  assert.equal((await check('Login expired · Please run ' + '/login', 1)).state, subscription.STATE.NONE, 'CONTROL: a token Anthropic refused is dead');
-  assert.equal((await check('OAuth access token has been revoked', 1)).state, subscription.STATE.NONE, 'CONTROL: a revoked one too');
+  assert.equal((await check('API Error: 529 overloaded', 1)).state, subscription.STATE.UNKNOWN, 'CONTROL: capacity is not a dead login');
+  // The only gate on this: the default account is probed unset (claudeProbeDir), never with its folder.
+  assert.equal(create.claudeProbeDir(require('./accounts').homeDir() + '/.claude'), null, 'the default account would be probed with its folder');
+  assert.equal(create.claudeProbeDir('/u/x/labelled'), '/u/x/labelled', 'CONTROL: a labelled account keeps its folder');
 });
 
 const row = (connection) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'a@example.com', connection });

@@ -5609,12 +5609,14 @@ function isAutoGuideBirth(e, sa = require('./setup-assistant')) {
    would not appear in a successful "reply ok" response. The tester's line
    ("Please run /login · API Error: 401 OAuth access token has expired.") is
    caught by "OAuth access token has expired", not by the remedy phrase. */
-/* #9031 added `claude -p`'s "Not logged in", "login reached its time limit" and "OAuth session expired" here, and they are out again
-   (found by 0.8.23's promote gate, before it shipped). This probe sets CLAUDE_CONFIG_DIR for the DEFAULT account too, and Claude
-   Code then reads another Keychain entry from the one the plain login is in (#2129), usually none: a signed-in account
-   answered "Not logged in" here and no agent could be created on it. Those words belong in this list only once the probe
-   reads the login the account's agents use. The screen's and the stream's own lists (claudesignintext) read an agent's real answer and keep them. */
-const CLAUDE_DEAD_AUTH = /OAuth access token (?:has expired|has been revoked|is invalid)|OAuth token revoked|Login expired|authentication_error|API Error:\s*401\s+Invalid API key/i;
+/* #9031's three ("Not logged in", "login reached its time limit", "OAuth session expired and could not be refreshed") are
+   back (kosmos#9082). 0.8.23's promote gate found them refusing a signed-in DEFAULT account, because this probe then set
+   CLAUDE_CONFIG_DIR=<home>/.claude for the default too, and Claude Code reads another Keychain entry when the variable is
+   set (#2129): usually none ("Not logged in"), or a stale one ("OAuth session expired", measured on a fleet Mac whose
+   hashed entry was a month old). The probe now reads the login the account's agents use (claudeProbeDir: the default
+   account with the variable UNSET), so those words name a dead login again. Measured 11-25 from a launchd job with the
+   board's environment: unset -> "ok"; set -> "OAuth session expired". */
+const CLAUDE_DEAD_AUTH = /OAuth access token (?:has expired|has been revoked|is invalid)|OAuth token revoked|Login expired|login reached its time limit|OAuth session expired and could not be refreshed|Not logged in\s+[\u00b7_]\s+Please run \/login|authentication_error|API Error:\s*401\s+Invalid API key/i;
 const CLAUDE_CAPACITY = /usage limit|reached your .{0,40}limit|\/usage-credits|rate[ _-]?limit|overloaded/i;
 
 let claudeProbe = null;
@@ -5622,13 +5624,35 @@ let claudeProbe = null;
     seam, matching subscription.setRunner / openaiaccounts.setFetcher. */
 function setClaudeProbe(fn) { claudeProbe = typeof fn === 'function' ? fn : null; }
 
+/* kosmos#9082: the folder to probe an account with, or null for the DEFAULT account. Claude Code keeps the default's login
+   in the plain Keychain entry and reads it only with CLAUDE_CONFIG_DIR UNSET; set to <home>/.claude it reads a hashed
+   entry the default's agents never use (#2129; claudeloginlive and loginexpiry.serviceNameFor key on the same bit). An
+   unreadable answer from isDefaultDir keeps the folder, as before. */
+function claudeProbeDir(dir) {
+  let def = null;
+  try { def = require('./accounts').isDefaultDir(dir); } catch { def = null; }
+  return def === true ? null : (dir || null);
+}
+
+/* kosmos#9082: with CLAUDE_CONFIG_DIR unset, what `claude -p` needs to find the plain Keychain entry is USER (measured
+   11-25 from a launchd job: no USER -> "Not logged in"; no HOME -> still "ok"). The board's launchd job has both, and the
+   earlier #3136/#3189 failures were most likely a stripped USER. So a probe of the default fills them from the operating
+   system when they are missing, rather than let a missing variable read as a dead login. */
+function fillLoginIdentity(env) {
+  let who = '';
+  try { who = os.userInfo().username || ''; } catch { who = ''; }
+  if (who && !env.USER) env.USER = who;
+  if (who && !env.LOGNAME) env.LOGNAME = who;
+  if (!env.HOME) { try { env.HOME = require('./accounts').homeDir(); } catch { /* leave it */ } }
+}
+
 function defaultClaudeProbe(configDir) {
   return new Promise((resolve) => {
     let bin; try { bin = runners.resolveBin('claude').bin; } catch { bin = null; }
     if (!bin) { resolve({ exitCode: null, out: '' }); return; }
     const env = { ...process.env };
     // #5386: every spelling (a copy of process.env keeps names as spelled).
-    if (configDir) envSet(env, 'CLAUDE_CONFIG_DIR', configDir); else envDelete(env, 'CLAUDE_CONFIG_DIR');
+    if (configDir) envSet(env, 'CLAUDE_CONFIG_DIR', configDir); else { envDelete(env, 'CLAUDE_CONFIG_DIR'); fillLoginIdentity(env); }
     // Overridable only so a test can drive the timeout/partial-output path
     // quickly; unset in production, where 15s is the wait before a hung probe is
     // killed and its partial output classified.
@@ -5937,7 +5961,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
      accounts.js listLiveNow comment). Same account, opposite correct argument, both
      board-confirmed (#3189). */
   let state;
-  try { state = await claudeAccountLive(acct.dir); }
+  try { state = await claudeAccountLive(claudeProbeDir(acct.dir)); }   // kosmos#9082: the default probes UNSET
   catch (err) { return failOpen("claudeAccountLive", err); }
   if (state === NONE) {
     return {
@@ -8198,6 +8222,7 @@ module.exports = {
   accountConnectable,
   claudeAccountLive,
   claudeAccountCheck,
+  claudeProbeDir,   // kosmos#9082
   setClaudeProbe,
   binPaths,
   linuxTmuxBin,
