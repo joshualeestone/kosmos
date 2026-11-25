@@ -95,16 +95,26 @@ V="$(field version)"; SHA="$(field sha256)"; ART="$(field artifact)"
 [ -n "$V" ] || die "$POINTER names no version"
 printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{64}$' || die "$POINTER names no sha256"
 case "$ART" in */*|'') [ -n "$TARBALL" ] || die "$POINTER names no artifact file name" ;; esac
+# One run per build at a time: two share this build's progress file, and the second would take over the first's.
+node -e '
+  const fs = require("node:fs");
+  const f = require(process.argv[1]).recordPath(process.argv[2]).replace(/\.json$/, ".progress.json");
+  let p; try { p = JSON.parse(fs.readFileSync(f, "utf8")); } catch { process.exit(0); }
+  process.exit(Date.now() - Date.parse(p.startedAt) < 15 * 60 * 1000 ? 3 : 0);
+' "$HERE/lib/plus-signin-record.js" "$SHA" || die "a sign-in run for this build started under 15 minutes ago and has not finished (its progress file is beside the records): refused, so the two do not take over each other's progress"
 if (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; then die "something already answers on port $PORT: pick another with --port"; fi
 
 # 2. The pointer's own bytes, in a fresh work folder.
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/kplusgate.XXXXXX")" || die "could not make a work folder"
+# Canonical, because the sweep below matches it against command lines, and the board's children name their paths
+# from node's realpath'd __dirname: on a Mac TMPDIR is /var/folders/.../T/ (a symlinked /var and a trailing slash),
+# so the raw mktemp answer matched none of them.
+WORK="$(cd "$WORK" && pwd -P)" || die "could not resolve the work folder"
 SOCK="kplusgate-$$"
 TMUX_REAL="$(command -v tmux || echo /usr/bin/false)"
 BOARD_PID="" STARTED=0
-# Everything the board started runs from inside $WORK (a fresh mktemp folder), including the kosmos-tunnel connector,
-# which outlives a stopped board by design (engine/remote.js). So after the board, stop every process whose command
-# line names $WORK, then check none is left. Matching the unique work folder, never a program name, is what keeps this
+# A backstop for anything still running from inside $WORK (a fresh mktemp folder) once the board is stopped: stop
+# every process whose command line names $WORK, then check none is left. Matching the unique work folder, never a program name, is what keeps this
 # from reaching any other process on the machine.
 under_work() { ps -axo pid=,command= | while read -r p c; do case "$c" in *"$WORK/"*) [ "$p" != "$$" ] && echo "$p" ;; esac; done; }
 cleanup() {

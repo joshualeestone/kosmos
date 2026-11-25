@@ -18,9 +18,8 @@ hand, so the gate only ever said "cannot tell" and every promote went out with t
 ## Proven
 - By hand on the real 0.8.21 staging build, 11-24 18:13 CST: all nine steps pass, code in INBOX, the Mac forgotten
   after; the gate says 0 with the record and 2 on an empty record dir; on Mortals, unchanged main code reads PASS.
-- Tests: 4 new arms in tools.plus-signin-2036.test.js, 7 in tools.plus-signin-auto-9018.test.js, fakes only.
-  Mutants, each red with a pass count: sandboxed-with-token refusal removed (1 red), default kind flipped (20 red),
-  seed guard skipped, sha check skipped, placement not asked for (1 red each), board left running (3 red).
+- Tests: new arms in tools.plus-signin-2036.test.js and the new tools.plus-signin-auto-9018.test.js, fakes only.
+  Every guard was mutated out once and its arm went red.
 - The 28 tree-sweeping guard tests pass (434 tests).
 
 ## Rejected
