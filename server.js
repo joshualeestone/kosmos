@@ -4614,7 +4614,9 @@ function readBody(req, limit) {
  * card spells it that way do we fall back to the sanitised key, which is what
  * keeps a healthy agent reachable under its normalised name.
  */
-function claimantFor(name) {
+function claimantFor(name) { return claimantFrom(paneRoster(), name); }
+/* kosmos#9085: claimantFor on a roster already read, so one read can decide both "could we look" and "is it ours". */
+function claimantFrom(roster, name) {
   // The route GATE stays safeKey-tolerant (keeps an agent REPORTABLE under its
   // sanitised name, #18). It is deliberately MORE tolerant than chat's send path
   // (chat.resolveCard case-folds only): a WRITE/SEND that merely sanitises to a
@@ -4622,7 +4624,6 @@ function claimantFor(name) {
   // #989 only needed the SEND to stop being stricter on CASE than this gate; it
   // did not need this gate to loosen, so this is intentionally NOT unified with
   // chat.resolveCard.
-  const roster = paneRoster();
   const asked = String(name);
 
   const exact = roster.filter((a) => a.sessionName === asked);
@@ -4696,11 +4697,21 @@ function nameRefusal(name) {
   }
 }
 
+/* kosmos#9085: why the Windows `claude agents --json` read is failing now (win32roster's cachedRun), or null; null on
+   every other platform. A test seam replaces it. */
+let claudeReadProblemSource = null;
+function _setClaudeReadProblemForTest(fn) { claudeReadProblemSource = typeof fn === 'function' ? fn : null; }
+function claudeReadProblem() {
+  try {
+    if (claudeReadProblemSource) return claudeReadProblemSource() || null;
+    return process.platform === 'win32' ? (require('./engine/win32roster').cachedRun.problem() || null) : null;
+  } catch { return null; }
+}
+
 /* kosmos#9085: the board's log line for a message not sent because the roster could not be read, with the read's own
    reason where the Windows reader kept one (win32roster's cachedRun). Never throws. */
 function noteUnreadableSend(name) {
-  let why = null;
-  if (process.platform === 'win32') { try { why = require('./engine/win32roster').cachedRun.problem() || null; } catch { why = null; } }
+  const why = claudeReadProblem();
   try {
     console.error('[kosmos#9085] a message to ' + JSON.stringify(String(name)) + ' was not sent: the list of running agents could not be read'
       + (why ? ' (' + why + ')' : '') + '; answered 409 unreadable, not 404');
@@ -22148,19 +22159,25 @@ const server = http.createServer(async (req, res) => {
           throw new Error('an automatic message is plain text');
         }
 
-        // The write gate FIRST, then the expensive look. `knownAgent` is a
-        // `list-panes`; `safeRoster` is that plus a `capture-pane` per agent —
+        // The write gate FIRST, then the expensive look. The gate's one roster
+        // read is a `list-panes`; `safeRoster` is that plus a `capture-pane` per agent —
         // so ordering them the other way made a POST for a name nobody runs
         // pay for the whole fan-out before its 404, against this route's own
         // rule two blocks up that a message we would never send must not cost
         // a tmux fan-out.
         // (`chat.deliver` refuses on its own too — exact match to permit, tied,
         // and a pane with Claude in it. This one is about the NAME.)
-        /* kosmos#9085: "could we look at all" is decided by the roster read alone, not by claimantFor, which also
-           throws for a name it cannot key (store.safeKey). */
+        /* kosmos#9085: ONE roster read. Its throw means we could not look; a name claimantFrom cannot key (a
+           store.safeKey throw) is only "not ours". On Windows a Claude read that is failing while a codex agent keeps
+           the roster readable makes an absent name unknown too (claudeReadProblem). */
         let rosterUnreadable = false;
-        try { paneRoster(); } catch { rosterUnreadable = true; }
-        const known = !rosterUnreadable && knownAgent(name);
+        let known = false;
+        let gateRoster = null;
+        try { gateRoster = paneRoster(); } catch { rosterUnreadable = true; }
+        if (gateRoster) {
+          try { const card = claimantFrom(gateRoster, name); known = Boolean(card) && card.isNamedOurs === true; } catch { known = false; }
+          if (!known && claudeReadProblem()) rosterUnreadable = true;
+        }
         if (!known) {
           /* kosmos#9085: a roster that cannot be READ is not "no agent by that name". On Windows a `claude agents --json`
              that kept failing (five hours on 11-25) made the roster refuse, and every message to a running agent was
@@ -32276,7 +32293,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 /* kosmos#8340: ages one agent's shown-counts record, so a test can show the block comes back after COUNTS_SHOWN_FOR_MS. */
 function _ageCountsShownForTest(agentKey, ms) { const e = COUNTS_SHOWN.get(String(agentKey)); if (e) e.at -= ms; return Boolean(e); }
-module.exports = { _setStartedProofPlatformForTest, _setStartWaitForTest,   // kosmos#8652: the starting wait, for its test
+module.exports = { _setClaudeReadProblemForTest /* kosmos#9085 */, _setStartedProofPlatformForTest, _setStartWaitForTest,   // kosmos#8652: the starting wait, for its test
    _resetRoomRunSaidForTest, _ageRoomRunSaidForTest, _ageCountsShownForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it

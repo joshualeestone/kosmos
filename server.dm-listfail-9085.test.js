@@ -100,8 +100,22 @@ test('#9085 CONTROL: a name the board cannot key, on a roster that reads, is a 4
   assert.equal(logged.filter((l) => /kosmos#9085/.test(l)).length, 0);
 });
 
+test('#9085 on Windows a failing Claude read behind a readable roster (a codex agent up) makes an absent name unknown, with the reason logged', async () => {
+  source = () => fleet.line({ session: 'cody', claim: 'cody' }) + '\n';   // the roster reads: only the codex agent is listed
+  app._setClaudeReadProblemForTest(() => 'the status read exited with code 3');
+  try {
+    const r = await send('raph', 'hello');
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.equal(r.json.because, 'unreadable');
+    assert.ok(logged.some((l) => /"raph" was not sent/.test(l) && /\(the status read exited with code 3\)/.test(l)), JSON.stringify(logged));
+    app._setClaudeReadProblemForTest(() => null);
+    const ok = await send('raph', 'hello');
+    assert.equal(ok.status, 404, 'CONTROL: with the Claude read healthy, an absent name is missing: ' + JSON.stringify(ok.json));
+  } finally { app._setClaudeReadProblemForTest(null); }
+});
+
 test('#9085 CONTROL: a roster that reads and lists the agent is not refused at the gate', async () => {
   source = () => fleet.line({ session: 'raph', claim: 'raph' }) + '\n';
   const r = await send('raph', 'hello');
-  assert.equal(r.status, 200, 'the gate let it through and it was sent: ' + JSON.stringify(r.json));
+  assert.equal(r.status, 200, 'not refused at the gate: ' + JSON.stringify(r.json));
 });

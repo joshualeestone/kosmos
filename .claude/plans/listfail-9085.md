@@ -14,6 +14,11 @@ could not check which agents are running, so nothing was sent. Try again in a mo
 false here; the #8652 starting refusal is a 409 for the same reason. The iPhone shows a 4xx's own sentence. A roster that reads and does not
 list the name is still 404 "no agent by that name". The sender keeps the message and retries; the 409 says why.
 
+Decided in ONE roster read (review 5): a throw from the read is "could not look"; a name claimantFrom cannot key
+(store.safeKey throws) is only "not ours" (review 4). On Windows, a failing Claude read with a codex agent keeping the
+roster readable (win32roster refuses only when no codex row exists) makes an absent name unknown too: the gate asks
+win32roster's cachedRun.problem() (review 5).
+
 ## Rejected
 - The first design (commit edcc3a5a7b) listed a supervised agent inside win32roster.make when the read failed.
   Review 1: a partial roster reads as complete to every consumer that acts on absence (remove, restart's fromDead,
@@ -35,6 +40,8 @@ name": /api/agent/<n>/handoff-restart/ask, /api/agent/<n>/compact and /clear, an
 each `if (!knownAgent(name))`). Listed on #9087.
 
 ## Tests
-server.dm-listfail-9085.test.js: a failing source gives 409 unreadable with retry and the log line; CONTROLS: a roster that reads
-without the name is 404, and one that lists the agent is not refused at the gate. With the unreadable branch switched off,
+server.dm-listfail-9085.test.js: a failing source gives 409 unreadable with retry and the log line; a failing Claude
+read behind a roster kept readable by a codex agent gives 409 unreadable with the reason logged. CONTROLS: a roster
+that reads without the name is 404 (and with the Claude read healthy); an unkeyable name on a readable roster is
+400/404, never unreadable; a listed agent is not refused at the gate. With the unreadable branch switched off,
 the first test goes red.
