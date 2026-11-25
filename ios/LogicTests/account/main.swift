@@ -177,6 +177,9 @@ check(Account.nameClean("ada-") == "ada-", "a trailing hyphen stays while typing
 check(Account.nameClean("Ada.Love!@#7") == "adalove7", "nothing but letters, digits and hyphens")
 check(Account.nameClean(String(repeating: "a", count: 40)).count == 32, "at most 32")
 check(Account.nameClean("") == "", "empty stays empty")
+check(Account.nameClean("ada\u{200B}love") == "adalove", "U+200B is not JavaScript's \\s: dropped, as on the page")
+check(Account.nameClean("ada\u{FEFF}love") == "ada-love" && Account.nameClean("ada\u{3000}love") == "ada-love" && Account.nameClean("ada\u{00A0}love") == "ada-love", "U+FEFF, U+3000 and U+00A0 are: a hyphen, as on the page")
+check(Account.nameClean("ada\u{0085}love") == "adalove", "U+0085 is not JavaScript's \\s: dropped")
 check(Account.nameValid("ada") && Account.nameValid("a-1") && Account.nameValid(String(repeating: "a", count: 32)), "valid: 3 to 32, alnum at each end")
 check(!Account.nameValid("ab") && !Account.nameValid(String(repeating: "a", count: 33)), "too short or too long")
 check(!Account.nameValid("ada-") && !Account.nameValid("-ada") && !Account.nameValid("ad_a") && !Account.nameValid("Ada"), "a hyphen at an end, an underscore or a capital: not valid")
@@ -204,6 +207,8 @@ check(Account.nameAnswer(status: 402, data: json(#"{"error":"This computer needs
 check(Account.nameAnswer(status: 409, data: json(#"{"error":"buy one","code":"address_not_bought"}"#)) == .refused(Account.nameNotHere), "the code alone is enough")
 check(Account.nameAnswer(status: 402, data: nil) == .refused(Account.nameNotHere), "a 402 alone is enough")
 check(Account.nameAnswer(status: nil, data: nil) == .refused("Kosmos could not be reached just now."), "no answer: the page's words")
+check(Account.nameAnswer(status: 503, data: json("<html>maintenance</html>")) == .refused(Account.nameUnreachable) && Account.nameAnswer(status: 500, data: json(#"{"error":"boom"}"#)) == .refused(Account.nameUnreachable), "a 5xx is unreachable, not a judgement on the name")
+check(!Account.nameNotHere.lowercased().contains("buy") && !Account.nameNotHere.contains("iPhone") && !Account.nameNotHere.contains("http"), "the 402's own words point nowhere")
 
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")

@@ -316,7 +316,7 @@ enum Account {
         let lower = v.lowercased()
         var spaced = "", inRun = false
         for ch in lower.unicodeScalars {
-            if CharacterSet.whitespacesAndNewlines.contains(ch) || ch == "_" {
+            if jsSpace(ch) || ch == "_" {
                 if !inRun { spaced.unicodeScalars.append("-"); inRun = true }
             } else { spaced.unicodeScalars.append(ch); inRun = false }
         }
@@ -325,6 +325,15 @@ enum Account {
         for ch in kept where !(ch == "-" && out.hasSuffix("-")) { out.unicodeScalars.append(ch) }
         while out.hasPrefix("-") { out.removeFirst() }
         return String(out.prefix(32))
+    }
+
+    // JavaScript's \s (ECMAScript WhiteSpace and LineTerminator), which differs from CharacterSet.whitespacesAndNewlines on
+    // U+0085, U+200B (Swift only) and U+FEFF (JavaScript only), measured in review 1.
+    static func jsSpace(_ c: Unicode.Scalar) -> Bool {
+        switch c.value {
+        case 0x09...0x0D, 0x20, 0xA0, 0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF: return true
+        default: return false
+        }
     }
 
     // The page's nameValid: /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/ (the server's valid_name stays the authority).
@@ -366,13 +375,15 @@ enum Account {
     // "That name is not available." One refusal is never shown as Kosmos+ words it: address_not_bought (402) tells the
     // person to buy an address at a web page, which is a purchase pointed to from inside the app (kosmos#718), so the
     // phone says plainly that the address cannot be chosen here instead.
-    static let nameNotHere = "This account cannot choose an address on this iPhone."
+    static let nameNotHere = "This account cannot choose an address."
     static let nameUnreachable = "Kosmos could not be reached just now."
     static func nameAnswer(status: Int?, data: Data?) -> NameAnswer {
         guard let status else { return .refused(nameUnreachable) }
         let obj = data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
         if (200...299).contains(status), let address = obj?["address"] as? String, !address.isEmpty { return .saved(address: address) }
         if status == 402 || (obj?["code"] as? String) == "address_not_bought" { return .refused(nameNotHere) }
+        // Review 1: a server or gateway failure is not a judgement on the name.
+        if status >= 500 { return .refused(nameUnreachable) }
         return .refused(errorWords(data) ?? "That name is not available.")
     }
 
