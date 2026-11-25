@@ -9,7 +9,8 @@ false for an agent that kept working.
 
 ## Decision
 Count, from the history alone, the sessions since the wait that began at a `started` or `stopped` after it, in which
-the agent took a turn (an automatic working/idle) and that ended (a later `stopped`): awaydigest.sessionsSinceWait.
+the agent took a turn (an automatic working/idle) and that ended (a later `stopped`, `started`, or a row of a new
+run instance: review 3 and 5): awaydigest.sessionsSinceWait.
 The route reminds a /clear or resume only while that is under REMIND_SESSIONS (2): the first session end, then one
 repeat, then none. The wording becomes "it has made no report of its own since" (startup and ended both).
 Why one repeat: a /clear wipes the context that held the reminder, and #9049 already pins a /clear after a startup
@@ -68,3 +69,13 @@ rule; the wording test fails with the old phrase. #9049's own tests unchanged an
   the waitOnly branch is left (pure, inside the route's catch).
 - The reviewer read the real selfreports: the measured figures in the comment match; no live standing wait exists to
   exercise, so only synthetic histories test this path.
+
+## Review round 5 (opus): 0 BLOCKERs, 1 SHOULD, NITs
+- SHOULD: a crash relaunched with --resume writes no stopped and no started, so its sessions ran together and each
+  resume was reminded --> FIXED: a change of run `instance` between two rows that carry one ends the session (it
+  changes at every run in the real selfreports). Rows with no instance never split.
+- NIT: the by-hand comment named wait=only, which no CLI sends --> FIXED. NIT: "two" in the startup comment --> FIXED.
+  NIT: plan said only `stopped` ends a session --> FIXED.
+- NIT: after the limit, a racing /clear still answers pending, costing one 0.8 s retry --> LEFT (correct answer).
+- NIT: the first unit case puts auto rows in the wait's own session, which selfreport never stores --> LEFT (the
+  assertion holds either way; the route tests use realistic rows).

@@ -70,3 +70,17 @@ test('kosmos#9058 review 4: a started closes a worked session as a stopped does 
   assert.equal(away.sessionsSinceWait(open, WAIT.at), 1);
   assert.equal(away.sessionsSinceWait(open, WAIT.at, { endingNow: true }), 2);
 });
+
+test('kosmos#9058 review 5: a crash relaunched with --resume (no stopped, no started) ends the session by its new run instance', () => {
+  const r = (state, min, instance) => ({ state, by: 'auto', at: T0 + min * M, instance });
+  // one clean quit, then crash, resume, crash, resume: before, every session after the stopped ran together (count 1).
+  const h = [WAIT, r('stopped', 1, 'a'), r('working', 2, 'b'), r('idle', 3, 'b'), r('working', 4, 'c'), r('idle', 5, 'c')];
+  assert.equal(away.sessionsSinceWait(h, WAIT.at), 1, 'run b ended when run c began');
+  assert.equal(away.sessionsSinceWait(h, WAIT.at, { endingNow: true }), 2, 'and the resume now ends run c');
+  // CONTROL: rows with no instance (older records) never split a session.
+  const bare = h.map((x) => ({ ...x, instance: undefined }));
+  assert.equal(away.sessionsSinceWait(bare, WAIT.at), 0);
+  // a `started` that brings its new instance is one boundary, not two.
+  const st = [WAIT, r('stopped', 1, 'a'), r('working', 2, 'b'), r('started', 3, 'c'), r('working', 4, 'c')];
+  assert.equal(away.sessionsSinceWait(st, WAIT.at), 1);
+});

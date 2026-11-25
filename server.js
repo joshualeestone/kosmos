@@ -19958,7 +19958,8 @@ const server = http.createServer(async (req, res) => {
            Review 4: the hooks' ask (as=waithook) always comes at a SessionStart right after a SessionEnd, so it counts the
            session being ended (endingNow) for a /clear and an in-session /resume alike, whose own `stopped` may not have
            landed; after a quit that `stopped` landed long ago and the open session is the new, empty one, so it adds
-           nothing. A by-hand ask (wait=only) is made inside a live session and does not. */
+           nothing. `kosmos away --wait-only` by hand sends as=waithook too, so inside a live session it answers what
+           the next session end will say; only a raw wait=only (no CLI sends it) counts nothing as ending. */
         if (after === 'stopped' && away.sessionsSinceWait(hist, w.atMs, { endingNow: as === 'waithook' }) >= away.REMIND_SESSIONS) { w = null; after = 'reminded'; }
         const pending = !!w && (after === null || (after === 'started' && clearing));
         if (after !== 'stopped') w = null;
@@ -19974,7 +19975,7 @@ const server = http.createServer(async (req, res) => {
       let wait = null;
       if (startup || as === 'hook') { try { wait = away.lastWait(hist, { nowMs: now }); } catch { wait = null; } }
       /* kosmos#9058 (review 1): the same limit at a startup, the commonest session boundary: an agent that has worked
-         through two sessions since its wait, each begun where a reminder is given, is not reminded at every restart for
+         through REMIND_SESSIONS sessions since its wait, each begun where a reminder is given, is not reminded at every restart for
          7 days. Review 3: the Mac hook's at=startup asks before its `started` lands, so the session it ends is counted
          now (endingNow); the Windows hook's as=hook asks after, and its `started` closes that session itself. */
       if (wait) { try { if (away.sessionsSinceWait(hist, wait.atMs, { endingNow: startup }) >= away.REMIND_SESSIONS) wait = null; } catch { /* keep it */ } }
