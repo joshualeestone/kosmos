@@ -92,6 +92,14 @@ test('#9085 CONTROL: a roster that READS and does not list the name is still a 4
   assert.equal(logged.filter((l) => /kosmos#9085/.test(l)).length, 0, 'nothing is logged for an ordinary missing name');
 });
 
+test('#9085 CONTROL: a name the board cannot key, on a roster that reads, is a 404, never "unreadable"', async () => {
+  source = () => '';
+  const r = await send('!!!', 'hello');
+  assert.notEqual(r.json && r.json.because, 'unreadable', JSON.stringify(r.json));
+  assert.ok(r.status === 400 || r.status === 404, 'refused as a bad or missing name: ' + JSON.stringify(r.json));
+  assert.equal(logged.filter((l) => /kosmos#9085/.test(l)).length, 0);
+});
+
 test('#9085 CONTROL: a roster that reads and lists the agent is not refused at the gate', async () => {
   source = () => fleet.line({ session: 'raph', claim: 'raph' }) + '\n';
   const r = await send('raph', 'hello');

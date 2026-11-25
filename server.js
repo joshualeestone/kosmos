@@ -22156,11 +22156,11 @@ const server = http.createServer(async (req, res) => {
         // a tmux fan-out.
         // (`chat.deliver` refuses on its own too — exact match to permit, tied,
         // and a pane with Claude in it. This one is about the NAME.)
-        /* kosmos#9085: ONE roster read decides both "is it ours" and "could we look at all", so a read that fails and
-           a second that succeeds cannot answer one send two ways (knownAgent and nameRefusal each read it). */
+        /* kosmos#9085: "could we look at all" is decided by the roster read alone, not by claimantFor, which also
+           throws for a name it cannot key (store.safeKey). */
         let rosterUnreadable = false;
-        let known = false;
-        try { const card = claimantFor(name); known = Boolean(card) && card.isNamedOurs === true; } catch { rosterUnreadable = true; }
+        try { paneRoster(); } catch { rosterUnreadable = true; }
+        const known = !rosterUnreadable && knownAgent(name);
         if (!known) {
           /* kosmos#9085: a roster that cannot be READ is not "no agent by that name". On Windows a `claude agents --json`
              that kept failing (five hours on 11-25) made the roster refuse, and every message to a running agent was
