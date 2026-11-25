@@ -48,9 +48,13 @@ let screen = ONE;
 let live = CONNECTED;
 let until = D1;
 let job = { configDir: null };
+let run = 'a1';
+let up = true;
+let service = null;   // the login the agent's process reads
 
 test.beforeEach(() => {
-  clock = T0; screen = ONE; live = CONNECTED; until = D1; job = { configDir: null };
+  clock = T0; screen = ONE; live = CONNECTED; until = D1; job = { configDir: null }; run = 'a1'; up = true; service = loginexpiry.DEFAULT_SERVICE;
+  status.setPaneLoginReaderForTests(async () => service);
   Date.now = () => clock;
   create.readJob = () => job;
   authprobe.resetForTest();
@@ -65,6 +69,7 @@ test.afterEach(() => {
   create.readJob = realReadJob;
   authprobe.resetForTest();
   loginlive.setReaderForTests(null);
+  status.setPaneLoginReaderForTests(null);
   loginlive._clearForTest();
   observed._clearForTest();
   fleet.restore();
@@ -73,14 +78,14 @@ test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); }
 
 const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r)); };
 /* One board tick, 5 s after the last: the card's state, and whether a refusal was recorded ON this tick. */
-async function tick() {
-  clock += 5000;
-  status.setPaneSource(() => fleet.line({ session: 'worker-discord', command: fleet.CLAUDE_COMMAND }));
+async function tick(ms = 5000) {
+  clock += ms;
+  status.setPaneSource(() => !up ? '' : fleet.line({ session: 'worker-discord', command: fleet.CLAUDE_COMMAND, tokenInstance: run }));
   status.setPaneCapture(() => screen);
   const card = status.snapshot().agents.find((a) => a.sessionName === 'worker');
   const o = observed.read(observed.PROVIDER.ANTHROPIC, 'worker');
   await settle();
-  return { state: card.state, refused: !!o && o.outcome === observed.OUTCOME.REJECTED && o.at === clock };
+  return { state: card && card.state, refused: !!o && o.outcome === observed.OUTCOME.REJECTED && o.at === clock };
 }
 async function ticks(n) { const out = []; for (let i = 0; i < n; i++) out.push(await tick()); return out; }
 const refusals = (list) => list.filter((t) => t.refused).length;
@@ -147,50 +152,158 @@ test('#9038: a login date that cannot be read, or moves earlier, leaves the boar
   }
 });
 
-const ask = (o) => oldline.isOld('a', { account: '(default)', text: ONE, date: { at: 0, until: D1 }, now: 0, ...o });
+const WORKING = fleet.SCREEN.working;
+const repaired = async () => {
+  await ticks(3 * MIN);
+  until = D2;
+  await ticks(2 * MIN);
+  assert.equal(refusals(await ticks(2 * MIN)), 0, 'CONTROL: the old line had stopped');
+};
+const revokedAgain = async (why) => assert.ok(refusals(await ticks(10 * MIN)) >= 10, why);
 
-test('#9038: the first date counts only when it was read after the line was first seen', () => {
-  ask({ now: 100, date: { at: 50, until: D1 } });
-  assert.equal(ask({ now: 110, date: { at: 50, until: D1 } }), false);
-  /* A sign-in between that read and the line: the line is newer than it, and must not read old. */
-  assert.equal(ask({ now: 170, date: { at: 160, until: D2 } }), false, 'a date from before the line was taken as its first');
-  assert.equal(ask({ now: 230, date: { at: 220, until: D2 } }), false);
-  assert.equal(ask({ now: 290, date: { at: 280, until: D2 + DAY } }), true, 'CONTROL: a later sign-in makes it old');
+test('#9038: a line that left the screen and came back the same is a new refusal', async () => {
+  await repaired();
+  screen = WORKING;
+  await tick();
+  screen = ONE;   // revoked since: the same prompt, the same sentence
+  await revokedAgain('a refusal after a working turn was taken as old');
 });
 
-test('#9038: once old it stays old through an unread date; another account, or another line, starts over', () => {
-  const make = () => { oldline._clearForTest(); ask({}); ask({}); return ask({ date: { at: 9, until: D2 } }); };
-  assert.equal(make(), true, 'CONTROL');
-  assert.equal(ask({ date: null }), true, 'one unread date brought it back');
-  assert.equal(ask({ account: '/u/other', date: { at: 9, until: D2 } }), false, 'another account inherited it');
-  make();
-  assert.equal(ask({ text: TWO, date: { at: 9, until: D2 } }), false, 'a new line inherited it');
-  make();
-  assert.equal(ask({ text: screenOf('> hi', 'Done.'), date: { at: 9, until: D2 } }), false, 'no line at all');
-  assert.equal(ask({ date: { at: 9, until: D2 } }), false, 'a line that left and came back inherited it');
+test('#9038: nor when the sign-in happened while the line was off the screen', async () => {
+  await ticks(3 * MIN);
+  screen = WORKING;
+  await tick();
+  until = D2;
+  await ticks(3 * MIN);
+  screen = ONE;
+  await revokedAgain('the first date outlived the line');
 });
 
-test('#9038: an unread first date is not taken as the first', () => {
-  for (const unread of [null, NaN, undefined]) {
-    oldline._clearForTest();
-    ask({}); ask({ date: { at: 1, until: unread } }); ask({ date: { at: 2, until: D1 } });
-    assert.equal(ask({ date: { at: 3, until: D2 } }), true, String(unread));
+test('#9038: a restart that prints the same screen again inside one tick is a new refusal', async () => {
+  await repaired();
+  run = 'b2';
+  await revokedAgain('another run inherited the old line');
+});
+
+test('#9038: no run instance on the session: never old', async () => {
+  run = '';
+  await ticks(3 * MIN);
+  until = D2;
+  await ticks(2 * MIN);
+  await revokedAgain('cleared with no run known');
+});
+
+test('#9038: an agent gone from the pass for longer than the gap starts over', async () => {
+  await repaired();
+  up = false;
+  await tick(oldline.GAP_MS + 1000);
+  up = true;
+  await revokedAgain('an entry survived the gap');
+});
+
+test('#9038: an agent whose process reads another login, or one that could not be read, is never cleared', async () => {
+  for (const read of [loginexpiry.serviceNameFor('/Users/someone/.claude'), null, new Error('no')]) {
+    loginlive._clearForTest(); oldline._clearForTest(); authprobe.resetForTest();
+    until = D1;
+    status.setPaneLoginReaderForTests(async () => { if (read instanceof Error) throw read; return read; });
+    await ticks(3 * MIN);
+    until = D2;
+    await ticks(2 * MIN);
+    await revokedAgain(`cleared over ${read}`);
   }
 });
 
-test('#9038: agents do not share a line', () => {
-  ask({}); ask({}); assert.equal(ask({ date: { at: 9, until: D2 } }), true);
-  assert.equal(oldline.isOld('b', { account: '(default)', text: ONE, date: { at: 9, until: D2 }, now: 9 }), false);
+test('#9038: an agent on its own account folder is cleared by that account\'s own sign-in', async () => {
+  const dir = path.join(SANDBOX, '.claude-two');
+  job = { configDir: dir };
+  service = loginexpiry.serviceNameFor(dir);
+  const asked = new Set();
+  loginlive.setReaderForTests(async (ccd) => { asked.add(ccd); return until; });
+  await repaired();
+  assert.deepEqual([...asked], [dir], 'the date was read for another account');
+});
+
+test('#9038: a re-check that never settles does not stay calm', async () => {
+  await repaired();
+  authprobe.setChecker(() => new Promise(() => {}));
+  await ticks(3 * MIN);
+  const list = await ticks(5 * MIN);
+  assert.equal(refusals(list), list.length, 'a hung check read healthy');
+});
+
+test('#9038: an identical exchange repeated on the screen is never old, however the sign-in went', async () => {
+  const same = [];
+  for (let i = 0; i < 5; i++) same.push('> nudge', '', LINE, '');
+  screen = screenOf(...same);
+  await ticks(3 * MIN);
+  until = D2;
+  await ticks(2 * MIN);
+  await revokedAgain('a screen of identical refusals was taken as old');
+});
+
+/* One call straight to the module; reads are answered by the next microtasks. */
+const base = { run: 'r', service: 's', reads: async () => 's', text: ONE, date: { at: 0, until: D1 }, now: 0 };
+const ask = async (o) => { const got = oldline.isOld('a', { ...base, ...o }); await settle(); return got; };
+
+test('#9038: the first date counts only when it was read after the line was first seen', async () => {
+  await ask({ now: 100, date: { at: 50, until: D1 } });
+  assert.equal(await ask({ now: 110, date: { at: 50, until: D1 } }), false);
+  /* A sign-in between that read and the line: the line is newer than it, and must not read old. */
+  assert.equal(await ask({ now: 170, date: { at: 160, until: D2 } }), false, 'a date from before the line was taken as its first');
+  assert.equal(await ask({ now: 230, date: { at: 220, until: D2 } }), false);
+  assert.equal(await ask({ now: 290, date: { at: 280, until: D2 + DAY } }), true, 'CONTROL: a later sign-in makes it old');
+});
+
+test('#9038: once old it stays old through an unread date; another login, run or line, a gap, or a forget starts over', async () => {
+  const make = async () => { oldline._clearForTest(); await ask({}); await ask({}); return ask({ date: { at: 9, until: D2 } }); };
+  const later = { date: { at: 9, until: D2 } };
+  assert.equal(await make(), true, 'CONTROL');
+  assert.equal(await ask({ date: null }), true, 'one unread date brought it back');
+  assert.equal(await ask({ date: { at: 10, until: D1 } }), true, 'an earlier date read since brought it back');
+  for (const [what, o] of [['login', { service: 't' }], ['run', { run: 'q' }], ['line', { text: TWO }], ['gap', { now: oldline.GAP_MS + 1 }]]) {
+    assert.equal(await make(), true);
+    assert.equal(await ask({ ...later, ...o }), false, `another ${what} inherited it`);
+  }
+  for (const [what, o] of [['no line', { text: screenOf('> hi', 'Done.') }], ['no run', { run: '' }]]) {
+    assert.equal(await make(), true);
+    assert.equal(await ask({ ...later, ...o }), false, what);
+    assert.equal(await ask(later), false, `inherited across ${what}`);
+  }
+  assert.equal(await make(), true);
+  oldline.forget('a');
+  assert.equal(await ask(later), false, 'forget kept it');
+});
+
+test('#9038: an unread first date is not taken as the first', async () => {
+  for (const unread of [null, NaN, undefined]) {
+    oldline._clearForTest();
+    await ask({}); await ask({ date: { at: 1, until: unread } }); await ask({ date: { at: 2, until: D1 } });
+    assert.equal(await ask({ date: { at: 3, until: D2 } }), true, String(unread));
+  }
+});
+
+test('#9038: agents do not share a line', async () => {
+  await ask({}); await ask({}); assert.equal(await ask({ date: { at: 9, until: D2 } }), true);
+  assert.equal(oldline.isOld('b', { ...base, date: { at: 9, until: D2 } }), false);
+});
+
+test('#9038: the login a process reads: its CLAUDE_CONFIG_DIR, the default when unset, unknown when ps shows no environment', () => {
+  const head = '  PID   TT  STAT      TIME COMMAND\n 123 s001  S+  0:01 claude --model x';
+  assert.equal(status.loginServiceOfPs(head + ' PATH=/bin CLAUDE_CONFIG_DIR=/u/two HOME=/u'), loginexpiry.serviceNameFor('/u/two'));
+  assert.equal(status.loginServiceOfPs(head + ' PATH=/bin HOME=/u'), loginexpiry.DEFAULT_SERVICE);
+  assert.equal(status.loginServiceOfPs(head), null);
 });
 
 test('#9038: the fingerprint: steady under what comes after the line, changed by a second refusal, null with none', () => {
   assert.equal(oldline.fingerprint(ONE), oldline.fingerprint(ONE.replace('❯ ', '❯ half a draft')), 'the composer moved it');
   assert.notEqual(oldline.fingerprint(ONE), oldline.fingerprint(TWO));
   /* Two identical exchanges, more rows apart than the context: only the count tells them apart. */
-  const pad = Array.from({ length: oldline.CONTEXT_ROWS + 2 }, () => 'same');
+  const pad = Array.from({ length: oldline.CONTEXT_ROWS + 2 }, (_, i) => 'row ' + i);
   const once = screenOf(...pad, '> go', LINE);
   const twice = screenOf(...pad, '> go', LINE, ...pad, '> go', LINE);
-  assert.notEqual(oldline.fingerprint(once), oldline.fingerprint(twice), 'the same exchange twice read as one');
+  assert.notEqual(oldline.fingerprint(once), null, 'CONTROL');
+  assert.equal(oldline.fingerprint(twice), null, 'a block that stands twice could be a later copy of itself');
+  assert.notEqual(oldline.fingerprint(once), oldline.fingerprint(screenOf(LINE, ...pad, '> go', LINE)), 'the count is not in it');
   /* An old line scrolled off as a new one was printed: the count is the same, the prompt above it is not. */
   assert.notEqual(oldline.fingerprint(ONE), oldline.fingerprint(screenOf('> a later thing', LINE)), 'the rows above are not in it');
   assert.equal(oldline.fingerprint(ONE), oldline.fingerprint(ONE.replace(LINE, LINE + '   ')), 'trailing blanks moved it');
@@ -214,13 +327,15 @@ test('#9038: lastRead never waits, reads again when old, and drops an answer fro
   assert.equal(loginlive.lastRead(row, later), null, 'an answer from before a sign-in was kept');
 });
 
-test('#9038: lastSettledHealthy is the last settled answer, whatever its age', async () => {
+test('#9038: lastSettledHealthy is the last settled answer, for one re-check past its age', async () => {
   assert.equal(authprobe.lastSettledHealthy(null), false);
   authprobe.verdict(null, clock); await settle();
   assert.equal(authprobe.verdict(null, clock), HEALTHY);
   clock += authprobe.TTL_MS + 1;
   assert.equal(authprobe.verdict(null, clock), UNCHECKED, 'CONTROL: the verdict itself still goes stale');
-  assert.equal(authprobe.lastSettledHealthy(null), true);
+  assert.equal(authprobe.lastSettledHealthy(null, clock), true);
+  clock += authprobe.RECHECK_MS;
+  assert.equal(authprobe.lastSettledHealthy(null, clock), false, 'a HEALTHY of any age counted');
   live = NONE; await settle(); clock += authprobe.TTL_MS + 1;
   authprobe.verdict(null, clock); await settle();
   assert.equal(authprobe.lastSettledHealthy(null), false);

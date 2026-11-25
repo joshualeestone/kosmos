@@ -79,12 +79,14 @@ function startedAt(configDir) {
   return cur && Number.isFinite(cur.startedAt) ? cur.startedAt : 0;
 }
 
-/* #9038: whether the last check that SETTLED for this account said HEALTHY, whatever its age. Not a verdict, and no
-   evidence on its own (a HEALTHY goes stale on purpose, below): status.js asks it only for a screen line already known to
-   be from before the account's last sign-in, for the moment a re-check is under way. */
-function lastSettledHealthy(configDir) {
+/* #9038: whether the last check that SETTLED for this account said HEALTHY, recently enough that only the re-check is
+   missing: RECHECK_MS past the TTL, longer than checkLive's own limit. Not a verdict, and no evidence on its own (a HEALTHY
+   goes stale on purpose, below): status.js asks it only for a screen line already known to be from before the account's
+   last sign-in. The slow board sweep is about 60 s, so a HEALTHY as old as one sweep still counts. */
+const RECHECK_MS = 60 * 1000;
+function lastSettledHealthy(configDir, nowMs = Date.now()) {
   const cur = cache.get(dirKey(configDir));
-  return !!cur && cur.verdict === HEALTHY;
+  return !!cur && cur.verdict === HEALTHY && nowMs - cur.at <= TTL_MS + RECHECK_MS;
 }
 
 /**
@@ -117,7 +119,7 @@ function verdict(configDir, nowMs = Date.now()) {
 module.exports = {
   verdict, startedAt, lastSettledHealthy,
   HEALTHY, EXPIRED, UNKNOWN, UNCHECKED,
-  TTL_MS,
+  TTL_MS, RECHECK_MS,
   dirKey,
   setChecker,   // test seam
   resetForTest, // test seam
