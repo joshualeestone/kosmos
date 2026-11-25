@@ -4796,7 +4796,8 @@ function noteOutageSend(name) {
 const UNREADABLE_SEND_WORDS = 'we could not check which agents are running, so nothing was sent. Try again in a moment.';
 function unreadableSendBody() { return { error: UNREADABLE_SEND_WORDS, because: 'unreadable', retry: true }; }
 /* kosmos#9087: the gate for the routes that send one command (compact/clear, handoff-restart ask and pickup), which
-   answered a bare 404 from knownAgent. Answers the refusal itself and returns null, or returns the gate's card. */
+   answered a bare 404 from knownAgent. Answers the refusal itself and returns null, or returns the gate's card. These
+   routes have no outage path: only the DM send goes through the pipe while the roster cannot be read. */
 function commandGate(res, name, what) {
   const gate = sendGate(name);
   if (gate.known) return gate.card;
