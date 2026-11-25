@@ -1171,6 +1171,55 @@ async function countsVerify8301(page) {
   const t = await page.evaluate(`(${chip8301})().title`);
   if (t !== '2 of 7 subtasks done, 2 built, 1 dropped, 1 on hold') throw new Error('the chip does not say the three apart: ' + JSON.stringify(t));
 }
+/* First run, in the order a new person meets it (Josh 11-25 07:51), for --data fresh: the fr-mac-* and fr-win-* screens
+   (SCREENS). Mac: the app's window, its bridge stood in as setup-choice-7205 does. Windows: the same panes with the
+   page told it is on Windows the way server.js tells it, by the served kosmos-platform meta, so the Windows words and
+   hidden rows show (Windows has no permission or notifications pane). */
+async function frPrep(page, win) {
+  if (!win) {
+    await page.addInitScript(() => { window.webkit = { messageHandlers: { kosmosMode: { postMessage() {} }, kosmosBadge: { postMessage() {} } } }; });
+    return;
+  }
+  await page.route((u) => u.pathname === '/' || u.pathname === '/index.html', async (r) => {
+    try {
+      if (r.request().resourceType() !== 'document') { await r.continue(); return; }
+      const res = await r.fetch();
+      const body = (await res.text()).replace(/(<meta name="kosmos-platform" content=")[^"]*(")/, '$1win32$2');
+      await r.fulfill({ response: res, body });
+    } catch { /* the page closed under the shot (#6022): nothing to answer */ }
+  });
+}
+async function frIsWin(page, win) {
+  if (!win) return;
+  const v = await page.evaluate(() => document.documentElement.getAttribute('data-kosmos-platform'));
+  if (v !== 'win32') throw new Error('the page did not take the Windows platform (data-kosmos-platform=' + v + ')');
+}
+async function frPane(page, n, win) {
+  await frPrep(page, win);
+  await at(page, '?first-run=1&fr-step=' + n);
+  await page.waitForSelector('#fr-pane-' + n, { state: 'visible', timeout: 8000 });
+  await page.waitForTimeout(600);
+  await frIsWin(page, win);
+}
+async function frBoard(page, win, then) {
+  await frPrep(page, win);
+  await at(page, '');
+  await frIsWin(page, win);
+  if (then === 'new' || then === 'role') {
+    await page.click('#new-agent', { timeout: 5000 });
+    if (then === 'role') {
+      await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
+      await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
+    } else await page.waitForSelector('#panel-create', { state: 'visible', timeout: 5000 });
+  }
+}
+async function frChat(page, win, data) {
+  await frPrep(page, win);
+  await at(page, '?agent=' + data.chatAgent);
+  await frIsWin(page, win);
+  await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
+  await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
+}
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -2846,68 +2895,38 @@ const SCREENS = [
     await page.click('#cstep-kind [data-path="swarm"]', { timeout: 5000 });
     await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
   } },
-  /* First run, in the order a new person meets it (Josh 11-25 07:51), for --data fresh. fr-mac-*: the Mac app's window
-     (its bridge stood in, as setup-choice-7205 does). fr-win-*: the same panes with the page told it is on Windows, the
-     way server.js stamps it per request (the served kosmos-platform meta), so the Windows words and hidden rows show. */
-  ...[['mac', false], ['win', true]].flatMap(([tag, win]) => {
-    const prep = async (page) => {
-      if (!win) {
-        await page.addInitScript(() => { window.webkit = { messageHandlers: { kosmosMode: { postMessage() {} }, kosmosBadge: { postMessage() {} } } }; });
-        return;
-      }
-      await page.route((u) => u.pathname === '/' || u.pathname === '/index.html', async (r) => {
-        if (r.request().resourceType() !== 'document') return r.continue();
-        const res = await r.fetch();
-        const body = (await res.text()).replace(/(<meta name="kosmos-platform" content=")[^"]*(")/, '$1win32$2');
-        return r.fulfill({ response: res, body });
-      });
-    };
-    const isWin = async (page) => {
-      if (!win) return;
-      const v = await page.evaluate(() => document.documentElement.getAttribute('data-kosmos-platform'));
-      if (v !== 'win32') throw new Error('the page did not take the Windows platform (data-kosmos-platform=' + v + ')');
-    };
-    // Numbered in the order this platform's person meets them (Windows has no permission or notifications pane).
-    let seq = win ? 0 : 1;
-    const num = () => String(++seq).padStart(2, '0');
-    const pane = (n, label) => ({ name: 'fr-' + tag + '-' + num() + '-' + label, owner: 'Mona Lisa', go: async (page) => {
-      await prep(page);
-      await at(page, '?first-run=1&fr-step=' + n);
-      await page.waitForSelector('#fr-pane-' + n, { state: 'visible', timeout: 8000 });
-      await page.waitForTimeout(600);
-      await isWin(page);
-    } });
-    const list = [];
-    if (!win) list.push({ name: 'fr-mac-01-choice', owner: 'Mona Lisa', go: async (page) => {
-      await prep(page);
-      await at(page, '?mode=unreadable');
-      await page.waitForSelector('#fr-choice', { state: 'visible', timeout: 8000 });
-      await page.waitForTimeout(600);
-    } });
-    list.push(pane(1, 'welcome'));
-    if (!win) list.push(pane(2, 'permission'));   // Mac only: the pane is hidden on Windows
-    list.push(pane(3, 'never-sleeps'));
-    if (!win) list.push(pane(4, 'notifications'));   // Mac only
-    list.push(pane(5, 'model'), pane(6, 'community'), pane(7, 'installed'), pane(8, 'working-for'), pane(9, 'ready'));
-    list.push({ name: 'fr-' + tag + '-' + num() + '-board', owner: 'Mona Lisa', go: async (page) => { await prep(page); await at(page, ''); await isWin(page); } },
-      { name: 'fr-' + tag + '-' + num() + '-new-agent', owner: 'Mona Lisa', go: async (page) => {
-        await prep(page); await at(page, ''); await isWin(page);
-        await page.click('#new-agent', { timeout: 5000 });
-        await page.waitForSelector('#panel-create', { state: 'visible', timeout: 5000 });
-      } },
-      { name: 'fr-' + tag + '-' + num() + '-new-agent-role', owner: 'Mona Lisa', go: async (page) => {
-        await prep(page); await at(page, ''); await isWin(page);
-        await page.click('#new-agent', { timeout: 5000 });
-        await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
-        await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
-      } },
-      { name: 'fr-' + tag + '-' + num() + '-first-chat', owner: 'Mona Lisa', go: async (page, data) => {
-        await prep(page); await at(page, '?agent=' + data.chatAgent); await isWin(page);
-        await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
-        await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
-      } });
-    return list;
-  }),
+  /* First run (frPrep and the helpers beside it). The screens showing the board need --data fresh, so without it they are
+     skipped, never shot on the full sample fleet under a first-run name; the setup panes do not depend on the data. */
+  { name: 'fr-mac-01-choice', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: async (page) => {
+    await frPrep(page, false);
+    await at(page, '?mode=unreadable');
+    await page.waitForSelector('#fr-choice', { state: 'visible', timeout: 8000 });
+    await page.waitForTimeout(600);
+  } },
+  { name: 'fr-mac-02-welcome', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 1, false) },
+  { name: 'fr-mac-03-permission', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 2, false) },
+  { name: 'fr-mac-04-never-sleeps', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 3, false) },
+  { name: 'fr-mac-05-notifications', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 4, false) },
+  { name: 'fr-mac-06-model', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 5, false) },
+  { name: 'fr-mac-07-community', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 6, false) },
+  { name: 'fr-mac-08-installed', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 7, false) },
+  { name: 'fr-mac-09-working-for', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 8, false) },
+  { name: 'fr-mac-10-ready', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 9, false) },
+  { name: 'fr-mac-11-board', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, false, 'board') },
+  { name: 'fr-mac-12-new-agent', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, false, 'new') },
+  { name: 'fr-mac-13-new-agent-role', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, false, 'role') },
+  { name: 'fr-mac-14-first-chat', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page, data) => frChat(page, false, data) },
+  { name: 'fr-win-01-welcome', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 1, true) },
+  { name: 'fr-win-02-never-sleeps', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 3, true) },
+  { name: 'fr-win-03-model', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 5, true) },
+  { name: 'fr-win-04-community', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 6, true) },
+  { name: 'fr-win-05-installed', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 7, true) },
+  { name: 'fr-win-06-working-for', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 8, true) },
+  { name: 'fr-win-07-ready', owner: 'Mona Lisa', noServiceWorker: true, go: (page) => frPane(page, 9, true) },
+  { name: 'fr-win-08-board', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, true, 'board') },
+  { name: 'fr-win-09-new-agent', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, true, 'new') },
+  { name: 'fr-win-10-new-agent-role', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, true, 'role') },
+  { name: 'fr-win-11-first-chat', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page, data) => frChat(page, true, data) },
   { name: 'first-run', owner: 'unowned', go: async (page) => {
     await at(page, '?first-run=1');
     await page.waitForSelector('#firstrun', { state: 'visible', timeout: 5000 });
