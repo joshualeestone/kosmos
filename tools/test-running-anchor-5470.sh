@@ -28,8 +28,35 @@ pids_of() { printf '%s\n' "$1" | awk 'NF {print $1}' | sort -n | tr '\n' ' '; }
 # parent's, which would read as a missing run on a loaded Mac.
 settle() { local p i; for p in "$@"; do for i in 1 2 3 4 5 6 7 8 9 10; do _kosmos_pgrep_cmdlines "${NAME//./\\.}" 2>/dev/null | awk '{print $1}' | grep -qx "$p" && break; sleep 0.5; done; done; }
 
+# One live read of the helper into $out and $rc, with a second look when it could not tell (kosmos#9045): once on a loaded
+# Mac the real pgrep itself failed, the helper rightly answered 2, and the whole validation was red for it. Only a 2 is
+# looked at again, so a wrong 0 or 1 is red at once; a pgrep that keeps failing stays 2, and each failure prints what pgrep
+# said, which the helper throws away.
+live_pgrep() { command pgrep "$@"; }
+LOOK_PAUSE=0.5
+look() { # sets out and rc
+  local i
+  for i in 1 2 3 4 5 6; do
+    : > "$T/pgrep.err"; : > "$T/pgrep.rc"
+    out="$(pgrep() { local r; live_pgrep "$@" 2>"$T/pgrep.err"; r=$?; echo "$r" > "$T/pgrep.rc"; return "$r"; }; kosmos_running_lines "$SCRIPT")"; rc=$?
+    [ "$rc" = 2 ] || return 0
+    echo "NOTE  look $i could not tell: pgrep rc=$(cat "$T/pgrep.rc") said: $(tr '\n' ' ' < "$T/pgrep.err")"
+    sleep "$LOOK_PAUSE"
+  done
+}
+
+# The look itself, with pgrep standing in. Two failures then an answer is that answer; failing every time stays 2, with
+# pgrep's words and code printed; a 0 is never looked at again.
+tries() { wc -l < "$T/tries" | tr -d ' '; }
+got="$(LOOK_PAUSE=0; : > "$T/tries"; live_pgrep() { echo x >> "$T/tries"; [ "$(tries)" -gt 2 ] && return 1; echo "Cannot get process list" >&2; return 3; }; look; echo "rc=$rc out=[$out] tries=$(tries)")"
+case "$got" in *"pgrep rc=3 said: Cannot get process list"*"rc=1 out=[] tries=3") ok "a pgrep that fails twice and then answers is looked at again, and its words are printed" ;; *) bad "the second look: $got" ;; esac
+got="$(LOOK_PAUSE=0; : > "$T/tries"; live_pgrep() { echo x >> "$T/tries"; return 3; }; look; echo "rc=$rc tries=$(tries)")"
+case "$got" in *"rc=2 tries=6") ok "CONTROL: a pgrep that always fails is still 2 after six looks" ;; *) bad "an always failing pgrep: $got" ;; esac
+got="$(LOOK_PAUSE=0; : > "$T/tries"; live_pgrep() { echo x >> "$T/tries"; echo "4242 bash $SCRIPT"; }; look; echo "rc=$rc out=[$out] tries=$(tries)")"
+[ "$got" = "rc=0 out=[4242 bash $SCRIPT] tries=1" ] && ok "CONTROL: an answer is taken at the first look" || bad "a first answer: $got"
+
 # Nothing running yet.
-out="$(kosmos_running_lines "$SCRIPT")"; rc=$?
+look
 [ "$rc" = 1 ] && [ -z "$out" ] && ok "nothing running: returns 1 with no lines" || bad "nothing running: rc=$rc out=$out"
 
 # The shapes that are NOT runs.
@@ -43,7 +70,7 @@ loose="$(pgrep -f "${NAME//./\\.}" | tr '\n' ' ')"
 cmiss=0; for p in $WAITER $PARENT $MENTION $CSTRING; do case " $loose " in *" $p "*) : ;; *) cmiss=1; bad "control: unanchored pgrep did not match pid $p, so the test cannot show the bug" ;; esac; done
 [ "$cmiss" = 0 ] && ok "CONTROL: an unanchored pgrep -f matches the waiter, its sh -c parent, the mention and the -c string"
 
-out="$(kosmos_running_lines "$SCRIPT")"; rc=$?
+look
 [ "$rc" = 1 ] && ok "a queued waiter, its sh -c parent, a mention and a -c string are NOT runs (rc 1)" || bad "non-runs matched: rc=$rc pids=$(pids_of "$out") (waiter $WAITER, parent $PARENT, mention $MENTION, -c $CSTRING)"
 
 # The shapes that ARE runs: relative and absolute script paths, bash and an absolute interpreter.
@@ -52,7 +79,7 @@ start /bin/bash "$T/$SCRIPT"; ABS=$!
 ( cd "$T" && start bash -x "$SCRIPT"; echo "$PIDS" > "$T/opt.pid" ); OPT=$(awk '{print $NF}' "$T/opt.pid"); PIDS="$PIDS $OPT"
 ( cd "$T" && start bash -o pipefail "$SCRIPT"; echo "$PIDS" > "$T/optv.pid" ); OPTV=$(awk '{print $NF}' "$T/optv.pid"); PIDS="$PIDS $OPTV"
 settle $REL $ABS $OPT $OPTV
-out="$(kosmos_running_lines "$SCRIPT")"; rc=$?
+look
 got="$(pids_of "$out")"
 [ "$rc" = 0 ] && ok "a real run is found (rc 0)" || bad "real runs not found: rc=$rc"
 case " $got " in *" $REL "*) ok "bash tools/<script> (relative, as release.sh starts it) is a run" ;; *) bad "relative run $REL missing from: $got" ;; esac
