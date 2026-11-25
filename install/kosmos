@@ -4699,8 +4699,9 @@ cmd_file_notices() {
 # when something arrived or (kosmos#8634) your own last report was a wait nothing has ended, nothing otherwise, always
 # exits 0, with a 1 s cap. Run by hand, it shows the same window your newest startup had, without the wait reminder.
 # kosmos#9049: --hook --wait-only is what the hook runs at a SessionStart that CONTINUES a conversation after its
-# SessionEnd (a /clear, or a resume after a quit): only the reminder of your own last wait, worded for a session that
-# ended, never the digest (that session already saw it). Same contract as --hook: JSON or nothing, exit 0, 1 s cap.
+# SessionEnd (a /clear, or a resume after a quit): only the reminder of your own last wait, never the digest (that
+# session already saw it). Same contract as --hook (exit 0, 1 s cap), printing the hook JSON, or {"pending":true} when
+# the board has not yet heard the session end that would set the wait aside (the hook then asks once more), or nothing.
 cmd_away() {
   local _hook=0 _waitonly=0
   while [ $# -gt 0 ]; do
@@ -4723,7 +4724,7 @@ cmd_away() {
   local _body _rc=0 _code
   if [ "$_hook" = 1 ]; then
     local _ask="as=hook&at=startup"
-    [ "$_waitonly" = 1 ] && _ask="as=hook&wait=only"
+    [ "$_waitonly" = 1 ] && _ask="as=waithook"
     _body=$(_KOSMOS_CURL_ONCE=1 kosmos_curl "$_bt" "$_tok" -sS -m 1 -w $'\n%{http_code}' "$URL/api/away?${_ask}&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
     [ "$_rc" -eq 0 ] || exit 0
     _code="${_body##*$'\n'}"
@@ -4731,6 +4732,7 @@ cmd_away() {
     [ "$_code" = 200 ] || exit 0
     case "$_body" in
       '{"hookSpecificOutput":'*) printf '%s\n' "$_body" ;;
+      '{"pending":true}') [ "$_waitonly" = 1 ] && printf '%s\n' "$_body" ;;   # kosmos#9049: the hook asks once more
     esac
     exit 0
   fi
@@ -6421,7 +6423,7 @@ if [ "$_kosmos_help" = 1 ]; then
       printf 'Usage: kosmos agents   (list the terminal sessions on this computer, as Kosmos'"'"'s own tmux sees them; every agent: kosmos agent list)\n'
       exit 0 ;;
     away)
-      printf 'Usage: kosmos away [--hook [--wait-only]]   (what reached you while you were not running: room posts to you, messages from other agents and from the person, as counts and post ids, for the window your newest startup had; nothing is cleared. --hook: what Kosmos'"'"'s own hook runs at startup)\n'
+      printf 'Usage: kosmos away [--hook [--wait-only]]   (what reached you while you were not running: room posts to you, messages from other agents and from the person, as counts and post ids, for the window your newest startup had; nothing is cleared. --hook: what Kosmos'"'"'s own hook runs at startup; --wait-only with it: what that hook runs at a /clear or a resume, the reminder of your own wait alone)\n'
       exit 0 ;;
     file-notices)
       # kosmos#7989: not with the read-only group either. Run bare, it takes (clears) your notices.

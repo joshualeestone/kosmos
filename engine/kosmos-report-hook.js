@@ -23,7 +23,9 @@
  * The mapping (verbatim from the bash hook, which verified it against the hooks
  * docs and this fleet's production hooks):
  *   SessionStart      -> started, but ONLY when `source` is `startup` (#1058):
- *                        a compaction or resume must not clear a waiting state.
+ *                        a compaction or resume must not clear a waiting state. At `clear` and
+ *                        `resume` it reports nothing and prints only the reminder of the agent's
+ *                        own wait that the SessionEnd before it set aside, if any (kosmos#9049).
  *   UserPromptSubmit  -> working  "answering a prompt"
  *   PreToolUse        -> working  "running <tool>"  (throttled heartbeat, 60s)
  *   PermissionRequest -> needs_you "asking permission to use <tool>[: <cmd>]",
@@ -598,6 +600,7 @@ async function takeFileNotices(ackFile, io) {
 /** kosmos#8548: GET /api/away?as=hook, after a recorded `started` (see main): what could not reach this agent since the
  *  board last heard from it. Returns the SessionStart hook JSON to print, or ''. Never throws; every failure is silent. */
 const AWAY_TIMEOUT_MS = 1000;   // the CLI's cap for --hook
+const WAIT_RETRY_MS = 800;      // kosmos#9049: the pause before asking again about a `pending` wait, as the Mac hook's
 async function takeAway(io) {
   const o = io || {};
   const headers = {};
@@ -611,12 +614,14 @@ async function takeAway(io) {
   const timer = setTimeout(() => ctl.abort(), o.timeoutMs || AWAY_TIMEOUT_MS);
   try {
     // kosmos#9049: waitOnly asks for the reminder of the agent's own wait alone (a /clear or a resume, see main).
-    const ask = o.waitOnly === true ? '/api/away?as=hook&wait=only&from_pane=' : '/api/away?as=hook&from_pane=';
+    const ask = o.waitOnly === true ? '/api/away?as=waithook&from_pane=' : '/api/away?as=hook&from_pane=';
     const res = await doFetch(o.url + ask, { method: 'GET', headers, signal: ctl.signal, redirect: 'manual' });
     if (!res) return '';
     let t = '';
     try { t = String(await res.text()); } catch { return ''; }   // read on every answer, so the response is finished
-    if (res.status !== 200 || !t.startsWith('{"hookSpecificOutput":')) return '';
+    if (res.status !== 200) return '';
+    if (o.waitOnly === true && t.replace(/\n$/, '') === '{"pending":true}') return 'pending';   // kosmos#9049: ask once more
+    if (!t.startsWith('{"hookSpecificOutput":')) return '';
     return t;
   } catch {
     return '';
@@ -735,16 +740,23 @@ async function main(io) {
   /* kosmos#9049: a /clear, or a resume after a quit, continues the conversation after a SessionEnd that recorded
      `stopped` over the agent's own wait; reportFor sends nothing for it (#1058), so #8634's reminder below never ran.
      Ask for that reminder alone (no digest: this conversation saw what arrived). Only with an agent token, as below.
-     The board answers it only when a `stopped` follows the wait, so a resume after a crash (no SessionEnd, the wait
-     still shown) gets nothing. */
+     The board answers it only when the newest session event after the wait is a `stopped`, so a resume after a crash
+     (no SessionEnd, the wait still shown) gets nothing. */
   if (!report && event === 'SessionStart' && ['clear', 'resume'].includes(field(evt, 'source')) && agentToken(env)) {
     try {
       const c0 = connection();
       const ap = await proven(c0, o.awayTimeoutMs || AWAY_TIMEOUT_MS);
       if (ap.ok && ap.leftMs > 0) {
-        const json = await takeAway({ url: c0.url, boardToken: c0.boardToken, agentToken: c0.agentToken, world: c0.world,
+        const ask = () => takeAway({ url: c0.url, boardToken: c0.boardToken, agentToken: c0.agentToken, world: c0.world,
           fetchImpl: o.fetchImpl, timeoutMs: ap.leftMs, waitOnly: true });
-        if (json) stdout(json.replace(/\n$/, '') + '\n');
+        let json = await ask();
+        /* `pending`: a wait with no session event after it yet. This hook awaits its own SessionEnd send, but whether
+           Claude Code waits for that hook before the next SessionStart is not measured, so ask once more after a pause. */
+        if (json === 'pending') {
+          await new Promise((r) => setTimeout(r, o.waitRetryMs === undefined ? WAIT_RETRY_MS : o.waitRetryMs));
+          json = await ask();
+        }
+        if (json && json !== 'pending') stdout(json.replace(/\n$/, '') + '\n');
       }
     } catch { /* fail-safe: a reminder is never worth breaking an agent */ }
     return 0;

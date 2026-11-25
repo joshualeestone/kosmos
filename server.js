@@ -19890,7 +19890,8 @@ const server = http.createServer(async (req, res) => {
        otherwise it is the window that startup had. `as=hook` answers the SessionStart hook JSON or an empty body, on
        every failure too; `as=text` the lines a person reads; otherwise JSON. Nothing is cleared. kosmos#8634: on the
        startup path the hook JSON also says when the agent's own last report was a wait (needs_you or blocked) that
-       nothing has ended since, and the JSON form carries it as `wait`. */
+       nothing has ended since, and the JSON form carries it as `wait`. kosmos#9049: `as=waithook` (and `wait=only` by
+       hand) answers only that wait, for a /clear or a resume after a quit; see the branch below. */
     req.resume();
     let as = null;
     let fromPane = null;
@@ -19901,10 +19902,10 @@ const server = http.createServer(async (req, res) => {
       as = q.get('as');
       fromPane = q.get('from_pane');
       startup = q.get('at') === 'startup';
-      waitOnly = q.get('wait') === 'only';
+      waitOnly = q.get('wait') === 'only' || q.get('as') === 'waithook';
     } catch { as = null; fromPane = null; startup = false; waitOnly = false; }
     const fail = (status, msg) => {
-      if (as === 'hook') sendText(res, status, '');
+      if (as === 'hook' || as === 'waithook') sendText(res, status, '');
       else if (as === 'text') sendText(res, status, msg + '\n');
       else sendJson(res, status, { ok: false, because: msg });
     };
@@ -19924,20 +19925,24 @@ const server = http.createServer(async (req, res) => {
       /* The long read serves every form. By hand the window needs the report before the newest `started`, which a busy
          session can push past the short tail; kosmos#8634: a standing wait can sit a day back under automatic reports. */
       const hist = selfreport.history(name, selfreport.HISTORY_MAX_BYTES);
-      /* kosmos#9049: `wait=only` is the hook's ask at a SessionStart that continues a conversation after its SessionEnd
-         (a /clear, or a resume after a quit). SessionEnd recorded `stopped` over the agent's own wait, and no `started`
-         follows, so #8634's reminder (asked only at a real startup) never came. Only the wait: the session already saw
-         what arrived, so the digest is not replayed. lastWait skips automatic rows, `stopped` among them. */
+      /* kosmos#9049: the hooks' ask at a SessionStart that continues a conversation after its SessionEnd (a /clear, or
+         a resume after a quit), as `as=waithook`; `wait=only` gives the same answer as JSON or text by hand. SessionEnd
+         recorded `stopped` over the agent's own wait and no `started` follows, so #8634's reminder (asked only at a real
+         startup) never came. Only the wait: the session already saw what arrived, so the digest is not replayed.
+         lastWait skips automatic rows, `stopped` among them. The reminder is given only when the newest session event
+         after the wait is a `stopped`; with none yet the answer is `pending` (the /clear's own `stopped`, sent in the
+         background, may not have landed; or a crash left the wait shown), which the hooks ask once more about. A
+         `started` after it means a startup already reminded the agent. `as=waithook` is new, so a board older than this
+         answers it with plain JSON, which the hooks drop, never the startup digest. */
       if (waitOnly) {
         let w = null;
         try { w = away.lastWait(hist, { nowMs: now }); } catch { w = null; }
-        /* Only a wait a session END set aside (a `stopped` after it) and that no startup has reminded of yet (no `started`
-           after it): a resume after a crash sends no SessionEnd, so its wait is still on the board, and a wait already
-           reminded at a startup would only be repeated at every later /clear. */
-        if (w && !away.endedAfter(hist, w.atMs)) w = null;
-        if (as === 'hook') { sendText(res, 200, away.hookJson(null, w, { ended: true })); return; }
+        const after = w ? away.sessionAfter(hist, w.atMs) : null;
+        const pending = !!w && after === null;
+        if (after !== 'stopped') w = null;
+        if (as === 'waithook') { sendText(res, 200, w ? away.hookJson(null, w, { ended: true }) : pending ? '{"pending":true}' : ''); return; }
         if (as === 'text') { sendText(res, 200, (away.waitText(w, { ended: true }) || 'Kosmos has no wait of yours to remind you of: your last report was not a wait, or it is still shown, or you were already reminded of it at a startup.') + '\n'); return; }
-        sendJson(res, 200, { ok: true, wait: w });
+        sendJson(res, 200, { ok: true, wait: w, ...(pending ? { pending: true } : {}) });
         return;
       }
       const win = away.windowFrom(hist, { startup, nowMs: now });

@@ -102,11 +102,16 @@ test('--hook says nothing and exits 0 on a refusal, other words, an empty answer
 test('--hook --wait-only asks for the wait alone and prints only the JSON on a 200, exit 0', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['away', '--hook', '--wait-only'], envFor(port));
   assert.equal(out.code, 0);
-  assert.match(seen[0].url, /^\/api\/away\?as=hook&wait=only&from_pane=%257$/);
+  assert.match(seen[0].url, /^\/api\/away\?as=waithook&from_pane=%257$/);
   assert.doesNotMatch(seen[0].url, /at=startup/);
   assert.equal(out.stdout, HOOKJSON + '\n');
   assert.equal(out.stderr, '');
 }, { status: 200, text: HOOKJSON }));
+
+test('--hook --wait-only passes the board\'s pending answer through to the hook; plain --hook never does', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
+  assert.equal((await runCli(['away', '--hook', '--wait-only'], envFor(port))).stdout, '{"pending":true}\n');
+  assert.equal((await runCli(['away', '--hook'], envFor(port))).stdout, '');
+}, { status: 200, text: '{"pending":true}' }));
 
 test('--wait-only without --hook is a usage error and never asks the board', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   assert.equal((await runCli(['away', '--wait-only'], envFor(port))).code, 2);
