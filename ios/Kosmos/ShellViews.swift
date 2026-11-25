@@ -61,10 +61,16 @@ final class ShellState: ObservableObject {
     func loaded() { failure = nil; retrying = false; autoRetried = false }
 }
 
-// Kosmos navy, the board's web pages' own background (--bg in coordinator signin.html). Not the launch screen,
-// which is the native screens' ground (kosmos#7945).
+// kosmos#9101: the board's own page ground (web/index.html --bg: #faf9f7 light, #1c1c1e in the dark scheme), painted
+// behind the web view, the tab bar and the Close bar so the space around a page is the page's colour, with no flash of
+// another while it loads. It was Kosmos navy (#17233D), which matched neither scheme; Josh, 11-25 16:49: no blue
+// background anywhere in the app. Navy remains only on the board's own Kosmos Plus section (body.plus-active).
 extension UIColor {
-    static let kosmosNavy = UIColor(red: 0x17 / 255.0, green: 0x23 / 255.0, blue: 0x3D / 255.0, alpha: 1)
+    static let boardGround = UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor(red: 0x1C / 255.0, green: 0x1C / 255.0, blue: 0x1E / 255.0, alpha: 1)
+            : UIColor(red: 0xFA / 255.0, green: 0xF9 / 255.0, blue: 0xF7 / 255.0, alpha: 1)
+    }
 }
 
 // Shown in place of a blank WebView when a page cannot load.

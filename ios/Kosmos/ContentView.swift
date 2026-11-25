@@ -568,14 +568,14 @@ struct ContentView: View {
                         .padding(.horizontal, 16).frame(minHeight: 44)
                         .contentShape(Rectangle())   // the whole 44pt row is the target, not only the words
                 }
-                .foregroundColor(.white)
+                .foregroundColor(Palette.primary)   // kosmos#9101: on the board's ground, light or dark (was white on navy)
                 .accessibilityLabel("Close this page")
                 Spacer()
             }
-            .background(Color(UIColor.kosmosNavy).ignoresSafeArea(edges: .top))
+            .background(Color(UIColor.boardGround).ignoresSafeArea(edges: .top))
             webBoard(.today, active: true)
         }
-        .background(Color(UIColor.kosmosNavy).ignoresSafeArea())
+        .background(Color(UIColor.boardGround).ignoresSafeArea())
         // Review 1: VoiceOver stays on the page, not the tabs drawn underneath it.
         .accessibilityAddTraits(.isModal)
     }
@@ -709,8 +709,8 @@ struct ContentView: View {
 
     private func webBoard(_ which: Tab, active: Bool? = nil) -> some View {
         ZStack {
-            // Navy behind the tab bar too, so the space below the page is the page's own colour, not a white band.
-            Color(UIColor.kosmosNavy).ignoresSafeArea()
+            // The board's ground behind the tab bar too, so the space below the page is the page's own colour, not a band.
+            Color(UIColor.boardGround).ignoresSafeArea()
             // Under the status bar as before; the tab bar keeps its own space below. How each page keeps clear
             // of the notch is set in makeWebView (safe areas). The keyboard is left to the web view, as before.
             WebView(
@@ -1051,13 +1051,13 @@ struct WebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UIView {
         let host = UIView()
-        host.backgroundColor = .kosmosNavy
+        host.backgroundColor = .boardGround
         if web.webView == nil { web.adopt(makeWebView()) }
         if active, let webView = web.webView { show(webView, in: host) }
         return host
     }
 
-    // The web view moves into the tab showing; the tab it left keeps an empty navy host.
+    // The web view moves into the tab showing; the tab it left keeps an empty host on the board's ground.
     private func show(_ webView: WKWebView, in host: UIView) {
         guard webView.superview !== host else { return }
         webView.removeFromSuperview()
@@ -1081,9 +1081,9 @@ struct WebView: UIViewRepresentable {
         webView.allowsBackForwardNavigationGestures = true
         webView.navigationDelegate = web.coordinator
         webView.uiDelegate = web.coordinator
-        // Navy until the first page paints, instead of a white flash.
+        // The board's ground until the first page paints, so there is no flash of another colour.
         webView.isOpaque = false
-        webView.backgroundColor = .kosmosNavy
+        webView.backgroundColor = .boardGround
         // Safe areas: the scroll view keeps WebKit's default inset behaviour, as in
         // Safari. A page that opts in with viewport-fit=cover (sign-in, the gate)
         // runs under the notch and pads itself with env(safe-area-inset-*); a page
