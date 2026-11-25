@@ -13,7 +13,8 @@
  *   - anything naming a protected place (.claude, a Kosmos account folder .claude-<label>, .claude.json, .git). Not
  *     live today: measured, Claude Code 2.1.292 in bypass mode does not prompt there. It is future-proofing, so the hook
  *     never answers for that guard if Claude adds it (#5406's rule; #3417 left it as it was); judged by the file
- *     path or, for a shell command, its text;
+ *     path or, for a shell command, its text. Except (kosmos#9001 part 1b, bashLeftToPerson below): a shell command
+ *     whose only protected names are plan files under .claude/plans is answered, unless it deletes or moves something;
  *   - input it cannot read: a hook that guesses is worse than one that steps aside.
  * ExitPlanMode is allowed: Kosmos runs agents unattended with no plan screen, so a plan waiting on approval only stalls.
  * Always exits 0: a failed hook must never block the agent harder than no hook.
@@ -34,40 +35,37 @@ function touchesProtected(input, depth = 0) {
   return false;
 }
 
-/* kosmos#9001 part 1b: a shell command that only MENTIONS a protected place is answered; one that would delete, move or
-   write one is not. Josh ruled on 10-22 that Claude Code's own safety prompts are approved, and asked again on 11-24
-   21:30 ("These should automatically be approved and if not I need an approve button"). But 8 of the 9 real ones on
-   the fleet's Mac (11-09 to 11-24) were left unanswered because the command's TEXT named .claude or .git: mostly a plan
-   file under .claude/plans, read or edited by a heredoc. Each then reached his phone and declined itself. Splinter
-   narrowed it (21:34): mentioning, reading or grepping is approved; deleting or moving such a place still waits for a
-   person. Writing into one with the shell (a redirect, tee, cp...) waits too (the #5406 rows below), except into a plan
-   file under .claude/plans, which is a document. Edit, Write and the other file tools keep #5406's rule unchanged.
-   A TEXT HEURISTIC, as touchesProtected is: a variable or a script that builds the path is not seen (a command that
-   names no protected place at all was answered before this change too). It over-catches on purpose: a delete
-   ANYWHERE in a command that names a protected place anywhere waits, so the person sees the prompt as before. */
-const DELETES_OR_MOVES = new RegExp([
-  /(?:^|[\s;&|()`'"\\/])(?:rm|rmdir|unlink|shred|trash|mv|del|erase|rd|ren|ri|mi)(?=\s|$)/.source,   // and PowerShell's aliases
-  /(?:Remove-Item|Move-Item|Rename-Item|Clear-Content)\b/.source,
-  /\bfind\b[^\n;&|]*\s-(?:delete|exec(?:dir)?\s+\S*?(?:rm|mv|rmdir|unlink)\b)/.source,
-  /\bgit\b[^\n;&|]*\s(?:clean|rm|mv)\b/.source,
-].join('|'), 'i');
-const PLAN_FILE = /(?<![A-Za-z0-9_.-])\.claude[\\/]plans[\\/]/i;
-// A shell write whose target names a protected place: a redirect or tee into it, or a copying, linking or in-place
-// editing command on the same line as it. A plan file (.claude/plans/...) is not counted.
-function shellWritesProtected(command) {
-  for (const line of command.split(/[\n;&|]+/)) {
-    const targets = [...line.matchAll(/(?:>{1,2}|\btee(?:\s+-a)?)\s*['"]?([^\s;&|'"]+)/gi)].map((m) => m[1]);
-    if (targets.some((t) => PROTECTED.test(t) && !PLAN_FILE.test(t))) return true;
-    if (/\b(?:cp|ln|install|rsync|ditto|truncate|chmod|chown)\b|\b(?:sed|perl)\s+(?:-\w*\s+)*-i/i.test(line)) {
-      const named = line.replace(new RegExp(PLAN_FILE.source + '\\S*', 'gi'), ' ');
-      if (PROTECTED.test(named)) return true;
-    }
+/* kosmos#9001 part 1b: a shell command whose only protected names are PLAN FILES (.claude/plans/...) is answered, unless
+   it deletes or moves something. Josh ruled on 10-22 that Claude Code's own safety prompts are approved, and asked again
+   on 11-24 21:30 ("These should automatically be approved and if not I need an approve button"). But the rule above left
+   any command naming a protected place to the person, and 8 of the 9 real safety prompts on the fleet's Mac (11-09 to
+   11-24) did, so each reached his phone and declined itself. Six of those named only plan files (a heredoc or a
+   redirect editing .claude/plans/<branch>.md, the agents' own planning documents); this answers those six shapes.
+   Splinter narrowed it at 21:34: deleting or moving still waits for a person.
+   Narrower than "anything that only mentions .claude or .git" on purpose: review round 1 found a list of dangerous
+   commands is leaky (dd of=, >|, quoted paths, interpreter one-liners, git reset --hard, PowerShell cmdlets all slipped
+   through it), so any OTHER protected name keeps #5406's rule. A plan path holding ".." is not a plan path.
+   A TEXT HEURISTIC, as touchesProtected is: a script file, or a path built so no protected name appears, is not seen
+   (and such a command was answered before this change too). */
+const PLAN_MENTION = /(?<![A-Za-z0-9_.-])\.claude[\\/]plans[\\/][^\s'"`;&|<>()]*/gi;
+const DOTDOT = /(?:^|[\\/])\.\.(?:[\\/]|$)/;
+const DELETES_OR_MOVES = [
+  /(?:^|[\s;&|()`'"\\/])(?:rm|rmdir|unlink|shred|trash|mv)(?=\s|$)/i,
+  /\b(?:Remove-Item|Move-Item|Rename-Item)\b/i,
+  /\bfind\b[^;&|]*?\s-(?:delete|exec)/i,
+  /\bgit\b[^;&|]*?\s(?:clean|rm|mv)\b/i,
+  /\b(?:rmtree|rmSync|unlinkSync|rmdirSync|renameSync)\b|\bos\.(?:remove|unlink|rmdir|rename|replace)\b|\bshutil\.move\b/i,
+];
+const SEGMENT_MAX = 8000;   // a longer piece is left to the person: these patterns stay linear-ish on what they read
+function bashLeftToPerson(command) {
+  if (!PROTECTED.test(command)) return false;   // names no protected place: answered, as before this change
+  const rest = command.replace(PLAN_MENTION, (m) => (DOTDOT.test(m) ? m : ' '));
+  if (PROTECTED.test(rest)) return true;        // another protected name than a plan file: #5406's rule, as before
+  for (const piece of command.split(/[\n;&|]+/)) {
+    if (piece.length > SEGMENT_MAX) return true;
+    if (DELETES_OR_MOVES.some((r) => r.test(piece))) return true;
   }
   return false;
-}
-function bashLeftToPerson(command) {
-  if (!PROTECTED.test(command)) return false;
-  return DELETES_OR_MOVES.test(command) || shellWritesProtected(command);
 }
 
 function decide(input) {

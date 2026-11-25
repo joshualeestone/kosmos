@@ -42,8 +42,8 @@ test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 const d = (s) => s.replace(/PID\(/g, '$$$$(').replace(/ZF\(/g, '${(');
 
 // By default each call is a Kosmos agent's (the allow hook is present) whose command also deletes a file under .git,
-// so the allow hook steps aside (kosmos#9001 part 1b: it answers a command that only MENTIONS a protected place, and
-// leaves one that deletes, moves or writes one to the person): the one case where Claude Code's prompt reaches the
+// so the allow hook steps aside (kosmos#9001 part 1b: it answers a command whose only protected names are plan files,
+// unless it deletes or moves something): the one case where Claude Code's prompt reaches the
 // person, and so the one case the guard judges. The allow-hook test below takes each of those away in turn. The line is
 // added after the command's own last line, so a heredoc or a comment above it reads as before.
 const DELETES_PROTECTED = '\nrm -f /tmp/w/.git/index.lock';
@@ -128,11 +128,12 @@ test('only where the prompt would reach the person: the allow hook answers, it r
     assert.equal(run(plain).code, 2, 'premise: a Kosmos agent, its command deleting under .git: refused');
     assert.equal(run(plain, { protectedName: false }).code, 0, 'the allow hook answers: it runs, as today');
     assert.equal(run('x=a; echo "ZF(f)x}"', { protectedName: false }).code, 0, 'zsh, the allow hook answers');
-    // kosmos#9001 part 1b: a command that only MENTIONS a protected place is now answered by the allow hook, so it
-    // runs (Baron's 11-24 command was this shape: a heredoc editing a plan under .claude/plans).
+    // kosmos#9001 part 1b: a command whose only protected names are plan files under .claude/plans is now answered by
+    // the allow hook, so it runs (Baron's 11-24 command was this shape: a heredoc editing a plan).
     const plan = "python3 - /tmp/w/.claude/plans/x.md <<'PY'\nx = page.PID('a')\nPY";
     assert.equal(run(plan, { protectedName: false }).code, 0, '.claude/plans only mentioned: the allow hook answers, it runs');
-    assert.equal(run('for f in ZF(f)x}; do git -C /tmp/w/.git log; done', { protectedName: false }).code, 0, '.git only read: runs');
+    // Any other protected name keeps #5406's rule (only plan files under .claude/plans are answered), so: refused.
+    assert.equal(run('for f in ZF(f)x}; do git -C /tmp/w/.git log; done', { protectedName: false }).code, 2, '.git named: refused');
     // One that writes into one, or deletes one, is still left to the person, so the guard refuses it.
     assert.equal(run('echo ZF(f)x} > ~/.claude.json.bak', { protectedName: false }).code, 2, 'a write into .claude.json*: refused');
     assert.equal(run("cat <<'PY'\nx = page.PID('a')\nPY\nmv /tmp/w/.claude /tmp/w/old", { protectedName: false }).code, 2, 'a move of .claude: refused');

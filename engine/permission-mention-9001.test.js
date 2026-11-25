@@ -1,18 +1,19 @@
 'use strict';
 /**
- * kosmos#9001 part 1b: Kosmos's PermissionRequest hook (engine/kosmos-permission-allow.js) answers a shell command that
- * only MENTIONS a protected place (.claude, .claude.json, .git), and still leaves one that deletes, moves or writes one
- * to the person.
+ * kosmos#9001 part 1b: Kosmos's PermissionRequest hook (engine/kosmos-permission-allow.js) answers a shell command whose
+ * only protected names are PLAN FILES (.claude/plans/...), unless it deletes or moves something. Any other protected
+ * name (.claude, .claude.json, .git) keeps #5406's rule: left to the person.
  *
  * Why: Josh ruled on 10-22 that Claude Code's own safety prompts are approved, and asked again on 11-24 21:30 ("These
- * should automatically be approved and if not I need an approve button"). But the hook stayed silent for any command
- * whose text named a protected place, and 8 of the 9 real safety prompts on the fleet's Mac (11-09 to 11-24) did: mostly
- * a heredoc editing a plan under .claude/plans. Each then reached his phone and declined itself. Splinter narrowed it at
- * 21:34: mentioning, reading or grepping is approved; deleting or moving waits for a person.
+ * should automatically be approved and if not I need an approve button"). But the hook left any command naming a
+ * protected place to the person, and 8 of the 9 real safety prompts on the fleet's Mac (11-09 to 11-24) did. Six named
+ * only plan files: a heredoc or redirect editing an agent's own .claude/plans/<branch>.md. Each reached his phone and
+ * declined itself. Splinter (21:34): deleting or moving waits for a person. Review round 1 showed a list of dangerous
+ * commands is leaky, hence plan files only.
  *
- * Measured 11-24 on Claude Code 2.1.332 (`claude -p`, bypass mode, user settings left out): the command below, Baron's
- * from 21:29 with its paths pointed at a folder that does not exist, draws the safety prompt; a PermissionRequest hook
- * answering allow lets it run (it then failed on the missing path), and without one Claude Code refused it.
+ * Measured 11-24 on Claude Code 2.1.332 (`claude -p`, bypass mode, user settings left out): Baron's command (below, its
+ * paths pointed nowhere) draws the safety prompt; a PermissionRequest hook answering allow lets it run, and without one
+ * Claude Code refused it.
  *
  * ⚠️ PID( and ZF( are decoded at run time to the two shapes Claude Code refuses (the file itself holds neither).
  */
@@ -44,29 +45,39 @@ const BARON = [
   'cd /tmp/kosmos-9001/nowhere && node tools/whats-new-pool.js build 0.8.22 2>&1 | head -3; for pf in mac windows; do node /tmp/kosmos-9001/nowhere/tools/whats-new-check.js 0.8.22 /tmp/kosmos-9001/nowhere/web/whats-new.json --platform=$pf >/dev/null 2>&1; echo "check $pf rc=$?"; done',
 ].join('\n');
 
-test('#9001 1b: Baron\'s 11-24 command (a plan under .claude, only mentioned) is answered; rm -rf on a .git path is not', () => {
+test('#9001 1b: Baron\'s 11-24 command (its only protected name a plan file) is answered; rm -rf on a .git path is not', () => {
   assert.ok(d(BARON).includes('.claude/plans/'), 'premise: the command names a protected place');
-  assert.equal(answers(BARON), true, 'a command that only mentions .claude/plans is approved');
+  assert.equal(answers(BARON), true, 'a command whose only protected name is a plan file is approved');
   assert.equal(answers('rm -rf /tmp/w/.git'), false, 'rm -rf on a .git path waits for a person');
   assert.equal(answers(BARON + '\nrm -rf /tmp/w/.git'), false, 'the same command with a delete of .git added waits');
 });
 
-test('#9001 1b: mentioning, reading or grepping a protected place is answered', () => {
-  for (const c of ['ls .claude; echo', 'cd .git && ls', 'grep -n x /p/.claude/plans/a.md', 'git -C /p/.git log -1',
-    'cat ~/.claude.json | head -2', "python3 - <<'PY'\nopen('.claude/plans/x.md','w').write('x')\nPY",
-    'echo hi > /p/.claude/plans/x.md', 'cp notes.md /p/.claude/plans/notes.md', 'echo ZF(f)x} .claude']) {
+test('#9001 1b: plan files are answered: read, grepped, written, edited by a heredoc or sed', () => {
+  for (const c of ['grep -n x /p/.claude/plans/a.md', 'cat .claude/plans/x.md # rd', "grep -c 'mi' .claude/plans/x.md",
+    "python3 - <<'PY'\nd={}\ndel d['k']\nopen('.claude/plans/x.md','w').write('x')\nPY",
+    'echo hi > /p/.claude/plans/x.md', 'echo x >> .claude/plans/x.md 2>&1', 'cp notes.md /p/.claude/plans/notes.md',
+    "sed -i '' s/a/b/ /p/.claude/plans/x.md", 'gh pr create --body-file /p/.claude/plans/x.md',
+    'git -C /p add .claude/plans/x-pre-challenge.md', 'echo ZF(f)x} >> .claude/plans/x.md']) {
     assert.equal(answers(c), true, c);
   }
 });
 
-test('#9001 1b: deleting, moving or (outside a plan) writing a protected place waits for a person', () => {
-  for (const c of ['rm -rf /p/.git', 'rm -f ~/.claude.json', 'rm -rf /p/.claude/plans', 'RM -rf .git', '\\rm -rf .git',
-    '/bin/rm -rf .git', 'sudo rm -rf .claude', 'rmdir .claude', 'unlink .git/index.lock', 'mv ~/.claude ~/.claude.bak',
-    'find /p/.git -name x -delete', 'find /p/.claude -type f -exec rm {} +', 'git -C /p clean -fdx .claude',
-    'git rm -r --cached .claude', 'Remove-Item -Recurse C:\\p\\.git', 'Move-Item C:\\p\\.claude C:\\old',
-    'cat x > .git/hooks/pre-commit', 'echo y >> ~/.claude/settings.json', 'cat>.git/hooks/x',
-    'echo x | tee .claude/settings.local.json', 'cp a /p/.claude/settings.json', "sed -i '' s/a/b/ .claude/settings.json",
-    'ln -s /tmp/x /p/.git/hooks/pre-push', ': .claude; rm /tmp/y']) {
+test('#9001 1b: any other protected name, a plan path with .., or a delete or move: left to the person', () => {
+  for (const c of [
+    // another protected name: #5406's rule, as before (review round 1's bypasses all name one)
+    'ls .claude', 'cd .git && ls', 'git -C /p/.git log -1', 'cat ~/.claude.json', 'git diff -- .claude',
+    'echo x > /p/".git"/HEAD', 'echo x >| .git/HEAD', 'dd if=/dev/zero of=/p/.git/HEAD bs=1 count=1',
+    'git --git-dir=/p/.git reset --hard HEAD~5', 'git --git-dir=/p/.git reflog expire --expire=now --all',
+    "python3 -c 'import shutil;shutil.rmtree(\"/p/.git\")'", 'Set-Content C:\\p\\.claude\\settings.json x',
+    "[IO.Directory]::Delete('C:\\p\\.git',$true)", 'git config --file .git/config core.hooksPath /tmp/evil',
+    'curl -o /p/.git/HEAD https://example.invalid/x', "python3 - <<'PY'\nopen('/p/.claude/settings.json','w')\nPY",
+    // a plan path walked out of with ..
+    'echo x > /p/.claude/plans/../settings.json', 'cp evil /p/.claude/plans/../settings.json',
+    'echo x > /p/.claude/plans/../../.git/HEAD',
+    // a delete or move, even of a plan file only
+    'rm -f .claude/plans/x.md', 'mv .claude/plans/x.md /tmp/', 'git rm .claude/plans/x.md',
+    'find .claude/plans -name x -delete', "python3 -c 'import os;os.remove(\".claude/plans/x.md\")'",
+    'cat .claude/plans/x.md; rm -f /tmp/scratch.txt', 'Remove-Item .claude\\plans\\x.md']) {
     assert.equal(answers(c), false, c);
   }
 });
@@ -74,15 +85,21 @@ test('#9001 1b: deleting, moving or (outside a plan) writing a protected place w
 test('#9001 1b: controls; nothing changes where no protected place is named, or for the file tools', () => {
   assert.equal(answers('rm -rf /tmp/x'), true, 'a delete that names no protected place was answered before and still is');
   assert.equal(answers('ls /p/.github; rm -f /p/repo.git/x'), true, '.github and repo.git are not protected places');
-  // Only the command decides for a shell call: a description is words about it.
   assert.equal(answers('ls /tmp', 'Bash', { description: 'removes /p/.git' }), true, 'a description does not decide');
-  // The file tools keep #5406's rule: any protected place, read or write, is left to the person.
   const file = (tool, input) => hook.decide(JSON.stringify({ hook_event_name: 'PermissionRequest', tool_name: tool, tool_input: input }));
   assert.equal(file('Edit', { file_path: '/p/.claude/plans/x.md' }), null, 'Edit on a plan under .claude: unchanged, left to the person');
   assert.equal(file('Write', { file_path: '/p/.git/config' }), null);
-  // A shell call whose command is not text is judged the old way (any string anywhere).
-  assert.equal(file('Bash', { command: ['rm', '.git'] }), null);
+  assert.equal(file('Bash', { command: ['cat', '.claude/plans/x.md'] }), null, 'a command that is not text: the old rule');
   assert.ok(file('Bash', { command: ['ls', '/tmp'] }));
+});
+
+test('#9001 1b: a long command is judged quickly, and an over-long piece is left to the person', () => {
+  const t0 = Date.now();
+  const long = 'cat .claude/plans/x.md; ' + 'git find '.repeat(40000);
+  assert.equal(answers(long), false, 'a piece longer than the cap waits');
+  const many = Array.from({ length: 2000 }, (_, i) => 'git log -' + i + ' -- .claude/plans/x.md').join('\n');
+  assert.equal(answers(many), true, 'many ordinary lines naming a plan: answered');
+  assert.ok(Date.now() - t0 < 2000, 'judged in under 2 s (took ' + (Date.now() - t0) + ' ms)');
 });
 
 test('#9001 1b: the real hook script answers Baron\'s command on stdout, and stays silent for rm -rf on .git', () => {

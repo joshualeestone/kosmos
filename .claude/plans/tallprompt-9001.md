@@ -17,16 +17,16 @@ deletes, moves or (outside a plan file) writes one still waits for a person (Spl
   (then failed on the missing path); without it Claude Code refused (`claude -p`, bypass, user settings left out).
 
 ## Built
-- engine/kosmos-permission-allow.js: for Bash (and PowerShell) only the command decides. It is left to the person
-  when it names a protected place AND either deletes or moves (rm, rmdir, unlink, shred, trash, mv and PowerShell's
-  Remove-Item, Move-Item, Rename-Item and aliases; find -delete or -exec rm; git clean, rm, mv), or writes one with the
-  shell (a redirect or tee into it; cp, ln, install, rsync, ditto, truncate, chmod, chown, sed -i, perl -i on a line
-  naming it), a plan file under .claude/plans excepted for writes. File tools keep #5406's rule unchanged.
+- engine/kosmos-permission-allow.js (after review round 1, see below): for Bash and PowerShell only the command
+  decides. It is answered when its only protected names are plan files under .claude/plans (a plan path holding ..
+  does not count) and no piece of it deletes or moves (rm, rmdir, unlink, shred, trash, mv; Remove-Item, Move-Item,
+  Rename-Item; find -delete or -exec; git clean, rm, mv; rmtree, rmSync, os.remove and the like). Any other protected
+  name keeps #5406's rule. A piece over 8,000 characters is left to the person. File tools are unchanged.
 - engine/permission-mention-9001.test.js: Baron's command (shape kept, paths nowhere) approved; rm -rf on .git not;
-  9 mention cases approved, 24 delete/move/write cases not, controls, the real script on stdout. Two mutations
-  (approve everything; the old rule) each turn it red.
-- engine/agentpermission-5406.test.js: three Bash rows that only mention or read a protected place move to the
-  answered list. report-hook-shapeguard-9001.test.js: its "the allow hook steps aside" arm now comes from a command
+  11 plan-file cases approved; 26 left to the person (other protected names including review round 1's bypasses, a
+  plan path with .., deletes and moves even of a plan); controls; a timing case; the real script on stdout.
+- engine/agentpermission-5406.test.js: unchanged (main's version; its rule still holds for every name but a plan
+  file). report-hook-shapeguard-9001.test.js: its "the allow hook steps aside" arm now comes from a command
   that deletes under .git (a description no longer decides); a plan mention now runs.
 - install/kosmos-report-hook.sh: one comment sentence brought up to date.
 
@@ -43,3 +43,19 @@ A text heuristic. A delete through a variable still waits when the name is in th
 it waits, because a delete anywhere plus the name anywhere is enough). A path built so the name never appears, or a
 script file that deletes .git, is not seen; neither was it before this change, when such a command was approved too.
 It is a seatbelt on a prompt Josh asked to have answered, not a sandbox.
+
+## Round 1 (opus, blind): BLOCKERs, and the design narrowed
+- The first rule (approve any mention; refuse a listed delete, move or shell write) was leaky. Approved by it and not
+  wanted: a plan path walked out of with .. (> .claude/plans/../settings.json), quoted paths (> /p/".git"/HEAD), >|,
+  dd of=, curl -o, tar --remove-files, git config --file .git/config, git --git-dir=.git reset --hard, reflog
+  expire, worktree remove, interpreter one-liners (shutil.rmtree, fs.rmSync), PowerShell Set-Content and
+  [IO.Directory]::Delete. And its find/git patterns backtracked: about 35 s on a 450 KB command.
+- Narrowed instead of patched: only plan files are answered, which is what the evidence is (6 of the 9 real ones
+  named only plan files; Baron's 21:29 included). Every probe above is now left to the person (rerun on the
+  reviewer's own probe scripts; the ones still answered name no protected place at all, answered before this change
+  too, or touch only a plan file). The two other real reads (git diff -- .claude, a transcript under .claude-account-f)
+  keep the old rule: a deliberate narrowing of Splinter's "reading is approved".
+- Over-catching from round 1 fixed: del (Python) and the PowerShell short aliases (rd, ri, mi, del) no longer count,
+  and a delete is judged per piece (split on ; & | and newlines), so a plan read plus a /tmp cleanup on another piece
+  still waits only because rm is there (kept: deleting stays a person's call when the command names a plan).
+- Mutations: approve all, the old rule, no .. check: each turns permission-mention-9001 red.
