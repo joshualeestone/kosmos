@@ -77,3 +77,7 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7154958
 - M2 a resumed unanswered wait kept an earlier settled block: waitUnanswered clears it, as wait does.
 - M3 "already on" could name the old version when its read was cut short: it says nothing if cancelled.
 - Measured: run-updates.sh PASS 121/121; typecheck 0 errors.
+
+### Round 6 (sonnet, 01:21 CST): no findings. Loop ends here.
+- The reviewer verified round 5's change and the tokens, the epoch, the 5 s loop and the CI wiring. run-updates.sh PASS 121/121, typecheck 0 errors.
+- Limitation, deliberate (round 5): a press cancelled by leaving the screen is not waited for. The screen comes back to a fresh card, and pressing again joins any install under way.
