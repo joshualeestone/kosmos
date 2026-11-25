@@ -24,9 +24,9 @@ const count = (re) => (PAGE.match(re) || []).length;
 
 test('the grid is written through grid.innerHTML only by setGridHtml (the failed-poll card is pinned below)', () => {
   assert.equal(count(/getElementById\('grid'\)\.innerHTML\s*=/g), 0, 'a direct write to #grid by id bypasses GRID_HTML');
-  assert.equal(count(/\bgrid\.innerHTML\s*=/g), 1, 'a write to grid.innerHTML was added or removed (setGridHtml is the one)');
-  assert.match(PAGE, /function setGridHtml\(html\) \{\s*const grid = document\.getElementById\('grid'\);\s*if \(!grid \|\| html === GRID_HTML\) return;\s*GRID_HTML = html;\s*grid\.innerHTML = html;\s*\}/,
-    'setGridHtml no longer skips markup it already wrote');
+  assert.equal(count(/\bgrid\.innerHTML\s*=/g), 0, 'a write to grid.innerHTML was added (setGridHtml writes through patchBoardHtml, kosmos#9094)');
+  assert.match(PAGE, /function setGridHtml\(html\) \{\s*const grid = document\.getElementById\('grid'\);\s*if \(!grid \|\| html === GRID_HTML\) return;\s*GRID_PARTS = patchBoardHtml\(grid, html, GRID_HTML, GRID_PARTS\);[^\n]*\n\s*GRID_HTML = html;\s*\}/,
+    'setGridHtml no longer skips markup it already wrote, or no longer patches through patchBoardHtml');
 });
 
 test('neither container is written by getElementById', () => {
@@ -44,8 +44,9 @@ test('a failed avatar is retried by itself, with a backoff that levels off at a 
 });
 
 test('the list is written by paintAgentListNow (two memo-guarded writes and the empty board) and the failed-poll card', () => {
-  assert.equal(count(/\balist\.innerHTML\s*=/g), 3, 'a write to #alist was added or removed; decide whether it must clear ALIST_HTML');
-  assert.equal(count(/if \(html !== ALIST_HTML\) \{ ALIST_HTML = html; alist\.innerHTML = html; \}/g), 2, 'a list write is no longer memo-guarded');
+  assert.equal(count(/\balist\.innerHTML\s*=/g), 1, 'a write to #alist was added or removed; decide whether it must clear ALIST_HTML');
+  assert.equal(count(/if \(html !== ALIST_HTML\) \{ ALIST_PARTS = patchBoardHtml\(alist, html, ALIST_HTML, ALIST_PARTS\); ALIST_HTML = html; \}/g), 2,
+    'a list write is no longer memo-guarded, or no longer patches through patchBoardHtml (kosmos#9094)');
   assert.match(PAGE, /ALIST_HTML = null;\s*alist\.innerHTML = boardEmpty\(\);/, 'the empty-board branch writes the list without clearing its memo');
   assert.equal(count(/\balist\.insertAdjacentHTML\(/g), 2, 'an insertAdjacentHTML into #alist was added or removed');
 });
@@ -56,4 +57,12 @@ test('the failed-poll card, which writes both containers by id, clears both memo
   const after = PAGE.slice(at, at + 2500);
   assert.match(after, /box\.innerHTML = boardErr;/, 'the failed-poll loop no longer writes the containers');
   assert.match(after, /GRID_HTML = null;\s*ALIST_HTML = null;/, 'the failed-poll loop writes behind the memos without clearing them');
+});
+
+test('kosmos#9094: patchBoardHtml writes whole whenever the last write is unknown or the pieces do not line up', () => {
+  const at = PAGE.indexOf('function patchBoardHtml(el, html, prevHtml, prevParts) {');
+  assert.ok(at > -1, 'patchBoardHtml moved or was renamed');
+  const body = PAGE.slice(at, PAGE.indexOf('\n}\n', at));
+  assert.match(body, /if \(prevHtml === null \|\| !prevParts \|\| prevParts\.length !== parts\.length \|\| live\.length !== prevParts\.length\) \{\s*el\.replaceChildren\(\.\.\.next\);/,
+    'a memo reset (null) or a container someone else wrote no longer forces a whole write');
 });
