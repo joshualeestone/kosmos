@@ -178,17 +178,22 @@ check(Automation.capLabel(0) == "No limit" && Automation.capLabel(1) == "1 agent
 check(Automation.minutesLabel(15) == "15 minutes" && Automation.percentLabel(85) == "85%", "interval and level labels")
 check(Automation.choices([15, 30], keeping: 45) == [15, 30, 45] && Automation.choices([15, 30], keeping: 30) == [15, 30], "a stored value not on the list still shows as itself")
 
-section("refusals keep the computer's own sentence")
+section("refusals: the computer's own reason for a save, the page's words for a read, never a gate's")
 check(Automation.refusal(status: 403, data: json(#"{"error":"only you can change this, from Settings"}"#), writing: true) == "Only you can change this, from Settings.",
-      "a 403 with a sentence is that sentence, not the sign-in line")
+      "the computer's isViaScreen 403 is its sentence")
+check(Automation.refusal(status: 403, data: json(#"{"error":"Access denied by the gate"}"#), writing: true) == Board.phoneShutOut,
+      "any other 403 is the phone's sign-in, never the gate's words (kosmos#7840)")
 check(Automation.refusal(status: 401, data: json(#"{"error":"x"}"#), writing: false) == Board.phoneShutOut, "a 401 is the phone's sign-in")
 check(Automation.refusal(status: 403, data: json("<html>"), writing: false) == Board.phoneShutOut, "a bare 403 (the gate) is too")
-check(Automation.refusal(status: 400, data: json(#"{"error":"that has to be on or off"}"#), writing: true) == "That has to be on or off.", "the computer's reason")
+check(Automation.refusal(status: 400, data: json(#"{"error":"that has to be on or off"}"#), writing: true) == "That has to be on or off.", "a refused save: the computer's reason")
 check(Automation.refusal(status: 400, data: json(#"{"ok":false,"because":"that is not a valid auto-handoff setting"}"#), writing: true) == "That is not a valid auto-handoff setting.",
       "Auto-save's route says `because`, and that is read too")
+check(Automation.refusal(status: 500, data: json(#"{"error":"that setting could not be read"}"#), writing: false) == Automation.Words.readFailed,
+      "a failed read is the page's read line, not the server's body")
 check(Automation.refusal(status: 500, data: json(""), writing: true) == Automation.Words.saveFailed, "a failed save, in the board's words")
 check(Automation.refusal(status: 500, data: json(""), writing: false) == Automation.Words.readFailed, "a failed read is not called a save")
 check(Automation.refusal(status: 0, data: json(""), writing: false) == "Your computer is not answering. Try again in a moment.", "no answer says so")
+check(repoText("server.js").contains("'" + Automation.viaScreenRefusal + "'"), "the kept 403 sentence is the computer's own (server.js)")
 
 section("the words are the board page's own, and the routes are the computer's")
 let page = repoText("web/index.html")

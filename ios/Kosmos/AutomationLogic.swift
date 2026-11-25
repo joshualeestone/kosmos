@@ -303,14 +303,17 @@ enum Automation {
     // "only you can change this, from Settings" (kept, not hidden behind the sign-in line), then the board's words.
     static func refusal(status: Int, data: Data, writing: Bool) -> String {
         if status == 401 { return Board.phoneShutOut }
-        // The general settings route (Auto-save) words its refusal as `because`; every other route here as `error`.
-        if let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let said = text(o["error"]) ?? text(o["because"]) {
-            return Settings.sentence(said)
-        }
-        if status == 403 { return Board.phoneShutOut }
+        let said = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any]).flatMap { text($0["error"]) ?? text($0["because"]) }
+        // Review 4 (kosmos#7840's rule, BoardLogic): a 403 is the phone's sign-in, never the gate's words. The one 403
+        // kept is the computer's own isViaScreen sentence, which says something the person can act on.
+        if status == 403 { return said == viaScreenRefusal ? Settings.sentence(viaScreenRefusal) : Board.phoneShutOut }
         if status == 0 { return "Your computer is not answering. Try again in a moment." }
-        return writing ? Words.saveFailed : Words.readFailed
+        // Review 4: a failed read is the page's read line whatever the body says (the page never shows a GET's error);
+        // a refused save is the computer's own reason when it gave one (the page shows `error`).
+        if !writing { return Words.readFailed }
+        return said.map(Settings.sentence) ?? Words.saveFailed
     }
+    static let viaScreenRefusal = "only you can change this, from Settings"
 
     // Why a read gave no state. A 200 the box could not read is the page's own sentence where it has one (Community's).
     static func readRefusal(_ box: Box, status: Int, data: Data) -> String {

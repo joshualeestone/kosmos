@@ -48,7 +48,8 @@ struct AutomationView: View {
         // A pull clears each box's last line; coming back to the screen (from the Language list, say) keeps it, so a
         // "Saved. ..." or a refusal is not wiped by the read that follows (review 2).
         .dotsRefresh { await readAll(keepNotes: false) }
-        .task { await readAll(keepNotes: true) }
+        // Review 4: keyed on the computer, so a computer that arrives after the screen opened is read too.
+        .task(id: mac?.url) { await readAll(keepNotes: true) }
         .accessibilityIdentifier("automation-list")
     }
 
@@ -260,7 +261,13 @@ struct AutomationView: View {
         if case .loaded = loads[box] ?? .reading {} else { loads[box] = .reading }
         let (status, data) = await send(box, Automation.readRequest(mac, box))
         // A write landed meanwhile: its answer is newer than this one. A pull cancelled by leaving is not a failure.
-        guard started == (generations[box] ?? 0), !Task.isCancelled else { return }
+        guard started == (generations[box] ?? 0) else { return }
+        if Task.isCancelled {
+            // Review 4: the newest read was cut off (a pull let go, the screen left) after an older one was dropped as
+            // stale, so nothing would paint this box: give it Try again rather than a wait that never ends.
+            if case .reading = loads[box] ?? .reading { loads[box] = .failed(Automation.Words.readFailed) }
+            return
+        }
         if let s = Automation.parse(box, status: status, data: data) {
             loads[box] = .loaded(s)
             if !keepNote { notes[box] = nil }

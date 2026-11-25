@@ -21,7 +21,8 @@ final class AutomationUITests: XCTestCase {
         let autoSave = app.switches["automation-autoSave-on"]
         XCTAssertTrue(autoSave.waitForExistence(timeout: 10), "no Auto-save switch")
         XCTAssertEqual(autoSave.value as? String, "1", "Auto-save does not read the computer's On")
-        XCTAssertTrue(app.staticTexts["Save your agents' progress"].exists, "Auto-save is not in the board's words")
+        // A Toggle's label is part of the switch's own label, not a text of its own (review 4).
+        XCTAssertTrue(autoSave.label.hasPrefix("Save your agents' progress"), "Auto-save is not in the board's words (label: \(autoSave.label))")
         XCTAssertTrue(app.buttons["automation-autoSave-level"].exists || app.otherElements["automation-autoSave-level"].exists,
                       "the level shows while Auto-save is on")
         shot(app, "automation-top")
@@ -39,7 +40,7 @@ final class AutomationUITests: XCTestCase {
         reveal(app, money)
         XCTAssertTrue(money.exists && app.switches["automation-recommender-guard-public"].exists && app.switches["automation-recommender-guard-delete"].exists,
                       "the Recommender's guards are missing while it is on")
-        XCTAssertTrue(app.staticTexts["Act on anything that spends money"].exists, "a guard is not in the board's words")
+        XCTAssertTrue(money.label.hasPrefix("Act on anything that spends money"), "a guard is not in the board's words (label: \(money.label))")
         XCTAssertTrue(app.staticTexts["Never let a recommendation:"].exists, "the guards show without the page's heading, so On reads as permission")
 
         let elsewhere = app.staticTexts["The Prompter's check-ins, the Community's posts and kind of business, and the rest of your computer's settings are in Settings on your computer's board."]
