@@ -4714,6 +4714,7 @@ cmd_away() {
     shift || true
   done
   if [ "$_waitonly" = 1 ] && [ "$_hook" != 1 ]; then say "kosmos away --wait-only goes with --hook."; exit 2; fi
+  if [ "$_afterclear" = 1 ] && [ "$_waitonly" != 1 ]; then say "kosmos away --after-clear goes with --hook --wait-only."; exit 2; fi
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in
     ''|*[!0-9a-f]*) ;;

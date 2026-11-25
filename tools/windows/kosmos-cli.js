@@ -1227,6 +1227,7 @@ async function verbAway(ctx, args) {
     return 2;
   }
   if (waitOnly && !hook) { ctx.err('kosmos away --wait-only goes with --hook.'); return 2; }
+  if (afterClear && !waitOnly) { ctx.err('kosmos away --after-clear goes with --hook --wait-only.'); return 2; }
   const route = '/api/away?as=' + (hook ? (waitOnly ? 'waithook' + (afterClear ? '&src=clear' : '') : 'hook&at=startup') : 'text') + '&from_pane=';
   const r = await ctx.call('GET', route, undefined, hook ? { timeoutMs: 1000 } : undefined);
   if (hook) {

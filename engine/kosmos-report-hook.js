@@ -597,7 +597,8 @@ async function takeFileNotices(ackFile, io) {
   }
 }
 
-/** kosmos#8548: GET /api/away?as=hook, after a recorded `started` (see main): what could not reach this agent since the
+/** kosmos#8548: GET /api/away?as=hook, after a recorded `started` (see main), or (kosmos#9049, waitOnly) as=waithook at a
+ *  /clear or a resume, with no report: what could not reach this agent since the
  *  board last heard from it. Returns the SessionStart hook JSON to print, or ''. Never throws; every failure is silent. */
 const AWAY_TIMEOUT_MS = 1000;   // the CLI's cap for --hook
 const WAIT_RETRY_MS = 800;      // kosmos#9049: the pause before asking again about a `pending` wait (the Mac hook waits the same)

@@ -1,7 +1,7 @@
 'use strict';
 /**
  * kosmos#9049: the Windows report hook, at a SessionStart that continues a conversation after its SessionEnd (a /clear,
- * or a resume after a quit), asks /api/away for the reminder of the agent's own wait alone (wait=only) and prints it.
+ * or a resume after a quit), asks /api/away for the reminder of the agent's own wait alone (as=waithook) and prints it.
  * It sends no report there (#1058), a compaction asks nothing, and a session with no agent token is not asked.
  *
  *   node --test engine/kosmos-report-hook.waitresume-9049.test.js
@@ -86,7 +86,7 @@ test('a compaction asks nothing; a session with no agent token is not asked', as
   }
 });
 
-test('CONTROL: a real startup still asks the full away (no wait=only) after its started', async () => {
+test('CONTROL: a real startup still asks the full away (not as=waithook) after its started', async () => {
   const s = start('startup', TOKEN);
   await hook.main(s.io);
   const away = s.seen.filter((u) => /\/api\/away\?/.test(u));
