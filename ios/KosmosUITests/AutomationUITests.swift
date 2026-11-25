@@ -55,7 +55,9 @@ final class AutomationUITests: XCTestCase {
 
         // kosmos#8959 slice D1d2a: Community's kind of business under its box (between the Daily report and the
         // Recommender), with the sample's one picture the community shut out.
-        let business = app.buttons["automation-community-industry"]
+        // A menu Picker in a List is usually a button; found by identifier whatever SwiftUI makes it.
+        let business = app.buttons["automation-community-industry"].exists ? app.buttons["automation-community-industry"]
+            : app.descendants(matching: .any)["automation-community-industry"]
         reveal(app, business, swipes: 6)
         XCTAssertTrue(business.waitForExistence(timeout: 5), "the kind of business is missing")
         // A menu picker may carry its choice as its label or as its value, so both are read together.

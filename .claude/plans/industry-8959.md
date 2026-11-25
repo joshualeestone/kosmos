@@ -34,3 +34,12 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan 7157275680). St
 - M7 kept: no pure reducer for the view's state rules. The rules are now small and spelled out in readIndustry.
 - M8 a JSON boolean or fraction counted as a picture count: not any more (Number.isInteger).
 - Measured: run-industry.sh PASS 40/40; app and UI-test typecheck 0 errors.
+
+### Round 2 (sonnet, 02:51 CST): no BLOCKER, 2 MAJOR, 4 MINOR
+- MAJOR 1 "Saved, but we could not read it back" outlived a re-read that worked, and a failed re-read kept the old choice under it. Now a read that works clears that note, and the re-read after such a save shows the saved choice until it answers.
+- MAJOR 2 the picker showed the old choice for a beat after a pick (the saving key was set inside the Task), and after a refusal before the re-read. Now the key is set in the Binding's set, before any await; a refusal shows the old choice again only through its re-read.
+- M3 the UI test's picker lookup: a button, else any element with the identifier.
+- M4 a refusal hid the unread sentence: both show (a refusal, then why the setting is unread); a "Saved." line still replaces it.
+- M5 a missing `unreachable` read as 0: now as null, the board cannot tell.
+- M6 a saved key the board's list no longer has showed blank: it stays a choice (as the language picker keeps its own).
+- Measured: run-industry.sh PASS 41/41; app and UI-test typecheck 0 errors.

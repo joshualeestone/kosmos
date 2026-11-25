@@ -62,15 +62,18 @@ enum Industry {
         }
         return State(industry: (o["industry"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                      unread: o["ok"] as? Bool != true || raw == nil, list: list,
-                     unreachable: o["unreachable"] is NSNull ? nil : (o["unreachable"] as? NSNumber)?.intValue ?? 0,
+                     // null or missing: the board cannot tell, so the save promises nothing about shut-out agents.
+                     unreachable: (o["unreachable"] as? NSNumber).flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? nil : $0.intValue },
                      picturesStuck: count("picturesStuck"), picturesUnsendable: count("picturesUnsendable"))
     }
 
     // industryPaint's choices: the unread entry first when unread (never saved), None, then the board's list. With no
     // answer at all, the list the screen last had is kept, as the page keeps sel.__industries.
     static func choices(_ s: State?, kept: [Choice]) -> [Choice] {
-        let list = s?.list.isEmpty == false ? s!.list : kept
+        var list = s?.list.isEmpty == false ? s!.list : kept
         let unread = s?.unread ?? true
+        // A saved key the board's list no longer has is still the one chosen: it stays a choice, so it is not shown blank.
+        if let k = s?.industry, !unread, !list.contains(where: { $0.key == k }) { list.append(Choice(key: k, text: k)) }
         return (unread ? [Choice(key: unknownKey, text: Words.unknown)] : []) + [Choice(key: noneKey, text: Words.none)] + list
     }
     static func selected(_ s: State?) -> String {
