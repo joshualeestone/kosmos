@@ -207,7 +207,14 @@ struct AccountView: View {
             case .failed(let why):
                 Text(why).foregroundColor(Palette.secondary)
             case .loaded(let rows):
-                if rows.isEmpty { Text("No computers on your account yet.").foregroundColor(Palette.secondary) }
+                if rows.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(Account.noComputerHead).foregroundColor(Palette.primary)
+                        Text(Account.noComputerHow).font(.footnote).foregroundColor(Palette.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("account-no-computer")
+                }
                 let now = Date().timeIntervalSince1970
                 let canAllow = Account.canAllow(rows)
                 ForEach(rows) { row in computerRow(row, now: now, canAllow: canAllow) }
@@ -533,7 +540,9 @@ struct AccountView: View {
         case (.offer, nil):
             Section {
                 Button(Account.nameOffer) { openName() }
-                    .disabled(nameBusy)
+                    // Review 2: one sheet at a time. A retire, a second-step setup or a passkey still asking could put
+                    // its own sheet up over this one, so the offer waits for them.
+                    .disabled(nameBusy || retireBusy || setupBusy || passkeyBusy || busy != nil || retiring != nil || setup != nil)
                     .accessibilityIdentifier("account-name-offer")
             } header: { Text("Your Kosmos+ address") }
         case (.none, nil):
@@ -555,8 +564,8 @@ struct AccountView: View {
                         .onChange(of: nameText) { v in
                             let c = Account.nameClean(v)
                             if c != v { nameText = c }
-                            // Review 1: the page hides the suggestion line on the first keystroke.
-                            nameWasSuggested = !nameSuggestion.isEmpty && c == nameSuggestion
+                            // Review 1: the page hides the suggestion line on the first keystroke, for good (review 2).
+                            if c != nameSuggestion { nameWasSuggested = false; nameError = nil }
                         }
                         .accessibilityHint(Account.nameHint)
                         .onSubmit { Task { await saveName() } }
@@ -617,6 +626,7 @@ struct AccountView: View {
         case .saved(let address):
             nameSaved = address; nameState = .none; naming = false; nameFor = nil; nameText = ""; nameWasSuggested = false
             nameSuggestion = ""
+            UIAccessibility.post(notification: .announcement, argument: "Saved. Your Kosmos+ address is \(address).")
             Task { await readPlan() }   // Kosmos+ now says has_name, and the address while no computer holds it
         case .refused(let why):
             nameError = why
