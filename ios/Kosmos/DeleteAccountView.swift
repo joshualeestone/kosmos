@@ -305,7 +305,7 @@ struct DeleteAccountView: View {
     private func busyLabel(_ title: String, color: Color = Palette.primary) -> some View {
         HStack {
             Text(title).foregroundColor(color)
-            if busy { Spacer(); ProgressView() }
+            if busy { Spacer(); SweepDots(scales: false) }
         }
     }
 
@@ -355,7 +355,8 @@ struct DeleteAccountView: View {
         defer { busy = false }
         let answer: (Int, Any?)? = sample ? (200, ["ok": true]) : await ask(DeleteAccount.startRequest(coordinator: coordinator, email: address))
         guard let (status, json) = answer else { note = DeleteAccount.unreachable; return }
-        lockResend(DeleteAccount.resendWait(status: status, json: json))
+        // Not in a sample run: its screenshots and checks press Send the code again straight away.
+        lockResend(sample ? 0 : DeleteAccount.resendWait(status: status, json: json))
         switch DeleteAccount.started(status: status, json: json) {
         case .sent: code = ""; sent = nil; step = .code(email: address)
         case .refused(let sentence): note = sentence
@@ -380,7 +381,7 @@ struct DeleteAccountView: View {
         defer { busy = false }
         let answer: (Int, Any?)? = sample ? (200, ["ok": true]) : await ask(DeleteAccount.startRequest(coordinator: coordinator, email: address))
         guard let (status, json) = answer else { note = DeleteAccount.unreachable; return }
-        lockResend(DeleteAccount.resendWait(status: status, json: json))
+        lockResend(sample ? 0 : DeleteAccount.resendWait(status: status, json: json))
         switch DeleteAccount.started(status: status, json: json) {
         case .sent: code = ""; sent = DeleteAccount.newCodeSent
         case .refused(let sentence): note = sentence
@@ -477,7 +478,8 @@ struct DeleteAccountView: View {
     }
 
     @MainActor private func startOver(_ sentence: String?) {
-        code = ""; sent = nil; understood = false; answerFocus = false
+        // Back to the start: the account exists or the grant was refused with nothing lost, so Back is offered again.
+        code = ""; sent = nil; understood = false; answerFocus = false; answerLost = false
         step = .email
         note = sentence
     }

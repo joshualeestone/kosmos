@@ -766,8 +766,8 @@ struct ContentView: View {
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             }, openBoard: { showBoardToday() })
         } else if which == .settings {
-            // kosmos#7010: a Kosmos+ page (the account, the delete flow) opens under Today in the shared web view, as an
-            // agent's chat does, and so does the board's own Settings.
+            // kosmos#7010: a Kosmos+ page opens under Today in the shared web view, as an agent's chat does, and so does the
+            // board's own Settings. (The account and deleting it are native since kosmos#8959 slices B and C.)
             SettingsView(coordinator: KosmosConfig.coordinatorOrigin, openPage: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             }, openBoardSettings: {

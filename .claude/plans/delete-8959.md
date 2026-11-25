@@ -64,3 +64,8 @@ Plan as posted on the card 2026-11-25 02:4x UTC (issuecomment-7151149115):
 - r6 sonnet: 0B/3W. FIXED W1 a deleted answer heard with the app in the background signs out at once. FIXED W2 no Back
   after a lost answer (the tab bar still leaves, as accepted in r2). KEPT W3 after a lost answer the tick stays: the
   person already ticked, and the lost words ask for the same press (the page keeps it too). FIXED the resend wait clamp.
+- r7 opus: 1B/3W. FIXED B1 the busy label used ProgressView, which the sweep suite (a CI step) forbids: the app's own
+  SweepDots now (run-sweep 45/45, ios.board-parity-7084 green). FIXED W2 DeleteAccountUITests:2 added to ui-sample.sh's
+  lazy-arm classes (ios.ui-sample-shard-8453 green), and the 90 s resend lock skipped in a sample run (the test presses it
+  at once). FIXED W3 startOver clears answerLost (Back comes back). FIXED W4 ContentView's comment.
+  All 17 ios/LogicTests runners PASS (KOSMOS_RELAY= as CI; deleteaccount 169/169 with the page).
