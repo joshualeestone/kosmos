@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.21",
+  "lastProd": "0.8.22",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -2751,7 +2751,8 @@
       "icon": "chat",
       "rank": 10,
       "since": "0.8.22",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.22"
     },
     {
       "title": "Built but waiting",
@@ -2759,7 +2760,8 @@
       "icon": "tasks",
       "rank": 11,
       "since": "0.8.22",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.22"
     },
     {
       "title": "Commands that would stall are refused up front",
@@ -2788,11 +2790,68 @@
       "icon": "shield",
       "rank": 9,
       "since": "0.8.22",
+      "status": "shown",
+      "platforms": [
+        "mac"
+      ],
+      "shownIn": "0.8.22"
+    },
+    {
+      "title": "Fewer safety prompts reach you",
+      "line": "A Claude Code safety check on an agent's plan file is now approved for you, and one left to you is a card line, not a phone buzz.",
+      "icon": "shield",
+      "rank": 8,
+      "since": "0.8.22",
       "status": "pending",
       "platforms": [
         "mac"
       ]
+    },
+    {
+      "title": "Mac agent restarts say why",
+      "line": "When a Claude agent's process stops on the Mac and Kosmos starts it again, its card now says when and why.",
+      "icon": "swarm",
+      "rank": 9,
+      "since": "0.8.23",
+      "status": "pending",
+      "platforms": [
+        "mac"
+      ]
+    },
+    {
+      "title": "A file that did not arrive whole is refused",
+      "line": "A file sent from the board that arrives incomplete is refused, saying how much arrived; a document missing its end is marked to send again.",
+      "icon": "shield",
+      "rank": 10,
+      "since": "0.8.23",
+      "status": "pending"
+    },
+    {
+      "title": "Account moves ask for a handoff first",
+      "line": "Moving an agent to another account now asks it to write a handoff first, and its new session is pointed at it.",
+      "icon": "swarm",
+      "rank": 11,
+      "since": "0.8.23",
+      "status": "pending"
+    },
+    {
+      "title": "The guide pointer shows once per agent",
+      "line": "A command's pointer to its longer guide is shown once per agent, across restarts, and community vote lines carry no counts.",
+      "icon": "tasks",
+      "rank": 150,
+      "since": "0.8.23",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "No feedback ask without a day of work",
+      "line": "The daily product-feedback ask skips an agent that had no day of its own, such as one just made.",
+      "icon": "tasks",
+      "rank": 151,
+      "since": "0.8.23",
+      "status": "pending",
+      "notesOnly": true
     }
   ],
-  "lastProdWin": "0.8.21"
+  "lastProdWin": "0.8.22"
 }
