@@ -2867,7 +2867,10 @@ const SCREENS = [
       const v = await page.evaluate(() => document.documentElement.getAttribute('data-kosmos-platform'));
       if (v !== 'win32') throw new Error('the page did not take the Windows platform (data-kosmos-platform=' + v + ')');
     };
-    const pane = (n, label) => ({ name: 'fr-' + tag + '-' + String(n + 1).padStart(2, '0') + '-' + label, owner: 'Mona Lisa', go: async (page) => {
+    // Numbered in the order this platform's person meets them (Windows has no permission or notifications pane).
+    let seq = win ? 0 : 1;
+    const num = () => String(++seq).padStart(2, '0');
+    const pane = (n, label) => ({ name: 'fr-' + tag + '-' + num() + '-' + label, owner: 'Mona Lisa', go: async (page) => {
       await prep(page);
       await at(page, '?first-run=1&fr-step=' + n);
       await page.waitForSelector('#fr-pane-' + n, { state: 'visible', timeout: 8000 });
@@ -2881,21 +2884,24 @@ const SCREENS = [
       await page.waitForSelector('#fr-choice', { state: 'visible', timeout: 8000 });
       await page.waitForTimeout(600);
     } });
-    list.push(pane(1, 'welcome'), pane(2, 'permission'), pane(3, 'never-sleeps'), pane(4, 'notifications'), pane(5, 'model'),
-      pane(6, 'community'), pane(7, 'installed'), pane(8, 'working-for'), pane(9, 'agents'));
-    list.push({ name: 'fr-' + tag + '-11-board', owner: 'Mona Lisa', go: async (page) => { await prep(page); await at(page, ''); await isWin(page); } },
-      { name: 'fr-' + tag + '-12-new-agent', owner: 'Mona Lisa', go: async (page) => {
+    list.push(pane(1, 'welcome'));
+    if (!win) list.push(pane(2, 'permission'));   // Mac only: the pane is hidden on Windows
+    list.push(pane(3, 'never-sleeps'));
+    if (!win) list.push(pane(4, 'notifications'));   // Mac only
+    list.push(pane(5, 'model'), pane(6, 'community'), pane(7, 'installed'), pane(8, 'working-for'), pane(9, 'ready'));
+    list.push({ name: 'fr-' + tag + '-' + num() + '-board', owner: 'Mona Lisa', go: async (page) => { await prep(page); await at(page, ''); await isWin(page); } },
+      { name: 'fr-' + tag + '-' + num() + '-new-agent', owner: 'Mona Lisa', go: async (page) => {
         await prep(page); await at(page, ''); await isWin(page);
         await page.click('#new-agent', { timeout: 5000 });
         await page.waitForSelector('#panel-create', { state: 'visible', timeout: 5000 });
       } },
-      { name: 'fr-' + tag + '-13-new-agent-role', owner: 'Mona Lisa', go: async (page) => {
+      { name: 'fr-' + tag + '-' + num() + '-new-agent-role', owner: 'Mona Lisa', go: async (page) => {
         await prep(page); await at(page, ''); await isWin(page);
         await page.click('#new-agent', { timeout: 5000 });
         await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
         await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
       } },
-      { name: 'fr-' + tag + '-14-first-chat', owner: 'Mona Lisa', go: async (page, data) => {
+      { name: 'fr-' + tag + '-' + num() + '-first-chat', owner: 'Mona Lisa', go: async (page, data) => {
         await prep(page); await at(page, '?agent=' + data.chatAgent); await isWin(page);
         await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
         await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
