@@ -101,6 +101,18 @@ test('#9087 a busy state file is sent through the pipe too (a message to a worki
   assert.equal(said.length, 1);
 });
 
+test('#9087 CONTROL: a button press during the outage is never sent through the pipe (it answers a question the board saw)', async () => {
+  for (const extra of [{ chose: 'Yes' }, { asked: 'Proceed?' }, { request: 'a'.repeat(64) }]) {
+    const res = await fetch(`${base}/api/agent/raph/thread`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: '1', ...extra }),
+    });
+    const json = await res.json().catch(() => null);
+    assert.equal(res.status, 409, JSON.stringify(extra) + ' ' + JSON.stringify(json));
+    assert.equal(json.because, 'unreadable', JSON.stringify(json));
+  }
+  assert.equal(said.length, 0);
+});
+
 test('#9087 CONTROL: a removed agent whose folder is still here is never sent through the pipe or told to retry', async () => {
   const removal = require('./engine/remove');
   const realIsRemoved = removal.isRemoved;

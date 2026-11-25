@@ -22247,8 +22247,11 @@ const server = http.createServer(async (req, res) => {
            did not start keeps the 409 'untied' below. */
         const { known, rosterUnreadable } = sendGate(name);
         /* kosmos#9087 Part B: on Windows, a supervised agent of ours is sent to through its pipe while the read fails
-           (outageChannelCard says what that needs); everything else unreadable keeps #9085's 409. */
-        const outageCard = (!known && rosterUnreadable) ? outageChannelCard(name) : null;
+           (outageChannelCard says what that needs); everything else unreadable keeps #9085's 409. Typed words only: a
+           button press (chose, asked, request) answers a question the board saw, and an outage card has no state, so
+           the holds and checks below that read one would pass it unchecked. */
+        const pressed = [body.chose, body.asked, body.request].some((v) => v !== undefined && v !== null);
+        const outageCard = (!known && rosterUnreadable && !pressed) ? outageChannelCard(name) : null;
         if (outageCard) noteOutageSend(name);
         if (!known && !outageCard) {
           /* kosmos#9085: a roster that cannot be READ is not "no agent by that name". On Windows a `claude agents --json`
