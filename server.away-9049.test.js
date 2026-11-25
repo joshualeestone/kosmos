@@ -168,3 +168,55 @@ test('a wait the agent itself ended, or no wait at all, gets nothing even after 
     } finally { sendertoken.revoke('leo'); }
   });
 });
+
+/* kosmos#9057: on Windows the roster row appears only once Claude Code registers the session, and a resume sends no
+   report, so after a quit more than liveness.STALE_AFTER_MS old the agent's own token matched neither a row nor a
+   heartbeat and as=waithook was refused (403, empty): the reminder was lost. The away route now lets that token prove
+   itself the way a `started` report does (startedMayProveLife), for as=waithook only, from this computer, and writes
+   nothing. `winana` is such an agent: a profile and a held token, no row, no heartbeat. */
+test('kosmos#9057: a Windows resume long after a quit is reminded of its own wait, with no row and no heartbeat', async () => {
+  const serverMod = require('./server');
+  const store = require('./engine/store');
+  const liveness = require('./engine/liveness');
+  await withBoard(async () => {
+    const t = now();
+    const file = selfreport.fileFor('winana');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, [
+      { state: 'needs_you', by: 'agent', because: 'may I merge', at: t - 30 * M },
+      { state: 'stopped', by: 'auto', because: '', at: t - 28 * M },
+    ].map((r) => JSON.stringify({ ...r, at: new Date(r.at).toISOString() })).join('\n') + '\n');
+    store.writeProfile('winana', { displayName: 'Win Ana' });
+    const tok = sendertoken.mint('winana').token;
+    try {
+      assert.notEqual(liveness.alive('winana'), true, 'CONTROL: no heartbeat, as after a quit older than 3 minutes');
+      // CONTROL: on a Mac or Linux board this path does not exist, so the ask is refused exactly as before.
+      const mac = await ask(tok, 'as=waithook');
+      assert.equal(mac.code, 403);
+      assert.equal(mac.text, '', 'a refused caller gets the empty body, never {"pending":true}');
+      serverMod._setStartedProofPlatformForTest('win32');
+      const r = await ask(tok, 'as=waithook');
+      assert.equal(r.code, 200, r.text);
+      assert.match(JSON.parse(r.text).hookSpecificOutput.additionalContext, /The board has since set that waiting report aside/);
+      assert.notEqual(liveness.alive('winana'), true, 'the ask wrote no heartbeat');
+      assert.equal(selfreport.history('winana', selfreport.HISTORY_MAX_BYTES).length, 2, 'the ask recorded no report');
+      // Only the hooks' resume question is widened: the startup ask (which follows a `started`) and the by-hand forms are not.
+      const startup = await ask(tok, 'as=hook&at=startup');
+      assert.equal(startup.code, 403);
+      assert.equal(startup.text, '');
+      assert.equal((await ask(tok, 'wait=only')).code, 403);
+      // A token Kosmos never issued, or one revoked, is still refused with the empty body.
+      const never = await ask('ab'.repeat(32), 'as=waithook');
+      assert.equal(never.code, 403);
+      assert.equal(never.text, '');
+      sendertoken.revoke('winana');
+      const revoked = await ask(tok, 'as=waithook');
+      assert.equal(revoked.code, 403);
+      assert.equal(revoked.text, '');
+    } finally {
+      serverMod._setStartedProofPlatformForTest(null);
+      sendertoken.revoke('winana');
+      try { fs.rmSync(file, { force: true }); } catch { /* none */ }
+    }
+  });
+});

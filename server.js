@@ -2297,7 +2297,11 @@ function resolveAgentSender(req, body, roster, opts) {
      failed, could put a "running" card on the board with one call); and only on a board on Windows (review 2). The route then beats liveness, so the agent's next reports pass on
      the heartbeat while registration catches up. ⚠️ This is a third, narrow way for a held token to speak without a row:
      the heartbeat it writes lasts liveness.STALE_AFTER_MS, as any report's does. */
-  if (opts && opts.startedReport === true && byName.ok && byName.twins !== true && startedMayProveLife(byName)) {
+  /* kosmos#9057: the same narrow way for the Windows hook's question at a resume (GET /api/away?as=waithook, `waitAsk`),
+     which sends no report and so writes no heartbeat: after a quit more than liveness.STALE_AFTER_MS old, neither path
+     above holds and the reminder of the agent's own wait was refused. It is read-only (that route writes nothing, beats
+     nothing and answers only this token's agent), so it asks no more than a `started` does. */
+  if (opts && (opts.startedReport === true || opts.waitAsk === true) && byName.ok && byName.twins !== true && startedMayProveLife(byName)) {
     return { ok: true, card: { sessionName: byName.key, isNamedOurs: true }, instance: byName.instance || null, paneless: true };
   }
   /* The original refusal, verbatim: `resolve` deliberately gives the same
@@ -19920,6 +19924,8 @@ const server = http.createServer(async (req, res) => {
       const sender = resolveAgentSender(req, { from_pane: fromPane }, roster, {
         denyPaneFallback,
         denyBecause: 'this board only tells an agent what arrived while it was away with its own agent token; run `kosmos away` as that agent',
+        /* kosmos#9057: only the hooks' resume question, only from this computer (as the report route passes startedReport). */
+        waitAsk: as === 'waithook' && isLoopbackPeer(req) && !isRemoteRequest(req),
       });
       if (!sender.ok) { fail(403, sender.because); return; }
       const name = sender.card.sessionName;
