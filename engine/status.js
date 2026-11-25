@@ -4931,12 +4931,13 @@ function messageAt(text, markers) {
  * Measured on 2.1.332 (test-support/claude-screens/signin-*): Claude Code draws its own under the person's prompt with the SAME `⎿`
  * that output has, so `⎿` says nothing. While logged out it also draws "Not logged in · run /login" by the box.
  * 🛑 A real refusal dropped is worse than a quoted one kept (#1884), so output is only this sentence, only in the FIRST `⎿` block of a
- * `!` command or a `⏺ Tool(` row, with nothing between (no blank row, no second `⎿`, no row at the left edge), and only with no
+ * `!` command or of a tool that always draws one (Bash, Monitor, an MCP tool; a tool with no result draws nothing, so a
+ * refusal would be its first row), with nothing between (no blank row, no second `⎿`, no row at the left edge), and only with no
  * "run /login" notice anywhere on the screen in any form. Everything else is read as before.
  */
 const NOT_LOGGED_IN_ROW = /Not logged in\s+[\u00b7_]\s+Please run \/login/i;
-const NOT_LOGGED_IN_NOTICE = /Not logged in\s*[\u00b7_|-]?\s*run \/?/i;
-const OUTPUT_HEAD = /^(?:!\s+\S|[\u23fa\u25cf]\s+[A-Z][A-Za-z]*\(|[\u23fa\u25cf]\s+\S[^()]{0,70}\(MCP\)\()/;
+const NOT_LOGGED_IN_NOTICE = /Not logged in\s*(?:[\u00b7_|-](?!\s*Please run)|\u2026|$|run\b)/i;   // cut or whole: Claude Code truncates it in a narrow pane
+const OUTPUT_HEAD = /^(?:!\s+\S|[\u23fa\u25cf]\s+(?:Bash|BashOutput|Monitor)\(|[\u23fa\u25cf]\s+\S[^()]{0,70}\(MCP\)\()/;
 function quotedNotLoggedIn(drawn, at) {
   if (!NOT_LOGGED_IN_ROW.test(drawn[at]) || drawn.some((r) => NOT_LOGGED_IN_NOTICE.test(r))) return false;
   let marks = 0;
@@ -4944,7 +4945,7 @@ function quotedNotLoggedIn(drawn, at) {
     const row = drawn[i];
     if (/^\s*$/.test(row)) return false;
     if (/^\s/.test(row)) { if (/^\s+\u23bf/.test(row)) marks += 1; continue; }
-    return i < at && marks === 1 && OUTPUT_HEAD.test(row);
+    return marks === 1 && OUTPUT_HEAD.test(row);
   }
   return false;
 }

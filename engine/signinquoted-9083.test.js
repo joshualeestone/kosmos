@@ -37,7 +37,7 @@ test('#9083: in the first block of a command or a tool it is output, on its firs
 
 test('#9083: a refusal is never dropped: any other head, anything between, a second block, or no head in sight', () => {
   for (const head of ['❯ say ok', '> say ok', '', 'words with no head (cut)', '❯ a long\n  prompt of two rows', '⏺ Read 3 files (ctrl+o to expand)',
-    '⏺ Done (PR 5 is up).', '⏺ Background command "x" completed (exit code 0)', '⏺ bash(x)', '!']) {
+    '⏺ Done (PR 5 is up).', '⏺ Background command "x" completed (exit code 0)', '⏺ bash(x)', '!', '❯ go ! now', '⏺ Agent(look)', '⏺ SendMessage(x)', '⏺ Fix(es) are in.']) {
     assert.equal(isRefusal(head + '\n' + QUOTED), true, 'dropped under: ' + head);
   }
   for (const first of ['⏺ Bash(ls)', '! ls']) {
@@ -47,6 +47,7 @@ test('#9083: a refusal is never dropped: any other head, anything between, a sec
     }
   }
   assert.equal(isRefusal(QUOTED), true, 'no head at all');
+  assert.equal(isRefusal('⏺ Bash(x)\n' + QUOTED + '\n\n❯ say ok\n' + QUOTED), true, 'a quoted row above a real one');
   assert.equal(isRefusal('! ls\n  \u23bf  a\n     \n     ' + NL), true, 'a row of spaces ends the block');
 });
 
@@ -54,7 +55,7 @@ test('#9083: with Claude Code\'s own notice anywhere on the screen, in any of it
   const run = 'Not logged in · run ' + LOGIN;
   for (const notice of [' '.repeat(60) + run, '  ⏵⏵ auto mode on (shift+tab to cycle)' + ' '.repeat(20) + run, '  ' + run,
     '  ⏵⏵ bypass permissions on (shift+tab to cycle)  ' + run, '  ⏵⏵ bypass permissions on (shift+tab to cycle) Not logged in · run /l',
-    '   Not logged in _ run ' + LOGIN]) {
+    '   Not logged in _ run ' + LOGIN, ' '.repeat(40) + 'Not logged in · ru…', ' '.repeat(40) + 'Not logged in ·', ' '.repeat(40) + 'Not logged in…', ' '.repeat(40) + 'Not logged in']) {
     assert.equal(isRefusal('⏺ Bash(ls)\n' + QUOTED + '\n' + notice), true, 'missed: ' + notice);
   }
 });
