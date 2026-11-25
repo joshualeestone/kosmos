@@ -19,3 +19,13 @@ build, not by the logic suites.
 ## Weakest premise
 The words are the board's, copied: if the board's wording changes, this does not follow it. A shared source would be
 better but the phone has no copy of the board's strings today.
+
+## Round 1 (opus, blind): nothing blocking; fixed
+- The words were cut off on a one-line card at default text size: an incomplete file's line has no line limit.
+- VoiceOver in a project room read only file names: the room's files label says the words for an incomplete file.
+- A JSON 1 counted as true: now Board.isTrue, as the board's === true (tested).
+- Known gap, recorded for a follow-up: the composer's waiting file (Board.Attached, from uploadResult) does not show
+  the warning before sending, though the upload answer carries it; the board marks the waiting chip. It shows on the
+  card once sent.
+- Kept: the whole line in Palette.dangerWord (the board's project file list colours its whole line; its message card
+  colours only the words in amber). The phone has no amber warning colour today.

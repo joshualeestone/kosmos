@@ -1761,6 +1761,7 @@ do {
               "kosmos#9016: and the card says it after the kind and size")
         check(one("")?.incomplete == false && !Board.attachmentMeta(one("")!).contains("incomplete"), "kosmos#9016: no field: not incomplete")
         check(one(#","incomplete":"yes""#)?.incomplete == false, "kosmos#9016: only a real true counts")
+        check(one(#","incomplete":1"#)?.incomplete == false, "kosmos#9016: a number 1 is not true (the board checks === true)")
     }
     let fw = { (t: String, n: String, k: String) in Board.fileWord(type: t, name: n, kind: k) }
     check(fw("", "x.XLSX", "other") == "Excel spreadsheet" && fw("application/vnd.ms-powerpoint", "x", "other") == "PowerPoint"

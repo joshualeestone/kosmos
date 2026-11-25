@@ -1998,7 +1998,7 @@ enum Board {
             return Attachment(id: id, name: (name?.isEmpty == false ? name! : "a file"),
                               type: a["type"] as? String ?? "", size: integer(a["size"]),
                               kind: ["image", "pdf", "text"].contains(kind) ? kind : "other", url: url, preview: preview,
-                              incomplete: (a["incomplete"] as? Bool) == true)
+                              incomplete: isTrue(a["incomplete"]))
         }
     }
 
