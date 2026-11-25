@@ -616,7 +616,7 @@ struct SignInView: View {
                 line("Your Mac is asking whether to let this iPhone in. Allow it there if it shows this code.")
                 HStack(spacing: 8) { SweepDots(scales: false); Text("Waiting for your Mac").font(.footnote).foregroundColor(Palette.secondary) }
             } else {
-                line("No computer is connected to this account yet. Set up Kosmos on your Mac, and this iPhone will be asked about there.")
+                line("No computer is connected to this account yet. Set up Kosmos on your computer, and this iPhone will be asked about there.")
             }
             link("Continue to the app", action: model.continueToApp)
         case .denied(let asking):

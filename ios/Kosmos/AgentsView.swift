@@ -1048,7 +1048,7 @@ struct MacSwitcher: View {
                     }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        Self.nameText(name)
                         Image(systemName: "chevron.down").font(.caption.weight(.semibold))
                     }
                     .foregroundColor(Palette.primary)
@@ -1056,11 +1056,25 @@ struct MacSwitcher: View {
                 .accessibilityLabel("Showing \(name)")
                 .accessibilityHint("Choose another computer")
             } else {
-                Text(name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                Self.nameText(name)
                     .foregroundColor(Palette.secondary)
                     .accessibilityLabel("Showing \(name)")
             }
         }
+    }
+
+    // kosmos#9063: the bar gives a leading item only the width it asks for, and a one-line Text asks for almost none, so
+    // "Studio Mac" showed as "St..." with the bar half empty. The name asks for its own width, measured in the font it is
+    // drawn in (Dynamic Type included), up to nameCap; only a name longer than that still shortens.
+    static let nameCap: CGFloat = 160
+    static func nameWidth(_ name: String) -> CGFloat {
+        let size = UIFont.preferredFont(forTextStyle: .subheadline).pointSize
+        let font = UIFont.systemFont(ofSize: size, weight: .semibold)
+        return min(nameCap, ceil((name as NSString).size(withAttributes: [.font: font]).width) + 1)
+    }
+    static func nameText(_ name: String) -> some View {
+        Text(name).font(.subheadline.weight(.semibold)).lineLimit(1)
+            .frame(width: nameWidth(name), alignment: .leading)
     }
 }
 
