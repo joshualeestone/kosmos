@@ -293,9 +293,13 @@ final class TaskPageActionsUITests: XCTestCase {
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "#4 ")).firstMatch.exists, "it is offered itself")
         shot(app, "hold tasks")
         eight.tap()
+        // A tap made as the menu closes is taken by the menu, and one by the tab bar's edge by neither: wait, and bring the box up.
+        let menu = app.buttons["Choose a task"]
+        for _ in 0..<20 where menu.exists { usleep(200_000) }
         let why = app.textFields["taskpage.hold.why"]
-        for _ in 0..<4 where !(why.exists && why.isHittable) { app.swipeUp() }
+        for _ in 0..<4 where !(why.exists && why.isHittable && why.frame.maxY < app.frame.height * 0.75) { app.swipeUp(velocity: .slow) }
         why.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "no keyboard in the box for why")
         why.typeText("Waiting on prices\n")
         for _ in 0..<4 where !(save.exists && save.isHittable) { app.swipeUp() }
         XCTAssertTrue(save.isEnabled, "Save is off with a whole change")
