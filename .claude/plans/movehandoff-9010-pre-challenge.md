@@ -21,12 +21,54 @@ converged: false
 - Full validation on 917dc536cc (validation_rc=0, audit_rc=0, first attempt, ended 00:37 CST 2026-11-25): the node suite and the shell part's 4 shards all green. Only this proof file changed after it.
 - Engine, server and CLI tests for the move's ask, wait, restart and pickup, each with a planted mutant caught (ledger in the plan).
 
-### Iterations
-1. opus: BLOCKER fixed, the pickup was typed before the new session was up (it now waits for a new start and an idle card). Also fixed: the unreadable-usage states, words that never reached the person, carry-on after a stop, settling of a half-written file, the page's wait.
-2. sonnet: 0 BLOCKERs. What counts as a new session (a start after the ask), the line that is true either way, a bounded ask.
-3. opus: BLOCKER fixed, the Windows pickup (no tmux start: a gap or idle fallback, 20 s minimum). Also fixed: a failed pickup's words, the stop wording, the CLI waits (450 s, then 510 s).
-4. sonnet: 0 BLOCKERs. No typing at the deadline to a session that cannot take a turn; a late ask.
-5. opus: 0 BLOCKERs. The ask inside the budget; the person told of a pickup that did not land; Settings names the agents not asked.
-6. sonnet: 0 BLOCKERs. Busy is checked beside freshness.
-7. opus: 0 BLOCKERs. The not-running clause, the out-of-usage rule (rate_limited or auth_failed only), page tests, stale comments, the plan.
-8. sonnet: 0 BLOCKERs, no WARNING to fix; a type guard. Stopped at the round-8 cap.
+### Per-Iteration Breakdown
+
+#### Iteration 1
+**Reviewer model:** opus
+
+- [BLOCKER] the pickup was typed before the new session was up FIXED (waits for a new start and an idle card, 3 min, result written back)
+- [WARNING] only rate_limited counted as unable to take a turn FIXED (auth_failed too; a blocked limit report is asked)
+- [WARNING] a failed restart said "pointed at it" FIXED
+- [WARNING] the words never reached the person FIXED (view.handoff, the Settings line, the automatic mover's notice)
+- [WARNING] a stop mid-wait left an idle agent FIXED (carryOnPrompt)
+- [WARNING] a half-written handoff could count FIXED (settling); the asked path in the server untested FIXED (8 tests)
+
+#### Iteration 2
+**Reviewer model:** sonnet
+
+- [WARNING] a busy new session stalled the pickup FIXED (typed at the deadline)
+- [WARNING] a missing session start let the old session pass FIXED (a start after the ask; test and mutant)
+- [WARNING] an unbounded ask FIXED (30 s, later one shared budget); a restart that did not answer FIXED (the line true either way)
+
+#### Iteration 3
+**Reviewer model:** opus
+
+- [BLOCKER] the Windows pickup (no session start to read) FIXED (a gap or idle fallback, 20 s minimum; tests)
+- [WARNING] a failed pickup still said it picks up FIXED; the stop during the wait worded FIXED; the CLI waits FIXED
+
+#### Iteration 4
+**Reviewer model:** sonnet
+
+- [WARNING] typing at the deadline to a session that cannot take a turn FIXED; a late ask FIXED
+
+#### Iteration 5
+**Reviewer model:** opus
+
+- [WARNING] the ask outside the budget FIXED; a pickup that did not land told to the person FIXED; Settings names the agents not asked FIXED
+
+#### Iteration 6
+**Reviewer model:** sonnet
+
+- [WARNING] busy checked beside freshness FIXED
+
+#### Iteration 7
+**Reviewer model:** opus
+
+- [WARNING] the not-running clause FIXED; the out-of-usage rule FIXED (rate_limited or auth_failed only)
+- [CONVENTION] page tests, stale comments, the plan FIXED
+
+#### Iteration 8
+**Reviewer model:** sonnet
+
+- No BLOCKER or WARNING to fix.
+- [NIT] a type guard FIXED. Stopped at the round-8 cap.
