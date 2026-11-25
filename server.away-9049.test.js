@@ -262,7 +262,7 @@ test('kosmos#9058: a wait is reminded at the first /clear and once more, then no
       assert.equal(r.code, 200);
       assert.equal(r.text, '', 'it worked through two reminded sessions: no reminder, and never {"pending":true}');
       assert.equal(JSON.parse((await ask(tok, 'wait=only')).text).wait, null);
-      assert.match((await ask(tok, 'as=text&wait=only')).text, /you have worked through 2 sessions since it without reporting again/);
+      assert.match((await ask(tok, 'as=text&wait=only')).text, /you have worked through at least 2 sessions since it without reporting again/);
       // CONTROL: /clears with no turn between them do not use up the reminders.
       writeHistory([rows[0], rows[1], rows[2],
         { state: 'stopped', by: 'auto', because: '', at: t - 30 * M },
@@ -289,8 +289,14 @@ test('kosmos#9058 review 1: a racing third /clear is not reminded, and a restart
     try {
       writeHistory(base9058);   // the third /clear's own stopped has not landed
       assert.equal((await ask(tok, 'as=waithook&src=clear')).text, '', 'the /clear ends a second worked session: no third reminder');
-      // CONTROL: the same rows at a resume (whose stopped landed long ago) count one session, so it is still reminded.
+      // Review 4: an in-session /resume races its own stopped the same way, and is not reminded a third time either.
+      assert.equal((await ask(tok, 'as=waithook')).text, '', 'an in-session /resume ends a second worked session too');
+      // CONTROL: a resume after a quit, whose stopped landed long ago: the open session is empty, one worked session, reminded.
+      writeHistory(base9058.slice(0, 5));
       assert.match((await ask(tok, 'as=waithook')).text, /^\{"hookSpecificOutput":/);
+      // A by-hand ask inside a live session does not count that session as ending.
+      writeHistory(base9058);
+      assert.equal(JSON.parse((await ask(tok, 'wait=only')).text).wait.state, 'needs_you');
       // A restart: two worked sessions ended since the wait, so the startup reminder is not given either.
       writeHistory(base9058.concat([{ state: 'stopped', by: 'auto', because: '', at: t - 38 * M }]));
       const s2 = await ask(tok, 'as=hook&at=startup');

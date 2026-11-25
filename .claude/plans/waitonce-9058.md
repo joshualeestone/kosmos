@@ -56,3 +56,15 @@ rule; the wording test fails with the old phrase. #9049's own tests unchanged an
   it) does not, so both count the same at the same moment. Route test with no `stopped` rows at all, both platforms.
 - NIT: a startup assertion could pass on an error body --> FIXED (asserts 200).
 - NIT: "each such session began with a reminder" overstated --> FIXED ("began where a reminder is given").
+
+## Review round 4 (sonnet): 0 BLOCKERs, 2 SHOULDs, NITs, fixed
+- SHOULD: an in-session /resume racing its own `stopped` got a third reminder (endingNow was /clear only) --> FIXED:
+  every hook ask (as=waithook) counts the ending session; after a quit the open session is empty, so it adds nothing.
+  A by-hand wait=only (inside a live session) does not. Round 2's decline of this is withdrawn: the reviewer showed
+  the two resumes need no telling apart.
+- SHOULD: the limit's sentence said exactly 2 sessions and "it has reminded you already" --> FIXED ("at least",
+  "each begun where a reminder is given").
+- NITs: a unit case for a started closing a session --> ADDED; a long comment line --> wrapped. The unguarded call in
+  the waitOnly branch is left (pure, inside the route's catch).
+- The reviewer read the real selfreports: the measured figures in the comment match; no live standing wait exists to
+  exercise, so only synthetic histories test this path.

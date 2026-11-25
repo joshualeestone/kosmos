@@ -108,11 +108,12 @@ function sessionAfter(history, atMs) {
    startup's `started`, or a /clear's or quit's `stopped`), in which it took a turn (an automatic `working` or `idle`,
    which the hook writes on every turn), and that have ended (a later `stopped` or `started`). Each such session began
    where a reminder is given (#8634 at a startup, #9049 after a session end; whether it reached the agent is not
-   recorded) and the agent went on without reporting a wait again or anything else of its own. The session the wait was raised in does not count. A /clear or a resume is reminded while
-   this is under REMIND_SESSIONS: the first session end, and one repeat (a /clear wipes the context that held the
-   reminder, which is why #9049 reminds a /clear after a startup), then no more, instead of at every /clear and resume
-   for 7 days. Reasoned from the history, not recorded: a reminder that never reached the agent (its ask lost a race,
-   or was refused) still counts, so it fails silent, never false.
+   recorded) and the agent went on without reporting a wait again or anything else of its own. The session the wait
+   was raised in does not count. A startup, a /clear or a resume is reminded while this is under REMIND_SESSIONS: the
+   first session end, and one repeat (a /clear wipes the context that held the reminder, which is why #9049 reminds a
+   /clear after a startup), then no more, instead of at every one for 7 days. Reasoned from the history, not recorded:
+   a reminder that never reached the agent (its ask lost a race, or was refused) still counts, so that case fails
+   silent, never false.
    `endingNow`: the session being ended now is counted when it had a turn, though the row that ends it has not landed:
    a /clear's own `stopped` (sent in the background by the Mac hook, review 1), or the Mac hook's startup ask, made
    before its `started` is recorded (review 3; the Windows hook asks after, so its `started` already closes it). Once
