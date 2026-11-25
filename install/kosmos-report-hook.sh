@@ -345,8 +345,10 @@ fi
 # 🛑 IT REFUSES ONLY WHERE THE PROMPT WOULD REACH A PERSON. Kosmos's own PermissionRequest hook
 # (engine/kosmos-permission-allow.js, #5406) answers Claude Code's safety prompts with allow (Josh, 2026-10-22), so for
 # most commands these shapes run today with no prompt and no push, and refusing them would only cost the agent a
-# rewrite. That hook steps aside when the command names .claude, .claude.json or .git, and 8 of the 9 real refusals did
-# (a plan file under .claude/plans, mostly): those are the prompts that reached the phone. So the guard asks that same
+# rewrite. That hook stepped aside when the command named .claude, .claude.json or .git, and 8 of the 9 real refusals did
+# (a plan file under .claude/plans, mostly): those are the prompts that reached the phone. Since kosmos#9001 part 1b it
+# answers a shell command whose only protected names are plan files, unless it deletes, moves or links anything, has a
+# .. segment, copies a tree, or uses a git verb that is not a read or a record; so fewer reach this guard. So the guard asks that same
 # hook (allow_hook_allows, run on this payload renamed PermissionRequest) and refuses only when it would not answer.
 # A session without the allow hook's two environment names is left alone (review round 1): the person's own Claude
 # Code (setup wires this hook into their settings too), where the prompt is theirs to answer, or an agent Kosmos did

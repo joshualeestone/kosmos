@@ -2795,7 +2795,7 @@ const PERMISSION_DASHED_RULE = /^\s*╌{8,}\s*$/;
  *  command is) the safety reason and the timed line. Anything less (another kind of prompt with a timer, a command
  *  quoting the words) is not it, and is treated as a prompt that waits for a person, as before. */
 function claudeSelfExpiringPrompt(text) {
-  return selfExpiringCommand(text) !== null;
+  return selfExpiringCommand(text) !== null || selfExpiringCutTail(text) !== null;   // kosmos#9001 1b: a cut box too
 }
 /** The command in a self-declining safety prompt's box, its lines joined and runs of space folded (so a wrapped or
  *  gutter-drawn command compares as one line); null when the screen is not that prompt (claudeSelfExpiringPrompt). The
@@ -2824,6 +2824,37 @@ function selfExpiringCommand(text) {
     if (/^\s*[⏺⎿✻]/.test(lines[i])) return null;
   }
   return null;
+}
+/** kosmos#9001 part 1b (Splinter, 22:13): the same self-declining prompt when its box is TALLER than the window. Measured
+ *  on Claude Code 2.1.332 at 80x24 (Baron's 21:29 command, a 33-line heredoc): the box's top, with its "Bash command"
+ *  header and the command's start, is cut, and Claude Code says so under the options ("↑ 47 more lines"), so
+ *  selfExpiringCommand (which needs the header) read null and the phone was pushed. Here: a permission prompt whose rows
+ *  carry, below the box's closing dashed rule, the safety reason and Claude Code's own timed line (as there), with every
+ *  row above that rule up to the top of the screen a box row (│), and Claude Code's scroll hint below the question.
+ *  Returns the visible tail of the command (spacing folded), or null. The report route ties it by length (the hook's
+ *  copy hit its 200-byte cap), since the command's start is not on screen. */
+function selfExpiringCutTail(text) {
+  const pp = claudePermissionPrompt(text);
+  if (!pp) return null;
+  const lines = String(text == null ? '' : text).split('\n');
+  let close = -1;
+  for (let i = pp.at - 1; i >= 0; i -= 1) if (PERMISSION_DASHED_RULE.test(lines[i])) { close = i; break; }
+  if (close < 1) return null;
+  let timed = false; let reason = false;
+  for (let i = close + 1; i < pp.at; i += 1) {
+    if (CLAUDE_SELF_EXPIRING.test(lines[i])) timed = true;
+    if (CLAUDE_SAFETY_REASON.test(lines[i])) reason = true;
+  }
+  if (!timed || !reason) return null;
+  // review round 6: between the rule and the question only the reason, the timer and blank rows (never an agent's
+  // output, which would mean the rule belongs to an earlier box and this question to another prompt)
+  for (let i = close + 1; i < pp.at; i += 1) if (/^\s*[⏺⎿✻❯]/.test(lines[i])) return null;
+  if (!lines.slice(pp.at + 1).some((l) => CLAUDE_SCROLL_HINT.test(l))) return null;
+  // Every row above the closing rule, to the top of the screen, is inside the box: the box's top is off screen. A
+  // header, another rule, or any row outside the box means it is not a cut box (selfExpiringCommand reads whole ones).
+  for (let i = close - 1; i >= 0; i -= 1) if (!/^\s*│/.test(lines[i])) return null;
+  const tail = lines.slice(0, close).map((l) => l.replace(/^\s*│\s?/, '')).join(' ').replace(/\s+/g, ' ').trim();
+  return tail || null;
 }
 /* #6091: is this card waiting on its permission prompt? Read from the SCREEN, before the report is reconciled in: the
    PermissionRequest hook (kosmos-report-hook.js) reports the same moment as needs_you by 'auto' with its own words
@@ -10884,7 +10915,7 @@ module.exports = { panesWithCommands /* kosmos#8719 */, boardTmux /* kosmos#8719
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  CLAUDE_SCROLL_HINT /* kosmos#8952 slice (d): chat.permissionAnswerable */, ASKING_GENERIC, APPROVAL_WAITING, SELF_EXPIRING_DECLINE /* kosmos#9001 */, claudeSelfExpiringPrompt /* kosmos#9001 */, selfExpiringCommand /* kosmos#9001 */, awaitingApprovalOf, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudePermissionPrompt, claudeAnswerableMenu, claudeSafeguardsMenuUp,
+  CLAUDE_SCROLL_HINT /* kosmos#8952 slice (d): chat.permissionAnswerable */, ASKING_GENERIC, APPROVAL_WAITING, SELF_EXPIRING_DECLINE /* kosmos#9001 */, claudeSelfExpiringPrompt /* kosmos#9001 */, selfExpiringCommand /* kosmos#9001 */, selfExpiringCutTail /* kosmos#9001 1b */, awaitingApprovalOf, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudePermissionPrompt, claudeAnswerableMenu, claudeSafeguardsMenuUp,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,

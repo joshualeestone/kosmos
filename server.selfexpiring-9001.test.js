@@ -218,3 +218,78 @@ test('a screen that cannot be read keeps the report as sent (any doubt pushes, a
     assert.equal(pushes.length, 1);
   });
 });
+
+/* kosmos#9001 part 1b (Splinter, 22:13): a box TALLER than the window. Measured on Claude Code 2.1.332 at 80x24 with
+   Baron's 21:29 command (a 33-line heredoc, paths pointed nowhere): the box's top and its "Bash command" header are cut,
+   and Claude Code says so under the options ("↑ 47 more lines"). Part 1 needed the header, so the phone was pushed. */
+const TALL = fs.readFileSync(path.join(SCREENS, 'permission-prompt-self-expiring-tall-2.1.332.txt'), 'utf8');
+const LONG = 'asking permission to use Bash: ' + Buffer.from("W=/tmp/kosmos-9001/nowhere; python3 -I - $W <<'PY'\n" + 'x'.repeat(400)).subarray(0, 200).toString('utf8');
+
+test('1b premises, on the real tall capture: read as the self-declining prompt, and the board reads it as working', () => {
+  const P = { command: '2.1.332', title: 'x', session: 'x', name: 'x' };
+  assert.equal(status.selfExpiringCommand(TALL), null, 'premise: part 1 alone could not read it (no box header on screen)');
+  assert.ok(status.selfExpiringCutTail(TALL), 'the cut box is read');
+  assert.match(TALL, /↑ \d+ more lines/, 'premise: Claude Code says the box is cut');
+  assert.equal(status.claudeSelfExpiringPrompt(TALL), true);
+  assert.deepEqual(status.classify(P, TALL), { state: status.STATE.WORKING, confidence: 'scraped', because: status.SELF_EXPIRING_DECLINE });
+});
+
+test('1b: the hook\'s wait for a tall self-declining prompt is the plain line, no push; a short report is kept', async () => {
+  assert.ok(Buffer.byteLength(LONG.slice('asking permission to use Bash: '.length)) >= 190, 'premise: the hook cut the command at its cap');
+  await withAgent(TALL, async (pushes) => {
+    await report({ state: 'needs_you', text: LONG, auto: true });
+    assert.equal(selfreport.read(WHO).state, 'working');
+    assert.equal(selfreport.read(WHO).because, status.SELF_EXPIRING_DECLINE);
+    assert.deepEqual(pushes, [], 'no phone push');
+  });
+  // CONTROL: a short command cannot be the box that is taller than the window: another request, kept and pushed.
+  await withAgent(TALL, async (pushes) => {
+    await report({ state: 'needs_you', text: 'asking permission to use Bash: touch /tmp/work/x', auto: true });
+    assert.equal(selfreport.read(WHO).state, 'needs_you');
+    assert.equal(pushes.length, 1);
+  });
+});
+
+test('1b: only a cut box with the timed line BELOW it, the safety reason and Claude Code\'s scroll hint counts', () => {
+  const lines = TALL.split('\n');
+  const rule = lines.findIndex((l) => /^\s*╌{8,}\s*$/.test(l));
+  assert.ok(rule > 0, 'premise: the closing rule is on screen');
+  // the timed line moved INSIDE the box (a command quoting it): not the safety prompt
+  const timed = lines.findIndex((l) => /will automatically block this request in/.test(l));
+  const inside = lines.slice();
+  const [t] = inside.splice(timed, 1);
+  inside.splice(rule - 1, 0, ' │ ' + t.trim());
+  assert.equal(status.selfExpiringCutTail(inside.join('\n')), null, 'a timed line inside the box is the command\'s text');
+  // no scroll hint: Claude Code did not say the box is cut
+  assert.equal(status.selfExpiringCutTail(lines.filter((l) => !/more lines?\s*$/.test(l)).join('\n')), null, 'no scroll hint');
+  // a row above the rule that is not a box row (the header, or agent output): not a cut box
+  const outside = lines.slice(); outside.splice(1, 0, '⏺ some earlier output');
+  assert.equal(status.selfExpiringCutTail(outside.join('\n')), null, 'a row outside the box above it');
+  // no safety reason below the rule
+  assert.equal(status.selfExpiringCutTail(lines.filter((l) => !/rule out|not ruled out/.test(l)).join('\n')), null, 'no reason');
+});
+
+test('1b review round 6: a second long report with another start, while the same cut box is up, is kept and pushes', async () => {
+  const other = 'asking permission to use Bash: ' + Buffer.from('cd /tmp/work && node tools/another-long-step.js ' + 'y'.repeat(400)).subarray(0, 200).toString('utf8');
+  await withAgent(TALL, async (pushes) => {
+    await report({ state: 'needs_you', text: LONG, auto: true });
+    assert.equal(selfreport.read(WHO).state, 'working', 'premise: the first long report is the safety prompt');
+    await report({ state: 'needs_you', text: other, auto: true });
+    assert.equal(selfreport.read(WHO).state, 'needs_you', 'a second, different long request is kept');
+    assert.equal(pushes.length, 1, 'and pushed');
+  });
+  // The same report again (the hook firing twice for one prompt) is still the safety prompt.
+  await withAgent(TALL, async (pushes) => {
+    await report({ state: 'needs_you', text: LONG, auto: true });
+    await report({ state: 'needs_you', text: LONG, auto: true });
+    assert.equal(selfreport.read(WHO).state, 'working');
+    assert.deepEqual(pushes, []);
+  });
+});
+
+test('1b review round 6: an agent\'s output between the closing rule and the question means it is not this box', () => {
+  const lines = TALL.split('\n');
+  const rule = lines.findIndex((l) => /^\s*╌{8,}\s*$/.test(l));
+  const stale = lines.slice(); stale.splice(rule + 1, 0, '⏺ an earlier answer');
+  assert.equal(status.selfExpiringCutTail(stale.join('\n')), null);
+});
