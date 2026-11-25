@@ -4696,6 +4696,17 @@ function nameRefusal(name) {
   }
 }
 
+/* kosmos#9085: the board's log line for a message not sent because the roster could not be read, with the read's own
+   reason where the Windows reader kept one (win32roster's cachedRun). Never throws. */
+function noteUnreadableSend(name) {
+  let why = null;
+  if (process.platform === 'win32') { try { why = require('./engine/win32roster').cachedRun.problem() || null; } catch { why = null; } }
+  try {
+    console.error('[kosmos#9085] a message to ' + JSON.stringify(String(name)) + ' was not sent: the list of running agents could not be read'
+      + (why ? ' (' + why + ')' : '') + '; answered 503, not 404');
+  } catch { /* never fatal */ }
+}
+
 /* The 404 body for a `nameRefusal` reason, shared by the DM thread's routes so the two
    sentences are written once. */
 function nameRefusalBody(refusal, name) {
@@ -22146,6 +22157,19 @@ const server = http.createServer(async (req, res) => {
         // (`chat.deliver` refuses on its own too — exact match to permit, tied,
         // and a pane with Claude in it. This one is about the NAME.)
         if (!knownAgent(name)) {
+          /* kosmos#9085: a roster that cannot be READ is not "no agent by that name". On Windows a `claude agents --json`
+             that kept failing (five hours on 11-25) made the roster refuse, and every message to a running agent was
+             answered 404 as if the agent did not exist. Unknown is answered as unknown: a 503 with `because`
+             'unreadable' (nameRefusal's reason), and a line in the board's log. A roster that reads and does not list
+             the name stays a 404 below. */
+          if (nameRefusal(name) === 'unreadable') {
+            noteUnreadableSend(name);
+            const unknown = new Error('we could not check which agents are running, so nothing was sent. Try again in a moment.');
+            unknown.status = 503;
+            unknown.because = 'unreadable';
+            unknown.retry = true;   // said plainly, for a sender that keeps the message and tries again (Homer's listener)
+            throw unknown;
+          }
           /* kosmos#8652: a just-created or just-restored agent is waited for briefly, then refused as starting
              (409, nothing typed, nothing kept), never as missing. A 4xx, not a 503: the page and the iPhone read a
              5xx on a send as "it may have gone" (BoardLogic.swift sendResult), and this one certainly did not. */
@@ -22883,7 +22907,8 @@ const server = http.createServer(async (req, res) => {
       })
       .catch((err) => sendJson(res, (err && err.status) || ((err && err.code === 'UNREADABLE') ? 500 : 400),
         { error: String((err && err.message) || 'we could not read that request'),
-          ...(err && (err.because === 'starting' || err.because === 'untied') ? { because: err.because } : {}) }))   // kosmos#8652, #8719
+          ...(err && (err.because === 'starting' || err.because === 'untied' || err.because === 'unreadable') ? { because: err.because } : {}),
+          ...(err && err.retry === true ? { retry: true } : {}) }))   // kosmos#8652, #8719, #9085
       .finally(() => { if (retryKey) DM_RETRYING.delete(retryKey); });   // kosmos#6720: after the verdict is written
     return;
   }
