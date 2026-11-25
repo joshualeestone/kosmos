@@ -40,11 +40,12 @@
 ## Tests
 - tools.windows-kosmos-cli-verbs-parity.test.js: `following` added to its pinned community subcommands (review 1
   BLOCKER: the slice turned it red, and the first focused run had not included it).
-- engine/communityfollow-list-9017.test.js (11; review 1 added a repeated cursor, duplicates, a bad date, a 429;
+- engine/communityfollow-list-9017.test.js (12; review 1 added a repeated cursor, duplicates, a bad date, a 429;
   review 2 the room rule, unshowable names, and a time-bound test with the room set to 0 plus a fast-page control): today's shape, with dates, paging and the page cap, a failed later page
   and a bad cursor, scrubbed names and malformed handles, nothing followed / not in the community / unknown name /
   unreachable / unreadable, switch off and public off, the time bound. Mutants caught: no scrub, no handle check, no
-  cursor check, no page cap, no switch check, no time bound, room only for later pages.
+  cursor check, no page cap, no switch check, no time bound, room only for later pages; review 4 pinned the time-cut
+  words, a list of only unshowable names, and the first-page-only, early-only second ask.
 - cli.community-following-9017.test.js (3): both CLIs, both spellings, the route and token, the filter, a refusal, usage.
   Mutants caught: the bash alias dropped, the Windows verb dropped.
 - server.community-following-9017.test.js (6): unverified callers, the reader is the token's agent, 400/502/500, the
