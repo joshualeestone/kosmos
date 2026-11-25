@@ -124,6 +124,31 @@ final class TaskPageActionsUITests: XCTestCase {
         shot(app, "repeat saved")
     }
 
+    // Minutes typed and saved at once, the page drawn slowly: the number saved is the one typed.
+    func testMinutesTypedThenSavedAreTheOnesSaved() throws {
+        let app = try openTask(slowDraw: 150)
+        let every = app.buttons["taskpage.repeat.every"]
+        for _ in 0..<6 where !(every.exists && every.isHittable && every.frame.maxY < app.frame.height * 0.5) { app.swipeUp(velocity: .slow) }
+        every.tap()
+        let some = app.buttons["Every so many minutes"]
+        XCTAssertTrue(some.waitForExistence(timeout: 10), "no minutes choice")
+        some.tap()
+        let minutes = app.textFields["taskpage.repeat.minutes"]
+        XCTAssertTrue(minutes.waitForExistence(timeout: 10), "no minutes box")
+        for _ in 0..<20 where some.exists { usleep(200_000) }
+        minutes.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "no keyboard in the minutes box")
+        let was = minutes.value as? String ?? ""
+        minutes.typeText("45")
+        XCTAssertEqual(minutes.value as? String, was + "45", "the box lost what was typed")
+        let save = app.buttons["taskpage.repeat.save"]
+        for _ in 0..<4 where !(save.exists && save.isHittable) { app.swipeUp(velocity: .slow) }
+        save.tap()
+        let line = app.descendants(matching: .any)["taskpage.repeat.line"]
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "every " + was + "45 minutes"), evaluatedWith: line)
+        waitForExpectations(timeout: 20)
+    }
+
     // kosmos#8958 slice B4: a task marked done draws its receipt under the activity: what each agent did with its cost, the
     // pull request as a link, the files opened by their count, and a line for an agent with nothing to read.
     func testADoneTaskShowsItsReceipt() throws {
@@ -332,9 +357,11 @@ final class TaskPageActionsUITests: XCTestCase {
         for _ in 0..<4 where !(why.exists && why.isHittable) { app.swipeUp() }
         why.tap()
         why.typeText(String(repeating: "x", count: 190) + "\n")
-        XCTAssertEqual((why.value as? String)?.count, 200, "the box shows words it does not keep")
+        // Each a draw or two later, so each is waited for: what is asked is what the box settles on.
+        func settles(_ ok: () -> Bool) -> Bool { for _ in 0..<40 { if ok() { return true }; usleep(250_000) }; return false }
+        XCTAssertTrue(settles { (why.value as? String)?.count == 200 }, "the box shows words it does not keep: \((why.value as? String)?.count ?? -1)")
         app.buttons["Cancel the change to this hold"].tap()
-        XCTAssertEqual(why.value as? String, "Waiting on prices", "Cancel does not bring back what is kept")
+        XCTAssertTrue(settles { why.value as? String == "Waiting on prices" }, "Cancel does not bring back what is kept: \(why.value ?? "nil")")
         let kept = app.staticTexts["Why: Waiting on prices"]
         for _ in 0..<4 where !(kept.exists && kept.isHittable) { app.swipeDown() }
         let until = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Waiting until ")).firstMatch

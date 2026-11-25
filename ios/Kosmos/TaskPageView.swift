@@ -482,7 +482,7 @@ struct TaskPageView: View {
                 // Capped after it is written, as the page's other boxes: capped in the setter, nothing changes at the limit, so
                 // nothing is drawn again and the box keeps words that are not sent.
                 // Read back live, as the minutes box of Repeats is.
-                TextField(Board.holdWhyPrompt, text: Binding(get: { (holdDraft ?? model.holdShown ?? h.stored).why }, set: { v in if v != (holdDraft ?? stored).why { edit { $0.why = v } } }))
+                TextField(Board.holdWhyPrompt, text: Binding(get: { (holdDraft ?? model.holdShown ?? model.page?.hold?.stored ?? h.stored).why }, set: { v in if v != (holdDraft ?? stored).why { edit { $0.why = v } } }))
                 .onChange(of: shown.why) { v in
                     let kept = Board.capped(v, Board.holdWhyMax)
                     if kept != v, holdDraft != nil { holdDraft?.why = kept }
@@ -958,14 +958,16 @@ struct TaskPageView: View {
                     let ready = wire.flatMap { Board.repeatBody($0) } != nil && !unchanged
                     Button {
                         model.touched()
-                        guard let wire else { return }
+                        // Read live, as the hold's Save does: what was last drawn is a key behind on a slow phone.
+                        guard let choice = repeatDraft ?? storedShown else { return }
+                        let wire = Board.repeatWire(choice)
                         Task {
                             // Saved: the draft goes once the page reads the saved rule; if that read failed, the controls
                             // keep showing what was saved rather than the rule from before it.
                             // The box's time is kept before the save's reads, which change the stored rule mid-save, so the
                             // box never shows the sorted first time in between (the board's tkRepeatSaved runs before its
                             // reload). A save that was not recorded forgets it again.
-                            repeatBox = shown.every == .day ? shown.at : nil
+                            repeatBox = choice.every == .day ? choice.at : nil
                             if await model.saveRepeat(wire, names: names) {
                                 repeatDraft = Board.keptRepeatDraft(repeatDraft, stored: model.page?.repeatStored)
                             } else {
