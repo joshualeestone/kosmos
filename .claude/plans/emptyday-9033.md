@@ -15,10 +15,10 @@ asked, ran `kosmos feedback day`, saw nothing, and wrote a report about having n
 - engine/feedbackday.js `hadDay(o)`: true when the agent has today a non-automatic message with its person (the same
   `conversation` reader as `kosmos feedback day`), a task it changed (`taskChanges`), or a room post or agent message it
   sent (the message log's `post` and `message` rows, which the digest does not list: an agent working in rooms all day
-  has a day). Fails OPEN: an unreadable thread, task list or log, an agent that answers its person on another channel
+  has a day), or an agent message it received (`kosmos msg`, work handed to it; review round 1). Fails OPEN: an unreadable thread, task list or log, an agent that answers its person on another channel
   (#8141), or no name counts as a day.
 - engine/feedbacknudge.js: the planner passes over a candidate whose `hasDay` is false (a check that throws counts as a
-  day); with nobody left it asks nobody and says why. `makeTick` (the board's path) wires the real reader (`hasDayOf`:
+  day); with nobody left it asks nobody and logs why once that day (review round 1: a missing report has its reason). `makeTick` (the board's path) wires the real reader (`hasDayOf`:
   the card's session name and name); `sweepOnce` and `plan` without a check behave as before.
 - engine/feedbacknudge-7374.test.js: the gating test gives its tick a `hasDay` (it tests the on/off rule, not days).
 - engine/feedbacknudge-9033.test.js: hadDay's kinds and controls, its fail-open arms, the planner, and the real tick in a
@@ -31,11 +31,19 @@ asked, ran `kosmos feedback day`, saw nothing, and wrote a report about having n
 - Counting the startup turn or any `lastWorked` as a day: that is the signal that caused this.
 
 ## Weakest premise
-That the three readers cover every way an agent spends a day the person cares about. Work that leaves none of them (a
-long tool run in its own folder with no message, task change or post) now reads as an empty day, and that agent is not
-asked. Its work would also be invisible to `kosmos feedback day`, so its report would have been thin anyway.
+That the readers cover how an agent's day reaches the person. Work that leaves none of them reads as an empty day: a
+person talking to the agent only on Discord or another app without a declared reply channel (#8141 covers declared
+ones), work handed over with claude-msg or tmux, commits and CI with no message. If only such agents worked, the day
+now has NO report rather than a thin one (review round 1). Accepted because the card asks exactly this (skip the empty
+day) and a product install's agents talk to their person in Kosmos; the skip is logged once a day (below) so a missing
+report has its reason. If that loss shows up in the admin report counts, the narrower rule (skip only an agent created
+today) is the fallback.
+
+## Cost
+hadDay runs per candidate per tick (every 10 minutes from 17:00 while no report exists): a stat of the task transcripts
+changed today, the direct thread, and the cached message log. Eager and bounded; not made lazy (review round 1 NIT).
 
 ## Tests
-- node --test engine/feedbacknudge-9033.test.js: 4/4. Mutations: the planner's filter removed fails 2; the tick's real
+- node --test engine/feedbacknudge-9033.test.js: 6/6 (with a real transcript row and the once-a-day log). Mutations: the planner's filter removed fails 2; the tick's real
   reader removed fails the real-tick test.
 - Every engine/feedback*, cli.feedback* and server.feedback* test: 364/364.

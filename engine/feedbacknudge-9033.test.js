@@ -40,6 +40,8 @@ test('#9033 an empty day is no day; each kind of activity today is one', () => {
   assert.equal(day({ listTaskFiles: () => ['proj.task-3.jsonl'], readTask: () => [{ kind: 'built', by: 'mara', at: at(10) }] }), true, 'a task it changed');
   assert.equal(day({ readLog: () => ({ ok: true, rows: [{ kind: 'post', from: 'mara', at: at(11), project: 'p' }] }) }), true, 'a room post');
   assert.equal(day({ readLog: () => ({ ok: true, rows: [{ kind: 'message', from: 'mara-discord', at: at(11) }] }) }), true, 'a message to another agent');
+  assert.equal(day({ readLog: () => ({ ok: true, rows: [{ kind: 'message', from: 'ada', to: 'mara-discord', at: at(11) }] }) }), true, 'a message another agent sent it');
+  assert.equal(day({ readLog: () => ({ ok: true, rows: [{ kind: 'post', from: 'ada', to: ['mara-discord'], at: at(11) }] }) }), false, 'CONTROL: a room post it was only sent is not its own work');
   /* CONTROLS: yesterday, another agent, Kosmos's own lines, and the person marking a task are not this agent's day. */
   assert.equal(day({ readThread: () => [{ text: 'hi', at: yesterday }] }), false, 'yesterday');
   assert.equal(day({ readLog: () => ({ ok: true, rows: [{ kind: 'post', from: 'ada', at: at(11) }, { kind: 'post', from: 'mara', at: yesterday }] }) }), false, 'another agent today, or itself yesterday');
@@ -88,4 +90,28 @@ test('#9033 the board\'s own tick reads the real day: an agent with nothing is n
   chat.appendMessage(chat.DIRECT, cards[0].sessionName, { text: 'can you look at the invoice?', at: at(15), delivery: { state: 'placed' } });
   nudge.makeTick(deps())();
   assert.equal(sent, 1, 'CONTROL: with a word from its person today, it is asked');
+});
+
+test('#9033 a task row in the real transcript, under the card\'s session name, is a day too (review round 1)', () => {
+  const cards = fleet.install([fleet.agent('dee')]).agents;
+  const card = cards[0];
+  const taskchat = require('./taskchat');
+  assert.equal(nudge.hasDayOf(card, TODAY, feedback.dateKey), false, 'CONTROL: nothing yet');
+  const file = taskchat.taskChatFile('proj-9033', 4);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, JSON.stringify({ at: at(10), kind: 'built', by: card.sessionName }) + '\n');
+  assert.equal(nudge.hasDayOf(card, TODAY, feedback.dateKey), true, 'a task it marked built today');
+});
+
+test('#9033 a day nobody is asked for lack of one is logged once, so a missing report has its reason', () => {
+  const cards = fleet.install([fleet.agent('eve')]).agents.map((c) => ({ ...c, lastWorked: { at: at(11), why: null } }));
+  const book = new Map();
+  const logs = [];
+  const asked = { get: () => null, set: () => true, workedOn: () => TODAY, workers: () => cards.map((c) => c.sessionName), markWorked: () => true };
+  const tick = () => nudge.sweepOnce({ roster: cards, book, now: EVENING, send: () => ({ on: true, ok: true }), hasReport: () => false, asked,
+    labels: [], isGuide: () => false, hasDay: () => false, deliver: () => { throw new Error('nobody should be typed into'); },
+    DELIVERY: { PLACED: 'placed' }, log: (r) => logs.push(r) });
+  tick(); tick(); tick();
+  assert.equal(logs.length, 1, 'once a day: ' + JSON.stringify(logs));
+  assert.match(logs[0].because, /day of their own/);
 });
