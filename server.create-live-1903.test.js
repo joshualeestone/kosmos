@@ -95,3 +95,22 @@ test('#1903 CONTROL: a create on a CONNECTED account is not blocked by the gate'
       'a connected-account create did not reach createAgent: ' + JSON.stringify(r.json));
   } finally { create.setClaudeProbe(null); }
 });
+
+/* kosmos#9031, caught by 0.8.23's promote gate. The gate's probe names the default account's folder (CLAUDE_CONFIG_DIR), and Claude Code
+   then reads another Keychain entry from the one the plain login is in, usually none. A stand-in claude that answers as 2.1.332 does
+   there; the REAL probe runs it, so this holds whichever words the gate knows. */
+test('#9031: a signed-in DEFAULT account whose folder has no login entry of its own is not refused', async () => {
+  create.setClaudeProbe(null);
+  const bin = path.join(SANDBOX, 'claude-no-entry');
+  const seen = path.join(SANDBOX, 'claude-no-entry.seen');
+  fs.writeFileSync(bin, '#!/bin/sh\nprintf "%s\\n" "${CLAUDE_CONFIG_DIR-unset}" >> "' + seen + '"\n'
+    + 'if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then echo "Not logged in · Please run /' + 'login"; exit 1; fi\necho ok\n', { mode: 0o755 });
+  const was = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
+  try {
+    const r = await post({ name: 'plainlogin', role: 'pm' });
+    assert.doesNotMatch((r.json && r.json.error) || '', /sign-in is not working/, 'an ordinary default login was refused: ' + JSON.stringify(r.json));
+    const asked = fs.readFileSync(seen, 'utf8').trim().split('\n');
+    assert.deepEqual(asked, [path.join(HOME, '.claude')], 'CONTROL: the real probe did not run, or no longer names the default folder: ' + asked);
+  } finally { process.env.AGENT_WORKFORCE_CLAUDE_BIN = was; }
+});

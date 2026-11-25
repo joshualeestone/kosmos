@@ -53,14 +53,17 @@ test('#9031: the Windows stream reads the same two, and the headless sentences',
   }
 });
 
-test('#9031: Check now calls each of them a dead sign-in, whatever the exit code', async () => {
-  const check = async (out, exitCode) => { create.setClaudeProbe(async () => ({ exitCode, out })); return (await create.claudeAccountCheck('/u/x')).state; };
-  for (const out of [LIMIT, NONE, HEADLESS_LIMIT, HEADLESS_REFRESH]) {
-    assert.equal(await check(out, 1), subscription.STATE.NONE, 'not dead: ' + out);
-    assert.equal(await check(out, 0), subscription.STATE.NONE, 'a clean exit hid: ' + out);
+test('#9031: create and Check now do NOT take "not logged in" or an ended login from their probe as a dead sign-in (0.8.23\'s promote gate)', async () => {
+  /* The probe names the default account's folder, so Claude Code reads an entry the plain login is not in: a working account answers
+     this way. Unknown: create goes on, and Check now marks nothing rejected. */
+  const check = async (out, exitCode) => { create.setClaudeProbe(async () => ({ exitCode, out })); return create.claudeAccountCheck('/u/x/.claude'); };
+  for (const out of [NONE, LIMIT, HEADLESS_LIMIT, HEADLESS_REFRESH]) {
+    const got = await check(out, 1);
+    assert.equal(got.state, subscription.STATE.UNKNOWN, 'refused: ' + out);
   }
-  assert.equal(await check('ok', 0), subscription.STATE.CONNECTED, 'CONTROL: a real answer');
-  assert.equal(await check('Please run /login', 1), subscription.STATE.UNKNOWN, 'CONTROL: the remedy alone (#1916)');
+  assert.equal((await check('ok', 0)).state, subscription.STATE.CONNECTED, 'CONTROL: a real answer');
+  assert.equal((await check('Login expired · Please run ' + '/login', 1)).state, subscription.STATE.NONE, 'CONTROL: a token Anthropic refused is dead');
+  assert.equal((await check('OAuth access token has been revoked', 1)).state, subscription.STATE.NONE, 'CONTROL: a revoked one too');
 });
 
 const row = (connection) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'a@example.com', connection });
