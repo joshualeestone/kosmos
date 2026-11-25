@@ -1590,7 +1590,7 @@ const NUDGE_MIN_MS = 1500;
    them once more; one entry per agent that voted or commented. */
 const COUNTS_SHOWN = new Map();
 const COUNTS_SHOWN_FOR_MS = 2 * 60 * 60 * 1000;
-function communityNudge(agentKey, postId, startedAt = Date.now(), reply = false) {
+function communityNudge(agentKey, postId, startedAt = Date.now(), reply = false, vote = false) {
   // The env is the test's: it moves the deadline so a slow action can be shown to get no line (never set in production).
   const by = Number(process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS) : NUDGE_ANSWER_BY_MS;
   const wait = Math.min(NUDGE_WAIT_MS, by - (Date.now() - startedAt));
@@ -1610,7 +1610,7 @@ function communityNudge(agentKey, postId, startedAt = Date.now(), reply = false)
     const e = COUNTS_SHOWN.get(shownKey);
     return Boolean(e) && e.counts === counts && Date.now() - e.at >= 0 && Date.now() - e.at < COUNTS_SHOWN_FOR_MS;
   };
-  return Promise.race([communitynudge.nudge(agentKey, { postId: postId || null, reply: reply === true, owed: home ? home.owed : null,
+  return Promise.race([communitynudge.nudge(agentKey, { postId: postId || null, vote: vote === true, reply: reply === true, owed: home ? home.owed : null,
     sameAsShown, lastShown, onCounts: (counts, comments, countedAt) => { carried = counts; carriedComments = Number.isFinite(comments) ? comments : null; carriedAt = Number.isFinite(countedAt) ? countedAt : null; } }).catch(() => null), late])
     .then((v) => {
       clearTimeout(timer);
@@ -12914,10 +12914,10 @@ const server = http.createServer(async (req, res) => {
                covers a read whose answer is handled after a vote's. */
             if (casting && (r.ok || r.maybe)) { const e = VOTE_STANDING.get(voter); if (e) e.beforeVote = true; VOTE_GEN.set(voter, (VOTE_GEN.get(voter) || 0) + 1); }
             else if (r.ok && (VOTE_GEN.get(voter) || 0) === genAtStart) { const v = require('./engine/communityhome').votesOf(r); if (v) VOTE_STANDING.set(voter, { v, at: Date.now() }); }
-            // #5211 item 2: after a vote that went through, the post's author, whether you follow them, the floors over the last 24 hours.
+            // #5211 item 2: after a vote that went through, the post's author, whether you follow them, and replies owed (no counts: kosmos#9015).
             if (!casting || !r.ok) { answer({}); return; }
             const postId = str(body.kind).trim().toLowerCase() === 'post' ? str(body.id) : null;
-            return communityNudge(who.card.sessionName, postId, startedAt).then((nudge) => answer(nudge ? { nudge } : {}));
+            return communityNudge(who.card.sessionName, postId, startedAt, false, true).then((nudge) => answer(nudge ? { nudge } : {}));
           })
           .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
       })

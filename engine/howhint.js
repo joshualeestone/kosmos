@@ -6,16 +6,24 @@
  * agent remembering to read one the first time a case comes up, and an agent acting from memory of older text gets it
  * wrong quietly. So each such command prints one line naming its guide, once per agent per guide. Running the guide
  * itself (`--how`) counts as seen. `--help` is answered before this runs on both CLIs, so it does not count, and
- * report's pointer (to its --help) can show once to an agent that already read it. Only an agent's call counts: KOSMOS_AGENT_SESSION (a Mac agent's name, so once per agent) or
- * KOSMOS_AGENT_TOKEN (all a Windows agent carries; minted per launch, so there it is once per launch, and only a hash
- * of it is stored). A person in their own Terminal has neither. A call with no arguments (a usage request, or the
- * report hook's status probe) and a `report ... --auto` call (the report hook's own) neither points nor marks. A test run never
- * points unless it names its own record (KOSMOS_HOWHINT_FILE).
+ * report's pointer (to its --help) can show once to an agent that already read it. A call with no arguments (a usage
+ * request, or the report hook's status probe) and a `report ... --auto` call (the report hook's own) neither points nor
+ * marks. A test run never points unless it names its own data folder (KOSMOS_HOWHINT_ROOT).
+ *
+ * WHO (kosmos#9015): only an agent's call counts, and it counts for the AGENT, so a restart does not show a pointer again.
+ * KOSMOS_AGENT_SESSION is a Mac or Linux agent's name. KOSMOS_AGENT_TOKEN (all a Windows agent carries, and a Mac agent
+ * Kosmos did not start in its own pane) is minted per launch, so it is looked up in the board's own token files
+ * (sendertokens/, readable only by this account, read and never written here) for the name it was minted for. A token
+ * not found there (one from another computer, an old one) is its own key, as a hash, so there it is once per launch. The
+ * token is never stored. A person in their own Terminal has neither.
+ *
+ * WHAT IS KEPT: one empty file per agent and command in the data folder's how-hints/, made only if it is not there yet. The
+ * one JSON file this replaced was read, changed and written back, so two agents at once could lose a mark and see a
+ * pointer again in the same conversation; it is still read (how-hints.json), never written. A pointer that cannot be
+ * recorded is not shown: unrecorded, it would show at every call.
  *
  * Both CLIs call this one module (install/kosmos through `node howhint.js <command> [args]`, the Windows CLI through
- * require), so the rule and the record are the same everywhere. The record is one JSON file in the data folder
- * (store.currentDataRoot(); a test run names its own with KOSMOS_HOWHINT_FILE). Two agents writing at once can at worst lose a mark, which shows a
- * pointer twice; nothing else depends on it. Never throws.
+ * require), so the rule and the record are the same everywhere. The data folder is store.currentDataRoot(). Never throws.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -44,38 +52,61 @@ function classify(command, args) {
   return { guide, readsIt };
 }
 
-function recordFile(env, store) {
-  if (env && env.KOSMOS_HOWHINT_FILE) return env.KOSMOS_HOWHINT_FILE;   // a test's own record (honoured anywhere: an agent controls its own env)
-  return path.join(store.currentDataRoot(), 'how-hints.json');   // no migration, no folder made, from an agent's command
+/* The folder the marks, the tokens and the old record are in: the data folder, or a test's own. No migration, and the
+   data folder is never made from an agent's command. */
+function rootFor(env, store) {
+  return env && env.KOSMOS_HOWHINT_ROOT ? env.KOSMOS_HOWHINT_ROOT : store.currentDataRoot();   // a test's own (honoured anywhere: an agent controls its own env)
 }
-/* A record with no prototype, so an agent named like an Object key (`__proto__`) is stored as a key like any other. */
-function readRecord(file) {
-  const rec = Object.create(null);
-  try {
-    const v = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (v && typeof v === 'object' && !Array.isArray(v)) for (const k of Object.keys(v)) rec[k] = v[k];
-  } catch { /* no record yet, or unreadable: start over */ }
-  return rec;
-}
-function writeRecord(file, rec, mayMakeFolder) {
-  try {
-    if (mayMakeFolder) fs.mkdirSync(path.dirname(file), { recursive: true });   // only a test's own record
-    require('./store').saveFlushed(file, JSON.stringify(rec) + '\n');   // the store's flushed write: a unique temp, then the rename
-  } catch { /* nothing recorded: the pointer may show again */ }
-}
+const short = (words) => require('node:crypto').createHash('sha256').update(words).digest('hex').slice(0, 16);
 
-/* Who is calling: a Mac agent's name, or a hash of a Windows agent's launch token (never the token itself). */
-function agentKeyOf(env) {
+/* The name a launch token was minted for, or '' (engine/sendertoken.js keeps one file per agent, named by its key, each
+   token with the agent's own name). Read here rather than through that module, which works on the store's migrated root. */
+function nameOfToken(root, token) {
+  const dir = path.join(root, 'sendertokens');
+  let files;
+  try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')); } catch { return ''; }
+  for (const f of files) {
+    try {
+      const kept = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+      const list = kept && Array.isArray(kept.tokens) ? kept.tokens : kept && typeof kept.token === 'string' ? [kept] : [];
+      const hit = list.find((t) => t && t.token === token);
+      if (hit) return typeof hit.name === 'string' && hit.name ? hit.name : f.slice(0, -'.json'.length);
+    } catch { /* that file cannot be read: look at the others */ }
+  }
+  return '';
+}
+/* Who is calling: the agent's name, or a hash of its launch token (never the token itself) when it has no name here. */
+function agentKeyOf(env, root) {
   const session = String(env.KOSMOS_AGENT_SESSION || '');
   if (session) return session;
   const token = String(env.KOSMOS_AGENT_TOKEN || '');
   if (!token) return '';
-  return 'launch:' + require('node:crypto').createHash('sha256').update(token).digest('hex').slice(0, 16);
+  return (root && nameOfToken(root, token)) || 'launch:' + short(token);
 }
-/* Per-launch keys accumulate on Windows: keep the newest 500 entries. */
-function capRecord(rec) {
-  const keys = Object.keys(rec);
-  for (const k of keys.slice(0, Math.max(0, keys.length - 500))) delete rec[k];
+/* Seen in the one JSON record kept before kosmos#9015, under the agent's name or this launch's hash. */
+function seenBefore(root, keys, command) {
+  try {
+    const v = JSON.parse(fs.readFileSync(path.join(root, 'how-hints.json'), 'utf8'));
+    return keys.some((k) => Object.prototype.hasOwnProperty.call(v, k) && Array.isArray(v[k]) && v[k].includes(command));
+  } catch { return false; }
+}
+/* True when this call made the mark: exactly one call per agent and command gets true, whoever else is asking at once. */
+function mark(root, agent, command) {
+  const dir = path.join(root, 'how-hints');
+  try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (e) { if (!e || e.code !== 'EEXIST') return false; }
+  try { fs.closeSync(fs.openSync(path.join(dir, short(agent) + '-' + command), 'wx', 0o600)); } catch { return false; }   // there already, or it cannot be kept
+  prune(dir);
+  return true;
+}
+/* Per-launch marks (a token with no name here) could grow without end: past MARKS_MAX the oldest go. */
+const MARKS_MAX = 3000;
+function prune(dir) {
+  try {
+    const files = fs.readdirSync(dir);
+    if (files.length <= MARKS_MAX) return;
+    const aged = files.map((f) => { try { return { f, at: fs.statSync(path.join(dir, f)).mtimeMs }; } catch { return null; } }).filter(Boolean).sort((a, b) => a.at - b.at);
+    for (const x of aged.slice(0, aged.length - MARKS_MAX)) { try { fs.unlinkSync(path.join(dir, x.f)); } catch { /* gone already */ } }
+  } catch { /* kept as it is */ }
 }
 
 /* The line to show for this call, or '' (not an agent, no guide, already seen, or the agent is reading the guide now).
@@ -83,38 +114,31 @@ function capRecord(rec) {
 function hint(command, args, opts) {
   try {
     const env = (opts && opts.env) || process.env;
-    const c = classify(command, args);   // first: most calls have no guide, and need no hash
+    const c = classify(command, args);   // first: most calls have no guide, and need no look-up
     if (!c) return '';
-    const agent = agentKeyOf(env);
-    if (!agent) return '';
+    if (!agentKeyOf(env)) return '';
     const store = (opts && opts.store) || require('./store');   // opts.store: a test's stand-in
-    if (!env.KOSMOS_HOWHINT_FILE) {
+    if (!env.KOSMOS_HOWHINT_ROOT) {
       try { if (store.isTestProcess(env) || store.isTestProcess(process.env)) return ''; } catch { return ''; }   // the env handed in, and this process
     }
-    const file = recordFile(env, store);
-    if (!env.KOSMOS_HOWHINT_FILE) {
-      /* Never make the data folder (that would block the legacy-store migration and skip its 0700 mode), and never
-         write into one under the temp folder: no real data folder lives there, but a CLI test's sandbox does. */
-      const dir = path.dirname(file);
-      if (!fs.existsSync(dir)) return '';
+    const root = rootFor(env, store);
+    if (!fs.existsSync(root)) return '';   // never made here: that would block the legacy-store migration and skip its 0700 mode
+    if (!env.KOSMOS_HOWHINT_ROOT) {
+      /* Never write into a data folder under the temp folder: no real one lives there, but a CLI test's sandbox does. */
       const tmp = fs.realpathSync((opts && opts.tmpdir) || require('node:os').tmpdir());   // opts.tmpdir: a test's stand-in
-      let real = dir;
-      try { real = fs.realpathSync(dir); } catch { /* checked above */ }
+      let real = root;
+      try { real = fs.realpathSync(root); } catch { /* checked above */ }
       if (real === tmp || real.startsWith(tmp + path.sep)) return '';
     }
-    const rec = readRecord(file);
-    const seen = Array.isArray(rec[agent]) ? rec[agent] : [];
-    if (seen.includes(command)) return '';
-    delete rec[agent];   // re-added last, so the cap below keeps recently seen agents
-    rec[agent] = seen.concat(command);
-    capRecord(rec);
-    writeRecord(file, rec, Boolean(env.KOSMOS_HOWHINT_FILE));
-    if (c.readsIt) return '';
+    const agent = agentKeyOf(env, root);
+    const token = String(env.KOSMOS_AGENT_TOKEN || '');
+    if (seenBefore(root, token ? [agent, 'launch:' + short(token)] : [agent], command)) return '';
+    if (!mark(root, agent, command) || c.readsIt) return '';
     return 'First use of kosmos ' + command + ' here: its full guide is ' + c.guide + ' (shown once).';
   } catch { return ''; }
 }
 
-module.exports = { GUIDES, classify, hint, agentKeyOf };
+module.exports = { GUIDES, classify, hint, agentKeyOf, MARKS_MAX };
 
 /* install/kosmos runs this as a program: prints the line (or nothing) and always exits 0. */
 if (require.main === module) {

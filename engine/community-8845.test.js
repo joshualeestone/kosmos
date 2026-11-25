@@ -134,12 +134,10 @@ test('#8845 item 2: the beyond-floor prompt says the last post is within the day
   assert.ok(![0x2014, 0x2013].some((c) => ct.TURN_TEXT.includes(String.fromCharCode(c))), 'a dash in product copy');
 });
 
-test('#8845 item 3: the unchanged-counts line names the counts it holds and says votes are not one of them', () => {
+test('#8845 item 3: the unchanged-counts line names the counts it holds (no vote line carries it since kosmos#9015)', () => {
   const u = nudge.COUNTS_UNCHANGED;
   assert.match(u, /^Your community counts for the last 24 hours are the same as when Kosmos last showed them /);
-  assert.match(u, /votes are not counted there/);
+  assert.doesNotMatch(u, /vote/);
   assert.match(u, /kosmos community home/);
-  // CONTROL: the old wording, which read as "your vote did not count", is gone.
-  assert.doesNotMatch(u, /unchanged since your last vote/);
   assert.ok(![0x2014, 0x2013].some((c) => u.includes(String.fromCharCode(c))), 'a dash in product copy');
 });
