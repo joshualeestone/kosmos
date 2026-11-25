@@ -4698,15 +4698,20 @@ cmd_file_notices() {
 # startup, BEFORE it reports `started`, so the window starts at your last report: it prints the SessionStart hook JSON only
 # when something arrived or (kosmos#8634) your own last report was a wait nothing has ended, nothing otherwise, always
 # exits 0, with a 1 s cap. Run by hand, it shows the same window your newest startup had, without the wait reminder.
+# kosmos#9049: --hook --wait-only is what the hook runs at a SessionStart that CONTINUES a conversation after its
+# SessionEnd (a /clear, or a resume after a quit): only the reminder of your own last wait, worded for a session that
+# ended, never the digest (that session already saw it). Same contract as --hook: JSON or nothing, exit 0, 1 s cap.
 cmd_away() {
-  local _hook=0
+  local _hook=0 _waitonly=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --hook) _hook=1 ;;
-      *) say "kosmos away takes only --hook."; exit 2 ;;
+      --wait-only) _waitonly=1 ;;
+      *) say "kosmos away takes only --hook (and --wait-only with it)."; exit 2 ;;
     esac
     shift || true
   done
+  if [ "$_waitonly" = 1 ] && [ "$_hook" != 1 ]; then say "kosmos away --wait-only goes with --hook."; exit 2; fi
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in
     ''|*[!0-9a-f]*) ;;
@@ -4717,7 +4722,9 @@ cmd_away() {
   local _pane_q; _pane_q=$(printf '%s' "${TMUX_PANE:-}" | sed 's/%/%25/g')
   local _body _rc=0 _code
   if [ "$_hook" = 1 ]; then
-    _body=$(_KOSMOS_CURL_ONCE=1 kosmos_curl "$_bt" "$_tok" -sS -m 1 -w $'\n%{http_code}' "$URL/api/away?as=hook&at=startup&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
+    local _ask="as=hook&at=startup"
+    [ "$_waitonly" = 1 ] && _ask="as=hook&wait=only"
+    _body=$(_KOSMOS_CURL_ONCE=1 kosmos_curl "$_bt" "$_tok" -sS -m 1 -w $'\n%{http_code}' "$URL/api/away?${_ask}&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
     [ "$_rc" -eq 0 ] || exit 0
     _code="${_body##*$'\n'}"
     _body="${_body%$'\n'*}"

@@ -19895,12 +19895,14 @@ const server = http.createServer(async (req, res) => {
     let as = null;
     let fromPane = null;
     let startup = false;
+    let waitOnly = false;
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       as = q.get('as');
       fromPane = q.get('from_pane');
       startup = q.get('at') === 'startup';
-    } catch { as = null; fromPane = null; startup = false; }
+      waitOnly = q.get('wait') === 'only';
+    } catch { as = null; fromPane = null; startup = false; waitOnly = false; }
     const fail = (status, msg) => {
       if (as === 'hook') sendText(res, status, '');
       else if (as === 'text') sendText(res, status, msg + '\n');
@@ -19922,6 +19924,21 @@ const server = http.createServer(async (req, res) => {
       /* The long read serves every form. By hand the window needs the report before the newest `started`, which a busy
          session can push past the short tail; kosmos#8634: a standing wait can sit a day back under automatic reports. */
       const hist = selfreport.history(name, selfreport.HISTORY_MAX_BYTES);
+      /* kosmos#9049: `wait=only` is the hook's ask at a SessionStart that continues a conversation after its SessionEnd
+         (a /clear, or a resume after a quit). SessionEnd recorded `stopped` over the agent's own wait, and no `started`
+         follows, so #8634's reminder (asked only at a real startup) never came. Only the wait: the session already saw
+         what arrived, so the digest is not replayed. lastWait skips automatic rows, `stopped` among them. */
+      if (waitOnly) {
+        let w = null;
+        try { w = away.lastWait(hist, { nowMs: now }); } catch { w = null; }
+        /* Only a wait a session END set aside: a `stopped` recorded after it. A resume after a crash sends no SessionEnd,
+           so the wait is still on the board, and telling the agent it was set aside would be false. */
+        if (w && !away.endedAfter(hist, w.atMs)) w = null;
+        if (as === 'hook') { sendText(res, 200, away.hookJson(null, w, { ended: true })); return; }
+        if (as === 'text') { sendText(res, 200, (away.waitText(w, { ended: true }) || 'Your last report was not a wait, so there is nothing to remind you of.') + '\n'); return; }
+        sendJson(res, 200, { ok: true, wait: w });
+        return;
+      }
       const win = away.windowFrom(hist, { startup, nowMs: now });
       /* kosmos#8634: the agent's own wait from before a restart, which the new run's `started` replaced on the board
          (#1058). Only on the startup path (the Mac hook's at=startup, the Windows hook's as=hook): by hand, inside a

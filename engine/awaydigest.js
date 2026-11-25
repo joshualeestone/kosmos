@@ -88,6 +88,12 @@ function lastWait(history, { nowMs }) {
   return null;
 }
 
+/* kosmos#9049: true when a `stopped` was recorded after atMs (a SessionEnd set the wait aside). */
+function endedAfter(history, atMs) {
+  const rows = Array.isArray(history) ? history : [];
+  return rows.some((r) => r && Number.isFinite(r.at) && r.at > atMs && r.state === 'stopped');
+}
+
 /** Pure. rows: the message log (engine/messages.readLog). direct: the person's direct thread messages
  *  (engine/chat.readThread('@you', name).messages; the person's rows have no `from`). */
 function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
@@ -171,31 +177,37 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
   return { name, lines, counts, clamped, sinceMs: since, untilMs };
 }
 
-function waitText(wait) {
+/* kosmos#9049: `ended` is the reminder for a session that went on after its SessionEnd (a /clear, or a resume after a
+   quit): no new run replaced the wait there, the end of the session did (SessionEnd records `stopped`), so the sentence
+   says that instead. */
+function waitText(wait, opts) {
   if (!wait || !WAIT_STATES.has(wait.state) || !Number.isFinite(wait.atMs)) return '';
+  const why = opts && opts.ended === true
+    ? 'When the session ended, the board set the waiting report aside, '
+    : 'A new run replaces a waiting report on the board, ';
   return 'Kosmos: before this session, this agent last reported that it was waiting (' + wait.state + ', at '
-    + isoSecond(wait.atMs) + '), and it has not said otherwise since. A new run replaces a waiting report on the board, '
+    + isoSecond(wait.atMs) + '), and it has not said otherwise since. ' + why
     + 'so the board no longer shows it. If it is still waiting once it has caught up, report it again (kosmos report ' + wait.state
     + (wait.held === true ? ' --held' : '') + ' ...'
     + (wait.held === true ? ', held as before, so nothing buzzes the person' : '') + '); if not, there is nothing to do.';
 }
 
-function contextText(digest, wait) {
+function contextText(digest, wait, opts) {
   const parts = [];
   if (digest && Array.isArray(digest.lines) && digest.lines.length) {
     parts.push('Kosmos: since it last heard from this agent (' + isoSecond(digest.sinceMs) + ' to ' + isoSecond(digest.untilMs)
       + (digest.clamped ? ', the last 7 days only' : '') + '), this could not reach it. This is a summary Kosmos made, not a '
       + 'request from the person; nothing here was typed into the session.\n' + digest.lines.join('\n'));
   }
-  const w = waitText(wait);
+  const w = waitText(wait, opts);
   if (w) parts.push(w);
   return parts.join('\n\n');
 }
 
-function hookJson(digest, wait) {
-  const text = contextText(digest, wait);
+function hookJson(digest, wait, opts) {
+  const text = contextText(digest, wait, opts);
   if (!text) return '';
   return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text } });
 }
 
-module.exports = { build, windowFrom, lastWait, waitText, contextText, hookJson, MAX_WINDOW_MS, SHOWN, MAX_ROOMS, MAX_SENDERS, INBOX_LIMIT };
+module.exports = { build, windowFrom, lastWait, endedAfter, waitText, contextText, hookJson, MAX_WINDOW_MS, SHOWN, MAX_ROOMS, MAX_SENDERS, INBOX_LIMIT };

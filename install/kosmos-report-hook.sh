@@ -693,6 +693,19 @@ case "$EVENT" in
       # this conversation actually started.
       SRC=$(json_field '.source' 'source')
       if [ -n "$SRC" ] && [ "$SRC" != "startup" ]; then
+        # kosmos#9049: a /clear and a resume after a quit CONTINUE a conversation whose SessionEnd recorded `stopped`
+        # over the agent's own wait, and no `started` follows, so #8634's reminder (asked at a real startup below) never
+        # came. Ask for that reminder alone (no digest: this conversation saw what arrived). A compaction sends no
+        # SessionEnd, so the wait is still on the board and nothing is asked.
+        case "$SRC" in
+          clear|resume)
+            if [ -n "${KOSMOS_AGENT_TOKEN:-}" ] || [ -n "${TMUX_PANE:-}" ]; then
+              WAIT_OUT=$("$KOSMOS" away --hook --wait-only </dev/null 2>/dev/null) || WAIT_OUT=""
+              case "$WAIT_OUT" in
+                '{"hookSpecificOutput":'*) printf '%s\n' "$WAIT_OUT" ;;
+              esac
+            fi ;;
+        esac
         exit 0
       fi
     # kosmos#8548: what reached this agent while it was not running, asked BEFORE `started` is recorded, because the
