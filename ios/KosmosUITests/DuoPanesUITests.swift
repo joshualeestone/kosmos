@@ -42,7 +42,11 @@ final class DuoPanesUITests: XCTestCase {
 
     // Back belongs to one column: beside its list there is nothing to go back to.
     private func backShows(_ app: XCUIApplication) -> Bool {
-        app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label == 'Back' OR label == 'Agents'")).allElementsBoundByIndex.contains { $0.frame.width > 0 }
+        app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label == 'Back'")).allElementsBoundByIndex.contains { $0.frame.width > 0 }
+    }
+
+    private func back(_ app: XCUIApplication) {
+        app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label == 'Back'")).firstMatch.tap()
     }
 
     // CONTROL: an upright phone with no stand-in (regular height, compact width) is one column, with its back button.
@@ -191,10 +195,11 @@ final class DuoPanesUITests: XCTestCase {
         XCTAssertTrue(holds(5) { !self.tabsShow(app) }, "an upright phone shows the tabs in a project's room")
         app.buttons["room-info"].tap()
         XCTAssertTrue(words(app, "What it is for").waitForExistence(timeout: 10) && holds(5) { !self.tabsShow(app) }, "an upright phone shows the tabs over a project's page")
-        app.navigationBars.buttons.firstMatch.tap()
-        XCTAssertTrue(app.buttons["room-info"].waitForExistence(timeout: 10) && holds(5) { !self.tabsShow(app) }, "back in the room, the tabs show")
-        app.navigationBars.buttons.firstMatch.tap()
-        XCTAssertTrue(holds(8) { self.tabsShow(app) }, "back in the list, the tabs are gone")
+        back(app)
+        XCTAssertTrue(app.buttons["room-info"].waitForExistence(timeout: 10), "CONTROL: back did not return to the room")
+        XCTAssertTrue(holds(5) { !self.tabsShow(app) }, "the tabs show over the room on the way back")
+        back(app)
+        XCTAssertTrue(holds(8) { self.tabsShow(app) }, "the tabs did not come back with the list")
         shot(app, "upright, back in the list")
         // A task's page keeps its tabs, as it always has.
         app.tabBars.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Tasks'")).firstMatch.tap()
@@ -230,6 +235,22 @@ final class DuoPanesUITests: XCTestCase {
         shot(app, "answer")
     }
 
+    // A long message's bubble is sized to its pane, not the screen, on both chat lists (run on the UIKit arm too).
+    func testALongBubbleIsSizedToItsPane() throws {
+        let app = try launch("1", ["KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "varied"])
+        XCTAssertTrue(box(app).waitForExistence(timeout: 30) && holds(8) { self.beside(app) }, "CONTROL: the list is not beside the chat")
+        UIKitListArm.assertDrawn(app)
+        sleep(3)
+        shot(app, "long bubbles")
+        let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label CONTAINS ' of 260'")).allElementsBoundByIndex.filter { $0.frame.width > 0 && $0.frame.minX > app.frame.width * 0.3 }
+        let widest = rows.map(\.frame.width).max() ?? 0
+        print("UI-NOTE kosmos#9002 widest bubble text \(Int(widest)) of window \(Int(app.frame.width)), \(rows.count) rows")
+        XCTAssertGreaterThan(rows.count, 0, "CONTROL: no messages drawn in the chat's pane")
+        // The pane here is about 470 pt between the notch margins: its 0.78 share less the bubble's padding is about 345, and a
+        // bubble that takes all the row (the screen's share, cut by the row) is about 415.
+        XCTAssertLessThan(widest, 390, "a bubble is wider than its pane's share")
+    }
+
     // The tab bar floats over the list: its last row can still be read above it.
     func testTheListsLastRowClearsTheTabBar() throws {
         let app = try launch("1")
@@ -239,12 +260,14 @@ final class DuoPanesUITests: XCTestCase {
         }
         sleep(2)
         shot(app, "list's end")
-        // Ivy is the last sample agent, so this is the list's end and not the chat's or the last row that happens to be drawn.
-        let last = app.collectionViews.firstMatch.cells.allElementsBoundByIndex.last { $0.staticTexts["Ivy"].exists }
+        // The lowest row drawn in the list's own pane (the chat is another list), and the list is at its end: nothing is under it.
+        let pane = app.collectionViews.allElementsBoundByIndex.flatMap { $0.cells.allElementsBoundByIndex }.filter { $0.frame.maxX < app.frame.width * 0.5 && $0.frame.width > 0 }
+        let last = pane.max { $0.frame.maxY < $1.frame.maxY }
         let bar = app.tabBars.firstMatch
         print("UI-NOTE kosmos#9002 last row \(String(describing: last?.frame)), tab bar \(bar.exists ? String(describing: bar.frame) : "none"), buttons \(app.tabBars.buttons.allElementsBoundByIndex.map(\.frame))")
         XCTAssertTrue(bar.exists, "CONTROL: no tab bar beside the chat")
-        guard let last, last.frame.maxX < app.frame.width * 0.5 else { XCTFail("CONTROL: Ivy's row is not in the list's pane"); return }
+        guard let last else { XCTFail("CONTROL: no rows in the list's pane"); return }
+        XCTAssertTrue(last.staticTexts["Ivy"].exists, "CONTROL: the drags did not reach the list's last row (\(last.staticTexts.allElementsBoundByIndex.map(\.label)))")
         // Only where they share a column: a bar narrower than the window covers nothing beside it.
         let covered = app.tabBars.buttons.allElementsBoundByIndex.contains { $0.frame.intersects(last.frame) }
         XCTAssertFalse(covered, "the tab bar covers the list's last row (\(last.frame))")
