@@ -2274,6 +2274,9 @@ enum Board {
     struct Attached: Equatable, Identifiable {
         let id: String
         let name: String
+        // kosmos#9016: the Mac found the file cut short. The waiting chip says so now, while it can still be taken off
+        // and sent again (the board's attachAdd 'cut'). Absent on older Macs: not incomplete.
+        var incomplete: Bool = false
     }
 
     // kosmos#7944 (Josh 11-04: tap an image waiting on the composer to see it, with Remove as its only action): which
@@ -2403,7 +2406,7 @@ enum Board {
         if status == 0 { return .refused(notReached) }
         if (200...299).contains(status), let a = obj?["attachment"] as? [String: Any], let id = a["id"] as? String, isAttachmentId(id) {
             let said = (a["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return .added(Attached(id: id, name: said.isEmpty ? name : said))
+            return .added(Attached(id: id, name: said.isEmpty ? name : said, incomplete: isTrue(a["incomplete"])))
         }
         if status == 408 { return .refused("We could not finish adding \(name): it took too long to arrive. Try again on a faster connection.") }
         if let error = obj?["error"] as? String, !error.isEmpty { return .refused(error) }

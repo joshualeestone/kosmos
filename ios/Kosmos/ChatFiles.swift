@@ -80,6 +80,9 @@ struct FilesBubbleBackground: ViewModifier {
 // kosmos#7944: a picture waiting on the composer shows a small copy of itself, and a tap opens it (AttachedPreview).
 struct FileChip: View {
     let name: String
+    // kosmos#9016: the Mac found it cut short; the chip says so under the name (never on a picture's square, which a
+    // cut-short zip-based file never has).
+    var incomplete = false
     var faded = false
     var preview: Data? = nil
     var open: (() -> Void)? = nil
@@ -156,6 +159,7 @@ struct FileChip: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Remove \(name)")
+                .accessibilityHint(incomplete ? Board.incompleteWords : "")   // the reason to take it off, at the button
             }
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
@@ -166,10 +170,19 @@ struct FileChip: View {
     }
 
     private var label: some View {
-        Text(name).font(.footnote).foregroundColor(Palette.primary.opacity(faded ? 0.6 : 1))
-            .lineLimit(1).truncationMode(.middle)
-            // Cut in the middle, so a long name keeps its end and the next file shows beside it.
-            .frame(maxWidth: 180, alignment: .leading)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(name).font(.footnote).foregroundColor(Palette.primary.opacity(faded ? 0.6 : 1))
+                .lineLimit(1).truncationMode(.middle)
+                // Cut in the middle, so a long name keeps its end and the next file shows beside it.
+                .frame(maxWidth: 180, alignment: .leading)
+            if incomplete {
+                // kosmos#9016: the board's words, in its warning colour, wrapped at a set width (the chip is sized to
+                // its content, so an unset width would draw them on one long line).
+                Text(Board.incompleteWords).font(.caption).foregroundColor(Palette.dangerWord)
+                    .fixedSize(horizontal: false, vertical: true).frame(width: 150, alignment: .leading)
+            }
+        }
+        .accessibilityElement(children: .combine)   // one item: the name, then the warning (review 1)
     }
 }
 

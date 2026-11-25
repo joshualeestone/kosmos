@@ -1993,6 +1993,11 @@ do {
     check(res(200, #"{"attachment":{"id":"\#(id)","name":"deck (1).pdf"}}"#) == .added(Board.Attached(id: id, name: "deck (1).pdf")),
           "added: the Mac's id and the name it kept")
     check(res(200, #"{"attachment":{"id":"\#(id)"}}"#) == .added(Board.Attached(id: id, name: "deck.pdf")), "no name back: the one sent")
+    check(res(200, #"{"attachment":{"id":"\#(id)","name":"deck.xlsx","incomplete":true}}"#)
+            == .added(Board.Attached(id: id, name: "deck.xlsx", incomplete: true)),
+          "kosmos#9016: an upload the Mac found cut short waits marked incomplete")
+    check(res(200, #"{"attachment":{"id":"\#(id)","name":"deck.xlsx","incomplete":1}}"#)
+            == .added(Board.Attached(id: id, name: "deck.xlsx")), "kosmos#9016: only a real true marks it (a number 1 does not)")
     check(res(200, #"{"attachment":{"id":"../../x"}}"#) == .refused("We could not add that file (status 200)."),
           "an id that is not the Mac's shape is never sent on (control for the shape check)")
     check(res(200, "{}") == .refused("We could not add that file (status 200)."), "a 200 with no attachment is not added")
