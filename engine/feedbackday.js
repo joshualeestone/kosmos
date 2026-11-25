@@ -239,4 +239,33 @@ function digest(o) {
   return lines;
 }
 
-module.exports = { digest, dayArg, dayBefore, DAY_USAGE, recordWho, listTaskFilesIn, conversation, taskChanges, firstLine, MAX_MESSAGES, LINE_MAX };
+/*
+ * kosmos#9033: whether this agent has a day of its own to report on: a word with its person in Kosmos (conversation),
+ * a task it changed (taskChanges), or a room post or a message to another agent it sent (the message log), on `date`.
+ * The daily feedback ask (engine/feedbacknudge.js) skips an agent whose day is empty, so a brand-new or idle agent is not
+ * spent a turn writing a report about nothing (feedback 11-24). The same readers as `kosmos feedback day`, plus the room
+ * posts that digest does not list (an agent working in rooms all day has a day).
+ * Fails OPEN: anything it cannot read, or an agent that answers its person on another channel (#8141, where Kosmos sees
+ * nothing), counts as a day, so it is asked as before. o = { names (the card's session name first, then its name), date,
+ * dateKey, readThread, listTaskFiles, readTask, readLog, replyChannel } (readers injected for tests).
+ */
+function hadDay(o) {
+  const fb = require('./feedback');
+  const dateKey = o.dateKey || fb.dateKey;
+  const date = o.date || fb.today();
+  const names = (Array.isArray(o.names) ? o.names : []).filter((n, i, all) => typeof n === 'string' && n && all.indexOf(n) === i);
+  if (!names.length) return true;
+  if (replyChannelOf(o, names[0])) return true;
+  const readThread = o.readThread || ((n) => { const chat = require('./chat'); return chat.readThread(chat.DIRECT, n).messages; });
+  const listTaskFiles = o.listTaskFiles || (() => listTaskFilesIn(require('./taskchat').taskChatsDir(), date, dateKey));
+  const readTask = o.readTask || ((p, n) => require('./taskchat').read(p, n));
+  const readLog = o.readLog || (() => require('./messages').record());
+  try { if (conversation(readThread(names[0]), names, date, dateKey).length) return true; } catch { return true; }
+  try { if (taskChanges(listTaskFiles(), readTask, names, date, dateKey).length) return true; } catch { return true; }
+  let log;
+  try { log = readLog(); } catch { return true; }
+  if (!log || log.ok !== true || !Array.isArray(log.rows)) return true;
+  return log.rows.some((r) => r && (r.kind === 'post' || r.kind === 'message') && names.includes(r.from) && Boolean(onDay(r.at, date, dateKey)));
+}
+
+module.exports = { digest, dayArg, dayBefore, DAY_USAGE, recordWho, listTaskFilesIn, conversation, taskChanges, firstLine, hadDay, MAX_MESSAGES, LINE_MAX };

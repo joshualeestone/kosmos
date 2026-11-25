@@ -171,6 +171,7 @@ test('the tick is inert without live execution and under the operator brake', ()
     allowed: () => allowed, env, roster: () => cards, book: new Map(), now: () => EVENING,
     send: () => ({ on: true, ok: true }), hasReport: () => false, asked: memAsked(),
     deliver: () => { sent++; return { state: DELIVERY.PLACED }; }, DELIVERY,
+    hasDay: () => true,   // kosmos#9033: this test is about the gating; the day check is engine/feedbacknudge-9033.test.js
   });
   assert.equal(nudge.makeTick(deps(false, {}))(), null);
   assert.equal(nudge.makeTick(deps(true, { AGENT_WORKFORCE_FEEDBACK_NUDGE_OFF: '1' }))(), null);

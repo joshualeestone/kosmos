@@ -16,6 +16,8 @@
  *    asking it spends a turn of the person's account on an empty answer. When everyone who worked is still busy, nobody
  *    is asked yet: a later tick asks once one is idle. Who was seen working today is kept on disk (`workers`, by session
  *    name, while sending is on), so a restart later in the day does not forget them;
+ *  - with a day of its own to report on (kosmos#9033: a word with its person, a task it changed or a room post today,
+ *    feedbackday.hadDay), so a brand-new agent whose only work was its startup turn is not asked about nothing;
  *  - not the setup guide (it runs hands-off instructions, and its thread is masked on the page);
  *  - a Project Manager first (its instructions say this ask comes and what the report must never carry), then a Project Director (it holds the
  *    picture across projects), else roster order. A card's role is the one its instruction file states ("You are
@@ -176,8 +178,14 @@ function plan(o) {
   // from before this change, or a list that could not be read), so for the rest of that day any idle agent may be asked.
   const workers = Array.isArray(o.workers) ? o.workers : [];
   const anyIdle = o.workers === null && o.workedOn === o.today;
-  const cards = candidates(o.roster, o.labels, o.isGuide, (c) => anyIdle || workers.includes(c.sessionName) || seenWorking(c, o.today, o.dateKey) || cannotSee(c));
-  if (!cards.length) return { act: 'none', because: 'nobody who worked today is free to ask yet' };
+  const worked = candidates(o.roster, o.labels, o.isGuide, (c) => anyIdle || workers.includes(c.sessionName) || seenWorking(c, o.today, o.dateKey) || cannotSee(c));
+  if (!worked.length) return { act: 'none', because: 'nobody who worked today is free to ask yet' };
+  /* kosmos#9033: and only one with a day of its own to report on (a word with its person, a task it changed, a room post:
+     feedbackday.hadDay). A brand-new agent's startup turn reads as work, so it was asked for a report about nothing. A
+     check that throws counts as a day (asked as before). Absent (tests of the rest of the planner), every card has one. */
+  const hasDay = typeof o.hasDay === 'function' ? o.hasDay : () => true;
+  const cards = worked.filter((c) => { try { return hasDay(c) !== false; } catch { return true; } });
+  if (!cards.length) return { act: 'none', because: 'nobody who worked today has a day of their own to report on (no conversation with their person, task change or room post)' };
   return { act: 'nudge', cards, because: 'today has no report' };
 }
 
@@ -227,6 +235,7 @@ function sweepOnce(o) {
     const p = plan({
       roster: o.roster, send, today, hour: now.getHours(), hasReport, askedDate, entry, dateKey, workedOn, workers: unlisted ? null : workers,
       labels: Array.isArray(o.labels) ? o.labels : firstLabels(), isGuide: typeof o.isGuide === 'function' ? o.isGuide : undefined,
+      hasDay: typeof o.hasDay === 'function' ? (c) => o.hasDay(c, today, dateKey) : undefined,
     });
     if (p.act !== 'nudge') return { result: { act: 'none', because: p.because } };
     /* Each candidate in turn, in one tick:
@@ -287,6 +296,11 @@ function sweepOnce(o) {
   } catch { return null; }
 }
 
+/* kosmos#9033: the board's own reader for the planner's hasDay: the card's day, by its session name and its name. */
+function hasDayOf(card, today, dateKey) {
+  return require('./feedbackday').hadDay({ names: [card && card.sessionName, card && card.name], date: today, dateKey });
+}
+
 /* THE one "does the nudge run" rule: live execution allowed and the operator brake off. */
 function nudgeEnabled(allowed, env) {
   return allowed === true && (env || process.env).AGENT_WORKFORCE_FEEDBACK_NUDGE_OFF !== '1';
@@ -302,9 +316,10 @@ function makeTick(deps) {
       return sweepOnce({
         roster, book: deps.book, now: deps.now ? deps.now() : new Date(), send: deps.send, hasReport: deps.hasReport,
         asked: deps.asked, labels: deps.labels, isGuide: deps.isGuide, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
+        hasDay: typeof deps.hasDay === 'function' ? deps.hasDay : hasDayOf,
       });
     } catch { return null; }
   };
 }
 
-module.exports = { plan, candidates, rankOf, roleWords, workedToday, seenWorking, nudgeText, sweepOnce, makeTick, nudgeEnabled, askedFile, firstLabels, MAX_TRIES, NUDGE_HOUR, FIRST_ROLES };
+module.exports = { plan, candidates, hasDayOf, rankOf, roleWords, workedToday, seenWorking, nudgeText, sweepOnce, makeTick, nudgeEnabled, askedFile, firstLabels, MAX_TRIES, NUDGE_HOUR, FIRST_ROLES };
