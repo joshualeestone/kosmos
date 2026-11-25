@@ -36,6 +36,13 @@ coordinator/src/macs.rs cert(), acme.rs: Let's Encrypt) orders a certificate for
   is for whoever owns the test accounts. Until then the callers pass the one seed and nothing changes for them.
 - #9018 round 9's check-then-act on the progress file, and the sandboxed-versus-installed weighting (documented policy).
 
+## Residuals (review round 1)
+- Counting is by seed, right only for seeds that own an address; one with no address registers under a per-build
+  kseed name every such seed shares. Said in the script's usage and the ledger's header.
+- A flat week is an upper bound: Let's Encrypt refills this limit about one every 34 hours.
+- Two runs picking at the same moment may take the same seed; the second meets the 429 the gate already reads as
+  "cannot tell". Runs are per cut, so this is rare.
+
 ## Weakest premise
 The ledger is per machine: runs of one seed from two machines are not counted together. The gate runs on the cut
 machine, so in practice one ledger sees them.
