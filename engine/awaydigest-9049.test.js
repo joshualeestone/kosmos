@@ -27,11 +27,13 @@ test('the ended wording says only that the board set the wait aside; the default
   assert.equal(away.hookJson(null, null, { ended: true }), '', 'no wait, nothing to say');
 });
 
-test('endedAfter: only a stopped recorded AFTER the wait counts', () => {
+test('endedAfter: a stopped recorded AFTER the wait, and no started after it', () => {
   const at = W.atMs;
   assert.equal(away.endedAfter([{ state: 'stopped', at: at + 1 }], at), true);
   assert.equal(away.endedAfter([{ state: 'stopped', at: at - 1 }], at), false, 'a stopped before the wait did not set it aside');
   assert.equal(away.endedAfter([{ state: 'stopped', at }], at), false, 'the same instant is not after');
   assert.equal(away.endedAfter([{ state: 'idle', at: at + 1 }, { state: 'working', at: at + 2 }], at), false);
   assert.equal(away.endedAfter(null, at), false);
+  assert.equal(away.endedAfter([{ state: 'stopped', at: at + 1 }, { state: 'started', at: at + 2 }], at), false, 'a startup came in between and reminded already');
+  assert.equal(away.endedAfter([{ state: 'started', at: at + 1 }, { state: 'stopped', at: at + 2 }], at), false, 'a started anywhere after the wait');
 });

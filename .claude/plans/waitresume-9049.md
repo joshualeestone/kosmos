@@ -36,9 +36,12 @@ Rejected:
 Weakest premise: that `lastWait` still finds the wait after SessionEnd. It skips rows with `by: 'auto'`, and both
 hooks send `stopped` with --auto / auto:true (measured in the tests: a needs_you, an auto idle, an auto stopped ->
 reminded).
-Not exact, accepted: `endedAfter` asks whether ANY `stopped` follows the wait, not this conversation's. So a resume
-after a crash IS reminded when an earlier quit's `stopped` sits after the wait (wait, quit, startup, crash, resume).
-The reminder stays true there (the board does not show the wait), which is why the wording names no cause.
+Review rounds 1 and 2: `endedAfter` first accepted ANY later `stopped`, so a crash-resume after an earlier quit, and
+every /clear after a startup that had already reminded (#8634), got the reminder again. It now also requires that no
+`started` follows the wait: a startup in between means the agent was reminded there. Several /clears with no startup
+between them are each reminded, which is right: each /clear wipes the context that held the last reminder.
+Accepted: when the board is down, a /clear pays the retry (about 1.8 s worst case, inside the hook's 15 s), because the
+CLI's empty answer cannot tell "no stopped yet" from "no board".
 Not covered: Grok and Gemini bridges, which send `started` on every SessionStart (#9048, a separate card). A real
 Claude Code /clear and resume on a live agent were not driven; the hooks were fed the events.
 
@@ -51,5 +54,6 @@ Claude Code /clear and resume on a live agent were not driven; the hooks were fe
 - report-hook-away-8548.test.js: the Mac hook's clear/resume now ask `away --hook --wait-only` (this changed the old
   "a compaction or a resume asks nothing" test, split in two), an older CLI's refusal is dropped, the person's own
   session is not asked.
-- cli.away-8548.test.js: --hook --wait-only's URL; --wait-only alone is a usage error.
+- cli.away-8548.test.js and tools.windows-kosmos-cli-away-8548.test.js: --hook --wait-only's URL on both CLIs;
+  --wait-only alone is a usage error.
 - Mutants: the board ignoring endedAfter, the bash hook never asking, the JS hook never asking: each fails one test.

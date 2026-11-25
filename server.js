@@ -19931,11 +19931,12 @@ const server = http.createServer(async (req, res) => {
       if (waitOnly) {
         let w = null;
         try { w = away.lastWait(hist, { nowMs: now }); } catch { w = null; }
-        /* Only a wait a session END set aside: a `stopped` recorded after it. A resume after a crash sends no SessionEnd,
-           so the wait is still on the board, and telling the agent it was set aside would be false. */
+        /* Only a wait a session END set aside (a `stopped` after it) and that no startup has reminded of yet (no `started`
+           after it): a resume after a crash sends no SessionEnd, so its wait is still on the board, and a wait already
+           reminded at a startup would only be repeated at every later /clear. */
         if (w && !away.endedAfter(hist, w.atMs)) w = null;
         if (as === 'hook') { sendText(res, 200, away.hookJson(null, w, { ended: true })); return; }
-        if (as === 'text') { sendText(res, 200, (away.waitText(w, { ended: true }) || 'Your last report was not a wait, so there is nothing to remind you of.') + '\n'); return; }
+        if (as === 'text') { sendText(res, 200, (away.waitText(w, { ended: true }) || 'Kosmos has no wait of yours to remind you of: your last report was not a wait, or it is still shown, or you were already reminded of it at a startup.') + '\n'); return; }
         sendJson(res, 200, { ok: true, wait: w });
         return;
       }
