@@ -54,12 +54,20 @@ final class AutomationUITests: XCTestCase {
         shot(app, "automation-middle")
 
         // The Recommender is on in the sample, so its three guards show, each in the board's words.
+        // Each guard is revealed on its own, as the check-ins are: a lazy List draws a row only near the screen, so the
+        // first guard being on screen did not mean the other two were drawn yet (D1d1's light run failed here while its
+        // dark run passed on the same head, kosmos#8959).
+        // The money guard and the heading above it are read first, before revealing the lower two can scroll them away.
         let money = app.switches["automation-recommender-guard-money"]
         reveal(app, money)
-        XCTAssertTrue(money.exists && app.switches["automation-recommender-guard-public"].exists && app.switches["automation-recommender-guard-delete"].exists,
-                      "the Recommender's guards are missing while it is on")
+        XCTAssertTrue(money.waitForExistence(timeout: 5), "the Recommender's money guard is missing while it is on")
         XCTAssertTrue(money.label.hasPrefix("Act on anything that spends money"), "a guard is not in the board's words (label: \(money.label))")
         XCTAssertTrue(app.staticTexts["Never let a recommendation:"].exists, "the guards show without the page's heading, so On reads as permission")
+        for g in ["public", "delete"] {
+            let sw = app.switches["automation-recommender-guard-" + g]
+            reveal(app, sw)
+            XCTAssertTrue(sw.waitForExistence(timeout: 5), "the Recommender's \(g) guard is missing while it is on")
+        }
 
         // A predicate, not a subscript: XCUI refuses a string query longer than 128 characters (the 02:09 UI run).
         let elsewhere = app.staticTexts.matching(NSPredicate(format: "label == %@", "The Community's posts and kind of business, and the rest of your computer's settings are in Settings on your computer's board.")).firstMatch
