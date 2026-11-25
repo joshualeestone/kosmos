@@ -18,7 +18,8 @@
  * 🔑 GEMINI CAN REPORT ITS FULL LIFECYCLE, richer than codex's single event,
  * because gemini's hook events map cleanly to the report vocabulary (measured
  * against the installed bundle, 2026-09-23):
- *   SessionStart {source}                       -> started
+ *   SessionStart {source}                       -> started, except source `resume` (no report,
+ *       #9048)
  *   BeforeAgent  {prompt}                        -> working   (a turn started)
  *   Notification {notification_type,message}     -> needs_you (a tool needs the
  *       person; under `--approval-mode yolo` benign confirmations are
@@ -71,6 +72,7 @@ const STATE_FOR_EVENT = Object.freeze({
 
 /* Set by the Windows per-turn supervisor (win32keyed.turnEnv); see reportFor. */
 const PER_TURN_ENV = 'KOSMOS_PER_TURN';
+const CONTINUATION_SOURCES = new Set(['resume']);   // #9048: see reportFor
 
 function readStdin() {
   return new Promise((resolve) => {
@@ -107,6 +109,14 @@ function reportFor(event, env) {
      report, the turn's last words with it. The supervisor that runs the turns owns the
      agent's life, so those two are not reported; the turn events still are. */
   if ((state === 'started' || state === 'stopped') && env && env[PER_TURN_ENV] === '1') return null;
+  /* #9048: a RESUMED session is a continuation, not a new run, so it must not report `started`, which would land over
+     the agent's own needs_you or blocked and retire it though the same conversation goes on (the Claude hook's #1058
+     rule). Gemini's SessionStart `source` is `startup`, `resume` or `clear` (its SessionStartSource, read in the
+     installed 0.61.0 bundle: `resume` when it starts with resumed session data). Only `resume` is skipped.
+     `clear` still reports `started`, unlike the Claude hook: gemini's /clear fires SessionEnd (-> stopped, which
+     already replaces a deliberate wait) just before it, so skipping `started` would protect no wait and leave a live
+     agent showing stopped. A missing source and any value not yet seen report `started`, as before. */
+  if (state === 'started' && CONTINUATION_SOURCES.has(event.source)) return null;
   /* The last words for the card (idle), or the reason a needs_you requires. For
      needs_you the route REFUSES an empty note (selfreport.js: a needs_you/blocked
      must carry a reason/on/owner), so a Notification with no message would be

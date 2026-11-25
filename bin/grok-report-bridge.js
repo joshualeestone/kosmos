@@ -18,7 +18,8 @@
  *
  * 🔑 GROK REPORTS EVERY STATE EXCEPT needs_you (#4006). Grok's hook events map cleanly to the
  * report vocabulary (measured against the installed grok 1.0.41 on 2026-09-23):
- *   SessionStart {source}                        -> started
+ *   SessionStart {source}                        -> started, except source `load` (a reopened
+ *       session: no report, #9048)
  *   UserPromptSubmit {prompt}                     -> working   (a turn started)
  *   Notification {message,notification_type}      -> NOT MAPPED (#4006). Under
  *       --always-approve/bypassPermissions it is not a permission prompt: measured on a
@@ -95,6 +96,7 @@ const STATE_FOR_EVENT = Object.freeze({
 
 /* Set by the Windows per-turn supervisor (win32keyed.turnEnv); see reportFor. */
 const PER_TURN_ENV = 'KOSMOS_PER_TURN';
+const CONTINUATION_SOURCES = new Set(['load']);   // #9048: see reportFor
 
 function readStdin() {
   return new Promise((resolve) => {
@@ -138,6 +140,14 @@ function reportFor(event, env) {
      report, the turn's last words with it. The supervisor that runs the turns owns the
      agent's life, so those two are not reported; the turn events still are. */
   if ((state === 'started' || state === 'stopped') && env && env[PER_TURN_ENV] === '1') return null;
+  /* #9048: a REOPENED session is a continuation, not a new run, so it must not report `started`, which would land over
+     the agent's own needs_you or blocked and retire it though the same conversation goes on (the Claude hook's #1058
+     rule). Grok names the start source `new` (a fresh session, including one from /new or /clear) or `load` (a saved
+     session reopened with --resume, --continue or the /resume picker): read in grok 1.0.77's own hooks doc, not in a
+     captured payload, since no Grok account is signed in on the Mac that measured it. Only `load` is skipped. `new`, a
+     missing source (an older grok) and any value not yet seen still report `started`, as before: a new run must clear
+     a stale state, and Claude's `startup` is not a value grok sends, so keying on it would drop every fresh start. */
+  if (state === 'started' && CONTINUATION_SOURCES.has(event.source)) return null;
   /* The last words for the card (idle). The needs_you arm below has no event mapped to it
      since #4006; it keeps its non-empty fallback (the route refuses a needs_you with no
      reason) so remapping an event later cannot send an empty one. */

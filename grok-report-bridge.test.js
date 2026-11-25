@@ -286,3 +286,20 @@ test('#4491: token-only sends the agent\'s token alone; anything else keeps the 
     fsB.rmSync(data, { recursive: true, force: true });
   }
 });
+
+/* #9048: a reopened grok session (source `load`: --resume, --continue, the /resume picker) is the same conversation
+   going on, so it must not report `started` over the agent's own wait. A fresh session (`new`, which grok also sends
+   for /new and /clear), a missing source and an unseen value still report `started`, and Claude's `startup` is not a
+   value grok sends, so it must not be the key. Driven end to end as well, so a reopened session reaches no board. */
+test('#9048: a reopened grok session does not report started; a fresh one still does', async () => {
+  const { reportFor } = require('./bin/grok-report-bridge');
+  assert.equal(reportFor({ hook_event_name: 'SessionStart', source: 'load' }), null);
+  assert.equal(reportFor({ hook_event_name: 'SessionStart', source: 'new' }).state, 'started');
+  assert.equal(reportFor({ hook_event_name: 'SessionStart' }).state, 'started', 'an older grok with no source');
+  assert.equal(reportFor({ hook_event_name: 'SessionStart', source: 'something-later' }).state, 'started');
+  assert.equal(reportFor({ hook_event_name: 'SessionEnd', source: 'load' }).state, 'stopped', 'only SessionStart reads source');
+  const reopened = await drive(JSON.stringify({ hook_event_name: 'SessionStart', source: 'load' }));
+  assert.equal(reopened.length, 0, 'a reopened session must not reach the board');
+  const fresh = await drive(JSON.stringify({ hook_event_name: 'SessionStart', source: 'new' }));
+  assert.equal(JSON.parse(fresh[0].body).state, 'started');
+});
