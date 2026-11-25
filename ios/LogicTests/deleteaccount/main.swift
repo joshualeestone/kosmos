@@ -101,6 +101,29 @@ check(D.resendWait(status: 200, json: nil) == 90, "90 s after a code went")
 check(D.resendWait(status: 429, json: ["retry_after_secs": 1290]) == 1290, "Kosmos+'s own wait after a 429")
 check(D.resendWait(status: 400, json: ["retry_after_secs": 30]) == 0 && D.resendWait(status: 429, json: nil) == 0, "no wait otherwise")
 
+// What a confirm leads to, from the confirm screen or from could not delete's Try again (DeleteAccount.after).
+typealias S = D.Sent
+check(D.after(.answer(status: 200, json: ["outcome": "deleted"]), answerLost: false) == .init(screen: .done, answerLost: false, note: nil), "deleted")
+check(D.after(.answer(status: 202, json: ["outcome": "still_deleting"]), answerLost: true) == .init(screen: .pending, answerLost: false, note: nil), "pending")
+check(D.after(.answer(status: 503, json: ["outcome": "nothing_changed"]), answerLost: true) == .init(screen: .failed, answerLost: false, note: nil), "could not, the lost flag cleared by a real answer")
+check(D.after(.nothing(.notConnectedToInternet), answerLost: false) == .init(screen: .confirm, answerLost: false, note: D.unreachable), "offline: never sent")
+check(D.after(.nothing(.timedOut), answerLost: false) == .init(screen: .confirm, answerLost: true, note: D.lostWords), "timed out: may be deleting")
+check(D.after(.nothing(.cancelled), answerLost: false).answerLost, "a cancel this app never asked for may have been sent")
+// The round-5 blocker: Try again from could not delete, answer lost, must leave "Nothing was deleted" for the confirm screen.
+check(D.after(.nothing(.networkConnectionLost), answerLost: false).screen == .confirm, "a lost answer is never the could-not screen")
+check(D.after(.nothing(.notConnectedToInternet), answerLost: true) == .init(screen: .confirm, answerLost: true, note: D.lostWords), "a lost answer stays lost")
+check(D.after(.answer(status: 502, json: nil), answerLost: false) == .init(screen: .confirm, answerLost: true, note: D.lostWords), "a proxy's page: reached the way in")
+check(D.after(.answer(status: 500, json: ["error": "internal error"]), answerLost: false) == .init(screen: .confirm, answerLost: false, note: "Internal error."), "a 500: its sentence, the grant kept")
+check(D.after(.answer(status: 500, json: ["error": "internal error"]), answerLost: true).note == D.lostWords, "after a lost answer, the lost words win")
+check(D.after(.answer(status: 401, json: ["error": "that confirmation has expired; start again from the email"]), answerLost: true) == .init(screen: .unknown, answerLost: true, note: nil), "unknown")
+check(D.after(.answer(status: 401, json: ["error": "that confirmation has expired; start again from the email"]), answerLost: false)
+      == .init(screen: .startOver("That confirmation has expired; start again from the email."), answerLost: false, note: nil), "expired, nothing lost: start over")
+check(!D.lostWords.contains("safe"), "the lost words do not invite a second press as safe (round 5: a second confirm mid-way can answer still_deleting)")
+check(D.anotherAccount(ownEmail: "a@b.co", deletedEmail: "c@d.co") && !D.anotherAccount(ownEmail: "A@b.co", deletedEmail: "a@B.co")
+      && !D.anotherAccount(ownEmail: nil, deletedEmail: "c@d.co"), "another account only when both are known and differ")
+let me = D.meRequest(coordinator: coordinator, session: "S1")
+check(me.url?.absoluteString == "https://login.kosmosplus.com/v1/account/me" && me.value(forHTTPHeaderField: "Authorization") == "Bearer S1" && me.httpMethod == "GET", "the /me read")
+
 // A lost answer, or the sweep, finished it: the account is gone, and the iPhone signs out.
 check(D.outcome(status: 401, json: ["error": "that account is already gone"]) == .deleted, "already gone reads as deleted")
 check(D.outcome(status: 400, json: ["error": "that account is already gone"]) == .startOver("That account is already gone."), "only Kosmos+'s 401 for it")

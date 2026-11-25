@@ -203,7 +203,7 @@ enum DeleteAccount {
                                           .internationalRoamingOff, .dataNotAllowed, .secureConnectionFailed,
                                           .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateNotYetValid,
                                           .serverCertificateHasUnknownRoot, .appTransportSecurityRequiresSecureConnection, .badURL,
-                                          .unsupportedURL, .cancelled]
+                                          .unsupportedURL]
         return !neverSent.contains(code)
     }
 
@@ -235,8 +235,64 @@ enum DeleteAccount {
     /// forgets every session it holds: a dead session kept is worse than a live one ended.
     static func signsOut(deleted: Bool, already: Bool, ownEmail: String?, deletedEmail: String?) -> Bool {
         guard deleted, !already else { return false }
-        if let own = ownEmail?.lowercased(), let gone = deletedEmail?.lowercased(), own != gone { return false }
-        return true
+        return !anotherAccount(ownEmail: ownEmail, deletedEmail: deletedEmail)
+    }
+
+    /// True only when both addresses are known and differ (letter case aside): the account in question is not this
+    /// iPhone's.
+    static func anotherAccount(ownEmail: String?, deletedEmail: String?) -> Bool {
+        guard let own = ownEmail?.lowercased(), let gone = deletedEmail?.lowercased() else { return false }
+        return own != gone
+    }
+
+    static func meRequest(coordinator: URL, session: String) -> URLRequest {
+        var r = URLRequest(url: coordinator.appendingPathComponent(String(SignIn.mePath.dropFirst())))
+        r.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")
+        r.timeoutInterval = 15
+        r.httpShouldHandleCookies = false
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+
+    // MARK: - What a confirm leads to
+
+    /// What came back from one confirm: an answer, or none (with the URLError's code when there was one).
+    enum Sent: Equatable {
+        case answer(status: Int, json: NSDictionary?)
+        case nothing(URLError.Code?)
+    }
+
+    enum Screen: Equatable { case confirm, done, pending, failed, unknown, startOver(String) }
+
+    struct After: Equatable {
+        let screen: Screen
+        /// A confirm on this grant may have reached Kosmos+ with no answer heard (Outcome.unknown).
+        let answerLost: Bool
+        /// The line under Delete my account on the confirm screen.
+        let note: String?
+    }
+
+    /// The one place a confirm's result picks the next screen, from any screen it was sent on (confirm, or could not
+    /// delete's Try again). Whenever the answer is not heard, it is the confirm screen: it says the account may be gone
+    /// and offers no Keep, where "could not delete" would say nothing was deleted.
+    static func after(_ sent: Sent, answerLost: Bool) -> After {
+        switch sent {
+        case .nothing(let code):
+            let lost = answerLost || mayHaveArrived(code)
+            return After(screen: .confirm, answerLost: lost, note: lost ? lostWords : unreachable)
+        case .answer(let status, let json):
+            switch outcome(status: status, json: json, answerLost: answerLost) {
+            case .deleted: return After(screen: .done, answerLost: false, note: nil)
+            case .stillDeleting: return After(screen: .pending, answerLost: false, note: nil)
+            case .nothingChanged: return After(screen: .failed, answerLost: false, note: nil)
+            case .unknown: return After(screen: .unknown, answerLost: true, note: nil)
+            case .startOver(let sentence): return After(screen: .startOver(sentence), answerLost: false, note: nil)
+            case .retry(let sentence):
+                // No sentence: something other than Kosmos+ answered (a proxy's page), so the request reached the way in.
+                let lost = answerLost || sentence == nil
+                return After(screen: .confirm, answerLost: lost, note: lost ? lostWords : (sentence ?? unreachable))
+            }
+        }
     }
 
     // MARK: - Words (the page's own, signin.html)
@@ -305,7 +361,7 @@ enum DeleteAccount {
     // when a deletion finishes (account_delete.rs finish), so the email is where the person can find out.
     static let unknownTitle = "We could not tell whether your account was deleted"
     /// The note on the confirm screen after a confirm went out and no answer came back.
-    static let lostWords = "Kosmos+ did not answer in time. Your account may already be deleted: if it was, we emailed you. Pressing Delete my account again is safe: it finishes the deletion, or says it is done."
+    static let lostWords = "Kosmos+ did not answer in time. Your account may already be deleted: if it was, we email you. If no email comes in a few minutes, press Delete my account again."
     static let stillThereWords = "Your account was not deleted. Start again from the email."
     static let unknownWords = "Kosmos+ did not answer in time, and the confirmation cannot be used again. If your account was deleted, we emailed you to say so. If no email comes, start again from the email."
     static let didNotWork = "That did not work. Start again from the email."
