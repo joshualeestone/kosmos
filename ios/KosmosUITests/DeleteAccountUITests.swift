@@ -20,7 +20,9 @@ final class DeleteAccountUITests: XCTestCase {
         // 1. The email, filled with the account's, and the page's three explanations.
         let email = app.textFields["delete-email"]
         XCTAssertTrue(email.waitForExistence(timeout: 10), "the native delete screen did not open")
-        XCTAssertEqual(email.value as? String, "you@example.com", "the email is not filled with the account's")
+        // Filled by the screen's .task, which may land a moment after the field appears.
+        let filled = expectation(for: NSPredicate(format: "value == %@", "you@example.com"), evaluatedWith: email)
+        wait(for: [filled], timeout: 5)
         XCTAssertTrue(app.staticTexts["For the Kosmos app's Kosmos+ account. We will email you a code first, so we know it is yours."].exists, "the page's intro is missing")
         reveal(app, app.staticTexts["Your billing records, because the law requires them, and entries already written to our server logs. Everything else is deleted."])
         XCTAssertTrue(app.staticTexts["Your billing records, because the law requires them, and entries already written to our server logs. Everything else is deleted."].exists,

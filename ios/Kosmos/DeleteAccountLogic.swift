@@ -146,6 +146,8 @@ enum DeleteAccount {
         guard (200..<300).contains(status) else {
             let sentence = sentence(json)
             if let sentence, SignIn.startsOver(sentence) { return .startOver(sentence) }
+            // No sentence from a 408, 429 or 5xx (a proxy's page): Kosmos+ never judged the code, so do not say it is wrong.
+            if sentence == nil, status == 408 || status == 429 || status >= 500 { return .refused(unreachable) }
             return .refused(sentence ?? codeRefused)
         }
         if let kind = body["second"] as? String, !kind.isEmpty {

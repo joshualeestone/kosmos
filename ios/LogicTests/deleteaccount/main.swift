@@ -56,7 +56,8 @@ check(D.checked(status: 401, json: ["error": "that code is not the one we texted
 check(D.checked(status: 401, json: ["error": "too many wrong second codes; start again from the email"]) == .startOver("Too many wrong second codes; start again from the email."), "too many: start over")
 check(D.checked(status: 401, json: ["error": "that step has expired or was already finished; start again from the email"]) == .startOver("That step has expired or was already finished; start again from the email."), "an expired step: start over")
 check(D.checked(status: 503, json: ["error": "deleting an account is not open yet"]) == .refused("Deleting an account is not open yet."), "the off switch")
-check(D.checked(status: 500, json: nil) == .refused(D.codeRefused), "no sentence")
+check(D.checked(status: 500, json: nil) == .refused(D.unreachable), "a 5xx with no sentence never says the code is wrong")
+check(D.checked(status: 401, json: nil) == .refused(D.codeRefused), "a 401 with no sentence is the code")
 
 // confirm: the three outcomes, whatever the status; anything else starts over and the grant is not sent again.
 check(D.outcome(status: 200, json: ["outcome": "deleted"]) == .deleted, "deleted")
