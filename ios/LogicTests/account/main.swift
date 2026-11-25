@@ -225,6 +225,8 @@ check(Account.nameAnswer(status: 402, data: json(#"{"error":"This computer needs
 check(Account.nameAnswer(status: 409, data: json(#"{"error":"buy one","code":"address_not_bought"}"#)) == .refused(Account.nameNotHere), "the code alone is enough")
 check(Account.nameAnswer(status: 402, data: nil) == .refused(Account.nameNotHere), "a 402 alone is enough")
 check(Account.nameAnswer(status: nil, data: nil) == .refused("Kosmos could not be reached just now."), "no answer: the page's words")
+check(Account.refusedDevice == "Your computer said no to this device last time. It is asking again; if that was you, allow it there.", "the page's refused-device words")
+check(Account.nameAnswer(status: 403, data: json(#"{"error":"the review account cannot claim a name"}"#)) == .refused(Account.nameNotHere), "403: the plain words, not the server's")
 check(Account.nameAnswer(status: 401, data: json(#"{"error":"no such account"}"#)) == .refused("You are signed out."), "401: signed out, not the server's words")
 check(Account.nameAnswer(status: 503, data: json("<html>maintenance</html>")) == .refused(Account.nameUnreachable) && Account.nameAnswer(status: 500, data: json(#"{"error":"boom"}"#)) == .refused(Account.nameUnreachable), "a 5xx is unreachable, not a judgement on the name")
 check(!Account.nameNotHere.lowercased().contains("buy") && !Account.nameNotHere.contains("iPhone") && !Account.nameNotHere.contains("http"), "the 402's own words point nowhere")

@@ -216,8 +216,11 @@ struct AccountView: View {
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("account-no-computer")
-                } else if rows.isEmpty {
+                } else if meComputers == .refused {
                     // A refused device is shown none of the account's computers; that is not "no computer yet" (relay#217).
+                    // The page's own sentence says why (review 7).
+                    Text(Account.refusedDevice).foregroundColor(Palette.secondary).accessibilityIdentifier("account-refused")
+                } else if rows.isEmpty {
                     Text("No computers to show.").foregroundColor(Palette.secondary)
                 }
                 let now = Date().timeIntervalSince1970
