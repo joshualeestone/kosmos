@@ -43,8 +43,17 @@ final class AutomationUITests: XCTestCase {
         XCTAssertTrue(money.label.hasPrefix("Act on anything that spends money"), "a guard is not in the board's words (label: \(money.label))")
         XCTAssertTrue(app.staticTexts["Never let a recommendation:"].exists, "the guards show without the page's heading, so On reads as permission")
 
+        // kosmos#8959 slice D1d1: the sample's two check-ins under the Prompter box, each a button to its agent.
+        let quiet = app.buttons["automation-checkin-dana"]
+        reveal(app, quiet, swipes: 12)
+        XCTAssertTrue(quiet.exists, "the Prompter's check-ins are missing")
+        XCTAssertTrue(quiet.label.contains("dana") && quiet.label.contains("seems to have gone quiet. Still mid-something, finished, or stopped?"), quiet.label)
+        XCTAssertTrue(app.buttons["automation-checkin-eli"].label.contains("lost its connection, and Kosmos stopped trying."), "the gave-up question is not the page's")
+        XCTAssertTrue(app.staticTexts["Agents that may need you"].exists, "the check-ins' heading is missing")
+        shot(app, "automation-checkins")
+
         // A predicate, not a subscript: XCUI refuses a string query longer than 128 characters (the 02:09 UI run).
-        let elsewhere = app.staticTexts.matching(NSPredicate(format: "label == %@", "The Prompter's check-ins, the Community's posts and kind of business, and the rest of your computer's settings are in Settings on your computer's board.")).firstMatch
+        let elsewhere = app.staticTexts.matching(NSPredicate(format: "label == %@", "The Community's posts and kind of business, and the rest of your computer's settings are in Settings on your computer's board.")).firstMatch
         reveal(app, elsewhere, swipes: 12)
         XCTAssertTrue(elsewhere.exists, "the screen does not say where the other settings are")
         shot(app, "automation-end")

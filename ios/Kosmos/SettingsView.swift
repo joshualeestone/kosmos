@@ -22,6 +22,8 @@ struct SettingsView: View {
     // kosmos#7266 slice B: the person on the shown computer, for the page's top (BoardClient.youName / youPicture).
     var youName: String? = nil
     var youPicture: Data? = nil
+    // kosmos#8959 slice D1d1: opens an agent's chat, as a push tap does (a Prompter check-in in Automation).
+    var openAgent: (PushBridge.AgentTarget) -> Void = { _ in }
 
     private enum Load: Equatable {
         case reading
@@ -336,7 +338,7 @@ struct SettingsView: View {
             // kosmos#8959 slice D1a: the board's Automation box, native. The board row stays for the rest until their
             // own slices land (D1b to D2 on the card).
             NavigationLink {
-                AutomationView(mac: mac, sample: Self.sample, finding: load == .reading, signedOut: load == .signedOut)
+                AutomationView(mac: mac, sample: Self.sample, finding: load == .reading, signedOut: load == .signedOut, openAgent: openAgent)
             } label: {
                 Text("Automation").foregroundColor(Palette.primary)
             }

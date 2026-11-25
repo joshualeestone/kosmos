@@ -56,10 +56,9 @@ enum Automation {
         static let autoSaveHint = "When an agent's context is nearly full, it will automatically be asked to write a handoff document for its future self. On by default."
         static let autoSaveLevel = "Save when context reaches"
         static let prompterLabel = "Check on your agents"
-        // Review 1: the page's line goes on to "shows a check-in below", a list the phone does not have yet (D1d), so the
-        // phone says the line up to there, and the rest of it. Each piece is the page's own (the logic suite checks).
-        static let prompterHintPieces = ["Every so often, Kosmos checks on your agents that have stopped while they still have tasks to finish, or that need reconnecting. It can remind the ones with tasks to pick their work back up", "Everything stays on this computer. On by default."]
-        static var prompterHint: String { prompterHintPieces[0] + ". " + prompterHintPieces[1] }
+        // The page's line whole: since slice D1d1 the check-ins it points to are below the box on the phone too.
+        static let prompterHintPieces = ["Every so often, Kosmos checks on your agents that have stopped while they still have tasks to finish, or that need reconnecting. It can remind the ones with tasks to pick their work back up, and shows a check-in below so you can look in on it. Everything stays on this computer. On by default."]
+        static var prompterHint: String { prompterHintPieces[0] }
         static let prompterEvery = "Check every"
         static let capLabel = "Working at the same time"
         static let geminiCapHint = "Gemini agents signed in with a Google subscription on this computer share one Google account's quota, so several working at once can use it up together. Gemini agents on an API key are not counted. With a limit, Kosmos holds its own automatic messages, room posts and the tasks it hands out to the others while that many are working, counting each one it just started for a few minutes, so those can arrive late. Your own messages, and a restart or new team you start, are not held by this limit, though a restart or new team counts toward it. No limit by default."
@@ -101,8 +100,9 @@ enum Automation {
         static let dailyReportDamaged = "Your Daily report setting could not be read, so no report is being sent. Turn it on to set it again."
         static let messagesDefault = "We could not read this setting, so Kosmos is using the default shown here."
         static let languageCouldNotRead = "Could not be read just now"
-        // Not the page's: the phone's own line for what is not on this screen yet (card #8959, D1b to D2).
-        static let elsewhere = "The Prompter's check-ins, the Community's posts and kind of business, and the rest of your computer's settings are in Settings on your computer's board."
+        // Not the page's: the phone's own line for what is not on this screen yet (card #8959, D1d2 to D2). The Prompter's
+        // check-ins left it with slice D1d1, which put them under the Prompter box.
+        static let elsewhere = "The Community's posts and kind of business, and the rest of your computer's settings are in Settings on your computer's board."
     }
 
     // The recommender's three guards, in the board's order, with its words.
