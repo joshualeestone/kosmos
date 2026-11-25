@@ -62,8 +62,10 @@ function validUntil(row, now = Date.now()) {
         /* A test reader returns the login date, or (#5168) { until, works } with the access token's date too. */
         const got = await reader(ccd);
         if (got && typeof got === 'object') { until = got.until; works = got.works; } else until = got;
-      } else if (process.platform === 'darwin' && !process.env.NODE_TEST_CONTEXT) {
-        const body = await loginexpiry.readCredAsync(service);
+      } else if (!process.env.NODE_TEST_CONTEXT) {
+        // kosmos#9097: every platform. readCredAsync reads the Keychain on macOS and the folder's credentials file
+        // elsewhere, which is where Claude Code keeps it on Windows and Linux.
+        const body = await loginexpiry.readCredAsync(service, ccd);
         const t = loginexpiry.loginTimesFor(ccd, { readCred: () => body });   // #5168: both dates, one read
         until = t.refreshExpiresAt; works = t.accessExpiresAt;
       }
