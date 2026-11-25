@@ -46,6 +46,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_BIN = CLAUDE_BIN;
 process.env.AGENT_WORKFORCE_TMUX_BIN = TMUX_BIN;
 
 const create = require('./engine/create');
+create.setProbeRealHomeForTests(HOME);   // kosmos#9082 review 3: this sandbox's HOME stands for the real home
 const accounts = require('./engine/accounts');
 const subscription = require('./engine/subscription');
 const observed = require('./engine/observed');

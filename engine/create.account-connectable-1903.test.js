@@ -41,6 +41,7 @@ delete process.env.AGENT_WORKFORCE_CODEX_HOME;
 delete process.env.CODEX_HOME;
 
 const create = require('./create');
+create.setProbeRealHomeForTests(HOME);   // kosmos#9082 review 3: this sandbox's HOME stands for the real home
 const openai = require('./openaiaccounts');
 
 // Default Claude account (record BESIDE ~/.claude) + a labelled one.

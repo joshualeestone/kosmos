@@ -54,3 +54,10 @@ fails with its rule removed. 179 probe-related tests pass.
 - NIT: "no server running" is exit 1 (''), not null --> comment FIXED (same outcome). NIT: plan wording --> FIXED.
 - Left: the synchronous tmux call (5 s timeout, as status.js and chat.js do); a symlink spelling of the real home in
   AGENT_WORKFORCE_HOME reads as a sandbox (unusual configuration; the safe direction for a sandbox).
+
+## Review round 3 (opus): 0 BLOCKERs, 1 SHOULD, NITs
+- SHOULD: the sandbox rule compared with $HOME, so a harness that replaces HOME would probe the real login --> FIXED:
+  the OS home (os.userInfo), as usagepoll.realHomeDir; tests name their sandbox HOME via setProbeRealHomeForTests
+  (excused in engine.reachable). Test: a HOME-replacing sandbox keeps its folder (fails with $HOME).
+- NIT: no test of a real pin through the real lookup --> ADDED (a stub tmux via status.boardTmux; fails without it).
+- NIT: long comment line --> wrapped. Left: the synchronous tmux call on the click path (5 s cap, as status reads).

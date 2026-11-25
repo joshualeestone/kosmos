@@ -43,6 +43,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const create = require('./engine/create');
+create.setProbeRealHomeForTests(HOME);   // kosmos#9082 review 3: this sandbox's HOME stands for the real home
 
 let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });

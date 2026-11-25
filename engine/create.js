@@ -5637,12 +5637,19 @@ function setClaudeProbe(fn) { claudeProbe = typeof fn === 'function' ? fn : null
    - the default otherwise: unset;
    - a sandboxed board (AGENT_WORKFORCE_HOME, so the default folder is not the person's real ~/.claude): its folder, so
      a sandbox never probes the real login (review 1; usagepoll refuses the same). */
+let probeRealHomeForTests = null;
+/** Tests only: the folder claudeProbeDir treats as the person's real home (a test sandboxes HOME). null: the OS's. */
+function setProbeRealHomeForTests(home) { probeRealHomeForTests = typeof home === 'string' && home ? home : null; }
 function claudeProbeDir(dir, opts) {
   let def = null;
   try { def = require('./accounts').isDefaultDir(dir); } catch { def = null; }
   if (def !== true) return dir || null;
+  /* Review 3: the home from the user database, not $HOME (usagepoll.realHomeDir does the same), so a harness that
+     sandboxes HOME itself never probes the person's real login either. */
+  let home = probeRealHomeForTests;
+  if (home == null) { try { home = os.userInfo().homedir; } catch { home = null; } }
   let real = false;
-  try { real = path.resolve(dir) === path.join(os.homedir(), '.claude'); } catch { real = false; }
+  try { real = Boolean(home) && path.resolve(dir) === path.join(home, '.claude'); } catch { real = false; }
   if (!real) return dir;
   /* Review 2: the tmux the board itself reads its server through (status.boardTmux), not a bare `tmux` that may not be on
      the board's PATH: a lookup that cannot run reads as nothing pinned, while the supervisor's baked tmux may see a pin. */
@@ -8236,6 +8243,7 @@ module.exports = {
   claudeAccountLive,
   claudeAccountCheck,
   claudeProbeDir,   // kosmos#9082
+  setProbeRealHomeForTests,   // kosmos#9082 review 3, tests only
   setClaudeProbe,
   binPaths,
   linuxTmuxBin,

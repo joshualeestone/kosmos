@@ -169,3 +169,40 @@ test('kosmos#9082 review 2: the tmux lookup runs without TMUX, so a board starte
     assert.equal(require('./sessionccd').globalClaudeDir({ bin: stub, env: { ...process.env } }), '/tmp/some-pane-socket,1,0', 'CONTROL: the stub reports TMUX when given it');
   } finally { if (was === undefined) delete process.env.TMUX; else process.env.TMUX = was; }
 });
+
+test('kosmos#9082 review 3: a sandbox that replaces HOME itself keeps its folder (the real home comes from the OS)', () => {
+  const fs = require('node:fs'); const nodePath = require('node:path'); const os = require('node:os');
+  const sandbox = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-9082-home-'));
+  const wasHome = process.env.HOME; const wasAWH = process.env.AGENT_WORKFORCE_HOME;
+  process.env.HOME = sandbox; delete process.env.AGENT_WORKFORCE_HOME;
+  const noPin = { run: () => ({ ran: true, status: 1, out: '' }) };
+  try {
+    const sdef = nodePath.join(sandbox, '.claude');
+    assert.equal(require('./accounts').isDefaultDir(sdef), true, 'CONTROL: the sandbox folder is the default there');
+    assert.equal(create.claudeProbeDir(sdef, noPin), sdef, 'a harness that replaced HOME would probe the real login');
+    create.setProbeRealHomeForTests(sandbox);
+    assert.equal(create.claudeProbeDir(sdef, noPin), null, 'CONTROL: named as the real home, it is probed unset');
+  } finally {
+    create.setProbeRealHomeForTests(null);
+    if (wasHome === undefined) delete process.env.HOME; else process.env.HOME = wasHome;
+    if (wasAWH === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = wasAWH;
+  }
+});
+
+test('kosmos#9082 review 3: a pin reaches the probe through the real lookup (the board\'s tmux, not a stub run)', () => {
+  const fs = require('node:fs'); const nodePath = require('node:path'); const os = require('node:os');
+  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-9082-pin-'));
+  const stub = nodePath.join(dir, 'tmux');
+  fs.writeFileSync(stub, '#!/bin/sh\n[ "$1 $2 $3" = "show-environment -g CLAUDE_CONFIG_DIR" ] && echo "CLAUDE_CONFIG_DIR=/pinned/by/tmux" && exit 0\nexit 1\n', { mode: 0o755 });
+  const was = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  process.env.AGENT_WORKFORCE_TMUX_BIN = stub;
+  create.setProbeRealHomeForTests(os.homedir());
+  try {
+    const def = nodePath.join(require('./accounts').homeDir(), '.claude');
+    assert.equal(require('./status').boardTmux(), stub, 'CONTROL: the board would ask this tmux');
+    assert.equal(create.claudeProbeDir(def), '/pinned/by/tmux', 'a tmux-pinned folder did not reach the probe through the real lookup');
+  } finally {
+    create.setProbeRealHomeForTests(null);
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = was;
+  }
+});
