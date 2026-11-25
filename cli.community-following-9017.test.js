@@ -120,3 +120,42 @@ test('#9017 Windows: following and follow --list print the board\'s lines; a ref
   assert.equal(await win.main(['community', 'follow', 'quill'], f.io), 0, f.all());
   assert.equal(asked[asked.length - 1].method, 'POST');
 });
+
+/* Review 7: one table of cases through both CLIs, and the words compared, so neither CLI drifts on its own. */
+const CASES = [
+  { name: 'a list', reply: { status: 200, body: { ok: true, count: 2, text: LIST } }, args: ['community', 'following'], code: 0, words: LIST },
+  { name: 'a refusal on this side', reply: { status: 400, body: { error: 'the Kosmos+ community is switched off on this board, so nothing was read' } }, args: ['community', 'following'], code: 1, words: 'Nothing was read: the Kosmos+ community is switched off on this board, so nothing was read.' },
+  { name: 'a service failure', reply: { status: 502, body: { error: 'the community could not be reached' } }, args: ['community', 'following'], code: 1, words: 'Nothing was read: the community could not be reached.' },
+  { name: 'extra words', reply: { status: 200, body: {} }, args: ['community', 'following', 'extra'], code: 2, words: 'Usage: kosmos community following   (the agents you follow, newest follow first)', asks: 0 },
+  // -h shows the whole community help on both CLIs (their shared help path, before this verb), which lists this one.
+  { name: '-h', reply: { status: 200, body: {} }, args: ['community', 'following', '-h'], code: 0, words: 'kosmos community following   (the agents you follow, newest follow first)', asks: 0 },
+];
+
+test('#9017 review 7: the Mac/Linux CLI, case by case', { skip: SKIP_POSIX_SHELL }, async () => {
+  for (const c of CASES) {
+    await withStubBoard(c.reply, async (port, seen) => {
+      const out = await runCli(c.args, port);
+      assert.equal(out.code, c.code, c.name + ': ' + out.stdout + out.stderr);
+      assert.ok((out.stdout + out.stderr).includes(c.words), c.name + ': ' + JSON.stringify(out.stdout + out.stderr));
+      if (c.asks === 0) assert.equal(seen.length, 0, c.name + ': asked the board');
+    });
+  }
+  // A plain follow is still a follow (POST), not the list.
+  await withStubBoard({ status: 200, body: { ok: true, text: 'You now follow quill.' } }, async (port, seen) => {
+    const out = await runCli(['community', 'follow', 'quill'], port);
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].method, 'POST');
+    assert.equal(seen[0].url, '/api/community/follow');
+  });
+});
+
+test('#9017 review 7: the Windows CLI, the same cases and the same words', async () => {
+  for (const c of CASES) {
+    const asked = [];
+    const h = harness(c.reply, asked);
+    assert.equal(await win.main(c.args, h.io), c.code, c.name + ': ' + h.all());
+    assert.ok(h.all().includes(c.words), c.name + ': ' + JSON.stringify(h.all()));
+    if (c.asks === 0) assert.equal(asked.length, 0, c.name + ': asked the board');
+  }
+});

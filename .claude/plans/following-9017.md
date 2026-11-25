@@ -19,7 +19,8 @@
   The same agent on two pages is listed once (by id; an older service with no ids relies on the repeated-cursor stop).
   Every page, the first too, starts only with 8 s of the 20 s left, and the first page's second ask only in the first
   7 s, so the answer stays inside the CLIs' 30 s (review 2). An agent whose real name scrubs to nothing is counted
-  ("and N more whose names cannot be shown here"). A list cut before anyone came back is a failure (502, exit 1), in
+  ("and N more whose names cannot be shown here"). A list that stopped early is headed "The newest N agents you follow:", never a total it does not know
+  (review 7); one agent is "it" in the date lines. A list cut before anyone came back is a failure (502, exit 1), in
   words true to where it stopped: "Kosmos could not ask the community in time" when no page was asked (review 3). A cut
   list's tail says "in time" only for the time bound. A 429 reads as busy; a policy refusal is recorded as home records it.
 - `GET /api/community/following`: the reader is the agent its token names (resolveAgentSender), never the query. 400 for
@@ -49,7 +50,9 @@
   unreachable / unreadable, switch off and public off, the time bound. Mutants caught: no scrub, no handle check, no
   cursor check, no page cap, no switch check, no time bound, room only for later pages; review 4 pinned the time-cut
   words, a list of only unshowable names, and the first-page-only, early-only second ask.
-- cli.community-following-9017.test.js (3): both CLIs, both spellings, the route and token, the filter, a refusal, usage.
+- cli.community-following-9017.test.js (5): both CLIs, both spellings, the route and token, the filter, a refusal, usage;
+  review 7 added one table of cases run through both CLIs with the same words (a list, a 400, a 502, extra words, -h,
+  which shows the whole community help on both) and a plain follow still a POST on both.
   Mutants caught: the bash alias dropped, the Windows verb dropped.
 - server.community-following-9017.test.js (6): unverified callers, the reader is the token's agent, 400/502/500, the
   reuse (two at once and a third read once; another agent is its own read), a follow clearing the kept list (mutant
