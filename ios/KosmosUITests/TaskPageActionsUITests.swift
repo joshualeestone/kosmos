@@ -124,7 +124,8 @@ final class TaskPageActionsUITests: XCTestCase {
         shot(app, "repeat saved")
     }
 
-    // Minutes typed and saved at once, the page drawn slowly: the number saved is the one typed.
+    // Minutes typed, then saved: the number saved is the one typed. It does not show a Save tapped inside one draw (XCTest waits for
+    // the page to settle first); that, and the box's own loss, are by reading and by the experiment in the plan.
     func testMinutesTypedThenSavedAreTheOnesSaved() throws {
         let app = try openTask(slowDraw: 150)
         let every = app.buttons["taskpage.repeat.every"]
@@ -140,6 +141,7 @@ final class TaskPageActionsUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "no keyboard in the minutes box")
         let was = minutes.value as? String ?? ""
         minutes.typeText("45")
+        for _ in 0..<40 where minutes.value as? String != was + "45" { usleep(250_000) }
         XCTAssertEqual(minutes.value as? String, was + "45", "the box lost what was typed")
         let save = app.buttons["taskpage.repeat.save"]
         for _ in 0..<4 where !(save.exists && save.isHittable) { app.swipeUp(velocity: .slow) }

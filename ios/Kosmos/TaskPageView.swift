@@ -917,7 +917,7 @@ struct TaskPageView: View {
                     HStack(spacing: 8) {
                         // Read back live, never the value caught when this was last drawn (`shown`): on a slow phone that one is a key
                         // behind, and the box is put back to it, losing what was typed since.
-                        TextField("30", text: Binding(get: { (repeatDraft ?? Board.repeatShown(p.repeatStored, box: repeatBox))?.minutes ?? "" }, set: { v in edit { $0.minutes = v } }))
+                        TextField("30", text: Binding(get: { (repeatDraft ?? Board.repeatShown((model.page ?? p).repeatStored, box: repeatBox))?.minutes ?? "" }, set: { v in edit { $0.minutes = v } }))
                             .keyboardType(.numberPad)
                             .frame(minWidth: 80, minHeight: 44)
                             .fixedSize()
@@ -959,7 +959,7 @@ struct TaskPageView: View {
                     Button {
                         model.touched()
                         // Read live, as the hold's Save does: what was last drawn is a key behind on a slow phone.
-                        guard let choice = repeatDraft ?? storedShown else { return }
+                        guard let choice = repeatDraft ?? Board.repeatShown(model.page?.repeatStored, box: repeatBox) else { return }
                         let wire = Board.repeatWire(choice)
                         Task {
                             // Saved: the draft goes once the page reads the saved rule; if that read failed, the controls
