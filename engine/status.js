@@ -4926,6 +4926,29 @@ function messageAt(text, markers) {
  * risks a real screen whose envelope is worded differently. A missed dead token
  * is worse than a rare false pause; that trade is this file's oldest rule.
  */
+/*
+ * kosmos#9083: whether "Not logged in" on this row is what a command or a tool printed, not Claude Code's own refusal.
+ * Measured on 2.1.332 (test-support/claude-screens/signin-*): Claude Code draws its own under the person's prompt with the SAME `⎿`
+ * that output has, so `⎿` says nothing. While logged out it also draws "Not logged in · run /login" by the box.
+ * 🛑 A real refusal dropped is worse than a quoted one kept (#1884), so output is only this sentence, only in the FIRST `⎿` block of a
+ * `!` command or a `⏺ Tool(` row, with nothing between (no blank row, no second `⎿`, no row at the left edge), and only with no
+ * "run /login" notice anywhere on the screen in any form. Everything else is read as before.
+ */
+const NOT_LOGGED_IN_ROW = /Not logged in\s+[\u00b7_]\s+Please run \/login/i;
+const NOT_LOGGED_IN_NOTICE = /Not logged in\s*[\u00b7_|-]?\s*run \/?/i;
+const OUTPUT_HEAD = /^(?:!\s+\S|[\u23fa\u25cf]\s+[A-Z][A-Za-z]*\(|[\u23fa\u25cf]\s+\S[^()]{0,70}\(MCP\)\()/;
+function quotedNotLoggedIn(drawn, at) {
+  if (!NOT_LOGGED_IN_ROW.test(drawn[at]) || drawn.some((r) => NOT_LOGGED_IN_NOTICE.test(r))) return false;
+  let marks = 0;
+  for (let i = at; i >= 0; i -= 1) {
+    const row = drawn[i];
+    if (/^\s*$/.test(row)) return false;
+    if (/^\s/.test(row)) { if (/^\s+\u23bf/.test(row)) marks += 1; continue; }
+    return i < at && marks === 1 && OUTPUT_HEAD.test(row);
+  }
+  return false;
+}
+
 /**
  * #1884: the friendly (non-JSON) auth line, or null. `rows` are already
  * left-stripped of indentation and tree glyphs by `authFailed`; this adds the
@@ -4946,25 +4969,6 @@ function messageAt(text, markers) {
  * live pane anyway (a capture clipped mid-redraw), add the same "ends mid-token"
  * wrap-join `authFailed` uses for the JSON form.
  */
-/**
- * kosmos#9083: whether "Not logged in" on this row is what a command or a tool printed, not Claude Code's own refusal.
- * Measured on 2.1.332 (test-support/claude-screens/signin-*): Claude Code draws its own under the person's prompt with the SAME `⎿`
- * that output has, so `⎿` says nothing. Output sits under a `!` command or a `⏺ Tool(` head, and Claude Code's own
- * also puts "Not logged in · run /login" at the right end of a row by the box, far from any words, which output does not.
- * Only this sentence, the one those captures show, and only with both signs: a real refusal dropped is worse than a quoted one
- * kept (#1884), so no head in the rows, any other head, or the footer present all count as a refusal.
- */
-const NOT_LOGGED_IN_ROW = /Not logged in\s+[\u00b7_]\s+Please run \/login/i;
-const NOT_LOGGED_IN_FOOTER = /\s{4,}Not logged in\s+[\u00b7_]\s+run \/login\s*$/i;
-const OUTPUT_HEAD = /^(?:!\s|[\u23fa\u25cf]\s+[^()]{1,80}\()/;
-function quotedNotLoggedIn(drawn, at) {
-  if (!NOT_LOGGED_IN_ROW.test(drawn[at]) || drawn.some((r) => NOT_LOGGED_IN_FOOTER.test(r))) return false;
-  for (let i = at; i >= 0; i -= 1) {
-    if (/^(?:[\u23fa\u25cf\u276f\u203a>!]\s)/.test(drawn[i])) return i < at && OUTPUT_HEAD.test(drawn[i]);
-  }
-  return false;
-}
-
 function friendlyAuthLine(rows, drawn = rows) {
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
