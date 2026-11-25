@@ -70,7 +70,7 @@ final class DeleteAccountUITests: XCTestCase {
         XCTAssertTrue(app.buttons["settings-delete-account"].waitForExistence(timeout: 5), "Done did not go back to Settings")
     }
 
-    // "Keep my account" on the confirm screen goes back without deleting.
+    // "Send the code again" on the code screen, and "Keep my account" on the confirm screen, which goes back without deleting.
     func testKeepMyAccountGoesBack() {
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "settings", "KOSMOS_SAMPLE_SCROLL": "account"]
@@ -84,6 +84,9 @@ final class DeleteAccountUITests: XCTestCase {
         app.buttons["delete-send"].tap()
         let code = app.textFields["delete-code"]
         XCTAssertTrue(code.waitForExistence(timeout: 5), "no code screen")
+        // The server's refusals for a used-up code say "ask for a new one": the screen offers it.
+        app.buttons["delete-resend"].tap()
+        XCTAssertTrue(app.staticTexts["New code sent."].waitForExistence(timeout: 5), "Send the code again said nothing")
         code.tap()
         code.typeText("123456")
         app.buttons["delete-verify"].tap()

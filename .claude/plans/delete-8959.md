@@ -27,3 +27,10 @@ Plan as posted on the card 2026-11-25 02:4x UTC (issuecomment-7151149115):
 - Departures from the page, on purpose: an unknown plan reads as the subscription words (the page reads it as none; never understate); the pending screen drops "and you can close this page".
 
 ## Review ledger
+- r1 opus: 2B/6W. FIXED B1 confirm timeout 15 s -> 180 s (Stripe calls in finish). FIXED B2 back hidden while busy, and a
+  deletion answered off-screen signs out at the answer (gone flag, DeleteAccount.signsOut, tested). FIXED W3 401 "that
+  account is already gone" reads as deleted. FIXED W4 another account's deletion signs nothing out (own email from /me).
+  FIXED W5 the sign-out rule is logic, tested (sample UI run skips the callback by design). REJECTED W6 page words on CI:
+  the sibling suites (accountsecond, accountsecurity) run with KOSMOS_RELAY= on CI the same way; kosmos-relay is another
+  private repo, and the comparison runs on every local validation. FIXED W7 Send the code again + "New code sent.".
+  FIXED W8 focus moves to the answer's title; the tick has a value.
