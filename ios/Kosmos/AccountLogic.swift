@@ -266,15 +266,114 @@ enum Account {
     // (this sign-in is over, or only an enrol token) clears it; anything else (a 503 maintenance page, a 200 that is not
     // JSON, no answer) is a failed read and keeps what is shown, as the page keeps its lines.
     enum PlanAnswer: Equatable {
-        case show(line: String?, note: StandingNote?)
+        case show(line: String?, note: StandingNote?, name: NameState, email: String?)
         case clear
         case keep
     }
 
     static func planAnswer(status: Int?, data: Data?) -> PlanAnswer {
         guard let status else { return .keep }
-        if (200...299).contains(status), isObject(data) { return .show(line: planLine(data), note: standingNote(data)) }
+        if (200...299).contains(status), isObject(data) { return .show(line: planLine(data), note: standingNote(data), name: nameState(data), email: signedInAs(data)) }
         return status == 401 ? .clear : .keep
+    }
+
+    // MARK: - Who is signed in (slice B3)
+
+    // The page's "Signed in as <email>" (#signed-in-as), from the same /me answer's email.
+    static func signedInAs(_ data: Data?) -> String? {
+        guard let data, let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let e = obj["email"] as? String, !e.isEmpty else { return nil }
+        return e
+    }
+
+    // MARK: - The Kosmos+ address (slice B3)
+
+    // kosmos#8959 slice B3: the web account page's #addr-line and #name-offer (signin.html signedIn, kosmos#7481/#7483),
+    // read off the same /v1/account/me answer. With no computer the page says the account's own address; an account with
+    // no name at all is offered one. Its rules, ported:
+    //   noMac      = addresses is empty and device_status is not "denied" (relay#217: a refused device is told none)
+    //   ownAddress = noMac and account_address is a string
+    //   offer      = has_name === false and device_status is not "denied" and no ownAddress
+    enum NameState: Equatable {
+        case none
+        case address(String)   // the page's "Your address: <name>"
+        case offer             // the page's "Choose your Kosmos+ address"
+    }
+
+    static func nameState(_ data: Data?) -> NameState {
+        guard let data, let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return .none }
+        let denied = (obj["device_status"] as? String) == "denied"
+        let noMac = ((obj["addresses"] as? [Any])?.isEmpty ?? true) && !denied
+        if noMac, let own = obj["account_address"] as? String, !own.isEmpty { return .address(own) }
+        let hasName = obj["has_name"] as? NSNumber
+        let nameFalse = hasName.map { CFGetTypeID($0) == CFBooleanGetTypeID() && !$0.boolValue } ?? false
+        return nameFalse && !denied ? .offer : .none
+    }
+
+    // The page's nameClean (#3791): lowercase; runs of spaces and underscores to one hyphen; nothing but a-z, 0-9 and
+    // hyphens; no doubled hyphen; no leading hyphen; at most 32. Step for step, so a name cleans here as it does there.
+    static func nameClean(_ v: String) -> String {
+        let lower = v.lowercased()
+        var spaced = "", inRun = false
+        for ch in lower.unicodeScalars {
+            if CharacterSet.whitespacesAndNewlines.contains(ch) || ch == "_" {
+                if !inRun { spaced.unicodeScalars.append("-"); inRun = true }
+            } else { spaced.unicodeScalars.append(ch); inRun = false }
+        }
+        let kept = spaced.unicodeScalars.filter { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }
+        var out = ""
+        for ch in kept where !(ch == "-" && out.hasSuffix("-")) { out.unicodeScalars.append(ch) }
+        while out.hasPrefix("-") { out.removeFirst() }
+        return String(out.prefix(32))
+    }
+
+    // The page's nameValid: /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/ (the server's valid_name stays the authority).
+    static func nameValid(_ n: String) -> Bool {
+        let s = Array(n.unicodeScalars)
+        guard (3...32).contains(s.count) else { return false }
+        func alnum(_ c: Unicode.Scalar) -> Bool { ("a"..."z").contains(c) || ("0"..."9").contains(c) }
+        return alnum(s.first!) && alnum(s.last!) && s.allSatisfy { alnum($0) || $0 == "-" }
+    }
+
+    // The page's nameSuggest: eight characters from an alphabet with the look-alikes (0 o 1 l i) left out, drawn without
+    // bias (randomElement on the system's secure generator). Save accepts it; typing replaces it.
+    static let nameAlphabet = Array("abcdefghjkmnpqrstuvwxyz23456789")
+    static func nameSuggest<G: RandomNumberGenerator>(using g: inout G) -> String {
+        String((0..<8).map { _ in nameAlphabet.randomElement(using: &g)! })
+    }
+    static func nameSuggest() -> String { var g = SystemRandomNumberGenerator(); return nameSuggest(using: &g) }
+
+    // The page's words on the name step.
+    static let nameTitle = "Set up your Kosmos+ address"
+    static let nameIntro = "This will be your permanent private address."
+    static let nameHint = "3-32 letters, numbers or hyphens"
+    static let nameSuggested = "We picked a private one. Type over it to choose your own."
+    static let nameSave = "Save this name"
+    static let nameOffer = "Choose your Kosmos+ address"
+    static let nameDomain = ".kosmosplus.com"   // the page's own literal (#name-echo)
+    static func nameEcho(_ clean: String) -> String { (clean.isEmpty ? "yourname" : clean) + nameDomain }
+
+    static func nameRequest(coordinator: URL, session: String, name: String) -> URLRequest {
+        post("/v1/account/name", coordinator: coordinator, session: session, body: ["name": name])
+    }
+
+    enum NameAnswer: Equatable {
+        case saved(address: String)
+        case refused(String)
+    }
+
+    // The page takes an answer with an address as saved, and anything else as refused with Kosmos+'s own sentence, or
+    // "That name is not available." One refusal is never shown as Kosmos+ words it: address_not_bought (402) tells the
+    // person to buy an address at a web page, which is a purchase pointed to from inside the app (kosmos#718), so the
+    // phone says plainly that the address cannot be chosen here instead.
+    static let nameNotHere = "This account cannot choose an address on this iPhone."
+    static let nameUnreachable = "Kosmos could not be reached just now."
+    static func nameAnswer(status: Int?, data: Data?) -> NameAnswer {
+        guard let status else { return .refused(nameUnreachable) }
+        let obj = data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+        if (200...299).contains(status), let address = obj?["address"] as? String, !address.isEmpty { return .saved(address: address) }
+        if status == 402 || (obj?["code"] as? String) == "address_not_bought" { return .refused(nameNotHere) }
+        return .refused(errorWords(data) ?? "That name is not available.")
     }
 
     private static func standingFalsy(_ v: Any?) -> Bool {

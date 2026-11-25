@@ -254,7 +254,7 @@ struct SettingsView: View {
         Section {
             // kosmos#8959 slice B1a: native, where the web page used to open.
             NavigationLink {
-                AccountView(coordinator: coordinator, openPage: openPage, signedOut: signedOut, currentSession: currentSession, renewed: renewed,
+                AccountView(coordinator: coordinator, signedOut: signedOut, currentSession: currentSession, renewed: renewed,
                             accountGeneration: accountGeneration, sample: Self.sample)
             } label: {
                 Text("Your Kosmos+ account").foregroundColor(Palette.primary)
