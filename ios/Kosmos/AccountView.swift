@@ -3,14 +3,13 @@ import UniformTypeIdentifiers
 
 // kosmos#8959 slice B1a: the Kosmos+ account, native. Opened from the Settings tab's "Your Kosmos+ account" row, where
 // the web page used to open. The computers on the account (each with the web page's words, and Retire), Sign out and
-// Sign out everywhere, and (slice B2) the plan line and standing note the in-app web page shows; billing, the subscription and the cloud
-// machine are never on the phone (kosmos#718's CAN_BUY_HERE, Josh's switch). The logic is
+// Sign out everywhere; (slice B2) the plan line and standing note the in-app web page shows; and (slice B3) who is
+// signed in and the Kosmos+ address, or choosing one. Nothing opens the web page any more. Billing, the subscription
+// and the cloud machine are never on the phone (kosmos#718's CAN_BUY_HERE, Josh's switch). The logic is
 // AccountLogic.swift; the second step (slice B1b) is AccountSecondLogic.swift; passkeys and sign-ins from new places
 // (slice B1c) are AccountSecurityLogic.swift, with Apple's passkey sheet in PasskeyMaker.swift.
 struct AccountView: View {
     let coordinator: URL
-    // The account's web page, for what is not here yet (Open my Kosmos, the Kosmos+ address and choosing one; slice B3).
-    let openPage: (URL) -> Void
     // This iPhone signs out (the app's own path, PushNotificationManager), with the session that was ended.
     let signedOut: (String) -> Void
     // The session signed in now: the keychain's, or the one the app holds in memory when the keychain could not save it
@@ -100,17 +99,26 @@ struct AccountView: View {
     @State private var notMeNote: String?
     @State private var plan: String?          // slice B2: Account.planActive, or nil (no line)
     @State private var standing: Account.StandingNote?   // slice B2: the server's sentence when the plan is not good
+    @State private var email: String?                    // slice B3: who is signed in, from /me
+    @State private var nameState: Account.NameState = .none   // slice B3: the address line, or the offer of one
+    @State private var naming = false                    // the name sheet is open
+    @State private var nameText = ""
+    @State private var nameWasSuggested = false
+    @State private var nameBusy = false
+    @State private var nameFor: String?                  // the sign-in the sheet belongs to
+    @State private var nameError: String?
+    @State private var nameSaved: String?                // the address just saved, said once under the section
     @State private var planTicket = 0
 
     var body: some View {
         List {
             planSection
+            nameSection
             computers
             secondSection
             passkeySection
             newPlacesSection
             signOutSection
-            more
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
@@ -129,12 +137,14 @@ struct AccountView: View {
             maker.cancel(); passkeyBusy = false; passkeyFor = nil; passkeyAdding = false; removing = nil; passkeyNote = nil; passkeyDone = nil
             passkeys = .reading; newPlaces = []; notMeFor = nil; notMeBusy = false; notMeBusyFor = nil; notMeNote = nil
             removingFor = nil; notMeAskedFor = nil; heldAdd = nil; renewedFrom = [:]; passkeyListNote = nil
-            plan = nil; standing = nil
+            plan = nil; standing = nil; email = nil; nameState = .none; naming = false; nameBusy = false; nameFor = nil
+            nameError = nil; nameSaved = nil; nameText = ""
             load = .reading
             Task { await read() }
         }
         .sheet(isPresented: Binding(get: { retiring != nil }, set: { if !$0 { closeRetire() } })) { retireSheet }
         .sheet(isPresented: Binding(get: { setup != nil }, set: { if !$0 { closeSetup() } })) { setupSheet }
+        .sheet(isPresented: Binding(get: { naming }, set: { if !$0 { closeName() } })) { nameSheet }
         .confirmationDialog("Sign out everywhere?", isPresented: $askEverywhere, titleVisibility: .visible) {
             Button("Sign out everywhere", role: .destructive) { Task { await signOutEverywhere(for: everywhereFor) } }
             Button("Cancel", role: .cancel) {}
@@ -165,8 +175,13 @@ struct AccountView: View {
     // active, the server's own sentence when it is not, no section when there is neither, and never a way to buy, change
     // or cancel the plan here.
     @ViewBuilder private var planSection: some View {
-        if plan != nil || standing != nil {
+        if plan != nil || standing != nil || email != nil {
             Section {
+                // Slice B3: the page's "Signed in as <email>".
+                if let email {
+                    Text("Signed in as \(email)").foregroundColor(Palette.secondary).font(.subheadline)
+                        .accessibilityIdentifier("account-email")
+                }
                 if let plan {
                     // Review 2: VoiceOver reads the dot as "middle dot"; the label says it as a pause.
                     Text(plan).foregroundColor(Palette.primary)
@@ -496,25 +511,109 @@ struct AccountView: View {
         }
     }
 
-    // MARK: The rest, on the web page for now
+    // MARK: The Kosmos+ address (slice B3)
 
-    private var more: some View {
-        Section {
-            Button { openPage(Settings.accountURL(coordinator: coordinator)) } label: {
-                HStack {
-                    Text("More on Kosmos+").foregroundColor(Palette.primary)
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundColor(Palette.tertiary)
-                        .accessibilityHidden(true)
+    // The page's #addr-line ("Your address", only with no computer) and #name-offer (an account with no name), and once
+    // a name is saved, the address it gave. Nothing here buys an address: a refusal that would point to buying one is
+    // said in plain words instead (Account.nameAnswer).
+    @ViewBuilder private var nameSection: some View {
+        switch (nameState, nameSaved) {
+        case (_, .some(let saved)):
+            Section {
+                Text(saved).foregroundColor(Palette.primary).accessibilityIdentifier("account-address")
+            } header: { Text("Your Kosmos+ address") } footer: {
+                Text("Saved. This is your permanent private address.").font(.footnote).foregroundColor(Palette.secondary)
+            }
+        case (.address(let a), nil):
+            Section {
+                Text(a).foregroundColor(Palette.primary).accessibilityIdentifier("account-address")
+            } header: { Text("Your Kosmos+ address") }
+        case (.offer, nil):
+            Section {
+                Button(Account.nameOffer) { openName() }
+                    .disabled(nameBusy)
+                    .accessibilityIdentifier("account-name-offer")
+            } header: { Text("Your Kosmos+ address") }
+        case (.none, nil):
+            EmptyView()
+        }
+    }
+
+    private var nameSheet: some View {
+        let clean = Account.nameClean(nameText)
+        return NavigationView {
+            Form {
+                Section {
+                    Text(Account.nameIntro)
+                    TextField("Your address", text: $nameText)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.asciiCapable)
+                        .submitLabel(.done)
+                        .onChange(of: nameText) { v in
+                            let c = Account.nameClean(v)
+                            if c != v { nameText = c }
+                        }
+                        .onSubmit { Task { await saveName() } }
+                        .disabled(nameBusy)
+                        .accessibilityIdentifier("account-name-field")
+                    Text(Account.nameEcho(clean)).font(.body.monospaced()).foregroundColor(Palette.primary)
+                        .accessibilityIdentifier("account-name-echo")
+                } footer: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(Account.nameHint)
+                        if nameWasSuggested { Text(Account.nameSuggested) }
+                        if let nameError { Text(nameError).foregroundColor(Palette.dangerWord).accessibilityIdentifier("account-name-error") }
+                    }
+                    .font(.footnote).foregroundColor(Palette.secondary)
+                }
+                Section {
+                    Button(nameBusy ? "Saving" : Account.nameSave) { Task { await saveName() } }
+                        .disabled(nameBusy || !Account.nameValid(clean))
+                        .accessibilityIdentifier("account-name-save")
                 }
             }
-            .accessibilityIdentifier("account-more")
-        } footer: {
-            // Slice B2: the page hides billing, the cloud machine and adding a computer inside the app (CAN_BUY_HERE), so
-            // this names none of them. Review 6: it names nothing at all, because what the page shows depends on the account
-            // (the address line only with no computer, the address offer only with no name).
-            Text("Anything not on this screen is on your Kosmos+ account page.")
-                .font(.footnote).foregroundColor(Palette.secondary)
+            .navigationTitle(Account.nameTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { closeName() }.disabled(nameBusy) } }
+        }
+        .navigationViewStyle(.stack)
+        .interactiveDismissDisabled(nameBusy)
+    }
+
+    private func openName() {
+        nameError = nil
+        // The page prefills a suggestion once, and keeps what was typed if the step is opened again.
+        if nameText.isEmpty { nameText = Account.nameSuggest(); nameWasSuggested = true }
+        nameFor = sample ? "sample" : currentSession()
+        naming = true
+    }
+
+    private func closeName() {
+        guard !nameBusy else { return }
+        naming = false; nameFor = nil; nameError = nil
+    }
+
+    @MainActor private func saveName() async {
+        let name = Account.nameClean(nameText)
+        guard !nameBusy, Account.nameValid(name) else {
+            if !Account.nameValid(name) { nameError = "Pick an address: 3-32 letters, numbers or hyphens." }
+            return
+        }
+        guard let asked = nameFor, sample || currentSession() == asked else { nameError = "You are signed out."; return }
+        nameError = nil; nameBusy = true
+        let (status, data) = sample
+            ? (200, Data(#"{"name":"\#(name)","address":"\#(name).kosmosplus.com"}"#.utf8))
+            : await send(Account.nameRequest(coordinator: coordinator, session: asked, name: name))
+        nameBusy = false
+        // An answer for a sign-in that changed meanwhile changes nothing (accountGeneration has reset the screen).
+        guard sample || currentSession() == asked, nameFor == asked else { return }
+        switch Account.nameAnswer(status: status, data: data) {
+        case .saved(let address):
+            nameSaved = address; nameState = .none; naming = false; nameFor = nil; nameText = ""; nameWasSuggested = false
+            Task { await readPlan() }   // Kosmos+ now says has_name, and the address while no computer holds it
+        case .refused(let why):
+            nameError = why
         }
     }
 
@@ -641,15 +740,19 @@ struct AccountView: View {
 
     // A failed read keeps what is shown; a first read that fails shows nothing (the page shows nothing either).
     @MainActor private func readPlan() async {
-        if sample { plan = Account.planActive; standing = nil; return }
+        if sample {
+            plan = Account.planActive; standing = nil; email = "ada@example.com"
+            if nameSaved == nil { nameState = .offer }
+            return
+        }
         planTicket += 1
         let ticket = planTicket
-        guard let session = currentSession() else { plan = nil; standing = nil; return }
+        guard let session = currentSession() else { plan = nil; standing = nil; email = nil; nameState = .none; return }
         let (status, data) = await send(Account.meRequest(coordinator: coordinator, session: session))
         guard !Task.isCancelled, ticket == planTicket, currentSession() == session else { return }
         switch Account.planAnswer(status: status, data: data) {
-        case .show(let line, let note): plan = line; standing = note
-        case .clear: plan = nil; standing = nil
+        case .show(let line, let note, let name, let who): plan = line; standing = note; nameState = name; email = who
+        case .clear: plan = nil; standing = nil; nameState = .none; email = nil
         case .keep: break
         }
     }

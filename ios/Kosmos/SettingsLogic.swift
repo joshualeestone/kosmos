@@ -173,6 +173,5 @@ enum Settings {
     // Kosmos+'s own pages, opened in the app's web view: the account page (where the person signs out) and the
     // delete-account flow (coordinator lib.rs serves both). Neither is called from here: the sign-out route accepts
     // only the sign-in page itself, and deleting an account takes its own confirmed steps.
-    static func accountURL(coordinator: URL) -> URL { URL(string: "/account", relativeTo: coordinator)!.absoluteURL }
     static func deleteAccountURL(coordinator: URL) -> URL { URL(string: "/delete-account", relativeTo: coordinator)!.absoluteURL }
 }

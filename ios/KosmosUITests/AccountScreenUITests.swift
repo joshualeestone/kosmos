@@ -38,13 +38,10 @@ final class AccountScreenUITests: XCTestCase {
         noSelling(app, "the plan, computers and second step")
         reveal(app, app.buttons["account-sign-out-everywhere"])
         XCTAssertTrue(app.buttons["account-sign-out"].exists && app.buttons["account-sign-out-everywhere"].exists, "no sign-out buttons")
-        reveal(app, app.buttons["account-more"])
-        XCTAssertTrue(app.buttons["account-more"].exists, "no way to the rest of the account")
-        // kosmos#8959 slice B2: the footer names nothing, and nothing on the phone sells.
-        // Review 4: the footer may be built a moment after its row, so wait for it.
-        XCTAssertTrue(app.staticTexts["Anything not on this screen is on your Kosmos+ account page."].waitForExistence(timeout: 3),
-                      "the More on Kosmos+ footer is not the one that names nothing")
-        noSelling(app, "sign out and More on Kosmos+")
+        // kosmos#8959 slice B3: nothing on this screen opens the web page any more.
+        XCTAssertFalse(app.buttons["account-more"].exists, "the More on Kosmos+ row is still there")
+        XCTAssertFalse(app.staticTexts["Anything not on this screen is on your Kosmos+ account page."].exists, "the More footer is still there")
+        noSelling(app, "sign out")
         shot(app, "account-sign-out")
         // The plan line sits at the top: scroll back up to it. Review 4: full swipes, up to 25 (a pull to refresh at the
         // top only reads the sample again), and the row must be on screen, not only built.
@@ -56,7 +53,40 @@ final class AccountScreenUITests: XCTestCase {
         XCTAssertEqual(plan.label, "Kosmos+, Active", "VoiceOver does not read the plan line as words")
         XCTAssertFalse(app.staticTexts["account-standing"].exists, "a standing note for a plan in good standing")
         noSelling(app, "the plan, again")
+        // Slice B3: who is signed in, and the sample's account has no name yet, so it is offered one.
+        XCTAssertTrue(app.staticTexts["account-email"].exists, "no Signed in as line")
+        XCTAssertEqual(app.staticTexts["account-email"].label, "Signed in as ada@example.com", "the Signed in as words")
+        let offer = app.buttons["account-name-offer"]
+        reveal(app, offer)
+        XCTAssertTrue(offer.waitForExistence(timeout: 3) && offer.label == "Choose your Kosmos+ address", "no offer of an address")
         shot(app, "account-plan")
+
+        offer.tap()
+        XCTAssertTrue(app.navigationBars["Set up your Kosmos+ address"].waitForExistence(timeout: 5), "the address sheet did not open")
+        let field = app.textFields["account-name-field"]
+        let suggested = (field.value as? String) ?? ""
+        XCTAssertEqual(suggested.count, 8, "the field is not prefilled with an eight-character suggestion")
+        XCTAssertTrue(app.staticTexts["We picked a private one. Type over it to choose your own."].exists, "the suggestion is not said")
+        XCTAssertEqual(app.staticTexts["account-name-echo"].label, suggested + ".kosmosplus.com", "the preview does not echo the suggestion")
+        shot(app, "account-name-suggested")
+        // Tap at the end of the field, so every delete takes a character of the suggestion.
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 12))
+        // An empty field reports its placeholder as its value.
+        XCTAssertTrue(["", "Your address"].contains(field.value as? String ?? ""), "the suggestion was not cleared")
+        XCTAssertEqual(app.staticTexts["account-name-echo"].label, "yourname.kosmosplus.com", "the empty preview is not the page's")
+        XCTAssertFalse(app.buttons["account-name-save"].isEnabled, "Save works with no name")
+        field.typeText("Ada Love!")
+        XCTAssertEqual(field.value as? String, "ada-love", "the name is not cleaned as it is typed")
+        XCTAssertEqual(app.staticTexts["account-name-echo"].label, "ada-love.kosmosplus.com", "the preview does not echo the cleaned name")
+        XCTAssertTrue(app.buttons["account-name-save"].isEnabled, "Save does not work with a valid name")
+        shot(app, "account-name-typed")
+        app.buttons["account-name-save"].tap()
+        let saved = app.staticTexts["account-address"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 5), "the saved address is not shown")
+        XCTAssertEqual(saved.label, "ada-love.kosmosplus.com", "the saved address is not Kosmos+'s answer")
+        XCTAssertFalse(app.buttons["account-name-offer"].exists, "still offered an address after saving one")
+        shot(app, "account-name-saved")
     }
 
     // kosmos#8959 slice B2: nothing on the phone's account screen sells (kosmos#718's CAN_BUY_HERE). A List builds only the
