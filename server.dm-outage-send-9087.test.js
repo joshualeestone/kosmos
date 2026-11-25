@@ -71,7 +71,7 @@ let said = [];
 test.beforeEach(() => {
   said = [];
   chat.setChannel((session, wire) => { said.push({ session, wire }); return { ok: true }; });
-  app._setOutageChannelForTest({ win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '', at: '2026-11-25T00:00:00Z' } }), identity: () => ({ pid: 4242, sessionId: 's1' }), streamToken: () => 'idle' });
+  app._setOutageChannelForTest({ win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '', at: '2026-11-25T00:00:00Z' } }), identity: () => ({ pid: 4242, sessionId: 's1' }), isAlive: () => true, streamToken: () => 'idle' });
 });
 test.afterEach(() => { chat.setChannel(null); app._setOutageChannelForTest(null); });
 
@@ -95,7 +95,7 @@ test('#9087 an unreadable roster on Windows: a supervised agent of ours is hande
 });
 
 test('#9087 a busy state file is sent through the pipe too (a message to a working agent queues there)', async () => {
-  app._setOutageChannelForTest({ win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), identity: () => ({ pid: 4242, sessionId: 's1' }), streamToken: () => 'busy' });
+  app._setOutageChannelForTest({ win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), identity: () => ({ pid: 4242, sessionId: 's1' }), isAlive: () => true, streamToken: () => 'busy' });
   const r = await send('raph', 'hello');
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.equal(said.length, 1);
@@ -120,17 +120,17 @@ test('#9087 the real state file decides: a busy file for the recorded session se
   const file = path.join(dir, store.safeKey('raph') + '.json');
   fs.writeFileSync(file, JSON.stringify({ v: 1, pid: 4242, sessionId: 's1', state: 'busy', at: new Date().toISOString() }));
   try {
-    app._setOutageChannelForTest({ win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }) });
+    app._setOutageChannelForTest({ win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), isAlive: (pid) => pid === 4242 });
     const r = await send('raph', 'hello');
     assert.equal(r.status, 200, 'the real file, read through liveIdentity and stateFor: ' + JSON.stringify(r.json));
     assert.equal(said.length, 1);
-    app._setOutageChannelForTest({ win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s2: { name: 'raph', runner: '' } }) });
+    app._setOutageChannelForTest({ win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s2: { name: 'raph', runner: '' } }), isAlive: (pid) => pid === 4242 });
     const other = await send('raph', 'hello');
     assert.equal(other.status, 409, 'CONTROL: a file for a session the record does not file under the name: ' + JSON.stringify(other.json));
     assert.equal(said.length, 1);
     fs.writeFileSync(file, JSON.stringify({ v: 1, pid: 4242, sessionId: 's1', state: 'busy', at: new Date().toISOString(),
       limit: { until: new Date(Date.now() + 3600000).toISOString(), kind: 'weekly' } }));
-    app._setOutageChannelForTest({ win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }) });
+    app._setOutageChannelForTest({ win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), isAlive: (pid) => pid === 4242 });
     const limited = await send('raph', 'hello');
     assert.equal(limited.status, 409, 'CONTROL: the real file read as a usage limit: ' + JSON.stringify(limited.json));
     assert.equal(said.length, 1);
@@ -164,9 +164,10 @@ const REFUSED = [
   ['no ownership row under the name', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'someone', runner: '' } }) }],
   ['a per-turn runner', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: 'codex' } }) }],
   ['one of two rows per-turn', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' }, s2: { name: 'raph', runner: 'gemini' } }) }],
-  ['its state file reads a usage limit', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), identity: () => ({ pid: 4242, sessionId: 's1' }), streamToken: () => 'limit 2026-11-26T00:00:00.000Z - - weekly' }],
-  ['its state file reads a refused sign-in', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), identity: () => ({ pid: 4242, sessionId: 's1' }), streamToken: () => 'auth 2026-11-25T00:00:00.000Z idle' }],
-  ['its state file does not read', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), identity: () => ({ pid: 4242, sessionId: 's1' }), streamToken: () => null }],
+  ['its state file reads a usage limit', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), identity: () => ({ pid: 4242, sessionId: 's1' }), isAlive: () => true, streamToken: () => 'limit 2026-11-26T00:00:00.000Z - - weekly' }],
+  ['its state file reads a refused sign-in', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), identity: () => ({ pid: 4242, sessionId: 's1' }), isAlive: () => true, streamToken: () => 'auth 2026-11-25T00:00:00.000Z idle' }],
+  ['the process its state file names is not alive', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), identity: () => ({ pid: 4242, sessionId: 's1' }), isAlive: () => false, streamToken: () => 'idle' }],
+  ['its state file does not read', { win32: true, liveNames: () => new Set(['raph']), owned: () => ({ s1: { name: 'raph', runner: '' } }), identity: () => ({ pid: 4242, sessionId: 's1' }), isAlive: () => true, streamToken: () => null }],
 ];
 for (const [why, seam] of REFUSED) {
   test(`#9087 CONTROL: ${why}: still #9085's 409 unreadable, nothing handed over`, async () => {

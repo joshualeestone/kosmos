@@ -55713,7 +55713,13 @@ document.getElementById('rst-handoff-go').addEventListener('click', async () => 
     // get the generic line (with the delivery's own reason when present), so we
     // never tell the person an agent "is not running" when that is not what
     // happened.
-    const notRunning = askStatus === 409 && ask && !ask.delivery;
+    const notRunning = askStatus === 409 && ask && !ask.delivery && ask.because !== 'unreadable';
+    /* kosmos#9087: a 409 'unreadable' is not a stopped agent: the running agents could not be read, nothing was sent. */
+    const unreadable = askStatus === 409 && ask && !ask.delivery && ask.because === 'unreadable';
+    if (unreadable) {
+      setStatus('Kosmos could not check which agents are running, so it did not ask ' + shown + ' for a handoff. Try again in a moment, or Restart without one.');
+      return;
+    }
     setStatus(notRunning
       ? (shown + ' is not running, so there is no session to write a handoff. You can Restart without one, or leave it running.')
       : ('We could not ask ' + shown + ' to write a handoff' + because + '. You can Restart without one, or leave it running.'));
@@ -64990,11 +64996,17 @@ async function memoryCommand(which, say) {
     const out = await res.json().catch(() => null);
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     const d = out && out.delivery;
-    const sentence = d && d.state === 'could_not'
-      ? (d.because || 'It could not be done just now.')
-      : ((which === 'compact' ? 'Asked it to compact. ' : 'Asked it to clear. ') + (d && d.paneNote ? d.paneNote : 'It does this the moment it is between tasks.'));
+    /* kosmos#9087: a refusal before any delivery (no such agent, or the running agents could not be read) carries the
+       route's own words and no delivery; it was shown as "Asked it to compact." The phone already reads it this way
+       (AgentInfoLogic.freshResult). */
+    const refused = !d && !res.ok;
+    const sentence = refused
+      ? ((out && out.error) || 'It could not be done just now.')
+      : d && d.state === 'could_not'
+        ? (d.because || 'It could not be done just now.')
+        : ((which === 'compact' ? 'Asked it to compact. ' : 'Asked it to clear. ') + (d && d.paneNote ? d.paneNote : 'It does this the moment it is between tasks.'));
     msg.textContent = sentence;
-    if (say) say(sentence, !!(d && d.state !== 'could_not'));
+    if (say) say(sentence, !refused && !!(d && d.state !== 'could_not'));
   } catch {
     msg.textContent = 'We could not reach Kosmos.';
     if (say) say('We could not reach Kosmos.', false);
