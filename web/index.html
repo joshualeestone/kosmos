@@ -64974,10 +64974,6 @@ document.getElementById('d-account-go').addEventListener('click', () => {
   });
 });
 
-/* Compact and Clear (#214): the dialog names the cost, the route types the
-   slash command, the verdict comes back in the dialog in the engine's words.
-   A working agent reads the command when its turn ends, and deliver says so;
-   a window that cannot be typed into refuses, and deliver says that too. */
 /* The handoff dialog's sentence for an ask that was not placed (askHandoffThenRestart). kosmos#9087: a 409
    'unreadable' is not a stopped agent; the running agents could not be read and nothing was sent. */
 function handoffAskRefusal(askStatus, ask, shown, because) {
@@ -64988,6 +64984,10 @@ function handoffAskRefusal(askStatus, ask, shown, because) {
     ? (shown + ' is not running, so there is no session to write a handoff. You can Restart without one, or leave it running.')
     : ('We could not ask ' + shown + ' to write a handoff' + because + '. You can Restart without one, or leave it running.');
 }
+/* Compact and Clear (#214): the dialog names the cost, the route types the
+   slash command, the verdict comes back in the dialog in the engine's words.
+   A working agent reads the command when its turn ends, and deliver says so;
+   a window that cannot be typed into refuses, and deliver says that too. */
 async function memoryCommand(which, say) {
   if (!CURRENT) return;
   const forAgent = CURRENT.sessionName;
