@@ -49,3 +49,15 @@ test('kosmos#9058: the reminder says the agent made no report of its own, at a s
     assert.doesNotMatch(t, /has not said otherwise/);
   }
 });
+
+test('kosmos#9058 review 1: a /clear counts the session it is ending before that session\'s own stopped lands, never twice', () => {
+  // The third /clear: its stopped is sent in the background and has not landed, so the ending session is open.
+  const racing = [WAIT, row('stopped', 'auto', 1), row('working', 'auto', 2), row('idle', 'auto', 3), row('stopped', 'auto', 4),
+    row('working', 'auto', 5), row('idle', 'auto', 6)];
+  assert.equal(away.sessionsSinceWait(racing, WAIT.at), 1, 'CONTROL: without endingNow the open session is not counted');
+  assert.equal(away.sessionsSinceWait(racing, WAIT.at, { endingNow: true }), 2);
+  // Once that stopped lands, the open session is the new, empty one: the same count, not one more.
+  const landed = racing.concat([row('stopped', 'auto', 7)]);
+  assert.equal(away.sessionsSinceWait(landed, WAIT.at), 2);
+  assert.equal(away.sessionsSinceWait(landed, WAIT.at, { endingNow: true }), 2);
+});

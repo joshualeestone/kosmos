@@ -262,13 +262,42 @@ test('kosmos#9058: a wait is reminded at the first /clear and once more, then no
       assert.equal(r.code, 200);
       assert.equal(r.text, '', 'it worked through two reminded sessions: no reminder, and never {"pending":true}');
       assert.equal(JSON.parse((await ask(tok, 'wait=only')).text).wait, null);
-      assert.match((await ask(tok, 'as=text&wait=only')).text, /you have worked through two sessions since/);
+      assert.match((await ask(tok, 'as=text&wait=only')).text, /you have worked through two sessions since it/);
       // CONTROL: /clears with no turn between them do not use up the reminders.
       writeHistory([rows[0], rows[1], rows[2],
         { state: 'stopped', by: 'auto', because: '', at: t - 30 * M },
         { state: 'stopped', by: 'auto', because: '', at: t - 20 * M },
         { state: 'stopped', by: 'auto', because: '', at: t - 10 * M }]);
       assert.equal(await reminded(), true, 'nothing was worked through, so it is still reminded');
+    } finally { sendertoken.revoke('leo'); }
+  });
+});
+
+test('kosmos#9058 review 1: a racing third /clear is not reminded, and a restart after two worked sessions is not either', async () => {
+  await withBoard(async () => {
+    const t = now();
+    const tok = sendertoken.mint('leo').token;
+    const base9058 = [
+      { state: 'needs_you', by: 'agent', because: 'may I merge', at: t - 60 * M },
+      { state: 'stopped', by: 'auto', because: '', at: t - 58 * M },
+      { state: 'working', by: 'auto', because: 'answering a prompt', at: t - 50 * M },
+      { state: 'idle', by: 'auto', because: 'finished responding', at: t - 49 * M },
+      { state: 'stopped', by: 'auto', because: '', at: t - 48 * M },
+      { state: 'working', by: 'auto', because: 'answering a prompt', at: t - 40 * M },
+      { state: 'idle', by: 'auto', because: 'finished responding', at: t - 39 * M },
+    ];
+    try {
+      writeHistory(base9058);   // the third /clear's own stopped has not landed
+      assert.equal((await ask(tok, 'as=waithook&src=clear')).text, '', 'the /clear ends a second worked session: no third reminder');
+      // CONTROL: the same rows at a resume (whose stopped landed long ago) count one session, so it is still reminded.
+      assert.match((await ask(tok, 'as=waithook')).text, /^\{"hookSpecificOutput":/);
+      // A restart: two worked sessions ended since the wait, so the startup reminder is not given either.
+      writeHistory(base9058.concat([{ state: 'stopped', by: 'auto', because: '', at: t - 38 * M }]));
+      const s2 = await ask(tok, 'as=hook&at=startup');
+      assert.doesNotMatch(s2.text, /last reported that it was waiting/);
+      // CONTROL: after one worked session the startup still reminds, in the startup words.
+      writeHistory(base9058.slice(0, 5));
+      assert.match(JSON.parse((await ask(tok, 'as=hook&at=startup')).text).hookSpecificOutput.additionalContext, /A new run replaces a waiting report on the board/);
     } finally { sendertoken.revoke('leo'); }
   });
 });

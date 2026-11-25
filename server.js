@@ -19955,11 +19955,11 @@ const server = http.createServer(async (req, res) => {
         let after = w ? away.sessionAfter(hist, w.atMs) : null;
         /* kosmos#9058: a wait is reminded at the first session end and once more, not at every /clear and resume: an
            agent that has gone on working through that many reminded sessions has moved on (awaydigest.sessionsSinceWait). */
-        if (after === 'stopped' && away.sessionsSinceWait(hist, w.atMs) >= away.REMIND_SESSIONS) { w = null; after = 'reminded'; }
+        if (after === 'stopped' && away.sessionsSinceWait(hist, w.atMs, { endingNow: clearing }) >= away.REMIND_SESSIONS) { w = null; after = 'reminded'; }
         const pending = !!w && (after === null || (after === 'started' && clearing));
         if (after !== 'stopped') w = null;
         if (as === 'waithook' || as === 'hook') { sendText(res, 200, w ? away.hookJson(null, w, { ended: true }) : pending ? '{"pending":true}' : ''); return; }
-        if (as === 'text') { sendText(res, 200, (away.waitText(w, { ended: true }) || (pending ? 'Your last report was a wait, and Kosmos has not yet heard a session end that would set it aside, so it is still shown on the board.' : 'Kosmos has no wait of yours to remind you of: your last report was not a wait, or you were already reminded of it (at a startup or a session end), and you have worked through two sessions since.')) + '\n'); return; }
+        if (as === 'text') { sendText(res, 200, (away.waitText(w, { ended: true }) || (pending ? 'Your last report was a wait, and Kosmos has not yet heard a session end that would set it aside, so it is still shown on the board.' : (after === 'reminded' ? 'Kosmos no longer reminds you of your last wait: you have worked through two sessions since it, each begun with that reminder, without reporting again.' : 'Kosmos has no wait of yours to remind you of: your last report was not a wait, or you were already reminded of it at a startup.'))) + '\n'); return; }
         sendJson(res, 200, { ok: true, wait: w, ...(pending ? { pending: true } : {}) });
         return;
       }
@@ -19969,6 +19969,9 @@ const server = http.createServer(async (req, res) => {
          session, a wait the agent just reported is still on the board and is not this. */
       let wait = null;
       if (startup || as === 'hook') { try { wait = away.lastWait(hist, { nowMs: now }); } catch { wait = null; } }
+      /* kosmos#9058 (review 1): the same limit at a startup, the commonest session boundary: an agent that has worked
+         through two sessions since its wait, each begun with a reminder, is not reminded at every restart for 7 days. */
+      if (wait) { try { if (away.sessionsSinceWait(hist, wait.atMs) >= away.REMIND_SESSIONS) wait = null; } catch { /* keep it */ } }
       let digest = away.build({ name, sinceMs: NaN, untilMs: NaN });
       let unread = false;   // a record that could not be read: "nothing arrived" would then be a guess
       if (win) {

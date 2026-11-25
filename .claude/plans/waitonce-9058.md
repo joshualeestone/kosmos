@@ -30,3 +30,14 @@ engine/awaydigest-9058.test.js (the count, sessions with no turn, an open sessio
 wait; the wording). server.away-9049.test.js: one #9058 route test (reminded, reminded once more, then empty, never
 pending; a control where /clears with no turn keep reminding). Controls: the route test fails without the server
 rule; the wording test fails with the old phrase. #9049's own tests unchanged and green.
+
+## Review round 1 (opus): 0 BLOCKERs, 2 SHOULDs, 1 NIT, all fixed
+- SHOULD: a third /clear whose own `stopped` had not landed was reminded a third time --> FIXED: sessionsSinceWait
+  takes `endingNow` (the route passes it for src=clear) and counts the session being ended when it had a turn; once
+  its stopped lands the open session is the empty new one, so nothing counts twice.
+- SHOULD: a real startup (at=startup / the Windows as=hook) still reminded at every restart for 7 days --> FIXED: the
+  same limit on the startup path. A startup after fewer than two worked sessions still reminds, in the startup words.
+- NIT: the by-hand text after the limit read as if it applied after any startup reminder --> FIXED: its own sentence,
+  only when the limit is the reason.
+- Measured by the reviewer: while the wait is the newest row, selfreport refuses (and does not store) automatic
+  working/idle, so the wait's own session has no automatic rows; the SessionEnd's `stopped` is always stored.

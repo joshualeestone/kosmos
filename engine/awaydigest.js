@@ -112,9 +112,12 @@ function sessionAfter(history, atMs) {
    this is under REMIND_SESSIONS: the first session end, and one repeat (a /clear wipes the context that held the
    reminder, which is why #9049 reminds a /clear after a startup), then no more, instead of at every /clear and resume
    for 7 days. Reasoned from the history, not recorded: a reminder that never reached the agent (its ask lost a race,
-   or was refused) still counts, so it fails silent, never false. */
+   or was refused) still counts, so it fails silent, never false.
+   `endingNow` (a /clear: review 1): the session the /clear is ending is counted when it had a turn, though its own
+   `stopped` (sent in the background by the Mac hook) may not have landed yet; once it lands, the open session is the
+   new, empty one, so nothing is counted twice. */
 const REMIND_SESSIONS = 2;
-function sessionsSinceWait(history, atMs) {
+function sessionsSinceWait(history, atMs, opts) {
   const rows = Array.isArray(history) ? history : [];
   let open = false;     // inside a session that began at a started/stopped after the wait
   let turned = false;   // and the agent took a turn in it
@@ -129,6 +132,7 @@ function sessionsSinceWait(history, atMs) {
     }
     if (open && r.by === 'auto' && (r.state === 'working' || r.state === 'idle')) turned = true;
   }
+  if (opts && opts.endingNow === true && open && turned) count += 1;
   return count;
 }
 
