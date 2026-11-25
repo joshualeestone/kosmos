@@ -56,15 +56,59 @@ env:
   AGENT_WORKFORCE_CREATED_URL: http://127.0.0.1:9/api/created
 
 jobs:
+  # kosmos#8993: where `build` runs. Measured 11-24: every queued job was waiting for macos-latest (a main ios run waited
+  # 2 h 41 min for one) while the repo's two self-hosted Macs (label kosmos-ci) sat idle. `build` (logic tests and
+  # simulator SDK builds, no simulator booted, no artifact shared with the UI jobs) goes to the self-hosted Mac ONLY when
+  # the repo variable KOSMOS_CI_IOS_JOBS names it ("build") AND test.yml's kill switch KOSMOS_CI_RUNNER is `on` AND the
+  # code is this repo's own (a push to main, or a PR whose head is this repo), the same own-code rule as test.yml
+  # (#5488); the machine's job guard (tools/ci-runner-job-guard.sh) is what refuses fork code. Anything else, the
+  # variable unset included, is macos-latest, as before. The UI jobs stay on macos-latest: they share one build, and a
+  # UI job whose Xcode differs from the build's builds again (see uibuild), and two simulator runs on one Mac under one
+  # user would share its simulators (test.yml's #4601 note on the two runners). Pinned by tools/test-ci-ios-route-8993.sh.
+  route:
+    name: route
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      build_runner: ${{ steps.decide.outputs.build_runner }}
+    steps:
+      - id: decide
+        name: where the logic build runs (KOSMOS_CI_IOS_JOBS)
+        # Values arrive through env, never pasted into the script: a branch or repo name can hold shell syntax.
+        env:
+          CI_RUNNER: ${{ vars.KOSMOS_CI_RUNNER }}
+          CI_IOS_JOBS: ${{ vars.KOSMOS_CI_IOS_JOBS }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          build='"macos-latest"'
+          own=""
+          if [ "$EVENT_NAME" = push ] || { [ "$EVENT_NAME" = pull_request ] && [ -n "$HEAD_REPO" ] && [ "$HEAD_REPO" = "$THIS_REPO" ]; }; then
+            own=1
+          fi
+          # Whole tokens only, split on commas and whitespace: "builds" or "xbuild" name nothing. set -f keeps a "*"
+          # literal. Only the result is logged, never the variable, so the log line can carry no workflow command.
+          set -f
+          for tok in ${CI_IOS_JOBS//,/ }; do
+            case "$tok" in
+              build) if [ "$CI_RUNNER" = on ] && [ -n "$own" ]; then build='["self-hosted","macOS","arm64","kosmos-ci"]'; fi ;;
+            esac
+          done
+          echo "build_runner=$build" >> "$GITHUB_OUTPUT"
+          echo "logic build runs on: $build"
+
   build:
     name: logic tests + simulator build
-    runs-on: macos-latest
+    needs: route
+    runs-on: ${{ fromJSON(needs.route.outputs.build_runner) }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
       - name: Toolchain versions
         run: |
+          echo "runner: $RUNNER_NAME ($RUNNER_ENVIRONMENT)"   # kosmos#8993: which Mac, for the queue measurements
           xcodebuild -version
           xcrun swiftc --version
           xcrun simctl list runtimes
