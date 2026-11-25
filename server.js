@@ -4750,7 +4750,7 @@ function sendGate(name) {
    a card state this card cannot have, so the message is not typed into a session that cannot answer it. Then the one
    card it needs (status.channelCardFor), never added to the roster. The pipe answers for itself if the agent is gone
    (chat.js deliverThroughChannel). null when any of that is missing. Never throws. The seam is for tests:
-   { win32, liveNames, owned, streamToken }. */
+   { win32, liveNames, owned, identity, streamToken }. */
 let outageChannelSeam = null;
 function _setOutageChannelForTest(seam) { outageChannelSeam = seam && typeof seam === 'object' ? seam : null; }
 function outageChannelCard(name) {
@@ -4766,9 +4766,13 @@ function outageChannelCard(name) {
     if (!rows.length) return null;
     const runnerOf = (row) => String((row && row.runner) || 'claude');
     if (!rows.every((row) => runnerOf(row) === 'claude')) return null;
+    /* The state file's session must be one the ownership record files under this name: stateFor matches the file
+       against the identity it is handed, and the usual identity (the failing read) is not there, so the record is the
+       second source. A file left by another session is refused. */
     const stream = require('./engine/win32streamstate');
-    const token = typeof seam.streamToken === 'function' ? seam.streamToken(name)
-      : stream.stateFor(name, stream.liveIdentity(name), Date.now());
+    const id = typeof seam.identity === 'function' ? seam.identity(name) : stream.liveIdentity(name);
+    if (!id || !Object.prototype.hasOwnProperty.call(owned, id.sessionId) || !sessions.rowIsUnder(owned[id.sessionId], name)) return null;
+    const token = typeof seam.streamToken === 'function' ? seam.streamToken(name) : stream.stateFor(name, id, Date.now());
     if (token !== stream.BUSY && token !== stream.IDLE) return null;
     return require('./engine/status').channelCardFor(name, String(rows[0].runner || ''));   // the recorded runner, as make passes it
   } catch { return null; }
@@ -4872,8 +4876,9 @@ function clearLeftovers(name, projectId, why) {
 
 // ⚠️ Two roster reads per request is two SNAPSHOTS: the gate can be decided
 // against one and the session resolved against another. A route that runs
-// `knownAgent` and then `sessionOf` reads twice; the command routes take the
-// session from `commandGate`'s card instead (kosmos#9087).
+// `knownAgent` and then `sessionOf` reads twice. The command routes take the
+// session from `commandGate`'s card (kosmos#9087); their delivery still reads
+// its own roster (safeRoster), which chat.deliver checks again.
 
 /* kosmos#8719: what a person is told when a message to, or a read of, an agent whose window Kosmos cannot tie to it is
    refused: the reason. (The remedy is an action, reclaiming the window, which part 2 of #8719 adds; no sentence here
@@ -22247,9 +22252,10 @@ const server = http.createServer(async (req, res) => {
            did not start keeps the 409 'untied' below. */
         const { known, rosterUnreadable } = sendGate(name);
         /* kosmos#9087 Part B: on Windows, a supervised agent of ours is sent to through its pipe while the read fails
-           (outageChannelCard says what that needs); everything else unreadable keeps #9085's 409. Typed words only: a
-           button press (chose, asked, request) answers a question the board saw, and an outage card has no state, so
-           the holds and checks below that read one would pass it unchecked. */
+           (outageChannelCard says what that needs); everything else unreadable keeps #9085's 409. Not for a button
+           press (chose, asked, request): it answers a question the board saw, and an outage card has no state, so the
+           holds and checks below that read one would pass it unchecked. A reply or an attachment is typed words and
+           goes. */
         const pressed = [body.chose, body.asked, body.request].some((v) => v !== undefined && v !== null);
         const outageCard = (!known && rosterUnreadable && !pressed) ? outageChannelCard(name) : null;
         if (outageCard) noteOutageSend(name);

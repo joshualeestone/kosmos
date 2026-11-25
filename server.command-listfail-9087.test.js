@@ -1,15 +1,12 @@
 'use strict';
 
 /**
- * kosmos#9085: on Windows `claude agents --json` crashed about once a minute for five hours, the roster refused once
- * win32roster's hold ran out, and POST /api/agent/<name>/thread answered every message to a running agent 404 "no
- * agent by that name". A roster that cannot be READ is now answered as unknown: 409, `because: 'unreadable'`, `retry`,
- * nothing sent. A roster that reads and does not list the name is still a 404.
+ * kosmos#9087 Part A: compact, clear, handoff-restart/ask and handoff-restart/pickup answered a bare 404 from
+ * knownAgent while the roster could not be read. They share #9085's gate now (server.js sendGate, commandGate): 409,
+ * `because: 'unreadable'`, `retry`, a log line. A roster that reads and does not list the name is still a 404, and so
+ * is a name with no agent folder here. The roster is fed through status.setPaneSource. Runs on every platform.
  *
- * The roster is fed through status.setPaneSource, the seam the Windows board uses. A source that answers null is
- * what a refused read hands the roster ("we could not look"), on every platform. Runs on every platform.
- *
- *   node --test server.dm-listfail-9085.test.js
+ *   node --test server.command-listfail-9087.test.js
  */
 require('./test-support/tmpscope');
 const os = require('node:os');

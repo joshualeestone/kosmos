@@ -353,7 +353,7 @@ const WIN32_ROW_KEYS = Object.keys(win32RowValue('', ''));
 /* kosmos#9087: one Windows row as the roster line it is emitted as (make above), so a card built for one agent while
    the roster cannot be read (status.channelCardFor) parses the same bytes a good read would have given. */
 function rowLine(name, runner, columns) {
-  const COLUMNS = columns || require('./status').PANE_COLUMNS;
+  const COLUMNS = columns || require('./status').PANE_COLUMNS;   // at call time: status requires this module
   const value = win32RowValue(name, runner);
   return COLUMNS.map((c) => (Object.prototype.hasOwnProperty.call(value, c.key) ? value[c.key] : '')).join('\t');
 }
