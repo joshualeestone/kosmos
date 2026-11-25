@@ -1,0 +1,211 @@
+import SwiftUI
+
+// kosmos#8959 slice D1c2a: the computer's Token usage, native (the board's Settings > Token usage): the hero, the model
+// table, By agent, Usage history and the method note, every figure the page's own (UsageLogic.swift). The four daily
+// charts and the model donut are slice D1c2b. The UI test drives only the sample build's path.
+struct UsageView: View {
+    let mac: Settings.Mac?
+    var sample = false
+    var finding = false
+    var signedOut = false
+
+    @State private var screen: Usage.Screen?
+    @State private var generation = 0
+    @State private var shownURL: URL?
+
+    var body: some View {
+        List {
+            if mac == nil && !sample {
+                Section {
+                    if finding {
+                        HStack(spacing: 10) {
+                            SweepDots(scales: false)
+                            Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary)
+                        }
+                    } else {
+                        Text(signedOut ? "Sign in to Kosmos+ first, then your computer's settings show here."
+                             : "Open the Agents tab to connect to your computer, then its settings show here.")
+                            .font(.subheadline).foregroundColor(Palette.secondary)
+                    }
+                }
+            } else {
+                Section {
+                    Text(Usage.Words.hint).font(.footnote).foregroundColor(Palette.secondary)
+                    switch screen {
+                    case nil:
+                        HStack(alignment: .top, spacing: 10) {
+                            SweepDots(scales: false)
+                            Text(Usage.Words.reading).font(.footnote).foregroundColor(Palette.secondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                    case .failed?:
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(Usage.Words.failed).font(.subheadline).foregroundColor(Palette.secondary).accessibilityIdentifier("usage-msg")
+                            Button("Try again") { Task { await load() } }
+                        }
+                    case .empty(let said)?:
+                        Text(said).font(.subheadline).foregroundColor(Palette.secondary).accessibilityIdentifier("usage-msg")
+                    case .shown(let s)?:
+                        Text(s.counted).font(.footnote).foregroundColor(Palette.secondary).accessibilityIdentifier("usage-msg")
+                    }
+                } header: {
+                    Text(Usage.Words.title)
+                }
+                if case .shown(let s)? = screen {
+                    heroSection(s.hero)
+                    shareSection(Usage.Words.model, rows: s.models, grand: s.grand, hint: nil, note: nil) { i, _ in Color(hex: Usage.modelColor(rank: i)) }
+                    if !s.agents.isEmpty || !s.agentNote.isEmpty {
+                        shareSection(Usage.Words.agent, rows: s.agents, grand: s.grand, title: Usage.Words.byAgent, hint: Usage.Words.byAgentHint,
+                                     note: s.agentNote.isEmpty ? nil : s.agentNote) { _, r in
+                            r.muted ? Color(hex: Usage.modelColors.last!) : Palette.secondary
+                        }
+                    }
+                    historySection(s.history)
+                    Section {
+                        (Text(Usage.Words.methodLead)
+                         + Text(.init("[\(Usage.Words.methodLink)](\(Usage.Words.methodURL.absoluteString))"))
+                         + Text(Usage.Words.methodTail))
+                            .font(.footnote).foregroundColor(Palette.secondary)
+                            .accessibilityIdentifier("usage-method")
+                    }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Palette.ground.ignoresSafeArea())
+        .navigationTitle(Usage.Words.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .dotsRefresh { await load() }
+        .task(id: mac?.url) {
+            if shownURL != mac?.url { shownURL = mac?.url; screen = nil; generation += 1 }
+            await load()
+        }
+    }
+
+    // MARK: The parts
+
+    private func heroSection(_ h: Usage.Hero) -> some View {
+        Section {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(String(h.days)).font(.title2.weight(.bold).monospacedDigit()).foregroundColor(Palette.primary)
+                    Text(Usage.Words.activeDays).font(.footnote).foregroundColor(Palette.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("usage-days")
+                HStack(alignment: .center, spacing: 10) {
+                    figure(h.tokens, Usage.Words.totalTokens, id: "usage-tokens")
+                    Text("=").font(.title3).foregroundColor(Palette.secondary).accessibilityHidden(true)
+                    figure(h.value, Usage.Words.humanCost, id: "usage-value")
+                }
+                HStack(alignment: .top, spacing: 10) {
+                    figure(h.hours, Usage.Words.workHours, small: true, id: "usage-hours")
+                    figure(h.years, Usage.Words.workYears, small: true, id: "usage-years")
+                    figure(h.api, Usage.Words.apiCost, small: true, id: "usage-api")
+                }
+            }
+            .padding(.vertical, 6)
+        }
+    }
+
+    private func figure(_ value: String, _ label: String, small: Bool = false, id: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value).font((small ? Font.headline : Font.title2).weight(.bold).monospacedDigit()).foregroundColor(Palette.primary)
+                .lineLimit(1).minimumScaleFactor(0.6)
+            Text(label).font(.caption).foregroundColor(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(id)
+    }
+
+    private func shareSection(_ label: String, rows: [Usage.Share], grand: Double, title: String? = nil, hint: String?, note: String?,
+                              color: @escaping (Int, Usage.Share) -> Color) -> some View {
+        let max = rows.map(\.tok).max() ?? 0
+        return Section {
+            if let hint { Text(hint).font(.footnote).foregroundColor(Palette.secondary) }
+            ForEach(Array(rows.enumerated()), id: \.offset) { i, r in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Circle().fill(color(i, r)).frame(width: 9, height: 9).accessibilityHidden(true)
+                        Text(r.name).font(.subheadline).foregroundColor(r.muted ? Palette.secondary : Palette.primary).lineLimit(2)
+                        Spacer(minLength: 8)
+                        Text(Usage.abbr(r.tok)).font(.subheadline.monospacedDigit()).foregroundColor(Palette.primary)
+                        Text(Usage.percent(r.tok, of: grand)).font(.subheadline.monospacedDigit()).foregroundColor(Palette.secondary)
+                            .frame(minWidth: 52, alignment: .trailing)
+                    }
+                    GeometryReader { g in
+                        Capsule().fill(color(i, r)).frame(width: max > 0 ? g.size.width * Usage.barFraction(r.tok, max: max) : 0, height: 4)
+                    }
+                    .frame(height: 4)
+                    .accessibilityHidden(true)
+                }
+                .accessibilityElement(children: .combine)
+            }
+            if let note { Text(note).font(.footnote).foregroundColor(Palette.secondary).accessibilityIdentifier("usage-agents-note") }
+        } header: {
+            Text(title ?? label)
+        }
+    }
+
+    private func historySection(_ rows: [Usage.HistoryRow]) -> some View {
+        Section {
+            Text(Usage.Words.historyHint).font(.footnote).foregroundColor(Palette.secondary)
+            ForEach(rows) { r in
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(r.day).font(.footnote.monospacedDigit()).foregroundColor(Palette.secondary)
+                        Text(r.model).font(.subheadline).foregroundColor(Palette.primary).lineLimit(1).truncationMode(.middle)
+                    }
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(r.total).font(.subheadline.monospacedDigit()).foregroundColor(Palette.primary)
+                            .accessibilityLabel(r.full + " tokens")
+                        Text(r.value).font(.footnote.monospacedDigit()).foregroundColor(Palette.secondary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+        } header: {
+            Text(Usage.Words.history)
+        }
+    }
+
+    // MARK: Reading
+
+    private static let http = URLSession(configuration: .ephemeral, delegate: RefuseRedirects(), delegateQueue: nil)
+
+    @MainActor private func load() async {
+        await Task.yield()
+        if sample {
+            if screen == nil { screen = Usage.screen(status: 200, data: Data(Usage.sample.utf8)) }
+            return
+        }
+        guard let mac, mac.url == shownURL else { return }
+        generation += 1
+        let started = generation
+        var status = 0
+        var data = Data()
+        if let (d, response) = try? await Self.http.data(for: Usage.request(mac)), let answer = response as? HTTPURLResponse {
+            status = answer.statusCode; data = d
+        }
+        guard started == generation, !Task.isCancelled else { return }
+        // As the page: a read that fails clears the figures and says so.
+        screen = Usage.screen(status: status, data: data)
+    }
+}
+
+private extension Color {
+    init(hex: UInt32) {
+        self.init(red: Double((hex >> 16) & 0xff) / 255, green: Double((hex >> 8) & 0xff) / 255, blue: Double(hex & 0xff) / 255)
+    }
+}
+
+// As Settings' own: a redirect is refused, so the computer's cookie can never be carried to another host.
+private final class RefuseRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}

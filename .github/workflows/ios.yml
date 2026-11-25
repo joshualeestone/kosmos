@@ -293,6 +293,14 @@ jobs:
           ios/LogicTests/run-updates.sh | tee "$RUNNER_TEMP/updates.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/updates.log"
 
+      # kosmos#8959 slice D1c2a: the computer's Token usage figures, against node's figures from web/index.html's own
+      # usage functions, and its price table entry by entry.
+      - name: Token usage logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-usage.sh | tee "$RUNNER_TEMP/usage.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/usage.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build
