@@ -34,3 +34,9 @@ Plan as posted on the card 2026-11-25 02:4x UTC (issuecomment-7151149115):
   the sibling suites (accountsecond, accountsecurity) run with KOSMOS_RELAY= on CI the same way; kosmos-relay is another
   private repo, and the comparison runs on every local validation. FIXED W7 Send the code again + "New code sent.".
   FIXED W8 focus moves to the answer's title; the tick has a value.
+- r2 sonnet: 0B/8W. FIXED W1 sign out only the session held at the start, and only while still held. FIXED W2 /me read
+  whatever the field holds; a nil own email still signs out (the page's rule; weakest premise, kept). FIXED W3 focus set on
+  the next turn, every answer. FIXED W4 "New code sent." cleared on the next submit. FIXED W5 a background task around
+  confirm. W6 tab switch on the done screen counts as leaving: commented, as planned. FIXED W7 back hidden only during a
+  confirm. FIXED W8 UI test queries the answer by identifier plus label, reveals Continue past the keyboard, checks the
+  company line before scrolling past it.

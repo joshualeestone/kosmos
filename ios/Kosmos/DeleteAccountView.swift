@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // kosmos#8959 slice C: Settings' "Delete account", native, where the web page at /delete-account used to open. Five
 // screens over the page's four routes, with the page's words (DeleteAccountLogic.swift): the email, the emailed code, a
@@ -47,9 +48,10 @@ struct DeleteAccountView: View {
             .listStyle(.insetGrouped)
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
-            // No way back while Kosmos+ is answering (a confirm can take a while) or once the answer is shown.
-            .navigationBarBackButtonHidden(isAnswer || busy)
-            .interactiveDismissDisabled(isAnswer || busy)
+            // No way back while a confirm is out (it can take a while) or once the answer is shown. The tab bar still
+            // leaves; a deletion answered then signs out at the answer (`visible`), and a tab switch on the done screen
+            // counts as leaving it.
+            .navigationBarBackButtonHidden(isAnswer || confirming)
             .toolbar {
                 if isAnswer {
                     ToolbarItem(placement: .confirmationAction) {
@@ -60,6 +62,11 @@ struct DeleteAccountView: View {
             .task { await prefill() }
             .onAppear { visible = true }
             .onDisappear { visible = false; signOutIfDeleted() }
+    }
+
+    private var confirming: Bool {
+        guard busy else { return false }
+        switch step { case .confirm, .failed: return true; default: return false }
     }
 
     private var isAnswer: Bool {
@@ -182,7 +189,7 @@ struct DeleteAccountView: View {
         } header: { Text(DeleteAccount.deletesTitle) }
         explain(DeleteAccount.notDeletedTitle, DeleteAccount.notDeletedWords)
         if let company = DeleteAccount.companyWords(p.onlyAdminOf) {
-            explain(DeleteAccount.companyTitle, company).accessibilityIdentifier("delete-company")
+            explain(DeleteAccount.companyTitle, company)
         }
         explain(DeleteAccount.subscriptionTitle, DeleteAccount.subscriptionWords(p.subscription))
         explain(DeleteAccount.keptTitle, DeleteAccount.keepWords(p.subscription))
@@ -292,8 +299,9 @@ struct DeleteAccountView: View {
     @MainActor private func prefill() async {
         guard heldSession == nil else { return }
         heldSession = sample ? "sample" : currentSession()
-        if sample { if email.isEmpty { email = "you@example.com" }; return }
-        guard let session = heldSession, email.isEmpty else { return }
+        if sample { if email.isEmpty { email = "you@example.com" }; ownEmail = "you@example.com"; return }
+        // Read whatever the field holds: whose account this iPhone holds decides the sign-out after a deletion.
+        guard let session = heldSession else { return }
         var r = URLRequest(url: coordinator.appendingPathComponent(String(SignIn.mePath.dropFirst())))
         r.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")
         r.timeoutInterval = 15
@@ -331,7 +339,9 @@ struct DeleteAccountView: View {
     }
 
     @MainActor private func verify(email address: String) async {
-        guard !busy, let typed = SignIn.code(code) else { if !busy { note = AccountSecond.codeNotSix }; return }
+        guard !busy else { return }
+        sent = nil
+        guard let typed = SignIn.code(code) else { note = AccountSecond.codeNotSix; return }
         busy = true; note = nil
         defer { busy = false }
         let sampleGrant: [String: Any] = ["grant": "sample", "preview": ["email": address, "plan": "subscription", "onlyAdminOf": ["Sample Co"]]]
@@ -363,7 +373,10 @@ struct DeleteAccountView: View {
     @MainActor private func confirm(_ grant: DeleteAccount.Grant) async {
         guard !busy else { return }
         busy = true; note = nil
-        defer { busy = false }
+        // Confirm ends billing before it answers: ask iOS for time to hear the answer if the phone locks or the app is
+        // sent away meanwhile, rather than reporting "could not be reached" about a deletion that is going ahead.
+        let background = UIApplication.shared.beginBackgroundTask(withName: "delete-account-confirm")
+        defer { busy = false; if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
         let answer: (Int, Any?)? = sample ? (200, ["outcome": "deleted"]) : await send(DeleteAccount.confirmRequest(coordinator: coordinator, grant: grant.token))
         // Nothing reached Kosmos+ (or its answer was lost): the same grant may be sent again, as the page's Try again.
         guard let (status, json) = answer else { note = DeleteAccount.unreachable; return }
@@ -372,17 +385,23 @@ struct DeleteAccountView: View {
             let address = grant.preview.email ?? email
             gone = true; goneEmail = address
             step = .done(email: address)
-            answerFocus = true
+            focusAnswer()
             // Left already (another tab, the app sent away): nothing will leave the done screen, so sign out now.
             if !visible { signOutIfDeleted() }
-        case .stillDeleting: step = .pending; answerFocus = true
-        case .nothingChanged: step = .failed(grant); answerFocus = true
+        case .stillDeleting: step = .pending; focusAnswer()
+        case .nothingChanged: step = .failed(grant); focusAnswer()
         case .startOver(let sentence): startOver(sentence)
         }
     }
 
+    /// VoiceOver to the answer's title, once the title exists (the next turn), every time an answer arrives.
+    @MainActor private func focusAnswer() {
+        answerFocus = false
+        DispatchQueue.main.async { answerFocus = true }
+    }
+
     @MainActor private func startOver(_ sentence: String?) {
-        code = ""; sent = nil; understood = false
+        code = ""; sent = nil; understood = false; answerFocus = false
         step = .email
         note = sentence
     }
@@ -397,7 +416,10 @@ struct DeleteAccountView: View {
     private func signOutIfDeleted() {
         guard DeleteAccount.signsOut(deleted: gone, already: signedOutDone, ownEmail: ownEmail, deletedEmail: goneEmail) else { return }
         signedOutDone = true
-        if !sample, let session = heldSession ?? currentSession() { deleted(session) }
+        guard !sample else { return }
+        // Only the session held when the flow began, and only while it is still the one held: a sign-in that changed
+        // meanwhile (another account) is left alone. Signed in during the flow from signed out: that sign-in is new too.
+        if let session = heldSession, currentSession() == session { deleted(session) }
     }
 }
 
