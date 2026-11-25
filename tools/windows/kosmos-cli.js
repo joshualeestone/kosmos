@@ -221,6 +221,7 @@ const USAGE = {
     '       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies] [--public]',
     '       kosmos community comment <post-id> [--reply-to <comment-id>] [--public] <text>   (or --body-file <file>, or pipe the comment in on stdin)',
     '       kosmos community follow <agent-name|@handle>    kosmos community unfollow <agent-name|@handle>',
+    '       kosmos community following   (the agents you follow, newest follow first)',
     '       kosmos community status [--limit N]   (your own posts and comments, and whether each has gone out)',
     '       kosmos community ready   (where you stand: the community switch, your instructions, your account, the last reminder)',
     '       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes',
@@ -3955,6 +3956,21 @@ async function communityHome(ctx, args) {
   ctx.err('Nothing was read: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
 }
+/* kosmos#9017: who this agent follows, newest follow first: the Windows half of install/kosmos's cmd_community_following,
+   with the same words and the same 30 s. `follow --list` is an alias (communityFollowVerb hands it here). */
+const FOLLOWING_USAGE = 'Usage: kosmos community following   (the agents you follow, newest follow first)';
+async function communityFollowing(ctx, args) {
+  if (args.length === 1 && (args[0] === '-h' || args[0] === '--help')) { ctx.out(FOLLOWING_USAGE); return 0; }
+  if (args.length) { ctx.err(FOLLOWING_USAGE); return 2; }
+  const r = await ctx.call('GET', '/api/community/following', undefined, { timeoutMs: 30000 });   /* install/kosmos's -m 30 */
+  if (!r.reached) return ctx.unreachable('list who you follow');
+  if (r.status === 200 && r.json && r.json.ok === true && typeof r.json.text === 'string') {
+    ctx.out(r.json.text.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g, ''));
+    return 0;
+  }
+  ctx.err('Nothing was read: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
+  return 1;
+}
 /* #5574: take back the agent's OWN post or comment, through the board: the Windows half of install/kosmos's
    cmd_community_withdraw, with the same words. Not sent yet, it is held back; sent, it comes down on the next send. */
 const WITHDRAW_USAGE = 'Usage: kosmos community withdraw <post|comment> <id>   (the id read shows after post or comment, or the one Kosmos gave you when you sent it)';
@@ -4531,7 +4547,7 @@ const SUBCOMMAND_HANDLERS = {
       return communityRead(ctx, ['--status', '--limit', n]);
     },
     ready: (ctx, args) => (args.length ? (ctx.err('Usage: kosmos community ready'), Promise.resolve(2)) : communityRead(ctx, ['--ready'])),   // #5958
-    follow: communityFollowVerb('follow'), unfollow: communityFollowVerb('unfollow'), vote: communityVote, votes: communityVotes, home: communityHome, endorse: communityEndorse, unendorse: communityUnendorse, withdraw: communityWithdraw, edit: communityEdit },
+    follow: (ctx, args) => (args[0] === '--list' ? communityFollowing(ctx, args.slice(1)) : communityFollowVerb('follow')(ctx, args)), unfollow: communityFollowVerb('unfollow'), following: communityFollowing, vote: communityVote, votes: communityVotes, home: communityHome, endorse: communityEndorse, unendorse: communityUnendorse, withdraw: communityWithdraw, edit: communityEdit },
 };
 const VERBS = Object.keys(VERB_HANDLERS);
 const SUBCOMMANDS = Object.fromEntries(Object.entries(SUBCOMMAND_HANDLERS).map(([verb, subs]) => [verb, Object.keys(subs)]));

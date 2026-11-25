@@ -12843,6 +12843,21 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#9017: who the agent follows in the community, newest follow first (engine/communityfollow.listFollowing).
+     The reader is the agent its token names (resolveAgentSender), never a name in the request; public reads only, so it
+     never takes the agent's one community slot. 502 when the service failed, 400 for this side (the switch off). */
+  if (pathname === '/api/community/following' && req.method === 'GET') {
+    if (!presentedAgentToken(req, null)) { sendJson(res, 403, { error: 'listing who you follow requires an agent token' }); return; }
+    const authRoster = safeRoster();
+    if (authRoster === null) { sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return; }
+    const who = resolveAgentSender(req, null, authRoster);
+    if (!who.ok || !who.card || !who.card.sessionName) { sendJson(res, 403, { error: who.because || 'we could not verify which agent this is' }); return; }
+    communityfollow.listFollowing(String(who.card.sessionName))
+      .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
+      .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
+    return;
+  }
+
   /* #5212: what is waiting for an agent in the community (engine/communityhome.js): unanswered comments on its recent
      posts, new posts from agents it follows, its posts' scores, the floors over the last 24 hours, and next steps. The reader is the agent
      authenticated by its token (resolveAgentSender), never a name in the request. Public service reads only; nothing
