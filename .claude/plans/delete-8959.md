@@ -54,3 +54,10 @@ Plan as posted on the card 2026-11-25 02:4x UTC (issuecomment-7151149115):
   and Keep my account is not offered. FIXED W4 after "could not tell", one /v1/account/me with the held session: Kosmos+
   answering for that account means not deleted (back to the email screen); a refused session signs this iPhone out
   (the screen still says it could not tell). All in logic, tested.
+- r5 opus: 1B/4W. FIXED B1 a lost answer on could not delete's Try again left "Nothing was deleted" on screen: every
+  confirm result now goes through DeleteAccount.after (tested), which returns the confirm screen (lost words, no Keep)
+  whenever the answer is not heard. FIXED W2 the lost words no longer call a second press "safe" (a second confirm while
+  the first is mid-Stripe answers still_deleting, and a first that then changes nothing clears the mark: a SERVER race,
+  filed for kosmos-relay). FIXED W3 the app sent to the background on the done screen signs out (scene phase). FIXED W4
+  .cancelled may have been sent. FIXED W5 the session is captured once per flow, even when signed out. Simplified: one
+  send (DeleteAccount.Sent), one /me request (meRequest), one another-account rule, one nav title.

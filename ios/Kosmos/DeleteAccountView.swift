@@ -40,6 +40,8 @@ struct DeleteAccountView: View {
     @State private var gone = false
     @State private var goneEmail: String?
     @State private var signedOutDone = false
+    @State private var captured = false
+    @Environment(\.scenePhase) private var scenePhase
     @State private var visible = false
     @State private var sent: String?
     // A confirm on the grant shown went out and no answer came back (DeleteAccount.Outcome.unknown).
@@ -68,6 +70,8 @@ struct DeleteAccountView: View {
             .task { await prefill() }
             .onAppear { visible = true }
             .onDisappear { visible = false; signOutIfDeleted() }
+            // Sent away on the done screen: iOS may end the app there, so the dead session goes now.
+            .onChange(of: scenePhase) { phase in if phase == .background { signOutIfDeleted() } }
     }
 
     private var confirming: Bool {
@@ -84,8 +88,7 @@ struct DeleteAccountView: View {
         case .email: return DeleteAccount.title
         case .code: return DeleteAccount.codeTitle
         case .second: return DeleteAccount.secondTitle
-        case .confirm: return "Delete account"
-        case .done, .pending, .failed, .unknown: return "Delete account"
+        case .confirm, .done, .pending, .failed, .unknown: return "Delete account"
         }
     }
 
@@ -310,34 +313,36 @@ struct DeleteAccountView: View {
     // One ephemeral session refusing redirects, as the account screen uses: nothing is cached to disk.
     private static let http = URLSession(configuration: .ephemeral, delegate: RefuseRedirects(), delegateQueue: nil)
 
-    private func send(_ r: URLRequest) async -> (Int, Any?)? { await sendTelling(r).answer }
-
-    /// The answer, or why there was none (the URLError's code; nil for any other failure).
-    private func sendTelling(_ r: URLRequest) async -> (answer: (Int, Any?)?, error: URLError.Code?) {
+    /// The answer, or none (with the URLError's code when there was one).
+    private func send(_ r: URLRequest) async -> DeleteAccount.Sent {
         do {
             let (data, answer) = try await Self.http.data(for: r)
-            guard let http = answer as? HTTPURLResponse else { return (nil, nil) }
-            return ((http.statusCode, try? JSONSerialization.jsonObject(with: data)), nil)
+            guard let http = answer as? HTTPURLResponse else { return .nothing(nil) }
+            return .answer(status: http.statusCode, json: (try? JSONSerialization.jsonObject(with: data)) as? NSDictionary)
         } catch let e as URLError {
-            return (nil, e.code)
+            return .nothing(e.code)
         } catch {
-            return (nil, nil)
+            return .nothing(nil)
         }
+    }
+
+    /// `send` for the steps that only need an answer or none.
+    private func ask(_ r: URLRequest) async -> (Int, Any?)? {
+        if case .answer(let status, let json) = await send(r) { return (status, json) }
+        return nil
     }
 
     /// The account's own email, when this iPhone is signed in and Kosmos+ says it. The field stays editable.
     @MainActor private func prefill() async {
-        guard heldSession == nil else { return }
+        // Once per flow, even when signed out: `.task` runs again whenever the screen reappears, and a sign-in made
+        // meanwhile is not the one this flow began with.
+        guard !captured else { return }
+        captured = true
         heldSession = sample ? "sample" : currentSession()
         if sample { if email.isEmpty { email = "you@example.com" }; ownEmail = "you@example.com"; return }
         // Read whatever the field holds: whose account this iPhone holds decides the sign-out after a deletion.
         guard let session = heldSession else { return }
-        var r = URLRequest(url: coordinator.appendingPathComponent(String(SignIn.mePath.dropFirst())))
-        r.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")
-        r.timeoutInterval = 15
-        r.httpShouldHandleCookies = false
-        r.cachePolicy = .reloadIgnoringLocalCacheData
-        guard let (status, json) = await send(r), let found = SignIn.accountEmail(status: status, json: json) else { return }
+        guard let (status, json) = await ask(DeleteAccount.meRequest(coordinator: coordinator, session: session)), let found = SignIn.accountEmail(status: status, json: json) else { return }
         ownEmail = found
         if email.isEmpty, step == .email { email = found }
     }
@@ -347,7 +352,7 @@ struct DeleteAccountView: View {
         guard let address = DeleteAccount.email(email) else { note = DeleteAccount.notAnEmail; return }
         busy = true; note = nil
         defer { busy = false }
-        let answer: (Int, Any?)? = sample ? (200, ["ok": true]) : await send(DeleteAccount.startRequest(coordinator: coordinator, email: address))
+        let answer: (Int, Any?)? = sample ? (200, ["ok": true]) : await ask(DeleteAccount.startRequest(coordinator: coordinator, email: address))
         guard let (status, json) = answer else { note = DeleteAccount.unreachable; return }
         lockResend(DeleteAccount.resendWait(status: status, json: json))
         switch DeleteAccount.started(status: status, json: json) {
@@ -372,7 +377,7 @@ struct DeleteAccountView: View {
         guard !busy else { return }
         busy = true; note = nil; sent = nil
         defer { busy = false }
-        let answer: (Int, Any?)? = sample ? (200, ["ok": true]) : await send(DeleteAccount.startRequest(coordinator: coordinator, email: address))
+        let answer: (Int, Any?)? = sample ? (200, ["ok": true]) : await ask(DeleteAccount.startRequest(coordinator: coordinator, email: address))
         guard let (status, json) = answer else { note = DeleteAccount.unreachable; return }
         lockResend(DeleteAccount.resendWait(status: status, json: json))
         switch DeleteAccount.started(status: status, json: json) {
@@ -388,7 +393,7 @@ struct DeleteAccountView: View {
         busy = true; note = nil
         defer { busy = false }
         let sampleGrant: [String: Any] = ["grant": "sample", "preview": ["email": address, "plan": "subscription", "onlyAdminOf": ["Sample Co"]]]
-        let answer: (Int, Any?)? = sample ? (200, sampleGrant) : await send(DeleteAccount.verifyRequest(coordinator: coordinator, email: address, code: typed))
+        let answer: (Int, Any?)? = sample ? (200, sampleGrant) : await ask(DeleteAccount.verifyRequest(coordinator: coordinator, email: address, code: typed))
         guard let (status, json) = answer else { note = DeleteAccount.unreachable; return }
         take(DeleteAccount.checked(status: status, json: json), email: address)
     }
@@ -398,7 +403,7 @@ struct DeleteAccountView: View {
         guard let typed = SignIn.code(code) else { note = AccountSecond.codeNotSix; return }
         busy = true; note = nil
         defer { busy = false }
-        guard let (status, json) = await send(DeleteAccount.secondRequest(coordinator: coordinator, challenge: challenge, code: typed)) else {
+        guard let (status, json) = await ask(DeleteAccount.secondRequest(coordinator: coordinator, challenge: challenge, code: typed)) else {
             note = DeleteAccount.unreachable; return
         }
         take(DeleteAccount.checked(status: status, json: json), email: address)
@@ -420,29 +425,25 @@ struct DeleteAccountView: View {
         // sent away meanwhile, rather than reporting "could not be reached" about a deletion that is going ahead.
         let background = BackgroundTime(name: "delete-account-confirm")
         defer { busy = false; background.end() }
-        let sent: (answer: (Int, Any?)?, error: URLError.Code?) = sample ? ((200, ["outcome": "deleted"]), nil)
-            : await sendTelling(DeleteAccount.confirmRequest(coordinator: coordinator, grant: grant.token))
-        // Nothing reached Kosmos+, or its answer was lost: the same grant may be sent again, as the page's Try again. If it
-        // may have reached Kosmos+, the deletion may be finishing, so a later refusal of this grant reads as unknown.
-        guard let (status, json) = sent.answer else {
-            if DeleteAccount.mayHaveArrived(sent.error) { answerLost = true }
-            note = answerLost ? DeleteAccount.lostWords : DeleteAccount.unreachable
-            return
-        }
-        switch DeleteAccount.outcome(status: status, json: json, answerLost: answerLost) {
-        case .deleted:
+        let result: DeleteAccount.Sent = sample ? .answer(status: 200, json: ["outcome": "deleted"])
+            : await send(DeleteAccount.confirmRequest(coordinator: coordinator, grant: grant.token))
+        let next = DeleteAccount.after(result, answerLost: answerLost)
+        answerLost = next.answerLost
+        note = next.note
+        switch next.screen {
+        case .confirm:
+            // Heard nothing (or not from Kosmos+): the same grant may be sent again, as the page's Try again. From could
+            // not delete too: after a lost answer, that screen's "Nothing was deleted" may be untrue.
+            step = .confirm(grant)
+        case .done:
             let address = grant.preview.email ?? email
             gone = true; goneEmail = address
             step = .done(email: address)
             focusAnswer()
-            // Left already (another tab, the app sent away): nothing will leave the done screen, so sign out now.
+            // Left already (another tab): nothing will leave the done screen, so sign out now.
             if !visible { signOutIfDeleted() }
-        case .stillDeleting: step = .pending; focusAnswer()
-        case .nothingChanged: answerLost = false; step = .failed(grant); focusAnswer()
-        case .retry(let sentence):
-            // No sentence: something other than Kosmos+ answered (a proxy's page), so the request did reach the way in.
-            if sentence == nil { answerLost = true }
-            note = answerLost ? DeleteAccount.lostWords : (sentence ?? DeleteAccount.unreachable)
+        case .pending: step = .pending; focusAnswer()
+        case .failed: step = .failed(grant); focusAnswer()
         case .unknown:
             step = .unknown; focusAnswer()
             await settle(deletedEmail: grant.preview.email ?? email)
@@ -452,14 +453,9 @@ struct DeleteAccountView: View {
 
     /// After "could not tell": one look at this iPhone's own sign-in, when the account in question may be its own.
     @MainActor private func settle(deletedEmail: String?) async {
-        guard !sample, let session = heldSession, currentSession() == session else { return }
-        if let own = ownEmail?.lowercased(), let gone = deletedEmail?.lowercased(), own != gone { return }
-        var r = URLRequest(url: coordinator.appendingPathComponent(String(SignIn.mePath.dropFirst())))
-        r.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")
-        r.timeoutInterval = 15
-        r.httpShouldHandleCookies = false
-        r.cachePolicy = .reloadIgnoringLocalCacheData
-        let answer = await send(r)
+        guard !sample, let session = heldSession, currentSession() == session,
+              !DeleteAccount.anotherAccount(ownEmail: ownEmail, deletedEmail: deletedEmail) else { return }
+        let answer = await ask(DeleteAccount.meRequest(coordinator: coordinator, session: session))
         guard step == .unknown else { return }
         switch DeleteAccount.settled(meStatus: answer?.0, meEmail: answer.flatMap { SignIn.accountEmail(status: $0.0, json: $0.1) },
                                      deletedEmail: deletedEmail) {
@@ -490,7 +486,8 @@ struct DeleteAccountView: View {
     }
 
     /// Once, and only after `deleted` (DeleteAccount.signsOut): the session this iPhone held is for an account that no
-    /// longer exists. Called on leaving the done screen, and at the answer when the screen is already gone.
+    /// longer exists. Called on leaving the done screen (Done, back, another tab, the app sent away), and at the answer
+    /// when the screen is already gone. The guard makes the second of two calls (Done, then onDisappear) nothing.
     private func signOutIfDeleted() {
         guard DeleteAccount.signsOut(deleted: gone, already: signedOutDone, ownEmail: ownEmail, deletedEmail: goneEmail) else { return }
         signedOutDone = true
