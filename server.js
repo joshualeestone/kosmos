@@ -2213,7 +2213,7 @@ function inboxSince(raw) {
 /**
  * Who is sending this? One derivation, used by every route that needs it.
  *
- * 🛑 FOUR EVIDENCE PATHS, IN ORDER (#1112, kosmos#8372).
+ * 🛑 FIVE EVIDENCE PATHS, IN ORDER (#1112, kosmos#8372, kosmos#9057).
  *   1. a token that resolves to a ROSTER CARD  -- an agent that is a live,
  *      tied, listable tmux pane. Unchanged, and still the strongest.
  *   2. a token that resolves to a NAME plus a LIVE HEARTBEAT -- an agent with
@@ -2225,6 +2225,10 @@ function inboxSince(raw) {
  *      removed. A session's start is the moment it has neither a row (not
  *      registered yet) nor a heartbeat (written only after an authenticated
  *      report); the route then beats liveness.
+ *   2c. kosmos#9057, the same check for GET /api/away?as=waithook only (`waitAsk`),
+ *      from THIS computer: the hooks' read-only question at a /clear or a resume,
+ *      which sends no report and so has no fresh heartbeat after an old quit. The
+ *      route writes nothing and answers only that token's agent's own wait.
  *   3. no token: the pane, as before.
  *
  * ⚠️ PATH 2 IS NOT A RELAXATION OF PATH 1. `resolve` refuses a cardless agent
