@@ -63,7 +63,8 @@ final class AIPoliciesUITests: XCTestCase {
         let here = app.staticTexts[inForm ? "policy-note-form" : "policy-note-list"]
         XCTAssertTrue(here.waitForExistence(timeout: 5), "the note is not in the " + (inForm ? "form's" : "list's") + " footer")
         XCTAssertEqual(here.label, said)
-        XCTAssertFalse(app.staticTexts[inForm ? "policy-note-list" : "policy-note-form"].exists, "the note is shown in both places")
+        // Not asserted: that the other footer has no note. It is usually off screen, so the check could not fail; the
+        // view's one noteInForm flag picks a single footer, which is the guarantee.
     }
 
     private func reveal(_ app: XCUIApplication, _ element: XCUIElement, swipes: Int = 8) {

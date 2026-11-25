@@ -68,3 +68,9 @@ Branch `aipolicies-8959`, stacked on D1b1 (16b7bfd952), which is stacked on D1a:
 - M2 a refusal whose reload also fails now replaces the list with the error (wider since round 3's always-reload): kept, as round 2's M5 (the page does the same, and a stale list would hide that the computer did not answer); the refusal's note stays, it sits in the footer.
 - M3 the UI test's placement checks were skipped when the reference was not drawn (a lazy List): replaced by identifiers. Each footer's note has its own (`policy-note-list`, `policy-note-form`), and the test asserts the right one says the sentence and the other is absent. No frames, nothing to skip.
 - Measured: app and UI-test typecheck rc 0, 0 errors; run-aipolicies.sh PASS 104/104.
+
+### Round 5 (opus, 00:30 CST): no BLOCKER, no MAJOR, 3 MINOR. Loop ends here: rounds 3, 4 and 5 found nothing material.
+- M1 "the note is not in both places" could not fail (the other footer is usually off screen): removed, with a comment saying the one noteInForm flag is the guarantee.
+- M2 opening the confirm moved an earlier note under the form: noteInForm is now set only where a note is set (the refusal; save sets its own).
+- M3 busy could still be cleared by an older change after switching A to B and back: each change now holds a token (`changing`), only it clears busy, and the switch reset clears the token.
+- Measured: app and UI-test typecheck 0 errors; run-aipolicies.sh PASS 104/104.
