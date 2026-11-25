@@ -39,20 +39,9 @@ function dirKey(configDir) { return configDir ? String(configDir) : DEFAULT_KEY;
 // The live checker, injectable for tests. Real one calls checkLive the way accounts.js does:
 // the DEFAULT account omits configDir (passing its dir would make `claude auth status` use a
 // path resolution that is wrong for the default -- accounts.js:287 documents this).
-const defaultChecker = (configDir) => liveOf(configDir);
-let checker = defaultChecker;
-/* #9031: `claude auth status` says signed in for a login past its last date (#874: it reads that a login is stored), so a
-   connected answer is checked against the login's own dates. Both past (claudeloginlive.ended) is not connected. Asked
-   only here, so only for an agent whose screen already shows a refusal. A date that cannot be read changes nothing. */
-async function liveOf(configDir, deps = {}) {
-  const check = deps.check || ((d) => (d ? subscription.checkLive({ configDir: d }) : subscription.checkLive()));
-  const ended = deps.ended || ((d) => require('./claudeloginlive').ended(d ? { dir: d } : { isDefault: true }));
-  const live = await check(configDir);
-  if (!live || live.state !== subscription.STATE.CONNECTED) return live;
-  let over = false;
-  try { over = (await ended(configDir)) === true; } catch { over = false; }
-  return over ? { ...live, state: subscription.STATE.NONE } : live;
-}
+let checker = async (configDir) => (configDir
+  ? subscription.checkLive({ configDir })
+  : subscription.checkLive());
 function setChecker(fn) { checker = fn; }        // tests
 function resetForTest() { cache.clear(); }       // tests
 
@@ -90,12 +79,6 @@ function startedAt(configDir) {
   return cur && Number.isFinite(cur.startedAt) ? cur.startedAt : 0;
 }
 
-/* #9031: the last settled verdict for this account whatever its age, or UNCHECKED: what a re-check is re-checking. */
-function lastVerdict(configDir) {
-  const cur = cache.get(dirKey(configDir));
-  return cur ? cur.verdict : UNCHECKED;
-}
-
 /**
  * verdict(configDir, nowMs) -> HEALTHY | EXPIRED | UNKNOWN | UNCHECKED  (never throws, never blocks).
  * Reads the cache; if the entry is absent or older than the TTL, kicks off an async re-check and
@@ -124,7 +107,7 @@ function verdict(configDir, nowMs = Date.now()) {
 }
 
 module.exports = {
-  verdict, startedAt, lastVerdict, liveOf,
+  verdict, startedAt,
   HEALTHY, EXPIRED, UNKNOWN, UNCHECKED,
   TTL_MS,
   dirKey,

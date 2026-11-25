@@ -279,9 +279,10 @@ function readCredFor(a, { platform = process.platform, readCred = loginexpiry.re
 }
 
 /* { state } with state 'ok' | 'no-credential' | 'no-token' | 'token-expired' | 'login-ended', and `token` only when 'ok'.
-   #9031: 'login-ended' is an expired access token whose login's own date (refreshTokenExpiresAt) has passed too: Claude
-   Code can no longer renew it, so no agent on it can start a turn. Needs BOTH, so an access token waiting for its next
-   renewal (the ordinary case, every few hours) stays 'token-expired', which says nothing about the login. */
+   #9031: 'login-ended' is a login that can no longer be renewed: both tokens emptied, which Claude Code does when a renewal
+   is refused for good (2.1.332's dead-token clear), or an expired access token whose login's own date
+   (refreshTokenExpiresAt) has passed too. An access token waiting for its next renewal (the ordinary case, every few
+   hours) stays 'token-expired', which says nothing about the login. */
 async function tokenStateFor(a, { now = Date.now(), ...deps } = {}) {
   let raw;
   try { raw = await readCredFor(a, deps); } catch { raw = null; }
@@ -290,7 +291,7 @@ async function tokenStateFor(a, { now = Date.now(), ...deps } = {}) {
   try { o = JSON.parse(raw); } catch { return { state: 'no-credential' }; }
   const oauth = o && o.claudeAiOauth;
   const token = oauth && typeof oauth.accessToken === 'string' ? oauth.accessToken : '';
-  if (!token) return { state: 'no-token' };
+  if (!token) return { state: oauth && oauth.accessToken === '' && oauth.refreshToken === '' ? 'login-ended' : 'no-token' };
   if (typeof oauth.expiresAt === 'number' && Number.isFinite(oauth.expiresAt) && oauth.expiresAt <= now + EXPIRY_MARGIN_MS) {
     const until = oauth.refreshTokenExpiresAt;
     return { state: oauth.expiresAt <= now && typeof until === 'number' && Number.isFinite(until) && until > 0 && until <= now ? 'login-ended' : 'token-expired' };

@@ -100,6 +100,12 @@ test('#9031: the usage reader tells an ended login from an access token waiting 
   assert.equal(await state({ expiresAt: NOW - 1 }), 'token-expired', 'CONTROL: no date to read says nothing about the login');
   for (const odd of [0, -5, null, '1']) assert.equal(await state({ expiresAt: NOW - 1, refreshTokenExpiresAt: odd }), 'token-expired', 'not a date: ' + odd);
   assert.equal(await state({ expiresAt: NOW + 30000, refreshTokenExpiresAt: NOW - 1 }), 'token-expired', 'an access token with seconds left still works');
+  /* What Claude Code leaves when a renewal is refused for good, its login date still ahead. */
+  assert.equal(await state({ accessToken: '', refreshToken: '', expiresAt: 0, refreshTokenExpiresAt: NOW + 72 * H, loginEnded: 'time_limit' }), 'login-ended');
+  assert.equal(await state({ accessToken: '', refreshToken: 'x' }), 'no-token', 'CONTROL: it can still be renewed');
+  assert.equal(await state({ accessToken: '' }), 'no-token', 'CONTROL: no renewal token to read is not an emptied one');
+  assert.equal(await state({ accessToken: undefined, refreshToken: '' }), 'no-token', 'CONTROL: nor is a missing access token');
+  assert.equal((await usagepoll.tokenStateFor({ dir: '/u/x' }, { now: NOW, platform: 'darwin', realHome: '/', readCred: async () => '{}' })).state, 'no-token', 'a body with no login in it');
   assert.equal(await state({ expiresAt: NOW + H, refreshTokenExpiresAt: NOW - 1 }), 'ok', 'CONTROL: its agents still work on the access they hold');
 });
 
@@ -112,46 +118,4 @@ test('#9031: the sweep reads an ended login as a stopped one, never as a blip, a
   assert.equal(at('login-ended')[1].connection.badge, 'rejected');
   assert.deepEqual(ab.decide({ rows: at('login-ended'), movable: () => true, nowMs: NOW }).moves, [], 'agents would move onto an ended login');
   assert.equal(ab.decide({ rows: at('token-expired'), movable: () => true, nowMs: NOW }).moves.length, 1, 'CONTROL: a renewal is a blip');
-});
-
-const ap = require('./authprobe');
-const live = require('./claudeloginlive');
-
-test('#9031: a login is over only when both its dates were read and both have passed', async () => {
-  const over = async (dates) => { live._clearForTest(); live.setReaderForTests(() => dates); return live.ended({ dir: '/u/x' }, NOW); };
-  try {
-    assert.equal(await over({ until: NOW - 1, works: NOW - 1 }), true);
-    assert.equal(await over({ until: NOW, works: NOW }), true, 'at the moment itself');
-    assert.equal(await over({ until: NOW - 1, works: NOW + H }), false, 'its agents still work on the access they hold');
-    assert.equal(await over({ until: NOW + H, works: NOW - 1 }), false, 'it can still be renewed');
-    assert.equal(await over({ until: NOW - 1, works: null }), false, 'an access date not read');
-    assert.equal(await over({ until: null, works: NOW - 1 }), false, 'a login date not read');
-    /* The person signs in again while the dates are being read: those dates are the old login's. */
-    live._clearForTest(); live.setReaderForTests(() => { require('./loginexpiry').loginChanged(); return { until: NOW - 1, works: NOW - 1 }; });
-    assert.equal(await live.ended({ dir: '/u/x' }, NOW), false, 'the dates of the login before a new sign-in were used');
-    live._clearForTest(); live.setReaderForTests(() => ({ until: NOW - 1, works: NOW - 1 }));
-    assert.equal(await live.ended({ apiKey: true, dir: '/k' }, NOW), false, 'a key has no login to end');
-  } finally { live.setReaderForTests(null); live._clearForTest(); }
-});
-
-test('#9031: the account check calls an over login not connected, and asks the dates only when status says connected', async () => {
-  const S = subscription.STATE;
-  const asked = [];
-  const of = async (state, ended) => (await ap.liveOf('/u/x', { check: async () => ({ state }), ended: async (d) => { asked.push(d); return ended(); } })).state;
-  assert.equal(await of(S.CONNECTED, () => true), S.NONE);
-  assert.equal(await of(S.CONNECTED, () => false), S.CONNECTED, 'CONTROL');
-  assert.equal(await of(S.CONNECTED, () => { throw new Error('no'); }), S.CONNECTED, 'dates that cannot be read change nothing');
-  assert.deepEqual(asked, ['/u/x', '/u/x', '/u/x']);
-  assert.equal(await of(S.UNKNOWN, () => true), S.UNKNOWN);
-  assert.equal(await of(S.NONE, () => true), S.NONE);
-  assert.equal(asked.length, 3, 'asked the dates of an account that is not connected');
-  /* The real wiring: the default account's dates are the bare entry's, another account's its own folder's. */
-  const ccds = [];
-  live._clearForTest(); live.setReaderForTests((ccd) => { ccds.push(ccd); return { until: 1, works: 1 }; });
-  try {
-    const check = async () => ({ state: S.CONNECTED });
-    assert.equal((await ap.liveOf(null, { check })).state, S.NONE);
-    assert.equal((await ap.liveOf('/u/y', { check })).state, S.NONE);
-    assert.deepEqual(ccds, [undefined, '/u/y']);
-  } finally { live.setReaderForTests(null); live._clearForTest(); }
 });
