@@ -92,6 +92,9 @@ classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpen
 #   receipt (1), its file changes undone (1), Add subtask opening New Task for it (1), a part added, given and done (1), a hold's
 #   wait and reason set (1), and Done when and the wake line (1).
 classes="$classes UnsentDraftUITests:3 TaskPageActionsUITests:10"
+# kosmos#8959 slice D1a: AutomationUITests, Settings' Automation row opening the native screen, a switch saved, and the
+#   Recommender's guards under the page's heading (1 check; no chat list, so this lazy-arm run only). Its own line, as above.
+classes="$classes AutomationUITests:1"
 skip=""
 arm="lazy"
 if [ "$uikit" = 1 ]; then

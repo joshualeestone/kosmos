@@ -137,6 +137,8 @@ check(Automation.notes(.recommender(.init(on: false, guards: [:]))) == [Automati
 section("what a save's answer means")
 check(Automation.writeOutcome(.dailyReport, status: 200, data: json(#"{"on":true,"ok":true}"#)) == .saved(.dailyReport(on: true, damaged: false)), "saved, with the new state")
 check(Automation.writeOutcome(.prompter, status: 200, data: json("{}")) == .savedUnread, "a 200 the box cannot read is saved, not failed")
+check(Automation.writeOutcome(.dailyReport, status: 200, data: json("<html>sign in</html>")) == .refused(Automation.Words.saveFailed),
+      "a 200 page that is not JSON (a gate, a captive page) is not a save")
 check(Automation.writeOutcome(.language, status: 200, data: json(#"{"choice":null,"ok":false,"options":[],"changed":0,"removed":0,"couldNot":0}"#)) == .savedUnread,
       "a Language save the computer could not read back is saved, unread (the page's first case)")
 check(Automation.writeOutcome(.geminiCap, status: 403, data: json(#"{"error":"only you can change this, from Settings"}"#)) == .refused("Only you can change this, from Settings."),
