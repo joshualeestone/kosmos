@@ -139,8 +139,29 @@ enum GlobalSkills {
         return s
     }
 
-    // The engine's sentence for a blank name, as the phone shows it (a sample build has no engine to ask).
+    // A sample build has no engine to ask, so it refuses as engine/skills.js does, in its sentences (review 3): a name
+    // with no letters or numbers, blank words, and a name already taken. The key is the engine's slugFor.
     static let sampleBlankName = "Give the skill a short name in letters and numbers."
+    static let sampleBlankWords = "Write what the skill should do; an empty skill teaches nothing."
+    static func slug(_ name: String) -> String {
+        let lower = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        var out = ""
+        var dash = false
+        for u in lower.unicodeScalars {
+            if ("a"..."z").contains(u) || ("0"..."9").contains(u) { out.unicodeScalars.append(u); dash = false }
+            else if !dash { out.append("-"); dash = true }
+        }
+        while out.hasPrefix("-") { out.removeFirst() }
+        while out.hasSuffix("-") { out.removeLast() }
+        return String(out.prefix(64))
+    }
+    static func sampleRefusal(name: String, body: String, taken: [String]) -> String? {
+        let key = slug(name)
+        if key.isEmpty { return sampleBlankName }
+        if body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return sampleBlankWords }
+        if taken.contains(key) { return "There is already a skill called \(key); pick another name rather than replacing it." }
+        return nil
+    }
 
     // A sample build's computer (KOSMOS_SAMPLE_AGENTS, Debug only), in the route's own shape, for screenshots.
     static let sampleList = #"{"ok":true,"skills":[{"key":"how-we-write-emails","name":"How we write emails"},{"key":"release-notes","name":"Release notes"}]}"#

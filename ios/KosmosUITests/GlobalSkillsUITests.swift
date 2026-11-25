@@ -24,6 +24,9 @@ final class GlobalSkillsUITests: XCTestCase {
         // Remove asks once: the first press arms it, and the skill is still there.
         let remove = app.buttons["gskill-remove-release-notes"]
         XCTAssertTrue(remove.exists, "no Remove on a skill")
+        // A tap on the name is not a tap on Remove (review 3: a list row would otherwise be the button's tap).
+        app.staticTexts["Release notes"].tap()
+        XCTAssertEqual(remove.label, "Remove the skill Release notes", "a tap on the skill's name armed Remove")
         remove.tap()
         XCTAssertEqual(remove.label, "Remove it for good?", "the first press did not ask")
         XCTAssertTrue(app.staticTexts["Release notes"].exists, "the first press removed the skill without asking")

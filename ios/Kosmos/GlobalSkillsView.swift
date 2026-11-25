@@ -125,6 +125,9 @@ struct GlobalSkillsView: View {
                 .foregroundColor(isArmed ? Palette.dangerWord : Palette.primary)
                 .accessibilityLabel(isArmed ? GlobalSkills.Words.removeArmed : "Remove the skill " + skill.name)
                 .accessibilityIdentifier("gskill-remove-" + skill.key)
+                // Review 3: only the button itself; a list row otherwise makes the whole row its tap, so a tap on the
+                // name would arm Remove and a second would delete the skill.
+                .buttonStyle(.borderless)
                 .disabled(removing != nil)
             }
         }
@@ -235,13 +238,16 @@ struct GlobalSkillsView: View {
     @MainActor private func add() async {
         armed = nil
         if sample {
-            // The engine's own refusal for a blank name (engine/skills.js), so the sample answers as a computer would.
-            if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                addNote = (GlobalSkills.sampleBlankName, true)
+            // The engine's refusals (engine/skills.js), so the sample never lists what a computer would refuse, nor two
+            // rows with one key.
+            var taken: [String] = []
+            if case .got(let s) = load { taken = s.map(\.key) }
+            if let why = GlobalSkills.sampleRefusal(name: name, body: words, taken: taken) {
+                addNote = (why, true)
                 return
             }
             if case .got(let s) = load {
-                load = .got(s + [Board.Skill(key: name.lowercased().replacingOccurrences(of: " ", with: "-"), name: name)])
+                load = .got(s + [Board.Skill(key: GlobalSkills.slug(name), name: name.trimmingCharacters(in: .whitespacesAndNewlines))])
             }
             name = ""; words = ""
             addNote = (GlobalSkills.Words.added, false)
