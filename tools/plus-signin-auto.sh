@@ -55,13 +55,15 @@ SEED_LC="$(printf '%s' "$SEED" | tr '[:upper:]' '[:lower:]')"
 case "$SEED_LC" in
   *[!a-z0-9.+@_-]*|'') die "the seed ${SEED:-(none)} is not a test address: refused before any call" ;;
 esac
-printf '%s' "$SEED_LC" | grep -Eq '^[a-z0-9][a-z0-9._-]*\+[a-z0-9._-]+@[a-z0-9][a-z0-9.-]*\.[a-z]+$' \
+# Matched by bash itself, not a pipe into grep -q (an early reader under pipefail can fail the match, kosmos#8195).
+SEED_RE='^[a-z0-9][a-z0-9._-]*[+][a-z0-9._-]+@[a-z0-9][a-z0-9.-]*[.][a-z]+$'
+[[ "$SEED_LC" =~ $SEED_RE ]] \
   || die "the seed $SEED is not a plus-tag address (local+tag@domain): refused before any call"
 META=""
 for m in "$HOME"/.config/secrets/kosmosplus-test-*.meta; do
   [ -f "$m" ] || continue
   if sed -n 's/^targets:[[:space:]]*//p' "$m" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
-       | tr '[:upper:]' '[:lower:]' | grep -qxF "$SEED_LC"; then META="$m"; break; fi
+       | tr '[:upper:]' '[:lower:]' | grep -cxF "$SEED_LC" >/dev/null; then META="$m"; break; fi
 done
 [ -n "$META" ] || die "the seed $SEED is not listed in any kosmosplus-test-*.meta under $HOME/.config/secrets: refused before any call"
 
@@ -94,7 +96,7 @@ SEED_SECRET="$KOSMOS_SEED_TOTP"; unset KOSMOS_SEED_TOTP
 field() { node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]]||""))}catch{}' "$POINTER" "$1" 2>/dev/null; }
 V="$(field version)"; SHA="$(field sha256)"; ART="$(field artifact)"
 [ -n "$V" ] || die "$POINTER names no version"
-printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{64}$' || die "$POINTER names no sha256"
+[[ "$SHA" =~ ^[0-9a-f]{64}$ ]] || die "$POINTER names no sha256"
 case "$ART" in */*|'') [ -n "$TARBALL" ] || die "$POINTER names no artifact file name" ;; esac
 # One run per build at a time: two share this build's progress file, and the second would take over the first's.
 node -e '
@@ -190,7 +192,7 @@ node "$FRESH" start "${FA[@]}" --seed "$SEED_LC"; rc=$?
 [ "$rc" = 0 ] || exit "$rc"   # 1: start was refused and recorded; 2: setup, nothing recorded
 GOTC="$(KOSMOS_SIGNIN_PLACEMENT=1 "$SC" code "$SEED_LC" "$HID" "${KOSMOS_PLUS_CODE_S:-180}")" || die "no sign-in code reached $SEED: nothing recorded"
 CODE="${GOTC%% *}"; PLACE="${GOTC#* }"
-printf '%s' "$CODE" | grep -Eq '^[0-9]{6}$' || die "kosmos-signin-code gave no six-digit code: nothing recorded"
+[[ "$CODE" =~ ^[0-9]{6}$ ]] || die "kosmos-signin-code gave no six-digit code: nothing recorded"
 case "$PLACE" in INBOX|SPAM|OTHER) ;; *) die "kosmos-signin-code gave no placement (is it older than kosmos#9018?): nothing recorded" ;; esac
 say "the code arrived (filed in $PLACE)"
 KOSMOS_SEED_TOTP="$SEED_SECRET" node "$FRESH" finish "${FA[@]}" --code "$CODE" --placement "$PLACE"
