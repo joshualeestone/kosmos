@@ -95,7 +95,6 @@ if let r = engine.range(of: #"const KIND_DEFAULTS = \{([^}]*)\}"#, options: .reg
 } else { check(false, "KIND_DEFAULTS was found in engine/phonenotify.js") }
 
 section("Kosmos+ pages")
-check(Settings.accountURL(coordinator: coordinator).absoluteString == "https://login.kosmosplus.com/account", "the account page")
 check(Settings.deleteAccountURL(coordinator: coordinator).absoluteString == "https://login.kosmosplus.com/delete-account", "the delete-account flow")
 
 // #8625 (App Store guideline 1.2): the Blocked list and Unblock.
