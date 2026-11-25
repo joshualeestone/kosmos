@@ -205,6 +205,10 @@ test('kosmos#9057: a Windows resume long after a quit is reminded of its own wai
       assert.equal(startup.code, 403);
       assert.equal(startup.text, '');
       assert.equal((await ask(tok, 'wait=only')).code, 403);
+      // Review 1: the same ask forwarded from another computer (Kosmos+ remote access sets x-forwarded-for) is refused.
+      const fwd = await fetch(base + '/api/away?as=waithook', { headers: { 'x-kosmos-agent-token': tok, 'x-forwarded-for': '203.0.113.7' }, redirect: 'manual' });
+      assert.equal(fwd.status, 403);
+      assert.equal(await fwd.text(), '');
       // A token Kosmos never issued, or one revoked, is still refused with the empty body.
       const never = await ask('ab'.repeat(32), 'as=waithook');
       assert.equal(never.code, 403);
