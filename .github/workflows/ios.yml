@@ -262,6 +262,14 @@ jobs:
           ios/LogicTests/run-globalskills.sh | tee "$RUNNER_TEMP/globalskills.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/globalskills.log"
 
+      # kosmos#8959 slice D1b2: the computer's AI policies (list, add, replace, rename, remove, who was told), words
+      # compared with web/index.html.
+      - name: AI policies logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-aipolicies.sh | tee "$RUNNER_TEMP/aipolicies.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/aipolicies.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build
