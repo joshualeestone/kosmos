@@ -3,8 +3,13 @@
   "highlights": [
     {
       "icon": "shield",
-      "title": "Fewer safety prompts reach you",
-      "line": "A Claude Code safety check on an agent's plan file is now approved for you, and one left to you is a card line, not a phone buzz.",
+      "title": "Plan-file safety prompts are approved for you",
+      "line": "A Claude Code safety check on a command that only touches an agent's plan files is now approved for you."
+    },
+    {
+      "icon": "shield",
+      "title": "A tall safety prompt does not buzz your phone",
+      "line": "A safety check left to you shows as a card line, not a phone buzz, even when its box is taller than the window.",
       "platforms": [
         "mac"
       ]
@@ -12,7 +17,7 @@
     {
       "icon": "swarm",
       "title": "Mac agent restarts say why",
-      "line": "When a Claude agent's process stops on the Mac and Kosmos starts it again, its card now says when and why.",
+      "line": "When a Claude agent's process stops on its own on the Mac and Kosmos starts it again, its card now says when and why.",
       "platforms": [
         "mac"
       ]
@@ -20,7 +25,7 @@
     {
       "icon": "shield",
       "title": "A file that did not arrive whole is refused",
-      "line": "A file sent from the board that arrives incomplete is refused, saying how much arrived; a document missing its end is marked to send again."
+      "line": "A file sent from the board that arrives incomplete is refused, saying how much arrived; an Office or zip file missing its end is marked."
     },
     {
       "icon": "swarm",
