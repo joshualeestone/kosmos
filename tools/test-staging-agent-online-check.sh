@@ -101,6 +101,17 @@ case "$route" in
       rows='{"provider":"anthropic","dir":"/x/.claude","connection":{"state":"none","badge":"signed_out"}}'
       rows="$rows,{\"provider\":\"openai\",\"dir\":\"/x/.codex\",\"connection\":{\"state\":\"connected\"}}"
       emit "{\"accounts\":[$rows]}" 200
+    elif [ "$a" = claude-dead-first ] || [ "$a" = claude-ended-first ] || [ "$a" = claude-dead-only ]; then
+      # kosmos#9079: a Claude row the board marks dead, listed FIRST, still reading state "connected": badge "rejected",
+      # or loginEnded under badge "working". The create refuses /x/.claude-dead (below), so picking it reads red.
+      if [ "$a" = claude-ended-first ]; then
+        rows='{"provider":"anthropic","dir":"/x/.claude-dead","connection":{"state":"connected","badge":"working","loginEnded":true}}'
+      else
+        rows='{"provider":"anthropic","dir":"/x/.claude-dead","connection":{"state":"connected","badge":"rejected"}}'
+      fi
+      [ "$a" = claude-dead-only ] || rows="$rows,{\"provider\":\"anthropic\",\"dir\":\"/x/.claude\",\"connection\":{\"state\":\"connected\",\"badge\":\"working\"}}"
+      rows="$rows,{\"provider\":\"openai\",\"dir\":\"/x/.codex\",\"connection\":{\"state\":\"connected\"}}"
+      emit "{\"accounts\":[$rows]}" 200
     else
       if [ "$a" = both ] || [ "$a" = no-openai ]; then
         rows='{"provider":"anthropic","dir":"/x/.claude","connection":{"state":"connected","badge":"working"}}'; first=0
@@ -142,6 +153,8 @@ case "$route" in
     emit "{\"agents\":[$parts]}" 200;;
   /api/agents)
     if [ "$method" = POST ]; then
+      # kosmos#9079: the board refuses a create on an account whose sign-in is dead.
+      case "$data" in *'"account":"/x/.claude-dead"'*) emit '{"error":"that account'"'"'s Claude sign-in is not working, so an agent created on it would not be able to run"}' 400; exit 0;; esac
       if [ "${MOCK_CREATE:-ok}" = refuse400 ]; then
         emit '{"error":"its sign-in is not working"}' 400
       elif [ "${MOCK_CREATE:-ok}" = refuse400-other ]; then
@@ -427,6 +440,10 @@ run_case "transient idle then WEDGE -> caught by 2-consecutive (1)" 1 --expect "
 run_case "slow/flapping online (idle once) -> cannot-tell (2)" 2  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle-once
 run_case "create refused (400, sign-in) -> do-not-promote" 1 MOCK_ACCOUNTS=both MOCK_CREATE=refuse400
 run_case "unexpected create-400 (not sign-in) -> cannot-tell" 2 MOCK_ACCOUNTS=both MOCK_CREATE=refuse400-other
+# kosmos#9079: a row the board marks dead is skipped; a create refusal is never skipped (the case above still reads 1).
+run_case "#9079: a Claude row marked REJECTED, listed first, is skipped (0)" 0 --reject "create REFUSED" MOCK_ACCOUNTS=claude-dead-first MOCK_AGENT_STATE=idle
+run_case "#9079: a Claude row with loginEnded, listed first, is skipped (0)" 0 --reject "create REFUSED" MOCK_ACCOUNTS=claude-ended-first MOCK_AGENT_STATE=idle
+run_case "#9079: only a Claude row marked dead -> no signed-in Claude, cannot-tell (2)" 2 --expect "no signed-in account for: anthropic" MOCK_ACCOUNTS=claude-dead-only MOCK_AGENT_STATE=idle
 run_case "agent never appears (shape mismatch) -> cannot-tell" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=noshow
 # kosmos#6906: a populated board is checked, not refused: its agents are removed after (the assertion in run_case).
 run_case "populated board (5 agents) -> checked, PASS, removed (0)" 0 --expect "removed 'verify2129-openai-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5

@@ -442,6 +442,10 @@ let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
     const badge = String(conn.badge || "");
     const ok = st==="connected" || badge==="working" || badge==="signed_in_unverified";
     if (!ok) continue;
+    // kosmos#9079: skip a row the BOARD ITSELF already marks dead (badge rejected or signed_out, or connection.loginEnded),
+    // which can still read state "connected". Never skip on what a create answers: a create refusing the account is the
+    // build's answer and stands (0.8.23: #9031 refused every default-account create, and this gate was right to hold).
+    if (badge==="rejected" || badge==="signed_out" || conn.loginEnded===true) continue;
     const dir = r.dir || r.account || r.accountDir || "";
     if (!seen[prov]) { seen[prov]=1; process.stdout.write(prov+"\t"+dir+"\n"); }
   }
