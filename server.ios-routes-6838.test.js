@@ -88,6 +88,13 @@ const SITES = [
     routes: ['GET /api/phone-notify', 'PUT /api/phone-notify'], pins: ['URL(string: "/api/phone-notify"'],
     callers: { pattern: /\brequest\(\s*[^,()]+,\s*method:\s*([^,)]+)/g, every: /\brequest\(/g, skip: /\bfunc\s+request\(/,
       expect: ['"GET"', '"PUT"'], scope: 'file' } },
+  // kosmos#8959 slice D1a: the computer's Automation settings. Each box's route is a literal in Box.path, read with GET
+  // and written with its writeMethod (POST for the general settings, PUT for the rest), through request(_:_:method:body:).
+  { file: 'ios/Kosmos/AutomationLogic.swift', text: 'var r = URLRequest(url: url, cachePolicy', method: 'variable',
+    routes: ['GET /api/settings', 'POST /api/settings', 'GET /api/heartbeat-setting', 'PUT /api/heartbeat-setting', 'GET /api/agycap-setting', 'PUT /api/agycap-setting', 'GET /api/workcap-setting', 'PUT /api/workcap-setting', 'GET /api/limits', 'PUT /api/limits', 'GET /api/feedback-setting', 'PUT /api/feedback-setting', 'GET /api/community-setting', 'PUT /api/community-setting', 'GET /api/agent-language', 'PUT /api/agent-language', 'GET /api/recommender-setting', 'PUT /api/recommender-setting', 'GET /api/assigner-setting', 'PUT /api/assigner-setting'],
+    pins: ['case .autoSave: return "/api/settings"', 'case .prompter: return "/api/heartbeat-setting"', 'case .geminiCap: return "/api/agycap-setting"', 'case .accountCap: return "/api/workcap-setting"', 'case .messages: return "/api/limits"', 'case .dailyReport: return "/api/feedback-setting"', 'case .community: return "/api/community-setting"', 'case .language: return "/api/agent-language"', 'case .recommender: return "/api/recommender-setting"', 'case .assigner: return "/api/assigner-setting"', 'var writeMethod: String { self == .autoSave ? "POST" : "PUT" }'],
+    callers: { pattern: /\brequest\(\s*[^,()]+,\s*[^,()]+,\s*method:\s*([^,)]+)/g, every: /\brequest\(/g, skip: /\bfunc\s+request\(/,
+      expect: ['"GET"', 'box.writeMethod'], scope: 'file' } },
   // The notification extension: a notification's words, and an agent's picture (the request to "/" gets the board's
   // picture path, accepted only as /api/agent/<x>/avatar; kosmos#7345: a notice with no words asks the same route for
   // the session the push names).
