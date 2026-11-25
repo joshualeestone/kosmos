@@ -31,7 +31,8 @@ final class DuoPanesUITests: XCTestCase {
     // Alone: the box starts near the left edge, so the chat has the whole width.
     private func alone(_ app: XCUIApplication) -> Bool { box(app).exists && box(app).frame.width > 0 && box(app).frame.minX < app.frame.width * 0.25 }
     private func shot(_ app: XCUIApplication, _ name: String) {
-        let a = XCTAttachment(screenshot: app.screenshot()); a.name = name; a.lifetime = .keepAlways; add(a)
+        let a = XCTAttachment(screenshot: XCUIScreen.main.screenshot());   // the app's own picture of a sideways window is cut off
+         a.name = name; a.lifetime = .keepAlways; add(a)
     }
     // Polled, since the size classes change on a timer: true as soon as it holds, false at the end of the wait.
     private func holds(_ seconds: TimeInterval, _ what: () -> Bool) -> Bool {
