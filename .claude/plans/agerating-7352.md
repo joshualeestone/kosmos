@@ -12,7 +12,9 @@
 ## Checked
 - The 23 entered answers were read back through the App Store Connect API and match, field by field.
 - ios/store/check-listing.sh passes (it also checks these files for em dashes).
-- "No location code" and "no dating feature": no CoreLocation, CLLocation, MapKit or location prompt under ios/ on main.
+- "No location code": no CoreLocation, CLLocation, MapKit or location prompt under ios/ on main. "No dating feature": "dating" in the
+  Swift sources is only part of "updating". "No public feed": true of the native screens, and of the web view only with kosmos#9028.
+- Price, rights, countries and the 11-17 entries: read back through the API the day each was entered (kosmos#7352).
 
 ## Not in this change
 README.md's "For Josh" list below is from October and several of its items are done; #7352 holds the current list.

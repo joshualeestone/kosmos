@@ -1,9 +1,11 @@
 # iOS App Store listing assets (#718)
 
-Files and drafts. **Entered in App Store Connect for 1.0 on 2026-11-24 (kosmos #7352):** the words and links in
-`listing.md`, the answers in `age-rating.md`, the price (Free), content rights, and the countries (every storefront but
-mainland China and the 27 in the EU). The screenshots and App Privacy were not, as of that evening. The app record exists (created by
-Josh 2026-10-17, "Kosmos: AI Agent Manager", per #6262) and build 1 is in TestFlight; nothing has been submitted
+Files and drafts. **Entered in App Store Connect for 1.0 on 2026-11-24 (kosmos #7352):** from `listing.md` the name,
+subtitle, promotional text, description, keywords and the three links; the answers in `age-rating.md`; the price (Free);
+content rights; and the countries (every storefront but mainland China and the 27 in the EU). Entered on 2026-11-17: the
+categories, the copyright, the review contact, the demo sign-in and the App Review notes. App Privacy was published by Josh on
+2026-11-24, by hand. The screenshots were not uploaded, as of that evening. The app record exists (created by
+Josh 2026-10-17, "Kosmos: AI Agent Manager", per #6262) and builds are in TestFlight; nothing has been submitted
 for review.
 
 ## 🛑 For Josh: decide or sign before the first submission
@@ -61,6 +63,7 @@ notification records, server logs, and Resend, Twilio and Apple as processors
 
 | File | What it is |
 |---|---|
+| `age-rating.md` | The age rating answers, as entered, and why each |
 | `listing.md` | Name, subtitle, promotional text, description, keywords, support, marketing and privacy URLs, category, copyright, and draft notes for App Review |
 | `privacy-label.md` | The App Privacy answers, from reading the app and the coordinator, with sources and the UNSURE items |
 | `screenshots/6.3-light/`, `6.3-dark/` | The required size, from the app on an iPhone 17 (1206x2622) |
