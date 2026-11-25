@@ -23,6 +23,8 @@ enum GlobalSkills {
         static let added = "Added. Every agent picks it up at its next restart."
         static let remove = "Remove"
         static let removeArmed = "Remove it for good?"
+        // The page's spoken label for an unarmed Remove (its aria-label), the skill's name after it.
+        static let removeLabel = "Remove the skill "
         static let listFailed = "We could not reach Kosmos to list the skills."
         static let addFailed = "We could not reach Kosmos to add that skill."
         static let removeFailed = "We could not reach Kosmos to remove it."

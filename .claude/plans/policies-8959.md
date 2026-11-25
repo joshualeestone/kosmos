@@ -28,10 +28,10 @@ Reuses Board.Skill and Board.parseSkills (the agent screen's skills read), so th
 - ios/LogicTests/globalskills + run-globalskills.sh (in ios.yml); ios/KosmosUITests/GlobalSkillsUITests.swift (in ios/tools/ui-sample.sh).
 
 ## Measured
-- run-globalskills.sh: PASS 54/54; a copy letting "/" through the key segment fails 2 of 54 (control).
+- run-globalskills.sh: PASS 54/54 at first build; a copy letting "/" through the key segment fails 2 of 54 (control). After review 8: PASS 68/68 (controls per round below).
 - iOS sources type-check (simulator SDK).
 - server.ios-routes-6838.test.js 5/5 with no SITES entry (each route is on its request's line); a planted DELETE /api/skillz fails it against a real board (control).
-- node ios*/server.ios*/web.ios* + meta tests: 109/109.
+- node ios*/server.ios*/web.ios* + meta tests: 109/109 (first build and again after review 8).
 - Weakest premise (DELETE through the gate): the shipped agent Remove already sends DELETE through the same gate (AgentInfoLogic removeRequest), so it is not new, but not measured live here.
 
 ## Challenge loop ledger
@@ -43,3 +43,6 @@ Reuses Board.Skill and Board.parseSkills (the agent screen's skills read), so th
 - r5 opus: 0B/3W, all fixed. W1 arming Remove drops the keyboard (focused = false), so a later tap into either field is a focus change and disarms it (one shared Bool otherwise stayed true). W2 a removed skill's row goes on the computer's "done", before the list is read again, so its Remove cannot be pressed twice. W3 the Remove label wraps at the largest text sizes instead of running off the row (reasoned, not measured: the UI run is at the default size).
 - r6 sonnet: 0B/2W, both fixed, three small gaps recorded. W1 focus is one value per field (enum), not a Bool shared by two. W2 a refused remove's sentence is said only if the skill is still listed after the read (a remove with no answer may have landed). Recorded, not changed: a 200 list answer with no `skills` and no ok:false reads as a failed read (the page would say "No skills here yet."), and a 200 DELETE with ok:false is a refusal (the page counts any 200); engine/skills.js sends neither shape. The words box's accessibility label "What the skill should do" is the app's own; its visible placeholder is the page's.
 - r7 opus: 1B/1W, both fixed. B1 the Remove word is compared from the app's own string (`"rm.textContent = '" + W.remove + "';"`); r2 W2's line above said this already and was not true until now. Control: Words.remove changed to "Delete" fails that check. W1 recorded: the spinners' spoken labels "Removing" and "Adding" are the app's own words (VoiceOver only; nothing visible).
+- r8 sonnet: 0B/2W, both fixed. W1 the spoken Remove label is Words.removeLabel, checked against the page's aria-label. W2 the Measured block above now says which numbers are from the first build and which from after review 8.
+
+**Loop end:** cap 8 reached, converged false, no BLOCKER open. Every finding fixed, except r2 W5 (kept, with its reason) and the gaps r4 W4, r6 and r7 W1 recorded as the app's own or unreachable.
