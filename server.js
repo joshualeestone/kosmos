@@ -4714,7 +4714,7 @@ function claudeReadProblem() {
 function noteUnreadableSend(name, what) {
   const why = claudeReadProblem();
   try {
-    console.error('[kosmos#9085] ' + (what || 'a message') + ' to ' + JSON.stringify(String(name)) + ' was not sent: the running agents could not all be read'
+    console.error('[kosmos#9085]' + (what ? '[kosmos#9087]' : '') + ' ' + (what || 'a message') + ' to ' + JSON.stringify(String(name)) + ' was not sent: the running agents could not all be read'
       + (why ? ' (' + why + ')' : '') + '; answered 409 unreadable, not 404');
   } catch { /* never fatal */ }
 }
@@ -22258,8 +22258,8 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#9087 Part B: on Windows, a supervised agent of ours is sent to through its pipe while the read fails
            (outageChannelCard says what that needs); everything else unreadable keeps #9085's 409. Not for a button
            press (chose, asked, request): it answers a question the board saw, and an outage card has no state, so the
-           holds and checks below that read one would pass it unchecked. A reply or an attachment is typed words and
-           goes. */
+           holds and checks below that read one would pass it unchecked. Any value counts, an empty one too (the
+           conservative side). A reply or an attachment is typed words and goes. */
         const pressed = [body.chose, body.asked, body.request].some((v) => v !== undefined && v !== null);
         const outageCard = (!known && rosterUnreadable && !pressed) ? outageChannelCard(name) : null;
         if (outageCard) noteOutageSend(name);

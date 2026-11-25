@@ -29,14 +29,14 @@ async function press(status, body) {
 
 test('#9087 a 409 unreadable is shown as the route\'s words and as not done, never "Asked it to compact."', async () => {
   const r = await press(409, { error: 'we could not check which agents are running, so nothing was sent. Try again in a moment.', because: 'unreadable', retry: true });
-  assert.match(r.text, /could not check which agents are running/);
+  assert.match(r.text, /^We could not check which agents are running/);
   assert.doesNotMatch(r.text, /Asked it to/);
   assert.equal(r.said[0].ok, false);
 });
 
 test('#9087 a 404 "no agent by that name" is shown as a refusal too', async () => {
   const r = await press(404, { error: 'no agent by that name' });
-  assert.equal(r.text, 'no agent by that name');
+  assert.equal(r.text, 'No agent by that name');
   assert.equal(r.said[0].ok, false);
 });
 
@@ -50,4 +50,23 @@ test('#9087 CONTROL: a could_not delivery keeps its own reason', async () => {
   const r = await press(409, { command: 'compact', delivery: { state: 'could_not', because: 'its window is scrolled back' } });
   assert.equal(r.text, 'its window is scrolled back');
   assert.equal(r.said[0].ok, false);
+});
+
+const ASK = page.lift(SCRIPT, 'handoffAskRefusal');
+const askRefusal = new Function('return (' + ASK + ');')();
+
+test('#9087 the handoff dialog: a 409 unreadable says the agents could not be checked, never "not running", and offers no restart', () => {
+  const t = askRefusal(409, { error: 'x', because: 'unreadable', retry: true }, 'Raph', '');
+  assert.match(t, /could not check which agents are running/);
+  assert.doesNotMatch(t, /not running/);
+  assert.doesNotMatch(t, /Restart/);
+});
+
+test('#9087 CONTROL: the handoff dialog: a 409 with no delivery and no reason is still "not running"', () => {
+  assert.match(askRefusal(409, { error: 'this agent is not running, so there is no session to write a handoff' }, 'Raph', ''), /^Raph is not running/);
+});
+
+test('#9087 CONTROL: the handoff dialog: a could_not delivery keeps the generic line with its reason', () => {
+  const t = askRefusal(409, { delivery: { state: 'could_not', because: 'busy' } }, 'Raph', ' (busy)');
+  assert.equal(t, 'We could not ask Raph to write a handoff (busy). You can Restart without one, or leave it running.');
 });
