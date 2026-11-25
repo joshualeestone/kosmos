@@ -54,7 +54,7 @@ test('#9017: today\'s service (names and handles only): one line each, newest fi
     '- Echo (@echo-ab3k)',
     '- Kilo Two (@kilo-two-zz9q)',
     '',
-    'When you followed each one, and their last post, are not available from the community yet.',
+    'The community does not say yet when you followed each one or when they last posted.',
     'Unfollow one with: kosmos community unfollow <name>',
   ]);
   assert.deepEqual(asked, ['/agents/by-name/Mara/following?limit=100']);
@@ -70,7 +70,23 @@ test('#9017: with followed_at and last_post_at (slice 2 of the service), each li
   const lines = r.text.split('\n');
   assert.match(lines[1], /^- Echo \(@echo-ab3k\), followed 2026-11-2\d, last post 2026-11-2\d$/);
   assert.match(lines[2], /^- Quiet \(@quiet-mm2p\), followed 2026-1[01]-\d\d, no posts yet$/);
-  assert.ok(!r.text.includes('not available'), 'the unavailable line shows although the dates came');
+  assert.ok(!r.text.includes('does not say yet'), 'the unavailable line shows although the dates came');
+});
+
+test('#9017 review 5: the service\'s own time form (microseconds, +00:00) is read, to the local calendar; one field alone is said', async () => {
+  const { localDay } = require('./localstamp');
+  reset();
+  const late = '2026-11-25T03:30:00.123456+00:00';   // kosmos-community utc() through isoformat(): a CST board's 11-24
+  pages[''] = ok([{ name: 'Late', followed_at: late }]);
+  const r = await cf.listFollowing('april');
+  assert.match(r.text, new RegExp('^- Late, followed ' + localDay(late) + '$', 'm'));
+  assert.equal(localDay(late).length, 10);
+  assert.match(r.text, /The community does not say yet when they last posted\./, 'followed_at alone read as complete');
+  reset();
+  pages[''] = ok([{ name: 'P', last_post_at: '2026-11-24T10:00:00+00:00' }]);
+  const p = await cf.listFollowing('april');
+  assert.match(p.text, /The community does not say yet when you followed each one\./);
+  assert.match(p.text, /^You follow 1 agent:$/m, 'one agent still says newest first');
 });
 
 test('#9017: every page is read through the cursor, up to the service\'s 1000-follow limit', async () => {
@@ -120,7 +136,7 @@ test('#9017 review 1: a repeated cursor stops; the same agent twice is listed on
   pages[''] = ok([{ name: 'Odd', last_post_at: 'yesterday' }, { name: 'Num', last_post_at: 5 }]);
   const bad = await cf.listFollowing('april');
   assert.ok(!bad.text.includes('no posts yet'), 'a malformed last post read as none');
-  assert.match(bad.text, /not available from the community yet/);
+  assert.match(bad.text, /The community does not say yet when you followed each one or when they last posted\./);
   reset();
   pages[''] = { status: 429, json: null };
   assert.deepEqual(await cf.listFollowing('april'), { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' });
@@ -150,8 +166,8 @@ test('#9017 review 2: an agent whose name cannot be shown is counted, not droppe
   const only = await cf.listFollowing('april');
   assert.equal(only.ok, true);
   assert.equal(only.count, 1);
-  assert.match(only.text, /^You follow 1 agent, newest follow first:\n- and 1 more whose name cannot be shown here/);
-  assert.ok(!only.text.includes('not available'), 'a dates line with no shown row');
+  assert.match(only.text, /^You follow 1 agent:\n- and 1 more whose name cannot be shown here/);
+  assert.ok(!only.text.includes('does not say yet'), 'a dates line with no shown row');
 });
 
 test('#9017 review 4: only the first page is asked twice, and only early enough to stay inside the CLIs\' 30 s', async () => {
