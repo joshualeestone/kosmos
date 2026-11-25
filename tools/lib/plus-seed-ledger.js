@@ -16,7 +16,7 @@
  * seed are not seen by each other, nor are two runs that pick at the same moment (each may take the same seed).
  * ⚠️ It counts by SEED, which is right only for a seed that owns its Kosmos+ address (the certificate is for that
  * address). A seed with no address registers as kseed-<sha8>, one name per BUILD that every such seed shares, so
- * rotating those would not spread anything: give the gate only seeds that own an address (review round 1).
+ * rotating those would not spread anything: give the gate only seeds that own an address.
  *
  *   node tools/lib/plus-seed-ledger.js pick <ledger> <seed>...   prints the seed to use, or exits 3 with the reason
  *   node tools/lib/plus-seed-ledger.js record <ledger> <seed>     appends a row for now
