@@ -57,3 +57,15 @@ lpill, lav, and the card's) and by container-scoped descendant: no writer. The o
 focus restore). The working-pulse pinner (#3956) watches addedNodes, so a moved row is pinned like a rebuilt one.
 Deferred (review 6): a page pin that keepStarFocus wraps every patchBoardHtml caller. The callers handle focus
 exactly as before this branch; the patch only loses focus on fewer nodes.
+
+## Review ledger
+8 blind rounds, opus and sonnet alternating (1 opus, 2 sonnet, 3 opus, 4 sonnet, 5 opus, 6 sonnet, 7 opus, 8 sonnet).
+No BLOCKER in any round. Stopped at the 8-round limit, not converged. Fixed: positional matching became keyed (1),
+My Agents through the patcher (1), a star arm and a decode check (1), forward insertion became the longest in-order
+run, so a row moving down moves alone, plus a detach counter and a move-down arm (2), a node test of the real function
+on every validation (3), recorded nodes replace the count guard, which was dead code (4), unkeyed and text-node
+coverage (5, 7), the parts memos cleared with their markup memos (7), and comments throughout.
+Deferred with reasons above: in-place state on kept nodes (the weakest premise; audited in reviews 4, 6 and 8: the
+rail's fed sections are painted only through paintAgentList, and their in-place writes go to #pj-fed-own-said and the
+room's line, not #alist), the focus pin (callers unchanged), and rank-matching cost for unkeyed pieces (#alist has no
+whitespace between rows).

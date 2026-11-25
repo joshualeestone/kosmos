@@ -27760,13 +27760,15 @@ let ALIST_PARTS = null;   // kosmos#9094: its top-level pieces as last written (
 
    Pieces are matched by their data-agent; pieces with none (headers, notes) by their order among such pieces, so one
    of those appearing or going redraws each later unkeyed piece whose markup differs from the one now at its rank.
-   Unkeyed pieces, the fed sections among them, are moved by the reorder below like any kept node. A matched piece whose markup is the same keeps its
-   node. Of the kept nodes, the longest run already in the new order stays put and only the others are moved
-   (insertBefore), so an agent changing place under a sort or a star moves alone, up or down.
+
+   A matched piece whose markup is the same keeps its node. Of the kept nodes (keyed or not, the fed sections too),
+   the longest run already in the new order stays put and only the others are moved (insertBefore), so an agent
+   changing place under a sort or a star moves alone, up or down.
 
    The new markup is parsed into a template and each piece serialised there, so both sides of the comparison come from
-   the same parser (never the live innerHTML, which the page may have touched). The nodes kept are the ones this function
-   recorded, wherever they now are, and every other child is removed, so another writer's nodes do not survive a patch.
+   the same parser (never the live innerHTML, which the page may have touched). The nodes kept are the ones this
+   function recorded, wherever they now are, and every other child is removed, so another writer's nodes do not
+   survive a patch.
    Written whole when the last write is unknown (prevHtml null: the empty-board and failed-poll paths) or when an
    agent key repeats.
 
