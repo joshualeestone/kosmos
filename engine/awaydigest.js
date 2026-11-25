@@ -65,7 +65,7 @@ function windowFrom(history, { startup, nowMs }) {
 }
 
 /* kosmos#8634: a wait the agent reported before it went down. A new run's `started` replaces a deliberate wait on the
-   board by design (#1058: only a real startup does; a compaction or a resume keeps it), and the startup turn then reads
+   board by design (#1058: only a real startup does; a compaction keeps it, and so does a resume after a crash, while a resume after a quit or a /clear follows a SessionEnd's `stopped`, #9049), and the startup turn then reads
    "working", then idle, so nothing on the board says the agent is still waiting. Nothing told the agent so either.
    The board does not put the old report back: the agent may have been unblocked while it was down, and only it can tell.
    It is reminded instead, with the state and the time only, never the report's words (the same rule as the digest:
@@ -178,12 +178,12 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
 }
 
 /* kosmos#9049: `ended` is the reminder for a session that went on after its SessionEnd (a /clear, or a resume after a
-   quit): no new run replaced the wait there, the end of the session did (SessionEnd records `stopped`), so the sentence
-   says that instead. */
+   quit). No new run replaced the wait there, so the sentence does not say one did; it says only that the board set the
+   wait aside, which holds whatever recorded the later `stopped` (the board answers only when one follows the wait). */
 function waitText(wait, opts) {
   if (!wait || !WAIT_STATES.has(wait.state) || !Number.isFinite(wait.atMs)) return '';
   const why = opts && opts.ended === true
-    ? 'When the session ended, the board set the waiting report aside, '
+    ? 'The board has since set that waiting report aside, '
     : 'A new run replaces a waiting report on the board, ';
   return 'Kosmos: before this session, this agent last reported that it was waiting (' + wait.state + ', at '
     + isoSecond(wait.atMs) + '), and it has not said otherwise since. ' + why

@@ -117,7 +117,7 @@ test('--help prints the usage and never asks the board; an unknown argument is a
   for (const args of [['away', '--help'], ['away', '-h']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 0, args.join(' '));
-    assert.match(out.stdout, /^Usage: kosmos away \[--hook\]/, args.join(' '));
+    assert.match(out.stdout, /^Usage: kosmos away \[--hook \[--wait-only\]\]/, args.join(' '));
   }
   assert.equal((await runCli(['away', '--all'], envFor(port))).code, 2);
   assert.equal(seen.length, 0);

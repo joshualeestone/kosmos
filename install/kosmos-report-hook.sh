@@ -701,6 +701,13 @@ case "$EVENT" in
           clear|resume)
             if [ -n "${KOSMOS_AGENT_TOKEN:-}" ] || [ -n "${TMUX_PANE:-}" ]; then
               WAIT_OUT=$("$KOSMOS" away --hook --wait-only </dev/null 2>/dev/null) || WAIT_OUT=""
+              # A /clear follows its own SessionEnd at once, and that hook sent `stopped` in the background, so the ask
+              # can reach the board first and find no `stopped` yet: ask once more after a short pause (a resume comes
+              # a person's time after its quit, so it does not race).
+              if [ "$SRC" = clear ] && [ -z "$WAIT_OUT" ]; then
+                sleep "${KOSMOS_WAIT_RETRY_S:-0.8}"
+                WAIT_OUT=$("$KOSMOS" away --hook --wait-only </dev/null 2>/dev/null) || WAIT_OUT=""
+              fi
               case "$WAIT_OUT" in
                 '{"hookSpecificOutput":'*) printf '%s\n' "$WAIT_OUT" ;;
               esac
