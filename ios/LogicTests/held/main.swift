@@ -29,11 +29,12 @@ check(page.contains("fetch('/api/community/moderation?status=' + status + '&limi
 
 section("the reads")
 let held = H.queue(status: 200, data: json(#"{"queue":[{"id":"p1","status":"held","entry":"post","author":{"name":"Dana"},"topic":"Shipped","body":"Three fixes."},{"id":"c1","status":"held","entry":"comment","postId":"p1","agent":"eli","body":"Nice"},{"id":"c2","status":"held","entry":"comment","remotePostId":"0a1b2c3d-1111","agent":"eli","body":"Agreed, and here is a long line of words that runs past forty"},{"status":"held"}]}"#))!
-let stopped = H.queue(status: 200, data: json(#"{"queue":[{"id":"p2","status":"quarantined","entry":"post","agent":"fay","topic":"Notes","body":"Mail me","findings":[{"cls":"email"},{"cls":"secret_token"},{"cls":"high_entropy"},{"cls":"other"}]},{"id":"c3","status":"held","entry":"comment","postId":"p2","agent":"gus","body":"x"}]}"#))!
-check(held.map(\.id) == ["p1", "c1", "c2"] && stopped.map(\.id) == ["p2", "c3"], "rows with an id and a status; one without is dropped")
+let stopped = H.queue(status: 200, data: json(#"{"queue":[{"id":"p2","status":"quarantined","entry":"post","agent":"fay","topic":"Notes","body":"Mail me","findings":[{"cls":"email"},{"cls":"secret_token"},{"cls":"high_entropy"},{"cls":"other"}]},]}"#))!
+let heldMore = H.queue(status: 200, data: json(#"{"queue":[{"id":"c3","status":"held","entry":"comment","postId":"p2","agent":"gus","body":"x"}]}"#))!
+check(held.map(\.id) == ["p1", "c1", "c2"] && stopped.map(\.id) == ["p2"], "rows with an id and a status; one without is dropped")
 check(H.queue(status: 500, data: json("{}")) == nil && H.read(held: held, stopped: nil) == nil, "either read failing: the list cannot be read")
-let r = H.read(held: held, stopped: stopped)!
-check(r.rows.map(\.id) == ["p1", "c1", "c2", "p2", "c3"] && !r.fullHeld && !r.fullStopped, "the releasable rows first")
+let r = H.read(held: held + heldMore, stopped: stopped)!
+check(r.rows.map(\.id) == ["p1", "c1", "c2", "c3", "p2"] && !r.fullHeld && !r.fullStopped, "the releasable rows first")
 let full = H.read(held: Array(repeating: held[0], count: 200), stopped: [])!
 check(H.listLine(full) == "Only the oldest 200 waiting are shown. There may be more; they show here as you release or discard these.", "a full held read")
 check(W.onlyOldest(held: true, stopped: true).hasPrefix("Only the oldest 200 waiting and the oldest 200 stopped are shown.") && W.onlyOldest(held: false, stopped: true).hasPrefix("Only the oldest 200 stopped are shown."), "both, or stopped only")
@@ -41,14 +42,15 @@ check(H.listLine(nil) == W.unread && H.listLine(Held.Read(rows: [], fullHeld: fa
 
 section("each row, as communityHeldPaint")
 let s = H.shown(r.rows, policyStopped: nil)
-check(s.map(\.title) == ["Shipped", "A comment by eli", "A comment by eli", "A post by fay", "A comment by gus"], "titles: the topic, a comment by its agent, a stopped row named neutrally")
+check(s.map(\.title) == ["Shipped", "A comment by eli", "A comment by eli", "A comment by gus", "A post by fay"], "titles: the topic, a comment by its agent, a stopped row named neutrally")
 check(s[0].meta == "Dana · Waiting for you to release it" && s[0].canRelease && s[0].label == "Shipped", "a held post: Release, its author")
 check(s[1].meta == "eli · Waiting for you" + W.underHeld && !s[1].canRelease, "a comment under a held post: release the post first")
 check(s[2].meta == "eli · Waiting for you to release it" + W.remoteComment && s[2].postLink?.absoluteString == "https://community.kosmosplus.com/post/0a1b2c3d-1111", "a comment on a community post: the link and the line")
 check(s[2].label == "A comment by eli: Agreed, and here is a long line of words…", "a comment's label carries its first 40 characters")
-check(s[3].stopped && !s[3].canRelease && s[3].meta == "fay · Stopped by the safety check" && s[3].label == "A post by fay (row 4)" && s[3].words == "Notes\nMail me", "a stopped post: named by its place, its topic with its words")
-check(s[3].why == "Kosmos stopped this because it contains an email address and what looks like a password or key, so it cannot be released. Discard it, and the agent can write it again without that.", "its reason, each kind once, in order")
-check(s[4].meta == "gus · Waiting for you" + W.underStopped && !s[4].canRelease, "a comment under a stopped post: discard only")
+check(s[4].stopped && !s[4].canRelease && s[4].meta == "fay · Stopped by the safety check" && s[4].label == "A post by fay (row 5)" && s[4].words == "Notes\nMail me", "a stopped post: named by its place, its topic with its words")
+check(!s[4].title.contains("Notes") && !s[4].label.contains("Notes") && !s[4].label.contains("Mail"), "a stopped row's title and label carry neither its topic nor its words")
+check(s[4].why == "Kosmos stopped this because it contains an email address and what looks like a password or key, so it cannot be released. Discard it, and the agent can write it again without that.", "its reason, each kind once, in order")
+check(s[3].meta == "gus · Waiting for you" + W.underStopped && !s[3].canRelease, "a comment under a stopped post: discard only")
 let policy = H.shown([held[0]], policyStopped: "Kosmos+ has paused it.")
 check(policy[0].meta == "Dana · Waiting for you to release it" + W.policyKept, "the policy stop: a release stays on this computer")
 var gone = held[0]; gone.notSent = true
@@ -57,13 +59,17 @@ let plain = H.shown([Held.Row(id: "c9", status: "held", entry: "comment", postId
 check(plain[0].title == "A comment" && plain[0].meta == "Waiting for you to release it" + W.commentsNotSent, "a comment with no post and no agent")
 check(H.reason([]) == "Kosmos stopped this because it did not pass the safety check, so it cannot be released. Discard it, and the agent can write it again without that.", "no known finding")
 check(H.title(Held.Row(id: "x", status: "held", entry: nil, postId: nil, remotePostId: "r", author: nil, agent: "a", topic: nil, body: nil, findings: [], notSent: false)) == "A comment by a", "an older board's comment, by its routing fields")
-check(H.shown([Held.Row(id: "x", status: "held", entry: "post", postId: nil, remotePostId: nil, author: nil, agent: nil, topic: nil, body: String(repeating: "w", count: 241), findings: [], notSent: false)], policyStopped: nil)[0].long, "over 240 characters: Read all")
+let rowOf = { (b: String) in Held.Row(id: "x", status: "held", entry: "post", postId: nil, remotePostId: nil, author: nil, agent: nil, topic: nil, body: b, findings: [], notSent: false) }
+check(H.shown([rowOf(String(repeating: "w", count: 241))], policyStopped: nil)[0].long, "over 240 characters: Read all")
+check(H.shown([rowOf("a\nb\nc\nd\ne")], policyStopped: nil)[0].long && !H.shown([rowOf("a\nb\nc\nd")], policyStopped: nil)[0].long, "past 4 lines, however short: Read all (nothing cut off unseen above Release)")
+check(page.contains("txt.split('\\n').length > COMMUNITY_HELD_CLAMP_LINES") || page.contains("COMMUNITY_HELD_CLAMP_LINES"), "the page's line clamp")
+check(H.queue(status: 200, data: json(#"{"queue":[{"id":"q","status":"held","remotePostId":""}]}"#))?.first?.isComment == false, "an empty remotePostId is no comment's routing field (the page's falsy)")
 
 section("the list's lines and the outcomes")
-check(H.offLine(on: false, policyStopped: nil) == W.heldOff && H.offLine(on: true, policyStopped: nil) == nil && H.offLine(on: true, policyStopped: "Paused.") == W.heldPolicy("Paused."), "off, on, the policy stop")
+check(H.offLine(on: nil, policyStopped: nil) == nil && H.offLine(on: false, policyStopped: nil) == W.heldOff && H.offLine(on: true, policyStopped: nil) == nil && H.offLine(on: true, policyStopped: "Paused.") == W.heldPolicy("Paused."), "off, on, the policy stop")
 check(H.outcome(status: 200, data: json(#"{"released":true}"#), releasing: true) == .done, "released")
 check(H.outcome(status: 400, data: json(#"{"error":"only you can release this, from Settings"}"#), releasing: true) == .refused("only you can release this, from Settings"), "a refusal: the board's sentence")
-check(H.outcome(status: 0, data: nil, releasing: true) == .refused(W.releaseFailed) && H.outcome(status: 0, data: nil, releasing: false) == .refused(W.discardFailed), "no answer")
+check(H.outcome(status: 0, data: nil, releasing: true) == .unfinished(W.finishFailed + W.whereNow) && H.outcome(status: 0, data: nil, releasing: false) == .refused(W.discardFailed), "no answer: a release may have landed, so the list is read again; a discard says it")
 check(H.outcome(status: 500, data: json(#"{"error":"we could not save that just now; try again"}"#), releasing: true) == .unfinished("we could not save that just now; try again" + W.whereNow), "a 5xx release: said where the list says things")
 check(H.outcome(status: 503, data: nil, releasing: true) == .unfinished(W.finishFailed + W.whereNow), "with no sentence")
 
