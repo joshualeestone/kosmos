@@ -89,9 +89,9 @@ classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpen
 # kosmos#8958: on their own line, so a change here and one to the list above never conflict. UnsentDraftUITests, an unsent
 #   draft drawn in the chat with Put in the message box and Dismiss, never the board (3 checks). TaskPageActionsUITests, a
 #   task page's message box, due date and Edit title or detail (3), Repeats changed and saved (1), a done task's
-#   receipt (1), its file changes undone (1), Add subtask opening New Task for it (1), a part added, given and done (1), a hold's
+#   receipt (1), minutes typed and saved (1), its file changes undone (1), Add subtask opening New Task for it (1), a part added, given and done (1), a hold's
 #   wait and reason set (1), and Done when and the wake line (1).
-classes="$classes UnsentDraftUITests:3 TaskPageActionsUITests:10"
+classes="$classes UnsentDraftUITests:3 TaskPageActionsUITests:11"
 # kosmos#8959 slice D1a: AutomationUITests, Settings' Automation row opening the native screen, a switch saved, and the
 #   Recommender's guards under the page's heading (1 check; no chat list, so this lazy-arm run only). Its own line, as above.
 classes="$classes AutomationUITests:1"

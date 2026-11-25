@@ -14,6 +14,8 @@ CI run 45629568745 (11-25) failed two task page tests; read from its screen reco
 
 ## Call
 - Both boxes read the state live, in two commits (the minutes box alone applies to 9acaafafef, the #7352 fallback).
+- The repeat's Save reads the draft live too (review 1): it sent what was last drawn, so a fast Save could send 4 where 45 was
+  typed. Reasoned from the code, not seen.
 - The sample Mac's dates count back from one moment per launch, and the fold test waits through two reads.
 
 ## Not changed
