@@ -201,6 +201,7 @@ async function finish(a) {
   const seed = prog.seed;
   const steps = prog.steps.concat([{ id: 'code', result: 'pass' }]);
   let registerTried = false;
+  let certRateLimited = '';
   // No answer at all (a timeout) BEFORE any register says nothing about the build: cancel, record
   // nothing. Once a register was tried it may have finished on the board after we gave up, so a
   // timeout is recorded as a failed step and the forget below still runs (review round 4).
@@ -249,7 +250,15 @@ async function finish(a) {
     const name = owned ? owned.split('.')[0] : 'kseed-' + ptr.sha256.slice(0, 8);
     registerTried = true;
     const reg = await b.post('/api/remote/signin-register', { name }, REGISTER_MS);
-    if (reg.status !== 200) { await fail('register', reg); throw new Error('register'); }
+    if (reg.status !== 200) {
+      /* kosmos#9018: the certificate authority's own limit on certificates for one address (a seed that owns an
+         address gets a certificate for that same name on every run, measured 11-24 after six runs in an hour). It
+         says nothing about the build, and a FAIL would refuse the promote with no override, so once the forget
+         below has passed it is setup: nothing recorded. */
+      const why = String((reg.json && reg.json.error) || '');
+      if (reg.status !== 0 && /HTTP 429 on \/v1\/mac\/cert|too many certificates/i.test(why)) certRateLimited = why;
+      await fail('register', reg); throw new Error('register');
+    }
     steps.push({ id: 'register', result: 'pass' });
     const st = await b.get('/api/remote');
     if (!(st.status === 200 && st.json.enrolled === true)) { steps.push({ id: 'enrolled', result: 'fail', detail: 'the board does not report itself enrolled after register' }); throw new Error('enrolled'); }
@@ -285,6 +294,10 @@ async function finish(a) {
         + (kept && f.status === 200 ? ' (Kosmos+ did not answer, so it was then removed from the board only: check the seed account)' : '') });
   } else {
     await b.post('/api/remote/signin-cancel', {}, CLEANUP_MS);
+  }
+  const forgot = steps.find((s) => s.id === 'forget');
+  if (certRateLimited && forgot && forgot.result === 'pass') {
+    setup('register was refused by the certificate authority\'s limit for this seed\'s address, which says nothing about the build: nothing recorded (it clears on its own within a week; another seed carries on now). ' + certRateLimited);
   }
   return finishRecord(ptr, identity, seed, placement, steps, kind);
 }

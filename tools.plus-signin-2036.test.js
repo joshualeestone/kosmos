@@ -137,6 +137,7 @@ function fakeBoard(opts = {}) {
       if (req.url === '/api/remote/signin-confirm-enrol') return send(200, { ok: true, stage: 'session' });
       if (req.url === '/api/remote/signin-register') {
         if (opts.registerFails) { state.enrolled = true; return send(400, { error: 'register broke half way' }); }   // the files were written
+        if (opts.registerCertLimited) return send(400, { error: 'Error: Kosmos+ refused this computer: This address has had too many certificates issued for it recently, so the certificate authority is refusing another one for now. (HTTP 429 on /v1/mac/cert)' });
         if (opts.registerRefusedClean) return send(400, { error: 'finish the code steps first' });   // nothing written
         if (opts.registerHangs) { state.enrolled = true; return; }   // it finishes on the board, but never answers
         state.enrolled = true; state.on = opts.switchOn !== false; state.up = state.on;
@@ -545,6 +546,27 @@ test('#9018: a sandboxed run with no checked sha256, or another build\'s, is ref
     }
     assert.ok(!b.calls.some((c) => c.url === '/api/remote/signin-start'), 'a code was sent');
   } finally { b.server.close(); }
+});
+
+test('#9018: a register the certificate authority rate-limits is setup (nothing recorded, an earlier record stands), after the forget', async () => {
+  const dir = tmp(); const e = env(dir); const ptr = pointerFile(dir);
+  record.write(good(), e);   // an earlier pass for this build
+  const b = await fakeBoard({ registerCertLimited: true });
+  try {
+    const r = await both(b, e, ptr, ['--code', '123456', '--placement', 'INBOX']);
+    assert.strictEqual(r.code, 2, r.out);
+    assert.match(r.out, /certificate authority's limit for this seed's address, which says nothing about the build/);
+    assert.ok(b.calls.some((c) => c.url === '/api/remote/forget'), 'the forget did not run');
+    assert.strictEqual(rec(e).result, 'pass', 'the earlier record was replaced');
+  } finally { b.server.close(); }
+  // CONTROL: any other register refusal is still a FAIL.
+  const dir2 = tmp(); const e2 = env(dir2); const ptr2 = pointerFile(dir2);
+  const b2 = await fakeBoard({ registerRefusedClean: true });
+  try {
+    const r = await both(b2, e2, ptr2, ['--code', '123456', '--placement', 'INBOX']);
+    assert.strictEqual(r.code, 1, r.out);
+    assert.strictEqual(step(rec(e2), 'register').result, 'fail');
+  } finally { b2.server.close(); }
 });
 
 test('#9018: a finish given another kind than its start is setup: nothing recorded', async () => {
