@@ -16,6 +16,8 @@ struct ChatView: View {
     // kosmos#7034 reviews 1-2: the width the chat is laid out in, measured (it already leaves out a landscape notch's
     // margins, and it changes only once a rotation has happened), for the header title's cap.
     @State private var contentWidth: CGFloat = UIScreen.main.bounds.width
+    @TwoPanes private var twoPanes   // kosmos#9002
+    private var bubbleWidth: CGFloat { twoPanes ? contentWidth : UIScreen.main.bounds.width }
     // kosmos#8246: the failed sends already seen here, so only a send that fails while the chat is open buzzes.
     @State private var failedSeen: Set<String> = []
     @State private var failedSeenFor = ""   // the agent `failedSeen` was read for: another agent's set never counts as new
@@ -342,7 +344,7 @@ struct ChatView: View {
         // Mona Lisa's review: the tab bar would stack under the composer and take about 170pt, so it hides here.
         .hidesTabBarInOneColumn()
         .messageActionsHost()   // kosmos#7419: the one long-press sheet of this chat
-        .environment(\.paneWidth, contentWidth)   // kosmos#9002: the bubbles and cards are sized to the pane this chat is in
+        .environment(\.paneWidth, bubbleWidth)   // kosmos#9002: in two panes, the pane this chat is in; on a phone the screen, as always
         .background(GeometryReader { g in
             Color.clear.onAppear { contentWidth = g.size.width }.onChange(of: g.size.width) { contentWidth = $0 }
         })
@@ -1932,7 +1934,7 @@ struct ChatView: View {
             } else if row.who == .kosmos {
                 Text(row.text).font(.footnote).foregroundColor(Palette.secondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: contentWidth * 0.85)
+                    .frame(maxWidth: bubbleWidth * 0.85)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
             } else {

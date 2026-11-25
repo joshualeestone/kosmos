@@ -40,6 +40,27 @@ final class DuoPanesUITests: XCTestCase {
         return what()
     }
 
+    // Back belongs to one column: beside its list there is nothing to go back to.
+    private func backShows(_ app: XCUIApplication) -> Bool {
+        app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label == 'Back' OR label == 'Agents'")).allElementsBoundByIndex.contains { $0.frame.width > 0 }
+    }
+
+    // CONTROL: an upright phone with no stand-in (regular height, compact width) is one column, with its back button.
+    func testAnUprightPhoneIsOneColumn() throws {
+        guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana"]
+        UIKitListArm.set(app)
+        app.launch()
+        XCTAssertTrue(box(app).waitForExistence(timeout: 40), "Dana's chat did not open")
+        sleep(2)
+        shot(app, "control, upright")
+        XCTAssertTrue(alone(app) && !beside(app), "an upright phone is not one column (box \(box(app).frame))")
+        XCTAssertFalse(tabsShow(app), "an upright phone shows the tabs over an open chat")
+        XCTAssertTrue(backShows(app), "an upright phone has no back button on an open chat")
+    }
+
     // The tabs show beside a list and never over an open page on one column.
     private func tabsShow(_ app: XCUIApplication) -> Bool {
         let b = app.tabBars.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Settings'")).firstMatch
@@ -59,6 +80,7 @@ final class DuoPanesUITests: XCTestCase {
         let app = try launch("fold:40")
         XCTAssertTrue(box(app).waitForExistence(timeout: 30), "Dana's chat did not open")
         XCTAssertTrue(holds(5) { self.tabsShow(app) }, "CONTROL: unfolded, no tabs beside the chat")
+        XCTAssertFalse(backShows(app), "unfolded, the chat has a back button with no list under it")
         shot(app, "unfolded")
         XCTAssertTrue(holds(8) { self.beside(app) }, "unfolded, the list is not beside the chat (row \(row(app).frame), box \(box(app).frame))")
         box(app).tap()
@@ -149,7 +171,7 @@ final class DuoPanesUITests: XCTestCase {
         sleep(3)
         shot(app, "task, unfolded")
         // The page's own bar title, so this does not depend on the sample task's contents.
-        let bar = app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS[c] 'task' AND identifier != 'Tasks'")).firstMatch
+        let bar = app.navigationBars.matching(identifier: "Task 7").firstMatch
         print("UI-NOTE kosmos#9002 bars: \(app.navigationBars.allElementsBoundByIndex.map(\.identifier))")
         XCTAssertTrue(pastMiddle(app, bar) && !words(app, "Choose a task").exists, "the task is not beside the list")
         XCTAssertTrue(holds(50) { self.atLeft(app, bar) }, "folded, the task is gone")
@@ -173,11 +195,12 @@ final class DuoPanesUITests: XCTestCase {
         }
         sleep(2)
         shot(app, "list's end")
-        let last = app.collectionViews.firstMatch.cells.allElementsBoundByIndex.last
+        // Ivy is the last sample agent, so this is the list's end and not the chat's or the last row that happens to be drawn.
+        let last = app.collectionViews.firstMatch.cells.allElementsBoundByIndex.last { $0.staticTexts["Ivy"].exists }
         let bar = app.tabBars.firstMatch
         print("UI-NOTE kosmos#9002 last row \(String(describing: last?.frame)), tab bar \(bar.exists ? String(describing: bar.frame) : "none"), buttons \(app.tabBars.buttons.allElementsBoundByIndex.map(\.frame))")
         XCTAssertTrue(bar.exists, "CONTROL: no tab bar beside the chat")
-        guard let last else { XCTFail("CONTROL: no rows"); return }
+        guard let last, last.frame.maxX < app.frame.width * 0.5 else { XCTFail("CONTROL: Ivy's row is not in the list's pane"); return }
         // Only where they share a column: a bar narrower than the window covers nothing beside it.
         let covered = app.tabBars.buttons.allElementsBoundByIndex.contains { $0.frame.intersects(last.frame) }
         XCTAssertFalse(covered, "the tab bar covers the list's last row (\(last.frame))")

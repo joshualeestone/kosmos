@@ -14,6 +14,7 @@ struct TasksTab: View {
     @State private var wasBackground = false
     @State private var openAgent: Board.Agent?
     @State private var openTask: TaskPageRef?
+    @State private var listProject: String?
     // kosmos#7078: the New task sheet (its project, picked in the list) and the line it leaves after a create.
     @State private var newTaskFor: NewTaskStart?
     @State private var notice: String?
@@ -39,7 +40,7 @@ struct TasksTab: View {
                               answersOnBoard: { who in Board.opensBoardFor(who, agents: client.agents) && client.chatURL(session: who) != nil },   // review 6: only when the tap can open it
                               refresh: { await client.refreshTasks() },
                               newTask: { picked in notice = nil; newTaskFor = NewTaskStart(picked: picked) },
-                              notice: notice, switcher: AnyView(MacSwitcher(client: client)))
+                              notice: notice, switcher: AnyView(MacSwitcher(client: client)), project: $listProject)
                 }
             }
         } open: { opened }
@@ -60,7 +61,7 @@ struct TasksTab: View {
         // Another account or Mac: its projects are not this one's, so the sheet, its draft and the added line go too.
         .onChange(of: client.chatEpoch) { _ in
             openAgent = nil; openTask = nil
-            newTaskFor = nil; newTaskDraft = NewTask.Draft(); newTaskHeld = nil; notice = nil
+            newTaskFor = nil; newTaskDraft = NewTask.Draft(); newTaskHeld = nil; notice = nil; listProject = nil
         }
         .onAppear {
             visible = true; client.show(BoardClient.tasksViewer)
@@ -143,7 +144,7 @@ struct TasksView: View {
     // kosmos#7343: the computer switcher for the shared bar (TasksTab passes it; previews and tests need none).
     var switcher: AnyView? = nil
 
-    @State private var project: String? = nil
+    @Binding var project: String?   // the picked project, TasksTab's: a fold makes this list again (kosmos#9002)
     @State private var shown: [Tasks.Section] = []
     @State private var laidOutFor: String? = "\u{0}"   // the project the layout was made for (never a real id at first)
     @State private var completedOpen = false
