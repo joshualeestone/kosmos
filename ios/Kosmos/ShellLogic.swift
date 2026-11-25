@@ -211,27 +211,57 @@ enum Shell {
         case pageFlow
         // A request for a new window (target=_blank, window.open).
         case newWindow
-        // Back, forward or a reload: a page that was let in when it first opened.
+        // Back or forward. A server redirect keeps the kind of the navigation it answers, so this is not "seen before".
         case history
     }
 
     // kosmos#9028: what a link is judged against, beyond its own address.
     struct Known: Equatable {
-        // The signed-in person's own computers (their addresses, lowercased) and the one the app itself is opening.
+        // The signed-in person's own computers (their addresses, lowercased), and whether the account's list is read.
         var own: Set<String> = []
+        var listRead = false
         // The names Kosmos+ keeps for itself (Download.reservedLabels): never a computer, so never in the app.
         var reserved: Set<String> = []
-        // The page this navigation comes from: the one showing, or the one a redirect is leaving. nil before any.
-        var from: URL?
+        // The page showing, and the one on its way (a redirect is judged before either end of it shows).
+        var pages: [URL] = []
+        // The hosts this web view has shown.
+        var shown: Set<String> = []
+
+        func leaving(_ host: String) -> Bool { pages.contains { $0.host?.lowercased() == host } }
+        func leavingKosmosPlus(_ coordinator: URL) -> Bool {
+            pages.contains { $0.scheme?.lowercased() == "https" && $0.host != nil && $0.host?.lowercased() == coordinator.host?.lowercased() }
+        }
     }
 
-    // The hosts of the person's own computers: every one on the account, the one connected and the one remembered (the
-    // account's list is not read on every launch).
-    static func ownHosts(addresses: [String], connected: URL?, remembered: String?, opening: String?) -> Set<String> {
-        Set((addresses + [connected?.host, remembered, opening].compactMap { $0 }).map { $0.lowercased() }.filter { !$0.isEmpty })
+    // kosmos#9028: the pages a web view has shown and is opening, kept by its delegate.
+    struct LinkTrail: Equatable {
+        private(set) var page: URL?
+        private(set) var pending: URL?
+        // The host of the page the app itself last opened (a tapped notification, Try again): the account's computers may
+        // not be read yet.
+        private(set) var opening: String?
+        private(set) var shown: Set<String> = []
+
+        mutating func opened(_ url: URL) { opening = url.host?.lowercased() }
+        mutating func letIn(_ url: URL) { pending = url }
+        mutating func committed(_ url: URL?) {
+            page = url
+            pending = nil
+            if let h = url?.host?.lowercased() { shown.insert(h) }
+        }
+        // The load ended without showing: failed, stopped, or became a download.
+        mutating func ended() { pending = nil }
+        // Another account (or none): what the last one opened is no reason to let a page in.
+        mutating func accountChanged() { opening = nil; shown = [] }
+
+        // `addresses` is the account's list (empty until read), `connected` and `remembered` computers known before it is.
+        func known(addresses: [String], connected: URL?, remembered: String?, reserved: Set<String>) -> Known {
+            let own = (addresses + [connected?.host, remembered, opening].compactMap { $0 }).map { $0.lowercased() }.filter { !$0.isEmpty }
+            return Known(own: Set(own), listRead: !addresses.isEmpty, reserved: reserved, pages: [page, pending].compactMap { $0 }, shown: shown)
+        }
     }
 
-    // Kosmos+ itself or one of the person's Macs, over https: the plain host with no
+    // Kosmos+ itself, or an address shaped like a computer's (linkDecision then asks whose it is), over https: the plain host with no
     // user part, and the coordinator's own port (443 and none are the same) or none.
     static func isOurs(_ url: URL, coordinator: URL) -> Bool {
         guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased(), !host.isEmpty,
@@ -249,8 +279,9 @@ enum Shell {
     // come here.
     // - Kosmos+ itself and the person's own computers, over https: in the app. kosmos#9028: an address that only LOOKS like
     //   a computer's (one label under the Kosmos+ domain) is not enough, or the public community site opened in here. It
-    //   must be one of the person's own, the page already showing, one opened before (back, a reload), or where Kosmos+
-    //   itself sends a sign-in (its redirect comes before the account's computers are read). A name Kosmos+ keeps is never.
+    //   must be one of the person's own, the page showing (a reload is that), one shown before (back, forward), or where
+    //   Kosmos+'s own page sends it while the account's computers are not read yet (a sign-in, a cloud machine's opening).
+    //   A name Kosmos+ keeps is never one.
     // - Any other https site, however it is reached (a tap, a new window, a redirect,
     //   a script): Safari. Kosmos+ sign-in is email plus a code with no third-party
     //   identity provider, and the iOS app shows no purchase (Liu Kang's default,
@@ -271,10 +302,8 @@ enum Shell {
             guard isOurs(url, coordinator: coordinator) else { return .external }
             if host == coordinator.host?.lowercased() { return .inApp }
             if known.reserved.contains(host.split(separator: ".").first.map(String.init) ?? "") { return .external }
-            if known.own.contains(host) || origin == .history || known.from?.host?.lowercased() == host { return .inApp }
-            // Kosmos+'s own redirect only: nothing the person taps there, and no page of any other site.
-            if origin == .pageFlow, let from = known.from, from.scheme?.lowercased() == "https",
-               from.host?.lowercased() == coordinator.host?.lowercased() { return .inApp }
+            if known.own.contains(host) || known.leaving(host) || (origin == .history && known.shown.contains(host)) { return .inApp }
+            if !known.listRead && known.leavingKosmosPlus(coordinator) { return .inApp }
             return .external
         case "http":
             guard let host = url.host, !host.isEmpty else { return .block }

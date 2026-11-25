@@ -203,33 +203,53 @@ check(failed(NSURLErrorCancelled, "leo.kosmosplus.com") == nil, "a cancelled loa
 check(!Shell.retriesOnShow(failure: .macUnreachable, online: true, alreadyRetried: false), "a Mac not answering is not auto-retried as if the phone came back online")
 
 section("shell: where a link goes")
-let mine = Shell.Known(own: ["hers.kosmosplus.com"], reserved: Download.reservedLabels, from: URL(string: "https://hers.kosmosplus.com/")!)
+let reserved9028 = Download.reservedLabels
+let mine = Shell.Known(own: ["hers.kosmosplus.com"], listRead: true, reserved: reserved9028, pages: [URL(string: "https://other.kosmosplus.com/")!])
 func link(_ s: String, _ o: Shell.Origin = .tapped, _ k: Shell.Known = mine) -> Shell.LinkDecision { Shell.linkDecision(for: URL(string: s)!, coordinator: coordinator, origin: o, known: k) }
 // kosmos#9028: an address that only looks like a computer's goes to Safari.
 let board9028 = URL(string: "https://hers.kosmosplus.com/")!
 let signIn9028 = URL(string: "https://login.kosmosplus.com/signin")!
-for label in Download.reservedLabels.sorted() where label != "login" {
-    let host = "https://" + label + ".kosmosplus.com/agent/x"
-    for o in [Shell.Origin.tapped, .newWindow, .pageFlow, .history] { check(link(host, o) == .external, "a name Kosmos+ keeps (" + label + "): Safari") }
-    check(link(host, .pageFlow, Shell.Known(own: [label + ".kosmosplus.com"], reserved: Download.reservedLabels, from: signIn9028)) == .external, "and even if it is on the list or sign-in sends there: " + label)
+let every9028: [Shell.Origin] = [.tapped, .newWindow, .pageFlow, .history]
+func known9028(own: Set<String> = [], read: Bool = false, pages: [URL] = [], shown: Set<String> = []) -> Shell.Known {
+    Shell.Known(own: own, listRead: read, reserved: reserved9028, pages: pages, shown: shown)
 }
-check(Download.reservedLabels.contains("community"), "the community is one of them")
-for o in [Shell.Origin.tapped, .newWindow, .pageFlow] {
+for label in reserved9028.sorted() where label != "login" {
+    let h = label + ".kosmosplus.com"
+    for o in every9028 {
+        check(link("https://" + h + "/agent/x", o) == .external, "a name Kosmos+ keeps (" + label + "): Safari")
+        check(link("https://" + h + "/", o, known9028(own: [h], pages: [signIn9028, URL(string: "https://" + h + "/")!], shown: [h])) == .external, "and whatever else would let it in: " + label)
+    }
+}
+check(reserved9028.contains("community"), "the community is one of them")
+for o in every9028 {
     check(link("https://stranger.kosmosplus.com/", o) == .external, "a computer that is not the person's: Safari")
-    check(link("https://stranger.kosmosplus.com/", o, Shell.Known(own: [], reserved: Download.reservedLabels, from: board9028)) == .external, "and before the list is read")
-    check(link("https://hers.kosmosplus.com/x", o, Shell.Known(own: [], reserved: Download.reservedLabels, from: board9028)) == .inApp, "the page already showing stays in, list read or not")
-    check(link("https://hers.kosmosplus.com/x", o, Shell.Known(own: ["hers.kosmosplus.com"], reserved: Download.reservedLabels, from: nil)) == .inApp, "the person's own computer with no page showing")
+    check(link("https://stranger.kosmosplus.com/", o, known9028(pages: [board9028])) == .external, "and before the list is read, from a board")
+    check(link("https://stranger.kosmosplus.com/", o, known9028(own: ["hers.kosmosplus.com"], read: true, pages: [signIn9028])) == .external, "and from a Kosmos+ page once the list is read")
+    check(link("https://hers.kosmosplus.com/x", o, known9028(pages: [board9028])) == .inApp, "the page showing stays in, list read or not (a reload too)")
+    check(link("https://hers.kosmosplus.com/x", o, known9028(own: ["hers.kosmosplus.com"], read: true)) == .inApp, "the person's own computer with no page showing")
+    check(link("https://new-mac.kosmosplus.com/", o, known9028(pages: [signIn9028])) == .inApp, "where a Kosmos+ page sends it before the list is read")
+    check(link("https://new-mac.kosmosplus.com/", o, known9028(pages: [URL(string: "http://login.kosmosplus.com/")!])) == .external, "not from a plain http page of that name")
+    check(link("https://new-mac.kosmosplus.com/", o, known9028()) == .external, "no page and not the person's: Safari")
+    check(link("https://evil.example.com/", o, known9028(own: ["evil.example.com"], pages: [URL(string: "https://evil.example.com/")!], shown: ["evil.example.com"])) == .external, "another site is never in the app")
 }
-let first9028 = Shell.Known(own: [], reserved: Download.reservedLabels, from: signIn9028)
-check(link("https://new-mac.kosmosplus.com/", .pageFlow, first9028) == .inApp, "sign-in's own redirect, before the list is read: in the app")
-check(link("https://new-mac.kosmosplus.com/", .tapped, first9028) == .external, "a tap on the sign-in page is not its redirect")
-check(link("https://new-mac.kosmosplus.com/", .pageFlow, Shell.Known(own: [], reserved: [], from: URL(string: "http://login.kosmosplus.com/")!)) == .external, "nor a plain http page of that name")
-check(link("https://new-mac.kosmosplus.com/", .pageFlow, Shell.Known(own: [], reserved: [], from: nil)) == .external, "no page and not the person's: Safari")
-check(link("https://was-shown.kosmosplus.com/", .history, Shell.Known(own: [], reserved: [], from: board9028)) == .inApp, "back to a page that was let in")
-check(link("https://evil.example.com/", .history) == .external, "back never lets in another site")
-check(Shell.ownHosts(addresses: ["Hers.KosmosPlus.com", ""], connected: URL(string: "https://b.kosmosplus.com/"), remembered: "c.kosmosplus.com", opening: nil)
+check(link("https://was-shown.kosmosplus.com/", .history, known9028(read: true, pages: [board9028], shown: ["was-shown.kosmosplus.com"])) == .inApp, "back to a page that was shown")
+for o in [Shell.Origin.tapped, .newWindow, .pageFlow] { check(link("https://was-shown.kosmosplus.com/", o, known9028(read: true, pages: [board9028], shown: ["was-shown.kosmosplus.com"])) == .external, "shown once is not a reason for a link") }
+check(link("https://stranger.kosmosplus.com/", .history, known9028(read: true, pages: [board9028], shown: ["was-shown.kosmosplus.com"])) == .external, "a redirect of a back step to a stranger: Safari")
+// The bookkeeping.
+func trail9028(_ steps: (inout Shell.LinkTrail) -> Void) -> Shell.LinkTrail { var t = Shell.LinkTrail(); steps(&t); return t }
+func knows9028(_ t: Shell.LinkTrail, _ addresses: [String] = []) -> Shell.Known { t.known(addresses: addresses, connected: nil, remembered: nil, reserved: reserved9028) }
+let macC9028 = URL(string: "https://c.kosmosplus.com/")!
+check(knows9028(trail9028 { $0.letIn(signIn9028) }).pages == [signIn9028], "a page on its way is one a redirect leaves")
+check(knows9028(trail9028 { $0.committed(signIn9028); $0.letIn(macC9028) }).pages == [signIn9028, macC9028], "and so is the page still on screen")
+check(link("https://d.kosmosplus.com/", .tapped, knows9028(trail9028 { $0.committed(signIn9028); $0.letIn(macC9028) })) == .inApp, "Open on D while C hangs is judged by the Kosmos+ page on screen")
+check(knows9028(trail9028 { $0.letIn(macC9028); $0.ended() }).pages.isEmpty, "a load that failed is not left behind")
+check(knows9028(trail9028 { $0.letIn(signIn9028); $0.committed(macC9028) }).pages == [macC9028], "once the next page shows, the Kosmos+ page is no longer being left")
+check(knows9028(trail9028 { $0.committed(macC9028) }).shown == ["c.kosmosplus.com"] && knows9028(trail9028 { $0.committed(nil) }).shown.isEmpty, "a page that shows is remembered for back")
+check(knows9028(trail9028 { $0.opened(macC9028) }).own == ["c.kosmosplus.com"], "the page the app opened is let in before the list is read")
+check(knows9028(trail9028 { $0.opened(macC9028); $0.committed(macC9028); $0.accountChanged() }).own.isEmpty && knows9028(trail9028 { $0.committed(macC9028); $0.accountChanged() }).shown.isEmpty, "another account forgets what the last one opened and saw")
+check(!knows9028(Shell.LinkTrail()).listRead && knows9028(Shell.LinkTrail(), ["a.kosmosplus.com"]).listRead, "the list is read when it has computers")
+check(Shell.LinkTrail().known(addresses: ["Hers.KosmosPlus.com", ""], connected: URL(string: "https://b.kosmosplus.com/"), remembered: "C.kosmosplus.com", reserved: []).own
       == ["hers.kosmosplus.com", "b.kosmosplus.com", "c.kosmosplus.com"], "own computers: the account's, the connected and the remembered, lowercased")
-check(Shell.ownHosts(addresses: [], connected: nil, remembered: nil, opening: "d.kosmosplus.com") == ["d.kosmosplus.com"], "and the one the app is opening")
 check(link("https://login.kosmosplus.com/signin") == .inApp, "the coordinator: in the app")
 check(link("https://hers.kosmosplus.com/?tab=detail&agent=leo") == .inApp, "a Mac's board: in the app")
 check(link("HTTPS://LOGIN.KOSMOSPLUS.COM/signin") == .inApp, "an uppercase scheme and host: still the coordinator")

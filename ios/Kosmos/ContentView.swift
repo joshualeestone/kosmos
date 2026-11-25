@@ -274,15 +274,10 @@ struct ContentView: View {
         // kosmos#7032: with Projects native, no tab hosts the board page until Tasks is earned, so the bar also learns
         // it from the native status poll (the engine's flag; once shown it stays, so this only ever adds the tab).
         .onChange(of: board.tasksTab) { earned in if earned == true { web.earnTasks() } }
+        // kosmos#9028: which links stay in the app is judged against the account's own computers.
+        .onAppear { web.ownComputers = { [weak board] in (board?.macs.map(\.address) ?? [], board?.macURL) } }
         // kosmos#6255: "Help Kosmos grow", asked once per connection. Held back while locked or under another sheet, and it
         // comes up when those end. Only the person's own press answers it (the view's buttons), never the sheet going away.
-        // kosmos#9028: which links stay in the app is judged against the account's own computers.
-        .onAppear {
-            web.coordinator.ownHosts = { [weak board] opening in
-                Shell.ownHosts(addresses: board?.macs.map(\.address) ?? [], connected: board?.macURL,
-                               remembered: UserDefaults.standard.string(forKey: Board.rememberedMacKey), opening: opening)
-            }
-        }
         .task(id: board.macURL) { await board.checkInviteStep() }
         .sheet(item: Binding(get: { isUnlocked && !newAgentOpen && !newProjectOpen ? board.inviteStep : nil }, set: { _ in })) { step in
             InviteStepView(step: step, shared: { Task { await board.inviteStepAnswered() } }, notNow: {
@@ -833,6 +828,9 @@ enum KosmosConfig {
 final class BoardWeb: ObservableObject {
     private(set) var webView: WKWebView?
     private(set) var coordinator = WebView.Coordinator()
+    // kosmos#9028: the signed-in person's own computers (the list, and the connected one), read when a link is judged. Held
+    // here because a lock replaces the coordinator. ContentView sets it.
+    var ownComputers: () -> (addresses: [String], connected: URL?) = { ([], nil) }
     // Whether the bar shows Tasks: the board's own flag, remembered so a launch shows the bar it last had.
     // Remembered for the app, not per computer (the board's own flag is per computer): after a switch, a launch shows
     // the last computer's bar until the first read lands.
@@ -860,6 +858,7 @@ final class BoardWeb: ObservableObject {
 
     /// The app's session changed (a native sign-in, the page's own sign-in or sign-out, another account).
     func sessionChanged() {
+        coordinator.accountChanged()   // kosmos#9028
         guard let controller = webView?.configuration.userContentController else { return }
         controller.removeAllUserScripts()
         Self.userScripts(session: SessionKeychain.live.load(), forget: forgotten).forEach(controller.addUserScript)
@@ -884,7 +883,7 @@ final class BoardWeb: ObservableObject {
     func forget(_ token: String) {
         forgotten.append(token)
         sessionChanged()
-        if let webView { coordinator.open(KosmosConfig.boardURL, in: webView) }   // kosmos#9028: and the last computer it opened is forgotten
+        webView?.load(URLRequest(url: KosmosConfig.boardURL))
     }
 
     /// A NATIVE sign-in just finished while the page left showing is the sign-in page (signed out on it earlier in the
@@ -1166,18 +1165,17 @@ struct WebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
         // The holder, told when a page finishes (a press that waited, the Tasks flag).
         weak var web: BoardWeb?
-        // kosmos#9028: the person's own computers, read when a link is judged (ContentView sets it; none until then).
-        var ownHosts: (_ opening: String?) -> Set<String> = { Shell.ownHosts(addresses: [], connected: nil, remembered: nil, opening: $0) }
-        // The host of the page the app itself last opened, and the last main-frame address let in: a redirect is judged
-        // by the page it leaves, which has not committed.
-        private var opening: String?
-        private var leaving: URL?
+        // kosmos#9028: what each link is judged against.
+        private(set) var trail = Shell.LinkTrail()
         func open(_ url: URL, in webView: WKWebView) {
-            opening = url.host?.lowercased()
+            trail.opened(url)
             webView.load(URLRequest(url: url))
         }
-        private func known(_ webView: WKWebView) -> Shell.Known {
-            Shell.Known(own: ownHosts(opening), reserved: Download.reservedLabels, from: webView.isLoading ? leaving ?? pageURL : pageURL)
+        func accountChanged() { trail.accountChanged() }
+        private var known: Shell.Known {
+            let mine = web?.ownComputers() ?? (addresses: [], connected: nil)
+            return trail.known(addresses: mine.addresses, connected: mine.connected,
+                               remembered: UserDefaults.standard.string(forKey: Board.rememberedMacKey), reserved: Download.reservedLabels)
         }
         // The id of the last tap handed to the WebView.
         var issued: UUID?
@@ -1249,12 +1247,12 @@ struct WebView: UIViewRepresentable {
             let origin: Shell.Origin
             switch navigationAction.navigationType {
             case .linkActivated: origin = .tapped
-            case .backForward, .reload: origin = .history
+            case .backForward: origin = .history
             default: origin = .pageFlow
             }
-            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin, known: known(webView)) {
+            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin, known: known) {
             case .inApp:
-                leaving = url
+                trail.letIn(url)
                 decisionHandler(.allow)
             case .external:
                 UIApplication.shared.open(url)
@@ -1272,7 +1270,7 @@ struct WebView: UIViewRepresentable {
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
             guard let url = navigationAction.request.url else { return nil }
-            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: .newWindow, known: known(webView)) {
+            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: .newWindow, known: known) {
             case .inApp: webView.load(navigationAction.request)
             case .external: UIApplication.shared.open(url)
             case .block: break
@@ -1304,6 +1302,7 @@ struct WebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
             pageURL = webView.url
             commits += 1
+            trail.committed(webView.url)
         }
 
         // A main-frame answer: shown, saved, or refused (Download.decideResponse). A frame inside the page cannot save a
@@ -1596,10 +1595,12 @@ struct WebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            trail.ended()
             show(error, provisional: true)
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            trail.ended()
             show(error, provisional: false)
         }
 
