@@ -47,23 +47,62 @@ function touchesProtected(input, depth = 0) {
    through it), so any OTHER protected name keeps #5406's rule. A plan path holding ".." is not a plan path.
    A TEXT HEURISTIC, as touchesProtected is: a script file, or a path built so no protected name appears, is not seen
    (and such a command was answered before this change too). */
-const PLAN_MENTION = /(?<![A-Za-z0-9_.-])\.claude[\\/]plans[\\/][^\s'"`;&|<>()]*/gi;
-const DOTDOT = /(?:^|[\\/])\.\.(?:[\\/]|$)/;
-const DELETES_OR_MOVES = [
-  /(?:^|[\s;&|()`'"\\/])(?:rm|rmdir|unlink|shred|trash|mv)(?=\s|$)/i,
+// A plan path, strictly (review round 2): plain filename characters only, in one or more segments, so nothing the shell
+// expands or splits ($, braces, commas, globs, quotes, backslash escapes) can sit inside it and turn it into another
+// path. PLAN_END: what may follow it (the end, whitespace, an operator, or a closing quote then one of those); anything
+// else attached to it (.claude/plans/x.md$IFS.git, a brace list, .claude/plans/.\"\"./x) means it is not a plan path.
+const PLAN_MENTION = /(?<![A-Za-z0-9_.-])\.claude[\\/]plans[\\/][A-Za-z0-9_.@+~-]+(?:[\\/][A-Za-z0-9_.@+~-]+)*/gi;
+// After a closing quote, a comma or a closing bracket is fine too (a path in a python call: edit('.claude/plans/x.md', ...)):
+// in a shell brace list the next element is then outside the match, where PROTECTED still sees it.
+const PLAN_END = /^(?:$|[\s;&|)<>]|['"](?:$|[\s;&|)<>,\]}]))/;
+const DOT_SEGMENT = /(?:^|[\\/])\.+(?=[\\/]|$)/;   // a segment made only of dots: . or .. (or ...) is not a file name here
+function withoutPlanPaths(command) {
+  return command.replace(PLAN_MENTION, (m, at) => {
+    const after = command.slice(at + m.length, at + m.length + 2);
+    return PLAN_END.test(after) && !DOT_SEGMENT.test(m.slice('.claude/plans/'.length)) ? ' ' : m;
+  });
+}
+// Judged on the command as the shell runs it (review round 2's over-catch: a plan's own words, "- rm the old file" in a
+// heredoc or "rm old step" in a commit message, sent plan edits back to the phone): quoted strings and heredoc bodies
+// are taken out first for these plain shell words. Safe because by now the only protected names left are plan files,
+// so a delete hidden inside a string could only reach a plan file, which git keeps.
+const SHELL_DELETES_OR_MOVES = [
+  /(?:^|[\s;&|()`'"\\/])(?:rm|rmdir|unlink|shred|trash|mv)(?=\s|$)/i,   // quotes count once the text is a shell's
   /\b(?:Remove-Item|Move-Item|Rename-Item)\b/i,
   /\bfind\b[^;&|]*?\s-(?:delete|exec)/i,
   /\bgit\b[^;&|]*?\s(?:clean|rm|mv)\b/i,
+];
+// Judged on the full text, strings and heredocs included: code in a heredoc or a -c string really runs, and a link made
+// through a plan folder lets a later write reach anywhere (review round 2).
+const ANYWHERE_DELETES_MOVES_OR_LINKS = [
+  /(?:^|[\s;&|()`'"\\/])(?:ln|mklink)(?=\s|$)|\b(?:SymbolicLink|Junction|HardLink)\b|\bsymlinkSync\b|\bos\.(?:symlink|link)\b/i,
   /\b(?:rmtree|rmSync|unlinkSync|rmdirSync|renameSync)\b|\bos\.(?:remove|unlink|rmdir|rename|replace)\b|\bshutil\.move\b/i,
 ];
 const SEGMENT_MAX = 8000;   // a longer piece is left to the person: these patterns stay linear-ish on what they read
+// The command with heredoc bodies and quoted strings taken out (a string that does not close runs to the end of its line).
+function shellWords(command) {
+  const lines = command.split('\n');
+  const kept = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    kept.push(lines[i]);
+    const tag = /<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?/.exec(lines[i]);
+    if (tag) { while (i + 1 < lines.length && lines[i + 1].replace(/^\t+/, '') !== tag[1]) i += 1; }
+  }
+  return kept.join('\n').replace(/'[^'\n]*'?|"(?:[^"\\\n]|\\.)*"?/g, ' ');
+}
 function bashLeftToPerson(command) {
   if (!PROTECTED.test(command)) return false;   // names no protected place: answered, as before this change
-  const rest = command.replace(PLAN_MENTION, (m) => (DOTDOT.test(m) ? m : ' '));
+  const rest = withoutPlanPaths(command);
   if (PROTECTED.test(rest)) return true;        // another protected name than a plan file: #5406's rule, as before
   for (const piece of command.split(/[\n;&|]+/)) {
     if (piece.length > SEGMENT_MAX) return true;
-    if (DELETES_OR_MOVES.some((r) => r.test(piece))) return true;
+    if (ANYWHERE_DELETES_MOVES_OR_LINKS.some((r) => r.test(piece))) return true;
+  }
+  // Text a shell will run (sh -c '...', a heredoc fed to bash, | sh, eval, xargs) is not words about the work: then the
+  // plain shell words are judged on the full text after all.
+  const runsText = /(?:^|[\s;&|(])(?:ba|z|k|da)?sh\s+(?:-\w*[cs]\b|<<)|\|\s*(?:sudo\s+)?(?:ba|z|k|da)?sh\b|\beval\b|\bxargs\b|\bsource\b|(?:^|[\s;&|])\.\s/.test(command);
+  for (const piece of (runsText ? command : shellWords(command)).split(/[\n;&|]+/)) {
+    if (SHELL_DELETES_OR_MOVES.some((r) => r.test(piece))) return true;
   }
   return false;
 }

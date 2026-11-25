@@ -59,3 +59,21 @@ It is a seatbelt on a prompt Josh asked to have answered, not a sandbox.
   and a delete is judged per piece (split on ; & | and newlines), so a plan read plus a /tmp cleanup on another piece
   still waits only because rm is there (kept: deleting stays a person's call when the command names a plan).
 - Mutations: approve all, the old rule, no .. check: each turns permission-mention-9001 red.
+
+## Round 2 (sonnet, blind, whole branch): three BLOCKERs, fixed
+- The plan-path pattern swallowed what the shell acts on, so a .git or a .. inside it was erased from the check:
+  .claude/plans/x.md$IFS.git/hooks/pre-commit, brace lists ({.claude/plans/a,/p/.git/HEAD}, plans/{a,../x}),
+  $(echo ..), $X, '..', .""., .\. and a colon all passed. Now a plan path is plain filename characters only, in
+  segments, none made only of dots, and must end cleanly (the end, whitespace, an operator, or a closing quote then one
+  of those or a comma or closing bracket, as in a python call). Anything else attached means it is not a plan path.
+- A link through the plan folder (ln -sfn ... .claude/plans/l, then a write under it) passed: ln, mklink, symlinks
+  and junctions in any form now leave it to the person.
+- Over-catch (WARNING) fixed: plain deletes and moves are judged on the command with quoted strings and heredoc bodies
+  taken out, so a plan's own words ("- rm the old file", a commit message "rm old step", a PR title) no longer send it
+  to the phone. When the command hands text to a shell (sh -c, a heredoc fed to bash, | sh, eval, xargs, source),
+  the full text is judged after all, so sh -c "rm -rf .claude/plans" still waits. Interpreter deletes and links are
+  always judged on the full text.
+- Every probe in both rounds' scripts is now left to the person except plan-only reads and writes; inputs of 1.6 MB
+  judge in about 2 ms.
+- Mutations: the round 1 pattern back; no shell-runs-text rule; no stripping: each turns permission-mention-9001 red.
+- Still over-caught, accepted: a bare rm word as an argument outside quotes (grep -c rm .claude/plans/x.md).

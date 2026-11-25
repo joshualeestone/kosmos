@@ -57,7 +57,10 @@ test('#9001 1b: plan files are answered: read, grepped, written, edited by a her
     "python3 - <<'PY'\nd={}\ndel d['k']\nopen('.claude/plans/x.md','w').write('x')\nPY",
     'echo hi > /p/.claude/plans/x.md', 'echo x >> .claude/plans/x.md 2>&1', 'cp notes.md /p/.claude/plans/notes.md',
     "sed -i '' s/a/b/ /p/.claude/plans/x.md", 'gh pr create --body-file /p/.claude/plans/x.md',
-    'git -C /p add .claude/plans/x-pre-challenge.md', 'echo ZF(f)x} >> .claude/plans/x.md']) {
+    'git -C /p add .claude/plans/x-pre-challenge.md', 'echo ZF(f)x} >> .claude/plans/x.md',
+    // review round 2: a plan's own words are not a delete (heredoc text, a commit message, a PR title)
+    "cat > .claude/plans/x.md <<'E'\n- rm the old file\nuse mv here\nE", 'git -C /p commit -m "rm old step" .claude/plans/x.md',
+    'gh pr create --title "mv things" --body-file .claude/plans/x.md', "edit('.claude/plans/x.md', [('a', 'b')])"]) {
     assert.equal(answers(c), true, c);
   }
 });
@@ -77,7 +80,18 @@ test('#9001 1b: any other protected name, a plan path with .., or a delete or mo
     // a delete or move, even of a plan file only
     'rm -f .claude/plans/x.md', 'mv .claude/plans/x.md /tmp/', 'git rm .claude/plans/x.md',
     'find .claude/plans -name x -delete', "python3 -c 'import os;os.remove(\".claude/plans/x.md\")'",
-    'cat .claude/plans/x.md; rm -f /tmp/scratch.txt', 'Remove-Item .claude\\plans\\x.md']) {
+    'cat .claude/plans/x.md; rm -f /tmp/scratch.txt', 'Remove-Item .claude\\plans\\x.md',
+    // review round 2: a plan path the shell expands, splits or walks out of is not a plan path
+    'tee .claude/plans/x.md$IFS.git/hooks/pre-commit', 'tee .claude/plans/x.mdZF(IFS}.git/HEAD'.replace('ZF(', '${'),
+    'cp evil {.claude/plans/a,/p/.git/HEAD}', 'echo x | tee .claude/plans/{a,../settings.json}',
+    'echo x > .claude/plans/{x,..}/settings.json', 'echo x > .claude/plans/$(echo ..)/settings.json',
+    'X=../settings.json; echo x > .claude/plans/$X', "echo x > .claude/plans/'..'/settings.json",
+    'echo x > .claude/plans/.\\./settings.json', 'echo x > .claude/plans/."".//settings.json',
+    'echo x > .claude/plans/x/..', 'cp a .claude/plans/*/../settings.json', 'echo x > .claude/plans/x:.git/HEAD',
+    // review round 2: a link through a plan folder, and a delete the shell really runs from a string
+    'ln -sfn /p .claude/plans/l', 'ln -sfn "$PWD" .claude/plans/l; echo x > .claude/plans/l/.git/hooks/pre-commit',
+    'sh -c "rm -rf .claude/plans"', "bash <<'E'\nrm -rf .claude/plans\nE", 'printf "rm .claude/plans/x" | bash',
+    'eval "rm .claude/plans/x"', 'echo .claude/plans/x | xargs rm']) {
     assert.equal(answers(c), false, c);
   }
 });
