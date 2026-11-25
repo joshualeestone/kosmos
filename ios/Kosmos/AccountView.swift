@@ -549,7 +549,7 @@ struct AccountView: View {
                     // its own sheet up over this one, so the offer waits for them.
                     .disabled(nameBusy || retireBusy || setupBusy || passkeyBusy || busy != nil || retiring != nil || setup != nil)
                     .accessibilityIdentifier("account-name-offer")
-            } header: { Text("Your Kosmos+ address") }
+            }   // review 5: no header, which would repeat the button's words
         case (.none, nil):
             EmptyView()
         }
@@ -572,7 +572,6 @@ struct AccountView: View {
                             // Review 1: the page hides the suggestion line on the first keystroke, for good (review 2).
                             if c != nameSuggestion { nameWasSuggested = false; nameError = nil }
                         }
-                        .accessibilityHint(Account.nameHint)
                         .onSubmit { Task { await saveName() } }
                         .disabled(nameBusy)
                         .accessibilityIdentifier("account-name-field")
@@ -624,8 +623,9 @@ struct AccountView: View {
         let (status, data) = sample
             ? (200, Data(#"{"name":"\#(name)","address":"\#(name).kosmosplus.com"}"#.utf8))
             : await send(Account.nameRequest(coordinator: coordinator, session: asked, name: name))
-        nameBusy = false
-        // An answer for a sign-in that changed meanwhile changes nothing (accountGeneration has reset the screen).
+        // The busy flag is this save's only while the sheet still belongs to the sign-in that asked; a later save's is left
+        // alone (review 5). An answer for a sign-in that changed meanwhile changes nothing else.
+        if nameFor == asked { nameBusy = false }
         guard sample || currentSession() == asked, nameFor == asked else { return }
         switch Account.nameAnswer(status: status, data: data) {
         case .saved(let address):
