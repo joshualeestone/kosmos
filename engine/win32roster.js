@@ -48,6 +48,13 @@ const { execFileSync } = require('node:child_process');
 const win32sessions = require('./win32sessions');
 const win32codexlive = require('./win32codexlive');
 
+/* #9085: a roster fallback is written where win32capture writes a fall to unknown: the agent's own supervisor log. */
+function defaultLog(name, event, because) {
+  try {
+    require('./win32supervisorlog').logger(name).line(new Date().toISOString() + ' ' + name + ' ' + event + ' -- ' + because);
+  } catch { /* nothing to log to */ }
+}
+
 /* The synthesized command. See the header: classifies as a Claude agent via
    isClaudeCommand, but is NOT a version string, so the ownership process arm
    (isNativeClaude) stays off and the claim is the sole ownership evidence. */
@@ -246,6 +253,10 @@ const HOLD_MS = 15000;
  *   default is the shared `cachedRun`, not a fresh read per call.
  * @param {{ read: () => object }} [opts.record] the ownership record (default
  *   the real win32sessions), injectable for tests.
+ * @param {() => Set<string>} [opts.supervised] the names whose supervisor is up, by its own presence
+ *   (default win32streamstate.liveNames), asked only when the Claude read has failed past the hold (#9085).
+ * @param {(name:string, event:string, because:string) => void} [opts.log] where a switch onto or off that
+ *   fallback is written (default each agent's supervisor log, as win32capture writes).
  * @returns {() => (string|null)} a paneSource: PANE_COLUMNS text, or null on a
  *   failed look.
  */
@@ -256,6 +267,11 @@ function make(opts) {
   const codexLive = opts && typeof opts.codexLive === 'function' ? opts.codexLive : win32codexlive.liveSessions;
   const now = opts && typeof opts.now === 'function' ? opts.now : Date.now;
   const holdMs = opts && Number.isFinite(opts.holdMs) ? opts.holdMs : HOLD_MS;
+  const supervised = opts && typeof opts.supervised === 'function' ? opts.supervised
+    : () => require('./win32streamstate').liveNames();
+  const log = opts && typeof opts.log === 'function' ? opts.log : defaultLog;
+  const problem = opts && typeof opts.problem === 'function' ? opts.problem
+    : (typeof run.problem === 'function' ? run.problem : () => null);
   /* 🛑 #5949: ONE FAILED READ USED TO TAKE EVERY CLAUDE CARD OFF THE BOARD AT ONCE. A null
      here makes `listPanes` refuse, so the whole board said "we cannot read the agents" for a
      read that fails now and then while every agent is fine (and with a codex agent up, every
@@ -277,8 +293,59 @@ function make(opts) {
     if (lastGood && Number.isFinite(t) && t - lastGood.at >= 0 && t - lastGood.at < holdMs) return lastGood.agents;
     return got;
   }
+  /* 🛑 #9085: A FAILED READ THAT LASTED TOOK EVERY CLAUDE AGENT OFF THE ROSTER, SO EVERY MESSAGE TO ONE 404'd. On a
+     Windows box `claude agents --json` crashed about once a minute for five hours; past the hold above the roster
+     refused, the send gate (server.js knownAgent) read "no agent by that name", and messages to running agents
+     arrived four hours late. So once the read has failed past the hold, a Kosmos-owned Claude agent whose
+     supervisor is up by its own presence (win32streamstate.liveNames: its presence pipe, or a live pid in its
+     state file, never `claude`) is still listed. Delivery goes through that supervisor's pipe (chat.js
+     deliverThroughChannel), which answers for itself when it is not there. The card's state is not drawn from
+     this: win32capture still finds no live row for it and says so. */
+  let onFallback = new Set();   // names listed by their supervisor on the last call
+  function supervisedClaude(owned) {
+    let up;
+    try { up = supervised(); } catch { up = null; }
+    if (!(up instanceof Set) || up.size === 0) return [];
+    const newest = new Map();   // name -> its newest record row, so one name is one row
+    for (const sid of Object.keys(owned || {})) {
+      if (!win32sessions.validId(sid)) continue;
+      const rec = owned[sid] || {};
+      if (!win32sessions.validName(rec.name) || !up.has(rec.name)) continue;
+      const at = Date.parse(rec.at);
+      const had = newest.get(rec.name);
+      if (!had || (Number.isFinite(at) && !(had.at >= at))) newest.set(rec.name, { sid, at: Number.isFinite(at) ? at : -Infinity, rec });
+    }
+    const rows = [];
+    for (const [name, { sid, rec }] of newest) {
+      if (win32codexlive.PER_TURN.has(rec.runner)) continue;   // a per-turn agent comes from codexLive, below
+      rows.push({ sessionId: sid, name });
+    }
+    return rows;
+  }
+  function noteFallback(names) {
+    let why = null;
+    try { why = problem() || null; } catch { why = null; }
+    const because = 'the list of running Claude sessions could not be read' + (why ? ' (' + why + ')' : '');
+    for (const name of names) {
+      if (onFallback.has(name)) continue;
+      try { log(name, 'listed by its supervisor', because + ', so it is listed because its supervisor is up'); } catch { /* never fatal */ }
+    }
+    for (const name of onFallback) {
+      if (names.has(name)) continue;
+      try { log(name, 'listed normally again', 'the list of running Claude sessions was read, or its supervisor is no longer up'); } catch { /* never fatal */ }
+    }
+    onFallback = names;
+  }
   return function win32PaneSource() {
-    const agents = readClaude();
+    let agents = readClaude();
+    const fellBack = new Set();
+    if (!Array.isArray(agents)) {
+      let ownedNow = null;
+      try { ownedNow = record.read(); } catch { ownedNow = null; }
+      const rows = supervisedClaude(ownedNow);
+      if (rows.length) { agents = rows; for (const r of rows) fellBack.add(r.name); }
+    }
+    noteFallback(fellBack);
     /* #3380: the codex live source is INDEPENDENT of `claude agents --json` -- it
        reads the ownership record and the codex supervisors' presence, never claude
        -- so it is asked whether or not the claude read succeeded. */
