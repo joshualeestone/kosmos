@@ -1,0 +1,228 @@
+{
+ "inputs": {
+  "abbr": [
+   0,
+   999,
+   1000,
+   1499,
+   1500,
+   999499,
+   999500,
+   999999,
+   1000000,
+   1250000,
+   1350000,
+   999949999,
+   999950000,
+   1000000000,
+   1250000000,
+   9950000000,
+   9940000000,
+   10000000000,
+   15000000000
+  ],
+  "big": [
+   999,
+   1250000,
+   1000000000,
+   1250000000,
+   15000000000,
+   155000000000
+  ],
+  "usd": [
+   0,
+   1.005,
+   9.995,
+   10,
+   12.5,
+   999.5,
+   1000,
+   1234.5,
+   999999.4,
+   1000000,
+   1500000,
+   2500000,
+   1000000000,
+   1234000000
+  ],
+  "tile": [
+   0,
+   9.5,
+   999,
+   1000,
+   1152,
+   45000,
+   176332,
+   176450,
+   999949,
+   999950
+  ],
+  "rowValue": [
+   0,
+   100000,
+   1234567,
+   55555
+  ]
+ },
+ "formatters": {
+  "abbr": [
+   "0",
+   "999",
+   "1K",
+   "1K",
+   "2K",
+   "999K",
+   "1.0M",
+   "1.0M",
+   "1.0M",
+   "1.3M",
+   "1.4M",
+   "999.9M",
+   "1.0B",
+   "1.0B",
+   "1.3B",
+   "9.9B",
+   "9.9B",
+   "10B",
+   "15B"
+  ],
+  "big": [
+   "999",
+   "1.3M",
+   "1.0B",
+   "1.3B",
+   "15.0B",
+   "155.0B"
+  ],
+  "usd": [
+   "$0.00",
+   "$1.00",
+   "$9.99",
+   "$10",
+   "$13",
+   "$1000",
+   "$1,000",
+   "$1,235",
+   "$999,999",
+   "$1M",
+   "$2M",
+   "$3M",
+   "$1.00B",
+   "$1.23B"
+  ],
+  "tile": [
+   "$0.00",
+   "$9.50",
+   "$999",
+   "$1K",
+   "$1.2K",
+   "$45K",
+   "$176.3K",
+   "$176.4K",
+   "$999.9K",
+   "$1.0M"
+  ],
+  "rowValue": [
+   "$0.00",
+   "$90",
+   "$1,111",
+   "$50"
+  ]
+ },
+ "grand": 141281530,
+ "apiCost": 44.5915,
+ "unpriced": [
+  "mystery-model"
+ ],
+ "hero": [
+  "45",
+  "141.3M",
+  "$127.2K",
+  "1K",
+  "0",
+  "$45"
+ ],
+ "models": [
+  [
+   "claude-opus-5-5",
+   141226500
+  ],
+  [
+   "gpt-5.1",
+   53000
+  ],
+  [
+   "claude-haiku-4-5-20251001",
+   2000
+  ],
+  [
+   "mystery-model",
+   30
+  ]
+ ],
+ "modelCells": [
+  "141.2M",
+  "100.0%",
+  "53K",
+  "<0.1%",
+  "2K",
+  "<0.1%",
+  "30",
+  "<0.1%"
+ ],
+ "agents": [
+  [
+   "Dana (dana)",
+   91200100,
+   false
+  ],
+  [
+   "Dana (dana2)",
+   9050000,
+   false
+  ],
+  [
+   "Sessions outside any agent's folder",
+   1000,
+   true
+  ],
+  [
+   "Folders shared by more than one agent",
+   1,
+   true
+  ]
+ ],
+ "agentNote": "We could not read the list of agents just now, so every session shows as not an agent. 1 token in the totals above come from transcripts that have since been removed or can no longer be read, so they cannot be matched to an agent. On some days the transcripts still here hold 3K tokens more than the totals saved for those days, so this table can add up to more than the totals above, by up to that much.",
+ "history": [
+  [
+   "2026-11-24",
+   "claude-opus-5-5",
+   "41.7M",
+   "$37,553"
+  ],
+  [
+   "2026-11-24",
+   "gpt-5.1",
+   "53K",
+   "$48"
+  ],
+  [
+   "2026-11-24",
+   "mystery-model",
+   "30",
+   "$0.03"
+  ],
+  [
+   "2026-11-23",
+   "claude-haiku-4-5-20251001",
+   "2K",
+   "$1.80"
+  ],
+  [
+   "2026-11-23",
+   "claude-opus-5-5",
+   "99.5M",
+   "$89,551"
+  ]
+ ]
+}

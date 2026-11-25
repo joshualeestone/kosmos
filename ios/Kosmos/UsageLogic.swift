@@ -130,11 +130,13 @@ enum Usage {
         whole = Array(digitsOut.prefix(digitsOut.count - digits))
         frac = Array(digitsOut.suffix(digits))
         let body = String(whole) + (digits > 0 ? "." + String(frac) : "")
-        let isZero = digitsOut.allSatisfy { $0 == "0" }
-        return (neg && !isZero ? "-" : "") + body
+        return (neg ? "-" : "") + body   // as JavaScript: (-0.004).toFixed(2) is "-0.00"
     }
     /// Math.round: half goes up.
-    static func jsRound(_ x: Double) -> Double { (x + 0.5).rounded(.down) }
+    static func jsRound(_ x: Double) -> Double {
+        let r = x.rounded(.down)
+        return x - r >= 0.5 ? r + 1 : r   // exact, where (x + 0.5).rounded(.down) is off at 0.49999999999999994 and past 2^52
+    }
 
     /// toLocaleString on a whole number: the person's grouping. `locale` is a seam for the suite.
     static func grouped(_ n: Double, locale: Locale = .current) -> String {
@@ -162,7 +164,8 @@ enum Usage {
         }
         if v >= 1e6 || (Double(fixed(v / 1e3, 0)) ?? 0) >= 1000 { return fixed(v / 1e6, 1) + "M" }
         if v >= 1e3 { return fixed(v / 1e3, 0) + "K" }
-        return v == v.rounded() ? String(Int64(v)) : String(v)
+        // A whole count as its digits, never through Int (which stops the app past 9.2e18 on a malformed answer).
+        return v == v.rounded() ? String(format: "%.0f", v) : String(v)
     }
     // usageBigTokens: one decimal in the B band, else usageAbbr.
     static func bigTokens(_ v: Double) -> String { v >= 1e9 ? fixed(v / 1e9, 1) + "B" : abbr(v) }
@@ -278,7 +281,7 @@ enum Usage {
 
     // usageActiveDays: the engine's days on Kosmos, else the days that have any usage.
     static func activeDays(_ d: Data_) -> Int {
-        if let n = d.daysOnKosmos, n.isFinite, n >= 1 { return Int(n.rounded(.down)) }
+        if let n = d.daysOnKosmos, n.isFinite, n >= 1 { return Int(min(n, 1e9).rounded(.down)) }   // clamped: Int traps past 9.2e18
         return d.byDay.values.filter { $0.values.contains { $0.total > 0 } }.count
     }
 
@@ -292,7 +295,7 @@ enum Usage {
         let valueStr = value >= 1e6 ? "$" + fixed(value / 1e6, 1) + "M" : tileSub1M(value, locale: locale)
         let apiStr = api.map { $0 >= 1e6 ? usd($0, locale: locale) : tileSub1M($0, locale: locale) } ?? "-"
         return Hero(days: max(0, days), tokens: bigTokens(total), value: valueStr, hours: abbr(jsRound(hours)),
-                    years: String(Int64(jsRound(years / 10) * 10)), api: apiStr)
+                    years: String(format: "%.0f", jsRound(years / 10) * 10), api: apiStr)
     }
 
     // usageHistoryHtml's rows: newest day first, its models by name.

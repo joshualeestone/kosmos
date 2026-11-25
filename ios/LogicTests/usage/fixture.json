@@ -1,0 +1,17 @@
+{"daysOnKosmos": 45, "rootsRead": ["/a", "/b"],
+ "byDay": {
+  "2026-11-23": {"claude-opus-5-5": {"input_tokens": 1200, "output_tokens": 250000, "cache_creation_input_tokens": 1250000, "cache_read_input_tokens": 98000000},
+                 "claude-haiku-4-5-20251001": {"input_tokens": 500, "output_tokens": 1500, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}},
+  "2026-11-24": {"claude-opus-5-5": {"input_tokens": 300, "output_tokens": 125000, "cache_creation_input_tokens": 600000, "cache_read_input_tokens": 41000000},
+                 "mystery-model": {"input_tokens": 10, "output_tokens": 20, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0},
+                 "gpt-5.1": {"input_tokens": 1000, "output_tokens": 2000, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 50000}}
+ },
+ "byAgent": {"rosterRead": false,
+  "agents": [{"name": "dana", "shown": "Dana", "input_tokens": 100, "output_tokens": 200000, "cache_creation_input_tokens": 1000000, "cache_read_input_tokens": 90000000},
+             {"name": "dana2", "shown": "Dana", "input_tokens": 0, "output_tokens": 50000, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 9000000},
+             {"name": "eli", "shown": "Eli", "input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}],
+  "elsewhere": {"input_tokens": 1000, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0},
+  "shared": {"input_tokens": 0, "output_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0},
+  "unattributed": {"input_tokens": 0, "output_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0},
+  "overcount": {"input_tokens": 0, "output_tokens": 2500, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}
+}
