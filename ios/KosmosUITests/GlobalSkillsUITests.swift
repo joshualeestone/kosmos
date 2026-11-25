@@ -46,9 +46,12 @@ final class GlobalSkillsUITests: XCTestCase {
         name.tap(); name.typeText("Meeting notes")
         let body = app.textViews["gskill-body"]
         body.tap(); body.typeText("One line per decision.")
+        reveal(app, add)   // the keyboard may cover it now
         add.tap()
         XCTAssertTrue(app.staticTexts["Added. Every agent picks it up at its next restart."].waitForExistence(timeout: 5), "the page's added sentence is missing")
-        XCTAssertTrue(app.staticTexts["Meeting notes"].exists, "the added skill is not in the list")
+        let added = app.staticTexts["Meeting notes"]
+        for _ in 0..<8 where !added.exists { app.swipeDown() }   // the list is above the form
+        XCTAssertTrue(added.exists, "the added skill is not in the list")
         shot(app, "global-skills-added")
     }
 

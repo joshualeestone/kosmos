@@ -28,6 +28,9 @@ struct GlobalSkillsView: View {
     // list came from, so another computer starts the screen over.
     @State private var generation = 0
     @State private var shownURL: URL?
+    // A field taking focus disarms Remove, as the page's blur does (review 4); so does the app leaving the screen.
+    @FocusState private var focused: Bool
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         List {
@@ -64,6 +67,8 @@ struct GlobalSkillsView: View {
             await read()
         }
         .onDisappear { armed = nil }
+        .onChange(of: focused) { f in if f { armed = nil } }
+        .onChange(of: scenePhase) { p in if p != .active { armed = nil } }
         // The page's fields stop at their maxlength (UTF-16 units); typing anywhere disarms a Remove, as the page's blur.
         .onChange(of: name) { v in
             armed = nil
@@ -114,13 +119,19 @@ struct GlobalSkillsView: View {
         let isArmed = armed == skill.key
         return HStack {
             Text(skill.name).font(.body.weight(.semibold)).foregroundColor(Palette.primary)
+                .lineLimit(2).layoutPriority(1)
             Spacer()
             if removing == skill.key {
                 SweepDots(size: 16, label: "Removing", scales: false)
             } else {
-                Button(isArmed ? GlobalSkills.Words.removeArmed : GlobalSkills.Words.remove) {
+                Button {
                     // The second press is the consent, as the page's armed button; the first only asks.
                     if isArmed { Task { await remove(skill) } } else { armed = skill.key }
+                } label: {
+                    // Review 4: borderless, the tap is the label's, so the label is a full 44-point target.
+                    Text(isArmed ? GlobalSkills.Words.removeArmed : GlobalSkills.Words.remove)
+                        .lineLimit(1).fixedSize()
+                        .frame(minHeight: 44).contentShape(Rectangle())
                 }
                 .foregroundColor(isArmed ? Palette.dangerWord : Palette.primary)
                 .accessibilityLabel(isArmed ? GlobalSkills.Words.removeArmed : "Remove the skill " + skill.name)
@@ -139,6 +150,7 @@ struct GlobalSkillsView: View {
     private var addSection: some View {
         Section {
             TextField(GlobalSkills.Words.namePlaceholder, text: $name)
+                .focused($focused)
                 .accessibilityIdentifier("gskill-name")
                 .accessibilityLabel(GlobalSkills.Words.addLabel)
             ZStack(alignment: .topLeading) {
@@ -147,6 +159,7 @@ struct GlobalSkillsView: View {
                         .accessibilityHidden(true)
                 }
                 TextEditor(text: $words).frame(minHeight: 120)
+                    .focused($focused)
                     .scrollContentBackground(.hidden)
                     .accessibilityIdentifier("gskill-body")
                     .accessibilityLabel("What the skill should do")
