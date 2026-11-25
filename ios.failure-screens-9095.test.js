@@ -52,11 +52,11 @@ test('#9095 nothing laid over a failure screen forces the dark appearance (it wa
   const content = fs.readFileSync(path.join(__dirname, 'ios', 'Kosmos', 'ContentView.swift'), 'utf8');
   for (const [name, src] of [['AgentsView.swift', agents], ['ContentView.swift', content]]) {
     let at = src.indexOf('LoadFailureView(');
-    assert.ok(name !== 'AgentsView.swift' || at > -1, 'the Agents tab no longer shows LoadFailureView; re-aim this test');
+    assert.ok(at > -1, name + ' no longer shows LoadFailureView; re-aim this test');
     for (; at > -1; at = src.indexOf('LoadFailureView(', at + 1)) {
       const near = src.slice(at, at + 1500);
       const end = near.search(/\n\s*case \.|\n\s*}\n\s*}\n/);   // up to the next case, or the end of the block
-      assert.doesNotMatch(end > 0 ? near.slice(0, end) : near, /colorScheme,\s*\.dark/, name + ': a forced dark appearance over a failure screen');
+      assert.doesNotMatch(end > 0 ? near.slice(0, end) : near, /colorScheme,\s*\.dark|preferredColorScheme\(\.dark\)|overrideUserInterfaceStyle/, name + ': a forced dark appearance over a failure screen');
     }
   }
   assert.match(agents, /MacSwitcher\(client: client\)\.frame\(minHeight: 44\)\.padding\(16\)/, 'the switcher over the Mac-not-answering screen changed; re-check it on cream');
