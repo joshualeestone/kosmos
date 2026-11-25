@@ -1,10 +1,17 @@
-# tallprompt-9001: Kosmos approves a safety prompt whose command only mentions .claude or .git (kosmos#9001 part 1b)
+# tallprompt-9001: a self-declining safety prompt on a plan file is approved, and one left to a person never buzzes the phone (kosmos#9001 part 1b)
 
-Finished means: Claude Code's own safety prompt ("can't rule out a dangerous removal ... will automatically block this
-request") on a Kosmos agent is approved by Kosmos's allow hook when the command only mentions, reads or greps a
-protected place (.claude, .claude.json, .git), as Josh ruled on 10-22 and asked again at 21:30 on 11-24. A command that
-deletes, moves or (outside a plan file) writes one still waits for a person (Splinter's narrowing, 21:34). Baron's
-21:29 command is approved; rm -rf on a .git path stays pending.
+Finished means two things (as built after five review rounds; the first design below was narrowed):
+1. Claude Code's own safety prompt ("can't rule out a dangerous removal ... will automatically block this request") on
+   a Kosmos agent is approved by Kosmos's allow hook when every .claude or .git name in the command is a plan file under
+   .claude/plans and the command neither deletes, moves or links anything, walks out with .., copies a tree, nor uses a
+   git verb beyond read-or-record (Josh 10-22 and 21:30 on 11-24; Splinter 21:34, and 22:13 for the allowlist: "no
+   widening for now"). Baron's 21:29 command is approved; rm -rf on a .git path stays pending. Reading other parts of
+   .claude or .git still waits for a person, as before.
+2. One that is left to a person, and is taller than the window, is a card line, not a phone push (Splinter 22:13): part
+   1 keyed on the box's header, which a tall box cuts off. engine/status.js selfExpiringCutTail reads the cut box (its
+   closing rule, the safety reason and timed line below it, Claude Code's own "↑ N more lines", box rows to the top),
+   and the report route ties it by length (the hook's copy hit its cap). Residual: two long Bash prompts at once, a real
+   one's report kept back until the safety prompt declines (about two minutes).
 
 ## Measured (11-24, Claude Code 2.1.332)
 - Baron's 21:30 phone push: his command (33 lines, a python heredoc editing release/whats-new-pool.json and a plan
@@ -23,8 +30,13 @@ deletes, moves or (outside a plan file) writes one still waits for a person (Spl
   Rename-Item; find -delete or -exec; git clean, rm, mv; rmtree, rmSync, os.remove and the like). Any other protected
   name keeps #5406's rule. A piece over 8,000 characters is left to the person. File tools are unchanged.
 - engine/permission-mention-9001.test.js: Baron's command (shape kept, paths nowhere) approved; rm -rf on .git not;
-  11 plan-file cases approved; 26 left to the person (other protected names including review round 1's bypasses, a
-  plan path with .., deletes and moves even of a plan); controls; a timing case; the real script on stdout.
+  every review round's bypasses as cases left to the person; plan-only reads and writes answered; PowerShell aliases;
+  controls; size caps with verb-free filler; the real script on stdout.
+- engine/status.js selfExpiringCutTail, server.js report route, test-support/claude-screens/
+  permission-prompt-self-expiring-tall-2.1.332.txt (the real capture), server.selfexpiring-9001.test.js's 1b tests:
+  the tall capture reads as the self-declining prompt and as working; a long report is the plain line with no push, a
+  short one is kept and pushed; the timed line inside the box, no scroll hint, a row outside the box, or no reason are
+  not it. Mutations (no route branch, no cut box in the check, no scroll-hint or box-row requirement): each red.
 - engine/agentpermission-5406.test.js: unchanged (main's version; its rule still holds for every name but a plan
   file). report-hook-shapeguard-9001.test.js: its "the allow hook steps aside" arm now comes from a command
   that deletes under .git (a description no longer decides); a plan mention now runs.
@@ -129,3 +141,18 @@ command newly answered:
   through a link an earlier command made (making it waits); cp <plan> ~/.zshrc (names no protected place).
 - Mutations: no .. rule, no git allowlist, no joined text, no protected-segment check, no delete list: each turns
   permission-mention-9001 red.
+
+## Round 5 (opus, blind, whole branch): nothing above WARNING under the round 4 threat model; fixed after it
+- WARNING fixed: git's verb is now the first word after any options (-C/p, -p, --bare, --literal-pathspecs hid it).
+  -c in any spelling waits.
+- WARNING, part fixed, part accepted: plan prose with ordinary words was refused. The bare word link no longer counts
+  (only at the start of a piece, where it is the command; ln and mklink anywhere). Measured by the reviewer: of 1,998
+  real plan files fed through as heredoc writes, 286 (14%) were refused, mostly by words in the plan text (rm, mv,
+  tar, a git verb, ..). Accepted cost: main refuses all of them today, and the stripping that would spare them hid
+  real commands twice.
+- NITs fixed: size caps now have tests that fail without them (verb-free filler); a protected name split by quotes with
+  no plan named waits (tested); a plan segment made only of dots and globs (.?) is not a plan path; the report hook's
+  comment and a test label corrected; this plan's title and "Finished means" rewritten to what is built.
+- Noted: git push --force and git push origin :main are answered with a plan named; the damage is to the remote, and
+  the same commands without a plan were always answered.
+- After the fixes: every status and permission suite (117 files): 1,616 pass, 0 fail, 1 skipped (a live test).
