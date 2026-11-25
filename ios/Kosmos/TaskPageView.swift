@@ -79,7 +79,17 @@ struct TaskPageView: View {
     // The roster's names, as a snapshot; the model lays the project's own over them after it has read the task.
     private var names: [String: String] { roster }
 
+    #if DEBUG
+    // kosmos#8958: the page drawn as slowly as a busy phone draws it (ms), so a box that reads back what was last drawn loses words
+    // in a test every time, not only on a slow runner. Sample agents only.
+    private static let slowDraw: UInt32 = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1"
+        ? UInt32(ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SLOWDRAW"] ?? "") ?? 0 : 0
+    #endif
+
     var body: some View {
+        #if DEBUG
+        let _ = Self.slowDraw > 0 ? usleep(Self.slowDraw * 1000) : 0
+        #endif
         content
             .background(Palette.ground.ignoresSafeArea())
             .navigationTitle("Task \(ref.number)")

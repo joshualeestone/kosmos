@@ -9,10 +9,10 @@ import XCTest
 final class TaskPageActionsUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
-    private func openTask() throws -> XCUIApplication {
+    private func openTask(slowDraw ms: Int = 0) throws -> XCUIApplication {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         let app = XCUIApplication()
-        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1"]
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_SLOWDRAW": String(ms)]
         app.launch()
         let tasks = app.tabBars.buttons["Tasks"]
         XCTAssertTrue(tasks.waitForExistence(timeout: 30), "no Tasks tab")
@@ -271,8 +271,10 @@ final class TaskPageActionsUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Task 4"].waitForExistence(timeout: 10), "the link there does not open task 4")
     }
     // kosmos#8958 slice B8: put on hold, then what it waits for and why are set here and read back from the sample Mac.
+    // Drawn slowly on purpose (150 ms a draw, about what CI's runner did on 2026-11-25): Return straight after the words lost
+    // their end in a box that read back what was last drawn, 6 of 6, and the page kept and saved the rest.
     func testAHoldSaysWhatItWaitsForAndWhy() throws {
-        let app = try openTask()
+        let app = try openTask(slowDraw: 150)
         let put = app.buttons["Put on hold"]
         for _ in 0..<6 where !(put.exists && put.isHittable) { app.swipeUp() }
         put.tap()
