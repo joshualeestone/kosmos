@@ -623,9 +623,11 @@ struct AccountView: View {
         let (status, data) = sample
             ? (200, Data(#"{"name":"\#(name)","address":"\#(name).kosmosplus.com"}"#.utf8))
             : await send(Account.nameRequest(coordinator: coordinator, session: asked, name: name))
-        // The busy flag is this save's only while the sheet still belongs to the sign-in that asked; a later save's is left
-        // alone (review 5). An answer for a sign-in that changed meanwhile changes nothing else.
+        // The busy flag is this save's only while the sheet still belongs to the sign-in that asked (a reset of the
+        // screen may have handed it to another). If the sign-in changed under this sheet with no reset (a renewal),
+        // the sheet closes rather than stay open for a sign-in that is gone (review 6); the offer can be opened again.
         if nameFor == asked { nameBusy = false }
+        if nameFor == asked, !sample, currentSession() != asked { closeName(); return }
         guard sample || currentSession() == asked, nameFor == asked else { return }
         switch Account.nameAnswer(status: status, data: data) {
         case .saved(let address):
