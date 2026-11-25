@@ -26,7 +26,7 @@ const FAKE_SERVER = `
 const http = require('node:http'); const fs = require('node:fs'); const path = require('node:path');
 const o = JSON.parse(fs.readFileSync(path.join(__dirname, 'fake.json'), 'utf8'));
 const log = (l) => fs.appendFileSync(o.log, l + '\\n');
-log('env ' + JSON.stringify({ data: process.env.AGENT_WORKFORCE_DATA || '', tmux: process.env.AGENT_WORKFORCE_TMUX_BIN || '', path: process.env.PATH }));
+log('env ' + JSON.stringify({ home: process.env.HOME || '', data: process.env.AGENT_WORKFORCE_DATA || '', tmux: process.env.AGENT_WORKFORCE_TMUX_BIN || '', path: process.env.PATH }));
 const st = { enrolled: false, on: false, up: false };
 http.createServer((req, res) => {
   let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => {
@@ -120,6 +120,7 @@ test('#9018: one command takes the pointer\'s own tarball through a first sign-i
   // The board ran fully sandboxed, from a clean environment.
   const envLine = JSON.parse(calls(w.boardLog)[0].replace(/^env /, ''));
   assert.ok(envLine.data.startsWith(w.scratch), 'the board\'s data root is not in the work folder: ' + envLine.data);
+  assert.ok(envLine.home.startsWith(w.scratch), 'the board was given a HOME outside the work folder: ' + envLine.home);
   assert.ok(envLine.tmux.startsWith(w.scratch), 'the board\'s tmux is not the work folder\'s stub');
   assert.strictEqual(envLine.path, '/usr/bin:/bin:/usr/sbin:/sbin', 'the board inherited this shell\'s PATH');
   // The code reader was asked for the placement, on the seed's base mailbox for the anchor.
@@ -197,6 +198,20 @@ test('#9018: no code arriving records nothing (the gate cannot tell), and the bo
   assert.ok(!fs.existsSync(recordOf(w).replace(/\.json$/, '.progress.json')), 'start\'s progress file was left, so the gate reads an attempt in flight');
   assert.strictEqual(await portAnswers(port), false, 'the throwaway board is still running');
   assert.deepStrictEqual(leftovers(w), [], 'the work folder was left behind');
+});
+
+test('#9018: a flag given with no value is refused, not looped on', async () => {
+  const w = world();
+  for (const flag of ['--seed', '--pointer', '--port', '--base-url', '--tarball']) {
+    const r = await new Promise((resolve) => {
+      const c = spawn('bash', [AUTO, flag], { env: w.env });
+      const t = setTimeout(() => c.kill('SIGKILL'), 10000);
+      let out = ''; c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { out += d; });
+      c.on('close', (code) => { clearTimeout(t); resolve({ code, out }); });
+    });
+    assert.strictEqual(r.code, 2, flag + ': ' + r.out);
+    assert.match(r.out, new RegExp(flag + ' needs a value'));
+  }
 });
 
 test('#9018: a port something already answers on is refused before anything is downloaded', async () => {
