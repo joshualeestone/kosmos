@@ -25,6 +25,8 @@ const OWN = {
   'tools.win-publish-node-bounded-7951.test.js': { calls: 5, pwshEnv: 0, xdg: 1 },   // its own PS_ENV (#6352's era); one call is `ps`
 };
 const USES_OWN_CACHE = Object.keys(OWN);
+// Takes out /* */ blocks and // to the end of a line. It cannot see strings or regex literals ('a // b', '/*' in a glob),
+// so a file that has one can be miscounted; that fails loudly here, never passes falsely. None of the four has one today.
 const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"\\])\/\/.*$/gm, '$1');
 const count = (s, re) => (s.match(re) || []).length;
 const NO_PWSH_OFF_WINDOWS = {
