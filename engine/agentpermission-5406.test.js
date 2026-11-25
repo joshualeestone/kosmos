@@ -42,15 +42,18 @@ test('#5406 the hook stays silent for a protected place (.claude, .claude.json, 
     ['NotebookEdit', { notebook_path: '/p/.claude/n.ipynb' }],
     ['Write', { file_path: 'C:\\proj\\.claude\\settings.json' }], ['Edit', { file_path: 'C:\\proj\\.git\\config' }],
     ['Write', { file_path: '/p/.CLAUDE/settings.json' }], ['Bash', { command: 'cat>.git/hooks/x' }],
-    ['Bash', { command: 'ls .claude;echo' }], ['Bash', { command: 'cd .git&&ls' }],
-    ['Bash', { command: 'cat ~/.claude-acct/settings.json > x' }], ['Write', { file_path: '/Users/x/.claude-work/settings.json' }],
+    ['Write', { file_path: '/Users/x/.claude-work/settings.json' }],
     ['MultiEdit', { edits: [{ file_path: '/p/.claude/settings.json' }] }]]) {
     assert.equal(r(tool, input), null, tool + ' ' + JSON.stringify(input));
   }
   // CONTROL: names that only contain the words are not protected places.
   for (const [tool, input] of [['Bash', { command: 'rm photo.jpg' }], ['Write', { file_path: '/p/claude-notes.md' }],
     ['Bash', { command: 'git status' }], ['Write', { file_path: '/p/my.github/x' }], ['ExitPlanMode', {}],
-    ['Bash', { command: 'ls .github' }], ['Write', { file_path: '/p/repo.git/readme' }], ['Write', { file_path: '/p/my.claude-notes' }]]) {
+    ['Bash', { command: 'ls .github' }], ['Write', { file_path: '/p/repo.git/readme' }], ['Write', { file_path: '/p/my.claude-notes' }],
+    // kosmos#9001 part 1b: a shell command that only MENTIONS or reads a protected place is answered (these three were
+    // left to the person before; the writes into one above still are). See engine/permission-mention-9001.test.js.
+    ['Bash', { command: 'ls .claude;echo' }], ['Bash', { command: 'cd .git&&ls' }],
+    ['Bash', { command: 'cat ~/.claude-acct/settings.json > x' }]]) {
     assert.ok(r(tool, input), tool + ' ' + JSON.stringify(input));
   }
 });

@@ -41,12 +41,14 @@ test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 
 const d = (s) => s.replace(/PID\(/g, '$$$$(').replace(/ZF\(/g, '${(');
 
-// By default each call is a Kosmos agent's (the allow hook is present) naming a plan file under .claude in its
-// description, so the allow hook steps aside: the one case where Claude Code's prompt reaches the person, and so the
-// one case the guard judges. The allow-hook test below takes each of those away in turn.
-const PLAN = 'edits /tmp/w/.claude/plans/x.md';
+// By default each call is a Kosmos agent's (the allow hook is present) whose command also deletes a file under .git,
+// so the allow hook steps aside (kosmos#9001 part 1b: it answers a command that only MENTIONS a protected place, and
+// leaves one that deletes, moves or writes one to the person): the one case where Claude Code's prompt reaches the
+// person, and so the one case the guard judges. The allow-hook test below takes each of those away in turn. The line is
+// added after the command's own last line, so a heredoc or a comment above it reads as before.
+const DELETES_PROTECTED = '\nrm -f /tmp/w/.git/index.lock';
 function run(command, { tool = 'Bash', allowHook = true, protectedName = true, env: extra = {}, input } = {}) {
-  const toolInput = input || { command: d(command), ...(protectedName ? { description: PLAN } : {}) };
+  const toolInput = input || { command: d(command) + (protectedName ? DELETES_PROTECTED : '') };
   const payload = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: toolInput, session_id: 's' });
   const env = { ...process.env, KOSMOS_REPORT_CLI: STUB, TMPDIR: SANDBOX, HOME: SANDBOX, ...extra };
   for (const k of ['TMUX_PANE', 'KOSMOS_AGENT_SESSION', 'KOSMOS_AGENT_TOKEN', 'KOSMOS_SHAPE_GUARD', 'KOSMOS_KILL_GUARD',
@@ -123,14 +125,17 @@ test('every command Claude Code ran (measured) runs: no refusal, no message', { 
 test('only where the prompt would reach the person: the allow hook answers, it runs (as today); it steps aside, refused',
   { skip: SKIP }, () => {
     const plain = "cat <<'PY'\nx = page.PID('a')\nPY";
-    assert.equal(run(plain).code, 2, 'premise: a Kosmos agent, naming .claude: refused');
+    assert.equal(run(plain).code, 2, 'premise: a Kosmos agent, its command deleting under .git: refused');
     assert.equal(run(plain, { protectedName: false }).code, 0, 'the allow hook answers: it runs, as today');
     assert.equal(run('x=a; echo "ZF(f)x}"', { protectedName: false }).code, 0, 'zsh, the allow hook answers');
-    // The allow hook steps aside for a protected place named in the command itself, too.
+    // kosmos#9001 part 1b: a command that only MENTIONS a protected place is now answered by the allow hook, so it
+    // runs (Baron's 11-24 command was this shape: a heredoc editing a plan under .claude/plans).
     const plan = "python3 - /tmp/w/.claude/plans/x.md <<'PY'\nx = page.PID('a')\nPY";
-    assert.equal(run(plan, { protectedName: false }).code, 2, '.claude in the command');
-    assert.equal(run('for f in ZF(f)x}; do git -C /tmp/w/.git log; done', { protectedName: false }).code, 2, '.git, zsh');
-    assert.equal(run('echo ZF(f)x} > ~/.claude.json.bak', { protectedName: false }).code, 2, '.claude.json');
+    assert.equal(run(plan, { protectedName: false }).code, 0, '.claude/plans only mentioned: the allow hook answers, it runs');
+    assert.equal(run('for f in ZF(f)x}; do git -C /tmp/w/.git log; done', { protectedName: false }).code, 0, '.git only read: runs');
+    // One that writes into one, or deletes one, is still left to the person, so the guard refuses it.
+    assert.equal(run('echo ZF(f)x} > ~/.claude.json.bak', { protectedName: false }).code, 2, 'a write into .claude.json*: refused');
+    assert.equal(run("cat <<'PY'\nx = page.PID('a')\nPY\nmv /tmp/w/.claude /tmp/w/old", { protectedName: false }).code, 2, 'a move of .claude: refused');
     // No allow hook: the person's own Claude Code (setup wires this hook there too), where the prompt is theirs to
     // answer at their own screen. Left alone, even naming .claude (review round 1).
     assert.equal(run(plain, { allowHook: false }).code, 0, "the person's own session: runs, the prompt is theirs");
