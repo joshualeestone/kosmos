@@ -54,3 +54,8 @@ So the weakest premise held for Automation: nothing to file.
 - r8 sonnet: 0B/1W, fixed. W1 an unread Language read-back keeps "Saved, but we could not read it back just now." (the page keeps it), and the footer's filter hides the duplicate unread sentence.
 
 **Loop end:** cap 8 reached (feedback_review_loop_cap_8), converged false, no BLOCKER open. Every finding in all eight rounds fixed, except r2 W4, kept deliberately with its reason above.
+
+## UI run 1 (02:09 CST): failed in the test, not the screen
+- Both light and dark failed at AutomationUITests.swift:46: XCUI refuses a string subscript query over 128 characters (NSInternalInconsistencyException), and the footer sentence is 146. Fixed with a label predicate. The screen got as far as the guards, which passed.
+- The validation waiting in the queue on af25f83e8e was withdrawn at 02:15 before any test ran (run-tests.sh stopped while still queued), and both runs were requeued on the fix.
+- The same line is inherited by the stacked D1b1 to D1c2b branches. They take the fix on their rebase onto this slice; their own UI classes do not run AutomationUITests.
