@@ -24,8 +24,12 @@ struct UpdatesView: View {
     @State private var auto: Updates.Auto?
     @State private var autoSaving = false
     @State private var autoPending: Bool?   // the value being saved, shown until the computer answers
+    // The install and its wait, cancelled when the screen goes; a wait cut short that way resumes when it comes back.
     @State private var installing: Task<Void, Never>?
-    @State private var acting: UUID?   // the check or install that set busy; only it clears it   // the install and its wait, cancelled when the screen goes
+    @State private var resume: (before: Updates.State, myStart: String?, updating: String?, t0: Date, unanswered: Bool)?
+    @State private var acting: UUID?   // the check or install that set busy; only it clears it
+    @State private var autoActing: UUID?   // the switch save that set autoSaving; only it clears it
+    @State private var autoEpoch = 0       // the page's AUTO_EPOCH: a read sent before a save never undoes it
     @State private var autoNote: String?
     @State private var generation = 0
     @State private var shownURL: URL?
@@ -61,10 +65,21 @@ struct UpdatesView: View {
                 shownURL = mac?.url
                 state = nil; failed = false; asked = false; busy = false; confirming = false; note = nil; checkSaid = nil
                 waitLead = nil; settled = nil; doneLine = nil; auto = nil; autoSaving = false; autoPending = nil; autoNote = nil
-                installing?.cancel(); installing = nil; acting = nil
+                installing?.cancel(); installing = nil; acting = nil; resume = nil; autoActing = nil
                 generation += 1
             }
             await load()
+            if let r = resume, let mac, mac.url == shownURL {
+                installing = Task {
+                    if r.unanswered { await waitUnanswered(mac, before: r.before, t0: r.t0) }
+                    else { await wait(mac, before: r.before, myStart: r.myStart, updating: r.updating, t0: r.t0) }
+                }
+            }
+            // The page repaints from its 5 s poll; while the computer's first look is under way, ask again.
+            while !Task.isCancelled, resume == nil, waitLead == nil, state?.look?.looked == false {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if !Task.isCancelled { await load() }
+            }
         }
         .onDisappear {
             // A wait that is cancelled takes its sentence with it.
@@ -195,9 +210,11 @@ struct UpdatesView: View {
         guard started == generation, !Task.isCancelled else { return }
         if let s = Updates.state(status: status, data: data) { state = s; failed = false } else if state == nil { failed = true }
         if let s = state, Updates.autoShown(s) {
+            autoEpoch += 1
+            let mine = autoEpoch
             let (a, d) = await send(Updates.autoRequest(mac))
-            guard started == generation else { return }
-            if !autoSaving { auto = Updates.auto(status: a, data: d, cloud: s.cloud) }
+            guard started == generation, mine == autoEpoch else { return }
+            auto = Updates.auto(status: a, data: d, cloud: s.cloud)
         }
     }
 
@@ -223,10 +240,11 @@ struct UpdatesView: View {
         state?.look = Updates.Look(looked: false, reached: nil, readable: nil)
         let (status, data) = await send(Updates.checkRequest(mac))
         guard sentTo == shownURL else { return }
-        if let s = Updates.checked(shown, status: status, data: data) {
+        // Over what is shown now (a pull to refresh may have landed meanwhile), not the snapshot from before.
+        if let s = Updates.checked(state ?? shown, status: status, data: data) {
             state = s
         } else {
-            state = shown
+            if state?.look?.looked == false { state?.look = shown.look }
             checkSaid = Updates.checkFailed(status: status, data: data, version: shown.version)
         }
     }
@@ -240,24 +258,27 @@ struct UpdatesView: View {
         defer { if acting == me { busy = false; acting = nil } }
         let sentTo = mac.url
         let (status, data) = await send(Updates.installRequest(mac))
-        guard sentTo == shownURL else { return }
-        // The version the computer is running: the page's "already on" names the one it serves.
-        switch Updates.started(status: status, data: data, version: shown.version) {
+        // Cancelled (the screen went) is not "no answer": nothing is waited for, nothing is said.
+        guard sentTo == shownURL, !Task.isCancelled else { return }
+        switch Updates.started(status: status, data: data) {
         case .refused(let said):
             note = said
+        case .already:
+            await load()
+            note = Updates.Words.already(state?.version)
         case .started(let myStart, let updating):
-            await wait(mac, before: shown, myStart: myStart, updating: updating)
+            await wait(mac, before: shown, myStart: myStart, updating: updating, t0: Date())
         case .unanswered:
-            await waitUnanswered(mac, before: shown)
+            await waitUnanswered(mac, before: shown, t0: Date())
         }
     }
 
     // The page's overlay loop: read the status every 2 s and judge it as updateVerdict does.
-    @MainActor private func wait(_ mac: Settings.Mac, before: Updates.State, myStart: String?, updating: String?) async {
+    @MainActor private func wait(_ mac: Settings.Mac, before: Updates.State, myStart: String?, updating: String?, t0: Date) async {
         let windows = Updates.onWindows(before)
         waitLead = Updates.overlayLead(reached: true, version: updating, windows: windows)
         settled = nil
-        let t0 = Date()
+        resume = (before, myStart, updating, t0, false)
         var log = before.log
         while !Task.isCancelled, mac.url == shownURL {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -274,11 +295,11 @@ struct UpdatesView: View {
             case .waiting: continue
             case .slow: if !windows { waitLead = Updates.Words.stillUpdating }; continue   // Windows keeps its two-state lead
             case .done:
-                waitLead = nil
+                waitLead = nil; resume = nil
                 if let now { state = now; doneLine = Updates.Words.done(now.version ?? "") }
                 return
             default:
-                waitLead = nil
+                waitLead = nil; resume = nil
                 if let now { state = now }
                 settled = Updates.settle(v, now: now?.version, attempt: now?.attempt, log: now?.attempt?.log ?? log,
                                          windows: Updates.onWindows(before))
@@ -289,11 +310,11 @@ struct UpdatesView: View {
     }
 
     // waitForUnansweredPress: the press got no answer, so wait for the computer to answer rather than call it refused.
-    @MainActor private func waitUnanswered(_ mac: Settings.Mac, before: Updates.State) async {
+    @MainActor private func waitUnanswered(_ mac: Settings.Mac, before: Updates.State, t0: Date) async {
         note = Updates.notAnswering
         waitLead = Updates.Words.updating
+        resume = (before, nil, nil, t0, true)
         defer { if mac.url == shownURL { waitLead = nil } }
-        let t0 = Date()
         while !Task.isCancelled, mac.url == shownURL {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard !Task.isCancelled else { return }
@@ -303,6 +324,7 @@ struct UpdatesView: View {
             let v = Updates.unanswered(elapsed: Date().timeIntervalSince(t0), reached: status == 200, before: before.version,
                                        now: now?.version, bootBefore: before.bootedAt, bootNow: now?.bootedAt)
             if v == .waiting { continue }
+            resume = nil
             if let now { state = now }
             if v == .done { note = nil; doneLine = Updates.Words.done(now?.version ?? ""); return }
             note = Updates.unansweredSays(v, now: now?.version)
@@ -317,10 +339,12 @@ struct UpdatesView: View {
         guard let mac else { return }
         autoSaving = true
         autoPending = on
-        defer { autoSaving = false; autoPending = nil }
+        autoEpoch += 1   // a read already out cannot land over this save
+        let me = UUID(); autoActing = me
+        defer { if autoActing == me { autoSaving = false; autoPending = nil; autoActing = nil } }
         let sentTo = mac.url
         let (status, data) = await send(Updates.autoSaveRequest(mac, on: on))
-        guard sentTo == shownURL else { return }
+        guard sentTo == shownURL, autoActing == me else { return }
         if status == 200 { auto = Updates.auto(status: status, data: data, cloud: s.cloud) }
         else { autoNote = Updates.autoRefused(status: status, data: data) }
     }
