@@ -108,6 +108,8 @@ test('#9085 on Windows a failing Claude read behind a readable roster (a codex a
     assert.equal(r.status, 409, JSON.stringify(r.json));
     assert.equal(r.json.because, 'unreadable');
     assert.ok(logged.some((l) => /"raph" was not sent/.test(l) && /\(the status read exited with code 3\)/.test(l)), JSON.stringify(logged));
+    const typo = await send('nobody', 'hello');
+    assert.equal(typo.status, 404, 'CONTROL: a name with no agent folder here is missing, never retried: ' + JSON.stringify(typo.json));
     app._setClaudeReadProblemForTest(() => null);
     const ok = await send('raph', 'hello');
     assert.equal(ok.status, 404, 'CONTROL: with the Claude read healthy, an absent name is missing: ' + JSON.stringify(ok.json));

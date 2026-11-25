@@ -16,8 +16,10 @@ list the name is still 404 "no agent by that name". The sender keeps the message
 
 Decided in ONE roster read (review 5): a throw from the read is "could not look"; a name claimantFrom cannot key
 (store.safeKey throws) is only "not ours" (review 4). On Windows, a failing Claude read with a codex agent keeping the
-roster readable (win32roster refuses only when no codex row exists) makes an absent name unknown too: the gate asks
-win32roster's cachedRun.problem() (review 5).
+roster readable (win32roster refuses only when no codex row exists), or during its 15 s hold, makes a name unknown
+too: the gate asks win32roster's cachedRun.problem() (review 5). Review 6 narrowed that arm to a name no card holds
+and whose agent folder is here and not removed, so a typo is still a 404 (never told to retry for five hours) and an
+untied window keeps its 409 'untied'.
 
 ## Rejected
 - The first design (commit edcc3a5a7b) listed a supervised agent inside win32roster.make when the read failed.
@@ -43,5 +45,4 @@ each `if (!knownAgent(name))`). Listed on #9087.
 server.dm-listfail-9085.test.js: a failing source gives 409 unreadable with retry and the log line; a failing Claude
 read behind a roster kept readable by a codex agent gives 409 unreadable with the reason logged. CONTROLS: a roster
 that reads without the name is 404 (and with the Claude read healthy); an unkeyable name on a readable roster is
-400/404, never unreadable; a listed agent is not refused at the gate. With the unreadable branch switched off,
-the first test goes red.
+400/404, never unreadable; a listed agent is not refused at the gate. Measured 15:18 CST (queued-heavy --light): 5 of 5 pass, the #8652/#8658 neighbours 27 of 27; with the unreadable branch switched off, the two unreadable tests go red and the controls stay green.

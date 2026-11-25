@@ -22160,7 +22160,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         // The write gate FIRST, then the expensive look. The gate's one roster
-        // read is a `list-panes`; `safeRoster` is that plus a `capture-pane` per agent —
+        // read is a `list-panes`; `safeRoster` is that plus a `capture-pane` per agent,
         // so ordering them the other way made a POST for a name nobody runs
         // pay for the whole fan-out before its 404, against this route's own
         // rule two blocks up that a message we would never send must not cost
@@ -22169,14 +22169,21 @@ const server = http.createServer(async (req, res) => {
         // and a pane with Claude in it. This one is about the NAME.)
         /* kosmos#9085: ONE roster read. Its throw means we could not look; a name claimantFrom cannot key (a
            store.safeKey throw) is only "not ours". On Windows a Claude read that is failing while a codex agent keeps
-           the roster readable makes an absent name unknown too (claudeReadProblem). */
+           the roster readable (or during win32roster's hold) makes a name unknown too (claudeReadProblem), but only a
+           name no card holds at all and whose agent folder is on this computer: a typo stays a 404, and a window
+           Kosmos did not start stays the 409 'untied' below. */
         let rosterUnreadable = false;
         let known = false;
         let gateRoster = null;
         try { gateRoster = paneRoster(); } catch { rosterUnreadable = true; }
         if (gateRoster) {
-          try { const card = claimantFrom(gateRoster, name); known = Boolean(card) && card.isNamedOurs === true; } catch { known = false; }
-          if (!known && claudeReadProblem()) rosterUnreadable = true;
+          let gateCard = null;
+          try { gateCard = claimantFrom(gateRoster, name); known = Boolean(gateCard) && gateCard.isNamedOurs === true; } catch { known = false; }
+          if (!known && !gateCard && claudeReadProblem()) {
+            let ours = false;
+            try { ours = fs.existsSync(create.workerDir(name)) && !removal.isRemoved(name); } catch { ours = false; }
+            if (ours) rosterUnreadable = true;
+          }
         }
         if (!known) {
           /* kosmos#9085: a roster that cannot be READ is not "no agent by that name". On Windows a `claude agents --json`
