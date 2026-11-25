@@ -101,14 +101,17 @@ function signedInAfter(row, now = Date.now()) {
   if (!row.isDefault && !ccd) return null;
   validUntil(row, now).catch(() => {});
   const m = moves.get(loginexpiry.serviceNameFor(ccd));
-  return m && m.after !== null && m.after <= now ? m.after : null;   // ahead of now: the clock was set back since
+  if (m && m.at > Date.now()) { moves.delete(loginexpiry.serviceNameFor(ccd)); return null; }   // see noteDate
+  return m ? m.after : null;
 }
 /* Every read that gave a date, in order. A renewal may move it earlier, never later, so later is a sign-in. An unread
    date changes nothing: a sign-out then a sign-in is still later than the last date read. */
 const moves = new Map();   // service -> { at, until, after }
 function noteDate(service, at, until) {
   let m = moves.get(service);
-  if (m && m.at > Date.now()) { moves.delete(service); m = undefined; }   // read on a clock that has been set back since
+  /* Read on a clock that has been set back since: its times say nothing now. Dropped here and in signedInAfter, which runs
+     on every tick a line is up: no read happens until the clock catches up (the cache above), and by then it would look good. */
+  if (m && m.at > Date.now()) m = undefined;
   if (m && at < m.at) return;   // an older read that finished late
   moves.set(service, { at, until, after: m && until > m.until ? m.at : (m ? m.after : null) });
 }

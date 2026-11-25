@@ -28,7 +28,8 @@ agent, asynchronously; another login (#2129, #6095), a credential that outranks 
 - A date that could not be read once is asked for again after 10 minutes (claudeloginlive's MISS_CACHE_MS).
 - Credentials swapped by hand to a later date and back read as a sign-in.
 - macOS only, where the login date is read (the Keychain). A session with no run instance: as on main.
-- A refused agent costs one `security` read a minute, and one tmux and two ps calls a run.
+- A refused agent costs one `security` read a minute, and one tmux and two ps calls a run (a minute, while its login
+  cannot be told), and a look in each project folder on a re-check tick once a sign-in has been seen.
 - A token or key set in a settings file's `env`: not looked for, as the account check does not.
 
 ## Weakest premise
@@ -38,4 +39,4 @@ sessions/<pid>.json; without it nothing is cleared. Measured 11-25: 21 of 21 liv
 transcripts end in a refusal this reads.
 
 ## Test
-engine/oldsigninline-9038.test.js, 24 tests, most through the real snapshot(); 39 mutations, all red.
+engine/oldsigninline-9038.test.js, 25 tests, most through the real snapshot(); 47 mutations, all red.

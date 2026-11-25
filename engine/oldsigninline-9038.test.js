@@ -315,18 +315,30 @@ test('#9038: an older read that finishes late changes nothing', async () => {
   assert.equal(loginlive.signedInAfter(row, 2000), null, 'the late read was taken as a sign-in');
 });
 
-test('#9038: a clock set back: a sign-in read on it is not believed, and reading starts over', async () => {
-  const row = { isDefault: true };
-  const read = async (date) => { until = date; loginexpiry.loginChanged(); loginlive.signedInAfter(row, clock); await settle(); return loginlive.signedInAfter(row, clock); };
+test('#9038: a clock set back: a sign-in read on it is never believed, not even once the clock has caught up', async () => {
   clock = T0 + 60 * 60000;   // an hour fast
+  await repaired();
+  clock -= 60 * 60000;       // put right
+  await tick();
+  say(S1, asked(), refused());   // revoked since; its time is before the sign-in the fast clock saw
+  await ticks(70 * MIN);
+  await stands('a refusal after the clock was set back read as old');
+  until = D2 + DAY;          // and reading has started over: a sign-in on the right clock is seen
+  await ticks(2 * MIN);
+  assert.equal(refusals(await ticks(5 * MIN)), 0, 'CONTROL');
+});
+
+test('#9038: nor when the first thing asked on the right clock is a read', async () => {
+  const row = { isDefault: true };
+  const read = async (date) => { until = date; loginexpiry.loginChanged(); loginlive.signedInAfter(row, clock); await settle(); };
+  clock = T0 + 60 * 60000;
   await read(D1);
-  clock += 60000;
-  assert.equal(await read(D2), T0 + 60 * 60000, 'CONTROL');
-  clock = T0 + 3 * 60000;
-  assert.equal(loginlive.signedInAfter(row, clock), null, 'a sign-in from the future');
+  clock = T0;
+  until = D2; loginexpiry.loginChanged();
+  await loginlive.validUntil(row, clock);   // AI Models, not a tick
+  clock = T0 + 61 * 60000;
   await read(D2);
-  clock += 60 * 60000;
-  assert.equal(loginlive.signedInAfter(row, clock), null, 'it came back once the clock caught up');
+  assert.equal(loginlive.signedInAfter(row, clock), null, 'a date from the fast clock was taken as the earlier one');
 });
 
 test('#9038: readPaneLogin: the pane\'s own process, its arguments apart from its environment', async () => {

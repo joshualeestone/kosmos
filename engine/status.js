@@ -9715,14 +9715,14 @@ function signInLineOld(pane, dir, now, liveAuth) {
    (the instance the supervisor stamps on its session; none: never), one ask at a time, and again after PANE_LOGIN_RETRY_MS
    when it could not be told. */
 const PANE_LOGIN_RETRY_MS = 60 * 1000;
-const paneLogins = new Map();   // agent -> { run, at, asking, got }
+const paneLogins = new Map();   // agent -> { run, target, at, asking, got }
 let paneLoginReader = null;
 function setPaneLoginReaderForTests(fn) { paneLoginReader = typeof fn === 'function' ? fn : null; paneLogins.clear(); }
 function paneLogin(pane, now) {
   const run = pane.tokenInstance;
   if (!run) return null;
   let e = paneLogins.get(pane.name);
-  if (!e || e.run !== run) { e = { run, at: -Infinity, asking: false, got: null }; paneLogins.set(pane.name, e); }
+  if (!e || e.run !== run || e.target !== pane.target) { e = { run, target: pane.target, at: -Infinity, asking: false, got: null }; paneLogins.set(pane.name, e); }
   if (!e.got && !e.asking && now - e.at >= PANE_LOGIN_RETRY_MS) {
     e.asking = true; e.at = now;
     Promise.resolve().then(() => (paneLoginReader || readPaneLogin)(pane.target)).then((got) => { e.got = got || null; }, () => {}).then(() => { e.asking = false; });
