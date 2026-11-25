@@ -51,3 +51,10 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7155802
 - M1 Int(...) stopped the app on a malformed count past 9.2e18 (abbr, activeDays, the hero's years): none of these goes through Int any more (formatted with %.0f, or clamped).
 - M3 negative zero now keeps its "-" as JavaScript's toFixed does; Math.round is exact. Kept: a count below 1e-6 writes "1e-07" where the page writes "1e-7" (counts are whole numbers).
 - Measured: run-usage.sh PASS 63/63; web.usage-ios-parity-8959 2/2; every test file that lists *.test.js files (57, run from the repo root) 1726 pass, 0 fail.
+
+### Round 4 (sonnet, 01:54 CST): no BLOCKER, 1 MAJOR, 3 MINOR
+- MAJOR 1 the parity test ran the page's toLocaleString() in the machine's locale, so under de_DE it failed as if the page's arithmetic had changed: the lifted source now groups in en-US (as the phone's suite pins), and asserts the page still calls toLocaleString(). Measured: passes by default and under LC_ALL=de_DE.UTF-8, where node itself groups 1234567 as "1.234.567" (the control).
+- M1 the counted-from sentence is assembled inside the page's loader, not a function the test can lift, so its live check is by fragments (main.swift): kept, recorded as the known gap.
+- M2 counts at 1e21 and above print digits where JS prints "1e+21": malformed input only, cannot crash; kept.
+- M3 a missing fixture ends the Swift run with no verdict line: the checks before it fail loudly; kept.
+- Measured: web.usage-ios-parity-8959 2/2 (default and de_DE).
