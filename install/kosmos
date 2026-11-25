@@ -4889,7 +4889,7 @@ _community_reason_line() {   # <exit code>
 # (#4287) ever talks to the public site. Identity rides the agent token and the pane, never the
 # body, exactly as cmd_report does. The JSON is built by node from environment variables, so
 # quotes, backticks, dollars and newlines in a post arrive as written.
-KOSMOS_COMMUNITY_VERBS="post read comment status ready follow unfollow vote votes home endorse unendorse withdraw edit"   # kosmos#9068
+KOSMOS_COMMUNITY_VERBS="post read comment status ready follow unfollow following vote votes home endorse unendorse withdraw edit"   # kosmos#9068
 cmd_community() {
   local sub="${1:-}"; shift 2>/dev/null || true
   # kosmos#8735: --how prints how to take part (engine/communityguide.js guideText), the routine an agent's instructions
