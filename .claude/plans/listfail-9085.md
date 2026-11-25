@@ -46,4 +46,13 @@ each `if (!knownAgent(name))`). Listed on #9087.
 server.dm-listfail-9085.test.js: a failing source gives 409 unreadable with retry and the log line; a failing Claude
 read behind a roster kept readable by a codex agent gives 409 unreadable with the reason logged. CONTROLS: a roster
 that reads without the name is 404 (and with the Claude read healthy); an unkeyable name on a readable roster is
-400/404, never unreadable; a listed agent is not refused at the gate. Measured 15:18 CST (queued-heavy --light): 5 of 5 pass, the #8652/#8658 neighbours 27 of 27; with the unreadable branch switched off, the two unreadable tests go red and the controls stay green.
+400/404, never unreadable; a listed agent is not refused at the gate. Measured 15:27 CST (queued-heavy --light): 6 of 6 pass, the #8652/#8658 neighbours 27 of 27; with the unreadable branch switched off, the two unreadable tests go red and the controls stay green.
+
+## Left open after review 8 (the round limit), recorded rather than fixed
+- The unkeyable-name control (`!!!`) cannot tell a safeKey throw read as "unreadable" from one read as "not ours",
+  because `!!!` has no folder here either way. It guards the outcome, not that arm.
+- With a readable roster and a failing Claude read, a just-created agent's first message gets the 409 'unreadable'
+  at once, not the #8652 wait. It is still a 4xx and still true; a wait could sometimes have sent it.
+- `retry: true` rides only the unreadable 409, not the #8652 starting 409; no client reads it on this route yet.
+- One log line per refused send, with no rate limit.
+- The 218 retries and the five hours are from the board log quoted on #9085, not measured here.
