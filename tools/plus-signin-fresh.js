@@ -127,24 +127,38 @@ function board(port, token) {
 }
 function tokenAt(root) { try { return fs.readFileSync(path.join(root, 'board.token'), 'utf8').trim(); } catch { return ''; } }
 
+/* kosmos#9018: which kind of board is driven. 'installed' (the default) is an enforcing board with a
+   board.token. 'sandboxed' is a fully sandboxed throwaway board started from the pointer's own tarball
+   (tools/plus-signin-auto.sh): every data root redirected and tmux stubbed, so it can never read or
+   type into the fleet's terminals or arm launchd, and therefore it writes no token and enforces none
+   (engine/boardauth.js). Asked for by name, never inferred from a missing token, and refused on a
+   board that has a token: the record names the kind, so the gate's reader can see which it was. */
+function boardKind(a) {
+  const k = String(a['board-kind'] || 'installed');
+  if (k !== 'installed' && k !== 'sandboxed') setup('--board-kind is installed or sandboxed, not ' + JSON.stringify(k));
+  return k;
+}
+
 /** The board on the port, checked to be the pointer's build. */
 async function boardFor(a, ptr) {
   const root = storeRoot() || setup('cannot resolve the board\'s store root');
+  const kind = boardKind(a);
   const token = tokenAt(root);
-  if (!token) setup('no board.token at ' + root + ': not an enforcing installed board, so not a fresh staging board');
+  if (kind === 'installed' && !token) setup('no board.token at ' + root + ': not an enforcing installed board, so not a fresh staging board (a sandboxed throwaway board has none: pass --board-kind sandboxed)');
+  if (kind === 'sandboxed' && token) setup('--board-kind sandboxed, but ' + root + ' holds a board.token: that board enforces, so it is not a sandboxed throwaway board');
   const b = board(boardPort(a.port), token);
   const identity = await b.identity();
   if (record.boardVersion(identity) !== ptr.version) {
     setup('the board on port ' + boardPort(a.port) + ' reports ' + JSON.stringify(identity || 'nothing') + ', not the staged build ' + ptr.version + ': install and start the staged build first');
   }
-  return { b, identity };
+  return { b, identity, kind };
 }
 
 function progressPath(sha) { return record.recordPath(sha).replace(/\.json$/, '.progress.json'); }
 
 async function start(a) {
   const ptr = pointerFields(a.pointer || setup('--pointer is required'));
-  const { b, identity } = await boardFor(a, ptr);
+  const { b, identity, kind } = await boardFor(a, ptr);
   const seed = String(a.seed || process.env.KOSMOS_SEED_EMAIL || '').trim();
   if (!/^[^@\s]+@[^@\s]+$/.test(seed)) setup('no seed address: pass --seed or set KOSMOS_SEED_EMAIL (the address #1591 names)');
   const st = await b.get('/api/remote');
@@ -156,11 +170,11 @@ async function start(a) {
   if (s.status === 0) { await b.post('/api/remote/signin-cancel', {}, CLEANUP_MS); setup('signin-start: ' + String(s.json.error) + '; try again'); }
   if (s.status !== 200) {
     steps.push({ id: 'start', result: 'fail', detail: String(s.json.error || s.status) });
-    return finishRecord(ptr, identity, seed, 'NONE', steps);
+    return finishRecord(ptr, identity, seed, 'NONE', steps, kind);
   }
   steps.push({ id: 'start', result: 'pass' });
   fs.mkdirSync(path.dirname(progressPath(ptr.sha256)), { recursive: true });
-  fs.writeFileSync(progressPath(ptr.sha256), JSON.stringify({ ...ptr, identity, seed, steps, startedAt: new Date().toISOString() }));
+  fs.writeFileSync(progressPath(ptr.sha256), JSON.stringify({ ...ptr, identity, kind, seed, steps, startedAt: new Date().toISOString() }));
   console.log('plus-signin-fresh: a code was sent to ' + seed + ' at ' + new Date().toISOString() + '. Read the NEWEST message after that time with the Gmail connector (to:' + seed + ' from:kosmosplus.com newer_than:1h),');
   console.log('  note its label (INBOX / SPAM / OTHER), then run: finish --pointer ' + a.pointer + ' --code <code> --placement <label>');
   return 0;
@@ -170,7 +184,8 @@ async function finish(a) {
   const ptr = pointerFields(a.pointer || setup('--pointer is required'));
   let prog;
   try { prog = JSON.parse(fs.readFileSync(progressPath(ptr.sha256), 'utf8')); } catch { setup('no started run for ' + ptr.sha256 + ': run `start` first'); }
-  const { b, identity } = await boardFor(a, ptr);
+  const { b, identity, kind } = await boardFor(a, ptr);
+  if (kind !== (prog.kind || 'installed')) setup('`start` drove a ' + (prog.kind || 'installed') + ' board and `finish` was given --board-kind ' + kind + ': run `start` again');
   if (identity !== prog.identity) setup('the board changed since `start` (' + JSON.stringify(prog.identity) + ' then, ' + JSON.stringify(identity) + ' now): run `start` again');
   const placement = String(a.placement || '').toUpperCase();
   const code = String(a.code || '').trim();
@@ -267,13 +282,13 @@ async function finish(a) {
   } else {
     await b.post('/api/remote/signin-cancel', {}, CLEANUP_MS);
   }
-  return finishRecord(ptr, identity, seed, placement, steps);
+  return finishRecord(ptr, identity, seed, placement, steps, kind);
 }
 
-function finishRecord(ptr, identity, seed, placement, steps) {
+function finishRecord(ptr, identity, seed, placement, steps, kind) {
   const have = new Set(steps.map((s) => s.id));
   for (const id of record.STEPS) if (!have.has(id)) steps.push({ id, result: 'fail', detail: 'not reached' });
-  const rec = { version: ptr.version, sha256: ptr.sha256, board: identity, at: new Date().toISOString(), seed, placement, steps,
+  const rec = { version: ptr.version, sha256: ptr.sha256, board: identity, board_kind: kind || 'installed', at: new Date().toISOString(), seed, placement, steps,
     result: record.STEPS.every((id) => steps.find((s) => s.id === id).result === 'pass') ? 'pass' : 'fail' };
   const f = record.write(rec);
   try { fs.rmSync(progressPath(ptr.sha256), { force: true }); } catch { /* best effort */ }
