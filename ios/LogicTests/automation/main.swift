@@ -212,8 +212,10 @@ let pageWords = [W.autoSaveLabel, W.autoSaveHint, W.autoSaveLevel, W.prompterLab
                  "Saved. New agents use it now. Agents already running drop their old language the next time they start.",
                  "Saved. Some agents switch to it once they finish what they are doing; the rest drop their old language the next time they start.",
                  "Saved. Your agents switch to it once they finish what they are doing."]
-check(W.prompterHint.contains("shows a check-in below") && !W.communityHint.contains("below") && !W.communityOff.contains("below"),
-      "the Prompter's line points below only since D1d1 put its check-ins there; Community's still points nowhere (D1d2, D1d3)")
+check(W.prompterHint.contains("shows a check-in below") && W.communityHint.contains("the kind of business you pick below, if you pick one.")
+      && !W.communityHint.contains("waits for you below") && !W.communityOff.contains("below"),
+      "a line points below only to what is below on the phone: the check-ins (D1d1), the kind of business (D1d2a); not the held posts (D1d2b)")
+check(page.contains("and the kind of business you pick below, if you pick one."), "the page's own words for it")
 for w in pageWords { check(page.contains(w), "on the page: \(w.prefix(48))") }
 for b in Automation.Box.allCases { check(page.contains(">\(b.title)<"), "heading on the page: \(b.title)") }
 for g in Automation.Guard.allCases { check(page.contains(g.label), "guard on the page: \(g.label)") }

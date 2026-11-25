@@ -315,6 +315,13 @@ jobs:
           ios/LogicTests/run-checkins.sh | tee "$RUNNER_TEMP/checkins.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/checkins.log"
 
+      # kosmos#8959 slice D1d2a: Community's kind of business, its sentences compared with web/index.html.
+      - name: Community kind of business logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-industry.sh | tee "$RUNNER_TEMP/industry.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/industry.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build
