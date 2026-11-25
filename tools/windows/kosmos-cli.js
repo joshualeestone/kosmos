@@ -1217,15 +1217,17 @@ async function verbFileNotices(ctx, args) {
 async function verbAway(ctx, args) {
   let hook = false;
   let waitOnly = false;   // kosmos#9049: the wait reminder alone, as the Mac CLI's --hook --wait-only
+  let afterClear = false;   // kosmos#9049: the ask is a /clear's, as the Mac CLI's --after-clear
   while (args.length) {
     const a = args.shift();
     if (a === '--hook') { hook = true; continue; }
     if (a === '--wait-only') { waitOnly = true; continue; }
-    ctx.err('kosmos away takes only --hook (and --wait-only with it).');
+    if (a === '--after-clear') { afterClear = true; continue; }
+    ctx.err('kosmos away takes only --hook (and --wait-only, --after-clear with it).');
     return 2;
   }
   if (waitOnly && !hook) { ctx.err('kosmos away --wait-only goes with --hook.'); return 2; }
-  const route = '/api/away?as=' + (hook ? (waitOnly ? 'waithook' : 'hook&at=startup') : 'text') + '&from_pane=';
+  const route = '/api/away?as=' + (hook ? (waitOnly ? 'waithook' + (afterClear ? '&src=clear' : '') : 'hook&at=startup') : 'text') + '&from_pane=';
   const r = await ctx.call('GET', route, undefined, hook ? { timeoutMs: 1000 } : undefined);
   if (hook) {
     if (!r.reached || r.status !== 200) return 0;

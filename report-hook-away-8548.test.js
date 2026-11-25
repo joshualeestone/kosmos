@@ -77,7 +77,7 @@ test('a compaction asks nothing and prints nothing', () => {
 test('a /clear or a resume asks `away --hook --wait-only`, prints its JSON, and reports nothing', () => {
   for (const source of ['resume', 'clear']) {
     const r = run({ ...startup, source }, JSONLINE + '\n');
-    assert.deepEqual(r.calls, ['away|--hook|--wait-only|'], source);
+    assert.deepEqual(r.calls, [source === 'clear' ? 'away|--hook|--wait-only|--after-clear|' : 'away|--hook|--wait-only|'], source);
     assert.equal(r.out, JSONLINE + '\n', source);
     assert.equal(run({ ...startup, source }, 'kosmos away takes only --hook.\n').out, '', source + ': an older CLI\'s refusal is dropped');
   }
@@ -88,10 +88,11 @@ test('a /clear or a resume asks `away --hook --wait-only`, prints its JSON, and 
 test('a pending answer at a /clear or a resume is asked once more; an empty one is not', () => {
   for (const source of ['clear', 'resume']) {
     const p = run({ ...startup, source }, '{"pending":true}\n');
-    assert.deepEqual(p.calls, ['away|--hook|--wait-only|', 'away|--hook|--wait-only|'], source);
+    const ask = source === 'clear' ? 'away|--hook|--wait-only|--after-clear|' : 'away|--hook|--wait-only|';
+    assert.deepEqual(p.calls, [ask, ask], source);
     assert.equal(p.out, '', source + ': "pending" itself is never printed');
     const e = run({ ...startup, source }, '');
-    assert.deepEqual(e.calls, ['away|--hook|--wait-only|'], source);
+    assert.deepEqual(e.calls, [ask], source);
   }
 });
 

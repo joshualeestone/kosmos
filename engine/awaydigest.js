@@ -192,14 +192,17 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
    wait aside, which holds whatever recorded the later `stopped` (the board answers only when one follows the wait). */
 function waitText(wait, opts) {
   if (!wait || !WAIT_STATES.has(wait.state) || !Number.isFinite(wait.atMs)) return '';
-  const why = opts && opts.ended === true
-    ? 'The board has since set that waiting report aside, '
-    : 'A new run replaces a waiting report on the board, ';
+  const ended = opts && opts.ended === true;
+  const why = ended ? 'The board has since set that waiting report aside, ' : 'A new run replaces a waiting report on the board, ';
+  /* kosmos#9049: automatic reports never end a wait, so an agent that is no longer waiting but never said so is reminded
+     at every /clear and resume; the ended wording therefore says how to stop it (any report of its own ends the wait). */
+  const otherwise = ended ? '; if not, report what it is doing (kosmos report working ...) so Kosmos stops reminding it.'
+    : '; if not, there is nothing to do.';
   return 'Kosmos: before this session, this agent last reported that it was waiting (' + wait.state + ', at '
     + isoSecond(wait.atMs) + '), and it has not said otherwise since. ' + why
     + 'so the board no longer shows it. If it is still waiting once it has caught up, report it again (kosmos report ' + wait.state
     + (wait.held === true ? ' --held' : '') + ' ...'
-    + (wait.held === true ? ', held as before, so nothing buzzes the person' : '') + '); if not, there is nothing to do.';
+    + (wait.held === true ? ', held as before, so nothing buzzes the person' : '') + ')' + otherwise;
 }
 
 function contextText(digest, wait, opts) {

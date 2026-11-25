@@ -702,14 +702,15 @@ case "$EVENT" in
         case "$SRC" in
           clear|resume)
             if [ -n "${KOSMOS_AGENT_TOKEN:-}" ] || [ -n "${TMUX_PANE:-}" ]; then
-              WAIT_OUT=$("$KOSMOS" away --hook --wait-only </dev/null 2>/dev/null) || WAIT_OUT=""
+              WAIT_CLEAR=""; [ "$SRC" = clear ] && WAIT_CLEAR=1
+              WAIT_OUT=$("$KOSMOS" away --hook --wait-only ${WAIT_CLEAR:+--after-clear} </dev/null 2>/dev/null) || WAIT_OUT=""
               # A /clear (or an in-session /resume) follows its own SessionEnd at once, and that hook sent `stopped` in
               # the background, so the ask can beat it. The board then answers {"pending":true} (a wait with no session
               # event after it yet), and only then is it asked once more after a short pause. An empty answer (no wait,
               # a refusal, no board) is never asked again.
               if [ "$WAIT_OUT" = '{"pending":true}' ]; then
                 sleep "${KOSMOS_WAIT_RETRY_S:-0.8}"
-                WAIT_OUT=$("$KOSMOS" away --hook --wait-only </dev/null 2>/dev/null) || WAIT_OUT=""
+                WAIT_OUT=$("$KOSMOS" away --hook --wait-only ${WAIT_CLEAR:+--after-clear} </dev/null 2>/dev/null) || WAIT_OUT=""
               fi
               case "$WAIT_OUT" in
                 '{"hookSpecificOutput":'*) printf '%s\n' "$WAIT_OUT" ;;

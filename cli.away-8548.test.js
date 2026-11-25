@@ -113,6 +113,11 @@ test('--hook --wait-only passes the board\'s pending answer through to the hook;
   assert.equal((await runCli(['away', '--hook'], envFor(port))).stdout, '');
 }, { status: 200, text: '{"pending":true}' }));
 
+test('--after-clear marks a /clear\'s ask', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+  await runCli(['away', '--hook', '--wait-only', '--after-clear'], envFor(port));
+  assert.match(seen[0].url, /^\/api\/away\?as=waithook&src=clear&from_pane=%257$/);
+}, { status: 200, text: '' }));
+
 test('--wait-only without --hook is a usage error and never asks the board', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   assert.equal((await runCli(['away', '--wait-only'], envFor(port))).code, 2);
   assert.equal(seen.length, 0);

@@ -21,8 +21,12 @@ conversation already saw what arrived).
   - `started`: a startup came after it and #8634 reminded there, so say nothing (a crash-resume after it too);
   - none yet: answer `{"pending":true}` (a /clear's own `stopped`, sent in the background, has not landed; or a crash
     left the wait shown). Never a reminder, so nothing false is said.
+  - at a /clear (the hook adds `src=clear`), a newest `started` is ALSO pending: a /clear always follows its own
+    SessionEnd, so a `started` there means that SessionEnd's `stopped` has not landed yet (round 4).
   `as=waithook` is new, so a board older than this answers it with plain JSON, which the hooks drop: never the startup
-  digest nor its "a new run replaces" sentence.
+  digest nor its "a new run replaces" sentence. The ended wording ends with how to stop it ("report what it is doing
+  ... so Kosmos stops reminding it"), because automatic reports never end a wait and an agent that is no longer waiting
+  but never said so would otherwise be reminded at every /clear (round 4).
 - CLI: `kosmos away --hook --wait-only` (Mac and Windows) asks `as=waithook` and prints the hook JSON, or
   `{"pending":true}`, or nothing; exit 0, 1 s cap. `--wait-only` alone is a usage error.
 - Mac bash hook and Windows JS hook: at SessionStart `clear` or `resume`, with an agent token (or, on the Mac, a
@@ -54,7 +58,7 @@ Claude Code /clear and resume on a live agent were not driven; the hooks were fe
 ## Tests
 - server.away-9049.test.js: ended wording after a stopped (hook, JSON and text forms), no digest, no report words;
   nothing without a stopped (crash-resume), with the startup path's control; nothing for an ended wait or no wait.
-- engine/awaydigest-9049.test.js: the ended wording and endedAfter.
+- engine/awaydigest-9049.test.js: the ended wording and sessionAfter.
 - engine/kosmos-report-hook.waitresume-9049.test.js: Windows hook at clear/resume (asks wait=only, prints, no report),
   compact and no-token ask nothing, startup control.
 - report-hook-away-8548.test.js: the Mac hook's clear/resume now ask `away --hook --wait-only` (this changed the old
@@ -62,4 +66,4 @@ Claude Code /clear and resume on a live agent were not driven; the hooks were fe
   session is not asked.
 - cli.away-8548.test.js and tools.windows-kosmos-cli-away-8548.test.js: --hook --wait-only's URL on both CLIs;
   --wait-only alone is a usage error.
-- Mutants: the board ignoring endedAfter, the bash hook never asking, the JS hook never asking: each fails one test.
+- Mutants: the board accepting any later stopped (the old rule), no pending answer, the bash hook never asking, the JS hook never asking: each fails one test.

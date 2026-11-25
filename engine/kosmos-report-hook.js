@@ -600,7 +600,7 @@ async function takeFileNotices(ackFile, io) {
 /** kosmos#8548: GET /api/away?as=hook, after a recorded `started` (see main): what could not reach this agent since the
  *  board last heard from it. Returns the SessionStart hook JSON to print, or ''. Never throws; every failure is silent. */
 const AWAY_TIMEOUT_MS = 1000;   // the CLI's cap for --hook
-const WAIT_RETRY_MS = 800;      // kosmos#9049: the pause before asking again about a `pending` wait, as the Mac hook's
+const WAIT_RETRY_MS = 800;      // kosmos#9049: the pause before asking again about a `pending` wait (the Mac hook waits the same)
 async function takeAway(io) {
   const o = io || {};
   const headers = {};
@@ -614,7 +614,7 @@ async function takeAway(io) {
   const timer = setTimeout(() => ctl.abort(), o.timeoutMs || AWAY_TIMEOUT_MS);
   try {
     // kosmos#9049: waitOnly asks for the reminder of the agent's own wait alone (a /clear or a resume, see main).
-    const ask = o.waitOnly === true ? '/api/away?as=waithook&from_pane=' : '/api/away?as=hook&from_pane=';
+    const ask = o.waitOnly === true ? '/api/away?as=waithook' + (o.clear === true ? '&src=clear' : '') + '&from_pane=' : '/api/away?as=hook&from_pane=';
     const res = await doFetch(o.url + ask, { method: 'GET', headers, signal: ctl.signal, redirect: 'manual' });
     if (!res) return '';
     let t = '';
@@ -748,7 +748,7 @@ async function main(io) {
       const ap = await proven(c0, o.awayTimeoutMs || AWAY_TIMEOUT_MS);
       if (ap.ok && ap.leftMs > 0) {
         const ask = () => takeAway({ url: c0.url, boardToken: c0.boardToken, agentToken: c0.agentToken, world: c0.world,
-          fetchImpl: o.fetchImpl, timeoutMs: ap.leftMs, waitOnly: true });
+          fetchImpl: o.fetchImpl, timeoutMs: ap.leftMs, waitOnly: true, clear: field(evt, 'source') === 'clear' });
         let json = await ask();
         /* `pending`: a wait with no session event after it yet. This hook awaits its own SessionEnd send, but whether
            Claude Code waits for that hook before the next SessionStart is not measured, so ask once more after a pause. */

@@ -15,6 +15,8 @@ test('the ended wording says only that the board set the wait aside; the default
   const ended = away.waitText(W, { ended: true });
   assert.match(ended, /The board has since set that waiting report aside, so the board no longer shows it\./);
   assert.doesNotMatch(ended, /A new run replaces/);
+  assert.match(ended, /if not, report what it is doing \(kosmos report working \.\.\.\) so Kosmos stops reminding it\.$/);
+  assert.match(away.waitText(W), /if not, there is nothing to do\.$/, 'the startup wording is unchanged (#8634)');
   const plain = away.waitText(W);
   assert.match(plain, /A new run replaces a waiting report on the board, so the board no longer shows it\./);
   assert.doesNotMatch(plain, /has since set that waiting report aside/);
