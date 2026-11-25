@@ -331,7 +331,7 @@ enum Account {
     static func nameState(_ data: Data?) -> NameState {
         guard let data, let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return .none }
         let denied = (obj["device_status"] as? String) == "denied"
-        let noMac = ((obj["addresses"] as? [Any])?.isEmpty ?? true) && !denied
+        let noMac = computers(data) == .zero   // review 5: one copy of the page's noMac rule
         if noMac, let own = obj["account_address"] as? String, !own.isEmpty { return .address(own) }
         let hasName = obj["has_name"] as? NSNumber
         let nameFalse = hasName.map { CFGetTypeID($0) == CFBooleanGetTypeID() && !$0.boolValue } ?? false
