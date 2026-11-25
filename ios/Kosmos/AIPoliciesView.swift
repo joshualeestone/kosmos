@@ -13,6 +13,9 @@ struct AIPoliciesView: View {
 
     @State private var read: AIPolicies.Read?
     @State private var note: (text: String, problem: Bool)?
+    // Where the note shows: under the form for an add or a replace, under the list for a rename or a remove, so it is
+    // beside what was tapped (the page's one pol-msg sits by its form, which on the phone is below the list).
+    @State private var noteInForm = true
     @State private var busy = false
     @State private var armed: String?
     // The add form: a new policy, or the words of one being replaced (the page's POL_EDIT).
@@ -62,6 +65,9 @@ struct AIPoliciesView: View {
         .navigationTitle(AIPolicies.Words.title)
         .navigationBarTitleDisplayMode(.inline)
         .dotsRefresh { await load() }
+        .onChange(of: note?.text) { said in
+            if let said { UIAccessibility.post(notification: .announcement, argument: said) }
+        }
         .task(id: mac?.url) {
             if shownURL != mac?.url {
                 shownURL = mac?.url
@@ -119,7 +125,7 @@ struct AIPoliciesView: View {
             Text(AIPolicies.Words.title)
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                if let note { Text(note.text).foregroundColor(note.problem ? Palette.dangerWord : Palette.secondary) }
+                if let note, !noteInForm { noteText(note) }
                 Text(AIPolicies.Words.hint).foregroundColor(Palette.secondary)
             }
             .font(.footnote)
@@ -223,8 +229,16 @@ struct AIPoliciesView: View {
         } header: {
             Text(replacing.map { "Replace the words of " + $0.name } ?? AIPolicies.Words.addLabel)
         } footer: {
-            Text(replacing == nil ? AIPolicies.Words.addHint : AIPolicies.Words.replaceHint).font(.footnote).foregroundColor(Palette.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                if let note, noteInForm { noteText(note) }
+                Text(replacing == nil ? AIPolicies.Words.addHint : AIPolicies.Words.replaceHint).foregroundColor(Palette.secondary)
+            }
+            .font(.footnote)
         }
+    }
+
+    private func noteText(_ n: (text: String, problem: Bool)) -> some View {
+        Text(n.text).foregroundColor(n.problem ? Palette.dangerWord : Palette.secondary).accessibilityIdentifier("policy-note")
     }
 
     private func startReplacing(_ p: AIPolicies.Policy) {
@@ -237,6 +251,7 @@ struct AIPoliciesView: View {
     // The page refuses an empty name, link or paste in its words before it asks; then the confirm asks.
     private func ask(_ source: AIPolicies.Source, doing: String) {
         armed = nil
+        noteInForm = true
         switch AIPolicies.form(replacing: replacing?.id, name: name, source: source) {
         case .refused(let why): note = (why, true)
         case .ready(let body):
@@ -277,7 +292,9 @@ struct AIPoliciesView: View {
         if let r = replacing, case .saved(let list, _)? = read, !list.contains(where: { $0.id == r.id }) { replacing = nil }
     }
 
-    @MainActor private func change(_ request: URLRequest?, did: AIPolicies.Did, doing: String) async -> Bool {
+    /// `then` runs once the change is done and before the list is fetched again, so a form the person starts during
+    /// that fetch is not cleared under them.
+    @MainActor private func change(_ request: URLRequest?, did: AIPolicies.Did, doing: String, then: () -> Void = {}) async -> Bool {
         guard let mac, !busy, let request else { return false }
         busy = true
         note = (doing, false)
@@ -289,21 +306,24 @@ struct AIPoliciesView: View {
         switch AIPolicies.done(did, status: status, data: data) {
         case .done(let said):
             note = (said, false)
+            then()
             await load()
             return true
         case .refused(let why):
             note = (why, true)
             // This change dropped a first load still in flight (the generation bump above); fetch the list again.
-            if read == nil { await load() }
+            // Also when the outcome is unknown (no answer, status 0): the computer may have made the change anyway.
+            if read == nil || status == 0 { await load() }
             return false
         }
     }
 
     @MainActor private func save(_ body: [String: String], doing: String) async {
-        if sample { sampleChange(.save(body)); return }
+        if sample { noteInForm = true; sampleChange(.save(body)); return }
         guard let mac else { return }
         let did: AIPolicies.Did = body["id"] == nil ? .handed : .replaced
-        if await change(AIPolicies.saveRequest(mac, body), did: did, doing: doing) {
+        noteInForm = true
+        _ = await change(AIPolicies.saveRequest(mac, body), did: did, doing: doing) {
             name = ""; link = ""; words = ""
             replacing = nil
         }
@@ -311,24 +331,27 @@ struct AIPoliciesView: View {
 
     @MainActor private func rename(_ p: AIPolicies.Policy, to typed: String) async {
         let n = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        noteInForm = false
         // As the page: no name is refused in its words; the same name changes nothing.
         if n.isEmpty { note = (AIPolicies.Words.nameFirst, true); return }
         if n == p.name { return }
         if sample { sampleChange(.rename(p.id, n)); return }
         guard let mac else { return }
-        if await change(AIPolicies.renameRequest(mac, id: p.id, name: n), did: .renamed, doing: AIPolicies.Words.renaming),
-           replacing?.id == p.id {
-            replacing = AIPolicies.Policy(id: p.id, name: n, source: p.source, savedAt: p.savedAt, chars: p.chars, opening: p.opening)
+        _ = await change(AIPolicies.renameRequest(mac, id: p.id, name: n), did: .renamed, doing: AIPolicies.Words.renaming) {
+            if replacing?.id == p.id {
+                replacing = AIPolicies.Policy(id: p.id, name: n, source: p.source, savedAt: p.savedAt, chars: p.chars, opening: p.opening)
+            }
         }
     }
 
     @MainActor private func remove(_ p: AIPolicies.Policy) async {
         armed = nil
+        noteInForm = false
         if sample { sampleChange(.remove(p.id)); return }
         guard let mac else { return }
-        if await change(AIPolicies.removeRequest(mac, id: p.id), did: .removed, doing: AIPolicies.Words.removing) {
+        if !(await change(AIPolicies.removeRequest(mac, id: p.id), did: .removed, doing: AIPolicies.Words.removing) {
             if replacing?.id == p.id { replacing = nil }
-        } else {
+        }) {
             armed = p.id   // as the page: a refused removal still shows "Remove it for good?"
         }
     }

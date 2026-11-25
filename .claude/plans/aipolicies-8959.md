@@ -46,3 +46,11 @@ Branch `aipolicies-8959`, stacked on D1b1 (16b7bfd952), which is stacked on D1a:
 - M4 a refused Remove dropped back to "Remove": now re-armed, as the page.
 - M5 sample build: an add after removing every policy did nothing: `.none` now starts an empty list. Also fixed (found while there): sample ids `s<count+1>` collided after a removal; now unique.
 - Measured: run-aipolicies.sh PASS 104/104 (two loose checks became one anchored one); typecheck rc 0, 0 errors.
+
+### Round 2 (sonnet, 00:11 CST): no BLOCKER, 1 MAJOR, 4 MINOR
+- MAJOR a change's sentence showed only in the list's footer, above the form, so an add's "Saved." or "Give it a name first." could land off screen. Fixed: the note shows beside what was tapped (under the form for add and replace, as the page's pol-msg sits by its form; under the list for rename and remove), and VoiceOver announces it.
+- M2 an unknown outcome (no answer, status 0, e.g. a slow link fetch past 30 s) left the list stale: a refusal with status 0 now fetches the list again.
+- M3 the form was cleared after the list reload, so a replace started during the reload was wiped: change() now takes the clear as `then`, run before the reload.
+- M4 an empty rename closes the alert and loses the text: kept; an iOS alert closes on any button. The page's "Give it a name first." shows under the list.
+- M5 a failed reload after a success replaces the list with the error: kept, as the page does; keeping a stale list would hide that the computer did not answer.
+- Measured: typecheck rc 0; run-aipolicies.sh PASS 104/104 (view-only changes; the UI run will see the placement).
