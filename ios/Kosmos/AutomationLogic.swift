@@ -299,9 +299,9 @@ enum Automation {
 
     // MARK: What the screen says
 
-    // Why a read or a write did not work. 401: the phone's sign-in to the computer is gone (Board.phoneShutOut, as
-    // Settings says it). Otherwise the computer's own sentence when it gave one, which includes a 403's
-    // "only you can change this, from Settings" (kept, not hidden behind the sign-in line), then the board's words.
+    // Why a read or a write did not work. 401 and 403: the phone's sign-in line (Board.phoneShutOut). No answer: says so.
+    // A read: the page's read line, whatever the body says. A save: the computer's `error` or `because`, else the
+    // board's words.
     static func refusal(status: Int, data: Data, writing: Bool) -> String {
         if status == 401 { return Board.phoneShutOut }
         let said = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any]).flatMap { text($0["error"]) ?? text($0["because"]) }
@@ -342,8 +342,8 @@ enum Automation {
 
     // After a Language save, what happens to running agents, in the page's words (web/index.html agentLanguageChange).
     static func languageSaved(status: Int, data: Data) -> String? {
+        // Only a .saved outcome calls this, which for Language means ok:true (writeOutcome), so ok is not read again.
         guard let o = object(status, data) else { return nil }
-        if bool(o["ok"]) != true { return Words.savedUnread }
         let n = (o["couldNot"] as? NSNumber)?.intValue ?? 0
         let changed = (o["changed"] as? NSNumber)?.intValue ?? 0
         let removed = (o["removed"] as? NSNumber)?.intValue ?? 0

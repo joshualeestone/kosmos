@@ -169,7 +169,6 @@ check(lang(#"{"ok":true,"changed":2,"removed":2,"couldNot":0}"#) == "Saved. New 
 check(lang(#"{"ok":true,"changed":3,"removed":1,"couldNot":0}"#) == "Saved. Some agents switch to it once they finish what they are doing; the rest drop their old language the next time they start.", "some removed")
 check(lang(#"{"ok":true,"changed":0,"removed":0,"couldNot":1}"#) == "Saved. 1 agent could not be changed just now and keep the language they have until Kosmos next starts.", "one could not")
 check(lang(#"{"ok":true,"changed":0,"removed":0,"couldNot":-1}"#) == "Saved. Your agents pick it up the next time Kosmos starts.", "none now, all at the next start")
-check(lang(#"{"ok":false}"#) == Automation.Words.savedUnread, "saved, unread")
 check(Automation.readRefusal(.community, status: 200, data: json(#"{"on":true,"ok":false}"#)) == Automation.Words.communityUnread, "Community's own could-not-read sentence")
 check(Automation.readRefusal(.prompter, status: 200, data: json("{}")) == Automation.Words.readFailed, "the others say the page's general one")
 check(Automation.readRefusal(.community, status: 500, data: json("")) == Automation.Words.communityUnread, "Community's sentence for a 500 too, as the page's")
