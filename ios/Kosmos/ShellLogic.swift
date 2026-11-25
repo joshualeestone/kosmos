@@ -249,8 +249,9 @@ enum Shell {
             pending = nil
             if let h = url?.host?.lowercased() { shown.insert(h) }
         }
-        // The load ended without showing: failed, stopped, or became a download.
-        mutating func ended() { pending = nil }
+        // A load ended without showing: failed, stopped, or became a download. A stopped load is reported after the one that
+        // replaced it is on its way, so only its own address is cleared (any, when its address is not known).
+        mutating func ended(_ url: URL?) { if url == nil || url == pending { pending = nil } }
         // Another account (or none): what the last one opened is no reason to let a page in.
         mutating func accountChanged() { opening = nil; shown = [] }
 
@@ -273,6 +274,13 @@ enum Shell {
             return port == want
         }
         return port == nil && PushBridge.isMacHost(host, coordinator: coordinator)
+    }
+
+    // An address shaped like a computer's that linkDecision sends out may be one added since the account's list was read:
+    // worth one fresh list before it goes to Safari. Never a name Kosmos+ keeps.
+    static func mayBeNewComputer(_ url: URL, coordinator: URL, reserved: Set<String>) -> Bool {
+        guard isOurs(url, coordinator: coordinator), let host = url.host?.lowercased(), host != coordinator.host?.lowercased() else { return false }
+        return !reserved.contains(host.split(separator: ".").first.map(String.init) ?? "")
     }
 
     // Decides a MAIN-FRAME navigation or a new-window request. Subframe loads never

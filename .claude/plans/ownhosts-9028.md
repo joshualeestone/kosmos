@@ -34,8 +34,8 @@ kind. Once the list is read it no longer applies, so a service Kosmos+ adds late
   could come in from a Kosmos+ page until the app's reserved list has it.
 - A board page could send itself to Kosmos+ and at once on to another address while the list is unread. The board is the person's
   own code, and Kosmos+ decides who that computer lets in.
-- A computer added minutes ago, opened from the board's switcher or the account page before the app reads the list again, opens in
-  Safari once.
+- A computer added since the list was read waits for one fresh list (BoardClient.rereadMacs) before it is judged; if that read fails, it
+  opens in Safari.
 - Not run in a simulator yet: sign-in, a notification on a cold launch, the switcher, back, and the community link.
 
 ## Tests

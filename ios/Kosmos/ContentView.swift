@@ -275,7 +275,10 @@ struct ContentView: View {
         // it from the native status poll (the engine's flag; once shown it stays, so this only ever adds the tab).
         .onChange(of: board.tasksTab) { earned in if earned == true { web.earnTasks() } }
         // kosmos#9028: which links stay in the app is judged against the account's own computers.
-        .onAppear { web.ownComputers = { [weak board] in (board?.macs.map(\.address) ?? [], board?.macURL) } }
+        .onAppear {
+            web.ownComputers = { [weak board] in (board?.macs.map(\.address) ?? [], board?.macURL) }
+            web.rereadComputers = { [weak board] in await board?.rereadMacs() }
+        }
         // kosmos#6255: "Help Kosmos grow", asked once per connection. Held back while locked or under another sheet, and it
         // comes up when those end. Only the person's own press answers it (the view's buttons), never the sheet going away.
         .task(id: board.macURL) { await board.checkInviteStep() }
@@ -831,6 +834,7 @@ final class BoardWeb: ObservableObject {
     // kosmos#9028: the signed-in person's own computers (the list, and the connected one), read when a link is judged. Held
     // here because a lock replaces the coordinator. ContentView sets it.
     var ownComputers: () -> (addresses: [String], connected: URL?) = { ([], nil) }
+    var rereadComputers: () async -> Void = {}
     // Whether the bar shows Tasks: the board's own flag, remembered so a launch shows the bar it last had.
     // Remembered for the app, not per computer (the board's own flag is per computer): after a switch, a launch shows
     // the last computer's bar until the first read lands.
@@ -1172,6 +1176,17 @@ struct WebView: UIViewRepresentable {
             webView.load(URLRequest(url: url))
         }
         func accountChanged() { trail.accountChanged() }
+        // The decision, after one fresh list when the address may be a computer added since the list was read.
+        private func decide(_ url: URL, _ origin: Shell.Origin, then: @escaping (Shell.LinkDecision) -> Void) {
+            let now = Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin, known: known)
+            guard now == .external, let web,
+                  Shell.mayBeNewComputer(url, coordinator: KosmosConfig.coordinatorOrigin, reserved: Download.reservedLabels)
+            else { then(now); return }
+            Task { @MainActor in
+                await web.rereadComputers()
+                then(Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin, known: self.known))
+            }
+        }
         private var known: Shell.Known {
             let mine = web?.ownComputers() ?? (addresses: [], connected: nil)
             return trail.known(addresses: mine.addresses, connected: mine.connected,
@@ -1250,14 +1265,16 @@ struct WebView: UIViewRepresentable {
             case .backForward: origin = .history
             default: origin = .pageFlow
             }
-            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin, known: known) {
-            case .inApp:
-                trail.letIn(url)
-                decisionHandler(.allow)
-            case .external:
-                UIApplication.shared.open(url)
-                decisionHandler(.cancel)
-            case .block: decisionHandler(.cancel)
+            decide(url, origin) { [weak self] decision in
+                switch decision {
+                case .inApp:
+                    self?.trail.letIn(url)
+                    decisionHandler(.allow)
+                case .external:
+                    UIApplication.shared.open(url)
+                    decisionHandler(.cancel)
+                case .block: decisionHandler(.cancel)
+                }
             }
         }
 
@@ -1270,10 +1287,12 @@ struct WebView: UIViewRepresentable {
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
             guard let url = navigationAction.request.url else { return nil }
-            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: .newWindow, known: known) {
-            case .inApp: webView.load(navigationAction.request)
-            case .external: UIApplication.shared.open(url)
-            case .block: break
+            decide(url, .newWindow) { [weak webView] decision in
+                switch decision {
+                case .inApp: webView?.load(navigationAction.request)   // judged again as it loads
+                case .external: UIApplication.shared.open(url)
+                case .block: break
+                }
             }
             return nil
         }
@@ -1338,6 +1357,7 @@ struct WebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+            trail.ended(navigationResponse.response.url)
             download.delegate = self
             active[ObjectIdentifier(download)] = download
         }
@@ -1595,12 +1615,12 @@ struct WebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            trail.ended()
+            trail.ended((error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL)
             show(error, provisional: true)
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            trail.ended()
+            trail.ended((error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL)
             show(error, provisional: false)
         }
 
