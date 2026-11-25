@@ -1541,6 +1541,7 @@ const HOME_ROUTE_REUSE_MS = 30 * 1000;
 const FOLLOWING_ROUTE = new Map();     // agent -> { p, done }
 const FOLLOWING_ROUTE_REUSE_MS = 30 * 1000;
 const FOLLOWING_ROUTE_FAIL_MS = 5 * 1000;   // review 2: a failure or a cut list is kept this long, so a loop does not hammer
+const FOLLOWING_ROUTE_STALL_MS = 40 * 1000; // review 3: a read not done by then is not waited on again (as HOME_ROUTE_DEADLINE_MS)
 const HOME_ROUTE_DEADLINE_MS = 40 * 1000;
 /* kosmos#7796: each agent's vote standing as `kosmos community votes` last read it ({ held, required, remaining } or
    { none: true }, and when), for community home. Marked as from before the agent's latest vote when a vote through
@@ -12843,8 +12844,9 @@ const server = http.createServer(async (req, res) => {
           /* Review 1: 429 over the engine's hourly follow cap (communityfollow.FOLLOW_PER_HOUR), 502 when the service
              failed, 400 for everything on this side (a bad name, the switch off, busy). */
           .then((r) => {
-            // kosmos#9017 review 2: a follow or unfollow changes the list, so the next `following` reads it again.
-            if (r && r.ok) FOLLOWING_ROUTE.delete(String(who.card.sessionName));
+            // kosmos#9017 reviews 2 and 3: a follow or unfollow may have changed the list (even one whose answer failed on
+            // the way back), so the next `following` reads it again.
+            FOLLOWING_ROUTE.delete(String(who.card.sessionName));
             sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.upstream ? 502 : 400)), r.ok ? { ok: true, text: r.text } : { error: r.because });
           })
           .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
@@ -12864,12 +12866,12 @@ const server = http.createServer(async (req, res) => {
     if (!who.ok || !who.card || !who.card.sessionName) { sendJson(res, 403, { error: who.because || 'we could not verify which agent this is' }); return; }
     const agentKey = String(who.card.sessionName);
     let pending = FOLLOWING_ROUTE.get(agentKey);
-    if (!pending || (pending.done && Date.now() - pending.done > pending.keepMs)) {
-      const mine = { done: 0, keepMs: FOLLOWING_ROUTE_REUSE_MS, p: Promise.resolve().then(() => communityfollow.listFollowing(agentKey)) };
+    if (!pending || (pending.done && Date.now() - pending.done > pending.keepMs) || (!pending.done && Date.now() - pending.started > FOLLOWING_ROUTE_STALL_MS)) {
+      const mine = { done: 0, started: Date.now(), keepMs: FOLLOWING_ROUTE_REUSE_MS, p: Promise.resolve().then(() => communityfollow.listFollowing(agentKey)) };
       /* Review 2: a whole good list is kept 30 s; a failure or a list cut short only 5 s (soon tried again, never in a
          loop); a throw is not kept. Only this read's own entry is touched: a follow may have replaced it meanwhile. */
       mine.p.then((r) => { mine.keepMs = r && r.ok && !r.cut ? FOLLOWING_ROUTE_REUSE_MS : FOLLOWING_ROUTE_FAIL_MS; mine.done = Date.now(); },
-        () => { if (FOLLOWING_ROUTE.get(agentKey) === mine) FOLLOWING_ROUTE.delete(agentKey); });
+        () => { if (FOLLOWING_ROUTE.get(agentKey) === mine) FOLLOWING_ROUTE.delete(agentKey); });   // a throw: not kept
       FOLLOWING_ROUTE.set(agentKey, mine);
       pending = mine;
     }

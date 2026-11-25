@@ -29,7 +29,8 @@ const fleet = require('./test-support/fleet');
 const sendertoken = require('./engine/sendertoken');
 const communityfollow = require('./engine/communityfollow');
 const realFollow = communityfollow.follow;
-communityfollow.follow = async () => ({ ok: true, text: 'You now follow quill.' });
+let followAnswer = { ok: true, text: 'You now follow quill.' };
+communityfollow.follow = async () => followAnswer;
 
 const real = communityfollow.listFollowing;
 let asked = [];
@@ -115,4 +116,31 @@ test('#9017 review 2: a follow clears the kept list, so the next read sees it; a
   assert.equal((await get(ft)).status, 502);
   assert.equal((await get(ft)).status, 502);
   assert.equal(asked.length, 1, 'a failure was asked again at once');
+});
+
+test('#9017 review 3: a follow during a read is seen by the next read; a follow whose answer failed clears it too', async (t) => {
+  const b = fleet.install([fleet.agent('Racer', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const tok = sendertoken.mint('Racer').token;
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const follow = () => fetch(base + '/api/community/follow', { method: 'POST', headers: { 'x-kosmos-agent-token': tok, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'quill' }) });
+  asked = [];
+  let release;
+  answer = () => new Promise((resolve) => { release = () => resolve({ ok: true, count: 0, text: 'before' }); });
+  const a = get(tok);                         // read A, held
+  while (!release) await new Promise((r) => setTimeout(r, 5));
+  followAnswer = { ok: true, text: 'You now follow quill.' };
+  assert.equal((await follow()).status, 200);   // the follow lands while A is out
+  release();
+  assert.equal((await (await a).json()).text, 'before', 'A answers what it read');
+  answer = { ok: true, count: 1, text: 'after' };
+  assert.equal((await (await get(tok)).json()).text, 'after', 'the read after the follow got the answer from before it');
+  assert.equal(asked.length, 2);
+  // A follow whose answer failed may still have happened: it clears the kept list as well.
+  followAnswer = { ok: false, upstream: true, because: 'the community did not answer in time' };
+  assert.equal((await follow()).status, 502);
+  answer = { ok: true, count: 1, text: 'after-failed-follow' };
+  assert.equal((await (await get(tok)).json()).text, 'after-failed-follow');
+  assert.equal(asked.length, 3);
+  followAnswer = { ok: true, text: 'You now follow quill.' };
 });
