@@ -1348,7 +1348,7 @@ do {
         check(Board.partWritten(.who(part: "1", "gus", was: nil), before: [], now: p.parts) && !Board.partWritten(.who(part: "1", nil, was: nil), before: [], now: p.parts) && Board.partWritten(.who(part: "2", nil, was: nil), before: [], now: p.parts)
               && !Board.partWritten(.who(part: "9", nil, was: nil), before: [], now: p.parts), "who: written when the part reads so; a part that is gone is not")
         check(!Board.partWritten(.close(part: "1"), before: [], now: p.parts) && Board.partWritten(.reopen(part: "1"), before: [], now: p.parts)
-              && !Board.partWritten(.reopen(part: "9"), before: [], now: p.parts), "Done and Put back likewise")
+              && !Board.partWritten(.reopen(part: "9"), before: [], now: p.parts) && !Board.partWritten(.close(part: "9"), before: [], now: p.parts), "Done and Put back likewise")
         check(Board.partWritten(.add(" T "), before: [p.parts[0]], now: p.parts) && !Board.partWritten(.add("T"), before: p.parts, now: p.parts) && !Board.partWritten(.add("U"), before: [], now: p.parts),
               "an added part: a new one with its words, never one that was there")
     } else { check(false, "the parts fixture parses") }
@@ -2799,6 +2799,62 @@ func b7ModelTests() async {
         let ok = await going.value
         check(!ok && mac.asked.count == 1, "the Mac switched during the check: nothing sent")
     }
+    do {
+        // Pressed again: the last line goes at the press.
+        let mac = FakeMac(); mac.projects = tasks(); let m = await model(mac)
+        mac.actAnswers = [(400, #"{"error":"no"}"#)]
+        _ = await put(m, .close(part: "2"))
+        check(m.partSay == "no", "premise: refused")
+        mac.holdTheNext()
+        let going = Task { await put(m, .close(part: "2")) }
+        await waitUntil({ mac.holding }, "the second press")
+        check(m.partSay == nil && !m.partRefused, "pressed again: the last line goes at once")
+        mac.release()
+        _ = await going.value
+    }
+    do {
+        // Other words than the ones nobody answered: sent with nothing read first.
+        let mac = FakeMac(); mac.projects = tasks(); let m = await model(mac)
+        mac.actAnswers = [nil]
+        _ = await put(m, .add("Three"))
+        check(m.partSay == Board.partUnsure, "premise: could not tell")
+        mac.asked = []
+        _ = await put(m, .add("Four"))
+        check(posts(mac) == ["parts"] && mac.asked.first != "GET /api/projects", "other words: nothing is read first")
+    }
+    do {
+        // Found made by the check, and the read after it failed: it is made all the same.
+        let mac = FakeMac(); mac.projects = tasks(); let m = await model(mac)
+        mac.actAnswers = [nil]
+        _ = await put(m, .add("Three"))
+        mac.asked = []
+        mac.onSend = { r in
+            if r.url!.path == "/api/projects" { mac.projects = mac.asked.count == 1 ? tasks(extra: #",{"id":3,"sentence":"Three"}"#) : (500, Data()) }
+        }
+        let ok = await put(m, .add("Three"))
+        check(ok && m.partSay == nil && posts(mac).isEmpty, "found made, the read after it failed: made, and nothing is sent")
+    }
+    do {
+        // A line on another part went at the press: what it was said of, changing now, takes nothing of this one's.
+        let mac = FakeMac(); mac.projects = tasks(); let m = await model(mac)
+        mac.actAnswers = [(400, #"{"error":"one"}"#), (400, #"{"error":"two"}"#)]
+        _ = await put(m, .close(part: "1"))
+        check(m.partSay == "one", "premise: refused")
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = tasks(one: #""who":"eli""#) } }
+        _ = await m.writePart(.close(part: "2"), atHold: true, name: name, names: [:])
+        check(m.partSay == "two" && m.partAtHold, "the line is said where this press was made")
+    }
+    do {
+        // Could not tell, then another part refused: the first reading done later leaves the refusal up.
+        let mac = FakeMac(); mac.projects = tasks(); let m = await model(mac)
+        mac.actAnswers = [nil, (400, #"{"error":"no"}"#)]
+        _ = await put(m, .close(part: "1"))
+        check(m.partSay == Board.partUnsure, "premise: could not tell")
+        _ = await put(m, .close(part: "2"))
+        mac.projects = tasks(one: #""who":"dana","closedAt":"2026-11-24T16:00:00.000Z""#)
+        await m.read()
+        check(m.partSay == "no" && m.partRefused, "the first part reading done leaves the second's refusal up")
+    }
     // The line goes with the next press of another kind, and is said by the control it was made with.
     for what in ["done", "hold", "close them"] {
         let mac = FakeMac(); mac.projects = tasks(); let m = await model(mac)
@@ -2895,11 +2951,22 @@ func b7ModelTests() async {
         check(m.holdChoose, "premise: offered again")
         m.sayNoMembersOnHold()
         check(m.holdSay == Board.holdChooseNobody && !m.holdChoose, "nobody on the project: it says where people come from, and the button goes")
+        mac.projects = tasks(#""who":"eli""#)
         await m.read()
-        check(m.holdSay == Board.holdChooseNobody, "and that line is not about the task, so a read leaves it")
+        check(m.page?.parts.last?.who == "eli" && m.holdSay == Board.holdChooseNobody, "and that line is not about the task, so a read of it changed leaves it")
         mac.onSend = nil
         await m.toggleHold(wasOnHold: false, names: [:])
         check(m.holdSay == nil && !m.holdChoose, "a press starts clean")
+    }
+    do {
+        // Choose who offered, then Put on hold refused: the refusal is said without Choose who beside it.
+        let mac = FakeMac(); mac.projects = tasks(own: #","onHold":true"#); let m = await model(mac)
+        mac.actAnswers = [(200, #"{"task":{"number":1,"sentence":"All","progress":{"done":0,"total":2,"closed":false},"parts":[{"id":1,"sentence":"All","who":"dana"},{"id":2,"sentence":"Two"}]},"next":"It stays with Dana."}"#), (400, #"{"error":"no"}"#)]
+        mac.onSend = { r in if r.httpMethod == "POST" { mac.projects = tasks() } }
+        await m.toggleHold(wasOnHold: true, names: [:])
+        check(m.holdChoose, "premise: offered")
+        await m.toggleHold(wasOnHold: false, names: [:])
+        check(m.holdSay == "no" && m.holdRefused && !m.holdChoose, "a refused hold: no Choose who beside it")
     }
     do {
         let mac = FakeMac(); mac.projects = tasks(); let m = await model(mac)
