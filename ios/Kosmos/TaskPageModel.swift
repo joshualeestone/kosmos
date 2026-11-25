@@ -379,13 +379,13 @@ final class TaskPageModel: ObservableObject {
         partWriting = write
         clearPart()
         partAtHold = atHold
-        var before = page.parts
+        let before = page.parts
         let (project, number) = (self.project, self.number)
         var answer: (Data, HTTPURLResponse)?
         var unsent: String?
         var already = false
-        var again = false
-        if let open = addUnsettled.first(where: { $0.words == words }) { again = true; before = open.before }
+        // The page here never shows the words: a read that did would have settled them (keepPartLine).
+        let again = addUnsettled.contains { $0.words == words }
         if again || Board.partChecked(write) {
             let fresh = await freshRead()
             guard current else { return false }
