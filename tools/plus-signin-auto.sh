@@ -10,8 +10,8 @@
 #      else is refused before any download, board or mail call. Sign-in only: nothing here signs up, pays or buys.
 #   2. download the pointer's tarball (<base-url>/<artifact>, or --tarball <file>), check its sha256 against the
 #      pointer, unpack it into a fresh work folder;
-#   3. boot it as a FULLY SANDBOXED throwaway board (every AGENT_WORKFORCE_* data root in the work folder, tmux on its
-#      own socket, auto-update off): it cannot read or type into the fleet's terminals or arm launchd, and it writes no
+#   3. boot it as a FULLY SANDBOXED throwaway board (every AGENT_WORKFORCE_* data root and HOME in the work folder,
+#      tmux on its own socket, auto-update off): it cannot read or type into the fleet's terminals or arm launchd, and it writes no
 #      board.token, so plus-signin-fresh.js is told --board-kind sandboxed;
 #   4. anchor the seed mailbox, `plus-signin-fresh.js start`, read the code AND where Gmail filed it with
 #      `KOSMOS_SIGNIN_PLACEMENT=1 kosmos-signin-code code`, then `finish`;
@@ -37,6 +37,7 @@ die() { say "$*"; exit 2; }
 
 POINTER="" SEED="" PORT=16977 BASE_URL="https://installkosmos.com/dist" TARBALL="" KEEP=0
 while [ $# -gt 0 ]; do
+  case "$1" in --pointer|--seed|--port|--base-url|--tarball) [ $# -ge 2 ] || die "$1 needs a value" ;; esac
   case "$1" in
     --pointer) POINTER="${2:-}"; shift 2 ;;
     --seed) SEED="${2:-}"; shift 2 ;;
@@ -128,10 +129,10 @@ mkdir -p "$WORK/tree" && tar -xzf "$T" -C "$WORK/tree" || die "could not unpack 
 [ -x "$WORK/tree/runtime/bin/node" ] && [ -f "$WORK/tree/app/server.js" ] || die "the tarball has no runtime/bin/node and app/server.js"
 
 # 3. The fully sandboxed throwaway board. Auto-update is switched off BEFORE it first starts (no file means on).
-D="$WORK/data"; mkdir -p "$D/Kosmos" "$WORK/awhome" "$WORK/launch" "$WORK/workers" "$WORK/projects"
+D="$WORK/data"; mkdir -p "$D/Kosmos" "$WORK/home" "$WORK/awhome" "$WORK/launch" "$WORK/workers" "$WORK/projects"
 printf '{"on":false}\n' > "$D/Kosmos/autoupdate.json"
 printf '#!/bin/sh\nexec "%s" -L "%s" "$@"\n' "$TMUX_REAL" "$SOCK" > "$WORK/tmux"; chmod +x "$WORK/tmux"
-( cd "$WORK/tree/app" && exec env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/sbin:/sbin LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
+( cd "$WORK/tree/app" && exec env -i HOME="$WORK/home" PATH=/usr/bin:/bin:/usr/sbin:/sbin LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
     AGENT_WORKFORCE_DATA="$D" AGENT_WORKFORCE_HOME="$WORK/awhome" AGENT_WORKFORCE_LAUNCH="$WORK/launch" \
     AGENT_WORKFORCE_WORKERS="$WORK/workers" AGENT_WORKFORCE_PROJECTS="$WORK/projects" AGENT_WORKFORCE_TMUX_BIN="$WORK/tmux" \
     PORT="$PORT" "$WORK/tree/runtime/bin/node" server.js ) > "$WORK/board.log" 2>&1 &
@@ -152,9 +153,9 @@ export KOSMOS_STORE_ROOT="$D/Kosmos"
 BASE_BOX="$(printf '%s' "$SEED_LC" | sed 's/+[^@]*@/@/')"
 HID="$("$SC" anchor "$BASE_BOX")" || die "could not anchor the seed mailbox $BASE_BOX"
 FA=(--pointer "$POINTER" --port "$PORT" --board-kind sandboxed)
-STARTED=1
 node "$FRESH" start "${FA[@]}" --seed "$SEED"; rc=$?
 [ "$rc" = 0 ] || exit "$rc"   # 1: start was refused and recorded; 2: setup, nothing recorded
+STARTED=1   # only now does a progress file exist that this run owns
 GOTC="$(KOSMOS_SIGNIN_PLACEMENT=1 "$SC" code "$SEED" "$HID" "${KOSMOS_PLUS_CODE_S:-180}")" || die "no sign-in code reached $SEED: nothing recorded"
 CODE="${GOTC%% *}"; PLACE="${GOTC#* }"
 printf '%s' "$CODE" | grep -Eq '^[0-9]{6}$' || die "kosmos-signin-code gave no six-digit code: nothing recorded"
