@@ -55,7 +55,7 @@ SEED_LC="$(printf '%s' "$SEED" | tr '[:upper:]' '[:lower:]')"
 case "$SEED_LC" in
   *[!a-z0-9.+@_-]*|'') die "the seed ${SEED:-(none)} is not a test address: refused before any call" ;;
 esac
-printf '%s' "$SEED_LC" | grep -Eq '^[a-z0-9._-]+\+[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]+$' \
+printf '%s' "$SEED_LC" | grep -Eq '^[a-z0-9][a-z0-9._-]*\+[a-z0-9._-]+@[a-z0-9][a-z0-9.-]*\.[a-z]+$' \
   || die "the seed $SEED is not a plus-tag address (local+tag@domain): refused before any call"
 META=""
 for m in "$HOME"/.config/secrets/kosmosplus-test-*.meta; do
@@ -116,7 +116,7 @@ CANON="$(cd "$WORK" && pwd -P)" || { rm -rf "${WORK:?}"; die "could not resolve 
 WORK="$CANON"
 SOCK="kplusgate-$$"
 TMUX_REAL="$(command -v tmux || echo /usr/bin/false)"
-BOARD_PID="" STARTED=0
+BOARD_PID="" STARTED=0 START_MS=0
 # A backstop for anything still running from inside $WORK (a fresh mktemp folder) once the board is stopped: stop
 # every process whose command line names $WORK, then check none is left. Matching the unique work folder, never a
 # program name, is what keeps this from reaching any other process on the machine.
