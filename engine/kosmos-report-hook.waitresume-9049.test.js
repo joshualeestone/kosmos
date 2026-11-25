@@ -73,6 +73,18 @@ test('a pending answer is asked once more and the second answer is printed; an e
   }
 });
 
+/* #1765/#6464: the board can restart, or another process take its port, during the pause, so the listener is proved
+   again before the tokens go out a second time; a failed second proof sends nothing. */
+test('the listener is proved again before the second ask, and a failed proof sends nothing more', async () => {
+  const s = start('clear', TOKEN, ['{"pending":true}', JSONLINE]);
+  let proofs = 0;
+  s.io.proveBoard = async () => { proofs += 1; return proofs === 1; };
+  await hook.main(s.io);
+  assert.equal(proofs, 2, 'proved once per ask');
+  assert.equal(s.seen.filter((u) => /\/api\/away\?/.test(u)).length, 1, 'no second ask to an unproved listener');
+  assert.deepEqual(s.printed, []);
+});
+
 test('a compaction asks nothing; a session with no agent token is not asked', async () => {
   const c = start('compact', TOKEN);
   await hook.main(c.io);
