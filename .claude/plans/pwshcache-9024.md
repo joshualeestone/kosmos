@@ -50,3 +50,8 @@ Card: https://github.com/joshualeestone/kosmos/issues/9024 (claimed: april, nigh
 - M1 strip() and strings: already said beside it (round 2). M2 the cache folder on a SIGKILL: kept (round 1, the run root). M3 a busy machine's 60 s timeout fails the file: kept on purpose; it says "busy?", never the cache. M5 the pinned calls count goes stale if has() is deleted: that is what the pin is for.
 - The reviewer ran 1777, fixture-discipline, test-support.tmpscope, engine.reachable, 9024, 6352: all pass.
 - Measured: 8213, 8316, 9024, 7820: 83 pass, 0 fail, 0 skipped.
+
+### Round 4 (opus, 00:27 CST): nothing material, 2 MINOR
+- M1 8213 asked pwshState twice, so a first start that timed out and a second that worked could disagree (a failing test beside skips saying "no PowerShell"): it now asks once (`PWSH`) and every line reads that answer.
+- M2 on Windows with only a broken pwsh, the skips kept the old wording: the platform check is gone with the single answer.
+- Measured: with the SIGABRT stand-in, 27 skips say "pwsh is here but broken: see ..."; healthy 8213 + 9024 35 pass 0 fail 0 skipped; 1777 24 pass.
