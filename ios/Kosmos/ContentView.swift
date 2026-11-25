@@ -669,8 +669,8 @@ struct ContentView: View {
                 .environmentObject(fresh)
             }
         } else if which == .tasks {
-            // kosmos#7031: native Tasks. A task's page is native too (kosmos#7074, TaskPageView); its info button opens
-            // the board's page under Today in the board view; a press on Tasks brings the list back.
+            // kosmos#7031: native Tasks. A task's page is native too (kosmos#7074, TaskPageView), with no way out to the board
+            // (kosmos#8958).
             TasksTab(client: board, openPage: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             }, openBoard: { showBoardToday() })

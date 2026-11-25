@@ -218,11 +218,12 @@ final class TaskPageActionsUITests: XCTestCase {
     // there), and the wake line; and nothing on the page opens the board.
     func testDoneWhenAndTheWakeLine() throws {
         let app = try openTask()
-        let first = app.staticTexts["Every caption matches the price sheet"]
+        XCTAssertEqual(app.navigationBars["Task 4"].buttons.count, 1, "the bar has more than its way back")
+        func said(_ words: String) -> XCUIElement { app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", words)).firstMatch }
+        let first = said("Check 1: Every caption matches the price sheet. Dana says met: checked all eight pages")
         for _ in 0..<6 where !(first.exists && first.isHittable) { app.swipeUp() }
-        XCTAssertTrue(first.exists && app.staticTexts["Dana says met: checked all eight pages"].exists, "the first check, and what Dana says")
-        XCTAssertTrue(app.staticTexts["Dana says not met: eli has the proofs"].exists, "the second")
-        XCTAssertFalse(app.buttons["Open this task on your computer's board"].exists, "the page still opens the board")
+        XCTAssertTrue(first.exists, "the first check, and what Dana says")
+        XCTAssertTrue(said("Check 2: The proofs are signed off. Dana says not met: eli has the proofs").exists, "the second")
         shot(app, "done when")
         let wake = app.staticTexts["Waits for PR #12 in acme/catalogue to merge."]
         for _ in 0..<6 where !(wake.exists && wake.isHittable) { app.swipeUp() }
@@ -232,8 +233,14 @@ final class TaskPageActionsUITests: XCTestCase {
         for _ in 0..<8 where !(moved.exists && moved.isHittable) { app.swipeDown() }
         moved.tap()
         XCTAssertTrue(app.navigationBars["Task 8"].waitForExistence(timeout: 15), "the task it moved to did not open")
-        XCTAssertTrue(app.buttons["Check 2 of task 4, reported not met there"].waitForExistence(timeout: 10), "what moved here is not said there")
+        let there = app.buttons["Check 2 of task 4, reported not met there"]
+        XCTAssertTrue(there.waitForExistence(timeout: 10), "what moved here is not said there")
+        for _ in 0..<6 where !there.isHittable { app.swipeUp() }
         shot(app, "moved here")
+        there.tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.navigationBars["Task 8"])
+        waitForExpectations(timeout: 15)
+        XCTAssertTrue(app.navigationBars["Task 4"].waitForExistence(timeout: 10), "the link there does not open task 4")
     }
     // kosmos#8958 slice B8: put on hold, then what it waits for and why are set here and read back from the sample Mac.
     func testAHoldSaysWhatItWaitsForAndWhy() throws {

@@ -80,7 +80,7 @@ extension Board {
         let replaces: [Int]
         // kosmos#8958 slice B3: the board's repeat fields (Board.fillRepeat) when the task repeats, for its line; and the
         // stored rule as the Repeats controls show it (Board.repeatStored): the Never choice when it does not repeat, nil for a rule
-        // this phone cannot show (the controls then stay on the board).
+        // this phone cannot show (the page says to change it on the computer's board).
         var repeatRow: TaskRow? = nil
         var repeatStored: RepeatChoice? = RepeatChoice(every: .never)
         // kosmos#8958 slice B3b: who is told when a run is missed (the board's tkReviewerOf): "none", "me", or an agent's
@@ -409,6 +409,10 @@ extension Board {
         let id: String
         let at: Date?
         let text: String
+        // kosmos#8958 slice B9: the task the row's words end with, which the page opens (the board's link on it); and the runs a
+        // row folds, which it opens to show.
+        var task: Int? = nil
+        var folded: [ActivityRow] = []
     }
 
     static func taskActivityRequest(mac: URL, project: String, number: Int) -> URLRequest? {
@@ -427,7 +431,12 @@ extension Board {
     }
 
     // tkActPhrase: one event, as the page says it. `name` gives an agent's name (tkMemberName).
-    static func activityPhrase(_ ev: [String: Any], name: (String) -> String) -> String {
+    static func activityPhrase(_ ev: [String: Any], name: (String) -> String, when: (Date) -> String = { TaskPage.holdWhen($0) }) -> String {
+        // An ISO instant on the phone's own clock; anything else as it is.
+        func timed(_ v: String) -> String {
+            guard v.range(of: #"^\d{4}-\d{2}-\d{2}T"#, options: .regularExpression) != nil, let at = Tasks.parseISO(v) else { return v }
+            return when(at)
+        }
         func s(_ k: String) -> String? { (ev[k] as? String).flatMap { $0.isEmpty ? nil : $0 } }
         func nameOf(_ k: String) -> String? { s(k).map(name) }
         let person = ev["person"] as? Bool == true
@@ -445,6 +454,9 @@ extension Board {
         case "due-cleared": return "Due date cleared"
         case "done-when-set":
             let who = person ? "You" : nameOf("by")
+            if let n = integer(ev["changedCheck"]), n != 0 {
+                return (who.map { $0 + " changed" } ?? "Changed") + " done-when check \(n)" + (s("was").map { ", from: " + $0 } ?? "") + (s("doneWhen").map { ". Now: " + $0 } ?? "")
+            }
             return (who.map { $0 + " set" } ?? "Set") + " what done means" + (s("doneWhen").map { ": " + $0 } ?? "")
         case "done-when-cleared":
             let who = person ? "You" : nameOf("by")
@@ -455,6 +467,7 @@ extension Board {
             let check = integer(ev["check"]).flatMap { $0 >= 1 ? "\($0)" : nil } ?? "?"
             return who + " says done-when check " + check + (ev["met"] as? Bool == true ? " is met" : " is not met")
                 + (s("how").map { ": " + $0 } ?? "")
+                + (isFalse(ev["met"]) ? integer(ev["movedTo"]).flatMap { $0 > 0 ? (s("how").flatMap(\.last).map { ".!?".contains($0) } == true ? " " : ". ") + "Moved to task \($0)" : nil } ?? "" : "")
         case "edited":
             let who = person ? "You" : nameOf("by")
             var bits: [String] = []
@@ -464,13 +477,26 @@ extension Board {
             var what = bits.isEmpty ? "changed the task" : bits.joined(separator: " and ")
             if what.hasPrefix("the title") { what = "changed " + what }
             return who.map { $0 + " " + what } ?? (what.prefix(1).uppercased() + what.dropFirst())
-        case "hold-set": return s("via") == "agent" ? "Put on hold by an agent" : "Put on hold"
+        case "hold-set":
+            var what = s("via") == "agent" ? "Put on hold by an agent" : "Put on hold"
+            if let until = s("until") {
+                what += " until " + (until.range(of: #"^task #[0-9]+$"#, options: .regularExpression) != nil ? until + " is closed" : timed(until))
+            } else if isTrue(ev["untilCleared"]) { what += ", no longer waiting for anything" }
+            // kosmos#7788: an agent's hold that waits on the person, or one that stopped waiting on them.
+            return what + (isTrue(ev["forPerson"]) ? ", waiting on you" : isTrue(ev["forPersonCleared"]) ? ", no longer waiting on you" : "")
         case "hold-cleared":
             return s("via") == "agent" ? "Taken off hold by an agent" : s("via") == "close" ? "Taken off hold, as it was closed" : "Taken off hold"
         case "parent-set": return integer(ev["parent"]).map { "Put under task \($0)" } ?? "Put under another task"
         case "parent-cleared": return "Taken out from under its task"
         case "repeat-set": return s("words").map { "Set to repeat " + $0 } ?? "Set to repeat"
         case "repeat-cleared": return "No longer repeats"
+        // kosmos#8669: what the task waits for, when it happened, and who was told.
+        case "wake-set": return s("words").map { "Set to wake: " + $0 } ?? "Set to wake"
+        case "wake-cleared": return "No longer waits for anything"
+        case "wake-met": return s("words").map { "Woke: " + $0 } ?? "Woke"
+        case "wake-told":
+            let who = nameOf("told") ?? "its holder"
+            return isFalse(ev["reached"]) ? "Woke; Kosmos could not reach " + who : "Woke; " + who + " was told"
         case "run":
             let who = person ? "You" : nameOf("by")
             let missed = count(ev["missedBefore"]) ?? 0
@@ -483,6 +509,11 @@ extension Board {
         case "reviewer-cleared": return "Nobody is told now if a run is missed"
         case "hold-stale":
             let who = nameOf("told") ?? "its owner"
+            // kosmos#7180: told because what the hold waited for happened, not because of the room's posts.
+            if let met = s("met") {
+                return "What its hold waited for happened (" + timed(met) + "); "
+                    + (isFalse(ev["reached"]) ? "Kosmos could not reach " + who : who + " was told it can come off hold")
+            }
             return ev["reached"] as? Bool == false
                 ? "Still on hold while " + who + " worked in its project room; Kosmos could not reach " + who
                 : "Still on hold while " + who + " worked in its project room; " + who + " was asked whether the hold still stands"
@@ -547,6 +578,12 @@ extension Board {
         func quiet(_ ev: [String: Any]) -> Bool {
             ev["kind"] as? String == "run" && ev["unchanged"] as? Bool == true && ev["late"] as? Bool != true && !((number(ev["missedBefore"]) ?? 0) >= 1)
         }
+        func row(_ n: Int, _ mark: String) -> ActivityRow {
+            let ev = events[n]
+            var r = ActivityRow(id: mark + "\(n)@" + (ev["at"] as? String ?? ""), at: at(ev), text: activityPhrase(ev, name: name))
+            if ["closed", "replaced"].contains(ev["kind"] as? String ?? ""), let by = integer(ev["replacedBy"]), r.text.hasSuffix("task \(by)") { r.task = by }
+            return r
+        }
         var out: [ActivityRow] = []
         var i = 0
         while i < events.count {
@@ -557,10 +594,11 @@ extension Board {
                 let inferred = group.filter { $0["inferred"] as? Bool == true }.count
                 let what = inferred == 0 ? " runs found nothing new" : inferred == group.count ? " runs repeated the same note"
                     : " runs found nothing new or repeated the same note"
-                out.append(ActivityRow(id: "\(i)@" + (group[0]["at"] as? String ?? ""), at: at(group[group.count - 1]), text: "\(group.count)" + what))
+                out.append(ActivityRow(id: "\(i)@" + (group[0]["at"] as? String ?? ""), at: at(group[group.count - 1]), text: "\(group.count)" + what,
+                                       folded: (i..<j).map { row($0, "run") }))
                 i = j
             } else {
-                out.append(ActivityRow(id: "\(i)@" + (events[i]["at"] as? String ?? ""), at: at(events[i]), text: activityPhrase(events[i], name: name)))
+                out.append(row(i, ""))
                 i += 1
             }
         }
@@ -571,6 +609,7 @@ extension Board {
     static let activityUnread = "We could not read the activity just now."
 
     // A JSON number as a Double (counts may come as Int or Double).
+    static func isFalse(_ v: Any?) -> Bool { (v as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && !$0.boolValue } ?? false }
     fileprivate static func number(_ v: Any?) -> Double? { (v as? NSNumber)?.doubleValue }
     // A whole count of at least 1, clamped so no number the Mac sends can trap (the board's Number(x) >= 1).
     fileprivate static func count(_ v: Any?) -> Int? {
@@ -1072,8 +1111,9 @@ extension Board {
     static func checkResults(_ t: [String: Any]) -> [TaskCheck] {
         let stored = t["doneWhenResults"] as? [Any] ?? []
         return (t["doneWhen"] as? [Any] ?? []).enumerated().map { i, raw in
-            var c = TaskCheck(words: raw as? String ?? "\(raw)")
-            guard i < stored.count, let r = stored[i] as? [String: Any], let met = r["met"] as? Bool, let how = r["how"] as? String else { return c }
+            var c = TaskCheck(words: raw as? String ?? "")
+            guard i < stored.count, let r = stored[i] as? [String: Any], isTrue(r["met"]) || isFalse(r["met"]), let how = r["how"] as? String else { return c }
+            let met = isTrue(r["met"])
             c.met = met
             c.how = how
             c.by = (r["by"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1084,7 +1124,7 @@ extension Board {
     // tskWakeSentence, from the board's words (engine/taskwake.js fieldsOf); nil for none.
     static func wakeSentence(_ t: [String: Any]) -> String? {
         func text(_ v: Any?) -> String? { (v as? String).flatMap { $0.isEmpty ? nil : $0 } }
-        let nobody = t["wakeNobody"] as? Bool == true
+        let nobody = isTrue(t["wakeNobody"])
         if let words = text(t["wakeWords"])?.trimmingCharacters(in: .whitespacesAndNewlines), let first = words.first {
             return first.uppercased() + words.dropFirst() + (words.last.map { ".!?".contains($0) } == true ? "" : ".")
                 + (text(t["wakeProblem"]).map { " Not checked just now: " + $0 + "." } ?? "")
@@ -1093,7 +1133,7 @@ extension Board {
         if let met = text(t["wakeMetWords"]) {
             return "Woke: " + met + "." + (nobody ? " Nobody holds this task, so nobody has been told."
                 : text(t["wakeToldAt"]) == nil ? " Its holder is still to be told."
-                : t["wakeReached"] as? Bool == true ? " Its holder was told." : " Its holder could not be reached.")
+                : isTrue(t["wakeReached"]) ? " Its holder was told." : " Its holder could not be reached.")
         }
         return nil
     }
@@ -1109,6 +1149,8 @@ extension Board {
 }
 
 extension Board.TaskPage {
+    // The tasks the state line names, which the board links: the one that replaced this, and those it replaced.
+    var stateTasks: [Int] { (closed ? [replacedBy].compactMap { $0 } : []) + replaces }
     // What an agent says about a check, and the task its part moved to (the page links that one).
     func checkSays(_ c: Board.TaskCheck, roster: [String: String]) -> String {
         guard let met = c.met else { return Board.checkUnreported }
