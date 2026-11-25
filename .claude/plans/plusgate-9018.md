@@ -31,5 +31,10 @@ hand, so the gate only ever said "cannot tell" and every promote went out with t
 A sandboxed board signs in exactly as an installed one does. Board auth is off in it; the sign-in routes do not read
 board auth, but that is not proved for every route.
 
+## Limit, stated so nobody reads more into it
+KOSMOS_PLUS_VERIFIED_SHA256 stops an ACCIDENTAL sandboxed record (a worktree fixture reporting the staged version). It
+does not stop a deliberate one: whoever can set it can also write the record JSON by hand, as with any record on the
+box. The bytes are proved by plus-signin-auto.sh's sha256 check, and only on runs it made.
+
 ## Depends on
 Josh-Brain `signinplace-9018` (kosmos-signin-code's `KOSMOS_SIGNIN_PLACEMENT=1`), installed to ~/.local/bin.

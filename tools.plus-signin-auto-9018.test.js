@@ -77,7 +77,7 @@ function world(opts = {}) {
   const pointer = path.join(dir, 'latest-staging.json');
   fs.writeFileSync(pointer, JSON.stringify({ version: VER, sha256: opts.pointerSha || sha, artifact: art }));
   const sc = path.join(dir, 'kosmos-signin-code');
-  fs.writeFileSync(sc, '#!/bin/sh\necho "$* placement=${KOSMOS_SIGNIN_PLACEMENT:-}" >> "' + scLog + '"\n'
+  fs.writeFileSync(sc, '#!/bin/sh\necho "$* placement=${KOSMOS_SIGNIN_PLACEMENT:-} totp=${KOSMOS_SEED_TOTP:+SET}" >> "' + scLog + '"\n'
     + 'case "$1" in anchor) echo 100 ;; code) ' + (opts.noCode ? 'exit 1' : 'echo "123456 ' + (opts.placement || 'INBOX') + '"') + ' ;; esac\n', { mode: 0o755 });
   const home = path.join(dir, 'home'); fs.mkdirSync(path.join(home, '.config', 'secrets'), { recursive: true });
   fs.writeFileSync(path.join(home, '.config', 'secrets', 'kosmosplus-test-gate-totp.meta'),
@@ -127,8 +127,8 @@ test('#9018: one command takes the pointer\'s own tarball through a first sign-i
   assert.strictEqual(envLine.path, '/usr/bin:/bin:/usr/sbin:/sbin', 'the board inherited this shell\'s PATH');
   // The code reader was asked for the placement, on the seed's base mailbox for the anchor.
   const sc = calls(w.scLog);
-  assert.match(sc[0], /^anchor hello@example\.com /);
-  assert.match(sc[1], /^code hello\+gate@example\.com 100 180 placement=1$/);
+  assert.match(sc[0], /^anchor hello@example\.com placement= totp=$/, 'the code reader was handed the authenticator secret');
+  assert.match(sc[1], /^code hello\+gate@example\.com 100 180 placement=1 totp=$/, 'the code reader was handed the authenticator secret');
   // Torn down: nothing answers on the port, the work folder is gone.
   assert.strictEqual(await portAnswers(port), false, 'the throwaway board is still running');
   assert.deepStrictEqual(leftovers(w), [], 'the work folder was left behind');
