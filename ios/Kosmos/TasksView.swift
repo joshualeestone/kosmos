@@ -22,7 +22,7 @@ struct TasksTab: View {
     @State private var newTaskHeld: NewTask.Held?        // words that got "could not tell", kept with the draft
 
     var body: some View {
-        ListAndOpen(isOpen: somethingOpen, nothingOpen: "Choose a task") {
+        ListAndOpen(isOpen: somethingOpen, nothingOpen: "Choose a task", coversTabs: openAgent != nil) {
             Group {
                 // kosmos#8054: the list is read only through a computer this phone is let into (BoardClient.refreshTasks).
                 // kosmos#8055: not while a chat or a task is open on top through a brief state (swapping the page closes what

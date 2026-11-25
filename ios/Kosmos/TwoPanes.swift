@@ -4,8 +4,8 @@ import UIKit
 // kosmos#9002: whether the app shows two panes (the list on the left, what is open on the right). Only where the width AND the
 // height are regular, which an unfolded iPhone Duo is. The width alone would also take in a large iPhone turned sideways
 // (regular width, compact height), which keeps the one column it has.
-// Read where it is used, from the size classes every pushed page gets from UIKit: a value put in the environment at the top did
-// not reach a page two pushes deep after a fold (a project's info page kept the tab bar, 11-25).
+// Read where it is used, from the size classes UIKit gives each page. A page left under another keeps its old ones until it is
+// shown again.
 @propertyWrapper struct TwoPanes: DynamicProperty {
     @Environment(\.horizontalSizeClass) private var h
     @Environment(\.verticalSizeClass) private var v
@@ -18,6 +18,8 @@ import UIKit
 struct ListAndOpen<ListPage: View, Open: View>: View {
     let isOpen: Binding<Bool>
     let nothingOpen: String
+    // Whether what is open covers the tab bar in one column (a task's page never has).
+    var coversTabs = true
     @ViewBuilder let list: () -> ListPage
     @ViewBuilder let open: () -> Open
     @TwoPanes private var twoPanes
@@ -45,6 +47,8 @@ struct ListAndOpen<ListPage: View, Open: View>: View {
             }
             .navigationViewStyle(.stack)
         }
+        // One owner for the bar, outside the navigation, so it follows a fold whatever is stacked on the page.
+        .toolbar(isOpen.wrappedValue && coversTabs && !twoPanes ? .hidden : .automatic, for: .tabBar)
         .background(GeometryReader { g in
             Color.clear.onAppear { width = g.size.width }.onChange(of: g.size.width) { width = $0 }
         })
@@ -53,7 +57,9 @@ struct ListAndOpen<ListPage: View, Open: View>: View {
 
 private struct TabBarBesideOnly: ViewModifier {
     @TwoPanes private var twoPanes
-    func body(content: Content) -> some View { content.toolbar(twoPanes ? .visible : .hidden, for: .tabBar) }
+    // Never .visible: a page left under another after a fold keeps the sizes it was drawn with, and would ask for the bar back
+    // over the page on top (measured 11-25). ListAndOpen says whether it shows; this keeps a phone as it was.
+    func body(content: Content) -> some View { content.toolbar(twoPanes ? .automatic : .hidden, for: .tabBar) }
 }
 
 extension View {
