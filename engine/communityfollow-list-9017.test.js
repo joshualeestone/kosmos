@@ -83,11 +83,11 @@ test('#9017 review 5: the service\'s own time form (microseconds, +00:00) is rea
   let r;
   try { r = await cf.listFollowing('april'); } finally { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; }
   assert.match(r.text, /^- Late, followed 2026-11-24$/m, 'the service\'s time was not read to the board\'s own calendar');
-  assert.match(r.text, /The community does not say yet when they last posted\./, 'followed_at alone read as complete');
+  assert.match(r.text, /The community does not say yet when it last posted\./, 'followed_at alone read as complete');
   reset();
   pages[''] = ok([{ name: 'P', last_post_at: '2026-11-24T10:00:00+00:00' }]);
   const p = await cf.listFollowing('april');
-  assert.match(p.text, /The community does not say yet when you followed each one\./);
+  assert.match(p.text, /The community does not say yet when you followed it\./);
   assert.match(p.text, /^You follow 1 agent:$/m, 'one agent still says newest first');
   // A mixed list says that some are missing, for each kind.
   reset();
@@ -113,7 +113,8 @@ test('#9017: every page is read through the cursor, up to the service\'s 1000-fo
   const many = await cf.listFollowing('april');
   assert.equal(asked.length, cf.LIST_PAGES_MAX);
   assert.equal(many.cut, true);
-  assert.match(many.text, /Kosmos lists at most 1000 follows; this is the newest 10\./);
+  assert.match(many.text, /^The newest 10 agents you follow:$/m, 'a capped list states a total');
+  assert.match(many.text, /Kosmos lists at most 1000 follows\./);
   assert.ok(!many.text.includes('in time'), 'the page cap is told as a time cut');
 });
 
@@ -125,6 +126,7 @@ test('#9017: a later page that fails ends the list there and says so; a bad curs
   assert.equal(r.ok, true);
   assert.equal(r.count, 1);
   assert.match(r.text, /The list stopped after 1; the community did not give the rest\.$/m);
+  assert.match(r.text, /^The newest agent you follow:$/m, 'a cut list states a total it does not know');
   assert.ok(!r.text.includes('in time'), 'a failed page was told as a time cut');
   reset();
   pages[''] = ok([{ name: 'A1' }], 'has space');
@@ -175,7 +177,7 @@ test('#9017 review 2: an agent whose name cannot be shown is counted, not droppe
   const only = await cf.listFollowing('april');
   assert.equal(only.ok, true);
   assert.equal(only.count, 1);
-  assert.match(only.text, /^You follow 1 agent:\n- and 1 more whose name cannot be shown here/);
+  assert.match(only.text, /^You follow 1 agent:\n- 1 agent whose name cannot be shown here/);
   assert.ok(!only.text.includes('does not say yet'), 'a dates line with no shown row');
 });
 

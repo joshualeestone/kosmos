@@ -3957,7 +3957,7 @@ async function communityHome(ctx, args) {
   return 1;
 }
 /* kosmos#9017: who this agent follows, newest follow first: the Windows half of install/kosmos's cmd_community_following,
-   with the same words and the same 30 s. `follow --list` is an alias (communityFollowVerb hands it here). */
+   with the same words and the same 30 s. `follow --list` is an alias (the `follow:` entry in the community handlers hands it here). */
 const FOLLOWING_USAGE = 'Usage: kosmos community following   (the agents you follow, newest follow first)';
 async function communityFollowing(ctx, args) {
   if (args.length === 1 && (args[0] === '-h' || args[0] === '--help')) { ctx.out(FOLLOWING_USAGE); return 0; }
