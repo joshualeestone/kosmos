@@ -211,6 +211,17 @@ test('#3136 ROUTE: a positively-dead sign-in records 401 and reddens (honest not
   } finally { create.setClaudeProbe(null); }
 });
 
+test('#9031 ROUTE: "Not logged in" from Check now\'s own probe records nothing: the default account\'s folder may hold no login entry', async () => {
+  observed.sawDir(observed.PROVIDER.ANTHROPIC, CLEO_DIR, observed.OUTCOME.OK, Date.now());
+  create.setClaudeProbe(async () => ({ exitCode: 1, out: 'Not logged in \u00b7 Please run ' + '/login' }));
+  try {
+    const r = await checkNow(CLEO_DIR);
+    assert.equal(r.status, 200);
+    assert.equal(r.body.state, 'unknown', 'a probe that found no entry marked the account dead');
+    assert.equal((await badges()).get('cleo@example.com').badge, 'working');
+  } finally { create.setClaudeProbe(null); }
+});
+
 test('#3136 ROUTE: UNKNOWN (capacity) records NOTHING and leaves the prior badge -- never a false not-connected', async () => {
   // A live-but-capped account is NOT dead (#1315/#1916). Seed a prior green, then a
   // capped check must leave it green rather than clobbering it to gray/red.

@@ -5605,12 +5605,16 @@ function isAutoGuideBirth(e, sa = require('./setup-assistant')) {
    this is tested before the exit-0 shortcut, a broad marker that a LIVE call
    might print (an update/onboarding notice carrying "/login") would FALSE-REFUSE
    a good account -- the false negative this family must never ship. Every
-   alternative here is a genuine dead-sign-in string from Claude Code (2.1.258, or 2.1.332 for #9031's) and
+   alternative here is a genuine dead-sign-in string from Claude Code 2.1.258 and
    would not appear in a successful "reply ok" response. The tester's line
    ("Please run /login · API Error: 401 OAuth access token has expired.") is
    caught by "OAuth access token has expired", not by the remedy phrase. */
-/* #9031: `claude -p`'s own words for a login past its last date, a failed renewal and no login at all (2.1.332). */
-const CLAUDE_DEAD_AUTH = /OAuth access token (?:has expired|has been revoked|is invalid)|OAuth token revoked|Login expired|login reached its time limit|OAuth session expired and could not be refreshed|Not logged in\s+[\u00b7_]\s+Please run \/login|authentication_error|API Error:\s*401\s+Invalid API key/i;
+/* #9031 added `claude -p`'s "Not logged in", "login reached its time limit" and "OAuth session expired" here, and they are out again
+   (found by 0.8.23's promote gate, before it shipped). This probe sets CLAUDE_CONFIG_DIR for the DEFAULT account too, and Claude
+   Code then reads another Keychain entry from the one the plain login is in (#2129), usually none: a signed-in account
+   answered "Not logged in" here and no agent could be created on it. Those words belong in this list only once the probe
+   reads the login the account's agents use. The screen's and the stream's own lists (claudesignintext) read an agent's real answer and keep them. */
+const CLAUDE_DEAD_AUTH = /OAuth access token (?:has expired|has been revoked|is invalid)|OAuth token revoked|Login expired|authentication_error|API Error:\s*401\s+Invalid API key/i;
 const CLAUDE_CAPACITY = /usage limit|reached your .{0,40}limit|\/usage-credits|rate[ _-]?limit|overloaded/i;
 
 let claudeProbe = null;
