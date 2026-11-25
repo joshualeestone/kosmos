@@ -58,3 +58,9 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7155802
 - M2 counts at 1e21 and above print digits where JS prints "1e+21": malformed input only, cannot crash; kept.
 - M3 a missing fixture ends the Swift run with no verdict line: the checks before it fail loudly; kept.
 - Measured: web.usage-ios-parity-8959 2/2 (default and de_DE).
+
+### Round 5 (opus, 01:57 CST): no BLOCKER, no MAJOR, 3 MINOR
+- M1 the en-US pin caught only bare toLocaleString(): the test now counts every locale-dependent call in the lifted slice (toLocaleString, Intl., localeCompare, toLocale*) and fails if one is not pinned.
+- M2 the agents' tie-break (localeCompare) followed the machine's locale: pinned to en-US beside the grouping. Passes under LC_ALL=sv_SE.UTF-8 too.
+- M3 the API cost summed in dictionary order: now days then models in sorted order, as the page's key order, so a fractional total adds up the same.
+- Measured: parity test 2/2 (default and sv_SE); run-usage.sh PASS 63/63; typecheck 0 errors.

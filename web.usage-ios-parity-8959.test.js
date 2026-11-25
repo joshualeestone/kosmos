@@ -25,8 +25,14 @@ function pageFunctions() {
   /* The page groups with toLocaleString() in the reader's own locale; this pins en-US, as the phone's suite does, so
      a machine with another locale does not read a grouping difference as the page's arithmetic changing. */
   const src = page.slice(a, b);
-  const pinned = src.replace(/\.toLocaleString\(\)/g, ".toLocaleString('en-US')");
-  assert.ok(pinned !== src, 'the page no longer calls toLocaleString(): re-check what this pins');
+  const bare = (src.match(/\.toLocaleString\(\)/g) || []).length;
+  const compares = (src.match(/\.localeCompare\(([^()]*)\)/g) || []).length;
+  assert.ok(bare >= 1, 'the page no longer calls toLocaleString(): re-check what this pins');
+  // Every locale-dependent call in the slice must be one this pins, or the machine's locale leaks back in.
+  assert.equal((src.match(/toLocaleString\(|Intl\.|localeCompare\(|toLocale[A-Z]/g) || []).length, bare + compares,
+    'the usage functions call something locale-dependent this test does not pin');
+  const pinned = src.replace(/\.toLocaleString\(\)/g, ".toLocaleString('en-US')")
+    .replace(/\.localeCompare\(([^()]*)\)/g, ".localeCompare($1, 'en-US')");
   // eslint-disable-next-line no-new-func
   return new Function('esc', pinned + '; return { usageTotals, usageGrandTotal, usageAbbr, usageBigTokens, usageUsd, usageUsdTileSub1M, usageRowValue, usageActiveDays, usageByModel, usageAgentRows, usageAgentNote, usageApiCost, usageHeroHtml, usageShareTableHtml, usageHistoryHtml };')(esc);
 }
