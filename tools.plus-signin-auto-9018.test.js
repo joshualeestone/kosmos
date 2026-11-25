@@ -26,7 +26,7 @@ const FAKE_SERVER = `
 const http = require('node:http'); const fs = require('node:fs'); const path = require('node:path');
 const o = JSON.parse(fs.readFileSync(path.join(__dirname, 'fake.json'), 'utf8'));
 const log = (l) => fs.appendFileSync(o.log, l + '\\n');
-log('env ' + JSON.stringify({ home: process.env.HOME || '', runners: process.env.AGENT_WORKFORCE_RUNNERS_DIR || '', browser: process.env.KOSMOS_AGENT_BROWSER || '', data: process.env.AGENT_WORKFORCE_DATA || '', tmux: process.env.AGENT_WORKFORCE_TMUX_BIN || '', path: process.env.PATH }));
+log('env ' + JSON.stringify({ home: process.env.HOME || '', tmp: process.env.TMPDIR || '', runners: process.env.AGENT_WORKFORCE_RUNNERS_DIR || '', browser: process.env.KOSMOS_AGENT_BROWSER || '', data: process.env.AGENT_WORKFORCE_DATA || '', tmux: process.env.AGENT_WORKFORCE_TMUX_BIN || '', path: process.env.PATH }));
 const st = { enrolled: false, on: false, up: false };
 http.createServer((req, res) => {
   let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => {
@@ -123,6 +123,7 @@ test('#9018: one command takes the pointer\'s own tarball through a first sign-i
   // The board ran fully sandboxed, from a clean environment.
   const envLine = JSON.parse(calls(w.boardLog)[0].replace(/^env /, ''));
   assert.ok(envLine.data.startsWith(fs.realpathSync(w.scratch)), 'the board\'s data root is not in the work folder: ' + envLine.data);
+  assert.ok(envLine.tmp.startsWith(fs.realpathSync(w.scratch)), 'the board\'s TMPDIR is outside the work folder: ' + envLine.tmp);
   assert.ok(envLine.home.startsWith(fs.realpathSync(w.scratch)), 'the board was given a HOME outside the work folder: ' + envLine.home);
   assert.ok(envLine.runners.startsWith(fs.realpathSync(w.scratch)), 'the board\'s runners are not in the work folder: ' + envLine.runners);
   assert.strictEqual(envLine.browser, 'off', 'the board would download the agents\' browser');
