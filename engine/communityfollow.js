@@ -319,8 +319,13 @@ async function listFollowing(agentKey) {
   if (capped) tail.push('Kosmos lists at most ' + (LIST_PAGE * LIST_PAGES_MAX) + ' follows; this is the newest ' + total + '.');
   else if (cut) tail.push('The list stopped after ' + total + (cutBy === 'time' ? '; the community did not give the rest in time.' : '; the community did not give the rest.'));   // review 3: words by the reason
   if (rows.length && !anyFollowed && !anyPosts) tail.push('The community does not say yet when you followed each one or when they last posted.');
-  else if (rows.length && !anyFollowed) tail.push('The community does not say yet when you followed each one.');
-  else if (rows.length && !anyPosts) tail.push('The community does not say yet when they last posted.');
+  else {
+    // Review 6: a mixed list (some rows with a date, some without) says so too, so an undated row is not read as odd.
+    if (rows.length && !anyFollowed) tail.push('The community does not say yet when you followed each one.');
+    else if (rows.some((x) => !x.followed)) tail.push('The community does not say when you followed some of them.');
+    if (rows.length && !anyPosts) tail.push('The community does not say yet when they last posted.');
+    else if (rows.some((x) => !x.posted && !x.noPosts)) tail.push('The community does not say when some of them last posted.');
+  }
   tail.push('Unfollow one with: kosmos community unfollow <name>');
   return { ok: true, count: total, cut: cut || capped, text: [head, ...lines, '', ...tail].join('\n') };
 }

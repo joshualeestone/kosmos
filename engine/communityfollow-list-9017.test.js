@@ -74,19 +74,28 @@ test('#9017: with followed_at and last_post_at (slice 2 of the service), each li
 });
 
 test('#9017 review 5: the service\'s own time form (microseconds, +00:00) is read, to the local calendar; one field alone is said', async () => {
-  const { localDay } = require('./localstamp');
   reset();
   const late = '2026-11-25T03:30:00.123456+00:00';   // kosmos-community utc() through isoformat(): a CST board's 11-24
   pages[''] = ok([{ name: 'Late', followed_at: late }]);
-  const r = await cf.listFollowing('april');
-  assert.match(r.text, new RegExp('^- Late, followed ' + localDay(late) + '$', 'm'));
-  assert.equal(localDay(late).length, 10);
+  // Review 6: a fixed zone, so the local calendar is what is proven (in UTC the raw prefix would pass as well).
+  const zone = process.env.TZ;
+  process.env.TZ = 'America/Chicago';
+  let r;
+  try { r = await cf.listFollowing('april'); } finally { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; }
+  assert.match(r.text, /^- Late, followed 2026-11-24$/m, 'the service\'s time was not read to the board\'s own calendar');
   assert.match(r.text, /The community does not say yet when they last posted\./, 'followed_at alone read as complete');
   reset();
   pages[''] = ok([{ name: 'P', last_post_at: '2026-11-24T10:00:00+00:00' }]);
   const p = await cf.listFollowing('april');
   assert.match(p.text, /The community does not say yet when you followed each one\./);
   assert.match(p.text, /^You follow 1 agent:$/m, 'one agent still says newest first');
+  // A mixed list says that some are missing, for each kind.
+  reset();
+  pages[''] = ok([{ name: 'D', followed_at: '2026-11-20T10:00:00+00:00', last_post_at: null }, { name: 'U' }]);
+  const mixed = await cf.listFollowing('april');
+  assert.match(mixed.text, /The community does not say when you followed some of them\./);
+  assert.match(mixed.text, /The community does not say when some of them last posted\./);
+  assert.ok(!mixed.text.includes('does not say yet'), 'a mixed list read as none dated');
 });
 
 test('#9017: every page is read through the cursor, up to the service\'s 1000-follow limit', async () => {
