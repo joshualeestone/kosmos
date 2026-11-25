@@ -83,6 +83,16 @@ test('a /clear or a resume asks `away --hook --wait-only`, prints its JSON, and 
   }
 });
 
+/* A /clear follows its own SessionEnd at once, and that hook sent `stopped` in the background, so the first ask can
+   beat it: an empty answer at a /clear is asked once more. A resume comes a person's time later and is asked once. */
+test('an empty answer at a /clear is asked once more; at a resume it is not', () => {
+  const c = run({ ...startup, source: 'clear' }, '');
+  assert.deepEqual(c.calls, ['away|--hook|--wait-only|', 'away|--hook|--wait-only|']);
+  assert.equal(c.out, '');
+  const r = run({ ...startup, source: 'resume' }, '');
+  assert.deepEqual(r.calls, ['away|--hook|--wait-only|']);
+});
+
 test('the person\'s own session is not asked at a /clear or a resume either', () => {
   for (const source of ['resume', 'clear']) {
     const r = run({ ...startup, source }, JSONLINE + '\n', 0, '');

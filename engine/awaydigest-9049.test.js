@@ -11,13 +11,13 @@ const away = require('./awaydigest');
 
 const W = { state: 'needs_you', atMs: Date.parse('2026-11-25T09:00:00Z') };
 
-test('the ended wording says the session end set the wait aside; the default keeps the startup wording', () => {
+test('the ended wording says only that the board set the wait aside; the default keeps the startup wording', () => {
   const ended = away.waitText(W, { ended: true });
-  assert.match(ended, /When the session ended, the board set the waiting report aside, so the board no longer shows it\./);
+  assert.match(ended, /The board has since set that waiting report aside, so the board no longer shows it\./);
   assert.doesNotMatch(ended, /A new run replaces/);
   const plain = away.waitText(W);
   assert.match(plain, /A new run replaces a waiting report on the board, so the board no longer shows it\./);
-  assert.doesNotMatch(plain, /When the session ended/);
+  assert.doesNotMatch(plain, /has since set that waiting report aside/);
   // Everything else in the sentence is the same for both: the state, the time, and how to report it again.
   for (const t of [ended, plain]) {
     assert.match(t, /\(needs_you, at 2026-11-25T09:00:00Z\)/);

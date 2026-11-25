@@ -12,8 +12,8 @@ it: the board has dropped the question and the agent is not told.
 ## Decision
 The card's first option: give the reminder at SessionStart `clear` and `resume`, the wait only, no digest replay (that
 conversation already saw what arrived).
-- Board: `GET /api/away?wait=only` answers only `awaydigest.lastWait`, worded for a session that ENDED ("When the
-  session ended, the board set the waiting report aside") instead of #8634's "A new run replaces ...". It answers only
+- Board: `GET /api/away?wait=only` answers only `awaydigest.lastWait`, worded without naming a cause ("The board has
+  since set that waiting report aside") instead of #8634's "A new run replaces ...". It answers only
   when a `stopped` was recorded after the wait (`awaydigest.endedAfter`), so a resume after a CRASH (no SessionEnd,
   the wait still on the board) is not told something false.
 - CLI: `kosmos away --hook --wait-only` (the --hook contract: JSON or nothing, exit 0, 1 s cap). `--wait-only` alone
@@ -21,6 +21,10 @@ conversation already saw what arrived).
 - Mac bash hook (install/kosmos-report-hook.sh) and Windows JS hook (engine/kosmos-report-hook.js): at SessionStart
   `clear` or `resume`, with an agent token (or, on the Mac, a pane), ask and print the JSON. Still no `started`.
   `compact` sends no SessionEnd, so the wait is still on the board and nothing is asked.
+- Review round 1: on the Mac a /clear can beat its own `stopped` (the SessionEnd hook sends it in the background, and
+  the clear's SessionStart follows at once), so an empty first answer at `clear` is asked once more after 0.8 s
+  (KOSMOS_WAIT_RETRY_S). A resume follows its quit after a person's pause and is asked once; the Windows hook awaits
+  its SessionEnd send, so it does not race.
 
 Rejected:
 - The card's second option, keeping the wait across a SessionEnd that a resume follows: the board cannot know at
@@ -32,6 +36,9 @@ Rejected:
 Weakest premise: that `lastWait` still finds the wait after SessionEnd. It skips rows with `by: 'auto'`, and both
 hooks send `stopped` with --auto / auto:true (measured in the tests: a needs_you, an auto idle, an auto stopped ->
 reminded).
+Not exact, accepted: `endedAfter` asks whether ANY `stopped` follows the wait, not this conversation's. So a resume
+after a crash IS reminded when an earlier quit's `stopped` sits after the wait (wait, quit, startup, crash, resume).
+The reminder stays true there (the board does not show the wait), which is why the wording names no cause.
 Not covered: Grok and Gemini bridges, which send `started` on every SessionStart (#9048, a separate card). A real
 Claude Code /clear and resume on a live agent were not driven; the hooks were fed the events.
 

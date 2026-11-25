@@ -75,7 +75,7 @@ test('a wait a session END set aside is the whole answer, in the words for a ses
       assert.equal(r.code, 200, r.text);
       const ctx = JSON.parse(r.text).hookSpecificOutput.additionalContext;
       assert.match(ctx, /last reported that it was waiting \(needs_you, at /);
-      assert.match(ctx, /When the session ended, the board set the waiting report aside/);
+      assert.match(ctx, /The board has since set that waiting report aside/);
       assert.doesNotMatch(ctx, /A new run replaces/, 'the startup wording is not this case');
       assert.doesNotMatch(ctx, /could not reach it/, 'the digest is not replayed to a session that saw it');
       assert.doesNotMatch(ctx, /SECRET-WORDS/, 'the report\'s own words are never repeated');
@@ -83,7 +83,7 @@ test('a wait a session END set aside is the whole answer, in the words for a ses
       const j = JSON.parse((await ask(tok, 'wait=only')).text);
       assert.equal(j.ok, true);
       assert.equal(j.wait && j.wait.state, 'needs_you');
-      assert.match((await ask(tok, 'as=text&wait=only')).text, /When the session ended, the board set the waiting report aside/);
+      assert.match((await ask(tok, 'as=text&wait=only')).text, /The board has since set that waiting report aside/);
     } finally { sendertoken.revoke('leo'); }
   });
 });
