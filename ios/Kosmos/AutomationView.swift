@@ -300,7 +300,11 @@ struct AutomationView: View {
             loads[box] = .loaded(s)
             // Review 5 and 7: a read that worked answers "could not read it back", for every box (the page's next readable
             // read clears its line too).
-            if !keepNote || notes[box]?.text == Automation.Words.savedUnread { notes[box] = nil }
+            // Review 8: but not when the read-back is itself unread (Language's choice nil); then the line stands, as the
+            // page's does, and the footer's filter hides the duplicate unread sentence.
+            var readBackUnread = false
+            if case .language(let l) = s, l.choice == nil { readBackUnread = true }
+            if !keepNote || (notes[box]?.text == Automation.Words.savedUnread && !readBackUnread) { notes[box] = nil }
         } else {
             let why = Automation.readRefusal(box, status: status, data: data)
             loads[box] = .failed(why)
