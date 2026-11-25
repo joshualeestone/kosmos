@@ -86,10 +86,13 @@ final class AutomationUITests: XCTestCase {
         shot(app, "automation-held")
 
         // kosmos#8959 slice D1d3a: "Where each agent stands" under the held posts, one row per agent in the board's words.
+        // Top to bottom, each revealed on its own (a lazy List drops a row scrolled off the top).
+        let dana = app.descendants(matching: .any)["automation-ready-dana"]
+        reveal(app, dana, swipes: 4)
+        XCTAssertTrue(dana.waitForExistence(timeout: 5), "Where each agent stands is missing its first agent")
         let eli = app.descendants(matching: .any)["automation-ready-eli"]
-        reveal(app, eli, swipes: 4)
-        XCTAssertTrue(eli.waitForExistence(timeout: 5), "Where each agent stands is missing")
-        XCTAssertTrue(app.descendants(matching: .any)["automation-ready-dana"].exists, "the first agent's row is missing")
+        reveal(app, eli, swipes: 2)
+        XCTAssertTrue(eli.waitForExistence(timeout: 5), "the second agent's row is missing")
         shot(app, "automation-ready")
 
         // The Recommender is on in the sample, so its three guards show, each in the board's words.

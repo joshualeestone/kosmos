@@ -500,7 +500,7 @@ struct AutomationView: View {
     // communityReadyDot: the mark, and "Needs you: " for a screen reader.
     private func needsYouDot() -> some View {
         Circle().fill(Palette.dangerWord).frame(width: 7, height: 7).alignmentGuide(.firstTextBaseline) { d in d[.bottom] - 1 }
-            .accessibilityLabel(Ready.Words.needsYou)
+            .accessibilityLabel(Ready.Words.needsYouSpoken)
     }
 
     @MainActor private func readReady() async {
@@ -739,9 +739,12 @@ struct AutomationView: View {
             loads[box] = .loaded(s)
             let said = box == .language ? Automation.languageSaved(status: status, data: data) : nil
             notes[box] = said.map { Note(text: $0, problem: false) }
+            // The page reads Where each agent stands again after either switch is saved: its rows name both switches.
+            if box == .community || box == .prompter { await readReady() }
         case .savedUnread:
             notes[box] = Note(text: Automation.Words.savedUnread, problem: false)
             await read(box, keepNote: true)
+            if box == .community || box == .prompter { await readReady() }
         case .refused(let why):
             // The control goes back to what the computer says, read again (a save with no answer may have landed), and
             // the footer says why.
