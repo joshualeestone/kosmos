@@ -44,3 +44,7 @@ a bare `kosmos community`), and the verbs-parity test's parser reads `_unknown_s
   fixed: a top-level option never reaches didyoumean.js (it could be read as its own --group); no test, because with
   today's command list the misread prints nothing, so a test could not fail. NIT left: a padded real name ("follow ")
   gets no suggestion, as before this branch.
+- Round 3 (sonnet): 0 BLOCKERs, 0 SHOULDs -> CONVERGED. Every argument shape run on both CLIs with exit codes; the
+  two answer the same (stdout on Mac, stderr on Windows, as before). NITs left: agent's Try list keeps its commas
+  (kept on purpose, byte-identical to before); the Windows CLI test does not run a capitalised verb (the engine unit
+  test covers the rule, and it was confirmed by hand on both).
