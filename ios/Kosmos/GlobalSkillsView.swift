@@ -139,7 +139,7 @@ struct GlobalSkillsView: View {
                         .frame(minHeight: 44).contentShape(Rectangle())
                 }
                 .foregroundColor(isArmed ? Palette.dangerWord : Palette.primary)
-                .accessibilityLabel(isArmed ? GlobalSkills.Words.removeArmed : "Remove the skill " + skill.name)
+                .accessibilityLabel(isArmed ? GlobalSkills.Words.removeArmed : GlobalSkills.Words.removeLabel + skill.name)
                 .accessibilityIdentifier("gskill-remove-" + skill.key)
                 // Review 3: only the button itself; a list row otherwise makes the whole row its tap, so a tap on the
                 // name would arm Remove and a second would delete the skill.
