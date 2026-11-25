@@ -63,7 +63,9 @@ function withoutPlanPaths(command) {
   return command.replace(PLAN_MENTION, (m, at) => {
     const after = command.slice(at + m.length, at + m.length + 2);
     const inner = m.slice('.claude/plans'.length);
-    return PLAN_END.test(after) && !inner.split(/[\\/]/).some((seg) => PROTECTED.test(seg)) ? ' ' : m;
+    // a segment that is itself a protected name, or only dots and glob characters (.? can expand to .. in bash 3.2)
+    const bad = inner.split(/[\\/]/).some((seg) => PROTECTED.test(seg) || (seg !== '' && /^[.?*]+$/.test(seg) && seg.includes('.')));
+    return PLAN_END.test(after) && !bad ? ' ' : m;
   });
 }
 // The text as the shell joins it (review round 3: .g'i't and .cl\aude hid a name): quotes out, a shell's backslash
@@ -80,7 +82,7 @@ const DELETES_MOVES_OR_LINKS = [
   /\b(?:Remove-Item|Move-Item|Rename-Item|Clear-Content)\b/i,
   /\bfind\b[^;&|\n]*?\s-(?:delete|exec)/i,
   // links, any spelling a script or tool makes one with
-  /(?:^|[\s;&|()`'"\\/])(?:ln|mklink|link)(?=\s|$)|\b(?:SymbolicLink|Junction|HardLink|symlink|symlink_to|hardlink_to|symlinkSync|linkSync)\b|\bfs\.(?:promises\.)?(?:symlink|link)\b|\bcp\s+(?:-\w*[sl]\w*\s)|--link-dest\b/i,
+  /(?:^|[\s;&|()`'"\\/])(?:ln|mklink)(?=\s|$)|^\s*(?:sudo\s+)?(?:\/bin\/)?link\s+\S|\b(?:SymbolicLink|Junction|HardLink|symlink|symlink_to|hardlink_to|symlinkSync|linkSync)\b|\bfs\.(?:promises\.)?(?:symlink|link)\b|\bcp\s+(?:-\w*[sl]\w*\s)|--link-dest\b/i,
   // deletes and moves in code: any call named like one, and the platform APIs
   /\b(?:unlink|unlinkSync|remove|removedirs|rmtree|rm|rmSync|rmdir|rmdirSync|rename|renameSync|move)\s*\(|\bos\.replace\b|\.(?:Delete|MoveTo)\s*\(|\bSystem\.IO\.|\[IO\.(?:File|Directory)\]|\bFile\.(?:delete|unlink)\b|\bFileUtils\.\w+/i,
   // tools that remove or replace the original, or put a tree (and its links) into a folder
@@ -93,9 +95,19 @@ const DELETES_MOVES_OR_LINKS = [
 // or git -c is a person's call.
 const GIT_READ_OR_RECORD = new Set(['add', 'commit', 'diff', 'show', 'log', 'status', 'grep', 'ls-files', 'rev-parse', 'blame', 'push', 'fetch']);
 function gitLeftToPerson(piece) {
-  for (const m of piece.matchAll(/(?:^|[\s;&|()`'"\/])git((?:\s+(?:-C\s+\S+|-c\s+\S+|--no-pager|-P|--paginate|--no-optional-locks))*)\s+([A-Za-z][\w-]*)/g)) {
-    if (/(?:^|\s)-c\s/.test(m[1])) return true;
-    if (!GIT_READ_OR_RECORD.has(m[2])) return true;
+  // The verb is the first word after git's own options, whatever they are (review round 5: -C/p, -p, --bare and the like
+  // are real spellings, and a list of known options let an unknown one hide the verb). -C and -c take the next word;
+  // -c in any spelling runs config, so it is a person's call.
+  for (const m of piece.matchAll(/(?:^|[\s;&|()`'"\/])git(?=\s)/g)) {
+    const words = piece.slice(m.index + m[0].length).trim().split(/\s+/);
+    for (let i = 0; i < words.length; i += 1) {
+      const w = words[i];
+      if (w === '-C') { i += 1; continue; }
+      if (w === '-c' || /^-c./.test(w) || /^--config/.test(w)) return true;
+      if (w.startsWith('-')) continue;
+      if (!GIT_READ_OR_RECORD.has(w)) return true;
+      break;
+    }
   }
   return false;
 }

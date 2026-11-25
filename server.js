@@ -20258,7 +20258,14 @@ const server = http.createServer(async (req, res) => {
                starting with it. Never the reverse, and never a short prefix: a queued real prompt whose command merely
                starts like this one, or extends it, is kept. */
             const capped = Buffer.byteLength(asked[1], 'utf8') >= 190;
-            if (boxed && sent && (boxed === sent || (capped && sent.length >= 40 && boxed.startsWith(sent)))) {
+            /* kosmos#9001 part 1b (Splinter, 22:13): a box taller than the window shows only the command's tail, so its
+               start cannot be compared. Tied instead by length: the hook's copy hit its cap (a box taller than the
+               window is a long command) and is at least 40 characters. Residual, recorded: two long Bash prompts at
+               once, one of them a real wait, could have that one's report kept back until the safety prompt declines
+               (about two minutes) and the real one shows on screen. */
+            const cutTail = !boxed && seen && typeof seen.text === 'string' ? require('./engine/status').selfExpiringCutTail(seen.text) : null;
+            if ((boxed && sent && (boxed === sent || (capped && sent.length >= 40 && boxed.startsWith(sent))))
+              || (cutTail && sent && capped && sent.length >= 40)) {
               body.state = 'working';
               body.text = require('./engine/status').SELF_EXPIRING_DECLINE;
             }

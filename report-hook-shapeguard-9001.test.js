@@ -135,7 +135,7 @@ test('only where the prompt would reach the person: the allow hook answers, it r
     // Any other protected name keeps #5406's rule (only plan files under .claude/plans are answered), so: refused.
     assert.equal(run('for f in ZF(f)x}; do git -C /tmp/w/.git log; done', { protectedName: false }).code, 2, '.git named: refused');
     // One that writes into one, or deletes one, is still left to the person, so the guard refuses it.
-    assert.equal(run('echo ZF(f)x} > ~/.claude.json.bak', { protectedName: false }).code, 2, 'a write into .claude.json*: refused');
+    assert.equal(run('echo ZF(f)x} > ~/.claude.json.bak', { protectedName: false }).code, 2, 'names .claude.json (not a plan file): refused');
     assert.equal(run("cat <<'PY'\nx = page.PID('a')\nPY\nmv /tmp/w/.claude /tmp/w/old", { protectedName: false }).code, 2, 'a move of .claude: refused');
     // No allow hook: the person's own Claude Code (setup wires this hook there too), where the prompt is theirs to
     // answer at their own screen. Left alone, even naming .claude (review round 1).

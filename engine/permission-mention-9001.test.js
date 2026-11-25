@@ -59,7 +59,9 @@ test('#9001 1b: plan files are answered: read, grepped, written, edited by a her
     "sed -i '' s/a/b/ /p/.claude/plans/x.md", 'gh pr create --body-file /p/.claude/plans/x.md',
     'git -C /p add .claude/plans/x-pre-challenge.md', 'echo ZF(f)x} >> .claude/plans/x.md',
     "edit('.claude/plans/x.md', [('a', 'b')])", 's=s.replace(a,b) # .claude/plans/x.md', 'ls .claude/plans', 'cat .claude/plans/*.md',
-    'ls -t .claude/plans/ | head -3', 'git -C /p commit --amend -m y -- .claude/plans/x.md']) {
+    'ls -t .claude/plans/ | head -3', 'git -C /p commit --amend -m y -- .claude/plans/x.md',
+    // review round 5: a plan's own words that are not a delete (link), and git's own options before an allowed verb
+    'git commit -m "plan: fix the link to the spec" -- .claude/plans/x.md', 'git --no-pager diff -- .claude/plans/x.md']) {
     assert.equal(answers(c), true, c);
   }
 });
@@ -103,7 +105,11 @@ test('#9001 1b: any other protected name, a plan path with .., or a delete or mo
     'git -c core.hooksPath=/tmp/h commit -- .claude/plans/x.md', "perl -e 'unlink(\".claude/plans/x.md\")'",
     "python3 -c 'from os import remove; remove(\".claude/plans/x.md\")'", "[System.IO.File]::Delete('.claude/plans/x.md')",
     'rsync -a --delete /tmp/empty/ .claude/plans/x', 'cp -a /tmp .claude/plans/t', 'tar xf a.tar -C .claude/plans/x',
-    "r\\\nm -f .claude/plans/x.md", 'shred .claude/plans/x.md', 'trash .claude/plans/x.md', 'rmdir .claude/plans/old',
+    "r\\\nm -f .claude/plans/x.md",
+    // review round 5: an option git's verb check did not know hid the verb; a glob that bash 3.2 can expand to ..
+    'git -C/p reset --hard origin/main && cat .claude/plans/x.md', 'git -p checkout main -- .claude/plans/x.md',
+    'git --bare reset --soft HEAD~1 # .claude/plans/x.md', 'git -C /p --no-pager -p stash drop # .claude/plans/x.md',
+    'git -c core.x=1 log -- .claude/plans/x.md', 'echo x > .claude/plans/.?/settings.json', 'shred .claude/plans/x.md', 'trash .claude/plans/x.md', 'rmdir .claude/plans/old',
     'unlink .claude/plans/x.md', 'bzip2 .claude/plans/x.md', 'mklink /D x .claude\\plans',
     
     // review round 3: links without ln, a protected segment inside a plan path, more delete verbs
@@ -149,10 +155,14 @@ test('#9001 1b: controls; nothing changes where no protected place is named, or 
   assert.ok(file('Bash', { command: ['ls', '/tmp'] }));
 });
 
-test('#9001 1b: a long command is judged quickly, and an over-long piece is left to the person', () => {
+test('#9001 1b: a long command is judged quickly, and an over-long piece or command is left to the person', () => {
   const t0 = Date.now();
-  const long = 'cat .claude/plans/x.md; ' + 'git find '.repeat(40000);
-  assert.equal(answers(long), false, 'a piece longer than the cap waits');
+  // review round 5: fillers with no verb in them, so only the caps can refuse these
+  assert.equal(answers('cat .claude/plans/x.md ' + 'x '.repeat(5000)), false, 'one piece longer than 8,000 characters waits');
+  assert.equal(answers('cat .claude/plans/x.md ' + 'x '.repeat(3000)), true, 'control: a piece under the cap is answered');
+  assert.equal(answers(Array.from({ length: 30000 }, () => 'cat .claude/plans/x.md').join(';')), false, 'a command over 100,000 characters waits');
+  // a protected name split by quotes, with no plan named at all, is still a protected name
+  assert.equal(answers("echo bad > .g'i't/hooks/pre-commit"), false, 'a split name alone waits');
   const many = Array.from({ length: 2000 }, (_, i) => 'git log -' + i + ' -- .claude/plans/x.md').join('\n');
   assert.equal(answers(many), true, 'many ordinary lines naming a plan: answered');
   assert.ok(Date.now() - t0 < 2000, 'judged in under 2 s (took ' + (Date.now() - t0) + ' ms)');

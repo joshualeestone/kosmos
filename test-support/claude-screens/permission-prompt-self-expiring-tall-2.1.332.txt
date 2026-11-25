@@ -1,0 +1,24 @@
+ │ who opens the board is not shown how to reach it.
+ │ The window is the desktop board's; the iPhone app is separate and ships
+ │ through TestFlight."""),
+ │ ])
+ │ PY
+ │ cd /tmp/claude-501/sp9001/nowhere-9001 && node tools/whats-new-pool.js build
+ │ 0.8.22 2>&1 | head -3; for pf in mac windows; do node
+ │ /tmp/claude-501/sp9001/nowhere-9001/tools/whats-new-check.js 0.8.22
+ │ /tmp/claude-501/sp9001/nowhere-9001/web/whats-new.json --platform=$pf
+ │ >/dev/null 2>&1; echo "check $pf rc=$?"; done; grep -n "Built but waiting
+ │ instead" /tmp/claude-501/sp9001/nowhere-9001/web/whats-new.json | cut -c1-80
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ │ Claude Code can't be sure it read this command the way the shell will, so it
+ │ can't rule out a dangerous removal. Read the command, and don't go ahead if
+ │ you can't tell what it does.
+ ⚠ Claude Code will automatically block this request in 1:58, to avoid holding
+ up an unattended session
+
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+ ↑ 47 more lines
+ Esc to cancel · Tab to amend
