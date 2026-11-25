@@ -240,6 +240,11 @@
    "id": "c19",
    "kind": "comment",
    "state": "odd"
+  },
+  {
+   "id": "p23",
+   "state": "sent",
+   "title": "No kind field"
   }
  ]
 }
