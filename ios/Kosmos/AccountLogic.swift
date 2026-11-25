@@ -255,6 +255,8 @@ enum Account {
 
     static func standingNote(_ data: Data?) -> StandingNote? {
         guard let data, let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              // Review 8: only a string is shown. The page would print any truthy value; the server sends a string or
+              // nothing (signin.rs session_view), so a number here is not the server's sentence and is not drawn.
               let words = obj["standing_note"] as? String, !words.isEmpty else { return nil }
         // Review 6: the page's !!standing_note_calm, so a string counts as JavaScript does.
         return StandingNote(words: words, calm: !standingFalsy(obj["standing_note_calm"]))
