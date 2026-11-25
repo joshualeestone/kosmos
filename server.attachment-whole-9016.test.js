@@ -98,7 +98,7 @@ test('#9016 size: a body short of, or long past, the sender\'s own file is refus
     const r = await put(headers('cut.xlsx', { 'transfer-encoding': 'chunked', 'x-attachment-size': String(said) }), (q) => q.end(crypto.randomBytes(sent)));
     assert.equal(r.status, 400, said + ' vs ' + sent + ': ' + r.body);
     const said_ = JSON.parse(r.body).error;
-    assert.match(said_, /^that file did not arrive whole; please send it again \(/, said_);
+    assert.match(said_, /^That file did not arrive whole; please send it again \(/, said_);
     assert.ok(said_.includes(sent < said ? sent.toLocaleString('en-US') + ' of ' + said.toLocaleString('en-US') + ' bytes' : sent.toLocaleString('en-US') + ' bytes arrived, and the file is ' + said.toLocaleString('en-US')), 'exact counts, said for what they are: ' + said_);
     await new Promise((res) => setTimeout(res, 100));
     assert.equal(stored().length, before, 'nothing kept (' + said + ' vs ' + sent + ')');
@@ -314,11 +314,11 @@ test('#9016 a pick of several: every outcome is still said at the end', async ()
   await u.go(pick('a.xlsx'), pick('b.txt'), pick('c.xlsx'));
   assert.equal(u.els.m.textContent, '2 files may be cut short (a.xlsx, c.xlsx): their endings could not be found. Remove them and send them again.');
 
-  u = uploader([{ error: 'that file did not arrive whole; please send it again (5 of 10 bytes arrived)' }]);
+  u = uploader([{ error: require('./engine/attachments').NOT_WHOLE + ' (5 of 10 bytes arrived)' }]);
   await u.go(pick('$$a$&.xlsx'));
   assert.equal(u.els.m.textContent, '$$a$&.xlsx did not arrive whole; please send it again (5 of 10 bytes arrived).', 'one refused file is named, whatever its name holds');
 
-  u = uploader([{ error: 'that file did not arrive whole; please send it again (5 of 10 bytes arrived)' }, {}]);
+  u = uploader([{ error: require('./engine/attachments').NOT_WHOLE + ' (5 of 10 bytes arrived)' }, {}]);
   await u.go(pick('a.xlsx'), pick('b.txt'));
   assert.equal(u.els.m.textContent, 'a.xlsx did not arrive whole; please send it again (5 of 10 bytes arrived). Not added: a.xlsx.', 'a refused file is named');
   assert.equal(u.list.length, 1, 'and the next one is still added');

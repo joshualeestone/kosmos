@@ -29,7 +29,7 @@ A file that arrived whole looks and works exactly as before.
 - engine/replyfile.js attach: an agent's own cut zip-based file is refused with words, and nothing is kept. DECIDED: stricter than a
   person's upload (which is kept and marked), because an agent can make the file again; the words name the fallback (say where it is saved).
 - engine/attachments.js: saveStream refuses a body whose counted size differs from `fileSize`, with
-  "that file did not arrive whole; please send it again (N of M bytes arrived)" (and, when longer, how many arrived and how
+  "That file did not arrive whole; please send it again (N of M bytes arrived)" (and, when longer, how many arrived and how
   many the file has); nothing is stored.
   `incompleteZip(file)`: a file starting as a zip is incomplete when no end record in its tail is its own: its comment must
   fit before the end, and its directory must lie before it, ending where the record begins (an encrypted one) or starting as a directory does (an inner zip's record in a cut file
