@@ -27,6 +27,7 @@ struct AgentsView: View {
     var create: () -> Void = {}
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.twoPanes) private var twoPanes   // kosmos#9002
     @State private var visible = false
     @State private var wasBackground = false
     // The agent whose chat is open (kosmos#7008), as it was tapped (the chat follows the list for its status).
@@ -96,43 +97,72 @@ struct AgentsView: View {
         .accessibilityAddTraits(sortChoice != Board.agentSortDefault ? .isSelected : [])
     }
 
-    var body: some View {
-        NavigationView {
-            content
-                .safeAreaInset(edge: .bottom) { if let closedNote { closedLine(closedNote) } }
-                .navigationTitle("Agents")
-                // kosmos#7343 (Josh 10-27, Mona Lisa's design): one bar on Agents, Projects and Tasks, no big title (the
-                // tab bar names the screen): the Kosmos mark, the computer switcher, then order and + in one capsule.
-                .navigationBarTitleDisplayMode(.inline)
-                .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
-                .toolbar {
-                    ToolbarItem(placement: .principal) { ScreenHeading(title: "Agents") }
-                    KosmosBarLeading(switcher: MacSwitcher(client: client))
-                    ToolbarItemGroup(placement: .navigationBarTrailing) {
-                        agentSortMenu
-                        Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
-                            .accessibilityLabel("Add agent")
-                    }
+    // The list, with its bar. In one column it carries the open chat's link; in two panes the chat is the other pane.
+    private var listPage: some View {
+        content
+            .safeAreaInset(edge: .bottom) { if let closedNote { closedLine(closedNote) } }
+            .navigationTitle("Agents")
+            // kosmos#7343 (Josh 10-27, Mona Lisa's design): one bar on Agents, Projects and Tasks, no big title (the
+            // tab bar names the screen): the Kosmos mark, the computer switcher, then order and + in one capsule.
+            .navigationBarTitleDisplayMode(.inline)
+            .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
+            .toolbar {
+                ToolbarItem(placement: .principal) { ScreenHeading(title: "Agents") }
+                KosmosBarLeading(switcher: MacSwitcher(client: client))
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    agentSortMenu
+                    Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
+                        .accessibilityLabel("Add agent")
                 }
-                .background(Palette.ground.ignoresSafeArea())
-                // The link sits on the page, not on a row, so a row that stops being drawn does not close the chat. The page's
-                // content being swapped (the connection screen for the list) closes it too, so shownList keeps the list while a
-                // chat is open through a brief state (kosmos#8055).
-                .background(
-                    NavigationLink(isActive: Binding(get: { openAgent != nil }, set: { if !$0 { linkClosed(); openAgent = nil } })) {
-                        if let agent = openAgent {
-                            ChatView(client: client, agent: agent, openOnBoard: {
-                                if let url = client.chatURL(for: agent) { openChat(url) }
-                            })
-                            // kosmos#7418 review 1: a notification for another agent while a chat is open starts that
-                            // agent's chat afresh (draft kept, reading loop ended), never the old one under a new name.
-                            .id(agent.session)
-                        }
-                    } label: { EmptyView() }
-                    .hidden()
-                )
+            }
+            .background(Palette.ground.ignoresSafeArea())
+    }
+
+    @ViewBuilder private var openChatPage: some View {
+        if let agent = openAgent {
+            ChatView(client: client, agent: agent, openOnBoard: {
+                if let url = client.chatURL(for: agent) { openChat(url) }
+            })
+            // kosmos#7418 review 1: a notification for another agent while a chat is open starts that
+            // agent's chat afresh (draft kept, reading loop ended), never the old one under a new name.
+            .id(agent.session)
         }
-        .navigationViewStyle(.stack)
+    }
+
+    // kosmos#9002: one column, as it was, or two panes on an unfolded Duo. openAgent is this view's own state and drafts are
+    // the client's, so a fold changes neither.
+    @ViewBuilder private var panes: some View {
+        if twoPanes {
+            NavigationSplitView(columnVisibility: .constant(.all)) {
+                listPage
+            } detail: {
+                NavigationStack {
+                    if openAgent == nil { NothingOpen(words: "Choose an agent") } else { openChatPage }
+                }
+            }
+            .navigationSplitViewStyle(.balanced)
+        } else {
+            NavigationView {
+                listPage
+                    // The link sits on the page, not on a row, so a row that stops being drawn does not close the chat. The page's
+                    // content being swapped (the connection screen for the list) closes it too, so shownList keeps the list while a
+                    // chat is open through a brief state (kosmos#8055).
+                    .background(
+                        // kosmos#9002: an unfold takes this column down, which can report the link closed: that is not the
+                        // person's back, so it closes nothing.
+                        NavigationLink(isActive: Binding(get: { openAgent != nil }, set: { if !$0 && !TwoPanesNow.value { linkClosed(); openAgent = nil } })) {
+                            openChatPage
+                        } label: { EmptyView() }
+                        .hidden()
+                    )
+            }
+            .navigationViewStyle(.stack)
+        }
+    }
+
+    var body: some View {
+        // The ZStack is what appears and disappears, so a fold (which swaps what is in it) runs none of the handlers below.
+        ZStack { panes }
         // Signed out, another account or another Mac: the open chat was the previous one's, so it closes.
         .onChange(of: client.chatEpoch) { _ in
             // After an account change forget() has blanked the kept name: the line then names no agent (another account's).
