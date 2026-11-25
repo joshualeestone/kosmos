@@ -26,10 +26,6 @@ final class UsageUITests: XCTestCase {
         let tokens = app.descendants(matching: .any)["usage-tokens"]
         XCTAssertTrue(tokens.waitForExistence(timeout: 5), "the total tokens figure is missing")
         XCTAssertTrue(tokens.label.contains("141.3M") && tokens.label.contains("Total Tokens Used"), tokens.label)
-        // Each row is one element (its parts combined), found by its identifier.
-        let model = app.descendants(matching: .any)["usage-model-0"]
-        XCTAssertTrue(model.waitForExistence(timeout: 5), "the model table is missing its first row")
-        XCTAssertTrue(model.label.hasPrefix("claude-opus-5-5"), model.label)
         shot(app, "usage-hero")
 
         // D1c2b: the four daily charts and the donut are drawn (their shapes are read in these shots).
@@ -42,6 +38,13 @@ final class UsageUITests: XCTestCase {
             XCTAssertTrue(c.exists, "the \(kind) chart is missing")
         }
         shot(app, "usage-charts")
+        // The model table comes after the charts (UsageView: hero, charts, models, donut), so it is scrolled to, as By
+        // agent is. Each row is one element (its parts combined), found by its identifier. D1c2b's first UI run looked
+        // for it straight after the hero, where it no longer is, and failed both appearances (kosmos#8959).
+        let model = app.descendants(matching: .any)["usage-model-0"]
+        reveal(app, model)
+        XCTAssertTrue(model.waitForExistence(timeout: 5), "the model table is missing its first row")
+        XCTAssertTrue(model.label.hasPrefix("claude-opus-5-5"), model.label)
         let donut = app.descendants(matching: .any)["usage-donut"]
         // A container may never read as hittable, so this stops once it exists rather than swiping past it.
         for _ in 0..<8 where !donut.exists { app.swipeUp() }
