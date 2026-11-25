@@ -572,17 +572,18 @@ struct BoardStates<Empty: View>: View {
         case .live:
             empty()    // the list is fresh here (`waiting` took the rest)
         case .unreachable(let mac):
-            // Today's navy page, as it is: no title over it. kosmos#8957: no Back to Kosmos (it opened the board, which is not
+            // The failure screen, as Today shows it: no title over it. kosmos#8957: no Back to Kosmos (it opened the board, which is not
             // answering either); Try again. kosmos#7197: naming the Mac.
             LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: nil, macName: mac,
                             lastHeard: client.lastHeard(address: client.failingAddress, name: mac))
                 .onAppear { client.refreshLastSeen() }   // kosmos#7416 review 2: the list's time, read afresh
                 .navigationBarHidden(true)
                 // kosmos#8957: with Back to Kosmos gone (it opened the board, whose page offered another computer), the
-                // switcher itself, light on the navy page, when the account has another computer to show.
+                // switcher itself, in the person's own appearance like the screen under it (kosmos#9095), when the account
+                // has another computer to show.
                 .overlay(alignment: .topLeading) {
                     if Board.switcherRows(client.macs, shown: client.switcherShown, heard: client.heardFrom).count > 1 {   // as MacSwitcher's own menu
-                        MacSwitcher(client: client).environment(\.colorScheme, .dark).frame(minHeight: 44).padding(16)
+                        MacSwitcher(client: client).frame(minHeight: 44).padding(16)
                     }
                 }
         case .kosmosPlusDown:

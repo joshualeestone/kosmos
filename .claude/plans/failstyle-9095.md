@@ -8,8 +8,13 @@ Josh, 11-25 16:49: "we are not going to have the blue background anywhere in the
 - Title and message: Palette.primary and Palette.secondary, the app's own text colours, were ink and muted for a
   dark ground.
 - Try again: Palette.starFill (#E3B341) with dark words (LoadFailureView.onGold, #14161A) in both appearances, was
-  blue #2F57C4 with white words. The Trying dots take the same word colour.
-- Choose another computer: Palette.primary words, Palette.separator outline. Back to Kosmos: Palette.primary.
+  blue #2F57C4 with white words. The Trying dots take the same word colour. Its edge is the deep gold
+  (Palette.starGold): the bright gold alone is about 1.85:1 on cream (review 1).
+- Choose another computer: Palette.primary words, Palette.secondary outline (separator was about 1.3:1, and the
+  outline is the button's only edge). Back to Kosmos: Palette.primary.
+- The Agents tab's "Mac not answering" screen (AgentsView.swift, .unreachable) lays the Mac switcher over this view
+  and forced it to dark appearance, "light on the navy page": on cream its text would vanish. It now follows the
+  person's appearance (review 1).
 - KosmosColor removed: nothing else used it.
 
 ## Decided
@@ -22,6 +27,8 @@ ContentView.swift still paints kosmosNavy behind the web view and on two screens
 
 ## Tests
 ios.failure-screens-9095.test.js: no navy, no KosmosColor, no blue spelled out, no white-on-fill in the view; the
-ground, text and gold button tokens; the palette values it leans on. 3/3, and 0/3 against main's view.
+ground, text and gold button tokens; the palette values it leans on; nothing over a failure screen forces dark; the
+two button edges. 5/5. Controls, run with `git stash -- <file>` then the test: main's ShellViews.swift fails the
+view tests; the old AgentsView.swift (forced dark) fails the overlay test.
 Still owed: an iOS build, and simulator screenshots of all four states in light and dark (queued after the App Store
 gate).

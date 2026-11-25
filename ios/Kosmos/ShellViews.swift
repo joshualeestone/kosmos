@@ -69,7 +69,8 @@ extension UIColor {
 
 // Shown in place of a blank WebView when a page cannot load.
 struct LoadFailureView: View {
-    // kosmos#9095: the words on the gold Try again, dark in both appearances (the bright gold is light in both).
+    // kosmos#9095: the words on the gold Try again, dark in both appearances (the bright gold is light in both). The
+    // light value of Palette.primary, fixed on purpose: Palette.primary itself turns light in dark mode.
     static let onGold = Color(red: 0x14 / 255.0, green: 0x16 / 255.0, blue: 0x1A / 255.0)
     let failure: Shell.LoadFailure
     let detail: String
@@ -144,6 +145,8 @@ struct LoadFailureView: View {
                 .foregroundColor(Self.onGold)
                 .background(Palette.starFill)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                // The bright gold is under 3:1 against cream, so its edge is drawn in the deep gold (Palette.starGold).
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.starGold, lineWidth: 1))
                 .padding(.top, 8)
                 if Shell.offersOtherComputer(failure), let onOtherComputer = onOtherComputer {
                     Button(action: onOtherComputer) {
@@ -155,7 +158,7 @@ struct LoadFailureView: View {
                             .contentShape(Rectangle())
                     }
                     .foregroundColor(Palette.primary)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.separator, lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.secondary, lineWidth: 1))   // its only edge
                 }
                 if let onBack {
                     Button("Back to Kosmos", action: onBack)
