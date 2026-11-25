@@ -134,6 +134,14 @@ test('groupByDay: rows split by their day', () => {
   assert.equal(byDay.get('2026-09-14').length, 1);
 });
 
+test('#9016: a file that may be cut short is said in the day\'s record, a whole one is not', () => {
+  const { rows } = dl.flattenMessages([{ desc: { kind: 'direct', agent: 'a' }, parsed: { messages: [
+    { text: 'see', at: '2026-09-13T14:00:00Z', attachments: [{ name: 'book.xlsx', incomplete: true }, { name: 'whole.xlsx' }] },
+    { text: 'one', at: '2026-09-13T14:01:00Z', attachment: { name: 'one.xlsx', incomplete: true } },
+  ] } }]);
+  assert.deepEqual(rows.map((r) => r.attachments), [['book.xlsx (incomplete)', 'whole.xlsx'], ['one.xlsx (incomplete)']]);
+});
+
 test('renderDay: operator shown as You, messages time-ordered, attachments noted', () => {
   const rows = [
     { at: '2026-09-13T14:05:00Z', label: 'Direct: a', from: '3-agent', text: 'second', attachments: [] },

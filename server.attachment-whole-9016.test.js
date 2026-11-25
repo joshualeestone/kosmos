@@ -167,6 +167,14 @@ test('#9016 zip: what is and is not judged', () => {
   const zip64 = Buffer.from(whole);
   zip64.writeUInt32LE(0xffffffff, zip64.length - 6);
   assert.equal(attachments.incompleteZip(at('zip64.zip', zip64)), false, 'the zip64 form is not judged');
+  /* The two limits the plan states. */
+  const many = Buffer.from(whole);
+  many.writeUInt16LE(0xffff, whole.length - 22 + 10);   // the count of entries, all ones
+  many.writeUInt32LE(1, whole.length - 22 + 16);        // and a directory place that is not one
+  assert.equal(attachments.incompleteZip(at('many.zip', many)), false, 'an entry count of all ones is not judged');
+  many.writeUInt16LE(1, whole.length - 22 + 10);
+  assert.equal(attachments.incompleteZip(at('many1.zip', many)), true, 'CONTROL: the same file with a real count');
+  assert.equal(attachments.incompleteZip(at('after.zip', Buffer.concat([whole, Buffer.alloc(1024 * 1024 + 1)]))), true, 'more than 1 MiB after the end is a known misjudgement');
   /* A volume of a split archive has no end of its own. */
   assert.equal(attachments.incompleteZip(at('big.zip.001', whole.subarray(0, 60))), false);
   assert.equal(attachments.incompleteZip(at('big.z01', whole.subarray(0, 60))), false);
@@ -247,7 +255,7 @@ test('#9016 an agent that attaches its own cut file is told, and nothing is kept
   } else { assert.fail('this environment did not let an agent attach its own file: ' + ok.because); }
 });
 
-test('#9016 the page says it on the chip, the status line, the documents list and the preview', () => {
+test('#9016 the page says it on the chip, the documents list and the preview', () => {
   const page = require('./test-support/page');
   const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   const SCRIPT = page.scriptOf(html);
@@ -269,6 +277,7 @@ test('#9016 the page says it on the chip, the status line, the documents list an
   assert.equal(parts.length, 2);
   assert.match(parts[0], /incomplete upload, please send again/, 'the chip of the cut file says it');
   assert.doesNotMatch(parts[1], /incomplete/, 'CONTROL: the other chip does not');
+  assert.match(SCRIPT, /w\.className = a\.incomplete === true \? 'pj-doc-w att-bad' : 'pj-doc-w'/, 'in the warning ink');
   assert.match(SCRIPT, /w\.textContent = pjSize\(a\.size\) \+ \(a\.incomplete === true \? ' · incomplete upload, please send again' : ''\)/, 'the documents list says it');
 });
 
@@ -328,10 +337,15 @@ test('#9016 a pick of several: every outcome is still said at the end', async ()
   assert.equal(u.els.m.textContent, 'no. Not added: b.txt, c.txt. ' + CUT1, 'one sentence for one reason, each file named, and the earlier cut file kept');
   assert.equal(u.list.length, 2);
 
+  /* A folder, or a file changed since it was picked, fails as a lost connection does: the rest are still tried. */
   u = uploader([{}, 'down', {}]);
-  await u.go(pick('a.xlsx'), pick('b.txt'), pick('c.txt'));
-  assert.equal(u.els.m.textContent, 'We could not reach Kosmos to add that file. Not added: b.txt, c.txt.', 'a lost connection stops it');
-  assert.equal(u.sent.length, 2);
+  await u.go(pick('a.xlsx'), pick('folder'), pick('c.txt'));
+  assert.equal(u.els.m.textContent, 'We could not reach Kosmos to add that file. Not added: folder.', 'one that could not be sent');
+  assert.equal(u.list.length, 2, 'the next one is still added');
+
+  u = uploader(['down', 'down', 'down']);
+  await u.go(pick('a'), pick('b'), pick('c'));
+  assert.equal(u.els.m.textContent, 'We could not reach Kosmos to add that file. Not added: a, b, c.', 'a lost connection is said once');
 
   u = uploader([{}]);
   await u.go(pick('big.bin', 1001), pick('b.txt'));
