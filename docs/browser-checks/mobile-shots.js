@@ -2846,6 +2846,62 @@ const SCREENS = [
     await page.click('#cstep-kind [data-path="swarm"]', { timeout: 5000 });
     await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
   } },
+  /* First run, in the order a new person meets it (Josh 11-25 07:51), for --data fresh. fr-mac-*: the Mac app's window
+     (its bridge stood in, as setup-choice-7205 does). fr-win-*: the same panes with the page told it is on Windows, the
+     way server.js stamps it per request (the served kosmos-platform meta), so the Windows words and hidden rows show. */
+  ...[['mac', false], ['win', true]].flatMap(([tag, win]) => {
+    const prep = async (page) => {
+      if (!win) {
+        await page.addInitScript(() => { window.webkit = { messageHandlers: { kosmosMode: { postMessage() {} }, kosmosBadge: { postMessage() {} } } }; });
+        return;
+      }
+      await page.route((u) => u.pathname === '/' || u.pathname === '/index.html', async (r) => {
+        if (r.request().resourceType() !== 'document') return r.continue();
+        const res = await r.fetch();
+        const body = (await res.text()).replace(/(<meta name="kosmos-platform" content=")[^"]*(")/, '$1win32$2');
+        return r.fulfill({ response: res, body });
+      });
+    };
+    const isWin = async (page) => {
+      if (!win) return;
+      const v = await page.evaluate(() => document.documentElement.getAttribute('data-kosmos-platform'));
+      if (v !== 'win32') throw new Error('the page did not take the Windows platform (data-kosmos-platform=' + v + ')');
+    };
+    const pane = (n, label) => ({ name: 'fr-' + tag + '-' + String(n + 1).padStart(2, '0') + '-' + label, owner: 'Mona Lisa', go: async (page) => {
+      await prep(page);
+      await at(page, '?first-run=1&fr-step=' + n);
+      await page.waitForSelector('#fr-pane-' + n, { state: 'visible', timeout: 8000 });
+      await page.waitForTimeout(600);
+      await isWin(page);
+    } });
+    const list = [];
+    if (!win) list.push({ name: 'fr-mac-01-choice', owner: 'Mona Lisa', go: async (page) => {
+      await prep(page);
+      await at(page, '?mode=unreadable');
+      await page.waitForSelector('#fr-choice', { state: 'visible', timeout: 8000 });
+      await page.waitForTimeout(600);
+    } });
+    list.push(pane(1, 'welcome'), pane(2, 'permission'), pane(3, 'never-sleeps'), pane(4, 'notifications'), pane(5, 'model'),
+      pane(6, 'community'), pane(7, 'installed'), pane(8, 'working-for'), pane(9, 'agents'));
+    list.push({ name: 'fr-' + tag + '-11-board', owner: 'Mona Lisa', go: async (page) => { await prep(page); await at(page, ''); await isWin(page); } },
+      { name: 'fr-' + tag + '-12-new-agent', owner: 'Mona Lisa', go: async (page) => {
+        await prep(page); await at(page, ''); await isWin(page);
+        await page.click('#new-agent', { timeout: 5000 });
+        await page.waitForSelector('#panel-create', { state: 'visible', timeout: 5000 });
+      } },
+      { name: 'fr-' + tag + '-13-new-agent-role', owner: 'Mona Lisa', go: async (page) => {
+        await prep(page); await at(page, ''); await isWin(page);
+        await page.click('#new-agent', { timeout: 5000 });
+        await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
+        await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
+      } },
+      { name: 'fr-' + tag + '-14-first-chat', owner: 'Mona Lisa', go: async (page, data) => {
+        await prep(page); await at(page, '?agent=' + data.chatAgent); await isWin(page);
+        await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
+        await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
+      } });
+    return list;
+  }),
   { name: 'first-run', owner: 'unowned', go: async (page) => {
     await at(page, '?first-run=1');
     await page.waitForSelector('#firstrun', { state: 'visible', timeout: 5000 });
@@ -3904,6 +3960,20 @@ const DATA_SETS = {
    project manager and the other three report to her, so the org chart draws a team, not four loose dots. Pictures
    come from --faces (a folder of <claim>.jpg|.png and you.jpg|.png), never from the repo and never a real person
    from this Mac: the leak guard still reads every page. */
+/* First run (Josh 11-25 07:51, "all the app initial screens"): what a NEW person has once setup ends and they have made
+   one agent. One agent, Dana, made a moment ago: no messages, no files, no project, no question. Its first chat is empty,
+   as a new person's is. The fr-* screens (SCREENS) are meant for it. */
+DATA_SETS.fresh = {
+  ...DATA_SETS.store,
+  agents: [{ claim: 'dana', title: '', name: 'Dana', role: 'Writer' }],
+  chatAgent: 'dana',
+  askAgent: 'dana',
+  chat: [],
+  ask: null,
+  askInProject: false,
+  dmRead: false,
+  fresh: true,
+};
 DATA_SETS.marketing = {
   ...DATA_SETS.store,
   /* Farah shows as Farid: the four pictures the site already publishes (meet/faces) are two women and two men. */
@@ -4068,6 +4138,7 @@ function seedFiles(roots) {
   /* The chat agent's Files folder, for the agent-files screens: more rows than the
      agent page shows (AGENT_FILES_SHOWN, 10, so the list is capped; View All shows with any file), one with
      a long name. */
+  if (DATA.fresh) return;   // a new person: no files, no question (DATA_SETS.fresh)
   const chatFiles = require(path.join(REPO, 'engine', 'dmfiles')).filesDir(DATA.chatAgent);
   fs.mkdirSync(chatFiles, { recursive: true });
   const fileNames = ['catalogue-copy-pages-1-to-8-final-reviewed-by-cleo.docx', 'prices.xlsx', 'photographer-brief.pdf',
@@ -4226,6 +4297,8 @@ async function seed(base, roots) {
     if (!r.ok) throw new Error('seed ' + p + ' answered ' + r.status);
     return r.json().catch(() => ({}));
   };
+  // A new person has no project yet (DATA_SETS.fresh).
+  if (DATA.fresh) return { projectId: null, chatAgent: DATA.chatAgent, askAgent: DATA.askAgent, outsider: null };
   const made = await post('/api/projects', { name: 'Launch the spring catalogue', agents: DATA.projectAgents,
     ...(DATA.projectDescription ? { description: DATA.projectDescription } : {}) });
   const pid = made.project && made.project.id;
