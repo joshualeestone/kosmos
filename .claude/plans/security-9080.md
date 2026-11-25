@@ -5,7 +5,7 @@ Publish where to report a security problem: SECURITY.md at the kosmos repo root 
 /.well-known/security.txt on installkosmos.com (chaoskosmos-site, its own PR).
 
 ## Decisions
-- One address, security@installkosmos.com (an alias of hello@, tested 11-25 12:25 under #6600).
+- One address, security@installkosmos.com (set up and tested under #6600).
 - No response time is promised, only that we acknowledge. No bounty, no credit-by-name promise,
   no legal safe-harbour wording: each is a promise nobody has said we can keep.
 - No known weakness is described or hinted at.
@@ -17,4 +17,5 @@ Publish where to report a security problem: SECURITY.md at the kosmos repo root 
 
 ## Done when
 SECURITY.md is on main, and curl of https://installkosmos.com/.well-known/security.txt returns
-the file, read from outside after the site deploy runs.
+the file as text/plain (RFC 9116) with the Policy URL answering 200, read from outside after the
+site deploy runs.

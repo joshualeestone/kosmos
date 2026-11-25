@@ -3,7 +3,8 @@
 If you think you have found a security problem in Kosmos, please tell us privately first. Do not
 open a public issue, pull request or discussion about it.
 
-This covers the Kosmos app, this repository, and the Kosmos websites and services.
+This covers the Kosmos app, this repository, and the Kosmos websites and services, not the services
+of other companies that we use.
 
 **Email: security@installkosmos.com**
 
