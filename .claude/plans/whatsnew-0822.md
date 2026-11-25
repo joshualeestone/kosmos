@@ -13,9 +13,14 @@ Built with `node tools/whats-new-pool.js build 0.8.22` (online) on origin/main a
   pill's hover and its screen reader text, and nothing is added to the tile. So the line says "point at a waiting agent's
   status", not "its card says". The first wording claimed the card itself, which #9008 rules out.
 - **Built but waiting** (#9011 part 2, PR #9023, rank 11). The pill shows when nothing is running, nobody needs the person,
-  and the open tasks are built.
+  and at least one open task is built (`builtWaiting > 0`, engine/projects.js). The first wording said "all built", which
+  the code does not require; review caught it.
 - **Commands that would stall are refused up front** (#9001 part 2, PR #9013, notesOnly, rank 148). Agent-facing: the
-  report hook's refusal message.
+  report hook's refusal message. It is in install/kosmos-report-hook.sh only, the Mac and Linux hook; the Windows hook
+  (engine/kosmos-report-hook.js) has none of it. So it is tagged ["mac"]: the pool refuses a line that names the Mac
+  without a tag, and an untagged one would tell Windows agents about a guard they do not have. The cost: releasenotes.js
+  never tags Linux, so Linux agents, which do have the guard, lose this one note. Wrong on Windows was the worse error.
+  The line names the two shapes it covers.
 - **kosmos project show gives last activity** (#8996 slice 1, PR #9006, notesOnly, rank 149). An agent's command.
 
 ## Not added
@@ -35,5 +40,5 @@ shared). So the list is the same on Mac, Windows and Linux.
 
 ## Weakest premise
 That "point at" is how the person meets the reason. It is the pill's hover on a pointer device and its screen reader
-text. On a touch screen there is no hover, so the line is right for the Mac and Windows boards in a browser, and says
-nothing about the phone.
+text. On a touch screen there is no hover, so a person on a touch browser who opens the board is not shown how to reach
+it. The window is the desktop board's; the iPhone app is separate and ships through TestFlight.

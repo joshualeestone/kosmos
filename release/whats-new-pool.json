@@ -2755,7 +2755,7 @@
     },
     {
       "title": "Built but waiting",
-      "line": "A project with nothing running, whose open tasks are all built and waiting, now says Built but waiting instead of looking idle.",
+      "line": "A project with nothing running and work built and waiting now says Built but waiting instead of looking idle.",
       "icon": "tasks",
       "rank": 11,
       "since": "0.8.22",
@@ -2763,12 +2763,15 @@
     },
     {
       "title": "Commands that would stall are refused up front",
-      "line": "Kosmos refuses a shell command Claude Code would stop on with its own safety prompt, before it runs, and says the plain way to write it.",
+      "line": "Kosmos refuses two shell shapes Claude Code would stop on with its safety prompt ($$( and a zsh ${( flag), and says how to write them.",
       "icon": "shield",
       "rank": 148,
       "since": "0.8.22",
       "status": "pending",
-      "notesOnly": true
+      "notesOnly": true,
+      "platforms": [
+        "mac"
+      ]
     },
     {
       "title": "kosmos project show gives last activity",
