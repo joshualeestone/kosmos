@@ -1,6 +1,7 @@
 # App Privacy ("nutrition label") answers, draft (#718)
 
-Draft only. Nothing has been entered into App Store Connect.
+Draft. These answers have not been entered into App Store Connect as of 2026-11-24: Apple takes them only on its website,
+by hand. (What has been entered is in `README.md`.)
 
 **Re-checked 2026-10-15 for #6262** (Mona Lisa), at origin/main 24e44896eb. The app's Swift sources still import
 Apple frameworks only (Foundation, LocalAuthentication, Network, Security, SwiftUI, UIKit, UserNotifications,

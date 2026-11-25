@@ -1,7 +1,7 @@
 # Age rating answers (entered 2026-11-24, kosmos #7352)
 
 The answers in App Store Connect's age rating questionnaire for version 1.0,
-entered 2026-11-24 and read back equal: Josh approved the rows drafted on
+entered 2026-11-24 and read back through Apple's API, field by field: Josh approved the rows drafted on
 2026-10-27, and Splinter decided the three rows marked added. They can change
 until Submit. Each answer says why, so a changed feature shows which answer it
 changes.
