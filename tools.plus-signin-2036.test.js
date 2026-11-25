@@ -112,7 +112,8 @@ function fakeBoard(opts = {}) {
       calls.push({ method: req.method, url: req.url, body: body ? JSON.parse(body) : null, at: Date.now() });
       const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json', 'x-kosmos-board': opts.identity || BOARD }); res.end(JSON.stringify(j)); };
       if (req.url === '/') return send(200, {});
-      if (req.headers['x-kosmos-board-token'] !== 'tok') return send(401, { error: 'no token' });
+      /* kosmos#9018: opts.unenforced is a fully sandboxed board, which checks no token (engine/boardauth.js). */
+      if (!opts.unenforced && req.headers['x-kosmos-board-token'] !== 'tok') return send(401, { error: 'no token' });
       if (req.url === '/api/remote') return send(200, { enrolled: state.enrolled, on: state.on, status: { state: state.up ? 'up' : 'off' } });
       if (req.url === '/api/remote/signin-start' && opts.startHangs) return;   // never answers
       if (req.url === '/api/remote/signin-start') return opts.startFails ? send(400, { error: 'coordinator down' }) : send(200, { ok: true, stage: 'code_sent' });
@@ -189,6 +190,7 @@ test('#2036: a first sign-in on the staged board records a pass: enrolled, switc
     assert.strictEqual(got.result, 'pass');
     assert.strictEqual(got.placement, 'SPAM', 'the inbox placement was not recorded');
     assert.strictEqual(got.board, BOARD);
+    assert.strictEqual(got.board_kind, 'installed', 'kosmos#9018: the default kind was not recorded');
     assert.deepStrictEqual(record.validate(got, { version: VER, sha256: SHA }), { ok: true });
     assert.deepStrictEqual(b.calls.find((c) => c.url === '/api/remote/signin-start').body, { email: 'seed+kosmos@example.com' });
     assert.strictEqual(b.calls.find((c) => c.url === '/api/remote/signin-register').body.name, 'kseed-aaaaaaaa');
@@ -473,5 +475,73 @@ test('#2036: with no seed address given, start is setup and nothing is sent', as
     assert.strictEqual(r.code, 2, r.out);
     assert.match(r.out, /no seed address/);
     assert.ok(!b.calls.some((c) => c.url === '/api/remote/signin-start'));
+  } finally { b.server.close(); }
+});
+
+/* kosmos#9018: tools/plus-signin-auto.sh drives a FULLY SANDBOXED throwaway board (it can never touch the fleet's
+   terminals or launchd), which writes no board.token and checks none. It must be asked for by name, refused on a
+   board that has a token, and named in the record. */
+function sandboxEnv(dir) {
+  const e = env(dir);
+  fs.rmSync(path.join(e.KOSMOS_STORE_ROOT, 'board.token'));
+  return e;
+}
+const startArgs = (ptr, b, more = []) => ['start', '--pointer', ptr, '--port', String(b.port), ...more];
+const finishArgs = (ptr, b, more = []) => ['finish', '--pointer', ptr, '--port', String(b.port), '--code', '123456', '--placement', 'INBOX', ...more];
+
+test('#9018: --board-kind sandboxed drives a token-less board through a pass, and the record says which kind it was', async () => {
+  const dir = tmp(); const e = sandboxEnv(dir); const ptr = pointerFile(dir);
+  const b = await fakeBoard({ unenforced: true });
+  try {
+    let r = await runner(startArgs(ptr, b, ['--board-kind', 'sandboxed']), e);
+    assert.strictEqual(r.code, 0, r.out);
+    r = await runner(finishArgs(ptr, b, ['--board-kind', 'sandboxed']), e);
+    assert.strictEqual(r.code, 0, r.out);
+    const got = rec(e);
+    assert.strictEqual(got.result, 'pass');
+    assert.strictEqual(got.board_kind, 'sandboxed');
+    assert.deepStrictEqual(record.validate(got, { version: VER, sha256: SHA }), { ok: true });
+  } finally { b.server.close(); }
+});
+
+test('#9018: a token-less board without --board-kind sandboxed is refused before any code is sent (the kind is never inferred)', async () => {
+  const dir = tmp(); const e = sandboxEnv(dir); const ptr = pointerFile(dir);
+  const b = await fakeBoard({ unenforced: true });
+  try {
+    const r = await runner(startArgs(ptr, b), e);
+    assert.strictEqual(r.code, 2, r.out);
+    assert.match(r.out, /not an enforcing installed board.*--board-kind sandboxed/);
+    assert.ok(!b.calls.some((c) => c.url === '/api/remote/signin-start'), 'a code was sent');
+    assert.ok(!fs.existsSync(record.recordPath(SHA, e)));
+  } finally { b.server.close(); }
+});
+
+test('#9018: --board-kind sandboxed on a board that holds a token, or an unknown kind, is refused before any code is sent', async () => {
+  const dir = tmp(); const e = env(dir); const ptr = pointerFile(dir);
+  const b = await fakeBoard();
+  try {
+    let r = await runner(startArgs(ptr, b, ['--board-kind', 'sandboxed']), e);
+    assert.strictEqual(r.code, 2, r.out);
+    assert.match(r.out, /holds a board\.token: that board enforces/);
+    r = await runner(startArgs(ptr, b, ['--board-kind', 'whatever']), e);
+    assert.strictEqual(r.code, 2, r.out);
+    assert.match(r.out, /--board-kind is installed or sandboxed/);
+    assert.ok(!b.calls.some((c) => c.url === '/api/remote/signin-start'), 'a code was sent');
+    assert.ok(!fs.existsSync(record.recordPath(SHA, e)));
+  } finally { b.server.close(); }
+});
+
+test('#9018: a finish given another kind than its start is setup: nothing recorded', async () => {
+  const dir = tmp(); const e = sandboxEnv(dir); const ptr = pointerFile(dir);
+  const b = await fakeBoard({ unenforced: true });
+  try {
+    let r = await runner(startArgs(ptr, b, ['--board-kind', 'sandboxed']), e);
+    assert.strictEqual(r.code, 0, r.out);
+    fs.writeFileSync(path.join(e.KOSMOS_STORE_ROOT, 'board.token'), 'tok');   // the same root, now an installed board
+    r = await runner(finishArgs(ptr, b), e);
+    assert.strictEqual(r.code, 2, r.out);
+    assert.match(r.out, /`start` drove a sandboxed board/);
+    assert.ok(!b.calls.some((c) => c.url === '/api/remote/signin-verify'), 'the code was used');
+    assert.ok(!fs.existsSync(record.recordPath(SHA, e)));
   } finally { b.server.close(); }
 });
