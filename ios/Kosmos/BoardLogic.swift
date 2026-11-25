@@ -2378,9 +2378,12 @@ enum Board {
     }
 
     // kosmos#9016: a file's size read from the disk now. URL.resourceValues can answer from a cache kept on the URL,
-    // so a size read twice could repeat the first answer.
+    // so a size read twice could repeat the first answer: the cache is cleared first. (Not attributesOfItem: that is
+    // a required-reason API, file timestamps, which the privacy manifest does not declare: ios.privacy-manifest-7352.)
     static func freshSize(_ url: URL) -> Int? {
-        ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.intValue
+        var fresh = url
+        fresh.removeAllCachedResourceValues()
+        return (try? fresh.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
     }
 
     // kosmos#9016: the request says how many bytes it carries, so the Mac (and the relay between) can refuse a body

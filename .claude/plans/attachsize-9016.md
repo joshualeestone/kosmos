@@ -40,6 +40,13 @@ lands: attachment cards say "incomplete upload, please send again" where the row
 - NIT, for the Mac half: its sentence starts lowercase ("that file did not arrive whole...") and the phone shows the
   Mac's error as it is; asked on #9016 that it be capitalised to match the phone's own refusal.
 
+## Round 2 (sonnet, blind, whole branch): nothing above nit. Converged.
+- Its unlisted mutation (no link-to-folder branch) run: turns run.sh red (FAIL 1 of 2319).
+- Found after convergence by the node suites that read the Swift: freshSize used FileManager.attributesOfItem, a
+  required-reason API (file timestamps) the app's privacy manifest does not declare (ios.privacy-manifest-7352). It
+  now reads URL.resourceValues(.fileSizeKey) after removeAllCachedResourceValues, the API the app already used.
+  Every logic suite (15) and the ios.* node tests pass again.
+
 ## Rejected
 - Sending the size Files gave before the copy: it can be a cloud placeholder's, which is why the coordinator re-reads.
 - Comparing only before-copy: a file still being written can grow during the copy; both reads are needed.
