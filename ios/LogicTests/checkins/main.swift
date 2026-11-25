@@ -30,6 +30,7 @@ check(C.nudges(status: 200, data: Data(#"{"nudges":[]}"#.utf8)) == [], "none: an
 check(C.needsPhases(ns ?? []) && !C.needsPhases([Checkins.Nudge(session: "a", to: "idle")]), "the status is read only when a lost connection needs its phase")
 let ph = C.phases(status: 200, data: Data(#"{"agents":[{"sessionName":"eli","reconnect":{"phase":"gave_up","tries":3}},{"sessionName":"gus","reconnect":null},{"sessionName":"hal"}]}"#.utf8))
 check(ph == ["eli": "gave_up"] && C.phases(status: 0, data: nil) == [:], "each agent's reconnect phase from the status, none when unread")
+check(C.phases(status: 200, data: Data(#"{"agents":[7,{"sessionName":"eli","reconnect":{"phase":"waiting"}}]}"#.utf8)) == ["eli": "waiting"], "an entry that is not an object is skipped, not the whole list")
 
 section("the questions, as the page's prompterCheckinQuestion")
 check(C.question(Checkins.Nudge(session: "a", to: "auth_failed"), phase: nil) == W.signIn, "signed out")
@@ -44,7 +45,7 @@ check(page.contains("if (ph === 'waiting' || ph === 'retried') return") && page.
 
 section("the agent a row opens")
 let t = C.target(mac, session: "dana")
-check(t == PushBridge.AgentTarget(host: "studio.kosmosplus.com", session: "dana", name: "dana"), "the computer's address, lower-cased, and the session, as a push tap names it")
+check(t == PushBridge.AgentTarget(host: "studio.kosmosplus.com", session: "dana", name: "Dana"), "the computer's address, lower-cased, the session, and its name as a push tap gives one with none")
 check(C.target(mac, session: "../x") == nil && C.target(mac, session: "") == nil, "a session the board's names cannot be opens nothing")
 check(C.rows(C.nudges(status: 200, data: Data(C.sampleNudges.utf8)) ?? [], phases: C.samplePhases).map(\.question) == [W.quiet, W.gaveUp], "the sample: one quiet, one Kosmos stopped trying on")
 
