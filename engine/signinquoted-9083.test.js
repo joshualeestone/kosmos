@@ -27,29 +27,42 @@ test('#9083: the real screens: a refused token and no login are refusals, the sa
   assert.equal(isRefusal(screen('quoted-by-a-command')), false, 'a command printed it');
 });
 
-test('#9083: under a tool it is output, on the first row of it or a later one; under a prompt, or with no head in sight, it is not', () => {
-  for (const head of ['\u23fa Bash(claude -p hi)', '\u25cf Bash(claude -p hi)', '\u23fa server - run (MCP)(x: 1)', '! claude -p hi']) {
+const NL = 'Not logged in · Please run ' + LOGIN;
+test('#9083: in the first block of a command or a tool it is output, on its first row or a later one', () => {
+  for (const head of ['⏺ Bash(claude -p hi)', '● Bash(claude -p hi)', '⏺ server - run (MCP)(x: 1)', '! claude -p hi']) {
     assert.equal(isRefusal(head + '\n' + QUOTED), false, 'output read as a refusal: ' + head);
-    assert.equal(isRefusal(head + '\n  \u23bf  starting\n     Not logged in \u00b7 Please run ' + LOGIN), false, 'a later row: ' + head);
+    assert.equal(isRefusal(head + '\n  ⎿  starting\n     ' + NL), false, 'a later row: ' + head);
   }
-  for (const head of ['\u276f say ok', '> say ok', '', 'words with no head (cut)']) {
-    assert.equal(isRefusal(head + '\n' + QUOTED), true, 'a refusal was dropped under: ' + head);
-  }
-  assert.equal(isRefusal('\u23fa Bash(ls)\n  \u23bf  a\n\u276f say ok\n' + QUOTED), true, 'the nearest head decides');
 });
 
-test('#9083: with Claude Code\'s own "run" footer on the screen, it is a refusal whatever it is under', () => {
-  const mode = '  \u23f5\u23f5 auto mode on (shift+tab to cycle)' + FOOTER;   // as agents run: at the end of the mode row
-  assert.equal(isRefusal('\u23fa Bash(ls)\n' + QUOTED + '\n' + mode), true, 'at the end of the mode row');
-  assert.equal(isRefusal('\u23fa Bash(ls)\n' + QUOTED + '\n     it says Not logged in \u00b7 run ' + LOGIN), false, 'CONTROL: words of output are not the footer');
-  assert.equal(isRefusal('\u23fa Bash(ls)\n' + QUOTED + '\n' + FOOTER), true);
-  assert.equal(isRefusal('! ls\n' + QUOTED + '\n' + FOOTER), true);
+test('#9083: a refusal is never dropped: any other head, anything between, a second block, or no head in sight', () => {
+  for (const head of ['❯ say ok', '> say ok', '', 'words with no head (cut)', '❯ a long\n  prompt of two rows', '⏺ Read 3 files (ctrl+o to expand)',
+    '⏺ Done (PR 5 is up).', '⏺ Background command "x" completed (exit code 0)', '⏺ bash(x)', '!']) {
+    assert.equal(isRefusal(head + '\n' + QUOTED), true, 'dropped under: ' + head);
+  }
+  for (const first of ['⏺ Bash(ls)', '! ls']) {
+    for (const [what, between] of [['a blank row', '  ⎿  a\n\n'], ['a second block', '  ⎿  a\n'], ['a message', '  ⎿  a\n← discord · someone: hi\n'],
+      ['a worked row', '  ⎿  a\n✻ Worked for 3s\n'], ['a new prompt', '  ⎿  a\n❯ say ok\n']]) {
+      assert.equal(isRefusal(first + '\n' + between + QUOTED), true, `dropped after ${what} under ${first}`);
+    }
+  }
+  assert.equal(isRefusal(QUOTED), true, 'no head at all');
+  assert.equal(isRefusal('! ls\n  \u23bf  a\n     \n     ' + NL), true, 'a row of spaces ends the block');
+});
+
+test('#9083: with Claude Code\'s own notice anywhere on the screen, in any of its forms, it is a refusal', () => {
+  const run = 'Not logged in · run ' + LOGIN;
+  for (const notice of [' '.repeat(60) + run, '  ⏵⏵ auto mode on (shift+tab to cycle)' + ' '.repeat(20) + run, '  ' + run,
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle)  ' + run, '  ⏵⏵ bypass permissions on (shift+tab to cycle) Not logged in · run /l',
+    '   Not logged in _ run ' + LOGIN]) {
+    assert.equal(isRefusal('⏺ Bash(ls)\n' + QUOTED + '\n' + notice), true, 'missed: ' + notice);
+  }
 });
 
 test('#9083: every other sentence, and the row Claude Code draws at its own bullet, are read as before', () => {
   for (const words of ['Login expired', 'Login reached its time limit', 'OAuth access token has been revoked']) {
-    assert.equal(isRefusal('\u23fa Bash(ls)\n  \u23bf  ' + words + ' \u00b7 Please run ' + LOGIN), true, 'changed: ' + words);
+    assert.equal(isRefusal('⏺ Bash(ls)\n  ⎿  ' + words + ' · Please run ' + LOGIN), true, 'changed: ' + words);
   }
-  assert.equal(isRefusal('! ls\n  \u23bf  a\n\u23fa Not logged in \u00b7 Please run ' + LOGIN), true, 'its own bullet row');
-  assert.equal(isRefusal('! ls\n\u23fa Not logged in \u00b7 Please run ' + LOGIN + ' (again)'), true, 'its own row is not its own head');
+  assert.equal(isRefusal('! ls\n  ⎿  a\n⏺ ' + NL), true, 'its own bullet row');
+  assert.equal(isRefusal('⏺ ' + NL + ' (again)'), true, 'its own row is not its own head');
 });
