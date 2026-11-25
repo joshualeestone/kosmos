@@ -27,3 +27,9 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan 7158390965). St
 - M5 the sample's words were not the engine's: its summaries join with " · " (SUMMARY_JOIN, checked against the engine) and its lines are the engine's kind.
 - M6 VoiceOver read the mark as "Needs you: ," with a trailing colon: one label, "Needs you". The dot's baseline offset is cosmetic and kept.
 - Measured: run-ready.sh PASS 28/28; typecheck 0 errors (app and UI test).
+
+### Round 2 (sonnet, 03:36 CST): nothing material, 3 MINOR. Loop ends here.
+- The reviewer verified the write() re-read: never for a refused save, after the save's own UI is settled, and with its own generation.
+- M1 kept: a failed re-read shows "could not check", as the page's ("A failed read always paints").
+- M2 a refused Community or Prompter save now also reads the rows again (a save with no answer may have landed).
+- M3 to watch on the first UI run: the identifier on a DisclosureGroup whose label is combined.
