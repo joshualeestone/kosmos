@@ -22,3 +22,7 @@ that cache. It now runs on every tick, with a test through real ticks.
 
 Round 5: the list of other credentials is now a shape, so one not named is a doubt; tests for an error in the tick, another pane, a
 failed read and the exact moment. Kept: the two small maps are not swept of removed agents (one entry each).
+
+After round 5: the first full validation (38f31cc368, 07:12 CST 11-25) was red on one gate, check-frozen-roots: it read past a line
+above the new function and took its lookup of the home folder for a constant's. The lookup moved into oldsigninline; no behaviour
+changed. Its node suite had passed (31,231 tests, 0 failed).

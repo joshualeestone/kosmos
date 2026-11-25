@@ -17,6 +17,7 @@
  * Every doubt is "not old", which is what the board did before this file. Nothing is remembered here about a screen.
  */
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const TAIL_BYTES = 256 * 1024;
@@ -54,10 +55,11 @@ function refusalAtEnd(file) {
   return null;
 }
 
-/* When the agent whose process is `pid`, on the config folder `root`, was last refused; null when the last thing said in
+/* When the agent whose process is `pid`, on the config folder `ccd` (undefined: the default), was last refused; null when the last thing said in
    its session is not a refusal, or the session cannot be told. */
 const SESSION_ID = /^[0-9a-f-]{8,64}$/i;
-function refusedAt({ pid, root }) {
+function refusedAt({ pid, ccd }) {
+  const root = ccd || path.join(os.homedir(), '.claude');
   let id;
   try {
     const own = JSON.parse(fs.readFileSync(path.join(root, 'sessions', `${pid}.json`), 'utf8'));
