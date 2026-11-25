@@ -12,7 +12,7 @@
  *     node docs/browser-checks/mobile-shots.js [--out DIR] [--screens a,b]
  *       [--sizes se,iphone15,promax,android,android360,desktop] [--themes light,dark]
  *       [--engines chromium,webkit] [--strict] [--list] [--keep]
- *       [--data sample|store|marketing] [--faces DIR] [--scale css|device] [--remote]
+ *       [--data sample|store|marketing|fresh] [--faces DIR] [--scale css|device] [--remote]
  *
  * Output: DIR/<screen>--<size>--<theme>--<engine>.png plus DIR/report.md (every
  * shot, and every overflow found). Default DIR is a new temp folder, printed at
@@ -1170,6 +1170,58 @@ async function countsOpen8301(page, data, inProject) {
 async function countsVerify8301(page) {
   const t = await page.evaluate(`(${chip8301})().title`);
   if (t !== '2 of 7 subtasks done, 2 built, 1 dropped, 1 on hold') throw new Error('the chip does not say the three apart: ' + JSON.stringify(t));
+}
+/* First run, in the order a new person meets it (Josh 11-25 07:51), for --data fresh: the fr-mac-* and fr-win-* screens
+   (SCREENS). Mac: the app's window, its bridge stood in as setup-choice-7205 does. Windows: the same panes with the
+   page told it is on Windows the way server.js tells it, by the served kosmos-platform meta, so the Windows words and
+   hidden rows show (Windows has no permission or notifications pane). */
+async function frPrep(page, win) {
+  if (!win) {
+    await page.addInitScript(() => { window.webkit = { messageHandlers: { kosmosMode: { postMessage() {} }, kosmosBadge: { postMessage() {} } } }; });
+    return;
+  }
+  await page.route((u) => u.pathname === '/' || u.pathname === '/index.html', async (r) => {
+    try {   // #6022: a late answer after close is caught, not a crash
+      if (r.request().resourceType() !== 'document') return await r.fallback();
+      let res;
+      try { res = await fetchBoard(r); } catch { return await r.fallback(); }   // --remote: through the board
+      const body = (await res.text()).replace(/(<meta name="kosmos-platform" content=")[^"]*(")/, '$1win32$2');
+      await r.fulfill({ response: res, body });
+    } catch { await r.abort().catch(() => {}); }   // never leave the page's load hanging
+  });
+}
+async function frIsWin(page, win) {
+  const v = await page.evaluate(() => document.documentElement.getAttribute('data-kosmos-platform'));
+  if (win && v !== 'win32') throw new Error('the page did not take the Windows platform (data-kosmos-platform=' + v + ')');
+  // A Mac screen run where the board is stamped Windows or Linux would show their words under a Mac name.
+  if (!win && (v === 'win32' || v === 'linux')) throw new Error('a Mac first-run screen on a board stamped ' + v);
+}
+async function frPane(page, n, win) {
+  await frPrep(page, win);
+  await at(page, '?first-run=1&fr-step=' + n);
+  await page.waitForSelector('#fr-pane-' + n, { state: 'visible', timeout: 8000 });
+  await page.waitForTimeout(600);
+  await frIsWin(page, win);
+}
+async function frBoard(page, win, then) {
+  if (!['board', 'new', 'role'].includes(then)) throw new Error('frBoard: no step ' + then);
+  await frPrep(page, win);
+  await at(page, '');
+  await frIsWin(page, win);
+  if (then === 'new' || then === 'role') {
+    await page.click('#new-agent', { timeout: 5000 });
+    if (then === 'role') {
+      await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
+      await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
+    } else await page.waitForSelector('#panel-create', { state: 'visible', timeout: 5000 });
+  }
+}
+async function frChat(page, win, data) {
+  await frPrep(page, win);
+  await at(page, '?agent=' + data.chatAgent);
+  await frIsWin(page, win);
+  await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
+  await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
 }
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
@@ -2846,6 +2898,40 @@ const SCREENS = [
     await page.click('#cstep-kind [data-path="swarm"]', { timeout: 5000 });
     await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
   } },
+  /* First run (frPrep and the helpers beside it). The whole set needs --data fresh: without it every one is skipped,
+     so the board screens are never the full sample fleet under a first-run name, and a default sweep does not grow
+     by the set. Windows has no setup-choice screen: its app's FirstRunChoice switch is off on main
+     (tools/windows/README.md), so a new Windows person starts at Welcome. */
+  { name: 'fr-mac-01-choice', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: async (page) => {
+    await frPrep(page, false);
+    await at(page, '?mode=unreadable');
+    await page.waitForSelector('#fr-choice', { state: 'visible', timeout: 8000 });
+    await page.waitForTimeout(600);
+  } },
+  { name: 'fr-mac-02-welcome', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 1, false) },
+  { name: 'fr-mac-03-permission', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 2, false) },
+  { name: 'fr-mac-04-never-sleeps', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 3, false) },
+  { name: 'fr-mac-05-notifications', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 4, false) },
+  { name: 'fr-mac-06-model', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 5, false) },
+  { name: 'fr-mac-07-community', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 6, false) },
+  { name: 'fr-mac-08-installed', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 7, false) },
+  { name: 'fr-mac-09-working-for', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 8, false) },
+  { name: 'fr-mac-10-ready', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 9, false) },
+  { name: 'fr-mac-11-board', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, false, 'board') },
+  { name: 'fr-mac-12-new-agent', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, false, 'new') },
+  { name: 'fr-mac-13-new-agent-role', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, false, 'role') },
+  { name: 'fr-mac-14-first-chat', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page, data) => frChat(page, false, data) },
+  { name: 'fr-win-01-welcome', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 1, true) },
+  { name: 'fr-win-02-never-sleeps', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 3, true) },
+  { name: 'fr-win-03-model', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 5, true) },
+  { name: 'fr-win-04-community', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 6, true) },
+  { name: 'fr-win-05-installed', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 7, true) },
+  { name: 'fr-win-06-working-for', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 8, true) },
+  { name: 'fr-win-07-ready', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frPane(page, 9, true) },
+  { name: 'fr-win-08-board', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, true, 'board') },
+  { name: 'fr-win-09-new-agent', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, true, 'new') },
+  { name: 'fr-win-10-new-agent-role', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page) => frBoard(page, true, 'role') },
+  { name: 'fr-win-11-first-chat', owner: 'Mona Lisa', noServiceWorker: true, needsData: 'fresh', go: (page, data) => frChat(page, true, data) },
   { name: 'first-run', owner: 'unowned', go: async (page) => {
     await at(page, '?first-run=1');
     await page.waitForSelector('#firstrun', { state: 'visible', timeout: 5000 });
@@ -3904,6 +3990,20 @@ const DATA_SETS = {
    project manager and the other three report to her, so the org chart draws a team, not four loose dots. Pictures
    come from --faces (a folder of <claim>.jpg|.png and you.jpg|.png), never from the repo and never a real person
    from this Mac: the leak guard still reads every page. */
+/* First run (Josh 11-25 07:51, "all the app initial screens"): what a NEW person has once setup ends and they have made
+   one agent. One agent, Dana, made a moment ago: no messages, no files, no project, no question. Its first chat is empty,
+   as a new person's is. The fr-* screens (SCREENS) are meant for it. */
+DATA_SETS.fresh = {
+  ...DATA_SETS.store,
+  agents: [{ claim: 'dana', title: '', name: 'Dana', role: 'Writer' }],
+  chatAgent: 'dana',
+  askAgent: 'dana',
+  chat: [],
+  ask: null,
+  askInProject: false,
+  dmRead: false,
+  fresh: true,
+};
 DATA_SETS.marketing = {
   ...DATA_SETS.store,
   /* Farah shows as Farid: the four pictures the site already publishes (meet/faces) are two women and two men. */
@@ -4068,6 +4168,7 @@ function seedFiles(roots) {
   /* The chat agent's Files folder, for the agent-files screens: more rows than the
      agent page shows (AGENT_FILES_SHOWN, 10, so the list is capped; View All shows with any file), one with
      a long name. */
+  if (DATA.fresh) return;   // a new person: no files, no question (DATA_SETS.fresh)
   const chatFiles = require(path.join(REPO, 'engine', 'dmfiles')).filesDir(DATA.chatAgent);
   fs.mkdirSync(chatFiles, { recursive: true });
   const fileNames = ['catalogue-copy-pages-1-to-8-final-reviewed-by-cleo.docx', 'prices.xlsx', 'photographer-brief.pdf',
@@ -4226,6 +4327,8 @@ async function seed(base, roots) {
     if (!r.ok) throw new Error('seed ' + p + ' answered ' + r.status);
     return r.json().catch(() => ({}));
   };
+  // A new person has no project yet (DATA_SETS.fresh).
+  if (DATA.fresh) return { projectId: null, chatAgent: DATA.chatAgent, askAgent: DATA.askAgent, outsider: null };
   const made = await post('/api/projects', { name: 'Launch the spring catalogue', agents: DATA.projectAgents,
     ...(DATA.projectDescription ? { description: DATA.projectDescription } : {}) });
   const pid = made.project && made.project.id;
