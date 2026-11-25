@@ -3,11 +3,11 @@ import SwiftUI
 
 // kosmos#7010 (slice 10 of #6838): the native Settings tab. The phone switches (the computer's own setting, read and
 // written as the board's Settings does), the computer this phone shows, Face ID (only while the app asks for it), the
-// Kosmos+ account (native since kosmos#8959 slice B1a, AccountView; the delete flow is still its web page), and a row to
+// Kosmos+ account (native since kosmos#8959 slice B1a, AccountView; deleting it since slice C, DeleteAccountView), and a row to
 // the board's own Settings for everything else. The logic is SettingsLogic.swift.
 struct SettingsView: View {
     let coordinator: URL
-    // A Kosmos+ page (the account, the delete flow), opened in the app's web view.
+    // A Kosmos+ page, opened in the app's web view (AccountView passes it on).
     let openPage: (URL) -> Void
     // The board's own Settings, shown under Today (AppTabs.barTab).
     let openBoardSettings: () -> Void
@@ -260,9 +260,13 @@ struct SettingsView: View {
                 Text("Your Kosmos+ account").foregroundColor(Palette.primary)
             }
             .accessibilityIdentifier("settings-account")
-            Button { openPage(Settings.deleteAccountURL(coordinator: coordinator)) } label: {
+            // kosmos#8959 slice C: native too, over the same four Kosmos+ routes the web page uses.
+            NavigationLink {
+                DeleteAccountView(coordinator: coordinator, currentSession: currentSession, deleted: signedOut, sample: Self.sample)
+            } label: {
                 Text("Delete account").foregroundColor(Palette.dangerWord)
             }
+            .accessibilityIdentifier("settings-delete-account")
         } header: {
             Text("Account").id("account")
         } footer: {

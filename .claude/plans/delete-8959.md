@@ -1,0 +1,29 @@
+# kosmos#8959 slice C: delete account, native (branch delete-8959)
+
+Plan as posted on the card 2026-11-25 02:4x UTC (issuecomment-7151149115):
+
+
+**What exists.** kosmos-relay `coordinator/src/account_delete.rs`: `start {email}` (same answer whether or not the account exists), `verify {email, code}` (a grant, or a second-step challenge when one is set up), `second {challenge, code}` (the grant), `confirm {grant, understood: true}` with three outcomes (`deleted` 200, `still_deleting` 202, `nothing_changed` 503). None takes a session. All refuse with `deletion_off` while `KOSMOS_ACCOUNT_DELETION` is unset. The page is `signin.html` at `/delete-account` (`DELETE` mode, `delConfirm`, `delSend`).
+
+**The call.** The Settings row "Delete account" opens a native `DeleteAccountView` (logic in `DeleteAccountLogic.swift`, proved in `ios/LogicTests/deleteaccount`). Five screens, the page's words only:
+1. Email: the page's title, intro, How it works / What is deleted / What we keep. The field is filled with this iPhone's account email when `/v1/account/me` gives one, and stays editable. Continue.
+2. Check your email: the page's code line. Continue.
+3. One more code (only when Kosmos+ opens one): the page's `secondWords`.
+4. Confirm: every line of `step-del-confirm`, both plan variants and the only-admin warning from `preview`. "I understand this cannot be undone." must be on before the red "Delete my account" works; red nowhere else. Keep my account goes back to Settings.
+5. Deleted / still deleting / could not (with Try again on the same grant), each with the page's words.
+- Any other confirm answer (an expired grant) goes back to the email screen with Kosmos+'s sentence, as the page does. Refusals at every step are Kosmos+'s own sentence, so the off switch reads "Deleting an account is not open yet."
+- After `deleted`, this iPhone signs out through Settings' own sign-out path (`signedOut`) when the person leaves the done screen, as the page forgets every session it holds.
+
+**Rejected.** Locking the email to the signed-in account (the page lets anyone delete their account from it; an email code still proves it); signing out the instant `deleted` lands (it would pull the done screen away before it is read); a native screen with fewer words than the page (an irreversible step that moves money must not say less than the web does).
+
+**Weakest premise.** That signing out on leaving the done screen is enough: an app killed on that screen keeps a dead session until its next request is refused, which the existing 401 path already turns into signed out.
+
+**What would change my mind.** Kosmos+ adding a session-bound delete (then the email step goes), or Josh changing any of the four billing calls in the module header (the phone only repeats the page's lines, so it changes with them).
+
+## Built
+- ios/Kosmos/DeleteAccountLogic.swift: requests, answers, the page's words. ios/LogicTests/run-deleteaccount.sh (CI step in ios.yml).
+- ios/Kosmos/DeleteAccountView.swift: the five screens; SettingsView's row is a NavigationLink to it; Settings.deleteAccountURL removed (no callers).
+- ios/KosmosUITests/DeleteAccountUITests.swift: sample walk with screenshots, the tick gate, Keep my account.
+- Departures from the page, on purpose: an unknown plan reads as the subscription words (the page reads it as none; never understate); the pending screen drops "and you can close this page".
+
+## Review ledger
