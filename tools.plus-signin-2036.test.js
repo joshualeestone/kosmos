@@ -558,7 +558,16 @@ test('#9018: a register the certificate authority rate-limits is setup (nothing 
     assert.match(r.out, /certificate authority's limit for this seed's address, which says nothing about the build/);
     assert.ok(b.calls.some((c) => c.url === '/api/remote/forget'), 'the forget did not run');
     assert.strictEqual(rec(e).result, 'pass', 'the earlier record was replaced');
+    assert.strictEqual(runGate(e.KOSMOS_PLUS_VERIFY_DIR, ptr).status, 0, 'the earlier pass no longer reads as a pass (a progress file left behind reads as in flight)');
   } finally { b.server.close(); }
+  // A rate-limited register whose forget did NOT pass is still a FAIL: a Mac may be left registered.
+  const dir3 = tmp(); const e3 = env(dir3); const ptr3 = pointerFile(dir3);
+  const b3 = await fakeBoard({ registerCertLimited: true, forgetKept: true });
+  try {
+    const r = await both(b3, e3, ptr3, ['--code', '123456', '--placement', 'INBOX']);
+    assert.strictEqual(r.code, 1, r.out);
+    assert.strictEqual(step(rec(e3), 'forget').result, 'fail');
+  } finally { b3.server.close(); }
   // CONTROL: any other register refusal is still a FAIL.
   const dir2 = tmp(); const e2 = env(dir2); const ptr2 = pointerFile(dir2);
   const b2 = await fakeBoard({ registerRefusedClean: true });
