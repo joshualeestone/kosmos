@@ -22,3 +22,15 @@ converged: true
 #### Iteration 1
 **Reviewer model:** sonnet
 - Nothing above NIT.
+
+### Iteration 1 findings in full
+- Where it reaches a person: server.js /api/project-folder preview, rendered by the page's pjSentence (capital,
+  full stop): "A name starting with a dot can make a hidden folder, so pick another." Reads right.
+- Also thrown as create's and folderNameFor's Error message; the iOS and Android apps do not reference it.
+- Pins on the old sentence: none in any test, doc, iOS or Android file; only an old plan file quotes it (history).
+- Other Mac or Finder words in the function: only a code comment ("in Finder"), not shown to a person. [NIT]
+- Out of scope, checked by the author: "Finder did not open" in engine/projects.js is Mac-only, because the Windows
+  path returns through win32explorer first.
+- [NIT] the new comment says a dot-folder is not hidden on Windows while the refusal still fires there; "can make"
+  covers it honestly. Kept.
+- Tests: engine/projects.test.js 167/167.
