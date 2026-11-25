@@ -7,7 +7,7 @@
  * Run by an AGENT (not a script alone): the code arrives by email, and the only readable seed
  * inbox is behind the Gmail connector. Two phases, with the inbox read in between:
  *
- *   1. node tools/plus-signin-fresh.js start  --pointer <site>/dist/latest-staging.json [--port P]
+ *   1. node tools/plus-signin-fresh.js start  --pointer <site>/dist/latest-staging.json [--port P] [--board-kind installed|sandboxed]
  *        checks the board answering on the port IS the pointer's build (its x-kosmos-board
  *        identity) and holds no Kosmos+ identity (a FIRST sign-in, the #3827 class), then asks it
  *        to email a code to the seed address.
@@ -15,7 +15,7 @@
  *        search: to:<the seed address> from:kosmosplus.com newer_than:1h
  *        and note where Gmail put it (labelIds: INBOX, SPAM, or neither -> OTHER).
  *   3. KOSMOS_SEED_TOTP="$(secrets-map.sh value kosmos-seed-totp)" \
- *      node tools/plus-signin-fresh.js finish --pointer <same> --code <6 digits> --placement INBOX|SPAM|OTHER [--port P]
+ *      node tools/plus-signin-fresh.js finish --pointer <same> --code <6 digits> --placement INBOX|SPAM|OTHER [--port P] [--board-kind <same>]
  *        verifies the code, passes the second step, registers (the seed's own address if it has
  *        one), checks the board is enrolled AND switched on AND up (#3827 was enrolled with the
  *        switch off), ALWAYS forgets whatever the register may have left, and writes the record.
@@ -146,6 +146,10 @@ async function boardFor(a, ptr) {
   const token = tokenAt(root);
   if (kind === 'installed' && !token) setup('no board.token at ' + root + ': not an enforcing installed board, so not a fresh staging board (a sandboxed throwaway board has none: pass --board-kind sandboxed)');
   if (kind === 'sandboxed' && token) setup('--board-kind sandboxed, but ' + root + ' holds a board.token: that board enforces, so it is not a sandboxed throwaway board');
+  /* A sandboxed board proves nothing about WHICH bytes it runs (any worktree fixture is sandboxed and reports its
+     package version). So a sandboxed run needs KOSMOS_PLUS_VERIFIED_SHA256: the pointer's sha256, which
+     tools/plus-signin-auto.sh sets only after checking the tarball it booted against it. */
+  if (kind === 'sandboxed' && process.env.KOSMOS_PLUS_VERIFIED_SHA256 !== ptr.sha256) setup('--board-kind sandboxed needs KOSMOS_PLUS_VERIFIED_SHA256 equal to the pointer\'s sha256 (tools/plus-signin-auto.sh sets it after checking the tarball it booted): without it nothing ties this board to the pointer\'s bytes');
   const b = board(boardPort(a.port), token);
   const identity = await b.identity();
   if (record.boardVersion(identity) !== ptr.version) {

@@ -202,6 +202,41 @@ test('#9018: no code arriving records nothing (the gate cannot tell), and the bo
   assert.deepStrictEqual(leftovers(w), [], 'the work folder was left behind');
 });
 
+test('#9018: with KOSMOS_SEED_TOTP unset the secret is read through the secrets map, by the meta target that is not an address', async () => {
+  const w = world();
+  const bin = path.join(w.dir, 'bin'); fs.mkdirSync(bin);
+  const asked = path.join(w.dir, 'secrets.calls');
+  fs.writeFileSync(path.join(bin, 'secrets-map.sh'), '#!/bin/sh\necho "$*" >> "' + asked + '"\n'
+    + '[ "$1 $2" = "value kosmosplus-test-gate-totp" ] && printf GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ\n', { mode: 0o755 });
+  delete w.env.KOSMOS_SEED_TOTP;
+  w.env.PATH = bin + ':' + w.env.PATH;
+  const r = await run(w, ['--pointer', w.pointer, '--seed', SEED, '--port', String(await freePort()), '--tarball', w.tgz]);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.deepStrictEqual(calls(asked), ['value kosmosplus-test-gate-totp']);
+  // CONTROL: a map that has no such secret is refused, naming the reason, before anything is downloaded.
+  const w2 = world();
+  fs.writeFileSync(path.join(bin, 'secrets-map.sh'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  delete w2.env.KOSMOS_SEED_TOTP; w2.env.PATH = bin + ':' + w2.env.PATH;
+  const r2 = await run(w2, ['--pointer', w2.pointer, '--seed', SEED, '--port', String(await freePort()), '--tarball', w2.tgz]);
+  assert.strictEqual(r2.code, 2, r2.out);
+  assert.match(r2.out, /no authenticator secret/);
+  assert.deepStrictEqual(calls(w2.boardLog), [], 'a board was started');
+});
+
+test('#9018: a progress file from a run started by hand on an installed board is left alone', async () => {
+  const w = world({ noCode: true });
+  const prog = recordOf(w).replace(/\.json$/, '.progress.json');
+  /* Not this run's: an installed board's start. The driver's own start overwrites it during the run, so put it
+     back in place from the code reader, which runs after start and before teardown. */
+  const theirs = JSON.stringify({ version: VER, sha256: w.sha, kind: 'installed', startedAt: new Date().toISOString(), steps: [] });
+  fs.writeFileSync(path.join(w.dir, 'theirs.json'), theirs);
+  fs.writeFileSync(path.join(w.dir, 'kosmos-signin-code'), '#!/bin/sh\ncase "$1" in anchor) echo 100 ;; code) cp "' + path.join(w.dir, 'theirs.json') + '" "' + prog + '"; exit 1 ;; esac\n', { mode: 0o755 });
+  const r = await run(w, ['--pointer', w.pointer, '--seed', SEED, '--port', String(await freePort()), '--tarball', w.tgz]);
+  assert.strictEqual(r.code, 2, r.out);
+  assert.ok(fs.existsSync(prog), 'another run\'s progress file was removed');
+  assert.strictEqual(JSON.parse(fs.readFileSync(prog, 'utf8')).kind, 'installed');
+});
+
 test('#9018: a flag given with no value is refused, not looped on', async () => {
   const w = world();
   for (const flag of ['--seed', '--pointer', '--port', '--base-url', '--tarball']) {

@@ -77,6 +77,7 @@ SC="${KOSMOS_SIGNIN_CODE_BIN:-$(command -v kosmos-signin-code || true)}"
 # The authenticator secret: given, or read through the secrets map from the seed's own meta. An otpauth:// URL is
 # reduced to its secret= value (plus-signin-fresh.js takes base32 only). Never printed.
 if [ -z "${KOSMOS_SEED_TOTP:-}" ]; then
+  command -v secrets-map.sh >/dev/null 2>&1 || die "KOSMOS_SEED_TOTP is unset and secrets-map.sh is not installed, so the seed's authenticator secret cannot be read"
   # The secret's own name, which is the target on the line that is not an address (an address resolves to nothing).
   TARGET="$(sed -n 's/^targets:[[:space:]]*//p' "$META" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '@' | head -1)"
   KOSMOS_SEED_TOTP="$(secrets-map.sh value "$TARGET" 2>/dev/null || true)"
@@ -105,16 +106,26 @@ BOARD_PID="" STARTED=0
 # from reaching any other process on the machine.
 under_work() { ps -axo pid=,command= | while read -r p c; do case "$c" in *"$WORK/"*) [ "$p" != "$$" ] && echo "$p" ;; esac; done; }
 cleanup() {
-  if [ -n "$BOARD_PID" ]; then kill "$BOARD_PID" 2>/dev/null; wait "$BOARD_PID" 2>/dev/null; fi
+  if [ -n "$BOARD_PID" ]; then
+    kill "$BOARD_PID" 2>/dev/null
+    for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$BOARD_PID" 2>/dev/null || break; sleep 1; done
+    kill -9 "$BOARD_PID" 2>/dev/null; wait "$BOARD_PID" 2>/dev/null
+  fi
   for p in $(under_work); do kill "$p" 2>/dev/null; done
   for _ in 1 2 3 4 5; do [ -z "$(under_work)" ] && break; sleep 1; done
   for p in $(under_work); do kill -9 "$p" 2>/dev/null; done
   [ -z "$(under_work)" ] || say "WARNING: processes from $WORK are still running: $(under_work | tr '\n' ' ')"
   "$TMUX_REAL" -L "$SOCK" kill-server >/dev/null 2>&1 || true
-  # A run that got past start and ends here leaves start's progress file, which the gate reads as "an attempt is in
-  # flight" (cannot tell) until removed. The board it names is gone, so nothing is in flight: remove it. finish
-  # removes it itself when it writes a record.
-  [ "$STARTED" = 1 ] && rm -f "$(node -e 'process.stdout.write(require(process.argv[1]).recordPath(process.argv[2]).replace(/\.json$/, ".progress.json"))' "$HERE/lib/plus-signin-record.js" "$SHA")"
+  # A run that reached start and ends here can leave start's progress file, which the gate reads as "an attempt is in
+  # flight" (cannot tell) until removed. The board it names is gone, so nothing is in flight. It is removed only when
+  # it is this run's: a sandboxed start no older than this run's own start, so a run started by hand on an installed
+  # board for the same build is left alone. finish removes it itself when it writes a record.
+  [ "$STARTED" = 1 ] && node -e '
+    const fs = require("node:fs");
+    const f = require(process.argv[1]).recordPath(process.argv[2]).replace(/\.json$/, ".progress.json");
+    let p; try { p = JSON.parse(fs.readFileSync(f, "utf8")); } catch { process.exit(0); }
+    if (p.kind === "sandboxed" && Date.parse(p.startedAt) >= Number(process.argv[3])) fs.rmSync(f, { force: true });
+  ' "$HERE/lib/plus-signin-record.js" "$SHA" "$START_MS" 2>/dev/null
   if [ "$KEEP" = 1 ]; then say "kept the work folder $WORK"; else rm -rf "${WORK:?}"; fi
 }
 trap cleanup EXIT
@@ -151,13 +162,13 @@ done
 say "throwaway board up on :$PORT as $up (from the pointer's $V tarball, sha256 ${SHA:0:12})"
 
 # 4. The sign-in, through the record writer.
-export KOSMOS_STORE_ROOT="$D/Kosmos"
+export KOSMOS_STORE_ROOT="$D/Kosmos" KOSMOS_PLUS_VERIFIED_SHA256="$SHA"   # checked against the tarball above
 BASE_BOX="$(printf '%s' "$SEED_LC" | sed 's/+[^@]*@/@/')"
 HID="$("$SC" anchor "$BASE_BOX")" || die "could not anchor the seed mailbox $BASE_BOX"
 FA=(--pointer "$POINTER" --port "$PORT" --board-kind sandboxed)
+START_MS="$(node -e 'process.stdout.write(String(Date.now() - 1000))')"; STARTED=1   # before start: it writes the file
 node "$FRESH" start "${FA[@]}" --seed "$SEED"; rc=$?
 [ "$rc" = 0 ] || exit "$rc"   # 1: start was refused and recorded; 2: setup, nothing recorded
-STARTED=1   # only now does a progress file exist that this run owns
 GOTC="$(KOSMOS_SIGNIN_PLACEMENT=1 "$SC" code "$SEED" "$HID" "${KOSMOS_PLUS_CODE_S:-180}")" || die "no sign-in code reached $SEED: nothing recorded"
 CODE="${GOTC%% *}"; PLACE="${GOTC#* }"
 printf '%s' "$CODE" | grep -Eq '^[0-9]{6}$' || die "kosmos-signin-code gave no six-digit code: nothing recorded"
