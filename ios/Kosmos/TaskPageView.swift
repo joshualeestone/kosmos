@@ -904,7 +904,9 @@ struct TaskPageView: View {
                 switch shown.every {
                 case .minutes:
                     HStack(spacing: 8) {
-                        TextField("30", text: Binding(get: { shown.minutes }, set: { v in edit { $0.minutes = v } }))
+                        // Read back live, never the value caught when this was last drawn (`shown`): on a slow phone that one is a key
+                        // behind, and the box is put back to it, losing what was typed since.
+                        TextField("30", text: Binding(get: { (repeatDraft ?? Board.repeatShown(p.repeatStored, box: repeatBox))?.minutes ?? "" }, set: { v in edit { $0.minutes = v } }))
                             .keyboardType(.numberPad)
                             .frame(minWidth: 80, minHeight: 44)
                             .fixedSize()
