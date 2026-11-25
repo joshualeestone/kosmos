@@ -45,6 +45,7 @@ function refusalAtEnd(file) {
     if (!lines[i]) continue;
     let row;
     try { row = JSON.parse(lines[i]); } catch { return null; }
+    if (row && row.type === 'system' && row.subtype === 'local_command') return null;   // a command since: what it did is not known here
     if (!row || (row.type !== 'user' && row.type !== 'assistant')) continue;   // bookkeeping rows follow every turn
     if (row.type !== 'assistant' || row.isApiErrorMessage !== true || row.error !== 'authentication_failed') return null;
     const at = Date.parse(row.timestamp);
@@ -73,8 +74,8 @@ function refusedAt({ pid, root }) {
 
 /* The login a Claude process uses, from `ps`: { ccd } (undefined: CLAUDE_CONFIG_DIR not set), or null when it cannot be
    told. `command` is its arguments alone and `withEnv` the arguments then the environment, so nothing an argument says is
-   read as environment. Null too when it has a credential that outranks the login, or speaks to another service. */
-const OTHER_CREDENTIAL = /\s(?:CLAUDE_CODE_OAUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR|CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_API_KEY|ANTHROPIC_BASE_URL|ANTHROPIC_UNIX_SOCKET|CLAUDE_CODE_USE_(?:BEDROCK|VERTEX|FOUNDRY|MANTLE|GATEWAY))=/;
+   read as environment. Null too when it has a credential that outranks the login, keeps its login under another name, or speaks to another service. */
+const OTHER_CREDENTIAL = /\s(?:CLAUDE_CODE_OAUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR|CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_API_KEY|ANTHROPIC_BASE_URL|ANTHROPIC_UNIX_SOCKET|ANTHROPIC_PROFILE|CLAUDE_SECURESTORAGE_CONFIG_DIR|CLAUDE_CODE_USE_(?:BEDROCK|VERTEX|FOUNDRY|MANTLE|GATEWAY))=/;
 function loginOfPs(command, withEnv) {
   const args = String(command == null ? '' : command).trim();
   const all = String(withEnv == null ? '' : withEnv).trim();

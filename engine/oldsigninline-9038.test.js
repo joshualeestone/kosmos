@@ -315,6 +315,45 @@ test('#9038: an older read that finishes late changes nothing', async () => {
   assert.equal(loginlive.signedInAfter(row, 2000), null, 'the late read was taken as a sign-in');
 });
 
+test('#9038: a clock set back: a sign-in read on it is not believed, and reading starts over', async () => {
+  const row = { isDefault: true };
+  const read = async (date) => { until = date; loginexpiry.loginChanged(); loginlive.signedInAfter(row, clock); await settle(); return loginlive.signedInAfter(row, clock); };
+  clock = T0 + 60 * 60000;   // an hour fast
+  await read(D1);
+  clock += 60000;
+  assert.equal(await read(D2), T0 + 60 * 60000, 'CONTROL');
+  clock = T0 + 3 * 60000;
+  assert.equal(loginlive.signedInAfter(row, clock), null, 'a sign-in from the future');
+  await read(D2);
+  clock += 60 * 60000;
+  assert.equal(loginlive.signedInAfter(row, clock), null, 'it came back once the clock caught up');
+});
+
+test('#9038: readPaneLogin: the pane\'s own process, its arguments apart from its environment', async () => {
+  const bin = path.join(SANDBOX, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const put = (name, body) => fs.writeFileSync(path.join(bin, name), '#!/bin/sh\n' + body + '\n', { mode: 0o755 });
+  const saved = { PATH: process.env.PATH, TMUXBIN: process.env.AGENT_WORKFORCE_TMUX_BIN };
+  process.env.PATH = bin + ':' + saved.PATH;
+  process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(bin, 'tmux');
+  put('tmux', '[ "$4" = "=worker:" ] && echo 777');
+  put('ps', 'printf "claude -x"; [ "$1" = eww ] && printf " PATH=/bin CLAUDE_CONFIG_DIR=/u/$5"; echo');
+  try {
+    status.setPaneSource(null);
+    assert.deepEqual(await status.readPaneLogin('=worker:'), { pid: '777', ccd: '/u/777' });
+    assert.equal(await status.readPaneLogin('=other:'), null, 'no such pane');
+    put('ps', 'exit 1');
+    assert.equal(await status.readPaneLogin('=worker:'), null, 'ps refused');
+    status.setPaneSource(() => '');
+    put('ps', 'printf "claude -x"; [ "$1" = eww ] && printf " PATH=/bin"; echo');
+    assert.equal(await status.readPaneLogin('=worker:'), null, 'an injected roster has no real pane');
+  } finally {
+    status.setPaneSource(null);
+    process.env.PATH = saved.PATH;
+    if (saved.TMUXBIN === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved.TMUXBIN;
+  }
+});
+
 test('#9038: refusedAt: the session the process names, in this folder, once', () => {
   assert.equal(oldline.refusedAt({ pid: PID, root: ROOT }), T0);
   assert.equal(oldline.refusedAt({ pid: '1', root: ROOT }), null, 'no session file');
@@ -334,6 +373,7 @@ test('#9038: refusalAtEnd: only Claude Code\'s own sign-in refusal, as the last 
   assert.equal(at(asked(), refused()), clock, 'CONTROL');
   assert.equal(at(asked(), refused(), { type: 'system', subtype: 'turn_duration' }, { type: 'mode' }), clock, 'bookkeeping after it');
   assert.equal(at(refused(), asked()), null);
+  assert.equal(at(refused(), { type: 'system', subtype: 'local_command' }), null, 'a command since');
   assert.equal(at({ ...refused(), error: 'rate_limit' }), null);
   assert.equal(at({ ...refused(), isApiErrorMessage: false }), null);
   assert.equal(at({ ...refused(), type: 'user' }), null);
@@ -354,7 +394,7 @@ test('#9038: loginOfPs: the environment only, never what an argument says, and n
   assert.equal(env('HOME=/u'), null, 'no PATH shown');
   assert.equal(env('PATH=/bin CLAUDE_CONFIG_DIR= HOME=/u'), null, 'set but empty');
   assert.equal(env('PATH=/bin CLAUDE_CONFIG_DIR=/a CLAUDE_CONFIG_DIR=/b'), null, 'two values');
-  for (const k of ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX']) {
+  for (const k of ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_SECURESTORAGE_CONFIG_DIR', 'ANTHROPIC_PROFILE']) {
     assert.equal(env(`PATH=/bin ${k}=x HOME=/u`), null, k);
   }
   const said = 'claude use PATH=/x and CLAUDE_CONFIG_DIR=/u/two';

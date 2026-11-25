@@ -25,15 +25,17 @@ agent, asynchronously; another login (#2129, #6095), a credential that outranks 
 ## Left, declared
 - A repair typed in the agent's own pane (its rows follow the refusal), or a turn since: as on main.
 - A sign-in before the board has read the earlier date, or before a restart of the board: as on main.
+- A date that could not be read once is asked for again after 10 minutes (claudeloginlive's MISS_CACHE_MS).
+- Credentials swapped by hand to a later date and back read as a sign-in.
 - macOS only, where the login date is read (the Keychain). A session with no run instance: as on main.
 - A refused agent costs one `security` read a minute, and one tmux and two ps calls a run.
 - A token or key set in a settings file's `env`: not looked for, as the account check does not.
 
 ## Weakest premise
-That a renewal never moves the login date later (read in Claude Code 2.1.332, not guaranteed by Anthropic). If one did, a
+That a renewal never moves the login date later (Math.min in Claude Code 2.1.327 to 2.1.332, not guaranteed by Anthropic). If one did, a
 refusal from before it would read old while the check says HEALTHY. Second: that Claude Code goes on writing
 sessions/<pid>.json; without it nothing is cleared. Measured 11-25: 21 of 21 live panes here have it, and 27 real
 transcripts end in a refusal this reads.
 
 ## Test
-engine/oldsigninline-9038.test.js, 22 tests, most through the real snapshot(); 39 mutations, all red.
+engine/oldsigninline-9038.test.js, 24 tests, most through the real snapshot(); 39 mutations, all red.
