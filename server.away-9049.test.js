@@ -112,7 +112,7 @@ test('a wait with no session event after it (a resume after a crash, or a clear 
         { state: 'working', by: 'auto', because: 'answering a prompt', at: t - 29 * M },
       ]);
       assert.equal((await ask(tok, 'as=waithook')).text, '{"pending":true}');
-      assert.match((await ask(tok, 'as=text&wait=only')).text, /has not yet heard the session end/);
+      assert.match((await ask(tok, 'as=text&wait=only')).text, /has not yet heard a session end/);
       // CONTROL: the same history at a real startup still reminds, in the startup words.
       const s = await ask(tok, 'as=hook&at=startup');
       assert.match(JSON.parse(s.text).hookSpecificOutput.additionalContext, /A new run replaces a waiting report on the board/);

@@ -61,6 +61,11 @@ Known gaps (round 6), both silent, never false:
   report at a resume or a token-only identity path: kosmos#9057.
 - Mac, an in-session /resume that beats its own `stopped` when the newest session event is a `started` (wait, quit,
   startup, then /resume): the board answers nothing, because a crash-resume looks the same and silence is right there.
+Deferred (round 7), follow-ups if seen in practice: a resume restores its transcript, so a waiting agent that quits and
+resumes several times collects one reminder per resume (mild, never false; the reminder says how to stop it). The
+in-session /resume race above could be closed by a short-lived per-pane marker the Mac SessionEnd branch writes, which
+a fresh resume reads to ask with src=clear's rule (a crash runs no SessionEnd, so leaves none).
+Round 7: the Windows hook proves the listener again before its second ask (#1765/#6464).
 Not measured: whether Claude Code waits for the SessionEnd hook to finish before the next SessionStart (on Windows the
 hook awaits its send, so it would then not race; the retry covers it either way).
 Not covered: Grok and Gemini bridges, which send `started` on every SessionStart (#9048, a separate card). A real

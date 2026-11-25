@@ -65,7 +65,7 @@ test('Windows kosmos away --help prints the usage and sends nothing; a refusal e
   for (const args of [['away', '--help'], ['away', '-h']]) {
     const r = await run(args, () => ({ body: '' }));
     assert.equal(r.calls.length, 0, args.join(' '));
-    assert.match(r.out + r.err, /Usage: kosmos away \[--hook \[--wait-only\]\]/, args.join(' '));
+    assert.match(r.out + r.err, /Usage: kosmos away \[--hook \[--wait-only \[--after-clear\]\]\]/, args.join(' '));
   }
   assert.equal((await run(['away'], () => ({ status: 403, body: 'refused\n' }))).code, 1);
   const bad = await run(['away', '--all'], () => ({ body: '' }));

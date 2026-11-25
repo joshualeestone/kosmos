@@ -19946,7 +19946,7 @@ const server = http.createServer(async (req, res) => {
         const pending = !!w && (after === null || (after === 'started' && clearing));
         if (after !== 'stopped') w = null;
         if (as === 'waithook' || as === 'hook') { sendText(res, 200, w ? away.hookJson(null, w, { ended: true }) : pending ? '{"pending":true}' : ''); return; }
-        if (as === 'text') { sendText(res, 200, (away.waitText(w, { ended: true }) || (pending ? 'Your last report was a wait, and Kosmos has not yet heard the session end that would set it aside, so it is still shown (or about to be set aside); ask again in a moment.' : 'Kosmos has no wait of yours to remind you of: your last report was not a wait, or you were already reminded of it at a startup.')) + '\n'); return; }
+        if (as === 'text') { sendText(res, 200, (away.waitText(w, { ended: true }) || (pending ? 'Your last report was a wait, and Kosmos has not yet heard a session end that would set it aside, so it is still shown on the board.' : 'Kosmos has no wait of yours to remind you of: your last report was not a wait, or you were already reminded of it at a startup.')) + '\n'); return; }
         sendJson(res, 200, { ok: true, wait: w, ...(pending ? { pending: true } : {}) });
         return;
       }

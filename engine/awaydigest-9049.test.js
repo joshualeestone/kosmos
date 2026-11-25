@@ -25,6 +25,8 @@ test('the ended wording says only that the board set the wait aside; the default
     assert.match(t, /\(needs_you, at 2026-11-25T09:00:00Z\)/);
     assert.match(t, /kosmos report needs_you \.\.\./);
   }
+  const held = away.waitText({ ...W, held: true }, { ended: true });
+  assert.match(held, /kosmos report needs_you --held \.\.\., held as before, so nothing buzzes the person\); if not, report what it is doing/);
   assert.equal(away.hookJson(null, W, { ended: true }), JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: ended } }));
   assert.equal(away.hookJson(null, null, { ended: true }), '', 'no wait, nothing to say');
 });
