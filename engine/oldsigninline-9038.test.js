@@ -49,6 +49,7 @@ let until = D1;
 let job = { configDir: null };
 let run = 'a1';
 let up = true;
+let pane = '0.0';
 const ROOT = path.join(SANDBOX, 'cfg');
 const PID = '4242';
 let proc = null;   // what the agent's process is and reads
@@ -69,7 +70,7 @@ const S1 = '11111111-1111-4111-8111-111111111111';
 const S2 = '22222222-2222-4222-8222-222222222222';
 
 test.beforeEach(() => {
-  clock = T0; screen = ONE; live = CONNECTED; until = D1; run = 'a1'; up = true;
+  clock = T0; screen = ONE; live = CONNECTED; until = D1; run = 'a1'; up = true; pane = '0.0';
   Date.now = () => clock;
   proc = { pid: PID, ccd: ROOT };
   job = { configDir: ROOT };
@@ -99,7 +100,7 @@ const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((r) =
 /* One board tick, 5 s after the last: the card's state, and whether a refusal was recorded ON this tick. */
 async function tick(ms = 5000) {
   clock += ms;
-  status.setPaneSource(() => !up ? '' : fleet.line({ session: 'worker-discord', command: fleet.CLAUDE_COMMAND, tokenInstance: run }));
+  status.setPaneSource(() => !up ? '' : fleet.line({ session: 'worker-discord', pane, command: fleet.CLAUDE_COMMAND, tokenInstance: run }));
   status.setPaneCapture(() => screen);
   const card = status.snapshot().agents.find((a) => a.sessionName === 'worker');
   const o = observed.read(observed.PROVIDER.ANTHROPIC, 'worker');
@@ -245,6 +246,26 @@ test('#9038: the process is asked about once per run, one ask at a time, and onc
   assert.equal(asks, 1, 'a second ask while one was open');
 });
 
+test('#9038: an error in it never reaches the tick, and the check\'s own answer stands', async () => {
+  await repaired();
+  const real = loginlive.signedInAfter;
+  loginlive.signedInAfter = () => { throw new Error('no'); };
+  try { await stands('an error cleared it'); } finally { loginlive.signedInAfter = real; }
+});
+
+test('#9038: another pane under the same name and run is asked about, and a read that failed is asked again', async () => {
+  const targets = [];
+  let fail = false;
+  status.setPaneLoginReaderForTests(async (t) => { targets.push(t); if (fail) throw new Error('no'); return proc; });
+  await ticks(2);
+  pane = '0.1';
+  await ticks(2);
+  assert.equal(new Set(targets).size, 2, 'the second pane inherited the first one\'s process: ' + targets);
+  fail = true; run = 'b2'; targets.length = 0;
+  await ticks(3 * MIN);
+  assert.ok(targets.length >= 3, 'a read that failed was never asked again');
+});
+
 test('#9038: the default account: its own bare login, and its own folder', async () => {
   job = { configDir: null };
   const home = os.homedir;
@@ -286,6 +307,14 @@ test('#9038: a refusal between the last read of the earlier date and the sign-in
   until = D2;
   await ticks(2 * MIN);
   await stands('a refusal that may follow the sign-in was taken as old');
+});
+
+test('#9038: a refusal at the very moment that read began is not before it', async () => {
+  await ticks(1);
+  fs.rmSync(transcript(S1)); say(S1, asked(), refused());   // at the tick whose read was the last of the earlier date
+  until = D2;
+  await ticks(2 * MIN);
+  await stands('a refusal at that moment read as before it');
 });
 
 test('#9038: signedInAfter: the start of the last read of the earlier date; an unread date or an earlier one is no sign-in', async () => {
@@ -406,7 +435,13 @@ test('#9038: loginOfPs: the environment only, never what an argument says, and n
   assert.equal(env('HOME=/u'), null, 'no PATH shown');
   assert.equal(env('PATH=/bin CLAUDE_CONFIG_DIR= HOME=/u'), null, 'set but empty');
   assert.equal(env('PATH=/bin CLAUDE_CONFIG_DIR=/a CLAUDE_CONFIG_DIR=/b'), null, 'two values');
-  for (const k of ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_SECURESTORAGE_CONFIG_DIR', 'ANTHROPIC_PROFILE']) {
+  for (const k of ['MAX_THINKING_TOKENS', 'CLAUDE_CODE_MAX_OUTPUT_TOKENS', 'ANTHROPIC_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'CLAUDE_CODE_ENTRYPOINT']) {
+    assert.deepEqual(env(`PATH=/bin ${k}=x HOME=/u`), { ccd: undefined }, 'CONTROL: not a credential: ' + k);
+  }
+  for (const k of ['CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR', 'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR', 'CLAUDE_CODE_OAUTH_REFRESH_TOKEN',
+    'CLAUDE_CODE_SESSION_ACCESS_TOKEN', 'CLAUDE_CODE_GATEWAY_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY',
+    'CLAUDE_CODE_USE_ANTHROPIC_AWS', 'CLAUDE_SECURESTORAGE_CONFIG_DIR', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL',
+    'ANTHROPIC_UNIX_SOCKET', 'ANTHROPIC_PROFILE', 'ANTHROPIC_IDENTITY_TOKEN_FILE']) {
     assert.equal(env(`PATH=/bin ${k}=x HOME=/u`), null, k);
   }
   const said = 'claude use PATH=/x and CLAUDE_CONFIG_DIR=/u/two';

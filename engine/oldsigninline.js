@@ -75,7 +75,7 @@ function refusedAt({ pid, root }) {
 /* The login a Claude process uses, from `ps`: { ccd } (undefined: CLAUDE_CONFIG_DIR not set), or null when it cannot be
    told. `command` is its arguments alone and `withEnv` the arguments then the environment, so nothing an argument says is
    read as environment. Null too when it has a credential that outranks the login, keeps its login under another name, or speaks to another service. */
-const OTHER_CREDENTIAL = /\s(?:CLAUDE_CODE_OAUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR|CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_API_KEY|ANTHROPIC_BASE_URL|ANTHROPIC_UNIX_SOCKET|ANTHROPIC_PROFILE|CLAUDE_SECURESTORAGE_CONFIG_DIR|CLAUDE_CODE_USE_(?:BEDROCK|VERTEX|FOUNDRY|MANTLE|GATEWAY))=/;
+const OTHER_CREDENTIAL = /\s(?:ANTHROPIC_(?!MODEL=|SMALL_FAST_MODEL=|DEFAULT_)\w+|CLAUDE_CODE_(?:USE_\w+|\w*(?:TOKEN|API_KEY|GATEWAY)(?:_\w+)?)|CLAUDE_SECURESTORAGE_\w+)=/;   // by shape, not a list: new ones are doubts
 function loginOfPs(command, withEnv) {
   const args = String(command == null ? '' : command).trim();
   const all = String(withEnv == null ? '' : withEnv).trim();
