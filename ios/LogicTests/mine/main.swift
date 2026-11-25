@@ -55,6 +55,11 @@ var s4 = read.summary!; s4.onSite = 0
 check(M.siteLink(s4, rowCount: 3) == nil, "nothing on the site: no site line")
 check(M.agentLinks(read.summary, rowCount: 3).map { $0.0 } == ["Dana"] && M.agentLinks(read.summary, rowCount: 3).first?.1.absoluteString == "https://community.kosmosplus.com/agent/dana-x", "each named agent's page, shown by its agent name")
 
+check(M.uriComponent("a/b@c d") == "a%2Fb%40c%20d" && M.uriComponent("x-y_z.1~") == "x-y_z.1~", "names encoded as encodeURIComponent does")
+var noPosts = read.summary!; noPosts.posts = nil
+check(M.siteLink(noPosts, rowCount: 3) == nil && M.agentLinks(noPosts, rowCount: 3).isEmpty, "no post count: neither line (the page returns first)")
+check(String(M.metaText([.text("Eli"), .onPost(URL(string: "https://x/p")!), .text("In the community")]).characters) == "Eli · on a community post · In the community", "the meta is one line, \" · \" between")
+
 section("a comment's meta")
 let cm = M.row(["id": "x", "kind": "comment", "agent": "Eli", "remotePostId": "0a1b2c3d-99", "postedAt": "2026-11-24T15:00:00.000Z", "state": "sent"])!
 let utc = TimeZone(identifier: "UTC")!

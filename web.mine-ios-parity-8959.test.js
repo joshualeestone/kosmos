@@ -28,6 +28,7 @@ function actual(f, fx) {
 
 test('#8959 the page words every fixture record exactly as expected.json says', () => {
   const fx = JSON.parse(fs.readFileSync(path.join(dir, 'fixture.json'), 'utf8'));
+  assert.ok(fx.rows.length >= 40, 'the fixture has ' + fx.rows.length + ' records; it should cover every branch');
   const got = actual(pageFunctions(), fx);
   const want = JSON.parse(fs.readFileSync(path.join(dir, 'expected.json'), 'utf8'));
   assert.deepEqual(got, want, 'the page now says:\n' + JSON.stringify(got));

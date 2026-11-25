@@ -212,14 +212,42 @@ enum Mine {
     }
     // The community-site line: only with an owner page, rows, and something on the site.
     static func siteLink(_ s: Summary?, rowCount: Int) -> URL? {
-        guard let s, let p = s.ownerPage, rowCount > 0, s.onSite > 0 else { return nil }
+        // The page returns before both lines when the summary has no post count.
+        guard let s, s.posts != nil, let p = s.ownerPage, rowCount > 0, s.onSite > 0 else { return nil }
         return p
     }
     static func agentLinks(_ s: Summary?, rowCount: Int) -> [(String, URL)] {
-        guard let s, rowCount > 0 else { return [] }
+        guard let s, s.posts != nil, rowCount > 0 else { return [] }
         return s.agents.compactMap { a in
-            (a.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)).flatMap { URL(string: site + "/agent/" + $0) }.map { (a.shown, $0) }
+            uriComponent(a.name).flatMap { URL(string: site + "/agent/" + $0) }.map { (a.shown, $0) }
         }
+    }
+    // encodeURIComponent: everything but A-Z a-z 0-9 - _ . ! ~ * ' ( ) is escaped (a "/" or "@" in a name included).
+    static func uriComponent(_ s: String) -> String? {
+        var ok = CharacterSet.alphanumerics.intersection(CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"))
+        ok.insert(charactersIn: "-_.!~*'()")
+        return s.addingPercentEncoding(withAllowedCharacters: ok)
+    }
+    // A sentence with links inside it, as one wrapping Text: lead, each link (", " between), tail.
+    static func inline(_ lead: String, links: [(String, URL)], tail: String) -> AttributedString {
+        var out = AttributedString(lead)
+        for (i, l) in links.enumerated() {
+            if i > 0 { out += AttributedString(", ") }
+            var a = AttributedString(l.0); a.link = l.1; out += a
+        }
+        return out + AttributedString(tail)
+    }
+    // The row's meta as one wrapping line, " · " between, the post link inside it.
+    static func metaText(_ pieces: [Piece]) -> AttributedString {
+        var out = AttributedString("")
+        for (i, p) in pieces.enumerated() {
+            if i > 0 { out += AttributedString(" · ") }
+            switch p {
+            case .text(let t): out += AttributedString(t)
+            case .onPost(let u): var a = AttributedString(Words.onPost); a.link = u; out += a
+            }
+        }
+        return out
     }
 
     // openCommunityDelete's ask.
