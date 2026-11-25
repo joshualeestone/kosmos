@@ -108,6 +108,22 @@ test('#4784: on an enforcing board a bare pane with no credential is refused; th
   } finally { boardAuthState.on = false; }
 });
 
+test('#9016: a file that may be cut short is said when an agent reads its messages back', async () => {
+  boardAuthState.on = false;
+  const board = fleet.install([fleet.agent('vera', { state: 'idle' })]);
+  const tok = sendertoken.mint('vera').token;
+  try {
+    const file = (id, name, more) => ({ id, name, type: 'application/zip', size: 10, kind: 'other', url: '/api/attachment/' + id, ...more });
+    const two = [file('a1', 'book.xlsx', { incomplete: true }), file('a2', 'whole.xlsx', {})];
+    chat.appendMessage(chat.DIRECT, 'vera', { text: 'see', attachment: two[0], attachments: two, at: new Date().toISOString(), delivery: { state: chat.DELIVERY.PLACED } });
+    const r = await get('/api/inbox?as=text', { 'x-kosmos-agent-token': tok });
+    assert.equal(r.code, 200, r.text);
+    assert.match(r.text, /book\.xlsx \(incomplete\)/);
+    assert.doesNotMatch(r.text, /whole\.xlsx \(incomplete\)/, 'CONTROL: the whole one is not marked');
+    assert.match(r.text, /whole\.xlsx/, 'CONTROL: it is listed');
+  } finally { board.restore(); }
+});
+
 test('#4784 review 1: a message\'s further lines are indented, Kosmos\'s notice is left out, and a file, a menu choice and an undelivered message are said', async () => {
   boardAuthState.on = false;
   const board = fleet.install([fleet.agent('mira', { state: 'idle' })]);

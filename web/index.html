@@ -85658,13 +85658,21 @@ document.addEventListener('mousedown', (e) => {
    like any other message, so nothing here invents a row. Every sentence the
    person sees comes from the route's answer or names what we did, never what
    we hope. */
+/** kosmos#9016: what the person is told about the files that may be cut short. */
+function attachCutSay(names) {
+  return names.length === 1
+    ? names[0] + ' may be cut short: its ending could not be found. Remove it and send it again.'
+    : names.length + ' files may be cut short (' + names.join(', ') + '): their endings could not be found. Remove them and send them again.';
+}
+/** One file. Answers 'refused' when it was not added (the sentence is on the page) and 'cut' when it was added and may be
+    cut short, which attachUploadAll says. */
 async function attachUpload(file, where) {
   const msg = document.getElementById(where.msgId);
   const input = document.getElementById(where.textId);
   if (!file) return;
-  if (file.size > ATTACH_MAX_BYTES) { msg.textContent = 'That file is over ' + Math.round(ATTACH_MAX_BYTES / 1048576) + ' MB, which is the most a message can carry.'; return; }
-  if (!attachTarget(where)) { msg.textContent = 'Open a conversation first.'; return; }
-  if (attachList(where).length >= ATTACH_MAX) { msg.textContent = 'A message can carry ' + ATTACH_MAX + ' files; send these first.'; return; }
+  if (file.size > ATTACH_MAX_BYTES) { msg.textContent = 'That file is over ' + Math.round(ATTACH_MAX_BYTES / 1048576) + ' MB, which is the most a message can carry.'; return 'refused'; }
+  if (!attachTarget(where)) { msg.textContent = 'Open a conversation first.'; return 'refused'; }
+  if (attachList(where).length >= ATTACH_MAX) { msg.textContent = 'A message can carry ' + ATTACH_MAX + ' files; send these first.'; return 'refused'; }
   const btn = document.getElementById(where.btnId);
   if (btn) btn.disabled = true;
   msg.textContent = 'Adding ' + file.name + '\u2026';
@@ -85695,12 +85703,12 @@ async function attachUpload(file, where) {
        as one message. The first version sent on pick, which left no room for
        a caption, and an agent answered "I got the screenshot but no note came
        with it. What is it for?" */
-    const cut = body.attachment.incomplete === true;   // kosmos#9016: its end is missing; said now, while it can still be taken off and sent again
+    const cut = body.attachment.incomplete === true;   // kosmos#9016: said now, while it can still be taken off and sent again
     attachAdd(where, { id: body.attachment.id, name: body.attachment.name, ...(cut ? { incomplete: true } : {}) });
-    msg.textContent = cut ? file.name + ' may be cut short: its ending could not be found. Remove it and send it again.' : '';
-    if (cut) { if (input) input.focus(); if (where.after) where.after(); return 'cut'; }   // kosmos#9016: said, and kept so a pick of several does not wipe it
+    msg.textContent = '';
     if (input) input.focus();
     if (where.after) where.after();
+    if (cut) return 'cut';   // attachUploadAll says it, once every file is up
   } catch {
     /* #6734: the connection failed, which for a large file may also be the wait for it running out; the sentence names
        that as a possibility, since the page cannot tell it from Kosmos not being reached (review 8: and no figure, which
@@ -85708,6 +85716,7 @@ async function attachUpload(file, where) {
     msg.textContent = file.size > ATTACH_SLOW_BYTES
       ? 'We could not reach Kosmos to add ' + file.name + '. If your connection is slow, a file this large can take longer than Kosmos waits for one.'
       : 'We could not reach Kosmos to add that file.';
+    return 'refused';
   } finally {
     ATTACH_UPLOADING = Math.max(0, ATTACH_UPLOADING - 1);
     if (btn) btn.disabled = false;
@@ -85773,14 +85782,18 @@ function attachClear(where, target) {
 /** Several files at once (a multi-pick or a multi-drop), in order, one upload
     each, stopping at the first refusal so the sentence is about that file. */
 async function attachUploadAll(files, where) {
+  const msg = document.getElementById(where.msgId);
   const cut = [];
-  for (const f of files) {
-    if (attachList(where).length >= ATTACH_MAX) { document.getElementById(where.msgId).textContent = 'A message can carry ' + ATTACH_MAX + ' files; send these first.'; return; }
-    const how = await attachUpload(f, where);
-    if (how === 'refused') return;   // the sentence is about that file (kosmos#9016: it was wiped by the next one)
-    if (how === 'cut') cut.push(f.name);
+  let stopped = '';
+  for (let i = 0; i < files.length; i += 1) {
+    const how = await attachUpload(files[i], where);
+    if (how === 'cut') cut.push(files[i].name);
+    if (how !== 'refused') continue;
+    const left = files.length - i - 1;
+    stopped = msg.textContent.replace(/[^.]$/, '$&.') + (left ? (left === 1 ? ' The file after it was not added.' : ' The ' + left + ' files after it were not added.') : '');
+    break;
   }
-  if (cut.length) document.getElementById(where.msgId).textContent = (cut.length === 1 ? cut[0] : cut.length + ' files (' + cut.join(', ') + ')') + ' may be cut short: the ending could not be found. Remove and send again.';
+  if (cut.length || stopped) msg.textContent = [stopped, cut.length ? attachCutSay(cut) : ''].filter(Boolean).join(' ');
 }
 for (const where of [ATTACH_ROOM, ATTACH_AGENT]) {
   const box = document.getElementById(where.chipsId);
