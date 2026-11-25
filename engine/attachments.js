@@ -51,7 +51,7 @@ const pdfpages = require('./pdfpages');   // kosmos#8637
 const MAX_BYTES = 100 * 1024 * 1024;
 /** The cap the way a person reads it ("100 MB"), for every sentence that names it. */
 const MAX_WORDS = Math.round(MAX_BYTES / (1024 * 1024)) + ' MB';
-const NOT_WHOLE = 'that file did not arrive whole; please send it again';
+const NOT_WHOLE = 'That file did not arrive whole; please send it again';   // a capital, as the iPhone's own refusal has: a person sees one wording
 const TOO_LARGE = 'that file is larger than ' + MAX_WORDS + ', which is the most a conversation can carry';
 const TEXT_SNIPPET = 2000;
 const ROOT = path.join(store.ROOT, 'attachments');

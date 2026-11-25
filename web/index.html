@@ -85693,7 +85693,7 @@ async function attachUpload(file, where) {
          two minutes with 502 (504 from a proxy is the same case); for a large file that is said as the network failure is. */
       msg.textContent = res.status === 408
         ? 'We could not finish adding ' + file.name + ': it took too long to arrive. Try again on a faster connection.'
-        : (body && body.error) ? String(body.error).replace(/^that file did not arrive whole/, () => file.name + ' did not arrive whole')   // kosmos#9016: which one, in a pick of several
+        : (body && body.error) ? String(body.error).replace(/^That file did not arrive whole/, () => file.name + ' did not arrive whole')   // kosmos#9016: which one, in a pick of several
         : ((res.status === 502 || res.status === 504) && file.size > ATTACH_SLOW_BYTES)
           ? 'We could not reach Kosmos to add ' + file.name + '. If your connection is slow, a file this large can take longer than Kosmos waits for one.'
           : 'We could not add that file (status ' + res.status + ').';
