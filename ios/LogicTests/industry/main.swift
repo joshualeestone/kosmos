@@ -35,6 +35,8 @@ check(I.read(status: 200, data: json(#"{"industry":null,"ok":false,"industries":
 check(I.read(status: 200, data: json(#"{"ok":true}"#))?.unread == true, "no industries list: unread, as the page's !Array.isArray(r.industries)")
 check(I.read(status: 500, data: json("{}")) == nil && I.read(status: 200, data: json("<html>")) == nil, "no answer: nil")
 check(I.read(status: 200, data: json(#"{"ok":true,"industries":[],"unreachable":null}"#))?.unreachable == nil, "unreachable null: the board cannot tell")
+check(I.read(status: 200, data: json(#"{"ok":true,"industries":[],"picturesStuck":true,"picturesUnsendable":2.5}"#)).map { [$0.picturesStuck, $0.picturesUnsendable] } == [0, 0], "a boolean or a fraction is not a count (Number.isInteger)")
+check(I.isRefusal("that has to name an industry, or none") && !I.isRefusal(W.savedShown) && !I.isRefusal(W.savedUnread), "a refusal is told from a Saved line")
 
 section("the picker, as industryPaint")
 check(I.choices(s, kept: []).map(\.key) == ["", "software", "publishing"] && I.selected(s) == "publishing", "read: None, then the list; the saved one chosen")

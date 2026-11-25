@@ -55,7 +55,11 @@ enum Industry {
             let text = (i["display"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (i["label"] as? String) ?? ""
             return Choice(key: k, text: text)
         }
-        let count = { (k: String) -> Int in (o[k] as? NSNumber).map { $0.intValue > 0 ? $0.intValue : 0 } ?? 0 }
+        // Number.isInteger and > 0, as the page: a JSON true is not a count.
+        let count = { (k: String) -> Int in
+            guard let n = o[k] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue == n.doubleValue.rounded() else { return 0 }
+            return max(0, n.intValue)
+        }
         return State(industry: (o["industry"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                      unread: o["ok"] as? Bool != true || raw == nil, list: list,
                      unreachable: o["unreachable"] is NSNull ? nil : (o["unreachable"] as? NSNumber)?.intValue ?? 0,
@@ -86,6 +90,8 @@ enum Industry {
         guard let n = s.unreachable else { return Words.savedLater }
         return Words.savedOff(unreachable: n)
     }
+    // Whether a note is a refusal (kept beside a re-read that cannot be read), not a "Saved." line.
+    static func isRefusal(_ note: String) -> Bool { !note.hasPrefix("Saved") }
     // A refused save: the board's sentence, else the page's.
     static func refused(status: Int, data: Data?) -> String {
         guard let data, let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

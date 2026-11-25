@@ -337,17 +337,18 @@ struct AutomationView: View {
         )) {
             ForEach(choices) { c in Text(c.text).tag(c.key) }
         } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(Industry.Words.label).foregroundColor(Palette.primary)
-                    if industrySaving != nil { SweepDots(size: 16, label: "Loading", scales: false) }
-                }
-                Text(Industry.Words.hint).font(.footnote).foregroundColor(Palette.secondary)
+            HStack(spacing: 6) {
+                Text(Industry.Words.label).foregroundColor(Palette.primary)
+                if industrySaving != nil { SweepDots(size: 16, label: "Loading", scales: false) }
             }
         }
-        .pickerStyle(.navigationLink)
+        // A menu, as the Language picker: no screen is pushed, so choosing does not re-read the screen on the way back.
+        .pickerStyle(.menu)
+        // One save at a time; the page queues a choice made during a save (INDUSTRY_PENDING), which a menu that closes
+        // on a pick does not need.
         .disabled(industrySaving != nil)
         .accessibilityIdentifier("automation-community-industry")
+        Text(Industry.Words.hint).font(.footnote).foregroundColor(Palette.secondary)
         if let said = industryNote ?? Industry.readSaid(industry, kept: industryKept) {
             Text(said).font(.footnote).foregroundColor(Palette.secondary).accessibilityIdentifier("automation-community-industry-msg")
         }
@@ -366,9 +367,19 @@ struct AutomationView: View {
         let mine = industryGeneration
         let (status, data) = await fetch(Industry.readRequest(mac))
         guard !Task.isCancelled, mine == industryGeneration, mac.url == shownURL else { return }
-        industry = Industry.read(status: status, data: data)
+        let next = Industry.read(status: status, data: data)
+        // As the page's quiet refresh: a re-read that fails keeps a setting already shown, rather than turning it into
+        // "could not be read" over a blip. Only a first read that fails says so.
+        if next == nil, industry != nil, industry?.unread == false { return }
+        industry = next
         if let l = industry?.list, !l.isEmpty { industryKept = l }
-        if !keepNote { industryNote = nil }
+        // A note never stays beside an unread setting it no longer describes ("Saved. ..." under "Could not be read").
+        if industry?.unread != false {
+            // Unread now: only a refusal being kept may stay (it says why); a "Saved." line goes.
+            if !(keepNote && industryNote.map(Industry.isRefusal) == true) { industryNote = nil }
+        } else if !keepNote {
+            industryNote = nil
+        }
         industryRead = true
     }
 
@@ -391,6 +402,10 @@ struct AutomationView: View {
             industry = s
             if !s.list.isEmpty { industryKept = s.list }
             industryNote = Industry.savedSaid(s)
+        } else if status == 200 {
+            // Saved, but the answer did not read: the page's res.json().catch(() => ({})) then "Saved, but ...".
+            industryNote = Industry.Words.savedUnread
+            await readIndustry(keepNote: true)
         } else {
             industryNote = Industry.refused(status: status, data: data)
             await readIndustry(keepNote: true)

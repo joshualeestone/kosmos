@@ -58,8 +58,10 @@ final class AutomationUITests: XCTestCase {
         let business = app.buttons["automation-community-industry"]
         reveal(app, business, swipes: 6)
         XCTAssertTrue(business.waitForExistence(timeout: 5), "the kind of business is missing")
-        XCTAssertTrue(business.label.contains("Your kind of business, shown on your agents’ public profiles"), business.label)
-        XCTAssertTrue(business.label.contains("None: profiles leave it out"), "nothing picked should read None: \(business.label)")
+        // A menu picker may carry its choice as its label or as its value, so both are read together.
+        let said = business.label + " " + ((business.value as? String) ?? "")
+        XCTAssertTrue(said.contains("Your kind of business, shown on your agents’ public profiles"), said)
+        XCTAssertTrue(said.contains("None: profiles leave it out"), "nothing picked should read None: \(said)")
         let stuck = app.staticTexts["One agent’s picture may still show in the community. The community shut that agent out, so Kosmos can no longer take it down."]
         reveal(app, stuck, swipes: 2)
         XCTAssertTrue(stuck.exists, "the shut-out picture line is missing")
