@@ -6,18 +6,25 @@ asked for on #1050 (main 86 commits past 0.8.22).
 ## What the build did
 - Read Mac prod 0.8.22 and Windows prod 0.8.22, and marked 0.8.22's three highlights shown. lastProd and lastProdWin
   are now 0.8.22.
-- Four highlights pending, so the window has four on the Mac and Linux and two on Windows (two are tagged mac).
+- Five highlights pending. The Mac shows all five; Windows and Linux show the three untagged ones. Linux reads only
+  untagged highlights: engine/whatsnew.js platformOf() names no platform for Linux. My 0.8.22 plan said "Linux reads
+  the Mac list", which was wrong, and review caught it here.
 
 ## Pool additions
 Each was read from its PR's "what changes for the person", or the code where the PR was unclear.
-- **Fewer safety prompts reach you** (#9001 part 1b, PR #9035, mac, since 0.8.22, rank 8). It rode 0.8.22 with no
-  highlight, by Splinter's call (noted on #9001), so it is announced now. The wording is Mona Lisa's. Tagged mac: its
-  plan-file half is in install/kosmos-report-hook.sh, the Mac and Linux hook.
-- **Mac agent restarts say why** (#8988, PR #9037, mac, rank 9). The Mac half of 0.8.21's Windows highlight: the card
-  says when and why the process restarted.
-- **A file that did not arrive whole is refused** (#9016, PR #9042, rank 10). Its size check needs the sender to state
-  a size, which the board does and the phone does not yet (the PR says so), so the line says "a file sent from the
-  board". A document whose ending is missing is marked to send again.
+- #9001 part 1b (PR #9035, since 0.8.22) rode 0.8.22 with no highlight, by Splinter's call (noted on #9001), so it is
+  announced now, as two lines, because its two halves reach different platforms:
+  - **Plan-file safety prompts are approved for you** (untagged, rank 8). The decision is
+    engine/kosmos-permission-allow.js `decide()`, which the Windows report writer calls too
+    (engine/kosmos-report-hook.js `kosmosAllows`). My first version tagged it mac, for a wrong reason (that the logic
+    lives in the shell hook).
+  - **A tall safety prompt does not buzz your phone** (mac, rank 8.5). It rests on status.js reading the tmux screen,
+    which Windows agents do not have.
+- **Mac agent restarts say why** (#8988, PR #9037, mac, rank 9). The Mac half of 0.8.21's Windows highlight. "Stops on
+  its own": an /exit, a kill and a restart Kosmos made show nothing, per #8988's plan.
+- **A file that did not arrive whole is refused** (#9016, PR #9042, rank 10). The line says "a file sent from the
+  board" because the phone's half (#9019, which also states the size) ships through TestFlight, not in this build. The
+  marked-incomplete check reads zip-based files only (Office files, epub, zip), hence "an Office or zip file".
 - **Account moves ask for a handoff first** (#9010, PR #9043, rank 11). The handoff is asked for on every platform. The
   pickup is delivered to the new session, with a note when it cannot be (engine/handoff-restart.js pickupMissedNote).
 - notesOnly: **The guide pointer shows once per agent** (#9015, PR #9039) and **No feedback ask without a day of

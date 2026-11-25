@@ -2797,19 +2797,8 @@
       "shownIn": "0.8.22"
     },
     {
-      "title": "Fewer safety prompts reach you",
-      "line": "A Claude Code safety check on an agent's plan file is now approved for you, and one left to you is a card line, not a phone buzz.",
-      "icon": "shield",
-      "rank": 8,
-      "since": "0.8.22",
-      "status": "pending",
-      "platforms": [
-        "mac"
-      ]
-    },
-    {
       "title": "Mac agent restarts say why",
-      "line": "When a Claude agent's process stops on the Mac and Kosmos starts it again, its card now says when and why.",
+      "line": "When a Claude agent's process stops on its own on the Mac and Kosmos starts it again, its card now says when and why.",
       "icon": "swarm",
       "rank": 9,
       "since": "0.8.23",
@@ -2820,7 +2809,7 @@
     },
     {
       "title": "A file that did not arrive whole is refused",
-      "line": "A file sent from the board that arrives incomplete is refused, saying how much arrived; a document missing its end is marked to send again.",
+      "line": "A file sent from the board that arrives incomplete is refused, saying how much arrived; an Office or zip file missing its end is marked.",
       "icon": "shield",
       "rank": 10,
       "since": "0.8.23",
@@ -2851,6 +2840,25 @@
       "since": "0.8.23",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "Plan-file safety prompts are approved for you",
+      "line": "A Claude Code safety check on a command that only touches an agent's plan files is now approved for you.",
+      "icon": "shield",
+      "rank": 8,
+      "since": "0.8.22",
+      "status": "pending"
+    },
+    {
+      "title": "A tall safety prompt does not buzz your phone",
+      "line": "A safety check left to you shows as a card line, not a phone buzz, even when its box is taller than the window.",
+      "icon": "shield",
+      "rank": 8.5,
+      "since": "0.8.22",
+      "status": "pending",
+      "platforms": [
+        "mac"
+      ]
     }
   ],
   "lastProdWin": "0.8.22"
