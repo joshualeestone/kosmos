@@ -49,13 +49,14 @@ const NO_LINKS = { lstatSync: () => ({ isSymbolicLink: () => false }), readlinkS
 /* kosmos#9020: the real drive table, learned fresh with room for a cold PowerShell. On a busy Windows CI runner item 1
    took 10,199 ms on 11-24 (run 45509671346, the whole test), consistent with its drive read being killed at the CLI's
    one-shot bound (windrives.ONE_SHOT_TIMEOUT_MS, 10 s). The table stayed unknown, and windrives waits REFRESH_MS before
-   reading again, so item 4 in the same process inherited it and its path was not sent. These tests are about what the CLI sends once the kind is
-   known, not about that bound (the bound has its own arm through setLearnForTests, below), so the first real read gets
-   30 s (well inside the runner's 60 s per-test limit, so a slow read fails with its own message; each Windows arm
-   also gets 120 s), after forgetting any failed read before it. Each read's time is printed as a MEASURED line, which
-   tools/windows-tests.js keeps in the log even when the file passes: the one place a real cold read is measured
-   against the product's 10 s bound. What the CLI does when the read times out (not sent, and why)
-   is the designed fail-closed behaviour and is tested through the seam. */
+   reading again, so item 4 in the same process inherited it and its path was not sent.
+   These tests are about what the CLI sends once the kind is known, not about that bound (the bound has its own arm
+   through setLearnForTests, below), so the first real read gets 30 s, after forgetting any failed read before it. That
+   is well inside the runner's 60 s per-test limit, so a slow read fails with its own message; each Windows arm also
+   gets 120 s (its timeout option, which overrides --test-timeout: measured on node 26.8.1 by review round 2). Each
+   read's time is printed as a MEASURED line, which tools/windows-tests.js keeps in the log even when the file passes:
+   the one place a real cold read is measured against the product's 10 s bound. What the CLI does when the read times
+   out (not sent, and why) is the designed fail-closed behaviour and is tested through the seam. */
 const WARM_MS = 30000;
 const ARM_TIMEOUT_MS = 120000;
 function learnRealTable(letter) {
@@ -63,7 +64,9 @@ function learnRealTable(letter) {
   const t0 = Date.now();
   const info = windrives.infoOf(letter, { timeoutMs: WARM_MS });
   const ms = Date.now() - t0;
-  console.log(`MEASURED: drive read took ${ms} ms (one-shot bound ${windrives.ONE_SHOT_TIMEOUT_MS} ms) kosmos#9020`);
+  // Past the product's bound, the CLI on this computer would have refused the path: said loudly, not failed (review 2).
+  const over = ms > windrives.ONE_SHOT_TIMEOUT_MS ? ' EXCEEDS THE ONE-SHOT BOUND: the CLI here would not have sent this path' : '';
+  console.log(`MEASURED: drive read took ${ms} ms (one-shot bound ${windrives.ONE_SHOT_TIMEOUT_MS} ms)${over} kosmos#9020`);
   return { info, ms };
 }
 const kinds = (byLetter) => (letter) => (Object.prototype.hasOwnProperty.call(byLetter, letter.toUpperCase()) ? byLetter[letter.toUpperCase()] : null);

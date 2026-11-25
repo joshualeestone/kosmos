@@ -36,3 +36,10 @@ still fails, and the message now says how long the read took.
 That PowerShell's cold start is all of the 10 s. If a runner needs more than 30 s, this still fails, with the read's
 time in the message; and the MEASURED lines will show whether the product's 10 s bound is too tight for real
 computers, which is the question a person would care about.
+
+## Round 2 (sonnet, blind, whole branch): nothing above nit. Converged.
+- Measured by the reviewer on node 26.8.1: a test's own timeout option overrides --test-timeout (the Windows job runs
+  node 26). The MEASURED line matches no verdict pattern in windows-tests.js and prints only inside the Windows arms.
+- NIT taken: a read past the product's 10 s bound now says so in its MEASURED line ("EXCEEDS THE ONE-SHOT BOUND"),
+  loud, not failing, so a slow computer's real cost shows instead of passing quietly.
+- NIT fixed: the comment's long line reflowed; the plan's Built section's 60 s corrected.
