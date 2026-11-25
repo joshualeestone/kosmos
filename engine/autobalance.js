@@ -48,7 +48,7 @@ function fiveHourNow(row, nowMs) {
 }
 
 /* The login has stopped working: the live check's own two confirmed states, or (#9031) a login past its last date with
-   no access left to work on (the server's loginEnded, the page's "Login expired"), whatever its badge says. */
+   no known access left (the server's loginEnded, the page's "Login expired"), whatever its badge says. */
 function loginStopped(row) {
   const c = row && row.connection;
   if (!c) return false;

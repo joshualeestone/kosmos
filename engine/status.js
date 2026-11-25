@@ -9864,7 +9864,6 @@ function snapshot() {
        never blocks this tick. Only for a scraped auth_failed on one of our named panes (we
        need the name to resolve the account config dir); no probe for a healthy agent. */
     let liveAuth;
-    let recheckingHealthy = false;   // #9031: between checks of an account whose last one said it works
     if (scrapedStatus.state === STATE.AUTH_FAILED && isNamedOurs(pane)) {
       let probedDir;
       liveAuth = liveAuthForAuthFailed(
@@ -9876,8 +9875,6 @@ function snapshot() {
       if (typeof scrapedStatus.authSince === 'string' && probedDir !== undefined) {
         scrapedStatus = { ...scrapedStatus, authCheckStartedAt: require('./authprobe').startedAt(probedDir) };
       }
-      recheckingHealthy = liveAuth === require('./authprobe').UNCHECKED
-        && require('./authprobe').lastVerdict(probedDir) === LIVE_AUTH_HEALTHY;
     }
     /* #2019: is this pane's agent one we are deliberately restarting right now?
        Only for a pane TIED to the name -- the same identity gate every
@@ -10172,10 +10169,7 @@ function snapshot() {
         /* #5949: nor a HELD Windows reading: it is what we saw before the read failed, not a turn seen now. */
         const outcome = (scrapedStatus.state === STATE.WORKING
           && scrapedStatus.backgroundWait !== true && scrapedNow) ? observed.OUTCOME.OK
-          /* #9031: not while an account whose last check worked is being checked again: an old refusal left on an idle
-             screen would otherwise mark a repaired account refused every time the check's answer ages out. A login
-             that really ended says so at the answer, a tick or two later. */
-          : (status.state === STATE.AUTH_FAILED && !recheckingHealthy) ? observed.OUTCOME.REJECTED
+          : status.state === STATE.AUTH_FAILED ? observed.OUTCOME.REJECTED
           : null;
         if (outcome) observed.saw(observed.PROVIDER.ANTHROPIC, pane.name, outcome, now);
       } else if (isNamedOurs(pane) && isCodexPane) {

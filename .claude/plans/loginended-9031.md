@@ -2,9 +2,9 @@
 
 ## Problem
 Measured 2026-11-24 (Mortals 0.8.21, Claude Code 2.1.332):
-1. Claude Code's "Login reached its time limit" line matches no pattern of ours (screen, Windows stream, Check now), and its
-   "Not logged in" line matches neither the screen's nor Check now's. An agent stopped on either reads idle, so its account
-   never gets a rejection.
+1. Claude Code's "Login reached its time limit" and "Not logged in" lines match neither the Mac screen's patterns nor Check
+   now's, and its two headless sentences match nothing of ours. An agent stopped on one on a Mac reads idle, so its account
+   never gets a rejection. (The Windows stream already read the first two, by their remedy.)
 2. `kosmos accounts` ignores `loginEnded`, which the page already shows as "Login expired".
 3. The mover takes such an account as signed in: the rows' badge can be unverified, and the usage reader's record says
    only `token-expired`, which is also what every healthy account says between renewals.
@@ -17,12 +17,8 @@ was 11-22 10:27, so "signed in" may have been true at 20:53 over an old screen. 
 - The sentences join the one shared module, and create.js's Check now list.
 - `kosmos accounts` says the sign-in has expired and what to do.
 - `loginEnded` counts as a stopped login: never a target (the mover's or the page's bulk move), at risk by login.
-- The account check behind a refused screen (authprobe) reads the login's dates too. `claude auth status` says signed in for
-  an ended login, which hid the refusal (review 1), so the hold and the badge never came. Both dates past reads signed out.
-- A refusal is not recorded while an account whose last check worked is being checked again (review 1): an old line on an
-  idle screen would mark a repaired account refused every 35 s. The card can still show the line for that one tick, as before.
-- usagepoll says `login-ended` when the access token AND the login's own date have both passed. Both, so a renewal still
-  reads `token-expired`.
+- usagepoll says `login-ended` when Claude Code has emptied both tokens (what it does when a renewal is refused for good), or
+  when the access token AND the login's own date have both passed. An ordinary renewal still reads `token-expired`.
 
 ## Rejected
 - A probe per list read: a turn per account per read, and `claude auth status` cannot see a dead login (#874).
@@ -32,9 +28,20 @@ was 11-22 10:27, so "signed in" may have been true at 20:53 over an old screen. 
 - Dropping an ended login from the page's one-account pickers (the create list). Creating on one is refused at the create gate,
   which now knows these sentences; the list itself is left alone here.
 
+- A change to the account check behind a refused screen, or to when a refusal is recorded. Round 1 built both; round 2 showed
+  they took the rejected badge off an account revoked on Anthropic's side. Measured 11-24 with made-up credentials: `claude auth
+  status` (2.1.332) says loggedIn false once Claude Code has emptied the tokens, so the check already sees an ended login.
+
+## Left, declared
+- An old line on an idle screen of a repaired account still records a refusal at each re-check (about every 35 s), as every
+  other sign-in line does on main. Its own card.
+- A login past its date whose access token still works (hours) can still be a target, as on main.
+- `loginEnded` on the row needs only the login's date where the access date cannot be read, as the page shows it now.
+
 ## Weakest premise
-That an account with both dates past cannot start a turn. Claude Code's error for it says so, but I did not see one refused.
-A new sign-in moves both dates, so the row recovers by itself at the next read (a renewal never moves the login's own date).
+That both tokens emptied means no agent can start a turn. Read in the 2.1.332 binary (it empties them only on a refused
+renewal, and a new sign-in writes new ones); not seen live. On macOS the stored login is read from the Keychain, elsewhere
+from the folder's file.
 
 ## Test
-engine/loginended-9031.test.js and engine/loginrecheck-9031.test.js (the real snapshot), 12 tests with controls; 34 mutations, all red.
+engine/loginended-9031.test.js, 8 tests with controls; 26 mutations, all red.
