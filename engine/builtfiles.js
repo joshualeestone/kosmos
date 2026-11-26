@@ -25,8 +25,20 @@ function fileNameOf(p) {
 }
 /* The index of the file the single-file fields describe: the first current one, else the first (a withdrawn one); -1 for none. */
 function mirrorIndex(list) {
+  // A named current file first: an unnamed one (from before #9105) may be a file the task now names, superseded.
+  const named = list.findIndex((e) => e && e.fingerprint && e.name);
+  if (named >= 0) return named;
   const i = list.findIndex((e) => e && e.fingerprint);
   return i >= 0 ? i : (list.length ? 0 : -1);
+}
+/* The name of a file as its own folder lists it (a mark names a file as typed: report.pdf typed as Report.pdf on a disk
+   that ignores case is one file, and gets one name). `names` is the folder's listing. An exact entry wins; else the one
+   entry equal to it ignoring case; else the name as typed. */
+function diskName(typed, names) {
+  if (typeof typed !== 'string' || !Array.isArray(names) || names.includes(typed)) return typed;
+  const low = typed.normalize('NFC').toLowerCase();
+  const same = names.filter((n) => typeof n === 'string' && n.normalize('NFC').toLowerCase() === low);
+  return same.length === 1 ? same[0] : typed;
 }
 const names = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x) : []);
 /* A stored replaced-file record, in the one shape setBuilt writes (never a path). */
@@ -77,4 +89,4 @@ function shownName(v) {
     .replace(/["ʺˮ′‵״〃❝❞\p{Pi}\p{Pf}]/gu, "'")
     .replace(/\p{Ps}/gu, '(').replace(/\p{Pe}/gu, ')');
 }
-module.exports = { FINGERPRINT_RE, builtFileName, fileNameOf, mirrorIndex, replacedRecord, filesOf, shownName };
+module.exports = { FINGERPRINT_RE, builtFileName, fileNameOf, mirrorIndex, replacedRecord, filesOf, shownName, diskName };

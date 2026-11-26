@@ -2243,6 +2243,14 @@ async function taskBuilt(ctx, args) {
         if (files.length > 1) { ctx.err('Kosmos cannot send a file whose name has control characters in it, or is only dots and spaces, among several files: rename it first.'); return 2; }
         name = '';   // one such file goes the older way only, as before #9105
       }
+      // kosmos#9105, as install/kosmos: the name as its folder lists it (one file, one name, whatever the case typed).
+      if (name && typeof got.whole === 'string') {
+        try {
+          const dir = (ctx.pathRules || path).dirname(got.whole);
+          const listed = ctx.engine('builtfiles').diskName(name, (ctx.fs || fs).readdirSync(dir));
+          if (typeof listed === 'string' && listed && !/[\\/\u0000-\u001f\u007f]/.test(listed)) name = listed.replace(/[. ]+$/, '') || name;
+        } catch (_) { /* the name as typed */ }
+      }
       if (name && sent.some((x) => x.name === name)) { ctx.err('Two files named ' + name + ': give each file once (the board knows a file by its name).'); return 2; }
       sent.push({ file: f, name, ...got });
     }

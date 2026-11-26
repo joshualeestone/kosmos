@@ -104,4 +104,21 @@ said "withdraws all" assuming one sender; per-file is the consistent reading.
   is recoverable by re-sending); 5 a pre-#9105 unnamed file re-sent beside a second file stays as its own entry
   (the round 3 rule; the cost is a duplicate that says itself, never a lost file); 8 hand-edited stores only.
   Measured after: 343 pass, 0 fail, 7 platform skips across the new and older files; stale-list mutant red.
+- Round 5 (opus, blind, end-to-end through five user scenarios): 0 BLOCKER, 3 MAJOR, 6 MINOR. Fixed:
+  1 MAJOR a --check of one file cleared "waiting on a review" for the whole task: with several current files the
+    wait ends only when every one has a checker other than its sender (or the person). 2 MAJOR a re-send of one
+    file on a multi-file task typed the one-file words with no name: whenever the task has several files the line
+    says "file 'x', fingerprint ..." and "it replaces 'x' as sent earlier". 3 MAJOR an unnamed pre-#9105 file beside
+    named ones read as a valid third deliverable and became the headline file: mirrorIndex prefers a named current
+    file, and the readout labels it "sent before files had names (it may be one of the others, sent again)".
+    4 the same file typed in another case became a second file: both CLIs take the name as its folder lists it
+    (builtfiles.js diskName: exact entry, else the one case-insensitive match, else as typed). 5 "Delivered files: 0
+    (check them again ...)": now "none current: every file sent was withdrawn", and task files counts such tasks
+    apart from "built without --file". 6 one withdrawal of several files is named, and says the others stay.
+  Decided, not changed: 7 the person's screen mark checks every file (the person's mark has always meant "I have
+  looked", and the one-file rule did the same; a screen that lists the files is a separate card if wanted); 8 an
+  older CLI's plain mark checks every file (it cannot say which; --check is the answer once updated); 9 a withdrawal
+  is told to the marker alone (the #8307 rule).
+  Measured after: new 52/52; older 297 pass, 0 fail, 7 platform skips; 7 new mutants red (both case-name ones too,
+  so the case tests ran on this disk rather than returning early).
 

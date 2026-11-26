@@ -121,3 +121,11 @@ test('#9105 Windows: task list says 1 of N files only for a list written with th
   assert.match(r.err, /only dots and spaces, among several files/);
   assert.equal(r.calls.length, 0);
 });
+
+test('#9105 review 5 Windows: a name typed in another case is the name the folder lists', async () => {
+  const upper = path.join(DIR, 'REPORT.md');
+  if (!fs.existsSync(upper)) return;   // a disk that tells case apart
+  const r = await run(['task', 'built', 'proj/1', '4', 'x', '--file', upper, '--file', DATA], newer);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.calls[0].body.files[0].name, 'report.md');
+});

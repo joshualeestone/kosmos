@@ -7896,6 +7896,13 @@ cmd_task() {
           # One such file goes the older way only (no name, as before #9105); among several, it cannot be told apart.
           # A backslash too, which the board refuses in a name (it could carry a Windows path).
           case "$_fname" in *[[:cntrl:]]*|*\\*) [ "${#files[@]}" -eq 1 ] || { say "Kosmos cannot send a file whose name has a backslash or a control character in it among several files: rename it first."; exit 2; }; _fname="" ;; esac
+          # kosmos#9105: the name as its folder lists it (Report.pdf typed for report.pdf on a disk that ignores case is
+          # one file). engine/builtfiles.js diskName; the name as typed when that cannot be read.
+          if [ -n "$_fname" ] && [ -n "$_fdir" ]; then
+            local _dn _bfm; _bfm="$(kosmos_engine_module builtfiles).js"
+            _dn=$("$_fnode" -e 'const b=require(process.argv[1]);let l=[];try{l=require("fs").readdirSync(process.argv[2])}catch(e){}process.stdout.write(b.diskName(process.argv[3],l))' "$_bfm" "$_fdir" "$_fname" 2>/dev/null) || _dn=""
+            case "$_dn" in ''|*/*|*\\*|*[[:cntrl:]]*) ;; *) _fname="$_dn" ;; esac
+          fi
           case "$_fnames" in *"/$_fname/"*) say "Two files named $_fname: give each file once (the board knows a file by its name)."; exit 2 ;; esac
           _fnames="$_fnames$_fname/"
           fps+=("$fingerprint"); abss+=("$file_abs"); fnames+=("$_fname")

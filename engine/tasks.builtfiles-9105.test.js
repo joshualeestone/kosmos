@@ -333,3 +333,36 @@ test('#9105 review 3: an older board\'s replacement (a new builtAt) leaves the o
   projects.mutate(pid, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === n ? { ...x, builtAt: new Date(Date.now() + 5).toISOString(), builtFingerprint: D, builtCheckedBy: [] } : x)) }));
   assert.deepEqual(tasks.filesOf(get(n)).map((e) => [e.name, e.fingerprint]), [['report.md', D]], 'a file the older board never knew was read as current');
 });
+
+test('#9105 review 5: a check of one file leaves the task waiting on a review while another file has none', () => {
+  const n = freshTask();
+  mark(n, { by: 'mona', files: two(), waitingOn: 'review' });
+  mark(n, { by: 'ivy', check: ['data.csv'], note: 'data checked' });
+  assert.equal(get(n).builtWaitingOn, 'review', 'one checked file ended the review of both');
+  mark(n, { by: 'mona', files: [{ name: 'report.md', fingerprint: C }], note: 'fixed report' });
+  assert.equal(get(n).builtWaitingOn, 'review', 'a re-send dropped the wait');
+  mark(n, { by: 'zed', check: ['report.md'], note: 'report checked' });
+  assert.equal(get(n).builtWaitingOn, undefined, 'CONTROL: every file checked ends the review');
+  // CONTROL: a one-file task's check ends it at once, as before #9105.
+  const m = freshTask();
+  mark(m, { by: 'mona', files: [{ name: 'a.md', fingerprint: A }], waitingOn: 'review' });
+  mark(m, { by: 'ivy', note: 'checked' });
+  assert.equal(get(m).builtWaitingOn, undefined);
+});
+
+test('#9105 review 5: the single-file fields describe a named current file before an unnamed old one', () => {
+  const n = freshTask();
+  mark(n, { by: 'mona', fingerprint: A });   // from before files had names
+  mark(n, { by: 'mona', files: [{ name: 'report.md', fingerprint: B }, { name: 'data.csv', fingerprint: C }] });
+  assert.equal(get(n).builtFingerprint, B, 'the unnamed, maybe superseded file is the task\'s headline file');
+  assert.deepEqual(tasks.filesOf(get(n)).map((e) => e.name), ['', 'report.md', 'data.csv']);
+});
+
+test('#9105 review 5: diskName gives the name as the folder lists it', () => {
+  const { diskName } = require('./builtfiles');
+  assert.equal(diskName('Report.pdf', ['report.pdf', 'x']), 'report.pdf');
+  assert.equal(diskName('report.pdf', ['report.pdf', 'Report.pdf']), 'report.pdf', 'an exact entry did not win');
+  assert.equal(diskName('REPORT.PDF', ['report.pdf', 'Report.pdf']), 'REPORT.PDF', 'an ambiguous match was guessed');
+  assert.equal(diskName('Résumé.pdf', ['Résumé.pdf']), 'Résumé.pdf');
+  assert.equal(diskName('a.md', []), 'a.md');
+});

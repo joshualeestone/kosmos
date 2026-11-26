@@ -620,6 +620,8 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
   /* kosmos#9105: the files THIS mark sent (sentNow, from setBuilt), not every file by its marker. The route always passes
      a list; null is a direct caller from before #9105, which names the one file as #6330 did. A checker's mark sends
      none (#6330 review 5). */
+  // kosmos#9105: on a task with several files every file is named, even when this mark sent or replaced only one.
+  const several = tasks.filesOf(t).length > 1;
   const sentByMarker = Array.isArray(sentNow) ? tasks.filesOf(t).filter((e) => e.fingerprint && sentNow.includes(e.name)) : null;
   const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
     + (n ? ': "' + n + '"' : '')
@@ -631,10 +633,10 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
        names the command, since a PDF's fingerprint is not its shasum and an older instruction says shasum. */
     + (sentByMarker && sentByMarker.length > 1 ? ' - files ' + someFiles(sentByMarker, (e) => fileWord(e.name) + ' ' + e.fingerprint)
       + ' (check your copy with: kosmos fingerprint <file> <its fingerprint>)' : '')   // kosmos#9105
-    + (sentByMarker && sentByMarker.length === 1 ? ' - fingerprint ' + sentByMarker[0].fingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')
+    + (sentByMarker && sentByMarker.length === 1 ? (several ? ' - file ' + fileWord(sentByMarker[0].name) + ', fingerprint ' : ' - fingerprint ') + sentByMarker[0].fingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')
     + (!sentByMarker && tasks.FINGERPRINT_RE.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')   // #7213: the value names its kind, and given it the command compares like with like
     /* kosmos#8307: a replacement says which file it replaces, and that a check of that file no longer counts. */
-    + (reps.length === 1 ? ' - it replaces the file sent earlier (' + replacedPrint + '), so a check of that file no longer counts'
+    + (reps.length === 1 ? ' - it replaces ' + (several && reps[0].name ? fileWord(reps[0].name) + ' as' : 'the file') + ' sent earlier (' + replacedPrint + '), so a check of that file no longer counts'
       + (checkedOld(m) ? ': you checked that one' : '') : '')
     // kosmos#9105: several replaced at once are named, and each checker hears which of them it checked.
     + (reps.length > 1 ? ' - it replaces ' + reps.length + ' files sent earlier (' + someFiles(reps, (x) => fileWord(x.name) + ' ' + x.fingerprint)
@@ -28445,6 +28447,10 @@ const server = http.createServer(async (req, res) => {
           + withdrawnFiles.slice(0, 5).map((x) => "'" + Array.from(String(x.name || '').replace(/["\\\u0000-\u001f\u007f]/g, ' ').replace(/\p{Cf}/gu, '').replace(/'/g, '\u2019')).slice(0, 80).join('') + "'").join(', ')
           + (withdrawnFiles.length > 5 ? ' and ' + (withdrawnFiles.length - 5) + ' more' : '') + ').'
           + ' To keep them, mark it again with --file and each path.';
+      } else if (!viaScreen && body.clear !== true && withdrawnFiles.length === 1 && out.task && tasks.filesOf(out.task).length > 1) {
+        // kosmos#9105: one of several files withdrawn is named, since the task still names others.
+        summary = (summary ? summary + ' ' : '') + 'This mark sent no file, so ' + "'" + Array.from(String(withdrawnFiles[0].name || 'a file').replace(/["\\\u0000-\u001f\u007f]/g, ' ').replace(/\p{Cf}/gu, '').replace(/'/g, '\u2019')).slice(0, 80).join('') + "'"
+          + ', which you sent, is withdrawn; the other files stay. To keep it, mark it again with --file and its path.';
       } else if (!viaScreen && body.clear !== true && out.replaced && out.replaced.kind === 'withdrawn') {
         summary = (summary ? summary + ' ' : '') + 'This mark sent no file, so the file the task named before is withdrawn.'
           + ' To keep it, mark it again with --file and its path.';   // review 3: no claim of who was told

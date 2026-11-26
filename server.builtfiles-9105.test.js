@@ -156,7 +156,9 @@ test('#9105: re-sending one file tells only that file\'s checker', async () => {
   const { r, typed } = await capture(() => mark(n, asAgent('mona'), { files: [{ name: 'data.csv', fingerprint: D }], note: 'new data' }));
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.deepEqual(told(r), ['ivy'], 'a checker of the unchanged file was told: ' + JSON.stringify(r.json));
-  assert.match(typed[0], new RegExp('it replaces the file sent earlier \\(' + B + '\\).*you checked that one'));
+  // On a task with several files the one file is named, both as sent and as replaced.
+  assert.match(typed[0], new RegExp(" - file 'data\\.csv', fingerprint " + D + ' \\(check your copy'));
+  assert.match(typed[0], new RegExp("it replaces 'data\\.csv' as sent earlier \\(" + B + '\\).*you checked that one'));
   assert.deepEqual(stored(n).builtFiles.find((e) => e.name === 'report.md').checkedBy, ['zed'], 'the unchanged file lost its check');
 });
 
@@ -301,13 +303,13 @@ test('#9105 review 1: the line names only the files this mark sent, a second sen
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.ok(typed.length >= 1, JSON.stringify(typed));
   for (const line of typed) {
-    assert.match(line, new RegExp(' - fingerprint ' + C + ' \\(check your copy'), 'the second sender\'s file was not named: ' + line);
+    assert.match(line, new RegExp(" - file 'c\\.md', fingerprint " + C + ' \\(check your copy'), 'the second sender\'s file was not named: ' + line);
     assert.doesNotMatch(line, new RegExp(A + '|' + B), 'a file this mark did not send was named');
   }
   // mona re-sends one of her two: the line names that one alone.
   const again = await capture(() => mark(n, asAgent('mona'), { files: [{ name: 'data.csv', fingerprint: D }], note: 'new data' }));
   for (const line of again.typed) {
-    assert.match(line, new RegExp(' - fingerprint ' + D));
+    assert.match(line, new RegExp(" - file 'data\\.csv', fingerprint " + D));
     assert.doesNotMatch(line, new RegExp(' - files |' + A), 'files sent earlier were named as sent now: ' + line);
   }
 });
@@ -379,4 +381,32 @@ test('#9105 review 3: the line names at most 5 files, quoted, cut to 80 characte
   assert.equal(/‮/.test(line), false, 'a direction override was typed into a pane');
   assert.ok(line.includes("'x" + 'y'.repeat(79) + "'"), 'a long name was not cut to 80: ' + line.slice(0, 300));
   assert.equal((line.match(/sha256:/g) || []).length, 5);
+});
+
+test('#9105 review 5: one withdrawal of several files is named; show says none current; an unnamed old file says it may be superseded', async () => {
+  const n = tasks.create(projectId, { sentence: 'Withdraw one of several', who: 'mona' }).number;
+  await mark(n, asAgent('mona'), { files: [{ name: 'a.md', fingerprint: A }] });
+  await mark(n, asAgent('ivy'), { files: [{ name: 'b.md', fingerprint: B }] });
+  const r = await mark(n, asAgent('mona'), { note: 'mine is not ready' });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.match(r.json.summary, /This mark sent no file, so 'a\.md', which you sent, is withdrawn; the other files stay\./);
+  const tok = sendertoken.mint('mona').token;
+  await mark(n, asAgent('ivy'), { note: 'mine too' });
+  const show = await mac(['task', 'show', projectId, String(n)], { KOSMOS_AGENT_TOKEN: tok });
+  assert.match(show.out, /Delivered files: +none current: every file sent was withdrawn/, show.out);
+  assert.doesNotMatch(show.out, /check them again/);
+  const m = tasks.create(projectId, { sentence: 'Unnamed then named', who: 'mona' }).number;
+  tasks.setBuilt(projectId, m, { by: 'mona', fingerprint: A });
+  await mark(m, asAgent('mona'), { files: two() });
+  const show2 = await mac(['task', 'show', projectId, String(m)], { KOSMOS_AGENT_TOKEN: tok });
+  assert.match(show2.out, /File sent before files had names \(it may be one of the others, sent again\)/, show2.out);
+});
+
+test('#9105 review 5 Mac: a name typed in another case is the name the folder lists', macOnly, async () => {
+  const upper = path.join(OUT, 'REPORT.md');
+  if (!fs.existsSync(upper)) return;   // a disk that tells case apart: REPORT.md is another file there
+  const n = tasks.create(projectId, { sentence: 'Mac case', who: 'mona' }).number;
+  const r = await mac(['task', 'built', projectId, String(n), 'case', '--file', upper], { KOSMOS_AGENT_TOKEN: sendertoken.mint('mona').token });
+  assert.equal(r.code, 0, r.out);
+  assert.equal(stored(n).builtFiles[0].name, 'report.md');
 });

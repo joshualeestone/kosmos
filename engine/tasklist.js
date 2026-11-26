@@ -392,9 +392,11 @@ function showLines(body, num, project) {
   const delivered = x.builtAt ? require('./builtfiles').filesOf(x) : [];
   if (delivered.length > 1) {
     const names = (list, person) => [...(Array.isArray(list) ? list.filter((v) => typeof v === 'string' && v).map(q) : []), ...(person === true ? ['the person'] : [])];
-    field('Delivered files', String(delivered.filter((e) => e.fingerprint).length) + ' (check them again: kosmos task files ' + one(project) + ')');
+    const live = delivered.filter((e) => e.fingerprint).length;
+    field('Delivered files', live ? String(live) + ' (check them again: kosmos task files ' + one(project) + ')' : 'none current: every file sent was withdrawn');
     for (const e of delivered) {
-      const label = e.name ? require('./builtfiles').shownName(e.name) : 'a file sent without its name';   // the form --check takes
+      // A file from before files had names may be one of the named files, sent again: said, never guessed.
+      const label = e.name ? require('./builtfiles').shownName(e.name) : 'sent before files had names (it may be one of the others, sent again)';   // the form --check takes
       if (e.fingerprint) {
         field('File ' + label, e.fingerprint + (e.by ? ', sent by ' + q(e.by) : '')
           + (e.path ? '' : ' (its fingerprint only: no path was recorded. Check a copy with: kosmos fingerprint <file> ' + e.fingerprint + ')'));
@@ -696,13 +698,14 @@ function filesLines(body, opts = {}) {
   const lines = [];
   const tally = { matches: 0, changed: 0, missing: 0, unreadable: 0, nopath: 0, elsewhere: 0, unchecked: 0 };
   let noFile = 0;
+  let withdrawnAll = 0;   // kosmos#9105: built with files, every one withdrawn since
   for (const found of tasks) {
     const x = scrub(found);
     /* kosmos#9105: every current file of the mark, each checked as one file always was (a list from an older board,
        without builtFiles, is its one file). builtAt is not asked of: this list is the board's built list already. */
     const current = PRINT_RE.test(x.builtFingerprint || '') || Array.isArray(found.builtFiles)
       ? require('./builtfiles').filesOf({ ...found, builtAt: found.builtAt || true }).filter((e) => PRINT_RE.test(e.fingerprint || '')) : [];
-    if (!current.length) { noFile += 1; continue; }
+    if (!current.length) { if (Array.isArray(found.builtFiles) && found.builtFiles.length) withdrawnAll += 1; else noFile += 1; continue; }
     lines.push((every ? one(x.projectId || '?') + '  ' : '') + '#' + (x.number != null ? x.number : '?') + '  ' + titleOf(x));
     for (const file of current) {
     const print = file.fingerprint;
@@ -756,10 +759,11 @@ function filesLines(body, opts = {}) {
     else { tally.changed += 1; lines.push('    CHANGED since it was marked  ' + shown); }
     }
   }
-  const checked = tasks.length - noFile;
+  const checked = tasks.length - noFile - withdrawnAll;
+  const withdrawnWords = withdrawnAll ? ' ' + withdrawnAll + ' built with files since withdrawn.' : '';
   const where = every ? 'in any project' : 'in ' + one(opts.project);
   if (!checked) {
-    lines.push(tasks.length ? 'No built task ' + where + ' names a delivered file (' + tasks.length + ' built without --file).'
+    lines.push(tasks.length ? 'No built task ' + where + ' names a delivered file' + (noFile ? ' (' + noFile + ' built without --file).' : '.') + withdrawnWords
       : 'No built tasks ' + where + '.');
   } else {
     const bits = [tally.matches + ' match', tally.changed + ' changed', tally.missing + ' missing'];
@@ -771,7 +775,7 @@ function filesLines(body, opts = {}) {
     const fileCount = tally.matches + tally.changed + tally.missing + tally.unreadable + tally.nopath + tally.elsewhere + tally.unchecked;
     lines.push(checked + ' built task' + (checked === 1 ? '' : 's') + ' with a delivered file ' + (every ? 'across your projects' : where)
       + (fileCount !== checked ? ' (' + fileCount + ' files)' : '') + ': ' + bits.join(', ') + '.'
-      + (noFile ? ' ' + noFile + ' more built without --file.' : ''));
+      + (noFile ? ' ' + noFile + ' more built without --file.' : '') + withdrawnWords);
     if (tally.changed || tally.missing) lines.push('A file changed or missing since the mark: send it again with kosmos task built <project-id> <task-number> --file <path>, or say why it changed.');
     lines.push('Checked on this computer: a mark made on another computer can read missing here.');
   }
