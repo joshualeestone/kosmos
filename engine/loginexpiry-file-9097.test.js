@@ -20,8 +20,11 @@ const UNTIL = Date.UTC(2026, 10, 29, 2, 37, 55);   // the Windows box's own date
 const ACCESS = UNTIL - 86400000;
 const body = (o) => JSON.stringify({ claudeAiOauth: { accessToken: 'tok-not-read', refreshToken: 'ref-not-read', ...o } });
 
+const TEMPS = [];   // review 3: every temp folder this file makes is removed at exit
+process.on('exit', () => { for (const d of TEMPS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } } });
+const tmp = (prefix) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); TEMPS.push(d); return d; };
 function home() {
-  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'le9097-'));
+  const h = tmp('le9097-');
   fs.mkdirSync(path.join(h, '.claude'));
   fs.writeFileSync(path.join(h, '.claude', '.credentials.json'), body({ refreshTokenExpiresAt: UNTIL, expiresAt: ACCESS }));
   fs.mkdirSync(path.join(h, '.claude-b'));
@@ -52,7 +55,7 @@ test('kosmos#9097: only the two dates leave the reader; the tokens are never ret
 
 test('kosmos#9097: a folder outside the home, a missing file, or a bad file reads as nothing (fail soft)', () => {
   const h = home();
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'le9097-out-'));
+  const outside = tmp('le9097-out-');
   fs.writeFileSync(path.join(outside, '.credentials.json'), body({ refreshTokenExpiresAt: UNTIL }));
   assert.strictEqual(le.loginTimesFor(outside, { readCred: winRead(h) }).refreshExpiresAt, null, 'outside the real home is never read');
   assert.strictEqual(le.loginTimesFor(path.join(h, '.claude-none'), { readCred: winRead(h) }).refreshExpiresAt, null);
@@ -80,11 +83,12 @@ test('kosmos#9097: an advisory is built on Windows for a login inside the warnin
 
 test('kosmos#9097 review 1: a sandboxed board (its own HOME) never reads the real home default file', () => {
   const real = home();
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'le9097-sb-'));
+  const sandbox = tmp('le9097-sb-');
   // HOME is the sandbox, outside the real home: the unset account is the sandbox's, and is refused, not the real one.
-  assert.strictEqual(le.readCredDefault('x', undefined, { platform: 'linux', home: real, userHome: sandbox }), null);
+  const DEF = le.serviceNameFor(undefined);
+  assert.strictEqual(le.readCredDefault(DEF, undefined, { platform: 'linux', home: real, userHome: sandbox }), null);
   // CONTROL: HOME is the real home: the same call reads the real default file.
-  assert.ok(le.readCredDefault('x', undefined, { platform: 'linux', home: real, userHome: real }));
+  assert.ok(le.readCredDefault(DEF, undefined, { platform: 'linux', home: real, userHome: real }));
 });
 
 test('kosmos#9097 review 1: on Windows the login warning finds the folder of each agent from its launch job', () => {
@@ -146,4 +150,27 @@ test('kosmos#9097 review 2: the account row reads its login off macOS, with its 
   } finally { live.setCredReaderForTests(null); live._clearForTest(); }
   // CONTROL: with no reader set, a test context reads nothing (never a real credential).
   assert.strictEqual(await live.validUntil({ dir: path.join(h, '.claude-b'), isDefault: false }), null);
+});
+
+test('kosmos#9097 review 3: the row reads live on every platform, never in a test without a seam', () => {
+  const live = require('./claudeloginlive');
+  assert.strictEqual(live.liveReadAllowed({ seam: false, testCtx: false }), true, 'production reads, whatever the platform');
+  assert.strictEqual(live.liveReadAllowed({ seam: false, testCtx: true }), false, 'a test with no seam reads nothing');
+  assert.strictEqual(live.liveReadAllowed({ seam: true, testCtx: true }), true);
+});
+
+test('kosmos#9097 review 3: off macOS a non-default credential with no folder reads nothing, never the default file', () => {
+  const h = home();
+  assert.strictEqual(le.readCredDefault('Claude Code-credentials-2a1a4199', undefined, { platform: 'win32', home: h }), null);
+  // CONTROL: the default credential with no folder reads the default file.
+  assert.ok(le.readCredDefault(le.serviceNameFor(undefined), undefined, { platform: 'win32', home: h }));
+});
+
+test('kosmos#9097 review 3: on Windows the explicit default folder matches without case', () => {
+  const h = home();
+  const now = UNTIL - 3 * 86400000;
+  const agents = [{ name: 'amy' }, { name: 'ben' }];
+  const ccdOf = { amy: null, ben: path.join(h, '.CLAUDE') };
+  const win = le.agentAdvisories({ agents, readCcd: (a) => ccdOf[a.name], now, readCred: winRead(h), platform: 'win32', userHome: h });
+  assert.strictEqual(win.length, 1, JSON.stringify(win));
 });

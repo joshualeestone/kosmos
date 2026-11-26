@@ -107,7 +107,11 @@ function credFileFor(ccd, home = realHome(), userHome = os.homedir()) {
 }
 
 /* The two homes, for tests: an injected real home stands for HOME too unless HOME is given apart. */
-function credPathOf(ccd, home, userHome) {
+function credPathOf(ccd, home, userHome, service) {
+  /* Review 3: off macOS the file is chosen by the folder alone. A caller that names a non-default credential but no
+     folder would otherwise read the DEFAULT account's file, a wrong-account answer. It reads nothing instead. */
+  const unset = ccd == null || String(ccd).replace(/[\r\n]+$/, '') === '';
+  if (unset && service !== undefined && service !== DEFAULT_SERVICE) return null;
   const real = home === undefined ? realHome() : home;
   const user = userHome !== undefined ? userHome : (home !== undefined ? home : os.homedir());
   return credFileFor(ccd, real, user);
@@ -120,7 +124,7 @@ function readCredDefault(service, ccd, { platform = process.platform, home, user
   const sandbox = sandboxCred(service);
   if (sandbox !== undefined) return sandbox;
   if (platform !== 'darwin') {
-    const f = credPathOf(ccd, home, userHome);
+    const f = credPathOf(ccd, home, userHome, service);
     if (!f) return null;
     try { return fs.readFileSync(f, 'utf8'); } catch { return null; }
   }
@@ -142,7 +146,7 @@ function readCredAsync(service, ccd, { platform = process.platform, home, userHo
   const sandbox = sandboxCred(service);
   if (sandbox !== undefined) return Promise.resolve(sandbox);
   if (platform !== 'darwin') {   // kosmos#9097: the credentials file, as readCredDefault
-    const f = credPathOf(ccd, home, userHome);
+    const f = credPathOf(ccd, home, userHome, service);
     if (!f) return Promise.resolve(null);
     return new Promise((resolve) => { fs.readFile(f, 'utf8', (err, body) => resolve(err ? null : body)); });
   }
@@ -262,7 +266,8 @@ function agentAdvisories({ agents = [], readCcd, now = Date.now(), readCred, war
        On macOS they stay apart: there the Keychain entry's name differs (the #2129 class). */
     if (platform !== 'darwin' && ccd != null && userHome) {
       const v = String(ccd).replace(/[\r\n]+$/, '');
-      if (v !== '' && path.resolve(v) === path.resolve(path.join(userHome, '.claude'))) ccd = null;
+      const P = platform === 'win32' ? path.win32 : path;   // review 3: Windows folders compare without case
+      if (v !== '' && P.relative(P.resolve(v), P.resolve(P.join(userHome, '.claude'))) === '') ccd = null;
     }
     const service = serviceNameFor(ccd);
     if (!buckets.has(service)) buckets.set(service, { ccd: ccd == null ? null : String(ccd), agents: [] });
