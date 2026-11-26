@@ -239,6 +239,16 @@ run "a leftover under another temp root that names this identity -> CANNOT TELL"
 sleep 0 & DEAD=$!; wait "$DEAD"
 mkdir -p "$W/pgbin"; printf '%s\n' '#!/bin/sh' "echo $DEAD" > "$W/pgbin/pgrep"; chmod +x "$W/pgbin/pgrep"
 PATH="$W/pgbin:$PATH" run "a connector that has already exited -> PASS" 0 "tunnel-gate: PASS" "up" "up"
+# kosmos#9149: a pgrep that FAILS (exit 2 or 3: it could not list the processes) is not "no connector". Before, a
+# failed scan read as an empty list and the gate PASSED with a stand-in running (3 of 22 Mortals runs).
+REAL_PGREP="$(command -v pgrep)"
+mkdir -p "$W/pgfail"; printf '%s\n' '#!/bin/sh' 'exit 3' > "$W/pgfail/pgrep"; chmod +x "$W/pgfail/pgrep"
+standin "$GT/tunnel-gate.Stale4/a1/state"
+PATH="$W/pgfail:$PATH" run "a pgrep that cannot list the processes -> CANNOT TELL, not PASS" 2 "could not list this computer's processes" "up" "up"; unstand
+[ ! -e "$W/state.gate-lock" ] && { pass=$((pass + 1)); echo "  ok    no lock left behind after a failed scan"; } || { fail=$((fail + 1)); echo "  FAIL  the gate's lock was left behind after a failed scan"; }
+mkdir -p "$W/pgonce"; printf '%s\n' '#!/bin/sh' "if [ ! -e '$W/pgonce/failed' ]; then : > '$W/pgonce/failed'; exit 3; fi" "exec '$REAL_PGREP' \"\$@\"" > "$W/pgonce/pgrep"; chmod +x "$W/pgonce/pgrep"
+standin "$W/state"
+PATH="$W/pgonce:$PATH" run "a pgrep that fails once is retried, and still sees the connector -> CANNOT TELL" 2 "gate's identity is still running" "up" "up"; unstand
 # ...but a LIVE one whose command line cannot be read still counts (fail closed). Played by a ps
 # that prints nothing while the stand-in runs.
 mkdir -p "$W/psbin"; printf '%s\n' '#!/bin/sh' 'exit 1' > "$W/psbin/ps"; chmod +x "$W/psbin/ps"
@@ -315,5 +325,5 @@ if [ "$left" = 0 ]; then pass=$((pass + 1)); echo "  ok    no connector left run
 else fail=$((fail + 1)); echo "  FAIL  $left stub connector(s) left running"; pkill -f "kosmos-gate-stub-$TAG"; fi
 
 echo "test-tunnel-handshake-gate: $pass passed, $fail failed"
-# 57 = every row above; equal to the count so a dropped row cannot pass.
-[ "$fail" -eq 0 ] && [ "$pass" -eq 57 ]
+# 60 = every row above (57, plus three kosmos#9149 rows); equal to the count so a dropped row cannot pass.
+[ "$fail" -eq 0 ] && [ "$pass" -eq 60 ]
