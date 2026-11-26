@@ -38,3 +38,11 @@
   KOSMOS_TEST_TIMEOUT_MS = 4 x EXIT_BOUND_MS, which run-tests.sh takes as given (tools/run-tests.sh:573).
 - NIT fixed: the bound's comment rewrapped to 120 columns.
 - Measured: the file, 3 of 3, 29 s wall, equal to node's duration (no idle tail).
+
+## Review round 3 (00:16): CONVERGED, no blocker, no should-fix
+- Checked: the KOSMOS_TEST_TIMEOUT_MS value is chosen by the test, not leaked from the runner (RUNNER_SET strips the
+  outer one first); 960000 to 3840000 passes run-tests.sh's validation; the inner per-file limit (>= 1800 s) cannot
+  end the fixture inside the bound (<= 960 s). Measured on this Mac: 3 of 3, TERM 10.0 s, Ctrl-C 73.1 s, 102 s wall,
+  equal to node's duration.
+- NITs left: env() reads EXIT_BOUND_MS, defined below it (safe: env() runs only after load); the 30 s spawnSync has
+  one 17.8 s CI data point.
