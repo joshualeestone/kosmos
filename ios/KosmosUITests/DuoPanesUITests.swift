@@ -31,8 +31,9 @@ class DuoPanesCase: XCTestCase {
     // Alone: the box starts near the left edge, so the chat has the whole width.
     func alone(_ app: XCUIApplication) -> Bool { box(app).exists && box(app).frame.width > 0 && box(app).frame.minX < app.frame.width * 0.25 }
     func shot(_ app: XCUIApplication, _ name: String) {
-        let a = XCTAttachment(screenshot: XCUIScreen.main.screenshot());   // the app's own picture of a sideways window is cut off
-         a.name = name; a.lifetime = .keepAlways; add(a)
+        // The app's own picture of a sideways window is cut off, so the whole screen.
+        let a = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        a.name = name; a.lifetime = .keepAlways; add(a)
     }
     // Polled, since the size classes change on a timer: true as soon as it holds, false at the end of the wait.
     func holds(_ seconds: TimeInterval, _ what: () -> Bool) -> Bool {
@@ -173,6 +174,7 @@ final class DuoPanesUITests: DuoPanesCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"]
+        UIKitListArm.set(app)
         app.launch()
         XCTAssertTrue(app.buttons["room-info"].waitForExistence(timeout: 30), "the room did not open")
         XCTAssertTrue(holds(5) { !self.tabsShow(app) }, "an upright phone shows the tabs in a project's room")
@@ -229,9 +231,12 @@ final class DuoPanesUITests: DuoPanesCase {
         let widest = rows.map(\.frame.width).max() ?? 0
         print("UI-NOTE kosmos#9002 widest bubble text \(Int(widest)) of window \(Int(app.frame.width)), \(rows.count) rows")
         XCTAssertGreaterThan(rows.count, 0, "CONTROL: no messages drawn in the chat's pane")
-        // The pane here is about 470 pt between the notch margins: its 0.78 share less the bubble's padding is about 345, and a
-        // bubble that takes all the row (the screen's share, cut by the row) is about 415.
-        XCTAssertLessThan(widest, 390, "a bubble is wider than its pane's share")
+        // The chat's pane, measured by its message box (which spans the pane less its 16 pt margins): a bubble's text may take
+        // 0.78 of it, and one sized to the screen fills the row instead. The bound sits between the two on any phone.
+        let pane = box(app).frame.width + 32
+        let limit = (pane * 0.78 + (pane - 32)) / 2
+        print("UI-NOTE kosmos#9002 pane \(Int(pane)), bound \(Int(limit))")
+        XCTAssertLessThan(widest, limit, "a bubble is wider than its pane's share")
     }
 
     // The tab bar floats over the list: its last row can still be read above it.
