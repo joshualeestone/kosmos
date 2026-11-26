@@ -69,3 +69,8 @@ Deferred with reasons above: in-place state on kept nodes (the weakest premise; 
 rail's fed sections are painted only through paintAgentList, and their in-place writes go to #pj-fed-own-said and the
 room's line, not #alist), the focus pin (callers unchanged), and rank-matching cost for unkeyed pieces (#alist has no
 whitespace between rows).
+
+## After review: the README row (11-25 23:2x)
+The Mortals validation at 4e83e1f448 went red on browser-checks-indexed.test.js: the new render-board-patch-9094.js
+had no row in docs/browser-checks/README.md. Added the row, from the check's own header. Measured: that test 1/1, all
+nine browser-checks*.test.js files 78/78. A table row in a README, so no further review round.
