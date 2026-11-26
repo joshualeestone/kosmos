@@ -80,7 +80,7 @@ test('kosmos#9097 review 1: a sandboxed board (its own HOME) never reads the rea
   assert.ok(le.readCredDefault('x', undefined, { platform: 'linux', home: real, userHome: real }));
 });
 
-test('kosmos#9097 review 1: on Windows the login warning finds each agent's folder from its launch job', () => {
+test('kosmos#9097 review 1: on Windows the login warning finds the folder of each agent from its launch job', () => {
   const h = home();
   const status = require('./status');
   const now = UNTIL - 3 * 86400000;
