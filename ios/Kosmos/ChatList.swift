@@ -1080,7 +1080,7 @@ struct ChatList: UIViewRepresentable {
         co.environment = context.environment
         // kosmos#9002: a fold changes the pane's width; cells already drawn are drawn again at the new one. Only when two panes
         // are, or were, showing: a phone rotating keeps its drawn cells as it always did.
-        let two = context.environment.horizontalSizeClass == .regular && context.environment.verticalSizeClass == .regular
+        let two = TwoPanes.shows(context.environment.horizontalSizeClass, context.environment.verticalSizeClass)
         if abs(wasWide - co.environment.paneWidth) > 0.5, two || co.wasTwoPanes { co.redrawAtNewWidth() }
         co.wasTwoPanes = two
         co.apply(ids, dropped: dropped)

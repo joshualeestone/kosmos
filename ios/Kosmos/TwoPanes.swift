@@ -9,7 +9,9 @@ import UIKit
 @propertyWrapper struct TwoPanes: DynamicProperty {
     @Environment(\.horizontalSizeClass) private var h
     @Environment(\.verticalSizeClass) private var v
-    var wrappedValue: Bool { h == .regular && v == .regular }
+    var wrappedValue: Bool { Self.shows(h, v) }
+    // The one rule, also read where a view has the environment but no property wrapper (ChatList).
+    static func shows(_ h: UserInterfaceSizeClass?, _ v: UserInterfaceSizeClass?) -> Bool { h == .regular && v == .regular }
 }
 
 // A tab's list and what is open from it. One column: the list, with the open page pushed on it, as always. Two panes: the list
