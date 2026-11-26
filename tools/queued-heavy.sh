@@ -412,6 +412,7 @@ case "$RENEW_SEC" in ''|*[!0-9]*) RENEW_SEC=600 ;; esac
 case "$MAX_RENEWALS" in ''|*[!0-9]*) MAX_RENEWALS=12 ;; esac
 STOP_GRACE_S="${QUEUED_HEAVY_STOP_GRACE_S:-60}"   # kosmos#9118: TERM to KILL, for a main turn's command group
 case "$STOP_GRACE_S" in ''|*[!0-9]*) STOP_GRACE_S=60 ;; esac
+STOP_GRACE_S=$((10#$STOP_GRACE_S))   # #9118 review 1: 08 and 09 are not octal errors (an error inside the EXIT trap ended it part way)
 _qh_clear() {
   kosmos_refuse_if_machine_claimed "$WHAT" || return 1
   # #4911: no main turn starts beside a light run's side turn, whatever its class: a light one would make two light
@@ -625,7 +626,7 @@ _qh_stop_capper() {
     case "$(ps -o stat= -p "$CAPPER" 2>/dev/null)" in ''|Z*) wait "$CAPPER" 2>/dev/null; CAPPER=""; return 0 ;; esac
     sleep 0.25; i=$((i + 1))
   done
-  echo "QUEUED-HEAVY $(date '+%H:%M:%S') the side turn's capper (pid $CAPPER) did not stop; left behind so the claim is released"
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') the turn's capper or watcher (pid $CAPPER) did not stop; left behind so the claim is released"
   CAPPER=""
 }
 _qh_end() {
@@ -643,8 +644,10 @@ _qh_end() {
   # (QUEUED_HEAVY_STOP_GRACE_S, default 60 s): run-tests.sh does its own cleanup on a TERM (its EXIT trap stops its
   # shards and runs the leak guard, which can take tens of seconds), and a KILL before that ends would strand the
   # shards that cleanup stops, which are in process groups of their own.
-  if [ -n "$CMD" ] && kill -0 -- "-$CMD" 2>/dev/null; then
-    _g=20; [ "$LANE" = side ] || _g=$(( ${STOP_GRACE_S} * 2 ))
+  # #9118 review 1: for a main turn, only when this script was SIGNALLED. A command that ended on its own keeps what it
+  # left in its group running, as a main turn always has (a stop there also printed a false "signalled" line).
+  if [ -n "$CMD" ] && { [ "$LANE" = side ] || [ -n "$QH_SIGNALLED" ]; } && kill -0 -- "-$CMD" 2>/dev/null; then
+    _g=20; [ "$LANE" = side ] || _g=$(( STOP_GRACE_S * 2 ))
     [ "$LANE" = side ] || echo "QUEUED-HEAVY $(date '+%H:%M:%S') STOPPING: $WHAT (this script was signalled); TERM to its process group, KILL after ${STOP_GRACE_S}s"
     kill -TERM -- "-$CMD" 2>/dev/null
     _i=0; while kill -0 -- "-$CMD" 2>/dev/null && [ "$_i" -lt "$_g" ]; do sleep 0.5; _i=$((_i + 1)); done
@@ -666,8 +669,14 @@ trap _qh_end EXIT
 # background with a `wait` the trap interrupts (review 3 kept main turns out while the command ran in the foreground,
 # where bash runs a trap only after the command ends). Before, a TERM to a main turn's wrapper ended bash and left the
 # command running unclaimed: on 11-25 two killed validations left their run-tests.sh suites running for about 70
-# minutes (52 processes). Not covered: a SIGKILL of this script, which no trap sees.
-trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP
+# minutes (52 processes). A SIGKILL of this script (or a KILL to its caller's process group), which no trap sees, is
+# covered by the main turn's watcher below, within about 5 s.
+# #9118 review 1: NOT when this script has a terminal on stdin, stdout or stderr (a person running it by hand). There
+# the command stays in the foreground as before: a background command that reads or sets the terminal (sudo, ssh, a
+# pager) is stopped by the system and `wait` never returns, and Ctrl-C and Ctrl-Z already reach a foreground command.
+QH_FG=""; QH_SIGNALLED=""
+[ "$LANE" != side ] && { [ -t 0 ] || [ -t 1 ] || [ -t 2 ]; } && QH_FG=1
+[ -n "$QH_FG" ] || { trap 'QH_SIGNALLED=1; exit 143' TERM; trap 'QH_SIGNALLED=1; exit 130' INT; trap 'QH_SIGNALLED=1; exit 129' HUP; }
 if [ "$LANE" = side ]; then
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') SIDE TURN: running $WHAT beside the heavy holder (#4911; stopped if it runs past ${SIDE_MIN} min)"
 else
@@ -678,7 +687,7 @@ if [ "$LANE" != side ]; then
   # The renewer (a main turn only: a side turn is capped, above). $$ here is still the main script's pid, so the claim keeps naming the main script as its holder.
   trap - EXIT
   sp=""
-  trap '[ -n "$sp" ] && kill "$sp" 2>/dev/null; exit 0' TERM INT
+  trap '[ -n "$sp" ] && kill "$sp" 2>/dev/null; exit 0' TERM INT HUP   # #9118 review 1: HUP too (it inherited "exit 129" and left its sleep)
   n=0
   while [ "$n" -lt "$MAX_RENEWALS" ]; do
     sleep "$RENEW_SEC" & sp=$!
@@ -761,13 +770,27 @@ if [ "$LANE" = side ]; then
       echo "QUEUED-HEAVY $(date '+%H:%M:%S') SIDE TURN YIELDED: $WHAT is stopped because $_why. A side turn gives way to the heavy holder; queue it again. If it edits files (a perturbation), check its worktree: it was stopped mid-run"
     fi
   fi
+elif [ -n "$QH_FG" ]; then
+  "$@"; rc=$?   # a terminal: in the foreground, as before #9118 (see QH_FG above)
 else
   # kosmos#9118: the command in its own process group, as a side turn's is, so a signal to this script can stop all of
-  # it (_qh_end). stdin as for a side turn: kept, and only a terminal swapped for /dev/null (a background job that reads
-  # a tty is stopped).
-  if [ -t 0 ]; then set -m; "$@" </dev/null & CMD=$!; set +m
-  else set -m; "$@" & CMD=$!; set +m; fi
+  # it (_qh_end). stdin is kept (no terminal here: QH_FG).
+  set -m; "$@" & CMD=$!
+  # The watcher, in its own process group too (so a KILL to this script's group does not reach it), stopped by
+  # _qh_stop_capper like a side turn's capper. Every 5 s: once the command has gone it exits; once THIS script is gone
+  # (SIGKILLed, so no trap ran) it stops the command's group as _qh_end would, and exits. $$ is this script's pid here.
+  ( trap - EXIT TERM INT HUP; trap '' PIPE
+    while kill -0 "$CMD" 2>/dev/null; do
+      sleep 5 </dev/null >/dev/null 2>&1
+      if _qh_wrapper_gone "$$"; then
+        kill -TERM -- "-$CMD" 2>/dev/null; i=0
+        while kill -0 -- "-$CMD" 2>/dev/null && [ "$i" -lt $(( STOP_GRACE_S * 2 )) ]; do sleep 0.5; i=$((i + 1)); done
+        kill -KILL -- "-$CMD" 2>/dev/null; exit 0
+      fi
+    done ) </dev/null >/dev/null 2>&1 &
+  CAPPER=$!; set +m
   wait "$CMD"; rc=$?
+  _qh_stop_capper
 fi
 echo "QUEUED-HEAVY $(date '+%H:%M:%S') END rc=$rc: $WHAT"
 exit $rc
