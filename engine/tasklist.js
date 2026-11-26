@@ -396,7 +396,7 @@ function showLines(body, num, project) {
     field('Delivered files', live ? String(live) + ' (check them again: kosmos task files ' + one(project) + ')' : 'none current: every file sent was withdrawn');
     for (const e of delivered) {
       // A file from before files had names may be one of the named files, sent again: said, never guessed.
-      const label = e.name ? require('./builtfiles').shownName(e.name) : 'sent before files had names (it may be one of the others, sent again)';   // the form --check takes
+      const label = e.name ? require('./builtfiles').shownName(e.name) : 'sent without a name, by an older Kosmos command or with a path Kosmos does not keep (it may be one of the others, sent again)';   // the form --check takes
       if (e.fingerprint) {
         field('File ' + label, e.fingerprint + (e.by ? ', sent by ' + q(e.by) : '')
           + (e.path ? '' : ' (its fingerprint only: no path was recorded. Check a copy with: kosmos fingerprint <file> ' + e.fingerprint + ')'));

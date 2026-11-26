@@ -393,3 +393,36 @@ test('#9105 review 6: sentPrints tells two files without a name apart', () => {
   assert.deepEqual(r.sentPrints, [{ name: '', fingerprint: C }]);
   assert.deepEqual(get(n).builtFiles.map((e) => [e.name, e.fingerprint]), [['', A], ['g.md', B], ['', C]]);
 });
+
+test('#9105 review 7: withdrawing frees places under the cap, as the refusal says', () => {
+  const n = freshTask();
+  mark(n, { by: 'mona', files: Array.from({ length: 20 }, (_, i) => ({ name: 'f' + i, fingerprint: A })) });
+  assert.match(refused(n, { by: 'mona', files: [{ name: 'new', fingerprint: B }] }), /withdraw yours first with a mark without --file/);
+  mark(n, { by: 'mona', note: 'withdraw them all' });
+  mark(n, { by: 'mona', files: [{ name: 'new', fingerprint: B }] });
+  const t = get(n);
+  assert.ok(t.builtFiles.length <= tasks.BUILT_FILES_MAX, 'the store grew past the cap: ' + t.builtFiles.length);
+  assert.deepEqual(t.builtFiles.filter((e) => e.fingerprint).map((e) => e.name), ['new']);
+  assert.equal(t.builtFiles.some((e) => e.name === 'f0'), false, 'the oldest withdrawn entry was not the one to go');
+});
+
+test('#9105 review 7: a sender\'s own re-mark never ends a review it asked for again', () => {
+  const n = freshTask();
+  mark(n, { by: 'mona', files: [{ name: 'a.md', fingerprint: A }] });
+  mark(n, { by: 'zed', files: [{ name: 'b.md', fingerprint: B }] });
+  mark(n, { by: 'kit', note: 'checked all' });
+  mark(n, { by: 'mona', files: [{ name: 'a.md', fingerprint: A }], waitingOn: 'review' });
+  mark(n, { by: 'mona', files: [{ name: 'a.md', fingerprint: A }], note: 'again' });
+  assert.equal(get(n).builtWaitingOn, 'review', 'the sender ended its own review');
+  // CONTROL: an agent who sent none of the files ends it.
+  mark(n, { by: 'kit', note: 'looked again' });
+  assert.equal(get(n).builtWaitingOn, undefined);
+});
+
+test('#9105 review 7: a rebuild from the single-file fields never makes two entries of one name', () => {
+  const n = freshTask();
+  mark(n, { by: 'mona', files: [{ name: 'a.md', fingerprint: A, filePath: path.join(SANDBOX, 'a.md') }, { name: 'b.md', fingerprint: B }] });
+  projects.mutate(pid, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === n ? { ...x, builtFingerprint: C, builtFilePath: path.join(SANDBOX, 'b.md') } : x)) }));
+  const names = tasks.filesOf(get(n)).map((e) => e.name);
+  assert.equal(new Set(names).size, names.length, 'two entries share a name: ' + JSON.stringify(names));
+});

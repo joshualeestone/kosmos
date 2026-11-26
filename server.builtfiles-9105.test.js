@@ -399,7 +399,7 @@ test('#9105 review 5: one withdrawal of several files is named; show says none c
   tasks.setBuilt(projectId, m, { by: 'mona', fingerprint: A });
   await mark(m, asAgent('mona'), { files: two() });
   const show2 = await mac(['task', 'show', projectId, String(m)], { KOSMOS_AGENT_TOKEN: tok });
-  assert.match(show2.out, /File sent before files had names \(it may be one of the others, sent again\)/, show2.out);
+  assert.match(show2.out, /File sent without a name, by an older Kosmos command or with a path Kosmos does not keep \(it may be one of the others, sent again\)/, show2.out);
 });
 
 test('#9105 review 5 Mac: a name typed in another case is the name the folder lists', macOnly, async () => {

@@ -28449,7 +28449,7 @@ const server = http.createServer(async (req, res) => {
           + withdrawnFiles.slice(0, 5).map((x) => "'" + Array.from(String(x.name || '').replace(/["\\\u0000-\u001f\u007f]/g, ' ').replace(/\p{Cf}/gu, '').replace(/'/g, '\u2019')).slice(0, 80).join('') + "'").join(', ')
           + (withdrawnFiles.length > 5 ? ' and ' + (withdrawnFiles.length - 5) + ' more' : '') + ').'
           + ' To keep them, mark it again with --file and each path.';
-      } else if (!viaScreen && body.clear !== true && withdrawnFiles.length === 1 && out.task && tasks.filesOf(out.task).length > 1) {
+      } else if (!viaScreen && body.clear !== true && withdrawnFiles.length === 1 && out.task && tasks.filesOf(out.task).some((e) => e.fingerprint)) {
         // kosmos#9105: one of several files withdrawn is named, since the task still names others.
         summary = (summary ? summary + ' ' : '') + 'This mark sent no file, so ' + "'" + Array.from(String(withdrawnFiles[0].name || 'a file').replace(/["\\\u0000-\u001f\u007f]/g, ' ').replace(/\p{Cf}/gu, '').replace(/'/g, '\u2019')).slice(0, 80).join('') + "'"
           + ', which you sent, is withdrawn; the other files stay. To keep it, mark it again with --file and its path.';

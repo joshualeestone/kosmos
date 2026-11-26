@@ -79,7 +79,9 @@ function filesOf(t) {
   if (bare(mi >= 0 ? list[mi] : null) === bare(one)) return list;
   if (mi < 0) return one ? [one] : list;
   if (!one) return list.filter((_, i) => i !== mi);
-  return list.map((e, i) => (i === mi ? { ...one, name: one.name || e.name } : e));
+  // Its own name unless that name is another entry's already (one entry per name).
+  const keepName = one.name && !list.some((x, i) => i !== mi && x.name === one.name) ? one.name : list[mi].name;
+  return list.map((e, i) => (i === mi ? { ...one, name: keepName } : e));
 }
 
 /* A file's name as the readout shows it: the long list's q() (quotes to ', brackets to parentheses, NFKC, one

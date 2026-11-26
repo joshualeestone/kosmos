@@ -131,4 +131,17 @@ said "withdraws all" assuming one sender; per-file is the consistent reading.
     withdrawn entries: it counts current files. 5 a Windows 8.3 alias (REPORT~1.PDF) is named by its long name
     (realpath.native, when it stays in the same folder): REASONED, not testable on this Mac.
   Measured after: new 56/56; older 297 pass, 0 fail, 7 platform skips; 3 new mutants red.
+- Round 7 (opus, blind, whole branch, code read before the ledger; asked for defects that survive layering):
+  0 BLOCKER, 2 MAJOR, 5 MINOR; merge view "not ready". Fixed: 1 MAJOR the cap counted withdrawn entries and its
+  advice ("withdraw first") did not work: it counts current files, and withdrawn entries past it go oldest first.
+  2 MAJOR rounds 5 and 6 had together narrowed the review rule until a sender's own re-mark could end a review it
+  asked for again (old checks still counted): on a multi-file task only a marker who sent none of the current files
+  ends it. 4 "the other files stay" counts current files. 5 the rebuild from the single-file fields keeps one entry
+  per name. 6 the unnamed label says what is known ("sent without a name, by an older Kosmos command or with a path
+  Kosmos does not keep"), not "before files had names".
+  Decided, not changed: 3 a task that falls from two files to one keeps the one-file rule (the last marker), which
+  can keep a review waiting one mark longer: the safe direction. 7 store size is bounded by the cap (about 90 KB in
+  the worst case per task) and speed is negligible (filesOf a few times per mark, at most 20x20 name compares).
+  An unnamed file cannot be named in --check; a mark without --check checks it (decided: rare, older CLIs only).
+  Measured after: new 59/59; older 297 pass, 0 fail, 7 platform skips; 4 new mutants red.
 
