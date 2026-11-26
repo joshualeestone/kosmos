@@ -778,7 +778,9 @@ until_true 10 '[ "$(ps -o command= -p $RP 2>/dev/null | cut -c1-12)" = "bash /x/
 printf 'rp\nbg\nMon Jan  1 00:00:00 2001\n' > $S/mwd/qh-label.$RP
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd /bin/bash $QH --withdraw "rp" 2>&1); rw=$?
 ok "#9118: --withdraw does not signal a pid whose start time is not the one its label recorded (a reused pid)" '[ "$rw" = 1 ] && kill -0 $RP 2>/dev/null'
-printf 'rp\nbg\n%s\n' "$(TZ=UTC LC_ALL=C ps -o lstart= -p $RP | tr -s ' ' | sed 's/^ //; s/ $//')" > $S/mwd/qh-label.$RP
+# The same reading queued-heavy.sh's _qh_pid_start makes (/proc on Linux, ps lstart elsewhere).
+pstart9118() { if [ -r "/proc/$1/stat" ]; then sed 's/.*) //' "/proc/$1/stat" | awk '{print "t" $20}'; else TZ=UTC LC_ALL=C ps -o lstart= -p "$1" | tr -s ' ' | sed 's/^ //; s/ $//'; fi; }
+printf 'rp\nbg\n%s\n' "$(pstart9118 $RP)" > $S/mwd/qh-label.$RP
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd /bin/bash $QH --withdraw "rp" 2>&1); rw=$?
 ok "#9118: control: the same process with its real start time is withdrawn" '[ "$rw" = 0 ] && ! kill -0 $RP 2>/dev/null'
 reap $RP 20 2>/dev/null; rm -f $S/mwd/qh-label.$RP
@@ -792,7 +794,20 @@ o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mfg /bin/bash $QH --withdraw "t9118-fg" 
 ok "#9118: --withdraw refuses a foreground holder (exit 4, says why), leaving its command and claim alone" '[ "$pre9118" = 0 ] && [ "$sf" = 0 ] && [ "$rw" = 4 ] && [[ "$o" == *"NOT withdrawn"* ]] && ! gone $((U+6)) && [ -e $S/mfg/machine-claim ]'
 for p in $(pgrep -f "^sleep $((U+6))$"); do kill -KILL $p 2>/dev/null; done; until_true 20 '! kill -0 $FGP 2>/dev/null'; reap $FGP 20 2>/dev/null
 
-EXPECTED=169   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, seven #9118 withdraw arms
+# #9118 A2 review 2: a TERM straight to a FOREGROUND holder (as a --withdraw that read "waiting" a moment before the run
+# took its turn would send) does not release the claim while the command runs; the claim goes once the command ends.
+pre9118=0; free9118 || pre9118=1; mkdir -p $S/mfg2
+( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mfg2 exec $S/ttyrun /bin/bash $QH "t9118-fg2" sh -c "sleep $((U+5))" ) </dev/null > $S/fg2.log 2>&1 & FG2=$!; BG="$BG $FG2"
+fgp9118() { local f; for f in $S/mfg2/qh-label.*; do [ "$(sed -n 2p "$f" 2>/dev/null)" = fg ] && { echo "${f##*.}"; return 0; }; done; return 1; }
+until_true 30 '! gone $((U+5)) && fgp9118 >/dev/null'; sg=$?; WP=$(fgp9118)
+kill -TERM "$WP" 2>/dev/null; sleep 2
+held2=1; [ -e $S/mfg2/machine-claim ] && ! gone $((U+5)) && kill -0 "$WP" 2>/dev/null && held2=0
+for p in $(pgrep -f "^sleep $((U+5))$"); do kill -KILL $p 2>/dev/null; done
+until_true 30 '[ ! -e $S/mfg2/machine-claim ] && ! kill -0 "$WP" 2>/dev/null'; rl2=$?
+ok "#9118: a TERM to a foreground holder keeps its claim while its command runs, and releases it when the command ends" '[ "$pre9118" = 0 ] && [ "$sg" = 0 ] && [ -n "$WP" ] && [ "$held2" = 0 ] && [ "$rl2" = 0 ]'
+until_true 20 '! kill -0 $FG2 2>/dev/null'; reap $FG2 20 2>/dev/null
+
+EXPECTED=170   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, eight #9118 withdraw arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
