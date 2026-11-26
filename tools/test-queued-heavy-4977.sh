@@ -677,8 +677,16 @@ ok "#9118: QUEUED_HEAVY_STOP_GRACE_S=08 is 8 s and the stop completes" '[ "$pre9
 # #9118 review 1: with a terminal, the command stays in the wrapper's own process group (the foreground path). Control:
 # the same command without a terminal runs in a group of its own.
 printf '#!/bin/sh\necho "PG $(ps -o pgid= -p $$ | tr -d " ") $(ps -o pgid= -p $PPID | tr -d " ")"\n' > $S/pg9118; chmod +x $S/pg9118
+# Review 8: run a command on a pseudo-terminal on both systems this file runs on. BSD script (macOS) takes the command
+# after the log file; util-linux script (CI's Linux shards) takes it only through -c, as one shell string.
+cat > $S/ttyrun <<'TTYRUN'
+#!/bin/bash
+if [ "$(uname)" = Darwin ]; then exec script -q /dev/null "$@"; fi
+exec script -qec "$(printf '%q ' "$@")" /dev/null
+TTYRUN
+chmod +x $S/ttyrun
 mkdir -p $S/m9118-tty $S/m9118-notty
-o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-tty perl -e 'alarm(60); exec @ARGV' script -q /dev/null /bin/bash $QH "t9118-tty" $S/pg9118 </dev/null 2>&1 | tr -d '\r\004\010')   # script's own stdin /dev/null: on a socket it fails (tcgetattr)
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-tty perl -e 'alarm(60); exec @ARGV' $S/ttyrun /bin/bash $QH "t9118-tty" $S/pg9118 </dev/null 2>&1 | tr -d '\r\004\010')   # script's own stdin /dev/null: on a socket it fails (tcgetattr)
 o2=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-notty nocty /bin/bash $QH "t9118-notty" $S/pg9118 </dev/null 2>&1)
 pg1=$(printf '%s\n' "$o" | sed -n 's/^PG //p'); pg2=$(printf '%s\n' "$o2" | sed -n 's/^PG //p')
 ok "#9118: with a terminal the command shares the wrapper's group (foreground); without one it has its own" '[ -n "$pg1" ] && [ "${pg1% *}" = "${pg1#* }" ] && [ -n "$pg2" ] && [ "${pg2% *}" != "${pg2#* }" ]'
@@ -699,7 +707,7 @@ ok "#9118: a main turn on the background path prints no 'Killed' job report" '[[
 mkdir -p $S/m9118-in; o=$(printf 'hello-9118\n' | (cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-in nocty /bin/bash $QH "t9118-in" sh -c 'read l; echo "GOT=$l"; exit 7' 2>&1)); r=$?
 ok "#9118: a background-path main turn keeps the command's stdin and exit code" '[ "$r" = 7 ] && [[ "$o" == *"GOT=hello-9118"* && "$o" == *"END rc=7"* ]]'
 # #9118 review 2: a controlling terminal with all three redirected still keeps the foreground (no background /dev/tty stop).
-mkdir -p $S/m9118-ctty; ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-ctty perl -e 'alarm(60); exec @ARGV' script -q /dev/null /bin/bash -c "/bin/bash $QH t9118-ctty $S/pg9118 </dev/null >$S/9118-ctty.log 2>&1" </dev/null >/dev/null 2>&1 )
+mkdir -p $S/m9118-ctty; ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-ctty perl -e 'alarm(60); exec @ARGV' $S/ttyrun /bin/bash -c "/bin/bash $QH t9118-ctty $S/pg9118 </dev/null >$S/9118-ctty.log 2>&1" </dev/null >/dev/null 2>&1 )
 pg3=$(sed -n 's/^PG //p' $S/9118-ctty.log 2>/dev/null); o=$(cat $S/9118-ctty.log 2>/dev/null)
 ok "#9118: a controlling terminal with stdio redirected keeps the command in the wrapper's group" '[ -n "$pg3" ] && [ "${pg3% *}" = "${pg3#* }" ]'
 
