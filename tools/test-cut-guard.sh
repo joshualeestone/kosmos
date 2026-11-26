@@ -1549,7 +1549,7 @@ nw9139="$(grep -c '^E g' "$MB/beside-runs.log")"
 # Review 1 (besidefix): the reader's first stage cannot fail (cat of an unmatched pending glob exits 1, which under the
 # caller's errexit and pipefail ended the caller). Pinned in the SOURCE, not run: this file may not turn pipefail on
 # (the #8195 ratchet would then count every pipeline in it as new).
-awk '/^kosmos_beside_runs_since\(\)/{p=1} p{print} p&&/^}/{exit}' "$HERE/lib/cut-guard.sh" | grep -qF '{ cat "$f".pending.* "$f" 2>/dev/null || true; } | awk' \
+awk '/^kosmos_beside_runs_since\(\)/{p=1} p{print} p&&/^}/{exit}' "$HERE/lib/cut-guard.sh" | grep -qF '{ cat "$f".pending.* "$f".folding.* "$f" 2>/dev/null || true; } | awk' \
   && pass "#9139 the reader's cat stage cannot fail its pipeline (source pin)" || fail "#9139 the reader's cat stage is no longer guarded with || true"
 # Review 1 (besidefix): an older end folded after a newer start of the same id does not end the newer run. The marker
 # dir is made here: an earlier arm removes it, and these two write their lines by hand (not through the writer).
@@ -1624,10 +1624,25 @@ KOSMOS_RUN_MARKER_DIR="$MB" KOSMOS_BESIDE_LOCK_TRIES=3 kosmos_note_beside_run st
 { [ "$(cat "$MB/beside-runs.log.lock/pid" 2>/dev/null)" = "$LH9139" ] && ! grep -q live-held "$MB/beside-runs.log" && [ -n "$(ls "$MB" | grep '^beside-runs\.log\.pending\.')" ]; } \
   && pass "#9139 a lock whose holder is alive is not broken, however old (the writer leaves a pending file)" || fail "#9139 a live holder's lock was broken"
 kill "$LH9139" 2>/dev/null; wait "$LH9139" 2>/dev/null
+touch "$MB/beside-runs.log.lock"   # review: FRESH, so only the dead-holder rule can break it (not the 10 s age rule)
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end live-held
 { [ ! -e "$MB/beside-runs.log.lock" ] && grep -q '^E live-held ' "$MB/beside-runs.log" && grep -q '^S live-held ' "$MB/beside-runs.log"; } \
   && pass "#9139 once that holder is gone its lock is broken at once, and the pending line is folded in" || fail "#9139 a dead holder's lock was not broken ($(ls "$MB" | grep lock))"
 rm -f "$MB"/beside-runs.log.pending.* 2>/dev/null
+# Review: a pid that names an unrelated LIVE process (reuse) holds the lock for 300 s at most, and a pid of 0 never.
+mkdir -p "$MB/beside-runs.log.lock"; echo "$$" > "$MB/beside-runs.log.lock/pid"
+TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 400 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( $(date +%s) - 400 ))" +%Y%m%d%H%M.%S)" "$MB/beside-runs.log.lock"
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end reused-pid
+{ [ ! -e "$MB/beside-runs.log.lock" ] && grep -q '^E reused-pid ' "$MB/beside-runs.log"; } && pass "#9139 a lock past 300 s is broken even with a live pid (a reused pid cannot hold it for ever)" || fail "#9139 a 400 s old lock with a live pid was not broken"
+mkdir -p "$MB/beside-runs.log.lock"; echo 0 > "$MB/beside-runs.log.lock/pid"
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end pid-zero
+{ [ ! -e "$MB/beside-runs.log.lock" ] && grep -q '^E pid-zero ' "$MB/beside-runs.log"; } && pass "#9139 a lock naming pid 0 is broken at once" || fail "#9139 a lock naming pid 0 was kept"
+# A .folding. file (a fold claimed it and was killed before reading it) is read by the reader and folded once 60 s old.
+: > "$MB/beside-runs.log"; printf 'S fz %s claimed-run\n' "$now9139" > "$MB/beside-runs.log.folding.TESTCLAIM"
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0 | grep -qF "claimed-run (fz)" && pass "#9139 the reader names a line in a .folding. file" || fail "#9139 a .folding. line was not read"
+TZ=UTC touch -t "$(TZ=UTC date -r $(( now9139 - 120 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( now9139 - 120 ))" +%Y%m%d%H%M.%S)" "$MB/beside-runs.log.folding.TESTCLAIM"
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end fold-claim
+{ [ ! -e "$MB/beside-runs.log.folding.TESTCLAIM" ] && grep -q '^S fz ' "$MB/beside-runs.log"; } && pass "#9139 an orphaned .folding. file is folded in once it is 60 s old" || fail "#9139 an orphaned .folding. file was not folded"
 # Review 1 (besidefix): a pending line is read while the log does not exist yet.
 rm -f "$MB/beside-runs.log" "$MB"/beside-runs.log.pending.*; printf 'S p9 %s only-pending\n' "$now9139" > "$MB/beside-runs.log.pending.test2"
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0 | grep -qF "only-pending (p9)" && pass "#9139 a pending line is named while the log does not exist yet" || fail "#9139 a pending line with no log was not named"

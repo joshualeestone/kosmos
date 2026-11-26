@@ -1821,12 +1821,18 @@ _kosmos_beside_mtime() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(sta
 # than 10 s was broken whoever held it, so a live holder slowed past 10 s (a loaded CI runner, or a clock step) had a
 # second holder beside it, and two trims at once cut the log short (CI, Ubuntu, 11-26: 188 lines). A live holder is
 # never broken now: the others give up and write pending files, which nothing loses. A lock with no pid yet (taken a
-# moment ago, or by an older lib) keeps the 10 s age rule.
+# moment ago, or by an older lib) keeps the 10 s age rule. An older lib breaking a lock of this one leaves its
+# .stale.* dir behind (its plain rmdir cannot remove the pid file); nothing reads those names.
+# Review: with a pid, also an age CEILING of 300 s (a real hold lasts milliseconds), so a pid that was reused by an
+# unrelated process, or a stopped holder, cannot hold the lock for ever; a pid of 0 or 1 is never a holder. Residual,
+# stated: the pid is written just after mkdir, so for those milliseconds the lock has no pid; only a clock step past
+# 10 s could make a breaker call it stale then.
 _kosmos_beside_stale() {   # _kosmos_beside_stale <lock dir>: 0 when it may be broken
-  local h; h="$(cat "$1/pid" 2>/dev/null)"
+  local h age; h="$(cat "$1/pid" 2>/dev/null)"; age=$(( $(date +%s) - $(_kosmos_beside_mtime "$1") ))
   case "$h" in
-    ''|*[!0-9]*) [ $(( $(date +%s) - $(_kosmos_beside_mtime "$1") )) -gt 10 ] ;;
-    *) ! kill -0 "$h" 2>/dev/null ;;
+    ''|*[!0-9]*) [ "$age" -gt 10 ] ;;
+    0|1) return 0 ;;
+    *) [ "$age" -gt 300 ] || ! kill -0 "$h" 2>/dev/null ;;
   esac
 }
 _kosmos_beside_lock() {
@@ -1875,13 +1881,18 @@ kosmos_note_beside_run() {
   [ "$out" = "$f" ] || { mv -n "$out" "$f.pending.${out##*pending-tmp.}" 2>/dev/null || true; [ -e "$out" ] && { { cat "$out" >> "$f"; rm -f "$out"; } 2>/dev/null || true; }; true; }
   if [ "$got" = 1 ]; then
     local pf
+    # Each pending file is CLAIMED by a rename to a name of this fold's own before it is read, so if two folds ever run
+    # at once (a stress run once counted a line twice: a file folded by two), only one takes it. A fold killed between
+    # its claim and its read leaves a .folding. file, folded below once it is 60 s old.
     for pf in "$f".pending.*; do
       [ -f "$pf" ] || continue
-      { cat "$pf" >> "$f"; } 2>/dev/null && { rm -f "$pf" 2>/dev/null || true; }
+      local cf="$f.folding.${pf##*.pending.}"
+      mv "$pf" "$cf" 2>/dev/null || continue
+      { cat "$cf" >> "$f"; } 2>/dev/null && { rm -f "$cf" 2>/dev/null || true; }
     done
     # Review 2: a writer killed between its mktemp and its rename leaves a pending-tmp file nothing reads. Past 60 s its
     # writer is gone (a write is one printf), so it is folded too.
-    for pf in "$f".pending-tmp.*; do
+    for pf in "$f".pending-tmp.* "$f".folding.*; do
       [ -f "$pf" ] || continue
       [ $(( $(date +%s) - $(_kosmos_beside_mtime "$pf") )) -gt 60 ] || continue
       { cat "$pf" >> "$f"; } 2>/dev/null && { rm -f "$pf" 2>/dev/null || true; }
@@ -1907,7 +1918,7 @@ kosmos_note_beside_run() {
       && [ "$(wc -l < "$tf" 2>/dev/null | tr -d ' ')" -ge 400 ] 2>/dev/null && { mv -f "$tf" "$f" 2>/dev/null || true; }   # review: never ends an errexit caller
     rm -f "$tf" 2>/dev/null || true
   fi
-  if [ "$got" = 1 ]; then rm -f "$l/pid" 2>/dev/null; rmdir "$l" 2>/dev/null || true; fi
+  if [ "$got" = 1 ]; then rm -f "$l/pid" 2>/dev/null || true; rmdir "$l" 2>/dev/null || true; fi
   return 0
 }
 # kosmos_beside_runs_since <epoch>: one line for each run noted above whose window overlaps <epoch> to now, as
@@ -1919,7 +1930,7 @@ kosmos_note_beside_run() {
 kosmos_beside_runs_since() {
   local f t0="${1:-0}" now omax what id st en sr er; f="$(_kosmos_marker_dir)/beside-runs.log"; now="$(date +%s)"
   # Review 1: pending lines count while the log does not exist yet too.
-  [ -r "$f" ] || ls "$f".pending.* >/dev/null 2>&1 || return 0
+  [ -r "$f" ] || ls "$f".pending.* >/dev/null 2>&1 || ls "$f".folding.* >/dev/null 2>&1 || return 0   # each alone: ls fails if ANY argument is missing
   case "$t0" in ''|*[!0-9]*) t0=0 ;; esac
   omax="${KOSMOS_BESIDE_OPEN_MAX_S:-7200}"; case "$omax" in ''|*[!0-9]*) omax=7200 ;; esac
   # awk picks the overlapping runs (tab-separated: what, id, start, end or "-"); the times are formatted below, since
@@ -1930,7 +1941,9 @@ kosmos_beside_runs_since() {
   # Review 4: the pending files FIRST: a fold appends to the log before it removes a pending file, so a line FOLDED
   # during this read is still in a file cat has not read yet. Not seen, in either order: a pending file made after
   # the glob was expanded (the next read sees it).
-  { cat "$f".pending.* "$f" 2>/dev/null || true; } | awk -v t0="$t0" -v now="$now" -v omax="$omax" '
+  # A line being folded is in a .folding. file for a moment: read those too (read twice is harmless: newest start,
+  # largest end per id).
+  { cat "$f".pending.* "$f".folding.* "$f" 2>/dev/null || true; } | awk -v t0="$t0" -v now="$now" -v omax="$omax" '
     # Review 3: ORDER-INDEPENDENT (folded lines arrive in any order): the newest start and the largest end per id; a run
     # has ended only if that end is at or after that start. Epochs more than a day ahead are malformed and skipped.
     ($1 == "S" || $1 == "E") && ($3 !~ /^[0-9]+$/ || $3 + 0 > now + 86400) { next }
