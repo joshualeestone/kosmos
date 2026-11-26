@@ -12,17 +12,26 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const page = require('./test-support/page');
+const os = require('node:os');
+// The fixture's snapshot() reads the data folder: a throwaway one, set before fleet (and the engine) load.
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'memcmd-9087-')));
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+const fleet = require('./test-support/fleet');
+
+// The agent the dialog is open on: a real board card (fixture-discipline: never a hand-built one).
+const CARD = fleet.install([fleet.agent('raph')]).agents.find((c) => c.sessionName === 'raph');
 
 const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
 const SRC = page.lift(SCRIPT, 'memoryCommand');
 
 async function press(status, body) {
+  assert.ok(CARD, 'the fixture produced no card for raph');
   const msg = { textContent: '' };
   const said = [];
   const document = { getElementById: (id) => (id === 'd-compact-msg' ? msg : null) };
   const fetch = async () => ({ ok: status >= 200 && status < 300, status, json: async () => body });
-  const CURRENT = { sessionName: 'raph' };
-  const run = new Function('document', 'fetch', 'CURRENT', 'return (' + SRC + ');')(document, fetch, CURRENT);
+  const run = new Function('document', 'fetch', 'CURRENT', 'return (' + SRC + ');')(document, fetch, CARD);
   await run('compact', (s, ok) => said.push({ s, ok }));
   return { text: msg.textContent, said };
 }
