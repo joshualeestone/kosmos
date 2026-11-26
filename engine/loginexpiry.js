@@ -144,32 +144,42 @@ function credPathOf(ccd, home, userHome, service) {
   return credFileFor(ccd, real, user);
 }
 
-/* kosmos#9107 item 4: off macOS the file can sit on a home that stalls (a network share), and readCredDefault runs inside
- * the snapshot on the board's only thread. So it answers with what a background read last found and starts the next
- * one: null the first time for a file, and a read that never returns holds back only that file's next read. A changed
- * body calls loginChanged(), so the advisories recompute without waiting out their cache. */
+/* kosmos#9107 item 4: off macOS the credentials file can sit on a home that stalls (a network share), and readCredDefault
+ * runs inside the snapshot on the board's only thread. So it answers with what a background read last found and starts
+ * the next one: null the first time for a file, and a read that never returns holds back only that file's next read.
+ * A read is started when the last is a minute old, or when the login generation moved since it (a sign-in, review 1:
+ * else the old notice stayed up to the advisory cache's 5 minutes, #5018). A read that finds a new refresh-token expiry
+ * moves the generation, so the advisories recompute; an access-token refresh alone does not. */
 const FILE_REREAD_MS = 60 * 1000;
-const fileReads = new Map();   // file -> { body, at, reading }
+const fileReads = new Map();   // file -> { body, until, at, gen, reading }
+function refreshUntilOf(body) {
+  if (body == null) return 'none';
+  try { const o = JSON.parse(body); return String(o && o.claudeAiOauth && o.claudeAiOauth.refreshTokenExpiresAt); } catch { return 'unread'; }
+}
 function fileBodyNow(f, now = Date.now()) {
   let r = fileReads.get(f);
-  if (!r) { r = { body: null, at: -Infinity, reading: false }; fileReads.set(f, r); }
-  if (!r.reading && now - r.at >= FILE_REREAD_MS) {
+  if (!r) { r = { body: null, until: 'none', at: -Infinity, gen: -1, reading: false }; fileReads.set(f, r); }
+  if (!r.reading && (now - r.at >= FILE_REREAD_MS || r.gen !== loginGen)) {
     r.reading = true;
+    const startGen = loginGen;
     try {
       fs.readFile(f, 'utf8', (err, body) => {
         const next = err ? null : body;
-        const changed = next !== r.body;
-        r.body = next; r.at = Date.now(); r.reading = false;
-        if (changed) loginChanged();
+        const until = refreshUntilOf(next);
+        const changed = until !== r.until;
+        r.body = next; r.until = until; r.at = Date.now(); r.reading = false;
+        const signInDuring = startGen !== loginGen;
+        if (changed) loginGen += 1;
+        r.gen = signInDuring ? startGen : loginGen;   // a sign-in during this read: read again next time
       });
-    } catch { r.reading = false; r.at = now; }
+    } catch { r.reading = false; r.at = now; r.gen = loginGen; }
   }
   return r.body;
 }
 
 /* Default credential reader. macOS: the Keychain entry `service`. Elsewhere (kosmos#9097): the credentials file of the
- * folder `ccd` names. Returns the raw body (JSON string) or null. NEVER logs it; stderr is discarded so a "not found"
- * is a quiet null. */
+ * folder `ccd` names, as fileBodyNow last read it (null until its first background read lands; up to a minute old).
+ * Returns the raw body (JSON string) or null. NEVER logs it; stderr is discarded so a "not found" is a quiet null. */
 function readCredDefault(service, ccd, { platform = process.platform, home, userHome, readNow = fileBodyNow } = {}) {
   const sandbox = sandboxCred(service);
   if (sandbox !== undefined) return sandbox;
@@ -348,7 +358,8 @@ function cachedAdvisories({ cache, now = Date.now(), ttlMs, compute } = {}) {
  * that completes moves the login's date, and every cache of that date must be read again at once, not after its
  * TTL. A sign-in calls loginChanged(); each cache (cachedAdvisories above, claudeloginlive's per-account dates)
  * stores the generation it was read under and treats any other as stale. A counter, not a listener list, so no
- * module has to require another to be told. */
+ * module has to require another to be told. Off macOS (kosmos#9107) fileBodyNow also moves it when a background
+ * read finds a new refresh-token expiry, and reads again after any move. */
 let loginGen = 0;
 function loginChanged() { loginGen += 1; }
 function loginGeneration() { return loginGen; }
