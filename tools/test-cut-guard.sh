@@ -1524,6 +1524,14 @@ mkdir "$MB/beside-runs.log.lock"; touch -t "$(date -r $(( $(date +%s) - 60 )) +%
 st9139=$(date +%s); KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end after-stale; el9139=$(( $(date +%s) - st9139 ))
 { [ ! -e "$MB/beside-runs.log.lock" ] && tail -1 "$MB/beside-runs.log" | grep -q '^E after-stale ' && [ "$el9139" -lt 5 ]; } \
   && pass "#9139 a stale lock (a writer killed holding it) is broken at once and the line is written" || fail "#9139 a stale lock was not broken (elapsed ${el9139}s, lock $( [ -e "$MB/beside-runs.log.lock" ] && echo present || echo gone))"
+# Review 4: the writer keeps going under set -e (GitHub Actions' bash -eo pipefail), even with a marker dir it cannot
+# write. CONTROL: the same with a writable dir.
+mkdir -p "$T/ro9139"; chmod 500 "$T/ro9139"
+o9=$(bash -c 'set -eo pipefail; . "$1"; KOSMOS_RUN_MARKER_DIR="$2/m" kosmos_note_beside_run start x y; echo AFTER' _ "$HERE/lib/cut-guard.sh" "$T/ro9139" 2>&1); r9=$?
+chmod 700 "$T/ro9139"
+{ [ "$r9" = 0 ] && has "$o9" AFTER; } && pass "#9139 under set -e the writer returns 0 with an unwritable marker dir, and the caller goes on" || fail "#9139 the writer ended a set -e caller (rc=$r9, $o9)"
+o9=$(bash -c 'set -eo pipefail; . "$1"; KOSMOS_RUN_MARKER_DIR="$2" kosmos_note_beside_run start x y; echo AFTER' _ "$HERE/lib/cut-guard.sh" "$MB" 2>&1); r9=$?
+{ [ "$r9" = 0 ] && has "$o9" AFTER && tail -1 "$MB/beside-runs.log" | grep -q '^S x '; } && pass "#9139 CONTROL: under set -e with a writable dir the line is written and the caller goes on" || fail "#9139 CONTROL: set -e writer failed (rc=$r9, $o9)"
 _wired "$HERE/run-tests.sh" '^_rt_t0="$(date +%s)"' && _wired "$HERE/run-tests.sh" 'kosmos_beside_runs_since "$_rt_t0"' \
   && pass "#9139 run-tests.sh records its turn's start and names the beside runs in its red summary" \
   || fail "#9139 run-tests.sh no longer records its start or no longer names the beside runs"

@@ -1794,7 +1794,10 @@ _kosmos_old_qh_waiter_live() {
 # as the change (PigeonPete, 11-26). One line per event in <marker dir>/beside-runs.log:
 #   S <id> <epoch> <what>     when it starts beside a holder
 #   E <id> <epoch>            when it ends
-# kosmos_note_beside_run start <id> <what> | end <id>. Best-effort: a line it cannot write changes nothing else. Spaces
+# kosmos_note_beside_run start <id> <what> | end <id>. Best-effort: a line it cannot write changes nothing else, and it
+# returns 0 even under `set -e` (review 4: GitHub Actions runs steps as bash -eo pipefail, and a failed mkdir or rmdir
+# here ended the CI step). The writer's id should be unique per attempt (a CI run id with its attempt number): a new
+# start line for an id replaces its earlier window. Spaces
 # and tabs in <id> become "_" (an id is one field). Review 1: every append and the trim happen under one mkdir lock, so
 # a rename cannot drop a line appended meanwhile. Review 2: the hold is short (the time is read before the lock, and the
 # file is trimmed only past 500 lines, back to 400, so most appends never rewrite it); a writer waits up to about 10 s;
@@ -1802,9 +1805,11 @@ _kosmos_old_qh_waiter_live() {
 # lock still not got appends anyway and skips the trim (a lost line costs less than a CI step that waits).
 # Review 3: GNU stat first. GNU `stat -f` means "file system": it prints lines of text and THEN fails, so a BSD-first
 # fallback fed text into the arithmetic and bash dropped the whole call on Linux (as launchagent-leak-guard.sh:27
-# already orders it; BSD stat rejects -c at once). A stale lock is first renamed to a name of this writer's own, and
-# removed only if that rename won, so two writers that both see it stale cannot both break it (and one remove the
-# other's new lock). A marker dir that cannot be written gives up at once instead of spinning.
+# already orders it; BSD stat rejects -c at once). A stale lock is renamed to a name of this writer's own, and its age
+# read AGAIN there (review 4): a rename can move a lock another writer had just made fresh, and that one is put back.
+# The usual mkdir-lock limit remains: a holder stopped for over 10 s (SIGSTOP, a sleeping Mac) reads as stale, and its
+# release can then remove the next holder's lock. Either costs a line of a best-effort log, never a suite's result. A
+# marker dir that cannot be written gives up at once instead of spinning.
 _kosmos_beside_mtime() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(stat -f %m "$1" 2>/dev/null)" || m=""; case "$m" in ''|*[!0-9]*) date +%s ;; *) printf '%s' "$m" ;; esac; }
 _kosmos_beside_lock() {
   local d="$1" i=0 age
@@ -1812,24 +1817,32 @@ _kosmos_beside_lock() {
   until mkdir "$d" 2>/dev/null; do
     i=$((i + 1)); [ "$i" -ge 100 ] && return 1
     age=$(( $(date +%s) - $(_kosmos_beside_mtime "$d") ))
-    if [ "$age" -gt 10 ] && mv "$d" "$d.stale.$$" 2>/dev/null; then rmdir "$d.stale.$$" 2>/dev/null; continue; fi
+    if [ "$age" -gt 10 ]; then
+      local sd="$d.stale.$$.$RANDOM"
+      if mv "$d" "$sd" 2>/dev/null; then
+        if [ $(( $(date +%s) - $(_kosmos_beside_mtime "$sd") )) -gt 10 ]; then rmdir "$sd" 2>/dev/null || true
+        else mv "$sd" "$d" 2>/dev/null || rmdir "$sd" 2>/dev/null || true; fi   # fresh after all: put it back
+        continue
+      fi
+    fi
     sleep 0.1
   done
   return 0
 }
 kosmos_note_beside_run() {
   local f l id got=0 now; f="$(_kosmos_marker_dir)/beside-runs.log"; l="$f.lock"; now="$(date +%s)"
-  mkdir -p "$(_kosmos_marker_dir)" 2>/dev/null
+  mkdir -p "$(_kosmos_marker_dir)" 2>/dev/null || true
   local what; what="$(printf '%s' "${3:-}" | tr '\n\r' '  ')"   # review 3: one record is one line
   id="$(printf '%s' "${2:-unnamed}" | tr -s ' \t\n\r' '____')"; [ -n "$id" ] || id=unnamed
   case "${1:-}" in start|end) ;; *) return 2 ;; esac
   _kosmos_beside_lock "$l" && got=1
-  if [ "$1" = start ]; then printf 'S %s %s %s\n' "$id" "$now" "$what" >> "$f" 2>/dev/null
-  else printf 'E %s %s\n' "$id" "$now" >> "$f" 2>/dev/null; fi
+  # Review 4: the redirect inside a group, so a file that cannot be opened is silent and, under set -e, not fatal.
+  if [ "$1" = start ]; then { printf 'S %s %s %s\n' "$id" "$now" "$what" >> "$f"; } 2>/dev/null || true
+  else { printf 'E %s %s\n' "$id" "$now" >> "$f"; } 2>/dev/null || true; fi
   if [ "$got" = 1 ] && [ "$(wc -l < "$f" 2>/dev/null | tr -d ' ')" -gt 500 ] 2>/dev/null; then
-    tail -n 400 "$f" > "$f.tmp.$$" 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null
+    { tail -n 400 "$f" > "$f.tmp.$$"; } 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null || true
   fi
-  [ "$got" = 1 ] && rmdir "$l" 2>/dev/null
+  if [ "$got" = 1 ]; then rmdir "$l" 2>/dev/null || true; fi
   return 0
 }
 # kosmos_beside_runs_since <epoch>: one line for each run noted above whose window overlaps <epoch> to now, as
