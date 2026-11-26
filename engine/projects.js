@@ -4133,7 +4133,7 @@ function blockRules(sessionName, cliShown) {
          inferred from the words, so the sender is taught it where it writes the closing note. */
       'When a post or message only closes a thread or tests delivery (thanks, nothing needed), put --no-reply first:',
       `\`${cliShown} post --no-reply <project-id> ...\` or \`${cliShown} msg --no-reply <agent> ...\`. It arrives marked no reply`,
-      'requested, so nobody is asked to answer it.',
+      'requested: it still reaches whoever it names, but nobody is asked to answer it, so name only who must see it.',
       /* #5300: every member showed its agent's one role (five Project Managers on one project). */
       '',
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,

@@ -25,10 +25,10 @@ test('a member is taught --no-reply for closing notes, on both post and msg, as 
   const text = projects.blockBody(P, 'writer');
   const at = text.indexOf(RULE);
   assert.ok(at >= 0, 'the rule is missing from the member block');
-  const rest = text.slice(at, at + 400);
+  const rest = text.slice(at, at + 600);
   assert.match(rest, /`\S*kosmos post --no-reply <project-id> \.\.\.`/);
   assert.match(rest, /`\S*kosmos msg --no-reply <agent> \.\.\.`/);
-  assert.match(rest, /so nobody is asked to answer it\./);
+  assert.match(rest, /nobody is asked to answer it, so name only who must see it\./);
 });
 
 test('control: a block with no member (no session name) does not carry it, as the other member rules', () => {
@@ -49,5 +49,5 @@ test('no em dash in the new lines', () => {
   const text = projects.blockBody(P, 'writer');
   const at = text.indexOf(RULE);
   assert.ok(at >= 0);
-  assert.ok(!/[—]|&mdash;|&#8212;|&#x2014;/i.test(text.slice(at, at + 400)));
+  assert.ok(!/[—]|&mdash;|&#8212;|&#x2014;/i.test(text.slice(at, at + 600)));
 });
