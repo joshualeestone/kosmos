@@ -43,6 +43,12 @@ const alive = (pid) => {
   return st !== '' && !st.startsWith('Z');
 };
 const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+/* #9115: how long a stopped run may take to exit. On a Ctrl-C bash outlives node and finishes the run (the leak guard's
+   sweep, about 10 ms per process on the machine, #9117), which is slow on a busy Mac: passing CI runs took the Ctrl-C arm 37 s, 49 s, 54 s and 89.8 s against the old
+   90 s, and one went 0.6 s over (on a Mac with nothing beside it, about 6 s). The bound is for a runner that never
+   exits, so it has room. The fixture below waits twice as long, so a run that IGNORED the signal cannot end on its own
+   inside the bound and pass on the leak guard's line (#9115 review 1). */
+const EXIT_BOUND_MS = scaleBudget(240000);
 const STUB_SRC = "setInterval(() => {}, 1000);\n";
 
 /* A stub server's shape: a script written INSIDE the run's TMPDIR (the run root), started detached in its own session,
@@ -60,7 +66,7 @@ require('node:test')('starts a stub server and waits', () => {
   const c = spawn(process.execPath, [script], { detached: true, stdio: 'ignore' });
   c.unref();
   fs.writeFileSync(${JSON.stringify(PIDS)}, c.pid + '\\n');
-  return new Promise((r) => setTimeout(r, 120000));
+  return new Promise((r) => setTimeout(r, ${2 * EXIT_BOUND_MS}));
 });
 `);
 
@@ -104,10 +110,11 @@ async function stoppedRunLeavesNoStub(signal, said0) {
     assert.ok(controls.every(alive), 'a control stub did not start');
     /* Stopped as a queue timeout or a person stops it: the whole foreground group (node --test with it). */
     process.kill(-child.pid, signal);
-    /* #9115: on a Ctrl-C bash outlives node and finishes the run (the leak guard's sweep), which is slow on the CI Mac:
-       passing CI runs took this arm 37 s, 49 s, 54 s and 89.8 s against a 90 s bound, and one went 0.6 s over (here it
-       takes about 6 s). The bound is for a runner that never exits, so it has room: 240 s, scaled. */
-    const code = await Promise.race([exited, nap(scaleBudget(240000)).then(() => 'still running')]);
+    /* EXIT_BOUND_MS (#9115). The timer is cleared once the race is decided, or it would hold this file open for the
+       whole bound after its tests pass (review 1: 240 s idle). */
+    let bound;
+    const code = await Promise.race([exited, new Promise((r) => { bound = setTimeout(() => r('still running'), EXIT_BOUND_MS); })]);
+    clearTimeout(bound);
     assert.notEqual(code, 'still running', 'the runner did not exit after ' + signal + '\nthe runner said:\n' + said());
     const from = Date.now();
     while (alive(stub) && Date.now() - from < scaleBudget(5000)) await nap(50);
