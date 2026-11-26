@@ -1854,7 +1854,9 @@ kosmos_note_beside_run() {
   if [ "$1" = start ]; then { printf 'S %s %s %s\n' "$id" "$now" "$what" >> "$out"; } 2>/dev/null || true
   else { printf 'E %s %s\n' "$id" "$now" >> "$out"; } 2>/dev/null || true; fi
   # The pending name keeps mktemp's unique suffix, and mv -n never replaces another writer's file.
-  [ "$out" = "$f" ] || { mv -n "$out" "$f.pending.${out##*pending-tmp.}" 2>/dev/null; [ -e "$out" ] && { cat "$out" >> "$f"; rm -f "$out"; } 2>/dev/null; true; }
+  # Review 3: every step || true: a fold that took this temp file first (it is past 60 s on a stalled writer) made mv
+  # fail, and under the caller's errexit that ended the caller. The line is in the log already then.
+  [ "$out" = "$f" ] || { mv -n "$out" "$f.pending.${out##*pending-tmp.}" 2>/dev/null || true; [ -e "$out" ] && { { cat "$out" >> "$f"; rm -f "$out"; } 2>/dev/null || true; }; true; }
   if [ "$got" = 1 ]; then
     local pf
     for pf in "$f".pending.*; do
@@ -1870,7 +1872,10 @@ kosmos_note_beside_run() {
     done
   fi
   if [ "$got" = 1 ] && [ "$(wc -l < "$f" 2>/dev/null | tr -d ' ')" -gt 500 ] 2>/dev/null; then
-    { tail -n 400 "$f" > "$f.tmp.$$"; } 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null || true
+    # Review 3: the last 400 lines AND any earlier line whose id is among them, so a start and its end are never split
+    # at the cut (a fold can put an end above its start, and the kept start then read as still going).
+    { awk -v keep=400 'NR == FNR { n = FNR; if (FNR > 0) ln[FNR] = $2; next } FNR == 1 { for (i = n - keep + 1; i <= n; i++) if (i > 0) ids[ln[i]] = 1 }
+         FNR > n - keep || ($2 in ids) { print }' "$f" "$f" > "$f.tmp.$$"; } 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null || true
   fi
   if [ "$got" = 1 ]; then rmdir "$l" 2>/dev/null || true; fi
   return 0
@@ -1893,16 +1898,20 @@ kosmos_beside_runs_since() {
   # it cannot open; cat goes on past it).
   # Review 1: grouped with || true: cat of an unmatched glob exits 1, and under set -eo pipefail that ended the caller.
   { cat "$f" "$f".pending.* 2>/dev/null || true; } | awk -v t0="$t0" -v now="$now" -v omax="$omax" '
-    $1 == "S" && $3 ~ /^[0-9]+$/ && (!($2 in s) || $3 + 0 >= s[$2]) { id = $2; s[id] = $3 + 0; if ((id in e) && e[id] < s[id]) delete e[id]; w = ""; for (i = 4; i <= NF; i++) w = w (w == "" ? "" : " ") $i; what[id] = w; if (!(id in on)) { on[id] = 1; order[++n] = id } }
-    $1 == "E" && $3 ~ /^[0-9]+$/ { if (!($2 in s) || $3 + 0 >= s[$2]) e[$2] = $3 + 0 }   # review 1: an older end, folded late, does not end a newer run
+    # Review 3: ORDER-INDEPENDENT (folded lines arrive in any order): the newest start and the largest end per id; a run
+    # has ended only if that end is at or after that start. Epochs more than a day ahead are malformed and skipped.
+    ($1 == "S" || $1 == "E") && ($3 !~ /^[0-9]+$/ || $3 + 0 > now + 86400) { next }
+    $1 == "S" && (!($2 in s) || $3 + 0 >= s[$2]) { id = $2; s[id] = $3 + 0; w = ""; for (i = 4; i <= NF; i++) w = w (w == "" ? "" : " ") $i; what[id] = w; if (!(id in on)) { on[id] = 1; order[++n] = id } }
+    $1 == "E" && (!($2 in e) || $3 + 0 > e[$2]) { e[$2] = $3 + 0 }
     END { for (k = 1; k <= n; k++) { id = order[k]
+            if ((id in e) && e[id] < s[id]) delete e[id]   # the largest end is older than the newest start: still open
             if (s[id] > now) continue
             if (id in e) { if (e[id] < t0) continue }
             else if (now - s[id] > omax + 0) continue
             printf "%s\t%s\t%s\t%s\n", (what[id] == "" ? "a run" : what[id]), id, s[id], ((id in e) ? e[id] : "-") } }' 2>/dev/null |
   while IFS="$(printf '\t')" read -r what id st en; do
-    st="$(date -d "@$st" '+%m-%d %H:%M:%S' 2>/dev/null || date -r "$st" '+%m-%d %H:%M:%S' 2>/dev/null)"
-    if [ "$en" = - ]; then en="still going"; else en="$(date -d "@$en" '+%m-%d %H:%M:%S' 2>/dev/null || date -r "$en" '+%m-%d %H:%M:%S' 2>/dev/null)"; fi
+    st="$(date -d "@$st" '+%m-%d %H:%M:%S' 2>/dev/null || date -r "$st" '+%m-%d %H:%M:%S' 2>/dev/null)" || st="epoch $st"   # review 3: never ends an errexit caller
+    if [ "$en" = - ]; then en="still going"; else en="$(date -d "@$en" '+%m-%d %H:%M:%S' 2>/dev/null || date -r "$en" '+%m-%d %H:%M:%S' 2>/dev/null)" || en="epoch $en"; fi
     printf '%s (%s), from %s to %s\n' "$what" "$id" "$st" "$en"
   done
   return 0

@@ -1509,8 +1509,9 @@ line id_with_space | grep -qF "spaced (id_with_space)" && pass "#9139 an id with
 printf '%s\n' "$out" | grep -qE 'from [0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}' && pass "#9139 the date is printed with the time" || fail "#9139 no date in the times ($out)"
 for _i in $(seq 1 520); do printf 'E x%s 1\n' "$_i" >> "$MB/beside-runs.log"; done   # past 500, so the next note trims
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end ci-a
-{ [ "$(wc -l < "$MB/beside-runs.log" | tr -d ' ')" = 400 ] && tail -1 "$MB/beside-runs.log" | grep -q '^E ci-a '; } \
-  && pass "#9139 the beside log is trimmed back to its last 400 lines past 500, the newest last" || fail "#9139 the beside log trim is wrong ($(wc -l < "$MB/beside-runs.log") lines, last: $(tail -1 "$MB/beside-runs.log"))"
+# Besidefix review 3: plus an earlier line whose id is among the 400 (here ci-a's start, kept with its end).
+{ [ "$(wc -l < "$MB/beside-runs.log" | tr -d ' ')" = 401 ] && tail -1 "$MB/beside-runs.log" | grep -q '^E ci-a ' && grep -q '^S ci-a ' "$MB/beside-runs.log" && ! grep -q '^E x1 ' "$MB/beside-runs.log"; } \
+  && pass "#9139 the beside log is trimmed back to its last 400 lines past 500 (and ci-a's kept start), the newest last" || fail "#9139 the beside log trim is wrong ($(wc -l < "$MB/beside-runs.log") lines, last: $(tail -1 "$MB/beside-runs.log"))"
 # Review 1: many writers at once lose no line (the append and the trim share a lock). 20 writers x 15 lines, from 490,
 # so the 300 lines cross the trim (past 500, back to 400) twice or more. Review 2: a writer waits up to 10 s, far past a
 # loaded hold, so the lossy give-up is not reached.
@@ -1567,6 +1568,29 @@ o2=$(KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since $((now9139 - 200)))
 TZ=UTC touch -t "$(TZ=UTC date -r $(( now9139 - 120 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( now9139 - 120 ))" +%Y%m%d%H%M.%S)" "$MB/beside-runs.log.pending-tmp.TESTKILL"
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end fold-tmp
 { [ ! -e "$MB/beside-runs.log.pending-tmp.TESTKILL" ] && grep -q '^S k8 ' "$MB/beside-runs.log"; } && pass "#9139 an orphaned pending-tmp file is folded in once it is 60 s old" || fail "#9139 an orphaned pending-tmp file was not folded"
+# Review 3 (besidefix): the reader does not depend on line order: a reused id's run two (S300..E400) with run one's
+# lines folded around it (S100, E400, E200, S300) reads as ENDED at 400, not still going.
+printf 'S rx %s two\nE rx %s\nE rx %s\nS rx %s two\n' $((now9139 - 400)) $((now9139 - 100)) $((now9139 - 300)) $((now9139 - 200)) > "$MB/beside-runs.log"
+o3=$(KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since $((now9139 - 1000)))
+{ printf '%s' "$o3" | grep -qF "two (rx), from" && ! printf '%s' "$o3" | grep -q "still going"; } && pass "#9139 a reused id's last run reads as ended whatever order its lines were folded in" || fail "#9139 a reused id read wrong: $o3"
+# Review 3 (besidefix): the trim keeps a start and its end together when a fold put the end above the start at the cut.
+: > "$MB/beside-runs.log"; for _i in $(seq 1 100); do echo "E tpad$_i 1" >> "$MB/beside-runs.log"; done
+printf 'E split %s\nS split %s the split run\n' $((now9139 - 10)) $((now9139 - 20)) >> "$MB/beside-runs.log"
+for _i in $(seq 1 398); do echo "E tpad2x$_i 1" >> "$MB/beside-runs.log"; done
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end trim-now
+o4=$(KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since $((now9139 - 100)))
+{ grep -q '^E split ' "$MB/beside-runs.log" && printf '%s' "$o4" | grep -qF "the split run (split)" && ! printf '%s' "$o4" | grep -F "(split)" | grep -q "still going"; } \
+  && pass "#9139 the trim does not split a start from its end at the cut" || fail "#9139 the trim split a pair: $(printf '%s' "$o4" | grep split)"
+# Review 3 (besidefix): an epoch more than a day ahead is malformed and skipped (it printed "to " with no time).
+printf 'S h1 %s huge\nE h1 99999999999999999999\nS h2 99999999999999999999 huger\n' $((now9139 - 10)) > "$MB/beside-runs.log"
+o5=$(KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0)
+{ printf '%s' "$o5" | grep -qF "huge (h1), from" && printf '%s' "$o5" | grep -F "(h1)" | grep -q "still going" && ! printf '%s' "$o5" | grep -qF "(h2)"; } && pass "#9139 an epoch more than a day ahead is skipped" || fail "#9139 a huge epoch was read: $o5"
+# Review 3 (besidefix): a gave-up writer whose temp file a fold took first (its mv fails) does not end an errexit caller.
+mkdir -p "$MB/mvbin"; printf '%s\n' '#!/bin/sh' 'case "$*" in *pending-tmp*) for a in "$@"; do case "$a" in *pending-tmp*) rm -f "$a" ;; esac; done; exit 1 ;; esac' 'exec /bin/mv "$@"' > "$MB/mvbin/mv"; chmod +x "$MB/mvbin/mv"
+mkdir "$MB/beside-runs.log.lock"
+o6=$( set -e; PATH="$MB/mvbin:$PATH" KOSMOS_RUN_MARKER_DIR="$MB" KOSMOS_BESIDE_LOCK_TRIES=2 kosmos_note_beside_run start mvrace "a race"; echo CALLER-SURVIVED )
+rmdir "$MB/beside-runs.log.lock"; rm -rf "$MB/mvbin"
+[ "$o6" = CALLER-SURVIVED ] && pass "#9139 a gave-up writer whose temp file was taken by a fold does not end an errexit caller" || fail "#9139 a racing fold ended the errexit caller ($o6)"
 # Review 1 (besidefix): a pending line is read while the log does not exist yet.
 rm -f "$MB/beside-runs.log" "$MB"/beside-runs.log.pending.*; printf 'S p9 %s only-pending\n' "$now9139" > "$MB/beside-runs.log.pending.test2"
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0 | grep -qF "only-pending (p9)" && pass "#9139 a pending line is named while the log does not exist yet" || fail "#9139 a pending line with no log was not named"
