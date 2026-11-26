@@ -12309,6 +12309,8 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 #s-sec-plus #plus-devmsg:empty { min-height: 0; margin-top: 0; }
 /* state 1 (HOME) — the immersive marketing view, where most of the visual lands */
 #plus-mark { display: block; width: min(560px, 82%); height: auto; margin: 6px 0 4px; }
+/* kosmos#9103: the starfield belongs to the navy skin, which the app does not use. */
+html.kapptabs #plus-stars { display: none; }
 .plus-hero-h { font-size: 26px; font-weight: 650; letter-spacing: -.01em; line-height: 1.2;   /* #6557: it inherited a fixed 16px, so its two lines overlapped at phone width */
   margin: 10px 0 8px; color: var(--k-ink); }
 .plus-lede { color: var(--k-ink-2); margin: 0 0 24px; max-width: 52ch; }
@@ -23057,7 +23059,11 @@ function plusOnScreen() {
 function syncPlusChrome() {
   if (typeof document === 'undefined' || !document.body) return;
   var active = plusOnScreen();
-  document.body.classList.toggle('plus-active', active);
+  /* kosmos#9103 (Josh 11-25 16:49: no blue background anywhere in the app): inside the iPhone app the section is shown
+     without its navy skin, on the board's own ground; Kosmos+ in a browser keeps it. The section still mounts (its
+     wordmark); its decorative stars are hidden in the app by CSS. */
+  var inApp = document.documentElement.classList.contains('kapptabs');
+  document.body.classList.toggle('plus-active', active && !inApp);
   if (active) { if (!plusMounted) plusMount(); }
   else if (plusMounted) plusTeardown();
   /* #3829 addendum: where the requests paint depends on whether Kosmos Plus is on screen. */
