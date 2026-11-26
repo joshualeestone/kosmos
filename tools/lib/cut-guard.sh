@@ -1816,24 +1816,37 @@ _kosmos_old_qh_waiter_live() {
 # release can then remove the next holder's lock. Either costs a line of a best-effort log, never a suite's result. A
 # marker dir that cannot be written gives up at once instead of spinning.
 _kosmos_beside_mtime() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(stat -f %m "$1" 2>/dev/null)" || m=""; case "$m" in ''|*[!0-9]*) date +%s ;; *) printf '%s' "$m" ;; esac; }
+# kosmos#9139 follow-up: the lock names its HOLDER (the real pid of the shell that took it: $$ is the parent's pid in a
+# ( ) & subshell, so it is read with sh -c 'echo $PPID'). It is broken only when that pid is gone. Before, a lock older
+# than 10 s was broken whoever held it, so a live holder slowed past 10 s (a loaded CI runner, or a clock step) had a
+# second holder beside it, and two trims at once cut the log short (CI, Ubuntu, 11-26: 188 lines). A live holder is
+# never broken now: the others give up and write pending files, which nothing loses. A lock with no pid yet (taken a
+# moment ago, or by an older lib) keeps the 10 s age rule.
+_kosmos_beside_stale() {   # _kosmos_beside_stale <lock dir>: 0 when it may be broken
+  local h; h="$(cat "$1/pid" 2>/dev/null)"
+  case "$h" in
+    ''|*[!0-9]*) [ $(( $(date +%s) - $(_kosmos_beside_mtime "$1") )) -gt 10 ] ;;
+    *) ! kill -0 "$h" 2>/dev/null ;;
+  esac
+}
 _kosmos_beside_lock() {
-  local d="$1" i=0 age
+  local d="$1" i=0
   [ -w "${d%/*}" ] || return 1
   until mkdir "$d" 2>/dev/null; do
     i=$((i + 1)); [ "$i" -ge "${KOSMOS_BESIDE_LOCK_TRIES:-100}" ] && return 1   # a count, not a time: under load it is reached
-    age=$(( $(date +%s) - $(_kosmos_beside_mtime "$d") ))
-    if [ "$age" -gt 10 ]; then
+    if _kosmos_beside_stale "$d"; then
       local sd="$d.stale.$$.$RANDOM"
       if mv "$d" "$sd" 2>/dev/null; then
-        if [ $(( $(date +%s) - $(_kosmos_beside_mtime "$sd") )) -gt 10 ]; then rmdir "$sd" 2>/dev/null || true
-        # Fresh after all: put it back, unless a new lock was made meanwhile (mv would move it INSIDE that one, review 5).
-        elif [ -e "$d" ]; then rmdir "$sd" 2>/dev/null || true
-        else mv "$sd" "$d" 2>/dev/null || rmdir "$sd" 2>/dev/null || true; fi
+        if _kosmos_beside_stale "$sd"; then rm -f "$sd/pid" 2>/dev/null; rmdir "$sd" 2>/dev/null || true
+        # Not stale after all: put it back, unless a new lock was made meanwhile (mv would move it INSIDE that one, review 5).
+        elif [ -e "$d" ]; then rm -f "$sd/pid" 2>/dev/null; rmdir "$sd" 2>/dev/null || true
+        else mv "$sd" "$d" 2>/dev/null || { rm -f "$sd/pid" 2>/dev/null; rmdir "$sd" 2>/dev/null || true; }; fi
         continue
       fi
     fi
     sleep 0.1
   done
+  { sh -c 'echo $PPID' > "$d/pid"; } 2>/dev/null || true
   return 0
 }
 kosmos_note_beside_run() {
@@ -1891,10 +1904,10 @@ kosmos_note_beside_run() {
            next }
          FNR == 1 { for (i = n - keep + 1; i <= n; i++) if (i > 0 && ln[i] != "") ids[ln[i]] = 1 }
          FNR > n - keep || (($2 in ids) && (FNR == bs[$2] || FNR == be[$2])) { print }' "$f" "$f" > "$tf"; } 2>/dev/null \
-      && [ "$(wc -l < "$tf" 2>/dev/null | tr -d ' ')" -ge 400 ] 2>/dev/null && mv -f "$tf" "$f" 2>/dev/null
+      && [ "$(wc -l < "$tf" 2>/dev/null | tr -d ' ')" -ge 400 ] 2>/dev/null && { mv -f "$tf" "$f" 2>/dev/null || true; }   # review: never ends an errexit caller
     rm -f "$tf" 2>/dev/null || true
   fi
-  if [ "$got" = 1 ]; then rmdir "$l" 2>/dev/null || true; fi
+  if [ "$got" = 1 ]; then rm -f "$l/pid" 2>/dev/null; rmdir "$l" 2>/dev/null || true; fi
   return 0
 }
 # kosmos_beside_runs_since <epoch>: one line for each run noted above whose window overlaps <epoch> to now, as
