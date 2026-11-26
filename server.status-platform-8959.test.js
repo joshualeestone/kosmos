@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8959 slice D1c1: GET /api/status says the computer's platform and whether it is a cloud computer.

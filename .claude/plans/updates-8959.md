@@ -81,3 +81,6 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7154958
 ### Round 6 (sonnet, 01:21 CST): no findings. Loop ends here.
 - The reviewer verified round 5's change and the tokens, the epoch, the 5 s loop and the CI wiring. run-updates.sh PASS 121/121, typecheck 0 errors.
 - Limitation, deliberate (round 5): a press cancelled by leaving the screen is not waited for. The screen comes back to a fresh card, and pressing again joins any install under way.
+
+## 2026-11-26 12:5x CST: validation red on the #9104 guard
+- The full validation (12:34) failed only test-support.tmpscope-first-9104.test.js: this slice's new server.status-platform-8959.test.js predates #9104 and did not require tmpscope. Added the line (the #9104 transform); guard 2/2, that file 1/1. Revalidating.
