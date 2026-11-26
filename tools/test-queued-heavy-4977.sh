@@ -615,8 +615,10 @@ ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "
 # it put in ANOTHER group (only a forwarded TERM reaches it); a command's cleanup is given its grace; KILL after the grace.
 qh9118() {   # qh9118 <tag> <grace s> <cmd...>: a main turn in its own marker dir, in the background; sets Q9 and L9
   mkdir -p $S/m9118-$1; L9=$S/9118-$1.log
-  # stdin /dev/null: no terminal on any of the three, so the turn takes the background path whoever runs this file
-  ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-$1 QUEUED_HEAVY_STOP_GRACE_S=$2 exec /bin/bash $QH "t9118-$1" "${@:3}" ) </dev/null > $L9 2>&1 & Q9=$!; BG="$BG $Q9"; }
+  # No terminal on stdin, stdout or stderr and (review 2) no controlling terminal (setsid), so the turn takes the
+  # background path whoever runs this file. RS9118 sets the renewal period (the sigkill arm, so its renewer ends soon).
+  ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-$1 QUEUED_HEAVY_STOP_GRACE_S=$2 QUEUED_HEAVY_RENEW_SEC=${RS9118:-600} exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die' /bin/bash $QH "t9118-$1" "${@:3}" ) </dev/null > $L9 2>&1 & Q9=$!; BG="$BG $Q9"; }
+nocty() { perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die' "$@"; }   # review 2: run with no controlling terminal
 free9118() { gone $((U+5)) && gone $((U+6)); }   # review 1: each arm starts with this run's two sleep lengths free
 pre9118=0; free9118 || pre9118=1
 qh9118 grp 60 sh -c "sleep $((U+5)) & wait"
@@ -642,7 +644,7 @@ ok "#9118: a main command that ignores TERM is KILLed after the grace (QUEUED_HE
 
 # #9118 review 1: a SIGKILLed wrapper (no trap runs) still has its command stopped, by the watcher, within about 5 s.
 pre9118=0; free9118 || pre9118=1
-qh9118 sigkill 60 sh -c "sleep $((U+5)) & wait"
+RS9118=2 qh9118 sigkill 60 sh -c "sleep $((U+5)) & wait"
 until_true 30 'grep -q "TURN: running t9118-sigkill" $L9 && ! gone $((U+5))'; s5=$?
 kill -KILL $Q9; until_true 40 'gone $((U+5))'; r5=$?; reap $Q9 40 2>/dev/null
 ok "#9118: a SIGKILLed main turn's command is stopped by its watcher" '[ "$pre9118" = 0 ] && [ "$s5" = 0 ] && [ "$r5" = 0 ]'
@@ -671,11 +673,31 @@ ok "#9118: QUEUED_HEAVY_STOP_GRACE_S=08 is 8 s and the stop completes" '[ "$pre9
 printf '#!/bin/sh\necho "PG $(ps -o pgid= -p $$ | tr -d " ") $(ps -o pgid= -p $PPID | tr -d " ")"\n' > $S/pg9118; chmod +x $S/pg9118
 mkdir -p $S/m9118-tty $S/m9118-notty
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-tty perl -e 'alarm(60); exec @ARGV' script -q /dev/null /bin/bash $QH "t9118-tty" $S/pg9118 </dev/null 2>&1 | tr -d '\r\004\010')   # script's own stdin /dev/null: on a socket it fails (tcgetattr)
-o2=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-notty /bin/bash $QH "t9118-notty" $S/pg9118 </dev/null 2>&1)
+o2=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-notty nocty /bin/bash $QH "t9118-notty" $S/pg9118 </dev/null 2>&1)
 pg1=$(printf '%s\n' "$o" | sed -n 's/^PG //p'); pg2=$(printf '%s\n' "$o2" | sed -n 's/^PG //p')
 ok "#9118: with a terminal the command shares the wrapper's group (foreground); without one it has its own" '[ -n "$pg1" ] && [ "${pg1% *}" = "${pg1#* }" ] && [ -n "$pg2" ] && [ "${pg2% *}" != "${pg2#* }" ]'
 
-EXPECTED=151   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, nine #9118 main-turn stop arms
+# #9118 review 2: the watcher watches the command's GROUP. The leader exits on a TERM, a member ignores it, and the
+# wrapper is KILLed during the grace: the watcher must still stop the member (it stopped watching when the leader left).
+pre9118=0; free9118 || pre9118=1
+RS9118=2 qh9118 member 15 sh -c "( trap '' TERM; exec sleep $((U+5)) ) & wait"
+until_true 30 'grep -q "TURN: running t9118-member" $L9 && ! gone $((U+5))'; s9=$?
+# 8 s, past one 5 s watcher poll: an earlier KILL is seen by a leader-only watcher too, so the arm would prove nothing.
+kill -TERM $Q9; sleep 8; kill -KILL $Q9 2>/dev/null; until_true 45 'gone $((U+5))'; r9=$?; reap $Q9 40 2>/dev/null
+ok "#9118: a member left in the group after its leader exits is stopped by the watcher when the wrapper is KILLed in the grace" '[ "$pre9118" = 0 ] && [ "$s9" = 0 ] && [ "$r9" = 0 ]'
+for p in $(pgrep -f "^sleep $((U+5))$"); do kill -KILL $p 2>/dev/null; done; until_true 10 'gone $((U+5))'
+# #9118 review 2: a main turn's log carries no job report for its watcher.
+mkdir -p $S/m9118-quiet; o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-quiet nocty /bin/bash $QH "t9118-quiet" sleep 1 </dev/null 2>&1)
+ok "#9118: a main turn on the background path prints no 'Killed' job report" '[[ "$o" == *"END rc=0"* && "$o" != *Killed* && "$o" != *Terminated* ]]'
+# #9118 review 2: stdin and the exit code reach a command on the background path.
+mkdir -p $S/m9118-in; o=$(printf 'hello-9118\n' | (cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-in nocty /bin/bash $QH "t9118-in" sh -c 'read l; echo "GOT=$l"; exit 7' 2>&1)); r=$?
+ok "#9118: a background-path main turn keeps the command's stdin and exit code" '[ "$r" = 7 ] && [[ "$o" == *"GOT=hello-9118"* && "$o" == *"END rc=7"* ]]'
+# #9118 review 2: a controlling terminal with all three redirected still keeps the foreground (no background /dev/tty stop).
+mkdir -p $S/m9118-ctty; ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-ctty perl -e 'alarm(60); exec @ARGV' script -q /dev/null /bin/bash -c "/bin/bash $QH t9118-ctty $S/pg9118 </dev/null >$S/9118-ctty.log 2>&1" </dev/null >/dev/null 2>&1 )
+pg3=$(sed -n 's/^PG //p' $S/9118-ctty.log 2>/dev/null); o=$(cat $S/9118-ctty.log 2>/dev/null)
+ok "#9118: a controlling terminal with stdio redirected keeps the command in the wrapper's group" '[ -n "$pg3" ] && [ "${pg3% *}" = "${pg3#* }" ]'
+
+EXPECTED=155   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, thirteen #9118 main-turn stop arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

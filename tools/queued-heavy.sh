@@ -412,7 +412,9 @@ case "$RENEW_SEC" in ''|*[!0-9]*) RENEW_SEC=600 ;; esac
 case "$MAX_RENEWALS" in ''|*[!0-9]*) MAX_RENEWALS=12 ;; esac
 STOP_GRACE_S="${QUEUED_HEAVY_STOP_GRACE_S:-60}"   # kosmos#9118: TERM to KILL, for a main turn's command group
 case "$STOP_GRACE_S" in ''|*[!0-9]*) STOP_GRACE_S=60 ;; esac
+case "$STOP_GRACE_S" in ?????*) STOP_GRACE_S=600 ;; esac   # #9118 review 2: five digits or more is past the clamp (and no overflow)
 STOP_GRACE_S=$((10#$STOP_GRACE_S))   # #9118 review 1: 08 and 09 are not octal errors (an error inside the EXIT trap ended it part way)
+[ "$STOP_GRACE_S" -le 600 ] || STOP_GRACE_S=600
 _qh_clear() {
   kosmos_refuse_if_machine_claimed "$WHAT" || return 1
   # #4911: no main turn starts beside a light run's side turn, whatever its class: a light one would make two light
@@ -674,8 +676,11 @@ trap _qh_end EXIT
 # #9118 review 1: NOT when this script has a terminal on stdin, stdout or stderr (a person running it by hand). There
 # the command stays in the foreground as before: a background command that reads or sets the terminal (sudo, ssh, a
 # pager) is stopped by the system and `wait` never returns, and Ctrl-C and Ctrl-Z already reach a foreground command.
-QH_FG=""; QH_SIGNALLED=""
-[ "$LANE" != side ] && { [ -t 0 ] || [ -t 1 ] || [ -t 2 ]; } && QH_FG=1
+# #9118 review 2: a controlling terminal counts too (stdio redirected from a terminal, as `cmd </dev/null >log 2>&1`):
+# a background command that opens /dev/tty (an ssh or git prompt, sudo) is stopped the same way. An agent's shell has
+# none, so it takes the background path.
+QH_FG=""; QH_SIGNALLED=""; QH_PEND=""
+[ "$LANE" != side ] && { [ -t 0 ] || [ -t 1 ] || [ -t 2 ] || { : </dev/tty; } 2>/dev/null; } && QH_FG=1
 [ -n "$QH_FG" ] || { trap 'QH_SIGNALLED=1; exit 143' TERM; trap 'QH_SIGNALLED=1; exit 130' INT; trap 'QH_SIGNALLED=1; exit 129' HUP; }
 if [ "$LANE" = side ]; then
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') SIDE TURN: running $WHAT beside the heavy holder (#4911; stopped if it runs past ${SIDE_MIN} min)"
@@ -774,13 +779,20 @@ elif [ -n "$QH_FG" ]; then
   "$@"; rc=$?   # a terminal: in the foreground, as before #9118 (see QH_FG above)
 else
   # kosmos#9118: the command in its own process group, as a side turn's is, so a signal to this script can stop all of
-  # it (_qh_end). stdin is kept (no terminal here: QH_FG).
+  # it (_qh_end). stdin is kept (no terminal here: QH_FG). An INT to this script reaches the command as a TERM.
+  # Review 2: a signal between the fork and CMD=$! would find CMD empty and stop nothing, so for that moment the traps
+  # only RECORD it, and it is acted on once CMD is set. Not `trap ''`: an ignored signal stays ignored in the command.
+  trap 'QH_SIGNALLED=1; QH_PEND=143' TERM; trap 'QH_SIGNALLED=1; QH_PEND=130' INT; trap 'QH_SIGNALLED=1; QH_PEND=129' HUP
   set -m; "$@" & CMD=$!
+  trap 'QH_SIGNALLED=1; exit 143' TERM; trap 'QH_SIGNALLED=1; exit 130' INT; trap 'QH_SIGNALLED=1; exit 129' HUP
+  [ -n "$QH_PEND" ] && { set +m; exit "$QH_PEND"; }
   # The watcher, in its own process group too (so a KILL to this script's group does not reach it), stopped by
-  # _qh_stop_capper like a side turn's capper. Every 5 s: once the command has gone it exits; once THIS script is gone
-  # (SIGKILLed, so no trap ran) it stops the command's group as _qh_end would, and exits. $$ is this script's pid here.
+  # _qh_stop_capper like a side turn's capper. Every 5 s: once the command's GROUP has gone it exits; once THIS script
+  # is gone (SIGKILLed, so no trap ran) it stops the command's group as _qh_end would, and exits. $$ is this script's
+  # pid here. Review 2: the GROUP, not the leader: a leader that exits on a TERM while a member still cleans up would
+  # end the watch, and a KILL of this script during the grace would then leave that member running unclaimed.
   ( trap - EXIT TERM INT HUP; trap '' PIPE
-    while kill -0 "$CMD" 2>/dev/null; do
+    while kill -0 -- "-$CMD" 2>/dev/null; do
       sleep 5 </dev/null >/dev/null 2>&1
       if _qh_wrapper_gone "$$"; then
         kill -TERM -- "-$CMD" 2>/dev/null; i=0
@@ -789,6 +801,7 @@ else
       fi
     done ) </dev/null >/dev/null 2>&1 &
   CAPPER=$!; set +m
+  disown "$CAPPER" 2>/dev/null   # review 2: bash would print a "Killed: 9" job report for it in every main turn's log
   wait "$CMD"; rc=$?
   _qh_stop_capper
 fi
