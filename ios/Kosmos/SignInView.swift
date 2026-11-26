@@ -409,6 +409,12 @@ final class SignInModel: ObservableObject {
     func continueToApp() { attempt += 1; watch?.cancel(); step = .done }
 
     /// kosmos#9111: the code the Mac's gate answered while this screen knocked there, which is the one the Mac shows.
+    /// kosmos#9111: the Mac's gate has said no for longer than an old no lasts (BoardClient.Phase.realNoSeconds).
+    func macSaidNo() {
+        switch step { case .allow(_, true), .denied(asking: true): break; default: return }
+        attempt += 1; watch?.cancel(); step = .denied(asking: false)
+    }
+
     func showGateCode(_ code: String, mac: String) {
         guard case .allow(_, true) = step else { return }
         gateMac = mac

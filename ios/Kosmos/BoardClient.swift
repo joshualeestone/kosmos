@@ -73,24 +73,30 @@ final class BoardClient: ObservableObject {
         /// one Kosmos+ gave: a gate with the board-v2 marker answers a keyed code, which is the one the Mac shows
         /// (kosmos-relay proxy.rs), named with its Mac, since an account with two Macs knocks at one of them. Let in: the
         /// screen moves on. A run that gave up (the Mac or Kosmos+ not answering, a refusal a new handoff may cure, no
-        /// computer yet), or the gate's no: knock again shortly, or the wait is endless once more. The gate's no is
-        /// never taken as final here (rounds 3, 4): Kosmos+ turns a no into a fresh Allow when the person signs in
-        /// again, and the Mac's denied list catches up only at its next poll (kosmos-relay proxy.rs, kosmos#6407), so a
-        /// knock can get an old no on either step. A real no is Kosmos+'s to say (watchAllow's .denied), as before.
-        enum AllowScreen: Equatable { case keep, code(String, mac: String), done, knockAgain }
-        func allowScreen(step: SignIn.Step) -> AllowScreen {
+        /// computer yet): knock again shortly, or the wait is endless once more.
+        /// The gate's no (rounds 3 to 5): one answer can be OLD (Kosmos+ turns a no into a fresh Allow when the person
+        /// signs in again, and the Mac's denied list catches up at its next poll, every 5 s, at most 20 s each:
+        /// kosmos-relay lib.rs PENDING_POLL_SECS, proxy.rs kosmos#6407) or REAL and never told to Kosmos+ (a board-v2
+        /// Mac's "Not me" is local only, devices.rs drop_waiting, and turns the key away for 24 hours). The two answer
+        /// the same bytes, so time tells them apart: knocked again until the gate has said no without a break for
+        /// `realNoSeconds`, then the screen says so.
+        enum AllowScreen: Equatable { case keep, code(String, mac: String), done, denied, knockAgain }
+        static let realNoSeconds: Double = 60
+        /// `gateNoFor`: how long the gate has said no without a break (0 at the first no).
+        func allowScreen(step: SignIn.Step, gateNoFor: Double = 0) -> AllowScreen {
+            let gateNo: AllowScreen = gateNoFor >= Self.realNoSeconds ? .denied : .knockAgain
             switch step {
             case .allow(let shown, true):
                 switch self {
                 case .live: return .done
                 case .waitingForAllow(let mac, let code?) where code != shown: return .code(code, mac: mac)
-                case .denied: return .knockAgain
+                case .denied: return gateNo
                 default: return endedRun ? .knockAgain : .keep
                 }
             case .denied(asking: true):
                 // Asked again after an earlier no: the same knock, so a yes now moves the screen on.
                 if case .live = self { return .done }
-                if case .denied = self { return .knockAgain }
+                if case .denied = self { return gateNo }
                 return endedRun ? .knockAgain : .keep
             default: return .keep
             }

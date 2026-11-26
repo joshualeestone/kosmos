@@ -103,6 +103,8 @@ struct ContentView: View {
     /// (never reset, round 3), so only the latest one fires, even across a stop and a new start.
     @State private var knockRetries = 0
     @State private var knockTimers = 0
+    /// kosmos#9111 round 5: since when the Mac's gate has said no without a break (nil: it has not, or it answered since).
+    @State private var gateNoSince: Date?
     /// kosmos#8791/#8795: the fresh sign-in a step-up refusal asks for (FreshSignInCenter), given to every tab.
     @StateObject private var fresh = FreshSignInCenter()
     private static var startsSignedOut: Bool {
@@ -164,7 +166,7 @@ struct ContentView: View {
         #if !KOSMOS_STORE_SHOTS
         let waits = nativeSignIn && BoardClient.Phase.knocks(during: signIn.step)
             && signIn.issued != nil && SessionKeychain.live.load() == signIn.issued   // stored first, where the run reads it
-        if waits && !knocking { knocking = true; knockRetries = 0; board.start() }
+        if waits && !knocking { knocking = true; knockRetries = 0; gateNoSince = nil; board.start() }
         else if !waits && knocking {
             knocking = false
             if signIn.step != .done { board.stop() }
@@ -274,13 +276,21 @@ struct ContentView: View {
             if step == .done { nativeSignIn = false; todayBoard = false; tab = AppTabs.todayTab ? .today : .agents }
             knockIfWaiting()
         }
-        // kosmos#9111: while the sign-in screen knocks, the run's answers move it: the Mac's own code, or let in.
+        // kosmos#9111: while the sign-in screen knocks, the run's answers move it: the Mac's own code, let in, or a no
+        // that has lasted (one alone can be old).
         .onChange(of: board.phase) { phase in
             guard knocking else { return }
-            switch phase.allowScreen(step: signIn.step) {
+            switch phase {
+            case .denied: if gateNoSince == nil { gateNoSince = Date() }
+            case .waitingForAllow, .live: gateNoSince = nil   // the gate answered otherwise: any no before is over
+            default: break
+            }
+            let gateNoFor = gateNoSince.map { Date().timeIntervalSince($0) } ?? 0
+            switch phase.allowScreen(step: signIn.step, gateNoFor: gateNoFor) {
             case .keep: break
             case .code(let code, let mac): signIn.showGateCode(code, mac: mac)
             case .done: signIn.continueToApp()
+            case .denied: signIn.macSaidNo()
             case .knockAgain:
                 // The run gave up (review 1): knocked again after 15 s, as the board's own run retries a Mac that is not
                 // answering, while the screen still waits and nothing else started a run meanwhile. Round 2: only the
@@ -292,7 +302,7 @@ struct ContentView: View {
                 let wait = min(15 * pow(2, Double(min(knockRetries - 1, 3))), 120)
                 DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
                     guard knocking, mine == knockTimers, signIn.step == waitedOn,
-                          board.phase.allowScreen(step: signIn.step) == .knockAgain else { return }
+                          board.phase.allowScreen(step: signIn.step) == .knockAgain else { return }   // gateNoFor 0: a no knocks again
                     board.start()
                 }
             }

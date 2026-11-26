@@ -25,13 +25,17 @@ which waits for an Allow the Mac was never asked for.
   the board's run once. Backed out (any other step but .done): stop it. Moved on (.done): leave it; the tab's show()
   calls start(), which cancels it and bumps the generation, so the tab's run replaces it, never runs beside it.
 - ContentView .onChange(of: board.phase), only while knocking: BoardClient.Phase.allowScreen(step:) decides:
-  the gate's code (when it differs) goes on the screen; live moves the screen on (continueToApp); the gate's no shows
-  "Your Mac said no" (macSaidNo).
+  the gate's code (when it differs) goes on the screen, with its Mac's name; live moves the screen on
+  (continueToApp); a run that gave up knocks again after a growing wait (15, 30, 60, then 120 s); the gate's no
+  knocks again until it has lasted 60 s without a break, then "Your Mac said no" (macSaidNo). One no alone can be
+  old (a no turned into a fresh Allow reaches the Mac at its next poll, 25 s at most), and a v2 Mac's "Not me" is
+  never told to Kosmos+, so time is what tells them apart (iterations 3 to 5).
 - The gate's code wins over Kosmos+'s: a gate with the board-v2 marker answers a keyed code, not match_code(device)
   (kosmos-relay crates/tunnel/src/proxy.rs, the test near line 7568), and that is the code the Mac's card shows.
   The Mac shows nothing before the knock, and the knock's answer brings the gate's code, so the phone shows the
   right code by the time the Mac can show one.
-- SignInModel.showGateCode / macSaidNo: only act while the step is .allow with a computer.
+- SignInModel.showGateCode (only on .allow with a computer) / macSaidNo (on .allow with a computer or
+  .denied(asking: true)). The app also knocks again on a return to the front.
 - Kosmos+'s own poll (watchAllow) keeps running beside it; whichever answers first moves the screen.
 
 ## Decided
@@ -110,3 +114,18 @@ Main logic suite PASS 2789/2789; settings, automation, actions, taskpage, room p
   nothing to tell apart); .signInHere/.signInAgain keep the screen waiting with Continue as the way on (only the
   person can cure those, in the app, where the tab says so).
 Main logic suite PASS 2789/2789; settings, automation, actions, taskpage, room pass.
+
+#### Iteration 5 (blind review of the whole branch, opus)
+
+- [SHOULD-FIX] taken: round 4 made the gate's no never final, but a board-v2 Mac's "Not me" is local only
+  (kosmos-relay devices.rs drop_waiting: "Kosmos+ is never told"; engine/remote.js) and turns the key away for 24 h
+  (gatev2.rs DENIED_KEY_SECS), so the screen would knock for a day and never say no. The old no and the real no
+  answer the same bytes ({"pending":false,"denied":true}, proxy.rs 1491 and 1576), so time tells them apart: an old
+  no lasts one Mac poll (PENDING_POLL_SECS 5, a poll ends at 20 s); a no without a break for 60 s
+  (Phase.realNoSeconds) is real and the screen says "Your Mac said no". ContentView keeps gateNoSince (cleared when
+  the gate answers anything else, or a knock starts). Tests: first no and 59 s knock again; 60 s says no, on both
+  steps; other answers ignore it.
+- [NIT] taken: the plan's "The change" described removed code; rewritten.
+- [NIT] not taken: .signInAgain/.signInHere/.kosmosPlusRefused keep the screen waiting with Continue (as on main;
+  only the person cures them, in the app).
+Main logic suite PASS 2793/2793; settings, automation, actions, taskpage, room pass.
