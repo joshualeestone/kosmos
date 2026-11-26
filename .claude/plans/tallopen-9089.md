@@ -39,7 +39,8 @@ UIKit list 0 of 3.
 
 That three looks at 0.3, 0.8 and 1.6 s cover the time tall rows take to measure on a slow phone. They cover the measured
 case on a simulator; a slower device or a longer chat may measure later than 1.6 s, and then the open still lands short.
-The guard "the end has never shown" means a later look can never pull a person away from where they went.
+A later look stands down once the person has scrolled since the open (personMoves, iteration 1); on iOS 17 only a
+scroll still under a finger or moving is seen, so a fling finished inside the first 1.6 s there can still be pulled back.
 
 #### Iteration 1 (blind review, opus)
 
