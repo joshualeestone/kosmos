@@ -1255,7 +1255,8 @@ struct ChatView: View {
     // kosmos#9089 (measured 11-25, iOS 27, the lazy list): a chat of tall replies can open short of its end. The id anchor goes
     // to the end marker over rows whose heights are still estimates, and when the tall rows are measured the end is pushed
     // below the box (20 messages, 3 of 3; the same 20 as one-liners, 0 of 3; the UIKit list, 0 of 3). So the open looks
-    // again a few times: while the end has never shown, the person has not scrolled since the open (personMoves), nothing
+    // again a few times: while the end is not on screen (never shown, or shown then pushed down as rows were measured: round
+    // 2), the person has not scrolled since the open (personMoves), nothing
     // is under a finger or moving by them, and rows are drawn (a list with none is recoverEmpty's), it goes to the end once
     // more. The first time the end shows, it stops. On iOS 17 PersonScroll reports no rest, so there only a scroll still
     // under a finger or moving holds it off (review 1: a finished fling in the first 1.6 s is not seen there).
@@ -1271,7 +1272,7 @@ struct ChatView: View {
         let chatAt = epoch, listAt = listEpoch, movesAt = personMoves
         for at in Self.openLandLooks {
             DispatchQueue.main.asyncAfter(deadline: .now() + at) {
-                guard epoch == chatAt, listEpoch == listAt, personMoves == movesAt, visible, !searchMode, !endSeen, atBottom,
+                guard epoch == chatAt, listEpoch == listAt, personMoves == movesAt, visible, !searchMode, !(endSeen && endVisible), atBottom,
                       !onScreen.isEmpty, !personScrolling, !scrollBox.underFinger else { return }
                 Self.trace("open landed short of the end: to the newest again")   // no value: the record admits only listed ones (#7420)
                 appMoves &+= 1

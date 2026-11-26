@@ -20,6 +20,9 @@ final class ChatTallOpenUITests: XCTestCase {
         // within the 5 s that ChatOpensAtNewestUITests allows, then again once the list is still.
         let early = newest(app).waitForExistence(timeout: 5)
         print("UI-NOTE kosmos#9089 \(when): newest drawn within 5 s: \(early)\(early ? " at \(Int(newest(app).frame.minY))" : "")")
+        // Past the open's last look (1.6 s, ChatView.openLandLooks), so the stillness read below cannot fall between two
+        // looks and read a list that is about to move (review 2: a false red, never a false green).
+        Thread.sleep(forTimeInterval: 2.0)
         let firstLook = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); firstLook.name = when + ", at 5 s"; firstLook.lifetime = .keepAlways; add(firstLook)
         let any = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", ": Message ")).firstMatch
         var last = CGRect.null

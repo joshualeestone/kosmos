@@ -55,3 +55,20 @@ scroll still under a finger or moving is seen, so a fling finished inside the fi
 - [NIT] not taken: the test's 5 s "drawn" check is weak (exists is true below the box); the frame-band check is the
   real one and can fail. The header's "both chat lists" is true of the test, CI runs the lazy arm only.
 All 17 logic suites pass.
+
+#### Iteration 2 (blind review of the whole branch, sonnet)
+
+- [NIT] taken: !endSeen made the looks stand down for good once the end showed even briefly; an end shown then pushed
+  down as rows were measured is the same bug. Now !(endSeen && endVisible) (the file's own "end showing now", as at
+  listBlank and the excused check), with personMoves still keeping a reader's own scroll.
+- [NIT] taken: the test's stillness read (two frames 0.5 s apart) could fall between the 0.8 s and 1.6 s looks: a
+  false red. It now waits 2 s after the chat shows, past the last look.
+- [SHOULD-FIX] recorded, not code: a VoiceOver focus or accessibility scroll in the first 1.6 s may not report a rest,
+  so personMoves may not see it; no lazy-arm accessibility check exists to say. Turning the fix off under VoiceOver
+  would give those readers the bug back, so it stays, named here as a known limit.
+- [SHOULD-FIX] (evidence): the control and the trace line in a passing run are still Angel's pending run. If the first
+  look's own scroll counted as a person's move, the later looks would be dead: the trace in a passing run will show
+  which looks fired.
+- [NIT] not taken: a look does not check positionId/anchorLetGo (the atBottom guard covers the let-go paths); a return
+  from the info page schedules new looks, as goNewest there already goes to the end; the test header's "both lists".
+All 17 logic suites pass.
