@@ -119,3 +119,28 @@ test('#9091: the hop logic suite is on iOS CI', () => {
   const wf = read('.github/workflows/ios.yml');
   assert.match(wf, /ios\/LogicTests\/run-hop\.sh \| tee "\$RUNNER_TEMP\/hop\.log"\n\s+grep -q '\^VERDICT: PASS' "\$RUNNER_TEMP\/hop\.log"/);
 });
+
+/* Review 3: the round-2 touch fixes had no guard. A plain @State `pressed` stayed true after a CANCELLED touch (a
+   scroll, Notification Center, a call) and froze the game; a plain .gesture inside the screen's ScrollView swallowed
+   every swipe that started on the panel. */
+function touchShape(src) {
+  const c = code(src);
+  return {
+    gestureState: /@GestureState private var pressed\b/.test(c) && !/@State private var pressed\b/.test(c),
+    simultaneous: /\.simultaneousGesture\(DragGesture\(minimumDistance: 0\)/.test(c) && !/\.gesture\(DragGesture\(minimumDistance: 0\)/.test(c),
+  };
+}
+test('#9091: a cancelled touch resets (GestureState) and a swipe on the panel still scrolls (simultaneous)', () => {
+  const t = touchShape(read('ios/Kosmos/HopGameView.swift'));
+  assert.equal(t.gestureState, true, 'pressed is a GestureState');
+  assert.equal(t.simultaneous, true, 'the touch-down hop is a simultaneous gesture');
+});
+test('#9091 CONTROL: the round-1 shapes are seen', () => {
+  const src = read('ios/Kosmos/HopGameView.swift');
+  const asState = src.replace('@GestureState private var pressed', '@State private var pressed');
+  const asGesture = src.replace('.simultaneousGesture(DragGesture(minimumDistance: 0)', '.gesture(DragGesture(minimumDistance: 0)');
+  assert.notEqual(asState, src, 'the control edit applied');
+  assert.notEqual(asGesture, src, 'the control edit applied');
+  assert.equal(touchShape(asState).gestureState, false);
+  assert.equal(touchShape(asGesture).simultaneous, false);
+});

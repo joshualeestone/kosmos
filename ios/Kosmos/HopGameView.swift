@@ -65,6 +65,8 @@ struct HopPlayView: View {
         // VoiceOver: one element, never a trap (no direct interaction, so a touch there is still VoiceOver's). It says
         // what it is and the best; a double-tap hops.
         .accessibilityElement(children: .ignore)
+        // Review 3: re-read when the game pauses or restarts (the view's body), not every frame, so during a run it is the
+        // score at the last pause. That is accepted: the run is played by sight, and paused it reads the true figures.
         .accessibilityLabel("Offline game, score \(model.logic.score), best \(model.logic.best)")
         .accessibilityHint("Double-tap to hop")
         .accessibilityAddTraits(.isButton)
