@@ -30,6 +30,16 @@ class DuoPanesCase: XCTestCase {
     }
     // Alone: the box starts near the left edge, so the chat has the whole width.
     func alone(_ app: XCUIApplication) -> Bool { box(app).exists && box(app).frame.width > 0 && box(app).frame.minX < app.frame.width * 0.25 }
+    // The chat's pane: the right-most navigation bar (the list has its own in two panes; folded there is one).
+    func chatPane(_ app: XCUIApplication) -> CGRect {
+        let bars = app.navigationBars.allElementsBoundByIndex.map(\.frame).filter { $0.width > 0 }
+        return bars.max { $0.minX < $1.minX } ?? app.frame
+    }
+    // The widest message text inside that pane.
+    func widestMessage(_ app: XCUIApplication, in pane: CGRect) -> CGFloat {
+        app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label CONTAINS ' of 260'")).allElementsBoundByIndex
+            .map(\.frame).filter { $0.width > 0 && $0.minX >= pane.minX - 1 && $0.maxX <= pane.maxX + 1 }.map(\.width).max() ?? 0
+    }
     func shot(_ app: XCUIApplication, _ name: String) {
         // The app's own picture of a sideways window is cut off, so the whole screen.
         let a = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
@@ -205,15 +215,14 @@ final class DuoPanesUITests: DuoPanesCase {
         UIKitListArm.assertDrawn(app)
         sleep(3)
         shot(app, "long bubbles")
-        let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label CONTAINS ' of 260'")).allElementsBoundByIndex.filter { $0.frame.width > 0 && $0.frame.minX > app.frame.width * 0.3 }
-        let widest = rows.map(\.frame.width).max() ?? 0
-        print("UI-NOTE kosmos#9002 widest bubble text \(Int(widest)) of window \(Int(app.frame.width)), \(rows.count) rows")
-        XCTAssertGreaterThan(rows.count, 0, "CONTROL: no messages drawn in the chat's pane")
-        // The chat's pane, measured by its message box (which spans the pane less its 16 pt margins): a bubble's text may take
-        // at most 0.78 of it; one sized to the screen fills the row instead.
-        let pane = box(app).frame.width + 32
-        let limit = pane * 0.78
-        print("UI-NOTE kosmos#9002 pane \(Int(pane)), bound \(Int(limit))")
+        let pane = chatPane(app)
+        let widest = widestMessage(app, in: pane)
+        print("UI-NOTE kosmos#9002 widest bubble text \(Int(widest)) in a pane of \(Int(pane.width)), window \(Int(app.frame.width))")
+        XCTAssertGreaterThan(widest, 0, "CONTROL: no messages drawn in the chat's pane")
+        XCTAssertLessThan(pane.width, app.frame.width * 0.9, "CONTROL: the chat's navigation bar spans the window, so the pane was not measured")
+        // A bubble's text may take at most 0.78 of its pane; one sized to the screen fills the row instead.
+        let limit = pane.width * 0.78
+        print("UI-NOTE kosmos#9002 bound \(Int(limit))")
         XCTAssertLessThanOrEqual(widest, limit, "a bubble's text is wider than its pane's share")
     }
 
