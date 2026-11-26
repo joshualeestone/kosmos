@@ -44,7 +44,7 @@ final class DuoFoldUITests: DuoPanesCase {
         let open = widest()
         XCTAssertGreaterThan(open.text, 0, "CONTROL: no messages drawn in the chat's pane")
         XCTAssertLessThan(open.pane, app.frame.width * 0.9, "CONTROL: unfolded, the chat's pane was not measured apart from the list")
-        XCTAssertLessThanOrEqual(open.text, open.pane * 0.78, "unfolded, a bubble's text is wider than its pane's share")
+        XCTAssertLessThanOrEqual(open.text, open.pane * bubbleShare, "unfolded, a bubble's text is wider than its pane's share")
         fold(app, "sample folded")
         XCTAssertTrue(holds(10) { self.alone(app) }, "CONTROL: folded, the chat is not alone")
         sleep(3)
@@ -57,7 +57,7 @@ final class DuoFoldUITests: DuoPanesCase {
         sleep(3)
         let again = widest()
         XCTAssertGreaterThan(again.text, 0, "CONTROL: no messages drawn after the unfold")
-        XCTAssertLessThanOrEqual(again.text, again.pane * 0.78, "unfolded again, the bubbles kept the whole screen's width")
+        XCTAssertLessThanOrEqual(again.text, again.pane * bubbleShare, "unfolded again, the bubbles kept the whole screen's width")
         shot(app, "long bubbles unfolded again")
     }
 
