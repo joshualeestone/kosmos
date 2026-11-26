@@ -678,12 +678,13 @@ function roomDay(at, timezone, now) {
   const when = new Date(at);
   if (Number.isNaN(when.getTime())) return null;
   const nowAt = new Date(Number.isFinite(now) ? now : Date.now());
-  const fmt = (zone, extra) => new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', ...extra, ...(zone ? { timeZone: zone } : {}) });
-  const year = (zone) => new Intl.DateTimeFormat('en-GB', { year: 'numeric', ...(zone ? { timeZone: zone } : {}) });
   for (const zone of timezone ? [timezone, null] : [null]) {
     try {
-      const sameYear = year(zone).format(when) === year(zone).format(nowAt);
-      return fmt(zone, sameYear ? {} : { year: 'numeric' }).format(when).replace(/,/g, '');
+      const tz = zone ? { timeZone: zone } : {};
+      const year = new Intl.DateTimeFormat('en-GB', { year: 'numeric', ...tz });
+      const sameYear = year.format(when) === year.format(nowAt);
+      return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }), ...tz })
+        .format(when).replace(/,/g, '');
     } catch { /* stale or unknown id: the machine's zone next */ }
   }
   return null;

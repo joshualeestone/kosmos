@@ -465,8 +465,9 @@ async function linesAfter(b, id, text) {
   return at < 0 ? null : lines.slice(at + 1);
 }
 /* The first non-blank room line after the line carrying `text` ('' if none). A note is tied
-   to a post by being the VERY NEXT row: a note from any other post would sit after that post. */
-function fedproofNextLine(after) { return ((after || []).find((l) => l.trim()) || ''); }
+   to a post by being the VERY NEXT row: a note from any other post would sit after that post.
+   kosmos#9169: a date line is not a row, so one between them (local midnight) is skipped. */
+function fedproofNextLine(after) { return ((after || []).find((l) => l.trim() && !/^-- .+ --$/.test(l)) || ''); }
 /* Post, and repeat with a fresh text while the board answers that post with a "stayed on
    this computer" note (its seat not yet marked connected). The note is written in the same
    request (server.js federateOut), so it is in the room when the response arrives. */

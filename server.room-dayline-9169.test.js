@@ -66,7 +66,9 @@ test('roomDay: the day in the given zone, the year only when it is not the curre
   assert.equal(messages.roomDay('2026-11-26T03:27:00Z', 'America/Chicago', now), 'Wed 25 Nov');
   assert.equal(messages.roomDay('2026-11-26T03:27:00Z', 'UTC', now), 'Thu 26 Nov', 'CONTROL: the zone made no difference');
   assert.equal(messages.roomDay('2025-11-25T12:00:00Z', 'UTC', now), 'Tue 25 Nov 2025');
-  assert.equal(messages.roomDay('2026-11-26T03:27:00Z', 'Not/AZone', now) !== null, true, 'a stale zone falls back to the machine, as roomClock does');
+  assert.equal(messages.roomDay('2026-11-26T03:27:00Z', 'Not/AZone', now), messages.roomDay('2026-11-26T03:27:00Z', null, now),
+    'a stale zone falls back to the machine, as roomClock does');
+  assert.notEqual(messages.roomDay('2026-11-26T03:27:00Z', null, now), null);
   assert.equal(messages.roomDay(undefined, 'UTC', now), null);
   assert.equal(messages.roomDay('not a time', 'UTC', now), null);
 });
