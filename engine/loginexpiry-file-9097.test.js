@@ -8,6 +8,13 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const le = require('./loginexpiry');
+/* The Windows warning test below drives status.computeLoginAdvisories, which reads names and accounts: sandbox the
+   board's roots BEFORE status loads, as loginexpiry-snapshot-3532.test.js does, so nothing reads this Mac's files. */
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'le9097-board-'));
+process.env.AGENT_WORKFORCE_HOME = SANDBOX;
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const UNTIL = Date.UTC(2026, 10, 29, 2, 37, 55);   // the Windows box's own date, 2026-11-29T02:37:55Z
 const ACCESS = UNTIL - 86400000;
@@ -83,19 +90,29 @@ test('kosmos#9097 review 1: a sandboxed board (its own HOME) never reads the rea
 test('kosmos#9097 review 1: on Windows the login warning finds the folder of each agent from its launch job', () => {
   const h = home();
   const status = require('./status');
+  const fleet = require('../test-support/fleet');
   const now = UNTIL - 3 * 86400000;
-  const jobs = { 'agent-a': { runner: 'claude', configDir: null }, 'agent-b': { runner: 'claude', configDir: path.join(h, '.claude-b') }, 'agent-c': { runner: 'codex' } };
-  const panes = Object.keys(jobs).map((name) => ({ name, target: name, runner: jobs[name].runner, command: 'claude' }));
+  const panes = [
+    status.parsePanes(fleet.line({ session: 'amy-discord', pane: '0.0' }))[0],
+    status.parsePanes(fleet.line({ session: 'ben-discord', pane: '0.1' }))[0],
+  ];
+  // Controls: the fixture really passes the pane filter (else every assertion below is vacuous).
+  assert.ok(panes.every((p) => status.isNamedOurs(p)), 'the fixture panes are ours');
+  const jobs = { amy: { runner: 'claude', configDir: null }, ben: { runner: 'claude', configDir: path.join(h, '.claude-b') } };
   const opts = {
-    platform: 'win32', readJob: (n) => jobs[n] || null, readCred: winRead(h), cache: new Map(),
+    platform: 'win32', readJob: (n) => jobs[n] || null, readCred: winRead(h), cache: { at: 0, value: [] },
     displayName: (n) => n, emailOf: () => null, rowDirs: new Set(),
   };
   const adv = status.computeLoginAdvisories(panes, now, opts);
   const named = adv.flatMap((a) => a.agents || []);
-  assert.ok(named.includes('agent-a'), 'a default-account agent is warned about: ' + JSON.stringify(adv));
-  assert.ok(named.includes('agent-b'), 'an agent on its own folder is warned about');
-  assert.ok(!named.includes('agent-c'), 'a non-Claude agent is never in a Claude login warning');
+  assert.ok(named.includes('amy'), 'a default-account agent is warned about: ' + JSON.stringify(adv));
+  assert.ok(named.includes('ben'), 'an agent on its own folder is warned about: ' + JSON.stringify(adv));
+  // An agent with no readable Claude job is skipped, never guessed onto the default account.
+  const noJob = status.computeLoginAdvisories(panes, now, { ...opts, readJob: (n) => (n === 'amy' ? null : jobs[n]), cache: { at: 0, value: [] } });
+  assert.ok(!noJob.flatMap((a) => a.agents || []).includes('amy'), 'no job, no warning for that agent');
+  const codex = status.computeLoginAdvisories(panes, now, { ...opts, readJob: (n) => (n === 'amy' ? { runner: 'codex' } : jobs[n]), cache: { at: 0, value: [] } });
+  assert.ok(!codex.flatMap((a) => a.agents || []).includes('amy'), 'a non-Claude job is never in a Claude login warning');
   // CONTROL: the pane reader (the path Windows took before) finds no folder, so no warning: the 11-25 board's [].
-  const before = status.computeLoginAdvisories(panes, now, { ...opts, readDetail: () => ({ ccd: undefined, pid: null }), cache: new Map() });
+  const before = status.computeLoginAdvisories(panes, now, { ...opts, readDetail: () => ({ ccd: undefined, pid: null }), cache: { at: 0, value: [] } });
   assert.strictEqual(before.length, 0);
 });
