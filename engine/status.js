@@ -9805,7 +9805,7 @@ function logLoginAdvReads(out, reads, log, state = LOGIN_ADV_LOGGED, progOf = pa
       const email = typeof a.email === 'string' ? a.email : '';
       /* Review 3 and 4: the email, folder, service and pane come from files and the process table; a control character
          in any of them must not split or forge a log line, so the whole assembled line is cleaned, in one place. */
-      say(('[loginadv] #7194: ' + name + ' read ' + dir + ' from ps eww of pid ' + (r.pid || 'unknown') + (cmd ? ' (' + cmd + ')' : '') + ' (pane '
+      say(('[loginadv] #7194: ' + name + ' read ' + dir + (cmd === 'launch job' ? ' from its launch job' : ' from ps eww of pid ' + (r.pid || 'unknown') + (cmd ? ' (' + cmd + ')' : '')) + ' (pane '
         + (r.target || 'unknown') + '), in the notice for ' + (email || 'an unread email') + ' (' + (a.service || '') + '), ' + when)
         .replace(/[\u0000-\u001f\u007f]/g, ''));
       n += 1;
