@@ -537,6 +537,13 @@ function git_sandbox(version, { diverge = 'none', whatsNewFor = null, whatsNewPo
      sandbox carries the real test and the real checks; the arms past step 1 then exercise step 1e in
      place (green: no check is quarantined on main) rather than refusing on a missing file. */
   fs.copyFileSync(path.join(__dirname, 'browser-checks-quarantine-guard.test.js'), path.join(dir, 'browser-checks-quarantine-guard.test.js'));
+  /* #9104: every suite test file requires ./test-support/tmpscope first, so the copy needs it, and what it loads, beside
+     it; without them step 1e's node --test fails to load the copy (and NODE_TEST_CONTEXT, inherited here, makes that
+     exit 0, so the arms would pass without step 1e checking anything). */
+  fs.mkdirSync(path.join(dir, 'test-support'), { recursive: true });
+  for (const f of ['tmpscope.js', 'remove-at-end.js', 'remove-tree.js']) {
+    fs.copyFileSync(path.join(__dirname, 'test-support', f), path.join(dir, 'test-support', f));
+  }
   fs.cpSync(path.join(__dirname, 'docs', 'browser-checks'), path.join(dir, 'docs', 'browser-checks'), { recursive: true });
   /* #6149: step 1a-floor checks the cut's own install/setup.sh knows the read-only app, so the sandbox carries the
      real installer and the arms past step 1 exercise that check in place rather than refusing on a missing file. */
