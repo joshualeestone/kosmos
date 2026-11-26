@@ -500,6 +500,7 @@ const SITE_COUNTS = {
   'render-remove-force-2651.js': [1, 1],
   'render-rename-4421.js': [1, 1],
   'render-rename-followups-4423.js': [1, 1],
+  'render-replykeep-9157.js': [1, 0],
   'render-restart-kloader-2831.js': [1, 1],
   'render-restart-screen-4343.js': [3, 2],
   'render-restore-dircheck-2615.js': [1, 1],

@@ -66,7 +66,7 @@ function nothingToLose({ maps, typed = [], current = null, pjCurrent = null, dra
 
 test('#9132 premise: the helper was found in the page', () => {
   assert.ok(START > 0 && END_AT > START && END > END_AT, 'the keptDrafts block was not found');
-  assert.match(HELPER, /function keptDrafts\(kind\)/);
+  assert.match(HELPER, /function keptDrafts\(kind(, opts)?\)/);   // kosmos#9157 added opts
   for (const [name, kind] of [['TALK_DRAFTS', 'talk'], ['TERM_DRAFTS', 'term'], ['PJ_DRAFTS', 'pj'], ['PJ_ROOM_DRAFTS', 'room']]) {
     assert.match(SCRIPT, new RegExp(`const ${name} = keptDrafts\\('${kind}'\\);`), `${name} is not a kept map`);
   }
