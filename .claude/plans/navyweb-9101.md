@@ -29,8 +29,13 @@ browser's Kosmos+ bar (not the app).
 - The page follows the phone's appearance. A board theme set by hand (data-theme) can differ from the phone's scheme,
   and the band and flash return for that person.
 - Other pages the web view loads paint their own grounds: the Kosmos+ sign-in host and gate pages (navy, the gate's
-  values), and the Kosmos Plus section (body.plus-active, a navy gradient). Around those, the ground before the first
-  paint is now cream or near-black rather than their navy. Not changed here; it is the Kosmos+ look, not the app's.
+  values), and the Kosmos Plus section (body.plus-active redefines --k-bg to navy #132140, so the in-app header is
+  navy there too, matching that page). Around those, the native ground is cream or near-black. Not changed here: the
+  Kosmos+ brand look, a decision of its own.
+- The board's hidden "new look" switch (html[data-look="new"], kosmos-look in localStorage) sets --k-bg to #fff/#000;
+  boardGround stays #faf9f7/#0c0d0f, so a person on that look gets a hairline of difference around the page.
+- The full-screen phone menu (#pnav), opened from the in-app header, is still Kosmos+ navy with white type in both
+  themes. It is a screen of its own (Josh's #4823 mock), filed as #9103 rather than widened in here.
 
 ## Tests
 ios.board-ground-9101.test.js: no Swift file uses or spells out the navy; boardGround's two values equal the token the
