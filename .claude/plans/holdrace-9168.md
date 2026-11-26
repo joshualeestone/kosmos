@@ -55,3 +55,12 @@ added to an old task nobody is on, and a reopened task, are given at once (the w
     after creation; one minute).
   - After: new file 8/8; controls A (no grace) 4 fail, B (grace in handOutable) 6 fail, C (future young) 1 fail, D 1
     fail; the 21 files that touch the Assigner 511/511.
+- Round 2 (sonnet): 0 BLOCKER, 2 WARNING, 1 CONVENTION, 3 NIT. Converged.
+  - WARNING DEFERRED: the wait keys on createdAt, so an OLD task newly un-held or imported is given at once while a
+    new one waits. That is the intent: a person lifting a hold means "go", and the race is only about creation. Named
+    with the residuals under Weakest premise.
+  - WARNING with no change asked: held.young can be set while an older candidate wins; it is read only when pick
+    returns null, so it is correct (the reviewer checked failover, a person's give, willMove, whoMayGet).
+  - CONVENTION: "nothing else is missing" (the final counts are in the Reviews entries).
+  - NITs not taken: the comment already says 60 seconds by createdAt (wall-clock); a few seconds of clock skew ahead
+    gives at once (deliberate, as the plan says); stepAt moves the idle clock with `at` (by construction).
