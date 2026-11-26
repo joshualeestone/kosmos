@@ -283,7 +283,8 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
   "App icon and launch screen" above), so launch hands off to the native sign-in or Agents screen
   with no change of colour (kosmos#7945), and on the Agents tab's wait to connect, to the same ring
   in the same place starting to move. A launch from a notification tap opens on a board page, whose ground is the
-  same two colours (kosmos#9101), so it does not change colour either.
+  same two colours (kosmos#9101), so it does not change colour either, unless the board's Appearance is set by hand
+  against the phone's (the page then follows the board, the ground the phone).
 
 ### Tests that run without a simulator
 
