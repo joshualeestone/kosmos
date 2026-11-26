@@ -9,7 +9,10 @@
     {
       "icon": "shield",
       "title": "An expired Claude login is said",
-      "line": "An agent stopped by an expired Claude login shows a sign-in issue on its card; kosmos accounts says so, and agents are not moved onto it."
+      "line": "An agent stopped by an expired Claude login shows a sign-in issue on its card; kosmos accounts says so, and agents are not moved onto it.",
+      "platforms": [
+        "mac"
+      ]
     },
     {
       "icon": "shield",
