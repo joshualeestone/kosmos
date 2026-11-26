@@ -94,23 +94,33 @@ function sandboxCred(service) {
  * CLAUDE_CONFIG_DIR, or <home>/.claude when it is unset. Like usagepoll.readCredFor (review 14 there), a folder outside
  * the real home is never read: a sandboxed board's folders are not the operator's. null for any doubt. */
 function realHome() { try { return os.userInfo().homedir; } catch { return null; } }
-function credFileFor(ccd, home = realHome()) {
+function credFileFor(ccd, home = realHome(), userHome = os.homedir()) {
   if (!home) return null;
   const v = ccd == null ? '' : String(ccd).replace(/[\r\n]+$/, '');
-  const dir = path.resolve(v === '' ? path.join(home, '.claude') : v);
+  /* Unset: the folder Claude Code itself reads, under the process's HOME (os.homedir), not the real home. A sandboxed
+     board sets its own HOME, so its default folder falls outside the real home and is refused by the check below,
+     instead of reading the operator's own file (review 1, as usagepoll's review 7). */
+  const dir = path.resolve(v === '' ? path.join(userHome || home, '.claude') : v);
   const rel = path.relative(home, dir);
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
   return path.join(dir, '.credentials.json');
 }
 
+/* The two homes, for tests: an injected real home stands for HOME too unless HOME is given apart. */
+function credPathOf(ccd, home, userHome) {
+  const real = home === undefined ? realHome() : home;
+  const user = userHome !== undefined ? userHome : (home !== undefined ? home : os.homedir());
+  return credFileFor(ccd, real, user);
+}
+
 /* Default credential reader. macOS: the Keychain entry `service`. Elsewhere (kosmos#9097): the credentials file of the
  * folder `ccd` names. Returns the raw body (JSON string) or null. NEVER logs it; stderr is discarded so a "not found"
  * is a quiet null. */
-function readCredDefault(service, ccd, { platform = process.platform, home } = {}) {
+function readCredDefault(service, ccd, { platform = process.platform, home, userHome } = {}) {
   const sandbox = sandboxCred(service);
   if (sandbox !== undefined) return sandbox;
   if (platform !== 'darwin') {
-    const f = credFileFor(ccd, home === undefined ? realHome() : home);
+    const f = credPathOf(ccd, home, userHome);
     if (!f) return null;
     try { return fs.readFileSync(f, 'utf8'); } catch { return null; }
   }
@@ -128,11 +138,11 @@ function readCredDefault(service, ccd, { platform = process.platform, home } = {
 
 /* The same read, asynchronous, for a caller that must not block the board (#3997, claudeloginlive): one
  * definition of the command and its timeout. Resolves the raw body or null; never rejects. */
-function readCredAsync(service, ccd, { platform = process.platform, home } = {}) {
+function readCredAsync(service, ccd, { platform = process.platform, home, userHome } = {}) {
   const sandbox = sandboxCred(service);
   if (sandbox !== undefined) return Promise.resolve(sandbox);
   if (platform !== 'darwin') {   // kosmos#9097: the credentials file, as readCredDefault
-    const f = credFileFor(ccd, home === undefined ? realHome() : home);
+    const f = credPathOf(ccd, home, userHome);
     if (!f) return Promise.resolve(null);
     return new Promise((resolve) => { fs.readFile(f, 'utf8', (err, body) => resolve(err ? null : body)); });
   }

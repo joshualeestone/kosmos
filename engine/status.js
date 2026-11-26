@@ -9845,11 +9845,25 @@ function logLoginAdvReads(out, reads, log, state = LOGIN_ADV_LOGGED, progOf = pa
  * tmux+ps pane->CCD resolver, opts.readCred is threaded to the keychain read, and opts.cache
  * replaces the module TTL cache so a test starts cold. The pane-filter (isNamedOurs) + wiring
  * are exercised for real with either. */
+/* kosmos#9097: on Windows there is no tmux pane or `ps eww` to read an agent's live CLAUDE_CONFIG_DIR, so paneCcdRead
+ * answers undefined for every agent and the login warning stayed empty. There, the folder is the agent's launch job's
+ * configDir (null for a default-account agent). On macOS the job cannot be trusted for this (the #2129 class: the
+ * Keychain entry's NAME depends on whether the variable is set at all), but off macOS the credential is a FILE in the
+ * folder Claude Code uses, which the unset and the explicit default both resolve to. Returns { ccd, pid }: the folder,
+ * null for the default account, or undefined (skipped, never guessed) when there is no readable Claude job. */
+function win32JobCcd(name, readJob) {
+  let job = null;
+  try { job = (readJob || require('./create').readJob)(name); } catch { job = null; }
+  if (!job || (job.runner && job.runner !== 'claude')) return { ccd: undefined, pid: null };
+  return { ccd: typeof job.configDir === 'string' && job.configDir ? job.configDir : null, pid: null };
+}
+
 function computeLoginAdvisories(panes, nowMs, opts = {}) {
   const le = require('./loginexpiry');
   /* kosmos#7194: every read is kept with its process, for the board log when the notices change (logLoginAdvReads). */
   const reads = new Map();
-  const readDetail = opts.readCcd ? ((a) => ({ ccd: opts.readCcd(a), pid: null })) : (opts.readDetail || ((a) => paneCcdRead(a.target)));
+  const readDetail = opts.readCcd ? ((a) => ({ ccd: opts.readCcd(a), pid: null }))
+    : (opts.readDetail || ((opts.platform || process.platform) === 'win32' ? ((a) => win32JobCcd(a.name, opts.readJob)) : ((a) => paneCcdRead(a.target))));
   const readCcd = (a) => { const r = readDetail(a) || {}; reads.set(a.name, { ccd: r.ccd, pid: r.pid || null, cmd: r.cmd, target: a.target }); return r.ccd; };
   // The TTL + last-good-on-failure logic lives in loginexpiry.cachedAdvisories (unit-tested);
   // here we supply the impure compute: filter to our named panes, resolve each one's live CCD.
