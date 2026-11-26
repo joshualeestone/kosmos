@@ -22,6 +22,22 @@ converged: true
 - subdir CLAUDE.md audit: passed (audit_subdir_claudemd_changed_paths, rc 0).
 
 ### Per-Iteration Breakdown
-- Round 1: the race's timer was never cleared (240 s idle after the tests); a runner that ignored the signal could pass on the leak guard's line (the fixture ended at 120 s, inside the bound). Both fixed.
-- Round 2: the fixture's wait used the outer run's time scale, the inner run computes its own; fixed by handing the inner run KOSMOS_TEST_TIMEOUT_MS = 4 x the bound. Comment rewrapped.
-- Round 3: clean. NITs left: env() reads a const defined below it (safe, it runs after load); the 30 s spawnSync has one 17.8 s CI data point.
+
+#### Iteration 1
+**Reviewer model:** opus
+
+- [WARNING] the race's timer was never cleared, so the file idled the whole 240 s bound after its tests FIXED
+- [WARNING] a runner that ignored the signal could pass on the leak guard's line (the fixture ended at 120 s, inside the bound) FIXED
+- [NIT] the 30 s spawnSync took 17.8 s on one CI run: watch, one data point
+
+#### Iteration 2
+**Reviewer model:** opus
+
+- [WARNING] the fixture's wait used the outer run's time scale while the inner run computes its own; the inner run now gets KOSMOS_TEST_TIMEOUT_MS = 4 x the bound FIXED
+- [NIT] the bound's comment ran past 120 columns FIXED
+
+#### Iteration 3
+**Reviewer model:** opus
+
+- No issues found at BLOCKER or WARNING.
+- [NIT] env() reads EXIT_BOUND_MS, defined below it: safe, env() runs only after load
