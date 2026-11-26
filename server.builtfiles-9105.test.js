@@ -166,7 +166,7 @@ test('#9105: a bad check or bad files is a 400 with the reason, and nothing is s
   const before = JSON.stringify(stored(n));
   const a = await mark(n, asAgent('zed'), { check: ['nope.txt'] });
   assert.equal(a.status, 400);
-  assert.match(a.json.error, /no file named "nope.txt"/);
+  assert.match(a.json.error, /no file named 'nope.txt' is delivered/);
   const b = await mark(n, asAgent('mona'), { files: [{ name: 'x', fingerprint: A }, { name: 'x', fingerprint: B }] });
   assert.equal(b.status, 400);
   assert.match(b.json.error, /two files named/);
@@ -229,7 +229,7 @@ test('#9105 Mac: --check checks only the file named', macOnly, async () => {
   assert.deepEqual(stored(n).builtFiles.map((e) => e.checkedBy), [[], ['zed']]);
   const bad = await mac(['task', 'built', projectId, String(n), 'x', '--check', 'nope.txt'], { KOSMOS_AGENT_TOKEN: sendertoken.mint('zed').token });
   assert.equal(bad.code, 1, bad.out);
-  assert.match(bad.out, /no file named/);
+  assert.match(bad.out, /no file named 'nope.txt' is delivered on this task/, 'the Mac CLI cut the board\'s sentence: ' + bad.out);
 });
 
 test('#9105 Mac: two files of one name, --check with --file, and a bare --check are refused before the board', macOnly, async () => {
@@ -346,4 +346,24 @@ test('#9105 review 1 Mac: --check to a board that does not know it is said', mac
   } finally {
     tasks.setBuilt = orig;
   }
+});
+
+test('#9105 review 2 Mac: task list says a multi-file mark has more files; task files counts files; a bad --check names the files', macOnly, async () => {
+  const tok = sendertoken.mint('mona').token;
+  const n = tasks.create(projectId, { sentence: 'Mac list several', who: 'mona' }).number;
+  assert.equal((await mac(['task', 'built', projectId, String(n), 'both', '--file', path.join(OUT, 'report.md'), '--file', path.join(OUT, 'data.csv')], { KOSMOS_AGENT_TOKEN: tok })).code, 0);
+  const list = await mac(['task', 'list', projectId], { KOSMOS_AGENT_TOKEN: tok });
+  assert.match(list.out, new RegExp('fingerprint ' + sha('the report\n') + ', sent by "?mona"? \\(1 of 2 files: kosmos task show lists them\\)'), list.out);
+  const one = tasks.create(projectId, { sentence: 'Mac list one', who: 'mona' }).number;
+  assert.equal((await mac(['task', 'built', projectId, String(one), 'one', '--file', path.join(OUT, 'report.md')], { KOSMOS_AGENT_TOKEN: tok })).code, 0);
+  const list2 = await mac(['task', 'list', projectId], { KOSMOS_AGENT_TOKEN: tok });
+  const rows = list2.out.split('\n');
+  const at = rows.findIndex((l) => l.includes('Mac list one'));
+  const oneLine = rows.slice(at + 1).find((l) => l.includes('fingerprint ')) || '';
+  assert.ok(at >= 0 && oneLine.includes(sha('the report\n')), 'CONTROL: the one-file task\'s own line was not found: ' + list2.out);
+  assert.doesNotMatch(oneLine, /of \d+ files/, 'CONTROL: a one-file mark said it had more: ' + oneLine);
+  const files = await mac(['task', 'files', projectId], { KOSMOS_AGENT_TOKEN: tok });
+  assert.match(files.out, /built tasks? with a delivered file in .* \(\d+ files\): /, files.out);
+  const bad = await mac(['task', 'built', projectId, String(one), 'x', '--check', 'nope.md'], { KOSMOS_AGENT_TOKEN: sendertoken.mint('zed').token });
+  assert.match(bad.out, /its files: 'report\.md'\)/, bad.out);
 });

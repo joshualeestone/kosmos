@@ -133,8 +133,8 @@ const USAGE = {
     '  kosmos task files <project-id|--all>                         check each built task\'s delivered file again on this computer: matches, changed or missing',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
-    '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) and its path with the mark, once per file; a file sent again by its name replaces only that one; another agent\'s mark keeps them, your own mark without --file drops them, unless it sends only --waiting',
-    '      --check <file-name>                                      as another agent, check only the files named (once per file); without it a mark checks every file',
+    '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) and its path with the mark, once per file; a file sent again by its name replaces only that one, and files not sent stay as they were; another agent\'s mark keeps them, your own mark without --file drops them, unless it sends only --waiting',
+    '      --check <file-name>                                      as another agent, check only the files named (once per file); without it a mark checks every file, and withdraws any you sent yourself',
     '      --waiting <who>                                          what it waits on: person, review or release (or none, to say it waits on nothing named)',
     '      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes',
     '  kosmos task edit <project-id> <task-number> [--title "<new title>"] [--detail "<new detail>" | --clear-detail]  fix a task\'s title or detail',
@@ -1584,7 +1584,9 @@ async function taskList(ctx, args) {
       if (bits.length) ctx.out('    ' + bits.join('; '));
     }
     // #6330 slice 2, as install/kosmos: a built task's fingerprint, so the next agent can check its copy.
-    if (x.builtAt && /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(x.builtFingerprint || '')) ctx.out('    fingerprint ' + x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : ''));
+    if (x.builtAt && /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(x.builtFingerprint || '')) ctx.out('    fingerprint ' + x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : '')
+      // kosmos#9105 review 2, as install/kosmos: a mark with several files says there are more.
+      + (Array.isArray(x.builtFiles) && x.builtFiles.filter((e) => e && e.fingerprint).length > 1 ? ' (1 of ' + x.builtFiles.filter((e) => e && e.fingerprint).length + ' files: kosmos task show lists them)' : ''));
   }
   return 0;
 }

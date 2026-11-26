@@ -1057,6 +1057,11 @@ function sameList(a, b) {
 }
 /* kosmos#9105: at most this many files on one built mark, so a looping sender cannot grow the store. */
 const BUILT_FILES_MAX = 20;
+/* kosmos#9105 review 2: a file's name in a refusal, between single quotes and with no double quote or backslash, which the
+   Mac CLI's sed reads the error up to (a JSON-quoted name cut it at its first quote). */
+function plainName(v) {
+  return "'" + String(v).replace(/["\\\u0000-\u001f\u007f]/g, ' ') + "'";
+}
 /* The files a mark sends, checked: [{ name, fingerprint, path }], or a string saying what is wrong. */
 function builtFilesValue(files) {
   if (!Array.isArray(files) || files.length === 0) return 'files is a list of the files delivered, at least one';
@@ -1066,7 +1071,7 @@ function builtFilesValue(files) {
     if (!f || typeof f !== 'object' || Array.isArray(f)) return 'each file is { name, fingerprint, file_path? }';
     const name = builtFileName(f.name);
     if (!name) return 'each file has its name: the file\'s own name, without its folder';
-    if (out.some((x) => x.name === name)) return 'two files named ' + JSON.stringify(name) + ' on one mark: give each file once';
+    if (out.some((x) => x.name === name)) return 'two files named ' + plainName(name) + ' on one mark: give each file once';
     if (!(typeof f.fingerprint === 'string' && FINGERPRINT_RE.test(f.fingerprint))) return 'a fingerprint is "sha256:" or "pdf-normalized:" followed by 64 lowercase hex characters';
     const raw = f.filePath != null ? f.filePath : f.file_path;
     const p = raw == null ? '' : filePathValue(raw);
@@ -1268,10 +1273,12 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       const before = filesOf(t);
       if (checkNames) {
         const bad = checkNames.find((x) => !before.some((e) => e.name === x && e.fingerprint));
-        if (bad !== undefined) throw new Error('no file named ' + JSON.stringify(bad) + ' is delivered on this task (kosmos task show lists them)');
+        // Review 2: the names are said here, since a one-file task's readout shows none.
+        const here = before.filter((e) => e.fingerprint && e.name).map((e) => plainName(e.name));
+        if (bad !== undefined) throw new Error('no file named ' + plainName(bad) + ' is delivered on this task (' + (here.length ? 'its files: ' + here.join(', ') : 'it has no named file') + ')');
         if (who === null) throw new Error('a check of named files needs the checker\'s name');
         const own = checkNames.find((x) => before.some((e) => e.name === x && e.by === who));
-        if (own !== undefined) throw new Error('you sent ' + JSON.stringify(own) + ' yourself, so your mark cannot check it');
+        if (own !== undefined) throw new Error('you sent ' + plainName(own) + ' yourself, so your mark cannot check it');
       }
       const viewOf = (e) => (e ? { builtAt: t.builtAt, builtFingerprint: e.fingerprint, builtFingerprintBy: e.by, builtFilePath: e.path,
         builtFingerprintAt: e.at, builtCheckedBy: e.checkedBy, builtCheckedByPerson: e.checkedByPerson, builtReplaces: e.replaces } : { builtAt: t.builtAt });

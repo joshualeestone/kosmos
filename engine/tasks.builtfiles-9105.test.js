@@ -100,7 +100,7 @@ test('#9105: a checker\'s mark checks every file; --check checks only the files 
 test('#9105: a check is refused for a file not on the task, the checker\'s own file, or beside files', () => {
   const n = freshTask();
   mark(n, { by: 'mona', files: two() });
-  assert.match(refused(n, { by: 'zed', check: ['nope.txt'] }), /no file named "nope.txt"/);
+  assert.match(refused(n, { by: 'zed', check: ['nope.txt'] }), /no file named 'nope.txt' is delivered/);
   assert.match(refused(n, { by: 'mona', check: ['report.md'] }), /yourself/);
   assert.match(refused(n, { by: 'zed', check: ['report.md'], files: [{ name: 'x', fingerprint: C }] }), /without files/);
   assert.match(refused(n, { person: true, check: ['report.md'] }), /without files/);
@@ -157,7 +157,7 @@ test('#9105: the same mark again records nothing', () => {
 test('#9105: a mark\'s files are checked before anything is written', () => {
   const n = freshTask();
   assert.match(refused(n, { by: 'mona', files: [] }), /at least one/);
-  assert.match(refused(n, { by: 'mona', files: [{ name: 'a', fingerprint: A }, { name: 'a', fingerprint: B }] }), /two files named "a"/);
+  assert.match(refused(n, { by: 'mona', files: [{ name: 'a', fingerprint: A }, { name: 'a', fingerprint: B }] }), /two files named 'a'/);
   assert.match(refused(n, { by: 'mona', files: [{ name: 'dir/a', fingerprint: A }] }), /without its folder/);
   assert.match(refused(n, { by: 'mona', files: [{ name: '..', fingerprint: A }] }), /without its folder/);
   assert.match(refused(n, { by: 'mona', files: [{ name: 'a', fingerprint: 'sha256:xyz' }] }), /fingerprint is/);

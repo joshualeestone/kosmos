@@ -767,7 +767,10 @@ function filesLines(body, opts = {}) {
     if (tally.nopath) bits.push(tally.nopath + ' with no path recorded');
     if (tally.elsewhere) bits.push(tally.elsewhere + ' marked on another kind of computer');
     if (tally.unchecked) bits.push(tally.unchecked + ' not opened (see each line for why)');
-    lines.push(checked + ' built task' + (checked === 1 ? '' : 's') + ' with a delivered file ' + (every ? 'across your projects' : where) + ': ' + bits.join(', ') + '.'
+    // kosmos#9105 review 2: the tallies count files, so when a mark sent several the line says how many.
+    const fileCount = tally.matches + tally.changed + tally.missing + tally.unreadable + tally.nopath + tally.elsewhere + tally.unchecked;
+    lines.push(checked + ' built task' + (checked === 1 ? '' : 's') + ' with a delivered file ' + (every ? 'across your projects' : where)
+      + (fileCount !== checked ? ' (' + fileCount + ' files)' : '') + ': ' + bits.join(', ') + '.'
       + (noFile ? ' ' + noFile + ' more built without --file.' : ''));
     if (tally.changed || tally.missing) lines.push('A file changed or missing since the mark: send it again with kosmos task built <project-id> <task-number> --file <path>, or say why it changed.');
     lines.push('Checked on this computer: a mark made on another computer can read missing here.');

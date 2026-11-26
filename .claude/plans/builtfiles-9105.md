@@ -68,3 +68,16 @@ said "withdraws all" assuming one sender; per-file is the consistent reading.
     ignored --check. 9 MINOR the Mac name keeps a trailing newline (then refused as a control character): REASONED,
     no test (a file with a newline in its name). 11 tests added for each.
   Measured after: engine 21/21, route+Mac 14/14, Windows 4/4; 7 new mutants red; 222 older tests green.
+- Round 2 (sonnet, blind, whole branch): 0 BLOCKER, 0 MAJOR, 9 MINOR (path stripping, partial writes and the other
+  readers of the built fields checked and found clean). Fixed: 3+4 help says a mark without --file withdraws your own
+  files, and files not sent stay; 5 a --check refusal names the task's files (a one-file readout shows no name); 6
+  both CLIs' task list say "1 of N files" on a multi-file mark; 7 task files says the file count when it differs.
+  Found while testing 5, my own bug from the build: refusals quoted names with JSON double quotes, and the Mac CLI
+  reads the error up to the first one ("no file named \."); names in refusals are now in single quotes with no
+  double quote or backslash, and the Mac test asserts the whole sentence (a JSON-quote mutant turns it red).
+  Decided, not changed: 8 names are exact strings (Report.pdf and report.PDF are two files; folding case would merge
+  two real files on a case-sensitive disk, a worse error than a duplicate that says itself); 9 a hand-made request
+  whose name and path differ is taken as sent (both CLIs send them matched); 10 an older board touching a multi-file
+  mark leaves the one file it knows, without a withdrawn record: the safe direction, no notice is possible from a
+  board that does not know the other files existed.
+
