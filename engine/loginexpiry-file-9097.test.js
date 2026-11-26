@@ -32,9 +32,7 @@ function home() {
   fs.writeFileSync(path.join(h, '.claude-b', '.credentials.json'), body({ refreshTokenExpiresAt: UNTIL + 5, expiresAt: ACCESS }));
   return h;
 }
-// kosmos#9107: these tests choose the file; the board's background read (fileBodyNow) has its own test file.
-const readNow = (f) => fs.readFileSync(f, 'utf8');
-const winRead = (h) => (service, ccd) => le.readCredDefault(service, ccd, { platform: 'win32', home: h, readNow });
+const winRead = (h) => (service, ccd) => le.readCredDefault(service, ccd, { platform: 'win32', home: h });
 
 test('kosmos#9097: on Windows the default account (no CLAUDE_CONFIG_DIR) is read from <home>/.claude/.credentials.json', () => {
   const h = home();
@@ -89,9 +87,9 @@ test('kosmos#9097 review 1: a sandboxed board (its own HOME) never reads the rea
   const sandbox = tmp('le9097-sb-');
   // HOME is the sandbox, outside the real home: the unset account is the sandbox's, and is refused, not the real one.
   const DEF = le.serviceNameFor(undefined);
-  assert.strictEqual(le.readCredDefault(DEF, undefined, { platform: 'linux', home: real, userHome: sandbox, readNow }), null);
+  assert.strictEqual(le.readCredDefault(DEF, undefined, { platform: 'linux', home: real, userHome: sandbox }), null);
   // CONTROL: HOME is the real home: the same call reads the real default file.
-  assert.ok(le.readCredDefault(DEF, undefined, { platform: 'linux', home: real, userHome: real, readNow }));
+  assert.ok(le.readCredDefault(DEF, undefined, { platform: 'linux', home: real, userHome: real }));
 });
 
 test('kosmos#9097 review 1: on Windows the login warning finds the folder of each agent from its launch job', () => {
@@ -171,9 +169,9 @@ test('kosmos#9097 review 3: the row reads live on every platform, never in a tes
 
 test('kosmos#9097 review 3: off macOS a non-default credential with no folder reads nothing, never the default file', () => {
   const h = home();
-  assert.strictEqual(le.readCredDefault('Claude Code-credentials-2a1a4199', undefined, { platform: 'win32', home: h, readNow }), null);
+  assert.strictEqual(le.readCredDefault('Claude Code-credentials-2a1a4199', undefined, { platform: 'win32', home: h }), null);
   // CONTROL: the default credential with no folder reads the default file.
-  assert.ok(le.readCredDefault(le.serviceNameFor(undefined), undefined, { platform: 'win32', home: h, readNow }));
+  assert.ok(le.readCredDefault(le.serviceNameFor(undefined), undefined, { platform: 'win32', home: h }));
 });
 
 test('kosmos#9097 review 3: on Windows the explicit default folder matches without case', () => {
@@ -187,25 +185,17 @@ test('kosmos#9097 review 3: on Windows the explicit default folder matches witho
 
 
 test('kosmos#9097 review 7: off macOS the real-home guards stop a read before it is attempted', () => {
-  // No real file is needed: both reads (fs.readFileSync, and fs.readFile behind the board's fileBodyNow, #9107) are
-  // watched, and answer a fake body at once if they are ever reached.
+  // No real file is needed: fs.readFileSync is watched, and answers a fake body if it is ever reached.
   const realFile = path.join(os.userInfo().homedir, '.claude', '.credentials.json');
-  // #9107 item 2: compared resolved, and without case where the file system ignores it (Windows, macOS), as the code
-  // reads a path.resolve'd folder.
+  // kosmos#9107 item 2: compared resolved, and without case where the file system ignores it (Windows, and macOS by
+  // default), since the code reads a path.resolve'd folder.
   const fold = (p) => (process.platform === 'win32' || process.platform === 'darwin' ? p.toLowerCase() : p);
   const same = (f) => fold(path.resolve(String(f))) === fold(path.resolve(realFile));
   const tried = [];
   const orig = fs.readFileSync;
-  const origAsync = fs.readFile;
   const savedCtx = process.env.NODE_TEST_CONTEXT;
   const savedHome = process.env.AGENT_WORKFORCE_HOME;
-  le._resetForTests();
   fs.readFileSync = function (f, ...rest) { if (same(f)) { tried.push(f); return body({ refreshTokenExpiresAt: UNTIL }); } return orig.call(this, f, ...rest); };
-  fs.readFile = function (f, ...rest) {
-    // Answers at once, inside the call: so the CONTROL below gets a body on its first read. A real read lands later.
-    if (same(f)) { tried.push(f); rest[rest.length - 1](null, body({ refreshTokenExpiresAt: UNTIL })); return; }
-    return origAsync.call(this, f, ...rest);
-  };
   try {
     const read = () => le.readCredDefault(le.serviceNameFor(undefined), undefined, { platform: 'linux', userHome: os.userInfo().homedir });
     // A sandboxed board (AGENT_WORKFORCE_HOME is a sandbox), outside a test: refused, and the file is never opened.
@@ -223,8 +213,6 @@ test('kosmos#9097 review 7: off macOS the real-home guards stop a read before it
     assert.strictEqual(tried.length, 1);
   } finally {
     fs.readFileSync = orig;
-    fs.readFile = origAsync;
-    le._resetForTests();
     if (savedCtx === undefined) delete process.env.NODE_TEST_CONTEXT; else process.env.NODE_TEST_CONTEXT = savedCtx;
     if (savedHome === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = savedHome;
   }

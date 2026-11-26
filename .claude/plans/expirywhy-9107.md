@@ -3,44 +3,34 @@
 **Posture:** production (the board on Windows and Linux). **Status:** what has run is on the card (kosmos#9107).
 
 **Finished looks like:** off macOS, a board that shows no Claude login warning says why in its log, once per kind, with
-no path or name; the guards test's control holds on a Windows runner whatever the home's spelling; and the board's
-snapshot no longer reads the credentials file itself. It still reads the account list and each account's `.claude.json`
-from the same home (status.js computeLoginAdvisories), so a stalled home can still hold it there: item 4 is the
-credentials file only (review 1).
+no path or name; and the #9097 guards test's control finds the real file however the home is spelled in case.
+Items 3 and 4 are NOT in this branch (below).
 
 ## Decided
 - Item 1, the words: four kinds (a named account with no folder, a sandboxed board, no readable home, a folder outside
   the home), each said once per board run through `console.error` like communitysend's `logOnce`. No path in any line,
   since a path can carry the user's name. The `node --test` refusal says nothing: only a test run meets it, and nobody
   reads a board log there. Under `node --test` the default log is silent; tests set their own.
-- Item 2: the guards test watches the real file by its resolved, case-folded path, and watches `fs.readFile` as well as
-  `fs.readFileSync`, because after item 4 the board's read is the asynchronous one. Without the second watcher the
-  control would read nothing and the guard checks above it would pass for the wrong reason.
-- Item 4: off macOS the synchronous reader answers from what a background `fs.readFile` last found (`fileBodyNow`), and
-  starts the next read when the last is a minute old, or when the login generation moved since it (a sign-in; review 1,
-  else the old notice stayed up for the advisory cache's 5 minutes, the #5018 complaint), and none is in flight. The
-  first answer for a file is null. A read that finds a new refresh-token expiry moves the generation, so the advisory
-  cache recomputes on the next snapshot; an access-token refresh alone does not (it rewrites the file every few hours).
-  A read that never returns holds back only that file's next read. macOS is unchanged (the Keychain read already has
-  its 5 s bound). Review 2: at most two of these background reads run at once over all files, since a stalled read
-  holds one of libuv's four shared threads (dns and crypto use them too); with two files stalled, no further reads
-  start and the warnings stay as last read. The cap is this reader's only (review 3): readCredAsync (claudeloginlive)
-  and usagepoll.readCredFor read the same files with no cap, as they did before this change. Reviews 2 and 3: a read
-  caught mid-rewrite (a body that does not parse, or an error other than ENOENT, such as EBUSY while Windows locks the
-  file) keeps the last good body and is read again on the next call, three times in a row at most; then it is taken as
-  no login, so a broken file never keeps an old date for good. A deleted file (ENOENT) is no login at once.
-- The "account" line (a named account with no folder) cannot be reached through the board's own calls, which derive the
-  account from the folder; it covers a direct caller that names an account, as the #9097 review asked. Kept for that.
-- The tests that check which file is chosen pass a direct read (`readNow`); the background read has its own tests.
+- The "account" line cannot be reached through the board's own calls, which derive the account from the folder; it
+  covers a direct caller that names an account, as the #9097 review asked. Kept for that.
+- Item 2: the guards test compares the real file resolved, and without case on Windows and macOS (case-insensitive
+  file systems), instead of by the exact string.
 
-## Rejected
-- A bounded synchronous read through a child process (as macOS's `security` call): one process per account per
-  snapshot refresh, to cover a case (a stalled network home) that a background read covers for nothing.
-- Logging the refused path: it names the user.
+## Item 4 taken out (decided 11-26, after five review rounds)
+A background read of the credentials file (so the snapshot never waits on a stalled network home) was built and
+reviewed five times. Each round found a real defect in it: a sign-in kept the old notice (#5018 again), a torn or
+locked file hid the warning, a read slot could be counted out twice, and in round 5 that with three or more accounts
+the ones after the first two were never read again, because reads start only when the advisories recompute (every
+5 minutes) and the first files in pane order always took the two slots. The loop was finding defects in its own fixes.
+**So item 4 is not in this branch: the read stays synchronous, as on main.** It is right for a local disk; it blocks
+only on a home on a stalled share, which nothing here has measured on a real board.
+A version that works needs, at least: reads started from the completion of the last one (a queue, not the recompute's
+order); a time bound that frees a stalled read's slot; a recompute when a read lands, not at the next 5 minute tick;
+and a test that drives `computeLoginAdvisories` with more accounts than slots across several rounds. Left on the card.
 
 ## Weakest premise
-- That a login warning up to one snapshot late after a board start is acceptable. The warnings are about days, and the
-  `loginChanged()` call brings it to the next snapshot once the read lands.
+- That a stalled network home on Windows is rare enough for item 4 to wait. If one is seen, the card lists what the
+  fix needs.
 
 ## Not done here
 - Item 3 (compare the launch job's folder with a running Windows agent's own CLAUDE_CONFIG_DIR) needs a Windows box with

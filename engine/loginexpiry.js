@@ -144,72 +144,16 @@ function credPathOf(ccd, home, userHome, service) {
   return credFileFor(ccd, real, user);
 }
 
-/* kosmos#9107 item 4: off macOS the credentials file can sit on a home that stalls (a network share), and readCredDefault
- * runs inside the snapshot on the board's only thread. So it answers with what a background read last found and starts
- * the next one: null the first time for a file, and a read that never returns holds back only that file's next read.
- * A read is started when the last is a minute old, or when the login generation moved since it (a sign-in, review 1:
- * else the old notice stayed up to the advisory cache's 5 minutes, #5018). A read that finds a new refresh-token expiry
- * moves the generation, so the advisories recompute; an access-token refresh alone does not. Since any move re-reads
- * every file, one account's new date reads each other account's file once more (review 4).
- * Review 2: at most FILE_READS_MAX of THESE reads run at once over all files, since each stalled one holds a thread of
- * libuv's shared pool (4 by default; dns and crypto use it too). The cap is this reader's only: readCredAsync and
- * usagepoll.readCredFor read the same files with no cap (review 3).
- * Reviews 2 and 3: a read caught mid-rewrite (a body that does not parse, or an error other than "no such file", such as
- * EBUSY while Windows has the file locked) keeps what it had and is read again on the next call, up to FILE_BAD_TRIES
- * times in a row; after that it is taken as no login, so a file that stays broken never keeps an old date for good.
- * A file that is gone (ENOENT) is taken as no login at once. */
-const FILE_REREAD_MS = 60 * 1000;
-const FILE_READS_MAX = 2;
-const FILE_BAD_TRIES = 3;
-let fileReadsRunning = 0;
-let fileReadsEpoch = 0;   // _resetForTests moves it, so a read started before a reset changes nothing after it
-const fileReads = new Map();   // file -> { body, until, at, gen, reading, bad }
-function refreshUntilOf(body) {
-  if (body == null) return 'none';
-  try { const o = JSON.parse(body); return String(o && o.claudeAiOauth && o.claudeAiOauth.refreshTokenExpiresAt); } catch { return 'unread'; }
-}
-function fileBodyNow(f, now = Date.now()) {
-  let r = fileReads.get(f);
-  if (!r) { r = { body: null, until: 'none', at: -Infinity, gen: -1, reading: false, bad: 0 }; fileReads.set(f, r); }
-  if (!r.reading && fileReadsRunning < FILE_READS_MAX && (now - r.at >= FILE_REREAD_MS || r.gen !== loginGen)) {
-    r.reading = true;
-    fileReadsRunning += 1;
-    const startGen = loginGen;
-    const epoch = fileReadsEpoch;
-    let answered = false;   // review 4: the catch below undoes a launch that threw, never a callback's own work
-    try {
-      fs.readFile(f, 'utf8', (err, body) => {
-        answered = true;
-        if (epoch !== fileReadsEpoch) return;
-        fileReadsRunning -= 1;
-        r.reading = false;
-        const gone = err && err.code === 'ENOENT';
-        const next = err ? null : body;
-        const until = refreshUntilOf(next);
-        if ((until === 'unread' || (err && !gone)) && r.bad + 1 < FILE_BAD_TRIES) { r.bad += 1; r.at = -Infinity; return; }
-        const taken = until === 'unread' || err ? { body: null, until: 'none' } : { body: next, until };
-        r.bad = 0;
-        const changed = taken.until !== r.until;
-        r.body = taken.body; r.until = taken.until; r.at = Date.now();
-        const movedDuring = startGen !== loginGen;   // a sign-in, or another file's new date
-        if (changed) loginGen += 1;
-        r.gen = movedDuring ? startGen : loginGen;   // moved during this read: read again next time
-      });
-    } catch { if (!answered) { fileReadsRunning -= 1; r.reading = false; r.at = now; r.gen = loginGen; } }
-  }
-  return r.body;
-}
-
 /* Default credential reader. macOS: the Keychain entry `service`. Elsewhere (kosmos#9097): the credentials file of the
- * folder `ccd` names, as fileBodyNow last read it (null until its first background read lands; up to a minute old).
- * Returns the raw body (JSON string) or null. NEVER logs it; stderr is discarded so a "not found" is a quiet null. */
-function readCredDefault(service, ccd, { platform = process.platform, home, userHome, readNow = fileBodyNow } = {}) {
+ * folder `ccd` names. Returns the raw body (JSON string) or null. NEVER logs it; stderr is discarded so a "not found"
+ * is a quiet null. */
+function readCredDefault(service, ccd, { platform = process.platform, home, userHome } = {}) {
   const sandbox = sandboxCred(service);
   if (sandbox !== undefined) return sandbox;
   if (platform !== 'darwin') {
     const f = credPathOf(ccd, home, userHome, service);
     if (!f) return null;
-    try { return readNow(f); } catch { return null; }
+    try { return fs.readFileSync(f, 'utf8'); } catch { return null; }
   }
   try {
     // 🛑 timeout is load-bearing, not tidiness. `security find-generic-password` can raise a
@@ -381,8 +325,7 @@ function cachedAdvisories({ cache, now = Date.now(), ttlMs, compute } = {}) {
  * that completes moves the login's date, and every cache of that date must be read again at once, not after its
  * TTL. A sign-in calls loginChanged(); each cache (cachedAdvisories above, claudeloginlive's per-account dates)
  * stores the generation it was read under and treats any other as stale. A counter, not a listener list, so no
- * module has to require another to be told. Off macOS (kosmos#9107) fileBodyNow also moves it when a background
- * read finds a new refresh-token expiry, and reads again after any move. */
+ * module has to require another to be told. */
 let loginGen = 0;
 function loginChanged() { loginGen += 1; }
 function loginGeneration() { return loginGen; }
@@ -390,8 +333,7 @@ function loginGeneration() { return loginGen; }
 module.exports = {
   serviceNameFor, refreshExpiryFor, loginTimesFor, readCredAsync, readCredDefault, advisoriesFor, severityFor, ccdFromPsEnv, agentAdvisories,
   cachedAdvisories, loginChanged, loginGeneration, DEFAULT_SERVICE, DAY_MS, URGENT_DAYS, WARN_DAYS, WARN_WITHIN_DAYS,
-  daysLeftOf, daysLeftInWindow, fileBodyNow, FILE_REREAD_MS, REFUSAL_WORDS,
+  daysLeftOf, daysLeftInWindow, REFUSAL_WORDS,
   _setRefusalLogForTests: (fn) => { refusalLog = fn; },
-  _resetForTests: () => { refusalsSaid.clear(); fileReads.clear(); fileReadsRunning = 0; fileReadsEpoch += 1; },
-  FILE_READS_MAX, FILE_BAD_TRIES,
+  _resetForTests: () => { refusalsSaid.clear(); },
 };
