@@ -777,7 +777,7 @@ bash -c "exec -a 'bash /x/queued-heavy.sh --queued-args y' sleep $((U+5))" & RP=
 until_true 10 '[ "$(ps -o command= -p $RP 2>/dev/null | cut -c1-12)" = "bash /x/queu" ]'
 printf 'rp\nbg\nMon Jan  1 00:00:00 2001\n' > $S/mwd/qh-label.$RP
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd /bin/bash $QH --withdraw "rp" 2>&1); rw=$?
-ok "#9118: --withdraw does not signal a pid whose start time is not the one its label recorded (a reused pid)" '[ "$rw" = 1 ] && kill -0 $RP 2>/dev/null'
+ok "#9118: --withdraw does not signal a pid whose start time is not the one its label recorded (a reused pid)" '[ "$rw" = 1 ] && [[ "$o" == *"no live run labelled"* ]] && kill -0 $RP 2>/dev/null'
 # The same reading queued-heavy.sh's _qh_pid_start makes (/proc on Linux, ps lstart elsewhere).
 pstart9118() { if [ -r "/proc/$1/stat" ]; then sed 's/.*) //' "/proc/$1/stat" | awk '{print "t" $20}'; else TZ=UTC LC_ALL=C ps -o lstart= -p "$1" | tr -s ' ' | sed 's/^ //; s/ $//'; fi; }
 printf 'rp\nbg\n%s\n' "$(pstart9118 $RP)" > $S/mwd/qh-label.$RP
