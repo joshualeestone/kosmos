@@ -1520,7 +1520,7 @@ for _p in $bwp; do wait "$_p"; done   # the writers only: a bare wait would also
 nl9139="$(wc -l < "$MB/beside-runs.log" | tr -d ' ')"; nw9139="$(grep -c '^E w' "$MB/beside-runs.log")"
 { [ "$nl9139" -ge 400 ] && [ "$nl9139" -le 500 ] && [ "$nw9139" = 300 ]; } && pass "#9139 twenty writers at once lose no line across the trim" || fail "#9139 concurrent writers lost lines ($nl9139 lines, $nw9139 of 300 writer lines)"
 # Review 2: a lock left by a writer killed while holding it is broken once it is older than 10 s.
-mkdir "$MB/beside-runs.log.lock"; touch -t "$(date -r $(( $(date +%s) - 60 )) +%Y%m%d%H%M.%S 2>/dev/null || date -d "@$(( $(date +%s) - 60 ))" +%Y%m%d%H%M.%S)" "$MB/beside-runs.log.lock"
+mkdir "$MB/beside-runs.log.lock"; TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 60 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( $(date +%s) - 60 ))" +%Y%m%d%H%M.%S)" "$MB/beside-runs.log.lock"   # UTC both sides (#7725)
 st9139=$(date +%s); KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end after-stale; el9139=$(( $(date +%s) - st9139 ))
 { [ ! -e "$MB/beside-runs.log.lock" ] && tail -1 "$MB/beside-runs.log" | grep -q '^E after-stale ' && [ "$el9139" -lt 5 ]; } \
   && pass "#9139 a stale lock (a writer killed holding it) is broken at once and the line is written" || fail "#9139 a stale lock was not broken (elapsed ${el9139}s, lock $( [ -e "$MB/beside-runs.log.lock" ] && echo present || echo gone))"
