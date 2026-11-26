@@ -70,3 +70,32 @@ test('kosmos#9097: an advisory is built on Windows for a login inside the warnin
   const none = le.advisoriesFor({ accounts: [{ ccd: undefined, agents: ['agent-a'] }], now, readCred: () => null });
   assert.strictEqual(none.length, 0);
 });
+
+test('kosmos#9097 review 1: a sandboxed board (its own HOME) never reads the real home default file', () => {
+  const real = home();
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'le9097-sb-'));
+  // HOME is the sandbox, outside the real home: the unset account is the sandbox's, and is refused, not the real one.
+  assert.strictEqual(le.readCredDefault('x', undefined, { platform: 'linux', home: real, userHome: sandbox }), null);
+  // CONTROL: HOME is the real home: the same call reads the real default file.
+  assert.ok(le.readCredDefault('x', undefined, { platform: 'linux', home: real, userHome: real }));
+});
+
+test('kosmos#9097 review 1: on Windows the login warning finds each agent's folder from its launch job', () => {
+  const h = home();
+  const status = require('./status');
+  const now = UNTIL - 3 * 86400000;
+  const jobs = { 'agent-a': { runner: 'claude', configDir: null }, 'agent-b': { runner: 'claude', configDir: path.join(h, '.claude-b') }, 'agent-c': { runner: 'codex' } };
+  const panes = Object.keys(jobs).map((name) => ({ name, target: name, runner: jobs[name].runner, command: 'claude' }));
+  const opts = {
+    platform: 'win32', readJob: (n) => jobs[n] || null, readCred: winRead(h), cache: new Map(),
+    displayName: (n) => n, emailOf: () => null, rowDirs: new Set(),
+  };
+  const adv = status.computeLoginAdvisories(panes, now, opts);
+  const named = adv.flatMap((a) => a.agents || []);
+  assert.ok(named.includes('agent-a'), 'a default-account agent is warned about: ' + JSON.stringify(adv));
+  assert.ok(named.includes('agent-b'), 'an agent on its own folder is warned about');
+  assert.ok(!named.includes('agent-c'), 'a non-Claude agent is never in a Claude login warning');
+  // CONTROL: the pane reader (the path Windows took before) finds no folder, so no warning: the 11-25 board's [].
+  const before = status.computeLoginAdvisories(panes, now, { ...opts, readDetail: () => ({ ccd: undefined, pid: null }), cache: new Map() });
+  assert.strictEqual(before.length, 0);
+});
