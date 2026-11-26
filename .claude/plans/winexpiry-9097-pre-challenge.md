@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: winexpiry-9097
-diff_hash: 9b67e58f682ed124fcdc43a572b0bdf70987100ce83433123471fa6d541f6be3
-validation: passed (Mortals)
+diff_hash: 047cd55adbb5b58f9ef01e97b071b524ed572dede1d8c109684b2448b943e05f
+validation: passed (Mortals, at 443ad108aa; see the note on the tmpscope line)
 subdir_audit: passed
-timestamp: 2026-11-26T08:07:18Z
+timestamp: 2026-11-26T08:40:17Z
 iterations: 8
 converged: false
 ---
@@ -31,7 +31,12 @@ passed:
   no-name-refs-3071. FIXED in 5222e0022c (an EXCUSED entry with a checkable reason; fixtures roo and pixel).
 - 00:50 CST, on Mortals: my rename changed the sort order of one assert that compares sorted names. FIXED in 443ad108aa;
   that file passes 14 of 14 alone.
-- 02:06 CST, on Mortals: PASSED, hash 9b67e58f682e, the hash above. The subdir CLAUDE.md audit passed locally.
+- 02:06 CST, on Mortals: PASSED, hash 9b67e58f682e (at 443ad108aa). The subdir CLAUDE.md audit passed locally.
+- 02:40 CST, after the validation: one line added at the top of the new test file,
+  `require('../test-support/tmpscope')`, the line #9104's guard (landing in #9126) asks of every new suite file. The
+  module has been on main since #8448. That file passes 14 of 14 with it. The full suite has NOT been rerun locally
+  for this one line; the PR's CI runs it. So the hash above is the branch with that line, and the full local
+  validation is of the branch one line before it.
 
 ### Per-Iteration Breakdown
 
