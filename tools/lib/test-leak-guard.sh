@@ -97,6 +97,15 @@ leak_names_root() {
   return 1
 }
 
+# kosmos#9117: leak_root_lines <snapshot> <root> <real>: only the snapshot's lines that contain <root> or <real>
+# anywhere. Every pattern in leak_names_root contains one of the two, so no other line can match it; dropping them in
+# one awk pass first spares the per-line bash loops below about 10 ms a line (1,139 processes took 11 s a scan on
+# 11-26), and leak_names_root stays the judge of each line that is left, so exactness (#6698) is unchanged. The two
+# paths go through the environment, not -v, which would read a backslash in a path as an escape.
+leak_root_lines() {
+  LEAK_ROOT_A="$2" LEAK_ROOT_B="$3" awk 'index($0, ENVIRON["LEAK_ROOT_A"]) || index($0, ENVIRON["LEAK_ROOT_B"])' <<< "$1"
+}
+
 # leak_process_check <root>: an ORPHANED process (parent pid 1: whatever started it
 # has exited) whose command line names <root> outlived the suite. It
 # is sent TERM, then KILL if it is still there, and printed. Orphaned only: a process
@@ -130,7 +139,7 @@ leak_process_check() {
       kill -TERM "$pid" 2>/dev/null || continue
       echo "process $pid: ${cmd%% *}"
       found=1
-    done <<< "$snap"
+    done < <(leak_root_lines "$snap" "$root" "$real")   # kosmos#9117
   done
   if [ "$found" -eq 1 ]; then
     # Three seconds for a load-starved process to finish its own cleanup, then KILL.
@@ -140,7 +149,7 @@ leak_process_check() {
       read -r pid ppid cmd <<< "$line"
       [ "$ppid" = "1" ] || continue
       leak_names_root "$line" "$root" "$real" && { kill -KILL "$pid" 2>/dev/null || true; }
-    done <<< "$snap"
+    done < <(leak_root_lines "$snap" "$root" "$real")   # kosmos#9117
   fi
   return "$found"
 }
@@ -194,7 +203,7 @@ leak_process_stop_root() {
     stopped="$stopped$pid "
     n=$((n + 1))
     echo "run-tests: stopped process $pid this run left running: ${cmd%% *} (#8890)" 2>/dev/null || true
-  done <<< "$snap"
+  done < <(leak_root_lines "$snap" "$root" "$real")   # kosmos#9117
   [ "$n" -gt 0 ] || { unset -f _lpsr_still; return 0; }
   # The grace: up to about 3 s, ended once none of them is left. Each look asks ps about the stopped pids only (review
   # 2: a look over every process took 0.14 s on an idle Mac).
