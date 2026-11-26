@@ -39,6 +39,15 @@ correction (17:21) and Homer's measurements (17:3x).
 - A visible effect beyond the warning (review 1): once a Windows or Linux Claude row has a login date, ruling A's
   green-from-login applies to it, as it already does on the Mac. The row can then read green from its login date.
 
+- Review 2: off macOS, an agent whose folder is <HOME>/.claude spelled out and one with the variable unset read the same
+  file, so the warning buckets them as one login (the default). Otherwise the same login warned twice, and the explicit
+  one named no row. On macOS they stay two (the Keychain entry names differ).
+- Review 2: claudeloginlive has a test seam for the credential read (setCredReaderForTests), so a test shows that the
+  row's read runs off macOS and passes the folder. Its NODE_TEST_CONTEXT guard still keeps every other test off real
+  credentials.
+- Which platform gets what: the file read is for Windows AND Linux. The job-folder source for the warning is Windows
+  only; on Linux the warning still reads each agent's folder from tmux and `ps eww`, which Linux has.
+
 ## Not changed
 - engine/connect.js readRefreshExpiry, the proof that a Mac sign-in finished. It stays macOS-only: Windows sign-in
   completes through win32signin.js's own path, and changing that proof is outside this card.
@@ -57,7 +66,13 @@ correction (17:21) and Homer's measurements (17:3x).
   and the agent on its own folder, and never the non-Claude one. Control: the pane reader Windows used before (which
   finds no folder) gives no warning.
 - Review 1: a sandbox HOME is never read as the real default; control: HOME at the real home reads it.
+- Review 2: one bucket on Windows for the explicit default and the unset folder (control: two on macOS); the row's read
+  reaches the file reader with its folder (control: with no seam set, a test reads nothing).
+- Mutants, each run on a committed tree and restored: the Windows branch in status.js removed turns the warning test
+  red; the bucket merge removed, and the folder dropped from the row's read, each turn their own test red.
 - No test calls the macOS reader for a real entry: on a Mac that would read the real Keychain.
+- Not covered by a test: the real `create.readJob` on Windows (the tests inject it). Review 2 read its win32 arm: it
+  returns `{ configDir, runner }` from the Scheduled Task, a failed read gives null, and the agent is then skipped.
 
 ## Weakest premise
 That a Windows agent's launch job names the folder its claude process really uses. Kosmos writes the job when it
