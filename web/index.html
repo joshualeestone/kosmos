@@ -44972,27 +44972,40 @@ const KEPT_DRAFT_PREFIX = new WeakMap();    // a kept map -> its localStorage pr
 const KEPT_DRAFT_SIG = new WeakMap();       // kosmos#9157: a kept map -> what of an entry must match storage (default: its words)
 /* The words of a draft entry: a string, or an object's text. */
 function keptDraftWords(v) { return String(typeof v === 'string' ? v : (v && v.text) || ''); }
-/* kosmos#9157: a reply being written (DM_REPLY, PJ_REPLY) is stored whenever it exists and brought back by a reload
-   only beside its words (`pair`, below); it counts as kept when storage names the same message (`at` in a chat, `id`
-   in a room) and the same @mention Reply put in the box. */
-/* Review 1: a reply is written once (at the click) while its words are written on every keystroke, so a reply ages
-   out with its draft (`pair`): while that draft is still stored and fresh, the reply is kept however old it is. */
+/* kosmos#9157: a reply being written (DM_REPLY, PJ_REPLY) is kept with its words. It counts as kept when storage
+   names the same message (`at` in a chat, `id` in a room) and the same @mention Reply put in the box. `pair` names the
+   draft map its words live in ('talk', 'room').
+   Review 5 (the design, rebuilt): a reply is the reply TO the words beside it. Saving those words on a page that holds
+   the reply re-saves the reply too (KEPT_DRAFT_FOLLOW), so a kept reply is never older than its words; a reload
+   brings a reply back only when its words are stored, fresh, and NO NEWER than it. So words typed where the reply was
+   not (another tab, or after it ended) never come back as a reply, and a reply picked with nothing typed after it is
+   not brought back, as before this change. A load writes and removes nothing but entries past the age-out, so it
+   cannot reach into another open tab. */
 const KEPT_REPLY_SIG = (v) => (v ? JSON.stringify([String(v.at || v.id || ''), String(v.mention || '')]) : '');
 const KEPT_DM_REPLY_OPTS = { present: (v) => !!v, sig: KEPT_REPLY_SIG, pair: 'talk' };
 const KEPT_PJ_REPLY_OPTS = { present: (v) => !!v, sig: KEPT_REPLY_SIG, pair: 'room' };
+const KEPT_DRAFT_FOLLOW = Object.create(null);   // a draft kind -> what re-saves the reply paired with it (by key)
+const KEPT_DRAFT_PAIR = new WeakMap();           // a kept reply map -> the draft kind its words live in
+/* The stored record for one key of a kind, or null. */
+function keptDraftRecord(kind, key) {
+  try { return JSON.parse(localStorage.getItem('kosmos.draft.' + kind + '.' + key)); } catch { return null; }
+}
+/* Whether a reload would bring this stored reply back: its words are stored, fresh and have text, and are no newer
+   than the reply. */
+function keptReplyComesBack(rec, paired, cutoff) {
+  const fresh = (r) => !!r && r.v != null && typeof r.t === 'number' && r.t > cutoff;
+  return fresh(rec) && fresh(paired) && !!keptDraftWords(paired.v).trim() && rec.t >= paired.t;
+}
 /* kosmos#9157: `opts` lets a map keep entries that are not words (a reply's target): `present(v)` says whether an entry
-   is worth storing (default: it has words) and `sig(v)` what of it must match storage for it to count as kept
-   (default: its words). */
+   is worth storing (default: it has words), `sig(v)` what of it must match storage for it to count as kept (default:
+   its words), and `pair` the draft kind it goes with (above). */
 function keptDrafts(kind, opts) {
   const present = (opts && opts.present) || ((v) => !!keptDraftWords(v).trim());
   const sig = (opts && opts.sig) || keptDraftWords;
+  const pair = (opts && opts.pair) || null;
   const prefix = 'kosmos.draft.' + kind + '.';
   const map = Object.create(null);   // round 2: an agent or project named __proto__ is an ordinary key
   const unsaved = new Set();
-  /* Review 4: what this page's own load pruned (key -> sig). Another tab that still holds that reply writes it back
-     when it hears the marker; this page must not adopt it again, or a reply picked only in that other tab (and never
-     typed after) shows here and comes back on every reload. A different reply for the key still comes through. */
-  const prunedHere = new Map();
   try {
     const cutoff = Date.now() - KEPT_DRAFT_DAYS * 24 * 60 * 60 * 1000;
     for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -45000,32 +45013,11 @@ function keptDrafts(kind, opts) {
       if (!k || k.indexOf(prefix) !== 0) continue;
       let rec = null;
       try { rec = JSON.parse(localStorage.getItem(k)); } catch { rec = null; }
-      const fresh = (r) => !!r && r.v != null && typeof r.t === 'number' && r.t > cutoff;
-      /* Review 3: a reply another tab pruned at its load (see below) is a marker, not a reply: never loaded, left
-         while fresh (so removing it cannot reach a tab that holds the reply), removed once old. */
-      if (rec && rec.pruned === true) {
-        if (!(typeof rec.t === 'number' && rec.t > cutoff)) localStorage.removeItem(k);
-        continue;
-      }
-      let keep = fresh(rec);
-      /* Review 1: a reply goes with its paired draft (opts.pair), however old the reply itself is. Review 2: and ONLY
-         with it: a reply with no words kept beside it (picked, never typed after) is not brought back, as before
-         this change, so the next unrelated message never goes out as a reply. */
-      if (rec && rec.v != null && opts && opts.pair) {
-        let paired = null;
-        try { paired = JSON.parse(localStorage.getItem('kosmos.draft.' + opts.pair + '.' + k.slice(prefix.length))); } catch { paired = null; }
-        keep = fresh(paired) && !!keptDraftWords(paired.v).trim();
-        /* Review 3: not removed, but marked pruned. A removal fires a storage event in every other open tab, whose
-           listener would delete a reply the person picked THERE a moment ago (nothing typed yet), and their next
-           message would go out plain. A tab still holding the reply writes it back when it hears the marker. */
-        if (!keep && fresh(rec)) {
-          prunedHere.set(k.slice(prefix.length), String(sig(rec.v) || ''));
-          localStorage.setItem(k, JSON.stringify({ v: null, pruned: true, t: Date.now() }));
-          continue;
-        }
-      }
-      if (keep) map[k.slice(prefix.length)] = rec.v;
-      else localStorage.removeItem(k);
+      const fresh = !!rec && rec.v != null && typeof rec.t === 'number' && rec.t > cutoff;
+      if (!fresh) { localStorage.removeItem(k); continue; }   // past the age-out, or unreadable (as #9132)
+      // Review 5: a reply comes back only with its words (above); otherwise it is left where it is, untouched.
+      if (pair && !keptReplyComesBack(rec, keptDraftRecord(pair, k.slice(prefix.length)), cutoff)) continue;
+      map[k.slice(prefix.length)] = rec.v;
     }
   } catch { unsaved.add('*'); }
   const keepEntry = (key, v) => {   // not `write`: a page handler of that name is bound to resize (web.click-bindings)
@@ -45033,15 +45025,21 @@ function keptDrafts(kind, opts) {
       if (present(v)) localStorage.setItem(prefix + key, JSON.stringify({ v, t: Date.now() }));
       else localStorage.removeItem(prefix + key);
       unsaved.delete(key);
-    } catch { unsaved.add(key); }
+    } catch { unsaved.add(key); return; }
+    // Review 5: words saved: the reply this page holds beside them is saved again, so it is never older than them.
+    if (present(v)) { const follow = KEPT_DRAFT_FOLLOW[kind]; if (typeof follow === 'function') follow(key); }
   };
   const kept = new Proxy(map, {
-    set(o, key, v) { o[key] = v; if (typeof key === 'string') { prunedHere.delete(key); keepEntry(key, v); } return true; },
-    deleteProperty(o, key) { delete o[key]; if (typeof key === 'string') { prunedHere.delete(key); keepEntry(key, undefined); } return true; },
+    set(o, key, v) { o[key] = v; if (typeof key === 'string') keepEntry(key, v); return true; },
+    deleteProperty(o, key) { delete o[key]; if (typeof key === 'string') keepEntry(key, undefined); return true; },
   });
   KEPT_DRAFT_UNSAVED.set(kept, unsaved);
   KEPT_DRAFT_PREFIX.set(kept, prefix);
   KEPT_DRAFT_SIG.set(kept, sig);
+  if (pair) {
+    KEPT_DRAFT_PAIR.set(kept, pair);
+    KEPT_DRAFT_FOLLOW[pair] = (key) => { if (map[key] != null) keepEntry(key, map[key]); };
+  }
   /* Round 2: another tab of the same board wrote or cleared one of these (sent it, typed more): this page's copy
      follows, written to the map itself so nothing is written back. A box already holding words keeps them; the
      restart check reads storage for a box, so a box that now differs from storage holds the restart. */
@@ -45052,14 +45050,6 @@ function keptDrafts(kind, opts) {
         const key = e.key.slice(prefix.length);
         let rec = null;
         try { rec = e.newValue == null ? null : JSON.parse(e.newValue); } catch { rec = null; }
-        // Review 3: another tab's load marked this entry pruned. Ours still stands: write it back, delete nothing.
-        if (rec && rec.pruned === true) { if (map[key] != null) keepEntry(key, map[key]); return; }
-        // Review 4: the very reply this page's load pruned, written back by the tab that still holds it: not adopted.
-        if (rec && rec.v != null && prunedHere.has(key)) {
-          if (prunedHere.get(key) === String(sig(rec.v) || '')) return;
-          prunedHere.delete(key);   // a different reply for this key: an ordinary change from now on
-        }
-        if (!rec || rec.v == null) prunedHere.delete(key);
         const was = map[key];
         if (rec && rec.v != null) map[key] = rec.v; else delete map[key];
         unsaved.delete(key);
@@ -45135,9 +45125,22 @@ function draftsKept(m) {
   if (!unsaved || unsaved.size !== 0) return false;
   // Review 1: and every word on this page is what storage holds now (another tab may have overwritten one).
   const sig = (typeof KEPT_DRAFT_SIG !== 'undefined' && KEPT_DRAFT_SIG.get(m)) || keptDraftWords;
+  const pair = typeof KEPT_DRAFT_PAIR !== 'undefined' && KEPT_DRAFT_PAIR.get(m);
+  const prefix = KEPT_DRAFT_PREFIX.get(m);
+  const cutoff = Date.now() - KEPT_DRAFT_DAYS * 24 * 60 * 60 * 1000;
   for (const [key, v] of Object.entries(m)) {
     const words = String(sig(v) || '').trim();
     if (words && (keptDraftStored(m, key) || '').trim() !== words) return false;
+    /* kosmos#9157 review 5: a reply is kept only if a reload would bring it back beside its words (words typed
+       elsewhere since, newer than it, would come back plain). A reply with no words beside it loses nothing. */
+    if (pair && v != null) {
+      const paired = keptDraftRecord(pair, key);
+      if (paired && keptDraftWords(paired.v).trim()) {
+        let rec = null;
+        try { rec = JSON.parse(localStorage.getItem(prefix + key)); } catch { rec = null; }
+        if (!keptReplyComesBack(rec, paired, cutoff)) return false;
+      }
+    }
   }
   return true;
 }

@@ -21,8 +21,11 @@ box's draft (render-replykeep-9157 against main's page: 4 kept-reply assertions 
   as kept). Defaults are the old words-based behaviour, so the four draft maps are unchanged. KEPT_DRAFT_SIG records
   each map's sig; keptDraftStored and draftsKept read it.
 - KEPT_DM_REPLY_OPTS / KEPT_PJ_REPLY_OPTS: a reply is stored whenever it exists; its sig is [the message's `at` or
-  the post's `id`, the @mention Reply put in the box]; `pair` names its draft map ('talk', 'room'), and a reload brings
-  it back only beside fresh words there (rounds 1 to 3).
+  the post's `id`, the @mention Reply put in the box]; `pair` names its draft map ('talk', 'room'). AS REBUILT IN
+  ROUND 5 (it supersedes rounds 1 to 4's mechanism): saving the words on a page that holds the reply re-saves the
+  reply (KEPT_DRAFT_FOLLOW), so a kept reply is never older than its words; a reload brings a reply back only when its
+  words are stored, fresh, have text and are no newer than it (keptReplyComesBack); a load writes and removes nothing
+  but entries past the 14-day age-out; draftsKept counts a reply as kept only if a reload would bring it back.
 - DM_REPLY = keptDrafts('dmreply', KEPT_DM_REPLY_OPTS), PJ_REPLY = keptDrafts('pjreply', KEPT_PJ_REPLY_OPTS). Every
   existing set/delete site is seen by the wrapper. The two in-place `.mention =` writes in pjReplyMention now assign
   a new object, so the change reaches storage.
@@ -121,3 +124,25 @@ passes both arms.
   during a send (traced by the reviewer, no defect).
 web.replykeep-9157 10 of 10 and the affected suites and guards (133), the browser-check wiring tests (121), and
 render-replykeep-9157 pass.
+
+#### Iteration 5 (blind review of the whole branch, opus): the design rebuilt
+
+- [SHOULD-FIX] taken: round 4's prunedHere hid a reply that storage still held: tab 1 picks a reply (nothing typed),
+  tab 2 loads and ignores its write-back, tab 1 closes, tab 2 types an unrelated message, the restart is allowed, and
+  the reload brings the old reply back beside it (Enter posts it as a reply). Reproduced by the reviewer with the
+  page's own code. Round 2's very defect, reintroduced by round 4's patch.
+- [SHOULD-FIX, design] taken: the pair, marker, write-back and prunedHere each patched the side effect of the round
+  before. My model of the cross-tab behaviour was wrong, so the mechanism was REBUILT from one rule instead of patched
+  again: a reply is the reply TO the words beside it. Saving words re-saves the reply held beside them; a reload brings
+  a reply back only beside fresh words no newer than it; a load touches nothing but expired entries; draftsKept asks
+  what a reload would bring back. The marker, write-back and prunedHere are gone (none remain in the page).
+  Tests rewritten around the rule: re-saving (and its control, words with no reply re-save nothing); another tab's
+  load writes nothing and leaves tab 1's reply; round 5's scenario (words typed where the reply is not never come back
+  as it, and tab 1 then counts its reply as unkept so its restart waits); the control (words typed beside the reply
+  bring it back in every tab, and x in one tab ends it in the other). Four mutations (no age order, no re-save, no
+  kept check, no words requirement) each fail the tests that name them.
+- [NIT] taken by the rebuild: the marker's setItem inside the load's try is gone (a load no longer writes).
+- [NIT] recorded, not built: a reply adopted from another tab paints its strip over words this tab's box holds (shown,
+  x ends it).
+web.replykeep-9157 11 of 11, web.keepdrafts-9132 and the affected suites and guards (116), the browser-check wiring
+tests (121), and render-replykeep-9157 pass.
