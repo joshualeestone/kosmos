@@ -1078,17 +1078,20 @@ fi
 if [ "$NODE_STATUS" -ne 0 ]; then
   echo
   echo "=== the machine, when this run started (#708) ==="
+  # kosmos#9139: the runs that said they went beside this one after it took its turn (BEFORE sees only the start).
+  _rt_beside=""; command -v kosmos_beside_runs_since >/dev/null 2>&1 && _rt_beside="$(kosmos_beside_runs_since "$_rt_t0")"
   if [ -n "$BEFORE" ]; then
     echo "This run shared the Mac with:"
     printf '%s\n' "$BEFORE" | sed 's/^/  /'
     echo "A red that is green alone is contention, not the change; rerun the failing file alone before calling it a defect."
     echo "A test that dies on 'we could not see what is running' or a timeout met a busy machine, not a missing thing (#704)."
   else
-    echo "Nothing else was on the default port and no page gate was running, so this red is not contention with a board; read it."
+    if [ -n "$_rt_beside" ]; then
+      echo "Nothing else was on the default port and no page gate was running when it started; but read the runs below, which went beside it later, before calling this red a defect."
+    else
+      echo "Nothing else was on the default port and no page gate was running, so this red is not contention with a board; read it."
+    fi
   fi
-  # kosmos#9139: runs that STARTED beside this one after it began (relay CI past its wait cap) and said so. BEFORE above
-  # only sees what was there at the start.
-  _rt_beside=""; command -v kosmos_beside_runs_since >/dev/null 2>&1 && _rt_beside="$(kosmos_beside_runs_since "$_rt_t0")"
   if [ -n "$_rt_beside" ]; then
     echo "Runs that went beside this one while it ran, and said so (#9139):"
     printf '%s\n' "$_rt_beside" | sed 's/^/  /'
