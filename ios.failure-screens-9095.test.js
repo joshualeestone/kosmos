@@ -49,6 +49,31 @@ test('#9095 the palette it leans on is cream and gold, not blue (a change to Pal
   assert.match(SHELL, /static let onGold = Color\(red: 0x14 \/ 255\.0, green: 0x16 \/ 255\.0, blue: 0x1A \/ 255\.0\)/, 'onGold changed');
 });
 
+/* kosmos#9101 review: the app may FOLLOW the board's own Light/Dark/System choice (BoardThemeProxy sets every window's
+   appearance from it, the person's choice), which is not forcing dark: the failure screens take the app's colours in
+   both. What stays refused is a forced dark anywhere, and an appearance override anywhere else. */
+function forcedDark(src) {
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  const m = /colorScheme,\s*\.dark|preferredColorScheme\(\.dark\)|overrideUserInterfaceStyle\s*=\s*\.dark/.exec(code);
+  if (m) return m[0];
+  const proxyAt = code.indexOf('final class BoardThemeProxy');
+  const proxyEnd = proxyAt < 0 ? -1 : code.indexOf('\n}\n', proxyAt);
+  const re = /overrideUserInterfaceStyle/g;
+  let hit;
+  while ((hit = re.exec(code))) {
+    if (!(proxyAt > -1 && hit.index > proxyAt && hit.index < proxyEnd)) return 'overrideUserInterfaceStyle outside BoardThemeProxy';
+  }
+  return null;
+}
+test('#9101 review CONTROL: a forced dark, or an appearance override outside BoardThemeProxy, is still seen', () => {
+  const content = fs.readFileSync(path.join(__dirname, 'ios', 'Kosmos', 'ContentView.swift'), 'utf8');
+  assert.ok(content.includes('final class BoardThemeProxy'), 'BoardThemeProxy moved; re-aim this test');
+  assert.notEqual(forcedDark(content + '\nlet v = Text("x").preferredColorScheme(.dark)\n'), null);
+  assert.notEqual(forcedDark(content.replace('$0.overrideUserInterfaceStyle = style', '$0.overrideUserInterfaceStyle = .dark')), null);
+  assert.notEqual(forcedDark(content + '\nfunc f(w: UIWindow) { w.overrideUserInterfaceStyle = .light }\n'), null);
+  assert.notEqual(content.replace('$0.overrideUserInterfaceStyle = style', '$0.overrideUserInterfaceStyle = .dark'), content, 'the control edit applied');
+});
+
 test('#9095 nothing laid over a failure screen forces the dark appearance (it was light text for the navy ground)', () => {
   const agents = fs.readFileSync(path.join(__dirname, 'ios', 'Kosmos', 'AgentsView.swift'), 'utf8');
   const content = fs.readFileSync(path.join(__dirname, 'ios', 'Kosmos', 'ContentView.swift'), 'utf8');
@@ -56,7 +81,7 @@ test('#9095 nothing laid over a failure screen forces the dark appearance (it wa
     // The whole file, not each use: an ancestor view in the same file could force the appearance too. A forced
     // appearance set in some other file (the window, a parent view elsewhere) is outside what this test can see.
     assert.ok(src.includes('LoadFailureView('), name + ' no longer shows LoadFailureView; re-aim this test');
-    assert.doesNotMatch(src, /colorScheme,\s*\.dark|preferredColorScheme\(\.dark\)|overrideUserInterfaceStyle/, name + ': the file forces a dark appearance somewhere a failure screen can sit under');
+    assert.equal(forcedDark(src), null, name + ': the file forces a dark appearance somewhere a failure screen can sit under');
   }
   assert.match(agents, /MacSwitcher\(client: client\)\.frame\(minHeight: 44\)\.padding\(16\)/, 'the switcher over the Mac-not-answering screen changed; re-check it on cream');
 });
