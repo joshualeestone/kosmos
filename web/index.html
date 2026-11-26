@@ -22570,6 +22570,7 @@ async function kplusLogout(out, msg) {
   try { status = (await fetch('/_kosmos/logout', { method: 'POST', credentials: 'same-origin', signal: ac.signal })).status; } catch { status = 0; }
   clearTimeout(cut);
   if (status >= 200 && status < 300) {
+    if (typeof forgetAllDrafts === 'function') forgetAllDrafts();   // kosmos#9132 review 1: kept drafts go with the session
     /* The board's page is kept by the offline worker; logged out, it must not come back from there without the
        network, so this browser's copies go with the session. */
     try { if (typeof caches !== 'undefined') for (const k of await caches.keys()) if (k.startsWith('kosmos-shell')) await caches.delete(k); } catch { /* the session is gone either way */ }   // sw.js's SHELL_CACHE, any version
@@ -25978,6 +25979,13 @@ if (typeof document !== 'undefined' && document.addEventListener) {
 /* #4347: the "nothing to lose" half of updateSafeReload, on its own so the Mac window can ask it before it
    restarts itself onto a new version (kosmosSafeToRestart, below). True only when a reload or restart right
    now would drop nothing the person has on the way or has typed. */
+/* kosmos#9132 review 1: a composition (a Japanese, Chinese or Korean candidate being chosen) is not yet words: a
+   restart now would keep the uncommitted text. Held while one is open. */
+let UPDATE_COMPOSING = false;
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('compositionstart', () => { UPDATE_COMPOSING = true; }, true);
+  document.addEventListener('compositionend', () => { UPDATE_COMPOSING = false; }, true);
+}
 function updateNothingToLose() {
   const busy = [typeof TALK_SENDING !== 'undefined' && TALK_SENDING, typeof PJ_SENDING !== 'undefined' && PJ_SENDING,
     typeof PJ_REPLY_SENDING !== 'undefined' && PJ_REPLY_SENDING, typeof TERM_SENDING !== 'undefined' && TERM_SENDING,
@@ -25997,6 +26005,7 @@ function updateNothingToLose() {
     typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING > 0,   // counted apart: Go to your team lets the team go while its pictures are still going up
     typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
   if (busy.some(Boolean)) return false;
+  if (typeof UPDATE_COMPOSING !== 'undefined' && UPDATE_COMPOSING) return false;
   const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
   /* kosmos#9132: a map whose words are all kept in localStorage (keptDrafts) loses nothing on a reload, so only an
      unkept one holds the restart. */
@@ -26004,6 +26013,14 @@ function updateNothingToLose() {
   if ([typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS,
     typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS]
     .some((m) => drafted(m) && !keptMap(m))) return false;
+  /* Review 1: a reply being written (the message it answers is kept only on this page) holds the restart while it has
+     words: a reload would keep the words and lose what they reply to, and Send would post them as a plain message.
+     A reply picked with nothing typed held nothing before and holds nothing now. */
+  const wordsFor = (m, key) => !!m && String((m[key] && (typeof m[key] === 'string' ? m[key] : m[key].text)) || '').trim() !== '';
+  if (typeof DM_REPLY !== 'undefined' && DM_REPLY && Object.keys(DM_REPLY).some((k) => DM_REPLY[k]
+    && (wordsFor(typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, k) || wordsFor(typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS, k)))) return false;
+  if (typeof PJ_REPLY !== 'undefined' && PJ_REPLY && Object.keys(PJ_REPLY).some((k) => PJ_REPLY[k]
+    && (wordsFor(typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, k) || wordsFor(typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS, k)))) return false;
   for (const t of [...UPDATE_TYPED]) if (t.isConnected === false) UPDATE_TYPED.delete(t);   // a removed field holds nothing (and is let go)
   /* Still holding words, shown or not (round 5): a hidden box is not a saved one (New task keeps its
      words when closed, #766), so any typed box with words waits for the person's Reload. */
@@ -26017,7 +26034,8 @@ function updateNothingToLose() {
       : t.id === 'pj-post' ? (typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS) : null;
     const key = (t.id === 'd-say' || t.id === 'd-term-say') ? (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName)
       : (typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT);
-    return !!map && !!key && keptMap(map) && String(map[key] || '').trim() === String(t.value || '').trim();
+    const stored = map && key ? keptDraftStored(map, key) : null;   // review 1: what a reload brings back, read now
+    return !!map && !!key && keptMap(map) && stored != null && stored.trim() === String(t.value || '').trim();
   };
   if ([...UPDATE_TYPED].some((t) => String(t.isContentEditable ? t.textContent : t.value || '').trim() && !boxKept(t))) return false;
   const attached = typeof ATTACH_PENDING !== 'undefined' && ATTACH_PENDING;
@@ -44927,6 +44945,7 @@ let TALK_FLIGHT = null;
    some, and a window with one parked draft never updated (Josh's, 11-25: 13 versions behind). */
 const KEPT_DRAFT_DAYS = 14;
 const KEPT_DRAFT_UNSAVED = new WeakMap();   // a kept map -> the keys whose last write failed ('*' when it could not load)
+const KEPT_DRAFT_PREFIX = new WeakMap();    // a kept map -> its localStorage prefix
 function keptDrafts(kind) {
   const prefix = 'kosmos.draft.' + kind + '.';
   const map = {};
@@ -44955,13 +44974,49 @@ function keptDrafts(kind) {
     deleteProperty(o, key) { delete o[key]; if (typeof key === 'string') write(key, undefined); return true; },
   });
   KEPT_DRAFT_UNSAVED.set(kept, unsaved);
+  KEPT_DRAFT_PREFIX.set(kept, prefix);
   return kept;
+}
+/* What storage holds for one key of a kept map, read now (review 1: another tab of the same board may have written
+   the same agent's or project's draft since, so this page's copy is not proof of what a reload brings back). '' for
+   none; null when it cannot be read. */
+function keptDraftStored(m, key) {
+  const prefix = m && typeof KEPT_DRAFT_PREFIX !== 'undefined' && KEPT_DRAFT_PREFIX.get(m);
+  if (!prefix) return null;
+  try {
+    const raw = localStorage.getItem(prefix + key);
+    if (raw == null) return '';
+    const rec = JSON.parse(raw);
+    const v = rec && rec.v;
+    return String(typeof v === 'string' ? v : (v && v.text) || '');
+  } catch { return null; }
+}
+/* Forget a draft for good (review 1): an agent removed, a project removed. Deleting through the kept map removes
+   its stored entry too, so a new agent given the same name never inherits the old one's half-typed words. */
+function forgetDrafts(maps, key) {
+  if (key == null) return;
+  for (const m of maps) { try { if (m && key in m) delete m[key]; } catch { /* nothing to forget */ } }
+}
+/* Logged out of this browser's Kosmos+ session: every kept draft goes, in storage and on the page. */
+function forgetAllDrafts() {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf('kosmos.draft.') === 0) localStorage.removeItem(k);
+    }
+  } catch { /* storage refused: nothing was kept there */ }
 }
 /* True when every word in this map is in localStorage too, so a reload or restart loses none of it. A plain map (a
    test's, or any map not made by keptDrafts) is never kept. */
 function draftsKept(m) {
   const unsaved = m && typeof KEPT_DRAFT_UNSAVED !== 'undefined' && KEPT_DRAFT_UNSAVED.get(m);
-  return !!unsaved && unsaved.size === 0;
+  if (!unsaved || unsaved.size !== 0) return false;
+  // Review 1: and every word on this page is what storage holds now (another tab may have overwritten one).
+  for (const [key, v] of Object.entries(m)) {
+    const words = String(typeof v === 'string' ? v : (v && v.text) || '').trim();
+    if (words && (keptDraftStored(m, key) || '').trim() !== words) return false;
+  }
+  return true;
 }
 /**
  * ⚠️ THE DRAFT IS PARKED PER AGENT, like the room's `PJ_DRAFTS`. Without this,
@@ -53361,6 +53416,7 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
        In its OWN try: the server already returned REMOVED, so a repaint fault
        must not fall to the outer catch and overwrite the success message with
        "could not reach the board" (the poll will repaint within 5s anyway). */
+    forgetDrafts([TALK_DRAFTS, TERM_DRAFTS], forAgent);   // kosmos#9132 review 1: removed, so its kept drafts go too
     try { await tick(); await paintRemoved(); } catch { /* the 5s poll will catch up */ }
   } catch {
     if (onPanel()) {
@@ -53797,6 +53853,7 @@ document.getElementById('rm-go').addEventListener('click', async () => {
       await paintRemoved();
       return;
     }
+    forgetDrafts([TALK_DRAFTS, TERM_DRAFTS], forAgent);   // kosmos#9132 review 1: removed, so its kept drafts go too
     closeRemoveModal();
     // Nothing should still be pointing at an agent that is no longer on the
     // board: the detail panel behind it would keep its data.
@@ -68417,6 +68474,7 @@ document.getElementById('orgchart-undo-go').addEventListener('click', async () =
     // A clean removal's `because` only repeats that it was removed; any other answer is worth reading.
     const said = clean ? '' : ((out && (out.because || out.error)) || '');
     const done = clean || Boolean(onList && onList.has(c.name));
+    if (done && typeof forgetDrafts === 'function') forgetDrafts([TALK_DRAFTS, TERM_DRAFTS], c.name);   // kosmos#9132 review 1
     return { c, done, said: said || (done ? '' : (reached ? 'Kosmos did not answer in a way we could read' : 'we could not reach Kosmos')) };
   });
   const left = rows.filter((r) => !r.done).map((r) => r.c);
@@ -71609,8 +71667,8 @@ let PJ_AGENTS_UNREADABLE = false;
 // could not look" -- and a caller filtering a stale-or-initial [] would render
 // "there is nothing" for "we could not see". pjAnswerFrom is that caller.
 let PJ_READ_FAILED = false;
-// Unsent words, parked per project AS TYPED (rounds 33-34). Only the DOM
-// box and this map ever hold a draft; nothing is written to disk. Sites
+// Unsent words, parked per project AS TYPED (rounds 33-34). Since kosmos#9132
+// this map is kept in localStorage too (keptDrafts), so a reload keeps them. Sites
 // that clear the box programmatically (a send that took the text) also
 // clear the entry, because a programmatic clear fires no input event.
 const PJ_DRAFTS = keptDrafts('pj');   // kosmos#9132
@@ -89201,6 +89259,7 @@ document.getElementById('pj-one-remove-go').addEventListener('click', async () =
     const res = await fetch('/api/project/' + encodeURIComponent(p.id), { method: 'DELETE' });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not remove that project');
+    forgetDrafts([PJ_DRAFTS, PJ_ROOM_DRAFTS], p.id);   // kosmos#9132 review 1
     PJ_CURRENT = null;
     await loadProjects();
     pjView('list');
