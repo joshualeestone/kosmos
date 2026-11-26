@@ -82,7 +82,7 @@ Earlier single-site fixes: #8225, #7442, #6017, #9098.
   3 failed): it copies browser-checks-quarantine-guard.test.js into a fixture folder with no test-support/, and the
   inserted require threw "Cannot find module './test-support/tmpscope'".
 - Fixed: the shell test copies tmpscope.js and what it loads (remove-at-end.js, remove-tree.js) beside the copy.
-  Measured: 39 passed, 0 failed. [CORRECTED by round 5: not the only one, see below] It looked like the only suite script that runs a suite test file outside the repo (the node
+  Measured: 39 passed, 0 failed. ~~It is the only suite script that runs a suite test file outside the repo~~ (WRONG: round 5 found tools.release-gate.test.js too). What was measured (the node
   part, which would have failed the same way on any other, was 0 failed; tools/test-install-gate-control.sh is only
   `bash -n` and names no .test.js). release.sh step 1e runs the file in the repo, unaffected.
 
@@ -96,3 +96,10 @@ Earlier single-site fixes: #8225, #7442, #6017, #9098.
 - NIT left: both copy sites list the three files by hand; a new tmpscope require turns them red loudly, not green.
 - Ruled out by the reviewer: Linux/Windows build and bundle scripts skip *.test.js; CI workflows run from the
   checkout; other tests copy only non-test files; a real cut runs step 1e in the repo.
+
+## Challenge round 6 (00:49): CONVERGED, no blocker, no should-fix
+- No third copy site: test-install-gate-control.sh copies all of test-support/; test-runner-reexec-1818.sh and
+  release-freeze.sh make full worktrees; build/deploy cp -R web is the bundle (ruled out); the helpers that require
+  tmpscope are copied nowhere. Every release-gate arm that reaches step 1e goes through git_sandbox(), which now
+  carries the files. bc-quarantine 39 of 39 (reviewer's run).
+- NIT left: the three helper files are listed by hand at both sites (a new tmpscope require fails loudly).
