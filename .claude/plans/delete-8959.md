@@ -72,3 +72,12 @@ Plan as posted on the card 2026-11-25 02:4x UTC (issuecomment-7151149115):
 - r8 sonnet: 0B/2W. FIXED W1 a verify/second 408, 429 or 5xx with no sentence says "could not be reached", not "That
   code is not right". FIXED W2 the UI test waits for the email to be filled. Cap 8 reached, no BLOCKER open.
   Mutant control: dropping mayHaveArrived from DeleteAccount.after fails 2 checks (114/116).
+
+## 2026-11-26 03:5x CST: rebased onto main (the PR step had been dropped across restarts)
+- Validated and UI-run on 11-25 (UI 01:07 light+dark rc 0; validation 01:46, head 37241082be, hash 82b0a77d6200), never
+  PR'd; Splinter found it on stranded-branches 03:51. Main had since gained B2/B3 and D1a/D1b1, so it conflicted.
+- Conflicts, resolved: .github/workflows/ios.yml (both sides added a logic-test step: kept both); SettingsLogic.swift
+  and LogicTests/settings/main.swift (main's B3 removed accountURL, this slice removed deleteAccountURL: both gone, as
+  both plans record, no callers anywhere, searched with a control that finds the definitions).
+- Measured after the rebase (8fdb54491a): logic suites settings 46/46, deleteaccount 116/116, account 163/163; ios.yml
+  parses. UI class and a full validation are re-run on the rebased head before the PR.
