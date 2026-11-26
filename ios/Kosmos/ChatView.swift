@@ -955,6 +955,7 @@ struct ChatView: View {
                     let firstEager = Board.eagerStart(items, from: nil, eager: Self.eagerTail)
                     if eagerFrom == nil, firstEager < items.count { eagerFrom = items[firstEager].id }
                     goNewest(proxy)
+                    landOnNewest(proxy)   // kosmos#9089
                     #if DEBUG
                     // Screenshots and checks only: KOSMOS_SAMPLE_SCROLLTOP=1 scrolls to the top 3 s after opening, as a
                     // person would (nothing in the simulator can scroll here).
@@ -1243,6 +1244,32 @@ struct ChatView: View {
             return
         }
         if animated { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { proxy.scrollTo("end", anchor: .bottom) }
+    }
+
+    // kosmos#9089 (measured 11-25, iOS 27, the lazy list): a chat of tall replies can open short of its end. The id anchor goes
+    // to the end marker over rows whose heights are still estimates, and when the tall rows are measured the end is pushed
+    // below the box (20 messages, 3 of 3; the same 20 as one-liners, 0 of 3; the UIKit list, 0 of 3). So the open looks
+    // again a few times: while the end has never shown, nothing is under a finger or moving by the person, and rows are
+    // drawn (a list with none is recoverEmpty's), it goes to the end once more. The first time the end shows, it stops.
+    // KOSMOS_SAMPLE_NOOPENLAND=1 (Debug) leaves it out: the control.
+    static let openLandLooks: [Double] = [0.3, 0.8, 1.6]
+    #if DEBUG
+    static let sampleNoOpenLand = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOOPENLAND"] == "1"
+    #else
+    static let sampleNoOpenLand = false
+    #endif
+    private func landOnNewest(_ proxy: ScrollViewProxy) {
+        guard Self.idAnchor, !Self.sampleNoOpenLand else { return }
+        let chatAt = epoch, listAt = listEpoch
+        for at in Self.openLandLooks {
+            DispatchQueue.main.asyncAfter(deadline: .now() + at) {
+                guard epoch == chatAt, listEpoch == listAt, visible, !searchMode, !endSeen, atBottom,
+                      !onScreen.isEmpty, !personScrolling, !scrollBox.underFinger else { return }
+                Self.trace("open landed short of the end at \(at) s: to the newest again")
+                appMoves &+= 1
+                proxy.scrollTo("end", anchor: .bottom); positionId = "end"
+            }
+        }
     }
 
     // Where the eager newest rows begin: none with the id anchor (iOS 17+), all with the debug EAGERALL switch.
