@@ -77,6 +77,12 @@ its review is still pending, and the page shows the two states apart. The ask wa
   "undefined". Fixed. NIT: closing a task deletes its repeat, so the closed-task branch never runs in production; kept as
   a guard (it agrees with missedRuns), its test documents that.
 
+- Round 6 (whole branch, nothing pre-cleared): CONVERGED, 0 BLOCKER, 0 SHOULD. No crash in 300,000 fuzzed inputs, 2 MB lines
+  or a 1,990-change run. 77 older page tests that lift openTaskPage or paintTaskActivity pass. A task that does not repeat
+  gets byte-identical JSON and CLI output. NITs left, each matching what missedRuns already says: a reopened task's
+  closed-period slots read missed; a rule changed before repeatSetAt was recorded falls back to createdAt (the late mark
+  has the same limit); a run stamped ahead hides missed rows until the clock passes it.
+
 ## Weakest premise
 That "review status" in the feedback means the miss review. If the agent meant a reviewer confirming each delivered run,
 that is a new mark and a product decision (a separate card).
