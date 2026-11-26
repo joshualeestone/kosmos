@@ -66,6 +66,9 @@ test('roomDay: the day in the given zone, the year only when it is not the curre
   assert.equal(messages.roomDay('2026-11-26T03:27:00Z', 'America/Chicago', now), 'Wed 25 Nov');
   assert.equal(messages.roomDay('2026-11-26T03:27:00Z', 'UTC', now), 'Thu 26 Nov', 'CONTROL: the zone made no difference');
   assert.equal(messages.roomDay('2025-11-25T12:00:00Z', 'UTC', now), 'Tue 25 Nov 2025');
+  // The words come from fixed tables, not the platform's locale data (some spell September "Sept").
+  assert.equal(messages.roomDay('2026-09-03T12:00:00Z', 'UTC', now), 'Thu 3 Sep');
+  assert.equal(messages.roomDay('2027-01-01T00:30:00Z', 'America/Chicago', now), 'Thu 31 Dec', 'the zone decides the year too');
   assert.equal(messages.roomDay('2026-11-26T03:27:00Z', 'Not/AZone', now), messages.roomDay('2026-11-26T03:27:00Z', null, now),
     'a stale zone falls back to the machine, as roomClock does');
   assert.notEqual(messages.roomDay('2026-11-26T03:27:00Z', null, now), null);
@@ -98,4 +101,19 @@ test('#9169: an empty room has no date line', async () => {
   const { text } = await roomText(p.id);
   assert.match(text, /Nothing has been said in this room yet\./, 'CONTROL: the room is not empty');
   assert.doesNotMatch(text, /^-- .+ --$/m);
+});
+
+test('#9169: a row from the current year gets a date line with no year, in the operator zone', async () => {
+  store.writeSettings({ timezone: 'America/Chicago' });
+  const p = projects.create({ name: 'Day Lines Now' });
+  const at = new Date().toISOString();
+  post(p, at, 'just now one');
+  const { code, text } = await roomText(p.id);
+  assert.equal(code, 200, text);
+  const lines = text.split('\n').filter((l) => l.length);
+  const row = lines.findIndex((l) => l.includes('just now one'));
+  assert.ok(row > 0, 'CONTROL: the row is not in the view: ' + text);
+  const expected = '-- ' + messages.roomDay(at, 'America/Chicago', Date.now()) + ' --';
+  assert.equal(lines[row - 1], expected, text);
+  assert.doesNotMatch(expected, / \d{4} --$/, 'a row from this year was given its year');
 });
