@@ -103,21 +103,26 @@ test('kosmos#9097 review 1: on Windows the login warning finds the folder of eac
   // Controls: the fixture really is a Windows row and passes the pane filter (else every assertion below is vacuous).
   assert.ok(panes.every((p) => roster.isWin32Pane(p) && status.isNamedOurs(p)), 'Windows rows, and ours: ' + JSON.stringify(panes.map((p) => [p.command, p.claim])));
   const jobs = { amy: { runner: 'claude', configDir: null }, ben: { runner: 'claude', configDir: path.join(h, '.claude-b') } };
+  const lines = [];
   const opts = {
     platform: 'win32', readJob: (n) => jobs[n] || null, readCred: winRead(h), cache: { at: 0, value: [] },
     displayName: (n) => n, emailOf: () => null, rowDirs: new Set(),
+    log: (l) => lines.push(String(l)), logState: { sig: '' },   // review 7: the lines asserted, and no shared log state
   };
   const adv = status.computeLoginAdvisories(panes, now, opts);
+  // Review 7: the board log names where the folder came from, and never claims a ps read on Windows.
+  assert.ok(lines.some((l) => l.includes('from its launch job')), 'the log names the launch job: ' + JSON.stringify(lines));
+  assert.ok(!lines.some((l) => l.includes('ps eww')), 'no ps eww claim on Windows: ' + JSON.stringify(lines));
   const named = adv.flatMap((a) => a.agents || []);
   assert.ok(named.includes('amy'), 'a default-account agent is warned about: ' + JSON.stringify(adv));
   assert.ok(named.includes('ben'), 'an agent on its own folder is warned about: ' + JSON.stringify(adv));
   // An agent with no readable Claude job is skipped, never guessed onto the default account.
-  const noJob = status.computeLoginAdvisories(panes, now, { ...opts, readJob: (n) => (n === 'amy' ? null : jobs[n]), cache: { at: 0, value: [] } });
+  const noJob = status.computeLoginAdvisories(panes, now, { ...opts, readJob: (n) => (n === 'amy' ? null : jobs[n]), cache: { at: 0, value: [] }, logState: { sig: '' } });
   assert.ok(!noJob.flatMap((a) => a.agents || []).includes('amy'), 'no job, no warning for that agent');
-  const codex = status.computeLoginAdvisories(panes, now, { ...opts, readJob: (n) => (n === 'amy' ? { runner: 'codex' } : jobs[n]), cache: { at: 0, value: [] } });
+  const codex = status.computeLoginAdvisories(panes, now, { ...opts, readJob: (n) => (n === 'amy' ? { runner: 'codex' } : jobs[n]), cache: { at: 0, value: [] }, logState: { sig: '' } });
   assert.ok(!codex.flatMap((a) => a.agents || []).includes('amy'), 'a non-Claude job is never in a Claude login warning');
   // CONTROL: the pane reader (the path Windows took before) finds no folder, so no warning: the 11-25 board's [].
-  const before = status.computeLoginAdvisories(panes, now, { ...opts, readDetail: () => ({ ccd: undefined, pid: null }), cache: { at: 0, value: [] } });
+  const before = status.computeLoginAdvisories(panes, now, { ...opts, readDetail: () => ({ ccd: undefined, pid: null }), cache: { at: 0, value: [] }, logState: { sig: '' } });
   assert.strictEqual(before.length, 0);
 });
 
@@ -177,3 +182,33 @@ test('kosmos#9097 review 3: on Windows the explicit default folder matches witho
   assert.strictEqual(win.length, 1, JSON.stringify(win));
 });
 
+
+test('kosmos#9097 review 7: off macOS the real-home guards stop a read before it is attempted', () => {
+  // No real file is needed: fs.readFileSync is watched, and answers a fake body if it is ever reached.
+  const realFile = path.join(os.userInfo().homedir, '.claude', '.credentials.json');
+  const tried = [];
+  const orig = fs.readFileSync;
+  const savedCtx = process.env.NODE_TEST_CONTEXT;
+  const savedHome = process.env.AGENT_WORKFORCE_HOME;
+  fs.readFileSync = function (f, ...rest) { if (String(f) === realFile) { tried.push(f); return body({ refreshTokenExpiresAt: UNTIL }); } return orig.call(this, f, ...rest); };
+  try {
+    const read = () => le.readCredDefault(le.serviceNameFor(undefined), undefined, { platform: 'linux', userHome: os.userInfo().homedir });
+    // A sandboxed board (AGENT_WORKFORCE_HOME is a sandbox), outside a test: refused, and the file is never opened.
+    delete process.env.NODE_TEST_CONTEXT;
+    assert.strictEqual(read(), null);
+    assert.strictEqual(tried.length, 0, 'the sandbox guard stops the read before it starts');
+    // Inside node --test, with no sandbox: refused too.
+    process.env.NODE_TEST_CONTEXT = savedCtx || 'child-v8';
+    delete process.env.AGENT_WORKFORCE_HOME;
+    assert.strictEqual(read(), null);
+    assert.strictEqual(tried.length, 0, 'the test guard stops the read before it starts');
+    // CONTROL: neither guard holds (production, no sandbox): the real file IS what is read.
+    delete process.env.NODE_TEST_CONTEXT;
+    assert.ok(read(), 'production reads the real default file');
+    assert.strictEqual(tried.length, 1);
+  } finally {
+    fs.readFileSync = orig;
+    if (savedCtx === undefined) delete process.env.NODE_TEST_CONTEXT; else process.env.NODE_TEST_CONTEXT = savedCtx;
+    if (savedHome === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = savedHome;
+  }
+});
