@@ -391,7 +391,8 @@ test('#6668 a watchdog stopped while it is stopping one file does not go on to t
     await nap(scaleBudget(8000));   // the unchecked loop would print the second line within its 5 s grace plus a look
     assert.equal((out.match(/TIMED OUT after/g) || []).length, 1, 'the watchdog went on after its stop: ' + out.slice(-1200));
   } finally {
-    // The runner's own process group holds both fixtures (they ignored the TERM and their KILL was skipped).
+    // A backstop: both fixtures ignored the TERM; since kosmos#9159 the runner's EXIT trap KILLs them, and this group
+    // kill stops anything left if it did not.
     try { process.kill(-child.pid, 'SIGKILL'); } catch { /* the group is gone */ }
   }
 });

@@ -107,3 +107,32 @@ test('#9159: a TERM to run-tests.sh ALONE stops its node --test, the file it was
     try { process.kill(-perl.pid, 'SIGKILL'); } catch { /* gone */ }
   }
 });
+
+/* Review 3: the KILL after the grace, and its "command line unchanged" check (ps output read twice, compared). A file
+   that IGNORES TERM must still be gone; a check that never compared equal would skip every KILL and leave it. */
+const PIDS2 = path.join(DIR, 'stubborn.pids');
+const FIXTURE2 = path.join(DIR, 'stubborn-9159.test.js');
+fs.writeFileSync(FIXTURE2, `'use strict';
+process.on('SIGTERM', () => {});
+require('node:fs').appendFileSync(${JSON.stringify(PIDS2)}, process.pid + '\\n');
+require('node:test')('ignores TERM and sleeps', () => new Promise((r) => setTimeout(r, 120000)));
+`);
+test('#9159: a test file that ignores TERM is KILLed after the grace, and the stop names it', async () => {
+  assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
+  let err = '';
+  const perl = spawn('perl', ['-e', GROUP, 'bash', RUNNER, '--only', FIXTURE2], { env: env(), stdio: ['ignore', 'ignore', 'pipe'] });
+  perl.stderr.on('data', (d) => { err += d; });
+  try {
+    const filePid = await until(() => firstPid(PIDS2), scaleBudget(60000));
+    assert.ok(filePid > 0, 'the stubborn fixture never started (no pid written)');
+    const bashPid = childrenOf(perl.pid)[0];
+    assert.ok(bashPid > 0, 'run-tests.sh was not found under its perl parent');
+    process.kill(bashPid, 'SIGTERM');
+    const gone = await until(() => !alive(filePid), scaleBudget(30000));
+    assert.ok(gone, `a file that ignores TERM (${filePid}) was still alive after the grace: its KILL was skipped`);
+    await until(() => /stopped process \d+ this run was still running/.test(err), scaleBudget(5000));
+    assert.match(err, new RegExp(`stopped process ${filePid} this run was still running`), 'the stop did not name the file it stopped: ' + err.slice(-600));
+  } finally {
+    try { process.kill(-perl.pid, 'SIGKILL'); } catch { /* gone */ }
+  }
+});

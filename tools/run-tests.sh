@@ -364,8 +364,8 @@ rt_file_watchdog_start() {
   # On a TERM to the runner, its EXIT trap signals the watchdog at once (both traps name _rt_wd_pid and remove the
   # flag), not only at the loop's next look at its parent. On a Ctrl-C, bash waits for node and the normal stop
   # (rt_file_watchdog_stop) follows. The trap for a run with no run root is not proven by a test.
-  # ⚠️ A TERMed runner leaves its node --test running without the per-file limit (bash exits at once and node is not
-  # its signal's target): stop the inner node too. The runner's TERM behaviour is deliberately unchanged here.
+  # A TERMed runner used to leave its node --test running without the per-file limit (bash exits at once and node is
+  # not its signal's target); kosmos#9159: the EXIT trap now stops it, its files and their children (rt_stop_own_node).
 }
 # kosmos#9159: a TERM to this runner ends bash, but its foreground `node --test` (in the same process group, yet not
 # the target of a TERM sent to this pid) ran on, reparented to 1, still starting test files: a stopped suite went on
@@ -379,7 +379,8 @@ rt_stop_own_node() {
   # process group, so a group kill is not an option (it would stop the caller: queued-heavy, CI). Also the shell part's
   # foreground `node .../shell-shard.js run` when it is this bash's direct child (the serial run and a plain
   # KOSMOS_SHELL_SHARD); NOT under the cut-shape subshell on a GitHub runner, where it is a grandchild (a cancel there
-  # signals the whole tree anyway). KILL only a pid whose command line is still the one noted (a reused pid is not ours).
+  # signals the whole tree anyway). KILL, after about 5 to 6 s, only a pid whose command line is still the one noted (a
+  # reused pid is not ours; so one that ignores TERM AND changes its own command line in the grace is not KILLed).
   # The root's node path is anchored at the start of the command line, so a node path with a space in it is not seen;
   # unanchored, a `node --test` quoted inside a `bash -c` string would match.
   local snap roots="" p cmd list i alive
@@ -396,6 +397,13 @@ rt_stop_own_node() {
             grew = 1; while (grew) { grew = 0; for (j = 1; j <= n; j++) if ((par[j] in take) && !(pid[j] in take)) { take[pid[j]] = 1; grew = 1 } }
             for (x in take) print x "\t" cmd[x] }')"
   [ -n "$list" ] || return 0
+  # Review 3: each pid is NAMED (on stderr), as #8890's leak stop names what it stops: a test's stub server, stopped
+  # here before that check runs, otherwise went silently, and the one line saying which test leaves one was lost.
+  while IFS="$(printf '\t')" read -r p cmd; do
+    [ -n "$p" ] && echo "run-tests: stopped process $p this run was still running when it was ended: $cmd (#9159)" >&2
+  done <<EOF_9159
+$list
+EOF_9159
   kill -TERM $(printf '%s\n' "$list" | cut -f1) 2>/dev/null
   for i in 1 2 3 4 5 6 7 8 9 10; do
     alive=0
