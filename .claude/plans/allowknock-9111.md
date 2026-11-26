@@ -72,3 +72,16 @@ the keychain (#9106), so the run reads no session and the screen behaves as befo
 - Not taken: tests of knockIfWaiting's ordering and the phase handler (SwiftUI view code; no logic suite compiles
   ContentView). The reviewer traced both orders as safe; the signed simulator walk will show it.
 Main logic suite PASS 2789/2789; settings, automation, actions, taskpage, room suites pass.
+
+#### Iteration 2 (blind review of the whole branch, sonnet)
+
+- [SHOULD-FIX] taken: on "Your Mac said no" asked again (.denied(asking: true)), a second no from the Mac's gate
+  mapped to keep, and Kosmos+ need not learn of the gate's no, so that screen could wait for ever. Now .denied ->
+  macSaidNo, which accepts that step too (-> .denied(asking: false), and the knock stops). Test changed to say so.
+- [NIT] taken: retries could stack, and a screen left up retried every 15 s all night. Only the latest retry fires
+  (knockRetries), and the wait doubles 15, 30, 60, then 120 s.
+- [NIT] not taken: a fresh handoff on every return to the front (the same code, harmless; the tabs do the same);
+  a stale "On <Mac>" line during a later connecting (still the right Mac for the code shown); a .live phase already
+  showing when the knock starts (forget() clears it on a changed session); .denied(asking: false) has no Continue
+  and a fixed-email person has no way back after the Mac's no (as before this change; a separate card if wanted).
+Main logic suite PASS 2789/2789; settings, automation, actions, taskpage, room pass.

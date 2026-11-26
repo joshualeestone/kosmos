@@ -85,8 +85,10 @@ final class BoardClient: ObservableObject {
                 default: return endedRun ? .knockAgain : .keep
                 }
             case .denied(asking: true):
-                // Asked again after an earlier no: the same knock, so a yes now moves the screen on.
+                // Asked again after an earlier no: the same knock, so a yes now moves the screen on, and a second no
+                // says so (round 2: Kosmos+ need not learn of the gate's no, so nothing else would end the wait).
                 if case .live = self { return .done }
+                if case .denied = self { return .denied }
                 return endedRun ? .knockAgain : .keep
             default: return .keep
             }

@@ -415,9 +415,9 @@ final class SignInModel: ObservableObject {
         step = .allow(matchCode: code, hasComputer: true)
     }
 
-    /// kosmos#9111: the Mac's gate said no while this screen waited. As when Kosmos+ says it (watchAllow's .denied).
+    /// kosmos#9111: the Mac's gate said no while this screen waited (or asked again). As when Kosmos+ says it (watchAllow's .denied).
     func macSaidNo() {
-        guard case .allow(_, true) = step else { return }
+        switch step { case .allow(_, true), .denied(asking: true): break; default: return }
         attempt += 1; watch?.cancel(); step = .denied(asking: false)
     }
 

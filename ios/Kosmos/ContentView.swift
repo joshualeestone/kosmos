@@ -99,6 +99,8 @@ struct ContentView: View {
     @StateObject private var signIn = SignInModel(client: SignInClient())
     /// kosmos#9111: the board's run was started from the sign-in screen's wait for the Mac (knockIfWaiting).
     @State private var knocking = false
+    /// kosmos#9111 round 2: the knock retries since the last start, so only the latest one fires and the wait grows.
+    @State private var knockRetries = 0
     /// kosmos#8791/#8795: the fresh sign-in a step-up refusal asks for (FreshSignInCenter), given to every tab.
     @StateObject private var fresh = FreshSignInCenter()
     private static var startsSignedOut: Bool {
@@ -160,7 +162,7 @@ struct ContentView: View {
         #if !KOSMOS_STORE_SHOTS
         let waits = nativeSignIn && BoardClient.Phase.knocks(during: signIn.step)
             && signIn.issued != nil && SessionKeychain.live.load() == signIn.issued   // stored first, where the run reads it
-        if waits && !knocking { knocking = true; board.start() }
+        if waits && !knocking { knocking = true; knockRetries = 0; board.start() }
         else if !waits && knocking {
             knocking = false
             if signIn.step != .done { board.stop() }
@@ -280,10 +282,15 @@ struct ContentView: View {
             case .denied: signIn.macSaidNo()
             case .knockAgain:
                 // The run gave up (review 1): knocked again after 15 s, as the board's own run retries a Mac that is not
-                // answering, while the screen still waits and nothing else started a run meanwhile.
-                let waitedOn = signIn.step
-                DispatchQueue.main.asyncAfter(deadline: .now() + 15) {
-                    guard knocking, signIn.step == waitedOn, board.phase.allowScreen(step: signIn.step) == .knockAgain else { return }
+                // answering, while the screen still waits and nothing else started a run meanwhile. Round 2: only the
+                // latest retry fires, and the wait doubles to two minutes at most, so a screen left up does not ask
+                // Kosmos+ every 15 s all night.
+                knockRetries += 1
+                let mine = knockRetries, waitedOn = signIn.step
+                let wait = min(15 * pow(2, Double(min(mine - 1, 3))), 120)
+                DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+                    guard knocking, mine == knockRetries, signIn.step == waitedOn,
+                          board.phase.allowScreen(step: signIn.step) == .knockAgain else { return }
                     board.start()
                 }
             }
