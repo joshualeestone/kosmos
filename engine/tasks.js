@@ -924,7 +924,7 @@ const BUILT_NOTE_MAX = 1000;
 const NO_WRITE = Symbol('no write');
 const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote', 'builtFingerprint',
   'builtFingerprintBy', 'builtFilePath', 'builtFingerprintAt', 'builtCheckedBy', 'builtCheckedByPerson', 'builtReplaces',
-  'builtWaitingOn', 'builtFiles'];
+  'builtWaitingOn', 'builtFiles', 'builtFilesAt'];
 /* kosmos#8934: what a built task waits on, a fixed choice a screen and a list can read (the note is words): the person
    (to look at it, answer or decide), another agent's review, or a release. None means it reads as before. */
 const WAITING_ON = ['person', 'review', 'release'];
@@ -1160,6 +1160,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   let unsaid = 0;
   let unmetSaid = false;   // #8464: every check reported, some not met
   let replacedNow = null;
+  let sentNow = null;   // kosmos#9105 review 1: the names of the files this mark sent (null: it sent none)
   let replacedAll = [];   // kosmos#9105: every file this mark replaced or withdrew, each with its name
   let waits = '';   // kosmos#8934: what the mark leaves it waiting on, worked out inside the write
   let waitsOnly = false;   // review 4: only what it waits on changed
@@ -1177,7 +1178,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
          under the checker's name or passes the checks' note rule on an account the checker never gave. Before that rule,
          so a kept note that said how the checks went still says it. */
       // Review 7: and no --commit (a mark that records a commit is new work, so it says its own note).
-      correction = !said && !print && !sentFiles && !landed && !isPerson && Boolean(sent || dropWaits) && Boolean(t.builtAt) && who !== null && (t.builtBy || null) === who;
+      correction = !said && !print && !sentFiles && !checkNames && !landed && !isPerson && Boolean(sent || dropWaits) && Boolean(t.builtAt) && who !== null && (t.builtBy || null) === who;
       if (correction && typeof t.builtNote === 'string' && t.builtNote) {
         said = t.builtNote;
         saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
@@ -1295,10 +1296,15 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
           if (i < 0 && unnamed >= 0) { i = unnamed; unnamed = -1; }
           apply(i, f.name, f.fingerprint, f.path);
         }
+        sentNow = sentFiles.map((f) => f.name);
       } else if (print) {
-        // One fingerprint sent the old way (a CLI from before #9105): it is the task's first file, as it always was.
-        const i = mirrorIndex(before);
-        apply(i, fileNameOf(sentPath) || (i >= 0 ? before[i].name : ''), print, sentPath);
+        /* One fingerprint sent the old way (a CLI from before #9105): the file of its path's name when the task has one
+           (review 1: else a second entry of that name), otherwise the task's first file, as it always was. */
+        const sentName = fileNameOf(sentPath);
+        const named = sentName ? before.findIndex((e) => e.name === sentName) : -1;
+        const i = named >= 0 ? named : mirrorIndex(before);
+        apply(i, sentName || (i >= 0 ? before[i].name : ''), print, sentPath);
+        sentNow = [sentName || (i >= 0 ? before[i].name : '')];
       } else {
         /* No file sent: each file takes the mark as #8307 did (a check by another agent, the person's check, its own
            sender's withdrawal). With --check, only the files named. */
@@ -1308,6 +1314,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         }
       }
       const files = after.filter(Boolean);
+      // Review 1: the cap is on the task, so a looping sender of new names cannot grow the store past it.
+      if (files.length > BUILT_FILES_MAX && files.length > before.length) throw new Error(`a task keeps at most ${BUILT_FILES_MAX} delivered files, so this mark was not recorded: send fewer, or withdraw them first with a mark without --file`);
       const top = files.length ? files[mirrorIndex(files)] : null;
       const kept = top && top.fingerprint ? top.fingerprint : '';
       const replaces = top && top.replaces ? top.replaces : null;
@@ -1336,10 +1344,11 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       if (restSame && (t.builtWaitingOn || '') === waits) {
         same = true; changed = t; throw NO_WRITE;
       }
+      const stamp = new Date().toISOString();
       const earlier = t.builtAt ? (Array.isArray(t.builtWho) ? t.builtWho : []) : [];
       const builtWho = who && !earlier.includes(who) ? earlier.concat([who]) : earlier;
       changed = {
-        ...withoutBuilt(t), builtAt: waitsOnly && t.builtAt ? t.builtAt : new Date().toISOString(), builtBy: who,   // kosmos#8934 review 5: a correction of the wait is not a new delivery
+        ...withoutBuilt(t), builtAt: waitsOnly && t.builtAt ? t.builtAt : stamp, builtBy: who,   // kosmos#8934 review 5: a correction of the wait is not a new delivery
         ...(isPerson ? { builtByPerson: true } : {}), builtWho,
         ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
         ...(said ? { builtNote: said } : {}),
@@ -1348,6 +1357,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
           ...(top.at ? { builtFingerprintAt: top.at } : {}), builtCheckedBy: top.checkedBy, ...(top.checkedByPerson ? { builtCheckedByPerson: true } : {}) } : {}),
         ...(replaces ? { builtReplaces: replaces } : {}),   // kosmos#8307: kept without a current file too (a withdrawn one)
         ...(files.length ? { builtFiles: files } : {}),   // kosmos#9105: the record; the fields above are its first file
+        // Review 1: and the builtAt it was written with, so a list an older board left behind is known as stale (filesOf).
+        ...(files.length ? { builtFilesAt: waitsOnly && t.builtAt ? t.builtAt : stamp } : {}),
         // #7508: a mark without --commit keeps a commit already recorded (a checker's mark is not new work).
         ...(landed ? { landedCommit: landed.sha, landedRepo: landed.repo, landedOnRemote: landedOnRemoteNow, landedBy: who, landedAt: new Date().toISOString() } : {}),
       };
@@ -1371,7 +1382,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   // kosmos#8934 review 5: a correction of only the wait writes no second "marked it built" line; the row shows the wait.
   if (!waitsOnly) taskchat.record(projectId, changed.number, { kind: 'built', by: who, ...(isPerson ? { person: true } : {}), ...(said ? { note: said } : {}) });
   /* kosmos#8307: `replaced` only when this mark replaced a file, so the notice can say so and reach its checkers. */
-  return { ok: true, task: changed, changed: true, ...(replacedNow ? { replaced: replacedNow } : {}), ...(replacedAll.length ? { replacedFiles: replacedAll } : {}), ...(waitsOnly ? { waitsOnly: true } : {}) };
+  return { ok: true, task: changed, changed: true, ...(replacedNow ? { replaced: replacedNow } : {}), ...(replacedAll.length ? { replacedFiles: replacedAll } : {}), ...(sentNow ? { sentFiles: sentNow } : {}), ...(waitsOnly ? { waitsOnly: true } : {}) };
 }
 
 /** Take the built mark off (the work turned out not to be done). A task with no mark records nothing. */

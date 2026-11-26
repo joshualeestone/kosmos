@@ -56,4 +56,15 @@ said "withdraws all" assuming one sender; per-file is the consistent reading.
 - Full suite not run: Splinter 17:55/18:17, heavy runs after the App Store queue clears.
 
 ## Review ledger
-(filled by the challenge loop)
+- Round 1 (opus, blind, whole branch): 0 BLOCKER, 4 MAJOR, 7 MINOR. All fixed or answered:
+  1 MAJOR an older CLI's fingerprint for a non-first file made two entries of one name: it now targets the file of
+    its path's name. 2 MAJOR an older board's clear left builtFiles, so a cleared file came back: the list carries
+    builtFilesAt (the builtAt it was written with), and a mismatched list is not read (says too little, never too
+    much). 3 MAJOR a name could carry a Windows path: names hold no backslash; a Mac file with one goes the older
+    way alone and is refused among several (fixes MINOR 8, the CLIs' parity, too). 4 MAJOR (and MINOR 10) the line
+    named every file by the marker: setBuilt returns sentFiles and the line names only those. 5 MINOR the cap is
+    now per task (a mark adding past 20 is refused; checks and re-sends still work). 6 MINOR a --check by the
+    marker with --waiting was taken as a correction: a check never is. 7 MINOR both CLIs say when an older board
+    ignored --check. 9 MINOR the Mac name keeps a trailing newline (then refused as a control character): REASONED,
+    no test (a file with a newline in its name). 11 tests added for each.
+  Measured after: engine 21/21, route+Mac 14/14, Windows 4/4; 7 new mutants red; 222 older tests green.

@@ -218,15 +218,74 @@ test('#9105: a view without local paths has no path in any file, and a clear dro
   assert.equal('builtFiles' in get(n), false);
 });
 
-test('#9105: a Mac name may hold a backslash; a path sent the older way is named after its own last separator', () => {
+test('#9105 review 1: a name holds no backslash (it could carry a Windows path); a Mac path with one goes without a name', () => {
   const n = freshTask();
-  mark(n, { by: 'mona', files: [{ name: 'odd\\name.txt', fingerprint: A }] });
-  assert.equal(get(n).builtFiles[0].name, 'odd\\name.txt');
+  assert.match(refused(n, { by: 'mona', files: [{ name: 'C:\\Users\\josh\\secret.pdf', fingerprint: A }] }), /without its folder/);
+  assert.match(refused(n, { by: 'mona', files: [{ name: 'odd\\name.txt', fingerprint: A }] }), /without its folder/);
   const m = freshTask();
   mark(m, { by: 'mona', fingerprint: A, filePath: path.join(SANDBOX, 'odd\\name.txt') });
-  assert.equal(get(m).builtFiles[0].name, 'odd\\name.txt', 'a Mac path was split at a backslash');
+  assert.equal(get(m).builtFiles[0].name, '', 'a Mac path was named after a part of its file name');
+  assert.equal(get(m).builtFilePath, path.join(SANDBOX, 'odd\\name.txt'), 'CONTROL: the path itself is still kept');
   const w = freshTask();
   mark(w, { by: 'mona', fingerprint: A });
   projects.mutate(pid, (p) => ({ ...p, tasks: p.tasks.map((x) => { if (x.number !== w) return x; const y = { ...x, builtFilePath: 'C:\\Users\\me\\out\\deck.pdf' }; delete y.builtFiles; return y; }) }));
   assert.equal(tasks.filesOf(get(w))[0].name, 'deck.pdf', 'a Windows path was not split at its backslash');
+});
+
+test('#9105 review 1: an older CLI\'s one fingerprint for a file that is not the first replaces that file, never a second of its name', () => {
+  const n = freshTask();
+  mark(n, { by: 'mona', files: [{ name: 'a.md', fingerprint: A }, { name: 'b.md', fingerprint: B }] });
+  mark(n, { by: 'mona', fingerprint: C, filePath: path.join(SANDBOX, 'b.md') });
+  assert.deepEqual(get(n).builtFiles.map((e) => [e.name, e.fingerprint]), [['a.md', A], ['b.md', C]]);
+  // CONTROL: a path whose name is not on the task still replaces the first file, as before #9105.
+  mark(n, { by: 'mona', fingerprint: D, filePath: path.join(SANDBOX, 'z.md') });
+  assert.deepEqual(get(n).builtFiles.map((e) => [e.name, e.fingerprint]), [['z.md', D], ['b.md', C]]);
+});
+
+test('#9105 review 1: a list an older board left behind after its clear is not read back as current', () => {
+  const n = freshTask();
+  mark(n, { by: 'mona', files: two() });
+  // An older board's clear: it drops only the fields it knows, and builtFiles (with its stamp) stays.
+  const OLD_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote', 'builtFingerprint',
+    'builtFingerprintBy', 'builtFilePath', 'builtFingerprintAt', 'builtCheckedBy', 'builtCheckedByPerson', 'builtReplaces', 'builtWaitingOn'];
+  projects.mutate(pid, (p) => ({ ...p, tasks: p.tasks.map((x) => { if (x.number !== n) return x; const y = { ...x }; for (const k of OLD_FIELDS) delete y[k]; return y; }) }));
+  assert.ok(Array.isArray(get(n).builtFiles), 'CONTROL: the older board left the list');
+  // Then that board marks it again, with no file.
+  projects.mutate(pid, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === n ? { ...x, builtAt: new Date(Date.now() + 5).toISOString(), builtBy: 'zed', builtWho: ['zed'] } : x)) }));
+  assert.deepEqual(tasks.filesOf(get(n)), [], 'a cleared file came back as delivered');
+  // And this board's next mark writes a list of its own.
+  mark(n, { by: 'zed', files: [{ name: 'new.md', fingerprint: C }] });
+  assert.deepEqual(get(n).builtFiles.map((e) => e.name), ['new.md']);
+  assert.equal(get(n).builtFilesAt, get(n).builtAt);
+});
+
+test('#9105 review 1: the task holds at most BUILT_FILES_MAX files across marks; a mark that does not add any still works', () => {
+  const n = freshTask();
+  const batch = (from) => Array.from({ length: 10 }, (_, i) => ({ name: 'f' + (from + i), fingerprint: A }));
+  mark(n, { by: 'mona', files: batch(0) });
+  mark(n, { by: 'mona', files: batch(10) });
+  assert.equal(get(n).builtFiles.length, tasks.BUILT_FILES_MAX);
+  assert.match(refused(n, { by: 'mona', files: [{ name: 'one-more', fingerprint: A }] }), /at most 20 delivered files/);
+  assert.equal(get(n).builtFiles.length, tasks.BUILT_FILES_MAX, 'a refused mark was written');
+  assert.equal(mark(n, { by: 'zed', note: 'checked them' }).changed, true, 'a check of a full task was refused');
+  mark(n, { by: 'mona', files: [{ name: 'f3', fingerprint: B }] });
+  assert.equal(get(n).builtFiles.find((e) => e.name === 'f3').fingerprint, B, 'a re-send on a full task was refused');
+});
+
+test('#9105 review 1: a --check from the task\'s own marker that also sends --waiting is a check, not a correction of the wait', () => {
+  const n = freshTask();
+  mark(n, { by: 'zed', files: [{ name: 'b.md', fingerprint: B }] });
+  mark(n, { by: 'mona', files: [{ name: 'a.md', fingerprint: A }] });
+  const r = mark(n, { by: 'mona', check: ['b.md'], waitingOn: 'review' });
+  assert.equal(r.ok, true);
+  assert.deepEqual(byName(n, 'b.md').checkedBy, ['mona'], 'the check was answered ok and recorded nowhere');
+  assert.equal(byName(n, 'a.md').fingerprint, A, 'a file not named changed');
+});
+
+test('#9105 review 1: the mark says which files it sent', () => {
+  const n = freshTask();
+  assert.deepEqual(mark(n, { by: 'mona', files: two() }).sentFiles, ['report.md', 'data.csv']);
+  assert.deepEqual(mark(n, { by: 'ivy', files: [{ name: 'c.md', fingerprint: C }] }).sentFiles, ['c.md']);
+  assert.equal(mark(n, { by: 'zed', note: 'checked' }).sentFiles, undefined);
+  assert.deepEqual(mark(n, { by: 'mona', fingerprint: D, filePath: P_DATA }).sentFiles, ['data.csv']);
 });

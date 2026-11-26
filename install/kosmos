@@ -7857,7 +7857,7 @@ cmd_task() {
         [ "$clear" = true ] && { say "--clear takes the mark off, so it takes no --check. Run it without --check."; exit 2; }
         [ "$_bfile" = 0 ] || { say "--check is another agent's check of the files sent, so it takes no --file. Run it without --file."; exit 2; }
         for _fname in ${checks[@]+"${checks[@]}"}; do
-          case "$_fname" in ''|*/*|*[[:cntrl:]]*|.|..) say "--check needs the name of a file the task was marked built with, without its folder (got $_fname)."; exit 2 ;; esac
+          case "$_fname" in ''|*/*|*\\*|*[[:cntrl:]]*|.|..) say "--check needs the name of a file the task was marked built with, without its folder (got $_fname)."; exit 2 ;; esac
           check_json="${check_json:+$check_json,}\"$(printf '%s' "$_fname" | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g')\""
         done
         check_json=",\"check\":[$check_json]"
@@ -7890,9 +7890,12 @@ cmd_task() {
           fingerprint=$("$_fnode" "$_fmod" "${file_abs:-$file}" 2>/dev/null) || fingerprint=""
           case "$fingerprint" in sha256:????????????????????????????????????????????????????????????????|pdf-normalized:????????????????????????????????????????????????????????????????) ;; *) say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2 ;; esac
           # kosmos#9105: the file's name is how the board knows it: its own name, given once.
-          _fname=$(basename -- "${file_abs:-$file}")
+          # Review 1: a trailing x keeps a trailing newline in the name, which $( ) would strip (then the name would be
+          # another file's); basename's own newline is taken off by hand.
+          _fname=$(basename -- "${file_abs:-$file}"; printf x); _fname="${_fname%x}"; _fname="${_fname%$'\n'}"
           # One such file goes the older way only (no name, as before #9105); among several, it cannot be told apart.
-          case "$_fname" in *[[:cntrl:]]*) [ "${#files[@]}" -eq 1 ] || { say "Kosmos cannot send a file whose name has control characters in it among several files: rename it first."; exit 2; }; _fname="" ;; esac
+          # Review 1: a backslash too, which the board refuses in a name (it could carry a Windows path).
+          case "$_fname" in *[[:cntrl:]]*|*\\*) [ "${#files[@]}" -eq 1 ] || { say "Kosmos cannot send a file whose name has a backslash or a control character in it among several files: rename it first."; exit 2; }; _fname="" ;; esac
           case "$_fnames" in *"/$_fname/"*) say "Two files named $_fname: give each file once (the board knows a file by its name)."; exit 2 ;; esac
           _fnames="$_fnames$_fname/"
           fps+=("$fingerprint"); abss+=("$file_abs"); fnames+=("$_fname")
@@ -7971,6 +7974,8 @@ cmd_task() {
             done
             # An older board keeps only the first file (it does not know files) and answers without builtFiles.
             if [ "${#fps[@]}" -gt 1 ]; then case "$body" in *'"builtFiles":'*) ;; *) say "This Kosmos kept only the first file, ${files[0]}: it may be older than more than one --file. Update it, then mark the task again." ;; esac; fi
+            # Review 1: an older board does not know --check, so it counted the mark as a check of its one file.
+            if [ "$_bcheck" -gt 0 ]; then case "$body" in *'"builtFiles":'*) ;; *) say "This Kosmos does not know --check, so it counted this as a check of the file it keeps: it may be older than --check. Update it, then mark the task again." ;; esac; fi
             # #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.
             # Review 5: only when the board's answer carries it (an older board drops a field it does not know).
             if [ -n "$csha" ]; then

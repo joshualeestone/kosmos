@@ -10,11 +10,12 @@
  */
 /* #6330, #7213: a fingerprint names its kind. */
 const FINGERPRINT_RE = /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/;
-/* A file's name as sent: its base name, no folder (no /), no control characters. A backslash is kept: on a Mac a name
-   can hold one, and the Windows CLI sends the name after its own last separator. */
+/* A file's name as sent: its base name, no folder, no control characters. Neither / nor \ (review 1: a name holding a
+   backslash can carry a whole Windows path, C:\Users\..., past every view that strips paths, and into panes). A Mac file
+   whose name holds one is sent the older way, without a name. */
 function builtFileName(v) {
   return typeof v === 'string' && v.length > 0 && v.length <= 255 && v !== '.' && v !== '..'
-    && !/[/\u0000-\u001f\u007f]/.test(v) ? v : '';
+    && !/[/\\\u0000-\u001f\u007f]/.test(v) ? v : '';
 }
 /* The base name of a kept path ('' for none), for a fingerprint sent the older way with its path: after the last / of a
    Mac path, after the last / or \ of a Windows one. */
@@ -39,6 +40,11 @@ function replacedRecord(r) {
  * fields describe (a mark from before #9105), else none. An entry with no fingerprint is a withdrawn file (its replaces). */
 function filesOf(t) {
   if (!t || !t.builtAt) return [];
+  /* Review 1: setBuilt stamps the list with the builtAt it wrote it with. A board from before #9105 drops neither (it
+     does not know them), so after its clear, close or new mark the list no longer belongs to this mark: it is not read,
+     and the task is the one file the single-file fields describe. That can leave out a file another mark sent (said
+     too little), never brings back a cleared one (said too much). */
+  const stale = Array.isArray(t.builtFiles) && t.builtFilesAt !== t.builtAt;
   const entry = (name, fp, by, p, at, checkedBy, checkedByPerson, replaces) => {
     const rep = replacedRecord(replaces);
     if (FINGERPRINT_RE.test(fp || '')) {
@@ -50,7 +56,7 @@ function filesOf(t) {
   };
   const one = entry(fileNameOf(t.builtFilePath), t.builtFingerprint, t.builtFingerprintBy, t.builtFilePath, t.builtFingerprintAt,
     t.builtCheckedBy, t.builtCheckedByPerson, t.builtReplaces);
-  if (!Array.isArray(t.builtFiles)) return one ? [one] : [];
+  if (!Array.isArray(t.builtFiles) || stale) return one ? [one] : [];
   const list = t.builtFiles.map((e) => (e && typeof e === 'object'
     ? entry(builtFileName(e.name) || '', e.fingerprint, e.by, e.path, e.at, e.checkedBy, e.checkedByPerson, e.replaces) : null)).filter(Boolean);
   /* A board from before #9105 changes only the single-file fields and leaves builtFiles as it found it, so those fields

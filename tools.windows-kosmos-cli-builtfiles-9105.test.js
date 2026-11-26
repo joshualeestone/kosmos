@@ -88,3 +88,10 @@ test('#9105 Windows: --check sends the names; refusals never reach the board', a
     assert.equal(x.calls.length, 0, argv.join(' ') + ' reached the board');
   }
 });
+
+test('#9105 review 1 Windows: --check to a board that does not know it is said; a newer board says nothing', async () => {
+  const old = await run(['task', 'built', 'proj/1', '4', 'read', '--check', 'data.csv'], older);
+  assert.match(old.out, /does not know --check, so it counted this as a check of the file it keeps/);
+  const now = await run(['task', 'built', 'proj/1', '4', 'read', '--check', 'data.csv'], newer);
+  assert.doesNotMatch(now.out, /does not know --check/);
+});

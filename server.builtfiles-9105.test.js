@@ -292,3 +292,58 @@ test('#9105 Mac: task show lists each file, its checks and what it replaced; tas
     fs.writeFileSync(path.join(OUT, 'data.csv'), 'a,b\n');
   }
 });
+
+test('#9105 review 1: the line names only the files this mark sent, a second sender\'s one file included', async () => {
+  const n = tasks.create(projectId, { sentence: 'Two senders', who: 'mona' }).number;
+  tasks.addPart(projectId, n, { sentence: 'Read it', who: 'zed' });
+  await mark(n, asAgent('mona'), { files: two() });
+  const { r, typed } = await capture(() => mark(n, asAgent('ivy'), { files: [{ name: 'c.md', fingerprint: C }], note: 'mine' }));
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.ok(typed.length >= 1, JSON.stringify(typed));
+  for (const line of typed) {
+    assert.match(line, new RegExp(' - fingerprint ' + C + ' \\(check your copy'), 'the second sender\'s file was not named: ' + line);
+    assert.doesNotMatch(line, new RegExp(A + '|' + B), 'a file this mark did not send was named');
+  }
+  // mona re-sends one of her two: the line names that one alone.
+  const again = await capture(() => mark(n, asAgent('mona'), { files: [{ name: 'data.csv', fingerprint: D }], note: 'new data' }));
+  for (const line of again.typed) {
+    assert.match(line, new RegExp(' - fingerprint ' + D));
+    assert.doesNotMatch(line, new RegExp(' - files |' + A), 'files sent earlier were named as sent now: ' + line);
+  }
+});
+
+test('#9105 review 1 Mac: a quote in a name reaches the board whole; a backslash name goes the older way alone and is refused among several', macOnly, async () => {
+  const tok = sendertoken.mint('mona').token;
+  const quoted = path.join(OUT, 'say "hi".md');
+  fs.writeFileSync(quoted, 'quoted\n');
+  const n = tasks.create(projectId, { sentence: 'Mac odd names', who: 'mona' }).number;
+  const r = await mac(['task', 'built', projectId, String(n), 'odd', '--file', quoted, '--file', path.join(OUT, 'data.csv')], { KOSMOS_AGENT_TOKEN: tok });
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(stored(n).builtFiles.map((e) => e.name), ['say "hi".md', 'data.csv']);
+  const chk = await mac(['task', 'built', projectId, String(n), 'read it', '--check', 'say "hi".md'], { KOSMOS_AGENT_TOKEN: sendertoken.mint('zed').token });
+  assert.equal(chk.code, 0, chk.out);
+  assert.deepEqual(stored(n).builtFiles[0].checkedBy, ['zed']);
+  const slash = path.join(OUT, 'back\\slash.md');
+  fs.writeFileSync(slash, 'slash\n');
+  const m = tasks.create(projectId, { sentence: 'Mac backslash', who: 'mona' }).number;
+  const alone = await mac(['task', 'built', projectId, String(m), 'one', '--file', slash], { KOSMOS_AGENT_TOKEN: tok });
+  assert.equal(alone.code, 0, alone.out);
+  assert.equal(stored(m).builtFingerprint, sha('slash\n'), 'the one backslash file was not kept the older way');
+  const among = await mac(['task', 'built', projectId, String(m), 'two', '--file', slash, '--file', path.join(OUT, 'data.csv')], { KOSMOS_AGENT_TOKEN: tok });
+  assert.equal(among.code, 2, among.out);
+  assert.match(among.out, /backslash or a control character in it among several files/);
+});
+
+test('#9105 review 1 Mac: --check to a board that does not know it is said', macOnly, async () => {
+  const orig = tasks.setBuilt;
+  tasks.setBuilt = (...a) => { const r = orig(...a); if (r && r.task) { const { builtFiles: _f, ...t } = r.task; r.task = t; } return r; };   // eslint-disable-line no-unused-vars
+  try {
+    const n = tasks.create(projectId, { sentence: 'Mac older check', who: 'mona' }).number;
+    await mark(n, asAgent('mona'), { files: two() });
+    const r = await mac(['task', 'built', projectId, String(n), 'read', '--check', 'data.csv'], { KOSMOS_AGENT_TOKEN: sendertoken.mint('zed').token });
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /does not know --check, so it counted this as a check of the file it keeps/);
+  } finally {
+    tasks.setBuilt = orig;
+  }
+});

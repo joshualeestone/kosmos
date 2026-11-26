@@ -562,7 +562,7 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, no
 // #6330: how long the typing of one built line may hold the mark's answer (under the Mac CLI's 15 s).
 let BUILT_TELL_WAIT_MS = 10000;
 function setBuiltTellWaitForTests(ms) { BUILT_TELL_WAIT_MS = ms === undefined ? 10000 : ms; }
-async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = null) {
+async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = null, sentNow = null) {
   if (!t || typeof t.number !== 'number') return { delivered: [] };
   // A read that fails throws to the route (which then says it could not work out who to tell); a missing project is [].
   const rec = projects.readAll().find((x) => x && x.id === projectId) || null;
@@ -613,8 +613,10 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
   const who = clean(by) || 'An agent';
   const note = clean(t.builtNote || '');
   const WAITS_ON_WORDS = { person: 'the person', review: 'a review', release: 'a release' };   // kosmos#8934
-  // kosmos#9105: the current files this marker sent (a checker's mark names none, as #6330 review 5 asks).
-  const sentByMarker = tasks.filesOf(t).filter((e) => e.fingerprint && t.builtBy && e.by === t.builtBy);
+  /* kosmos#9105: the files THIS mark sent (review 1: not every file by its marker, which named files sent earlier, and
+     missed a file sent by a second sender while the first file was another's). null: a caller from before #9105, which
+     names the one file as #6330 did. A checker's mark sends none (#6330 review 5). */
+  const sentByMarker = Array.isArray(sentNow) ? tasks.filesOf(t).filter((e) => e.fingerprint && sentNow.includes(e.name)) : null;
   const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
     + (n ? ': "' + n + '"' : '')
     // kosmos#8934: what it waits on, when the mark says (a fixed word, never the sender's text).
@@ -623,9 +625,10 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
     /* #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
        Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). kosmos#6849: it
        names the command, since a PDF's fingerprint is not its shasum and an older instruction says shasum. */
-    + (sentByMarker.length > 1 ? ' - files ' + sentByMarker.map((e) => clean(e.name || 'a file') + ' ' + e.fingerprint).join(', ')
+    + (sentByMarker && sentByMarker.length > 1 ? ' - files ' + sentByMarker.map((e) => clean(e.name || 'a file') + ' ' + e.fingerprint).join(', ')
       + ' (check your copy with: kosmos fingerprint <file> <its fingerprint>)' : '')   // kosmos#9105
-    + (sentByMarker.length <= 1 && tasks.FINGERPRINT_RE.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')   // #7213: the value names its kind, and given it the command compares like with like
+    + (sentByMarker && sentByMarker.length === 1 ? ' - fingerprint ' + sentByMarker[0].fingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')
+    + (!sentByMarker && tasks.FINGERPRINT_RE.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')   // #7213: the value names its kind, and given it the command compares like with like
     /* kosmos#8307: a replacement says which file it replaces, and that a check of that file no longer counts. */
     + (reps.length === 1 ? ' - it replaces the file sent earlier (' + replacedPrint + '), so a check of that file no longer counts'
       + (checkedOld(m) ? ': you checked that one' : '') : '')
@@ -28408,7 +28411,7 @@ const server = http.createServer(async (req, res) => {
             const no = taskMessageRefusal();
             if (!no) taskMessageValveRecord();
             return no;
-          }, out.replacedFiles || out.replaced || null);   // kosmos#8307; kosmos#9105: every file it replaced
+          }, out.replacedFiles || out.replaced || null, out.sentFiles || []);   // kosmos#8307; kosmos#9105: every file it replaced, and the files it sent
         } catch (err) {
           process.stderr.write('task built: could not tell the people task ' + out.task.number + ' goes to: ' + ((err && err.message) || err) + '\n');
           delivered = [];

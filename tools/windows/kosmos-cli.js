@@ -2304,6 +2304,8 @@ async function taskBuilt(ctx, args) {
       }
       if (!Array.isArray(r.json.task.builtFiles)) ctx.out('This Kosmos kept only the first file, ' + sent[0].file + ': it may be older than more than one --file. Update it, then mark the task again.');
     }
+    // Review 1, as install/kosmos: an older board does not know --check, so it counted the mark as a check of its one file.
+    if (!clear && checkNames && !Array.isArray(r.json.task.builtFiles)) ctx.out('This Kosmos does not know --check, so it counted this as a check of the file it keeps: it may be older than --check. Update it, then mark the task again.');
     if (!clear && fingerprint && sent.length <= 1) ctx.out('Fingerprint sent: ' + fingerprint + ' for ' + file);
     if (!clear && fingerprint && sent.length <= 1 && !filePath && pathWhy) ctx.out('Its path was not sent (' + pathWhy + '), so kosmos task files cannot check this mark.');
     else if (!clear && fingerprint && sent.length <= 1 && !filePath) ctx.out('Its path was not sent (Kosmos keeps only a plain local path: absolute, with no . or .. in it, no control characters, not a network path, and 1024 characters at most), so kosmos task files cannot check this mark.');   // kosmos#8214 review 2, as install/kosmos
