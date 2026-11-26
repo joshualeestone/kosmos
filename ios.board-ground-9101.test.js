@@ -80,3 +80,12 @@ test('#9101 inside the app, the board\'s own header bar stands on the page\'s gr
   assert.ok(block.length > 0);
   assert.doesNotMatch(block, /#17233d|#fff\b|rgba\(255,\s*255,\s*255/i, 'navy or white left in the in-app header (written for the navy bar)');
 });
+
+test('#9101 boardGround and the native ground (Palette.ground) are the same two colours', () => {
+  const pal = fs.readFileSync(path.join(IOS, 'AgentsView.swift'), 'utf8');
+  const m = /static let ground = pair\(0x([0-9a-f]{6}), 0x([0-9a-f]{6})\)/i.exec(pal);
+  assert.ok(m, 'Palette.ground moved');
+  const page = pageGround();
+  assert.equal('#' + m[1].toLowerCase(), page.light, 'Palette.ground (light) and the board\'s ground differ: the native screens and the page would not match');
+  assert.equal('#' + m[2].toLowerCase(), page.dark, 'Palette.ground (dark) and the board\'s ground differ');
+});

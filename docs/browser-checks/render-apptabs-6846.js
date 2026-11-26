@@ -71,7 +71,7 @@ const look = (page) => page.evaluate(() => {
     mark: vis(q('#kplus-bar canvas')), twoLines: vis(q('#kplus-menu')),
     tabs: vis(q('#tabs')), burger: vis(q('#burger')), klink: vis(q('#klink')),
     comp: vis(q('#kapp-comp')) ? rect(q('#kapp-comp')) : null, compName: q('#kapp-comp-name') ? q('#kapp-comp-name').textContent : null,
-    compColor: q('#kapp-comp') ? getComputedStyle(q('#kapp-comp')).color : null,
+    compColor: q('#kapp-comp') ? getComputedStyle(q('#kapp-comp')).color : null, barColor: q('#kplus-bar') ? getComputedStyle(q('#kplus-bar')).color : null,
     compFont: q('#kapp-comp') ? getComputedStyle(q('#kapp-comp')).fontSize + ' ' + getComputedStyle(q('#kapp-comp')).fontWeight : null,
     compLabel: q('#kapp-comp') && q('#kapp-comp').getAttribute('aria-label'),
     me: vis(q('#kapp-me')) ? rect(q('#kapp-me')) : null, face: vis(face) ? rect(face) : null, meLabel: q('#kapp-me') && q('#kapp-me').getAttribute('aria-label'),
@@ -243,9 +243,9 @@ const teardownFails = [];
           const l = await look(page);
           const barLabel = await page.evaluate(() => document.getElementById('kplus-bar').getAttribute('aria-label'));
           chk(barLabel === 'Kosmos', T + 'S0 in the app the bar is named Kosmos, not a remote session', String(barLabel));
-          chk(l.comp && l.comp.l === 16 && l.comp.h === 44 && l.comp.w >= 44 && l.compName === 'studio-laptop' && l.compColor === WHITE && l.compFont === '15px 600'
+          chk(l.comp && l.comp.l === 16 && l.comp.h === 44 && l.comp.w >= 44 && l.compName === 'studio-laptop' && l.compColor === l.barColor && l.compColor !== WHITE && l.compFont === '15px 600'
             && l.compLabel === 'Your computers. This computer: studio-laptop' && l.me,
-            T + 'S1 two computers: this computer\'s name left (16px in, 15px semibold, white), the face right', JSON.stringify({ comp: l.comp, name: l.compName, color: l.compColor, font: l.compFont, label: l.compLabel }));
+            T + 'S1 two computers: this computer\'s name left (16px in, 15px semibold, in the bar\'s ink: kosmos#9101), the face right', JSON.stringify({ comp: l.comp, name: l.compName, color: l.compColor, ink: l.barColor, font: l.compFont, label: l.compLabel }));
           await page.click('#kapp-comp');
           await settled(page);
           let m = await look(page);
