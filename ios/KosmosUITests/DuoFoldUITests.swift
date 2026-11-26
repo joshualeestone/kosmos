@@ -35,9 +35,9 @@ final class DuoFoldUITests: DuoPanesCase {
         UIKitListArm.set(app)
         app.launch()
         XCTAssertTrue(app.buttons["room-info"].waitForExistence(timeout: 30), "the room did not open")
-        XCTAssertTrue(holds(5) { !self.tabsShow(app) }, "an upright phone shows the tabs in a project's room")
+        XCTAssertTrue(stays(5) { !self.tabsShow(app) }, "an upright phone shows the tabs in a project's room")
         app.buttons["room-info"].tap()
-        XCTAssertTrue(words(app, "What it is for").waitForExistence(timeout: 10) && holds(5) { !self.tabsShow(app) }, "an upright phone shows the tabs over a project's page")
+        XCTAssertTrue(words(app, "What it is for").waitForExistence(timeout: 10) && stays(5) { !self.tabsShow(app) }, "an upright phone shows the tabs over a project's page")
         // A task opened from the project's page keeps the tabs hidden, as the rest of a project does (a change on purpose:
         // the task page used to bring them back; Josh 11-03, no nav inside a project).
         let inProject = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Choose the cover photo'")).firstMatch
@@ -45,11 +45,11 @@ final class DuoFoldUITests: DuoPanesCase {
         XCTAssertTrue(inProject.waitForExistence(timeout: 10), "CONTROL: the project's page lists no task to open")
         inProject.tap()
         XCTAssertTrue(app.navigationBars["Task 7"].waitForExistence(timeout: 10), "CONTROL: the task did not open from the project's page")
-        XCTAssertTrue(holds(5) { !self.tabsShow(app) }, "the tabs show over a task opened inside a project")
+        XCTAssertTrue(stays(5) { !self.tabsShow(app) }, "the tabs show over a task opened inside a project")
         back(app)
         back(app)
         XCTAssertTrue(app.buttons["room-info"].waitForExistence(timeout: 10), "CONTROL: back did not return to the room")
-        XCTAssertTrue(holds(5) { !self.tabsShow(app) }, "the tabs show over the room on the way back")
+        XCTAssertTrue(stays(5) { !self.tabsShow(app) }, "the tabs show over the room on the way back")
         back(app)
         XCTAssertTrue(holds(8) { self.tabsShow(app) }, "the tabs did not come back with the list")
         shot(app, "upright, back in the list")
