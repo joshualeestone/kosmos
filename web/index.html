@@ -12375,6 +12375,12 @@ html.kapptabs .askreq :is(.askcodein, .waitcodein):focus-visible { outline-color
 html.kapptabs :is(.askreq, .askcard) .btn.uprime, html.kapptabs :is(.askreq, .askcard) .btn.uprime:hover,
   html.kapptabs .askreq .acts .btn.uprime[aria-disabled="true"] { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
 html.kapptabs .askreq .btn.quiet { color: var(--k-ink-2); }
+/* kosmos#9103 review 2: the sheet's own white text, written for its navy, on the board's card in the app. The ID-scoped
+   code keeps its IDs so the override outranks #plus-asks/#askcard .askreq .askcodebig. */
+html.kapptabs :is(.askreq .askwho b, .askreq.waitreq .waitmeta .waitsaid, .askrow.done .askok, .askcard h3) { color: var(--k-ink); }
+html.kapptabs #plus-asks .askreq .askcodebig, html.kapptabs #askcard .askreq .askcodebig { color: var(--k-ink); }
+html.kapptabs .askbrand { color: var(--k-ink-2); }
+html.kapptabs #plus-state2 #plus-si-bought-recheck { border-color: var(--k-rule); }
 .plus-hero-h { font-size: 26px; font-weight: 650; letter-spacing: -.01em; line-height: 1.2;   /* #6557: it inherited a fixed 16px, so its two lines overlapped at phone width */
   margin: 10px 0 8px; color: var(--k-ink); }
 .plus-lede { color: var(--k-ink-2); margin: 0 0 24px; max-width: 52ch; }
