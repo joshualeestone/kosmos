@@ -109,8 +109,9 @@ classes="$classes AIPoliciesUITests:1"
 #   opened above the newest (3 of 3 before the fix), the UIKit list already passed. 20 messages, so not the 260-message
 #   chat's query limit that keeps ChatOpensAtNewestUITests by hand. Its own line, as above.
 classes="$classes ChatTallOpenUITests:2"
-# kosmos#9002: DuoFoldUITests, two panes, a fold and an unfold with a project's page open, and a chat three pages deep (1 check).
-classes="$classes DuoFoldUITests:1"
+# kosmos#9002: DuoFoldUITests, two panes, a fold and an unfold with a project's page open and a chat three pages deep, and an
+#   upright phone keeping its tabs out of a project's room, page and task (2 checks).
+classes="$classes DuoFoldUITests:2"
 skip=""
 arm="lazy"
 if [ "$uikit" = 1 ]; then
