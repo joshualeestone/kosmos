@@ -671,8 +671,11 @@ function roomClock(at, timezone) {
 
 /* kosmos#9169 (#9166 item 3): the room's text view gave each line only a time of day, so lines from several days ran
    together and an evening line sat right above the next morning's. This is the day a row falls on, in the same zone
-   roomClock uses (the stored one, else the machine's), as "Wed 25 Nov"; the year is added only when it is not the
-   current year in that zone. null when the instant cannot be read, so the caller adds no date line for it. Never throws. */
+   roomClock uses (the stored one, else the machine's), as "Wed 25 Nov", with the year added when it is not the current
+   year in that zone. Only the numbers come from Intl; the words come from the tables below, so the spelling does not
+   depend on the platform's locale data. null when the instant cannot be read. Never throws. */
+const ROOM_DAY_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const ROOM_DAY_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function roomDay(at, timezone, now) {
   if (!at) return null;
   const when = new Date(at);
@@ -680,11 +683,15 @@ function roomDay(at, timezone, now) {
   const nowAt = new Date(Number.isFinite(now) ? now : Date.now());
   for (const zone of timezone ? [timezone, null] : [null]) {
     try {
-      const tz = zone ? { timeZone: zone } : {};
-      const year = new Intl.DateTimeFormat('en-GB', { year: 'numeric', ...tz });
-      const sameYear = year.format(when) === year.format(nowAt);
-      return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }), ...tz })
-        .format(when).replace(/,/g, '');
+      const fmt = new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'numeric', day: 'numeric', ...(zone ? { timeZone: zone } : {}) });
+      const ymd = (d) => {
+        const parts = Object.fromEntries(fmt.formatToParts(d).map((x) => [x.type, x.value]));
+        return { y: Number(parts.year), m: Number(parts.month), d: Number(parts.day) };
+      };
+      const day = ymd(when);
+      if (!(day.y > 0 && day.m >= 1 && day.m <= 12 && day.d >= 1 && day.d <= 31)) return null;
+      const weekday = ROOM_DAY_WEEKDAYS[new Date(Date.UTC(day.y, day.m - 1, day.d)).getUTCDay()];
+      return weekday + ' ' + day.d + ' ' + ROOM_DAY_MONTHS[day.m - 1] + (day.y === ymd(nowAt).y ? '' : ' ' + day.y);
     } catch { /* stale or unknown id: the machine's zone next */ }
   }
   return null;
