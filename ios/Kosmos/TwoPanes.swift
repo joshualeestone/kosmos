@@ -80,7 +80,8 @@ struct NothingOpen: View {
 #if DEBUG
 // A stand-in for Duo's unfolded screen, since this Mac's Xcode has no Duo simulator (a Debug build only).
 // KOSMOS_SAMPLE_REGULAR=1: both size classes regular. =fold:<seconds>: regular, then as the device is after that long, then
-// regular again, so one run shows a fold and an unfold.
+// regular again, so one run shows a fold and an unfold. =tap: regular, then each tap of the test's own control
+// (DuoSampleFoldControl, "duo-sample-fold") folds or unfolds, so a slow runner cannot race a clock.
 enum DuoSample {
     @MainActor static func apply() {
         guard let want = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REGULAR"], #available(iOS 17.0, *) else { return }
@@ -89,12 +90,30 @@ enum DuoSample {
         DispatchQueue.main.asyncAfter(deadline: .now() + s) { set(false) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2 * s) { set(true) }
     }
-    @available(iOS 17.0, *) @MainActor private static func set(_ regular: Bool) {
+    @available(iOS 17.0, *) @MainActor static func set(_ regular: Bool) {
         for w in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).flatMap(\.windows) {
             if regular { w.traitOverrides.horizontalSizeClass = .regular; w.traitOverrides.verticalSizeClass = .regular }
             else { w.traitOverrides.remove(UITraitHorizontalSizeClass.self); w.traitOverrides.remove(UITraitVerticalSizeClass.self) }
         }
         NSLog("[Duo] sample size classes: %@", regular ? "regular" : "the device's own")
+    }
+}
+// The test's own fold control (KOSMOS_SAMPLE_REGULAR=tap only): a small target at the top of the window. Its label says
+// which state the app is in, so a check waits on the app rather than on a clock.
+struct DuoSampleFoldControl: View {
+    @State private var folded = false
+    var body: some View {
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REGULAR"] == "tap" {
+            Color.clear.frame(width: 24, height: 12).contentShape(Rectangle())
+                .onTapGesture {
+                    folded.toggle()
+                    if #available(iOS 17.0, *) { DuoSample.set(!folded) }
+                }
+                .accessibilityElement()
+                .accessibilityLabel(folded ? "sample folded" : "sample unfolded")
+                .accessibilityIdentifier("duo-sample-fold")
+                .accessibilityAddTraits(.isButton)
+        }
     }
 }
 #endif

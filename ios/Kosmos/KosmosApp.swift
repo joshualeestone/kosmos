@@ -21,6 +21,7 @@ struct KosmosApp: App {
             ContentView(pushManager: appDelegate.pushManager)
                 #if DEBUG
                 .onAppear { DuoSample.apply() }   // kosmos#9002
+                .overlay(alignment: .top) { DuoSampleFoldControl() }
                 #endif
         }
     }
