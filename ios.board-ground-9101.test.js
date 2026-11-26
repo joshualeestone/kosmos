@@ -63,7 +63,9 @@ test('#9101 boardGround is the colour the board\'s body paints, light and dark',
 });
 
 test('#9101 the five places behind the board use it, and the Close bar\'s words read on it', () => {
-  assert.equal((CONTENT.match(/UIColor\.boardGround|= \.boardGround/g) || []).length, 5, 'a place behind the web board does not use boardGround');
+  // Code only: a comment that names boardGround is not a place that paints it (the theme hand-off's comment did).
+  const codeOnly = CONTENT.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  assert.equal((codeOnly.match(/UIColor\.boardGround|= \.boardGround/g) || []).length, 5, 'a place behind the web board does not use boardGround');
   const from = CONTENT.indexOf('private var boardPage: some View {');
   const to = CONTENT.indexOf('.accessibilityLabel("Close this page")');
   assert.ok(from > -1 && to > from, 'the Close bar moved');
