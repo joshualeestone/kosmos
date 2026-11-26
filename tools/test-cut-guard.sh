@@ -1554,6 +1554,19 @@ awk '/^kosmos_beside_runs_since\(\)/{p=1} p{print} p&&/^}/{exit}' "$HERE/lib/cut
 # dir is made here: an earlier arm removes it, and these two write their lines by hand (not through the writer).
 mkdir -p "$MB"; now9139=$(date +%s); printf 'S r9 %s reused\n' $((now9139 - 100)) > "$MB/beside-runs.log"; printf 'E r9 %s\n' $((now9139 - 1000)) > "$MB/beside-runs.log.pending.test1"
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since $((now9139 - 200)) | grep -qF "reused (r9), from" && pass "#9139 an older end folded late does not end a newer run of the same id" || fail "#9139 a reused id was ended by an older end ($(KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since $((now9139 - 200))))"
+# Review 2 (besidefix): an OLDER start folded after a newer start of the same id does not replace it (two give-ups of
+# run one, then run two's locked start, then the fold), in either order of the folded pair.
+printf 'S r8 %s run-two\nS r8 %s run-one\nE r8 %s\n' $((now9139 - 100)) $((now9139 - 1000)) $((now9139 - 900)) > "$MB/beside-runs.log"
+o1=$(KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since $((now9139 - 200)))
+printf 'S r8 %s run-two\nE r8 %s\nS r8 %s run-one\n' $((now9139 - 100)) $((now9139 - 900)) $((now9139 - 1000)) > "$MB/beside-runs.log"
+o2=$(KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since $((now9139 - 200)))
+{ printf '%s' "$o1" | grep -qF "run-two (r8), from" && printf '%s' "$o1" | grep -q "still going" && printf '%s' "$o2" | grep -qF "run-two (r8), from" && printf '%s' "$o2" | grep -q "still going"; } \
+  && pass "#9139 an older start folded late does not replace a newer run of the same id (both orders)" || fail "#9139 an older start replaced a newer run ($o1 / $o2)"
+# Review 2 (besidefix): a pending-tmp file left by a writer killed before its rename is folded once it is 60 s old.
+: > "$MB/beside-runs.log"; printf 'S k8 %s killed-writer\n' "$now9139" > "$MB/beside-runs.log.pending-tmp.TESTKILL"
+TZ=UTC touch -t "$(TZ=UTC date -r $(( now9139 - 120 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( now9139 - 120 ))" +%Y%m%d%H%M.%S)" "$MB/beside-runs.log.pending-tmp.TESTKILL"
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end fold-tmp
+{ [ ! -e "$MB/beside-runs.log.pending-tmp.TESTKILL" ] && grep -q '^S k8 ' "$MB/beside-runs.log"; } && pass "#9139 an orphaned pending-tmp file is folded in once it is 60 s old" || fail "#9139 an orphaned pending-tmp file was not folded"
 # Review 1 (besidefix): a pending line is read while the log does not exist yet.
 rm -f "$MB/beside-runs.log" "$MB"/beside-runs.log.pending.*; printf 'S p9 %s only-pending\n' "$now9139" > "$MB/beside-runs.log.pending.test2"
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0 | grep -qF "only-pending (p9)" && pass "#9139 a pending line is named while the log does not exist yet" || fail "#9139 a pending line with no log was not named"
