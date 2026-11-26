@@ -43,6 +43,14 @@ class DuoPanesCase: XCTestCase {
         app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label CONTAINS ' of 260'")).allElementsBoundByIndex
             .map(\.frame).filter { $0.width > 0 && $0.minX >= pane.minX - 1 && $0.maxX <= pane.maxX + 1 }.map(\.width).max() ?? 0
     }
+    // Folds or unfolds by the app's own control, then waits for the control to show its new state. The checks that follow
+    // are what show the layout moved.
+    func fold(_ app: XCUIApplication, _ want: String) {
+        let c = app.descendants(matching: .any).matching(identifier: "duo-sample-fold").firstMatch
+        XCTAssertTrue(c.waitForExistence(timeout: 10), "CONTROL: the sample fold control is not there")
+        c.tap()
+        XCTAssertTrue(holds(10) { c.label == want }, "the sample did not become \(want) (it reads \(c.label))")
+    }
     func shot(_ app: XCUIApplication, _ name: String) {
         // The app's own picture of a sideways window is cut off, so the whole screen.
         let a = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
@@ -248,5 +256,34 @@ final class DuoPanesUITests: DuoPanesCase {
         // Only where they share a column: a bar narrower than the window covers nothing beside it.
         let covered = app.tabBars.buttons.allElementsBoundByIndex.contains { $0.frame.intersects(last.frame) }
         XCTAssertFalse(covered, "the tab bar covers the list's last row (\(last.frame))")
+    }
+
+    // By hand, not in CI (kosmos#9002, 11-26): on CI's iPhone 17e with iOS 26.5 it timed out reading the screen at the
+    // first fold with this long chat open, 3 runs of 3; it passes on iOS 27 on both chat lists.
+    // A long bubble follows its pane: bounded beside the list, wider when folded alone, bounded again on the unfold.
+    func testALongBubbleFollowsItsPaneThroughAFoldAndAnUnfold() throws {
+        let app = try launch("tap", ["KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "varied"])
+        XCTAssertTrue(box(app).waitForExistence(timeout: 30) && holds(8) { self.beside(app) }, "CONTROL: unfolded, the list is not beside the chat")
+        UIKitListArm.assertDrawn(app)
+        func widest() -> (text: CGFloat, pane: CGFloat) { let p = chatPane(app); return (widestMessage(app, in: p), p.width) }
+        sleep(3)
+        let open = widest()
+        XCTAssertGreaterThan(open.text, 0, "CONTROL: no messages drawn in the chat's pane")
+        XCTAssertLessThan(open.pane, app.frame.width * 0.9, "CONTROL: unfolded, the chat's pane was not measured apart from the list")
+        XCTAssertLessThanOrEqual(open.text, open.pane * bubbleShare, "unfolded, a bubble's text is wider than its pane's share")
+        fold(app, "sample folded")
+        XCTAssertTrue(holds(10) { self.alone(app) }, "CONTROL: folded, the chat is not alone")
+        sleep(3)
+        let folded = widest()
+        print("UI-NOTE kosmos#9002 widest bubble text unfolded \(Int(open.text)) of \(Int(open.pane)), folded \(Int(folded.text)) of \(Int(folded.pane))")
+        XCTAssertGreaterThan(folded.text, open.text + 20, "folded, the bubbles kept the narrow pane's width")
+        shot(app, "long bubbles folded")
+        fold(app, "sample unfolded")
+        XCTAssertTrue(holds(10) { self.beside(app) }, "CONTROL: unfolded again, the list is not beside the chat")
+        sleep(3)
+        let again = widest()
+        XCTAssertGreaterThan(again.text, 0, "CONTROL: no messages drawn after the unfold")
+        XCTAssertLessThanOrEqual(again.text, again.pane * bubbleShare, "unfolded again, the bubbles kept the whole screen's width")
+        shot(app, "long bubbles unfolded again")
     }
 }
