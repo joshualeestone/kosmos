@@ -211,9 +211,24 @@ echo $$ > "$LOCK/pid"; OWN_LOCK=1
 # both), anywhere after `run` (anchored on the connector's name: the gate's own command line
 # carries --state-dir too). The state path is escaped for the regex. NOT seen: a relative
 # or symlinked spelling of the state path, or a copy of the identity on ANOTHER machine.
+# kosmos#9149: pgrep exits 1 when nothing matches and 2 or 3 when it FAILED (it could not list the processes). Both
+# scans below used to take its output alone, so a failed scan read as "no other connector" and the gate PASSED with a
+# connector of its identity still running: the false PASS these scans exist to stop (3 of 22 Mortals runs, 11-25/26,
+# a different stand-in arm each time). A failure is retried twice, then the gate cannot tell. Its pids go in GATE_PIDS
+# (not printed), so cannot's exit ends the gate, not a $( ) subshell.
+_gate_pgrep() {
+  local rc=0 i
+  for i in 1 2 3; do
+    GATE_PIDS="$(pgrep -f "$1" 2>/dev/null)"; rc=$?
+    case "$rc" in 0|1) return 0 ;; esac
+    sleep 0.2
+  done
+  cannot "could not list this computer's processes to look for another connector with the gate's identity (pgrep exited $rc, three times); run it again"
+}
 state_re="$(printf '%s' "$STATE" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
 stale=""
-for p in $(pgrep -f "kosmos-tunnel run .*--state-dir[= ]$state_re/?( |\$)" 2>/dev/null); do
+_gate_pgrep "kosmos-tunnel run .*--state-dir[= ]$state_re/?( |\$)"
+for p in $GATE_PIDS; do
   kill -0 "$p" 2>/dev/null && stale="$stale$p "    # kosmos#4352: a pid already gone holds nothing
 done
 # A connector under ANOTHER gate's temp dir (any tunnel-gate.* copy, wherever it lives) counts when
@@ -225,7 +240,8 @@ done
 # it is GONE; a live one whose command line cannot be read counts as unreadable.
 tmproot="${TMPDIR:-/tmp}"; while [ "${tmproot%/}" != "$tmproot" ]; do tmproot="${tmproot%/}"; done
 tmproot_re="$(printf '%s' "$tmproot" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
-for p in $(pgrep -f "kosmos-tunnel run .*--state-dir[= ][^ ]*/tunnel-gate\\.[A-Za-z0-9]+/" 2>/dev/null); do
+_gate_pgrep "kosmos-tunnel run .*--state-dir[= ][^ ]*/tunnel-gate\\.[A-Za-z0-9]+/"
+for p in $GATE_PIDS; do
   kill -0 "$p" 2>/dev/null || continue
   cmd="$(ps -o command= -p "$p" 2>/dev/null)"
   # No command line: it may have exited between the two reads. Gone now is skipped; alive stays in.
