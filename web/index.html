@@ -44972,8 +44972,9 @@ const KEPT_DRAFT_PREFIX = new WeakMap();    // a kept map -> its localStorage pr
 const KEPT_DRAFT_SIG = new WeakMap();       // kosmos#9157: a kept map -> what of an entry must match storage (default: its words)
 /* The words of a draft entry: a string, or an object's text. */
 function keptDraftWords(v) { return String(typeof v === 'string' ? v : (v && v.text) || ''); }
-/* kosmos#9157: a reply being written (DM_REPLY, PJ_REPLY) is kept whenever it exists; it counts as kept when storage
-   names the same message (`at` in a chat, `id` in a room) and the same @mention Reply put in the box. */
+/* kosmos#9157: a reply being written (DM_REPLY, PJ_REPLY) is stored whenever it exists and brought back by a reload
+   only beside its words (`pair`, below); it counts as kept when storage names the same message (`at` in a chat, `id`
+   in a room) and the same @mention Reply put in the box. */
 /* Review 1: a reply is written once (at the click) while its words are written on every keystroke, so a reply ages
    out with its draft (`pair`): while that draft is still stored and fresh, the reply is kept however old it is. */
 const KEPT_REPLY_SIG = (v) => (v ? JSON.stringify([String(v.at || v.id || ''), String(v.mention || '')]) : '');
@@ -44996,6 +44997,12 @@ function keptDrafts(kind, opts) {
       let rec = null;
       try { rec = JSON.parse(localStorage.getItem(k)); } catch { rec = null; }
       const fresh = (r) => !!r && r.v != null && typeof r.t === 'number' && r.t > cutoff;
+      /* Review 3: a reply another tab pruned at its load (see below) is a marker, not a reply: never loaded, left
+         while fresh (so removing it cannot reach a tab that holds the reply), removed once old. */
+      if (rec && rec.pruned === true) {
+        if (!(typeof rec.t === 'number' && rec.t > cutoff)) localStorage.removeItem(k);
+        continue;
+      }
       let keep = fresh(rec);
       /* Review 1: a reply goes with its paired draft (opts.pair), however old the reply itself is. Review 2: and ONLY
          with it: a reply with no words kept beside it (picked, never typed after) is not brought back, as before
@@ -45004,6 +45011,10 @@ function keptDrafts(kind, opts) {
         let paired = null;
         try { paired = JSON.parse(localStorage.getItem('kosmos.draft.' + opts.pair + '.' + k.slice(prefix.length))); } catch { paired = null; }
         keep = fresh(paired) && !!keptDraftWords(paired.v).trim();
+        /* Review 3: not removed, but marked pruned. A removal fires a storage event in every other open tab, whose
+           listener would delete a reply the person picked THERE a moment ago (nothing typed yet), and their next
+           message would go out plain. A tab still holding the reply writes it back when it hears the marker. */
+        if (!keep && fresh(rec)) { localStorage.setItem(k, JSON.stringify({ v: null, pruned: true, t: Date.now() })); continue; }
       }
       if (keep) map[k.slice(prefix.length)] = rec.v;
       else localStorage.removeItem(k);
@@ -45033,6 +45044,8 @@ function keptDrafts(kind, opts) {
         const key = e.key.slice(prefix.length);
         let rec = null;
         try { rec = e.newValue == null ? null : JSON.parse(e.newValue); } catch { rec = null; }
+        // Review 3: another tab's load marked this entry pruned. Ours still stands: write it back, delete nothing.
+        if (rec && rec.pruned === true) { if (map[key] != null) keepEntry(key, map[key]); return; }
         const was = map[key];
         if (rec && rec.v != null) map[key] = rec.v; else delete map[key];
         unsaved.delete(key);

@@ -170,3 +170,64 @@ test('#9157 review 2: a reply picked with nothing typed after it is not brought 
   hp.keptDrafts('pjreply', hp.KEPT_PJ_REPLY_OPTS).p7 = { id: 'm1' };
   assert.equal(helper(pjStore).keptDrafts('pjreply', hp.KEPT_PJ_REPLY_OPTS).p7, undefined, 'a room reply with no words came back');
 });
+
+// Review 3: tabs of one board share one storage; a write or removal in one tab is heard as a storage event in the others.
+function sharedStorage() {
+  const data = new Map();
+  const tabs = [];
+  const tab = () => {
+    const listeners = [];
+    const me = { listeners };
+    // Delivered later, as a browser does (never inside the writing call), so a tab still loading has its listener by then.
+    const fire = (key, newValue) => setImmediate(() => tabs.filter((t) => t !== me).forEach((t) => t.listeners.forEach((f) => f({ key, newValue }))));
+    me.storage = {
+      get length() { return data.size; },
+      key: (i) => [...data.keys()][i] ?? null,
+      getItem: (k) => (data.has(k) ? data.get(k) : null),
+      setItem: (k, v) => { data.set(k, String(v)); fire(k, String(v)); },
+      removeItem: (k) => { if (data.has(k)) { data.delete(k); fire(k, null); } },
+    };
+    me.win = { addEventListener: (t, f) => { if (t === 'storage') listeners.push(f); } };
+    tabs.push(me);
+    return me;
+  };
+  return { data, tab };
+}
+function tabHelper(t) {
+  return new Function('localStorage', 'window', HELPER
+    + '\nreturn { keptDrafts, draftsKept, KEPT_DM_REPLY_OPTS, KEPT_PJ_REPLY_OPTS };')(t.storage, t.win);
+}
+
+const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r)); };
+test('#9157 review 3: another tab loading never deletes a reply this tab just picked (nothing typed yet)', async () => {
+  const shared = sharedStorage();
+  const one = tabHelper(shared.tab());
+  const replies1 = one.keptDrafts('dmreply', one.KEPT_DM_REPLY_OPTS);
+  one.keptDrafts('talk');
+  replies1.april = REPLY;   // Reply pressed in tab 1, no words yet
+  const two = tabHelper(shared.tab());
+  two.keptDrafts('talk');
+  const replies2 = two.keptDrafts('dmreply', two.KEPT_DM_REPLY_OPTS);   // tab 2 loads: the word-less reply is pruned there
+  await settle();
+  assert.equal(replies2.april && replies2.april.at, REPLY.at, 'tab 2 did not hear tab 1 write its reply back');
+  assert.equal(replies1.april && replies1.april.at, REPLY.at, 'tab 2 loading deleted the reply tab 1 is writing');
+  assert.equal(JSON.parse(shared.data.get('kosmos.draft.dmreply.april')).v.at, REPLY.at, 'storage does not hold tab 1\'s reply');
+  assert.equal(one.draftsKept(replies1), true, 'tab 1\'s reply is not counted as kept');
+  // CONTROL: a real end in tab 2 (x) does remove it from tab 1.
+  delete replies2.april;
+  await settle();
+  assert.equal(replies1.april, undefined, 'CONTROL: cancelling in tab 2 did not end the reply in tab 1');
+});
+
+test('#9157 review 3: a pruned marker is never loaded as a reply, and goes once it is old', () => {
+  const storage = memoryStorage();
+  const h = helper(storage);
+  const day = 24 * 60 * 60 * 1000;
+  storage.setItem('kosmos.draft.dmreply.april', JSON.stringify({ v: null, pruned: true, t: Date.now() }));
+  storage.setItem('kosmos.draft.talk.april', JSON.stringify({ v: 'words', t: Date.now() }));
+  storage.setItem('kosmos.draft.dmreply.roo', JSON.stringify({ v: null, pruned: true, t: Date.now() - 15 * day }));
+  const replies = h.keptDrafts('dmreply', h.KEPT_DM_REPLY_OPTS);
+  assert.equal(replies.april, undefined, 'a pruned marker came back as a reply');
+  assert.notEqual(storage.getItem('kosmos.draft.dmreply.april'), null, 'a fresh marker was removed (that reaches other tabs)');
+  assert.equal(storage.getItem('kosmos.draft.dmreply.roo'), null, 'an old marker was left behind');
+});

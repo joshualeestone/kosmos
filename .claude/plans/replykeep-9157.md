@@ -20,9 +20,10 @@ box's draft (render-replykeep-9157 against main's page: 4 kept-reply assertions 
 - keptDrafts(kind, opts): optional `present(v)` (store this entry?) and `sig(v)` (what must match storage to count
   as kept). Defaults are the old words-based behaviour, so the four draft maps are unchanged. KEPT_DRAFT_SIG records
   each map's sig; keptDraftStored and draftsKept read it.
-- KEPT_REPLY_OPTS: a reply is stored whenever it exists; its sig is [the message's `at` or the post's `id`, the
-  @mention Reply put in the box].
-- DM_REPLY = keptDrafts('dmreply', KEPT_REPLY_OPTS), PJ_REPLY = keptDrafts('pjreply', KEPT_REPLY_OPTS). Every
+- KEPT_DM_REPLY_OPTS / KEPT_PJ_REPLY_OPTS: a reply is stored whenever it exists; its sig is [the message's `at` or
+  the post's `id`, the @mention Reply put in the box]; `pair` names its draft map ('talk', 'room'), and a reload brings
+  it back only beside fresh words there (rounds 1 to 3).
+- DM_REPLY = keptDrafts('dmreply', KEPT_DM_REPLY_OPTS), PJ_REPLY = keptDrafts('pjreply', KEPT_PJ_REPLY_OPTS). Every
   existing set/delete site is seen by the wrapper. The two in-place `.mention =` writes in pjReplyMention now assign
   a new object, so the change reaches storage.
 - Restore needs nothing new: paintTalk and openProject already paint the strip from DM_REPLY/PJ_REPLY, which are
@@ -47,7 +48,7 @@ reload.
 
 ## Verified (round 0)
 
-- web.replykeep-9157.test.js (6): all 6 fail on main's page; removing the `!keptMap(DM_REPLY)` guard fails exactly
+- web.replykeep-9157.test.js (6 at round 0; 10 by round 3): all 6 failed on main's page; removing the `!keptMap(DM_REPLY)` guard fails exactly
   the test that names it.
 - docs/browser-checks/render-replykeep-9157.js: real Chromium, real typing, a reload, Enter posts reply_to; control
   arm (round 1: storage refusing only the reply's key) holds the restart and shows no strip. Against main's page: the
@@ -87,3 +88,19 @@ No BLOCKER, no SHOULD-FIX.
   (none exists today); the browser check covers the chat, the room is unit-tested.
 web.replykeep-9157 8 of 8, web.keepdrafts-9132 and the affected suites and guards (120) pass; render-replykeep-9157
 passes both arms.
+
+#### Iteration 3 (blind review of the whole branch, opus)
+
+- [SHOULD-FIX] taken: round 2's load-time prune REMOVED a word-less reply, and a removal fires a storage event in
+  every other open tab, whose listener deleted a reply the person had just picked there (nothing typed yet), so their
+  next message went out plain. Measured by the reviewer in a two-tab simulation. Now a load marks it
+  {v: null, pruned: true}: never loaded as a reply, left while fresh, removed once old; a tab that still holds the
+  reply hears the marker and writes its reply back. Real ends (send, x, forget) still delete. Tested with two tabs on
+  one storage (events delivered later, as a browser does): tab 2 loading leaves tab 1's reply, storage holds it, it
+  counts as kept; control: x in tab 2 ends it in tab 1. Each of the two mutations (removal restored, write-back
+  dropped) fails exactly that test. And the marker: never loaded, a fresh one left, an old one removed.
+- [NIT] taken: the KEPT_REPLY comment says stored always, brought back only beside words; the plan's stale names.
+- [NIT] recorded, not built: a reload during a reply's send with new words typed meanwhile pairs the old reply with
+  them (as recorded in round 1); the forget call sites are pinned by text; the browser check covers the chat. From
+  #9132, not new: a page left open 14 days with no keystroke may restart and age its words out, and its reply with
+  them.
