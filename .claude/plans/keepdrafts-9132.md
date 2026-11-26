@@ -139,3 +139,11 @@ web.keepdrafts-9132 14 of 14 and the related suites and guards pass (105); rende
 - [NIT] not taken: log out empties a second tab's open box showing the old copy (that tab is signed out too); the
   browser check covers d-say only (the other boxes share the same code paths, unit-tested).
 web.keepdrafts-9132 15 of 15 and related suites and guards (106) pass; render-keepdrafts-9132 passes.
+
+#### Iteration 6 (blind review of the whole branch, sonnet)
+
+No BLOCKER, no SHOULD-FIX. Converged. NITs, not taken: two tabs typing in the same chat at once is last-writer-wins
+(the other tab's keystroke replaces this box, caret included); a removal finishing after CURRENT was already nulled
+leaves the removed agent's box words (unproven path, narrow); the silent 14-day age-out and the load-failure
+"not kept" (decided above). The "any key" fallback was checked: a match means storage holds those words, so nothing
+is lost on a reload.
