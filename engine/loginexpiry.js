@@ -150,33 +150,44 @@ function credPathOf(ccd, home, userHome, service) {
  * A read is started when the last is a minute old, or when the login generation moved since it (a sign-in, review 1:
  * else the old notice stayed up to the advisory cache's 5 minutes, #5018). A read that finds a new refresh-token expiry
  * moves the generation, so the advisories recompute; an access-token refresh alone does not.
- * Review 2: at most FILE_READS_MAX reads run at once over all files, since each stalled one holds a thread of libuv's
- * shared pool (4 by default; dns and crypto use it too); and a body that does not parse (caught mid-rewrite) keeps the
- * last one that did and is read again on the next call, rather than hiding the warning for a minute. */
+ * Review 2: at most FILE_READS_MAX of THESE reads run at once over all files, since each stalled one holds a thread of
+ * libuv's shared pool (4 by default; dns and crypto use it too). The cap is this reader's only: readCredAsync and
+ * usagepoll.readCredFor read the same files with no cap (review 3).
+ * Reviews 2 and 3: a read caught mid-rewrite (a body that does not parse, or an error other than "no such file", such as
+ * EBUSY while Windows has the file locked) keeps what it had and is read again on the next call, up to FILE_BAD_TRIES
+ * times in a row; after that it is taken as no login, so a file that stays broken never keeps an old date for good.
+ * A file that is gone (ENOENT) is taken as no login at once. */
 const FILE_REREAD_MS = 60 * 1000;
 const FILE_READS_MAX = 2;
+const FILE_BAD_TRIES = 3;
 let fileReadsRunning = 0;
-const fileReads = new Map();   // file -> { body, until, at, gen, reading }
+let fileReadsEpoch = 0;   // _resetForTests moves it, so a read started before a reset changes nothing after it
+const fileReads = new Map();   // file -> { body, until, at, gen, reading, bad }
 function refreshUntilOf(body) {
   if (body == null) return 'none';
   try { const o = JSON.parse(body); return String(o && o.claudeAiOauth && o.claudeAiOauth.refreshTokenExpiresAt); } catch { return 'unread'; }
 }
 function fileBodyNow(f, now = Date.now()) {
   let r = fileReads.get(f);
-  if (!r) { r = { body: null, until: 'none', at: -Infinity, gen: -1, reading: false }; fileReads.set(f, r); }
+  if (!r) { r = { body: null, until: 'none', at: -Infinity, gen: -1, reading: false, bad: 0 }; fileReads.set(f, r); }
   if (!r.reading && fileReadsRunning < FILE_READS_MAX && (now - r.at >= FILE_REREAD_MS || r.gen !== loginGen)) {
     r.reading = true;
     fileReadsRunning += 1;
     const startGen = loginGen;
+    const epoch = fileReadsEpoch;
     try {
       fs.readFile(f, 'utf8', (err, body) => {
+        if (epoch !== fileReadsEpoch) return;
         fileReadsRunning -= 1;
         r.reading = false;
+        const gone = err && err.code === 'ENOENT';
         const next = err ? null : body;
         const until = refreshUntilOf(next);
-        if (until === 'unread' && r.until !== 'none' && r.until !== 'unread') { r.at = -Infinity; return; }   // torn: keep the last good one
-        const changed = until !== r.until;
-        r.body = next; r.until = until; r.at = Date.now();
+        if ((until === 'unread' || (err && !gone)) && r.bad + 1 < FILE_BAD_TRIES) { r.bad += 1; r.at = -Infinity; return; }
+        const taken = until === 'unread' || err ? { body: null, until: 'none' } : { body: next, until };
+        r.bad = 0;
+        const changed = taken.until !== r.until;
+        r.body = taken.body; r.until = taken.until; r.at = Date.now();
         const movedDuring = startGen !== loginGen;   // a sign-in, or another file's new date
         if (changed) loginGen += 1;
         r.gen = movedDuring ? startGen : loginGen;   // moved during this read: read again next time
@@ -378,6 +389,6 @@ module.exports = {
   cachedAdvisories, loginChanged, loginGeneration, DEFAULT_SERVICE, DAY_MS, URGENT_DAYS, WARN_DAYS, WARN_WITHIN_DAYS,
   daysLeftOf, daysLeftInWindow, fileBodyNow, FILE_REREAD_MS, REFUSAL_WORDS,
   _setRefusalLogForTests: (fn) => { refusalLog = fn; },
-  _resetForTests: () => { refusalsSaid.clear(); fileReads.clear(); fileReadsRunning = 0; },
-  FILE_READS_MAX,
+  _resetForTests: () => { refusalsSaid.clear(); fileReads.clear(); fileReadsRunning = 0; fileReadsEpoch += 1; },
+  FILE_READS_MAX, FILE_BAD_TRIES,
 };
