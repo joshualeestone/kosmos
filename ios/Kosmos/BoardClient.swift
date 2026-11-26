@@ -71,22 +71,34 @@ final class BoardClient: ObservableObject {
         /// run from that screen, so the phone knocks at the Mac's gate there (before, only the Agents tab knocked, after
         /// "Continue to the app", and a person who waited as told waited for ever). The gate's own code wins over the
         /// one Kosmos+ gave: a gate with the board-v2 marker answers a keyed code, which is the one the Mac shows
-        /// (kosmos-relay proxy.rs). Let in: the screen moves on. The Mac said no: the screen says so.
-        enum AllowScreen: Equatable { case keep, code(String), done, denied }
+        /// (kosmos-relay proxy.rs), named with its Mac, since an account with two Macs knocks at one of them. Let in: the
+        /// screen moves on. The Mac said no: the screen says so. A run that gave up (the Mac or Kosmos+ not answering, a
+        /// refusal a new handoff may cure, no computer yet): knock again shortly, or the wait is endless once more.
+        enum AllowScreen: Equatable { case keep, code(String, mac: String), done, denied, knockAgain }
         func allowScreen(step: SignIn.Step) -> AllowScreen {
             switch step {
             case .allow(let shown, true):
                 switch self {
                 case .live: return .done
-                case .waitingForAllow(_, let code?) where code != shown: return .code(code)
+                case .waitingForAllow(let mac, let code?) where code != shown: return .code(code, mac: mac)
                 case .denied: return .denied
-                default: return .keep
+                default: return endedRun ? .knockAgain : .keep
                 }
             case .denied(asking: true):
                 // Asked again after an earlier no: the same knock, so a yes now moves the screen on.
                 if case .live = self { return .done }
-                return .keep
+                return endedRun ? .knockAgain : .keep
             default: return .keep
+            }
+        }
+
+        /// The phases a run ends on without a person's answer, where a later run may get through. Not signed out (no
+        /// session to knock with), not Kosmos+'s refusal of this iPhone, not the Mac's no, and not sign in again or sign
+        /// in here (only the person can cure those, in the app).
+        var endedRun: Bool {
+            switch self {
+            case .unreachable, .macRefused, .macHeld, .kosmosPlusDown, .noMac: return true
+            default: return false
             }
         }
 

@@ -45,6 +45,8 @@ final class SignInModel: ObservableObject {
     private var passkeysGen = 0
     /// The session Kosmos+ issued, once: ContentView hands it to the app (the web bridge's own path).
     @Published private(set) var issued: String?
+    /// kosmos#9111: the Mac the shown code came from, once its gate answered (an account can have more than one Mac).
+    @Published private(set) var gateMac: String?
     /// Bumped when an issued session is dropped (backed out of, or ended): ContentView signs it out, and the web page
     /// forgets it (`lastAbandoned`).
     @Published private(set) var abandoned = 0
@@ -407,8 +409,9 @@ final class SignInModel: ObservableObject {
     func continueToApp() { attempt += 1; watch?.cancel(); step = .done }
 
     /// kosmos#9111: the code the Mac's gate answered while this screen knocked there, which is the one the Mac shows.
-    func showGateCode(_ code: String) {
+    func showGateCode(_ code: String, mac: String) {
         guard case .allow(_, true) = step else { return }
+        gateMac = mac
         step = .allow(matchCode: code, hasComputer: true)
     }
 
@@ -435,6 +438,7 @@ final class SignInModel: ObservableObject {
         step = next
         error = message
         if let session {
+            gateMac = nil   // a new sign-in: no Mac has answered it yet
             issued = session.token
             // Denied at sign-in is not final: Kosmos+ has turned it back into a fresh Allow on the Mac (signin.rs
             // issue_session_proven_at), so it is watched as the web page watches it (review round 2).
@@ -625,6 +629,8 @@ struct SignInView: View {
                     Text(matchCode).font(.system(.largeTitle, design: .monospaced).weight(.semibold))
                         .foregroundColor(Palette.primary).accessibilityLabel("Code \(matchCode.map { String($0) }.joined(separator: " "))")
                 }
+                // kosmos#9111: once the computer's own gate answered, the code is that computer's, so it is named.
+                if let mac = model.gateMac { Text("On \(mac)").font(.footnote).foregroundColor(Palette.secondary) }
                 line("Your computer is asking whether to let this iPhone in. Allow it there if it shows this code.")
                 HStack(spacing: 8) { SweepDots(scales: false); Text("Waiting for your computer").font(.footnote).foregroundColor(Palette.secondary) }
             } else {

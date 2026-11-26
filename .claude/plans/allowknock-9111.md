@@ -55,3 +55,20 @@ the keychain (#9106), so the run reads no session and the screen behaves as befo
 
 - Main logic suite (run.sh): PASS 2774/2774, with 9111's checks. Control: start() without the generation bump:
   "let in once" FAILS (admitted 2).
+
+#### Iteration 1 (blind review, opus)
+
+- [SHOULD-FIX] taken: a run that gave up (the Mac not answering, a refusal, held, Kosmos+ down, no computer yet) left
+  the screen waiting on Kosmos+ alone, the original bug again. Phase.endedRun -> AllowScreen.knockAgain: ContentView
+  starts the run again after 15 s while the screen still waits and nothing else started one; and on a return to the
+  front (a locked phone's run stops at not answering). Not for signed out, Kosmos+'s refusal, the Mac's no, sign in
+  again or sign in here (only the person cures those).
+- [SHOULD-FIX] taken: with two Macs the run knocks at one (pickMac), so the gate's code is now shown with that Mac's
+  name ("On Studio"), kept in SignInModel.gateMac (cleared on each new sign-in).
+- [NIT] taken: "once" was not literal (the account change from signedInNatively restarts the run through
+  BoardClient.accountChanged; one run at a time all the same). Comment corrected.
+- [NIT] taken: the guard read pushManager.currentSession (registrar memory first); it now reads SessionKeychain.live,
+  the store the run reads.
+- Not taken: tests of knockIfWaiting's ordering and the phase handler (SwiftUI view code; no logic suite compiles
+  ContentView). The reviewer traced both orders as safe; the signed simulator walk will show it.
+Main logic suite PASS 2789/2789; settings, automation, actions, taskpage, room suites pass.

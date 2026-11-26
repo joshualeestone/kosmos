@@ -152,13 +152,14 @@ struct ContentView: View {
     }
     /// kosmos#9111: the sign-in screen's "Waiting for your Mac" is only true if the phone has knocked at the Mac's gate,
     /// and before, only the Agents tab knocked, after "Continue to the app". So while that screen waits, the board's own
-    /// run (the Macs list, a handoff, the gate) starts here, once, with the session just issued; the tab's start() later
-    /// replaces it (a new generation), it never runs beside it. Backed out of the wait: the run stops. Moved on to the
-    /// app: the run is left for the tab, which is already let in.
+    /// run (the Macs list, a handoff, the gate) starts here with the session just issued. One run at a time: the account
+    /// change that same session causes restarts it (BoardClient.accountChanged), and the tab's start() later replaces it
+    /// (a new generation); neither runs beside it. Backed out of the wait: the run stops. Moved on to the app: the run is
+    /// left for the tab, which is already let in.
     private func knockIfWaiting() {
         #if !KOSMOS_STORE_SHOTS
         let waits = nativeSignIn && BoardClient.Phase.knocks(during: signIn.step)
-            && signIn.issued != nil && pushManager.currentSession == signIn.issued   // stored first: the run reads it
+            && signIn.issued != nil && SessionKeychain.live.load() == signIn.issued   // stored first, where the run reads it
         if waits && !knocking { knocking = true; board.start() }
         else if !waits && knocking {
             knocking = false
@@ -274,9 +275,17 @@ struct ContentView: View {
             guard knocking else { return }
             switch phase.allowScreen(step: signIn.step) {
             case .keep: break
-            case .code(let code): signIn.showGateCode(code)
+            case .code(let code, let mac): signIn.showGateCode(code, mac: mac)
             case .done: signIn.continueToApp()
             case .denied: signIn.macSaidNo()
+            case .knockAgain:
+                // The run gave up (review 1): knocked again after 15 s, as the board's own run retries a Mac that is not
+                // answering, while the screen still waits and nothing else started a run meanwhile.
+                let waitedOn = signIn.step
+                DispatchQueue.main.asyncAfter(deadline: .now() + 15) {
+                    guard knocking, signIn.step == waitedOn, board.phase.allowScreen(step: signIn.step) == .knockAgain else { return }
+                    board.start()
+                }
             }
         }
         // A press was answered: opened, the bar is on the tab pressed; refused (a box was up), it goes to the tab the
@@ -420,6 +429,9 @@ struct ContentView: View {
             if newPhase != .background && tabsBackgrounded && board.cameBackAt == nil { board.cameBackAt = Date(); board.noteTabsChange("the app came back to the front") }   // the first step back
             // kosmos#7050 slice C: here, not on the sign-in screen, so it runs even when the lock takes the screen away.
             if newPhase == .background { signIn.appLeft() }
+            // kosmos#9111 review 1: back at the front while the sign-in screen waits for the Mac: knock again, as the tabs
+            // start their run again on a return (a locked phone's run will have stopped at not answering).
+            if newPhase == .active, knocking { board.start() }
             // kosmos#7416 review 3: a not-answering screen left up overnight says this morning's time on the return.
             if newPhase == .active, shell.failure == .macUnreachable { board.refreshLastSeen() }
             // kosmos#7042 review round 2: a launch before the phone's first unlock reads no session, so the sign-in may

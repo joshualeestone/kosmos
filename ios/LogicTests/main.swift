@@ -4834,15 +4834,21 @@ section("native board loop: connecting")
         typealias P = BoardClient.Phase
         let mac = Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true, lastSeen: 100)
         let waiting = SignIn.Step.allow(matchCode: "AB12", hasComputer: true)
-        check(P.waitingForAllow(mac: "Studio", code: "K7").allowScreen(step: waiting) == .code("K7"), "the gate's code replaces Kosmos+'s: it is the one the Mac shows (a v2 gate keys its own)")
+        check(P.waitingForAllow(mac: "Studio", code: "K7").allowScreen(step: waiting) == .code("K7", mac: "Studio"), "the gate's code replaces Kosmos+'s, named with its Mac: it is the one that Mac shows (a v2 gate keys its own)")
         check(P.waitingForAllow(mac: "Studio", code: "AB12").allowScreen(step: waiting) == .keep, "the same code: nothing to change")
         check(P.waitingForAllow(mac: "Studio", code: nil).allowScreen(step: waiting) == .keep, "a gate with no code: Kosmos+'s stays")
         check(P.live(mac: mac).allowScreen(step: waiting) == .done, "let in: the screen moves on to the app")
         check(P.denied(mac: "Studio").allowScreen(step: waiting) == .denied, "the Mac said no: the screen says so")
         check(P.live(mac: mac).allowScreen(step: .denied(asking: true)) == .done, "asked again after a no, then let in: the screen moves on")
         check(P.denied(mac: "Studio").allowScreen(step: .denied(asking: true)) == .keep, "asked again and still no: Kosmos+'s own answer says it")
-        for phase in [P.starting, .connecting(mac: "Studio"), .unreachable(mac: "Studio"), .kosmosPlusDown, .noMac, .signedOut] {
-            check(phase.allowScreen(step: waiting) == .keep, "\(phase.word) while waiting: the screen keeps waiting (Continue to the app is still there)")
+        for phase in [P.starting, .connecting(mac: "Studio"), .signedOut, .kosmosPlusRefused, .signInAgain(mac: "Studio"), .signInHere(mac: "Studio")] {
+            check(phase.allowScreen(step: waiting) == .keep, "\(phase.word) while waiting: the screen keeps waiting, nothing knocks again (Continue to the app is still there)")
+        }
+        // Review 1: a run that gave up knocks again, or the wait is endless once more.
+        for phase in [P.unreachable(mac: "Studio"), .macRefused(mac: "Studio"), .macHeld(mac: "Studio", because: nil), .kosmosPlusDown, .noMac] {
+            check(phase.allowScreen(step: waiting) == .knockAgain, "\(phase.word) while waiting: knock again")
+            check(phase.allowScreen(step: .denied(asking: true)) == .knockAgain, "\(phase.word) while asked again: knock again")
+            check(phase.allowScreen(step: .email) == .keep, "\(phase.word) on another step: nothing")
         }
         check(P.live(mac: mac).allowScreen(step: .allow(matchCode: nil, hasComputer: false)) == .keep, "no computer yet: nothing knocks, nothing moves")
         check(P.live(mac: mac).allowScreen(step: .email) == .keep && P.live(mac: mac).allowScreen(step: .done) == .keep, "not waiting: the run's phase changes nothing on the sign-in screen")
