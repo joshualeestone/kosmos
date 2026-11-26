@@ -6,10 +6,12 @@ diff was rewording, and telling the two kinds apart took the agent longest. The 
 fits here", which forced several --how reads.
 
 ## Change
-- A removed line and the line that replaced it, in the same run, are compared after normalising three things: spacing
-  after the indentation, a single full stop directly after a word, and curly quotes to straight ones.
-- Never normalised (reviews 1 and 2): a line inside a code fence or with a backtick span (compared exactly); ? ! ; :
-  and any comma; a mark standing alone (`git add .`, `cd ..`); stacked dots (`main..`); leading indentation.
+- A removed line and the line that replaced it, in the same run, are compared after normalising two things only:
+  spacing after the indentation, and a single full stop that ends the line right after a word.
+- Compared exactly, so never hidden (reviews 1 to 4): code (a fence line or inside a fence, at any indentation or quote
+  depth; an indented block of 4 columns, tabs counted to the next stop); any line with a backtick or a quote mark
+  (straight or curly); and every other mark: ? ! ; : , a lone mark (`git add .`), stacked dots (`main..`), a full stop
+  inside a line, leading indentation, case, hyphens.
 - A pair that is equal after that is counted and not printed.
 - One note says how many lines were left out: "Not shown: N lines that changed only in spacing or punctuation (the rule
   reads the same)." It travels with the moved-line notes (kosmos#8743), so the room accounting, the cut and the
@@ -28,10 +30,12 @@ fits here", which forced several --how reads.
 - Stripping all punctuation: hyphens carry flags.
 
 ## Tests
-engine/instructionreread-rewordonly-9096.test.js has 4 tests. A real change prints beside 2 counted lines; curly vs
-straight quotes is wording only; CONTROLS: a flag, a case change, a symbol and a path dot still print; an unchanged
-file prints nothing and a real change carries no note. With main's instructionreread.js, 2 of the 4 fail.
-All 18 files that load the module: 759 tests, 0 fail.
+engine/instructionreread-rewordonly-9096.test.js, 9 tests: a real change prints beside counted lines; CONTROL rows (each a
+pair that must print): a flag, a case change, a symbol, a path dot, a lone mark, a negation, a separator, a URL query,
+a question, indentation, a git range, commas (JSON, args), backtick spans, a full stop inside a line, a quoted command
+outside backticks, a 2-space-plus-tab indent; fences (nested, tab, quoted, indented block, a closer deeper than its
+opener + 3); the moved-heading sentence; a cut list keeps the cap and ends with the cut note.
+Each review's fix was perturbed and its check went red. All 18 files that load the module: 764 tests, 0 fail.
 
 ## Reviews
 - Round 1: BLOCKER, the normaliser stripped lone and stacked marks and ? ! ; : (git add ., cd .., ! cmd, Delete it?).
@@ -47,6 +51,11 @@ All 18 files that load the module: 759 tests, 0 fail.
   is code. Measured: with the new-side flag forced false, every layout I could build still shows the pair, because
   pairs match by position and the fence line itself pairs first. A test that cannot fail was worse than none, so it
   was removed; the flag stays as a guard.
+
+- Round 4: SHOULD, a ``` deeper than its opener + 3 closed the fence early. Fixed. SHOULD: 3 spaces + a tab is an
+  indented block. Fixed (tabs to the next stop of 4). NIT: curly quotes in a command outside backticks. Fixed more
+  broadly: any line with a quote mark is compared exactly, and curly quotes are no longer normalised at all (each round
+  found another Markdown corner, so the rule was narrowed instead of extended). NIT: this Tests section was stale. Fixed.
 
 ## Weakest premise
 That a pair matched by position inside one run is a reworded rule and not two different rules. The match needs the

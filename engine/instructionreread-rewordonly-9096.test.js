@@ -24,10 +24,10 @@ test('a rule that only gained or lost end punctuation or spacing is counted, not
   assert.equal(out.match(NOTE)[1], '2');
 });
 
-test('curly against straight quotes is wording only', () => {
-  const out = changedLines('# R\nSay “done” and it’s done.\n', '# R\nSay "done" and it\'s done.\n');
-  assert.equal(out.match(NOTE)[1], '1');
-  assert.doesNotMatch(out, /```diff/, 'nothing else changed, so no diff is printed');
+test('review 4: a line with a quote mark is compared exactly (curly against straight quotes is shown)', () => {
+  const out = changedLines('# R\nSay \u201Cdone\u201D and it\u2019s done.\n', '# R\nSay "done" and it\'s done.\n');
+  assert.doesNotMatch(out, NOTE);
+  assert.match(out, /- Say \u201Cdone\u201D/);
 });
 
 test('CONTROL: a flag, a case change, a symbol and a path dot still print', () => {
@@ -57,6 +57,9 @@ test('CONTROL: a flag, a case change, a symbol and a path dot still print', () =
     // Review 3: a full stop inside the line is not wording.
     ['Do not merge. Wait for CI', 'Do not merge Wait for CI'],
     ['1. Push', '1 Push'],
+    // Review 4: a command with quotes outside backticks; 3 spaces and a tab is an indented code block.
+    ['- Run: kosmos post x \u201Chi there\u201D', '- Run: kosmos post x "hi there"'],
+    ['  \tgrep  x', '  \tgrep x'],   // 2 spaces + a tab reach column 4 only if the tab is counted to the next stop
   ]) {
     const out = changedLines('# R\n' + a + '\n', '# R\n' + b + '\n');
     assert.ok(out.includes('- ' + a) && out.includes('+ ' + b), 'hidden as wording only: ' + a + ' -> ' + b);
@@ -94,8 +97,8 @@ test('review 2: a line inside a code fence is compared exactly, even when only a
   const out = changedLines(before, after);
   assert.doesNotMatch(out, NOTE, 'a code line was counted as wording only');
   assert.ok(out.includes("- echo 'x'") && out.includes('+ git add file'), 'a code change was not printed');
-  // CONTROL: the same two edits in prose are wording only.
-  assert.equal(changedLines('# R\nSay \'x\' now\nAdd the file.\n', '# R\nSay \u2018x\u2019 now\nAdd the file\n').match(NOTE)[1], '2');
+  // CONTROL: the full-stop edit in prose is wording only (the quote edit is not, since review 4).
+  assert.equal(changedLines('# R\nSay \'x\' now\nAdd the file.\n', '# R\nSay \u2018x\u2019 now\nAdd the file\n').match(NOTE)[1], '1');
 });
 
 test('review 3: a nested, tab-indented or quoted fence, and an indented code block, are code', () => {
@@ -108,4 +111,12 @@ test('review 3: a nested, tab-indented or quoted fence, and an indented code blo
     const out = changedLines('# R\n' + before + '\n', '# R\n' + after + '\n');
     assert.doesNotMatch(out, NOTE, 'code hidden as wording only: ' + JSON.stringify(after));
   }
+});
+
+test('review 4: a ``` indented deeper than its opener + 3 does not close the fence', () => {
+  const before = '# H\n```md\n    ```\ngrep  a x\n```\n';
+  const after = '# H\n```md\n    ```\ngrep a x\n```\n';
+  assert.doesNotMatch(changedLines(before, after), NOTE, 'a line still inside the fence was hidden');
+  // CONTROL: the same line outside any fence is wording only.
+  assert.match(changedLines('# H\ngrep  a x\n', '# H\ngrep a x\n'), NOTE);
 });

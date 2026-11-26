@@ -331,15 +331,18 @@ function changedLines(before, after, moved = null) {
      line is never judged wording only: its quotes, commas and spacing are syntax. */
   const codeOf = (lines) => {
     const code = new Array(lines.length).fill(false);
-    let fence = null;
+    // Review 4: leading width in columns, a tab reaching the next multiple of 4 (CommonMark).
+    const cols = (ws) => { let c = 0; for (const ch of ws) c = ch === '\t' ? c + 4 - (c % 4) : c + 1; return c; };
+    let fence = null;   // { mark, at }: the opening run and its column
     for (let k = 0; k < lines.length; k += 1) {
-      /* Review 3: any indentation and any quote depth (a fence nested in a list item, after a tab, or in a > quote).
-         Erring towards code only shows more lines. */
-      const m = /^\s*(?:>\s*)*(`{3,}|~{3,})(.*)$/.exec(lines[k]);
-      if (m && fence === null) { fence = m[1]; code[k] = true; }
-      else if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !m[2].trim()) { fence = null; code[k] = true; }
-      // Review 3: an indented code block (4 spaces or a tab) is code too.
-      else code[k] = fence !== null || /^(?: {4}|\t)/.test(lines[k]);
+      /* Review 3: an opener at any indentation and quote depth (a fence in a list item, after a tab, in a > quote).
+         Review 4: a closer only up to 3 columns deeper than its opener, so a deeper ``` is content (a block showing a
+         fence). Erring towards code only shows more lines. */
+      const m = /^(\s*)(?:>\s*)*(`{3,}|~{3,})(.*)$/.exec(lines[k]);
+      if (m && fence === null) { fence = { mark: m[2], at: cols(m[1]) }; code[k] = true; }
+      else if (m && m[2][0] === fence.mark[0] && m[2].length >= fence.mark.length && !m[3].trim() && cols(m[1]) <= fence.at + 3) { fence = null; code[k] = true; }
+      // Review 3 and 4: an indented code block (4 columns or more, tabs counted to the next multiple of 4) is code too.
+      else code[k] = fence !== null || cols(/^[ \t]*/.exec(lines[k])[0]) >= 4;
     }
     return code;
   };
@@ -380,14 +383,14 @@ function changedLines(before, after, moved = null) {
   /* Review 5: each removed line beside the line that replaced it, so a cut keeps old and new together (removals all
      first would leave a cut file with only the rules that no longer apply). */
   /* kosmos#9096 item 5: a removed line and the line that replaced it whose only difference is spacing after the
-     indentation, a single full stop that ends the line right after a word, or straight against curly quotes changed in wording
+     indentation, or a single full stop that ends the line right after a word, changed in wording
      only. Such a pair is counted and not printed, so the capped list keeps its room for rules that changed.
      Narrow on purpose (review 1): a mark standing alone is kept (`git add .`, `cd ..`); ? ! ; : are kept (a question is
      not an instruction, `! cmd` negates, `;` separates commands, `key:` is YAML); leading indentation must match exactly
      (YAML, nested bullets); case, hyphens and every other symbol count, because a flag (`--no-reply`, `-D`) or a path
      can differ by exactly that. Telling a paraphrase from a change in meaning needs judgement, so it is never tried. */
   const wordingOf = (t) => {
-    const s = String(t).replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+    const s = String(t);
     const indent = s.match(/^[ \t]*/)[0];
     // Review 2: one full stop only, right after a word (`main..` is a git range); a comma is never wording (JSON, args).
     // Review 3: only at the END of the line ("1. Push" is a list item; "merge. Wait" is two sentences).
@@ -402,7 +405,10 @@ function changedLines(before, after, moved = null) {
     const codePlus = r.codePlus || [];
     for (let k = Math.min(minus.length, plus.length) - 1; k >= 0; k -= 1) {
       // Review 2: code (in a fence, or with a backtick span) is compared exactly, so it is never hidden.
-      if (codeMinus[k] || codePlus[k] || minus[k].includes('`') || plus[k].includes('`')) continue;
+      // Review 4: a line with any quote mark is compared exactly too (a command outside backticks: curly quotes, and
+      // spacing inside quotes, change what runs).
+      const exact = (l) => /[`'"\u2018\u2019\u201C\u201D]/.test(l);
+      if (codeMinus[k] || codePlus[k] || exact(minus[k]) || exact(plus[k])) continue;
       if (wordingOf(minus[k].slice(2)) !== wordingOf(plus[k].slice(2))) continue;
       // Review 1: a hidden - line is no longer "still marked" under a moved heading.
       if (movedOf[k] >= 0) shownUnder[movedOf[k]] -= 1;
