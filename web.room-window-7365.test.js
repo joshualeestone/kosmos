@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7365: a project room draws its newest page (PJ_WIN_PAGE rows) and the earlier pages the reader scrolls back
  * to, instead of fetching and rebuilding the whole room every 5 s (a 5,500-post room froze the page for about 2 s of

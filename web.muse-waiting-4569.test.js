@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4569 fix 4: a busy Muse agent's card says how many messages wait and whether the person's is next.
  * Runs the page's own taskLine / stateReason / waitingLine source on the card shapes the board sends, called the

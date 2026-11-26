@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3312 Federation UI: the Add-Project mode toggle, the invite mint, and the join/verify flow,
  * run from the page's real functions (lifted out of web/index.html, not a copy) against a small

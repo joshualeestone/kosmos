@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3966 (Josh, 2026-09-26): "I'm getting a flash every 5 seconds" on an agent's page.

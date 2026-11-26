@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #731: the bundle build enumerates files by hand (its explicit-list rule, so a
    stray file never ships), which means a runtime dependency the engine adds is
    NOT shipped until someone remembers. The codex bridge was resolved by

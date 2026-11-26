@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #3216: status.projectsUnreadTotal -- the RAW active-projects DM-unread total the
  * always-polled /api/status carries so a cross-tab Projects nav badge stays fresh. The

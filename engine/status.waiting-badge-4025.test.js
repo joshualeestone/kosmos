@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #4025: status.waitingBadgeOn, the switch for the waiting count on the app icon. On unless the
  * stored settings say exactly false.

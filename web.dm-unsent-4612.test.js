@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4612: the DM says a Muse agent finished without replying here, and shows what it answered in its own window,
  * instead of "Nothing back yet". Runs the page's own dmOwesLine on the owes shapes the thread route sends.

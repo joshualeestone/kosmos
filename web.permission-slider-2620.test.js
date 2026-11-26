@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2620: the first-run S3 mock permission switches are HONEST and CLICKABLE, pinned at the
  * NODE level (the fast gate) so a regression is caught without the slow Playwright check.

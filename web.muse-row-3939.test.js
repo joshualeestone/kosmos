@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3939 slice 3c-2: the Meta Muse row in Settings, AI Models (provider 'meta', authMode 'muse') has no

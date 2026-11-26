@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #570 BLOCKER 3, and its #3159 resolution: a clean Windows box now has an in-product

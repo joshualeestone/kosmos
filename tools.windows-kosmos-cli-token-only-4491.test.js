@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4491 slice 7: the Windows CLI's half of KOSMOS_AGENT_TOKEN_ONLY (cli.agent-token-verbs-4491.test.js is the Mac's).
    With the switch exactly '1' and a usable agent token, an agent's everyday verb sends that token alone and does not
    read the board token; the person's verbs keep the board token whatever the switch says. fetch and the hook are

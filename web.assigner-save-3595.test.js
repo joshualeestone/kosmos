@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3595 phase 2: the Assigner toggle. Runs the REAL page functions (lifted from web/index.html)
  * against a stub DOM and fetch: the toggle stays hidden until the read lands, a failed read hides
  * it and says so (never a false Off), and a refused or unreachable save repaints from the store.

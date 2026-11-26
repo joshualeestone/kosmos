@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5018 (Josh, 2026-10-02): after "Sign in again" the login-expiry notice stayed until he closed and reopened
  * the app. The notice (status.js, through loginexpiry.cachedAdvisories) and the Settings date (claudeloginlive)
  * both cache the login's date; a completed sign-in must make both read it again on the next ask, not after

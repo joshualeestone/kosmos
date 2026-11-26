@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7198 review 8: a login notice repaints when the board stops naming its folder. The notice's Refresh login
  * carries the folder it opens Sign in again for (data-adv-dir); the page repaints only when the notices' signature

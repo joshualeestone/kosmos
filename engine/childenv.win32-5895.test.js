@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* kosmos#5895: the Windows opener's environment list (engine/childenv.js winOpenerEnv), used by the company sign-in
    opener (remote.js runCompanyOpener) and the Claude/OpenAI sign-in opener (win32signin.js browserOpenCommand). The

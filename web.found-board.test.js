@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The board's panel for agents on this Mac that Kosmos is not looking after.
  *

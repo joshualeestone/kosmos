@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #1453 / #1456: EVERY REPORT THIS HOOK WRITES IS MARKED AS MACHINE-WRITTEN.

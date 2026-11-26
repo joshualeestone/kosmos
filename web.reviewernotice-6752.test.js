@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6752: the Settings company block lists the reviewer grants /api/org reports (engine/orgenroll.js keeps them
    from the hourly status answer), so every member can see someone was made a reviewer. The page works out pending or
    in effect from the times, since the record is up to an hour old, drops anything older than 30 days itself, puts the

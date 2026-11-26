@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7136: the iPhone chat's failed line and Try again are the board's (web/index.html dmFailedLine and
  * dmRetrySend, kosmos#6720), in its words and by its rule. The phone's behaviour is tested in its own logic suite

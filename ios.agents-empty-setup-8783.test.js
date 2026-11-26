@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8783 item 2: the iPhone app's Agents tab, with a board that answers but has no agents, offers a way into setup.

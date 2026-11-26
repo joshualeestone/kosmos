@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3380 the codex live source: enumerate the codex agents whose supervisor is up,
  * shaped like `claude agents --json` rows, and prove they UNION into the roster and

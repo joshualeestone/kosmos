@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // #1469 - the brace-anchor guard. Logic + pin table live in the sibling module
 // web.brace-anchor-guard-1469.lib.js (read its header for the claim this makes
 // and the traps it is proven against); this file is the node:test that runs it.

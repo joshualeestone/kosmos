@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6231 item 11 (follow-up to #6214): each refused Restart Kosmos press starts a hold before the toast is repainted.
  * A fresh press now owns that hold, so an earlier press's hold cannot repaint the toast in the middle of the later

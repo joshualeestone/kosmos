@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // kosmos#8764: escrowd's signed hand-over record, as the leaving computer reads it (handoverseal.checkRecord).
 // The send path is tested end to end in handoversend-8710.test.js ("the successor and the agents come from escrowd's
 // record"); this file pins the bytes to kosmos-relay and checks checkRecord's own refusals.

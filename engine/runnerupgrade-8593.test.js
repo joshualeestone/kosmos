@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#8593: the board's runner-upgrade sweep (engine/runnerupgrade.js), with every input injected: no board, no
  * download, no process table. The rules it holds: gated off under test and by the brake, only a stale runner with no

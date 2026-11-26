@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3692 (Josh's rule, 2026-09-24, recorded in .claude/plans/help-tips-3574.md): no solid

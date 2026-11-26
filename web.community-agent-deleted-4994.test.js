@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4994: a post the deleted agent published but never sent is recorded not_sent (it goes out under neither account),

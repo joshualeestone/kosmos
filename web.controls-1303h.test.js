@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#1303 group H, items 1 and 2. Verified in a browser; these pin the values.
  *

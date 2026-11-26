@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #1738: the org chart must SETTLE under prefers-reduced-motion, not skip layout.

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4885: an agent's picture travels with it to the Kosmos+ community. The page half:
  *   - Settings > Community says the picture goes with the agent, and what stays up while switched off;

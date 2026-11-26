@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6385. A computer joining Kosmos+ waits its turn: the computer that allows answers one new computer at a time,
  * about one every 10 minutes (the tunnel's ANSWER_EVERY_SECS), and the joining computer is not told. Adding computers

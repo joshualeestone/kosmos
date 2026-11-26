@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The project settings screen answers Josh's two questions where he asks them
  * (#1305).

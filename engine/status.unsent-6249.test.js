@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6249: status.unsentInputOf, the card's unsentInput. The plain capture decides whether to look; only a pane showing
    something in its box is captured again with colours; the same text has to sit there UNSENT_SHOW_MS before the card
    says so. Screens are the real captures in test-support/composer-6249/. */

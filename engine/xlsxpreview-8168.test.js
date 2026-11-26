@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8168: round 8's leftovers from #8162, all XML damaged before zipping. A cut sheet list or rels said
  * `cut: false` on the sheets it kept; a start tag lost with its close left behind showed another item's text; and two

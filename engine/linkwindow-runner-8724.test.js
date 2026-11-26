@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8724 item 3: linking a Codex, Antigravity or Grok window. Linked only when the program names that runner
    exactly AND Kosmos's record of the agent says it runs on it; the runner is recorded (`@kosmos_runner`) before the
    agent mark, both are read back, and on a mismatch both come off. The pane list is the board's own look

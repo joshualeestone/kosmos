@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #737: the step-one role pickers match the pack: taller rows, a check mark
  * when chosen (no radio dot), the Project Manager description with

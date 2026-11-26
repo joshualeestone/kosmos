@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5536 (#5529: every recovery is shown to the affected employee): Settings lists the recoveries of this
    member's own backup that /api/org reports (engine/orgenroll.js keeps them from the status answer, kosmos-relay #781).
    A key given says given, files opened says opened with the count; newest first as sent; older than 30 days dropped by

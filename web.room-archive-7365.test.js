@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7365 slice 3b: the room archive on the page. The page's own pjArchBefore (the confirm's time, in the person's
  * zone, sent with Z), pjArchReceipt (the line naming the time the server used) and pjWinAtStart (the boundary row shows

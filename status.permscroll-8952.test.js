@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8952: Claude Code draws "↑ 37 more lines" when a permission prompt is taller than the window (a long command),
    and it can sit between the last option and the "Esc to cancel" footer. Before, that line made the options unreadable
    (a two-space indent: null) or was glued onto the No label (three spaces: "No ↑ 37 more lines"). It is skipped now.

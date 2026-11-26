@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // kosmos#4787: the repeat rule's checks, its next run in local time, and its words.
 const test = require('node:test');
 const assert = require('node:assert/strict');

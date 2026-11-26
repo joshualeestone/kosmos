@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #2497 (Josh, 2026-09-08, watching an external tester): onboarding no longer auto-scans or

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * 🛑 EVERY STALENESS VERDICT THAT REACHES A PERSON GOES THROUGH `toldOverride`.

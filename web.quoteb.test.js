@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #460, the renderer half: a quoted line draws as the pack's .quoteb ONLY
  * where the engine attached a source row (`quotes[]`, offsets into `text`),

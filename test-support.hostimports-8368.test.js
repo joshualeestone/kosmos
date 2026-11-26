@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8368: the rule that lets a macOS-pinned guard test skip on a host whose own instruction files import what the
    pinned rules cannot carry (test-support/hostimports-8368.js). It decides whether real assertions run, so every way it
    must say "no" is pinned here. */

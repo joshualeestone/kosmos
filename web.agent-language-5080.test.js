@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5080: the Language box in Settings > Automation. Source checks on web/index.html (comments stripped): they catch a
    revert or a lost wire, not a wrong word, so the route test (server.agent-language-5080.test.js) and the design shots
    carry the behaviour. */

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7404 (backupscreens-7404, challenge round 7): the recovery code leaves the page when it should. The panel's
  * SHIPPED functions run on the fake DOM: the code shown, then gone after "I saved my recovery code", kept when that

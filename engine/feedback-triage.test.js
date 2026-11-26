@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * Smart triage for the daily product-feedback reports (kosmos#2246). The module
  * is pure -- it takes reports and open-card titles as arguments and returns a

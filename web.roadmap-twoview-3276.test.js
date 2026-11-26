@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3276 (Josh, 2026-09-18): the Projects board settles on TWO views -- Grid + Roadmap --
  * replacing three (Grid / List / org-chart Map). These are the SOURCE-level guards that

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // kosmos#1930 -- tests for the per-account live-auth cache (engine/authprobe.js).
 //
 // The load-bearing arm is the SAFETY one: verdict() returns HEALTHY only on positive live

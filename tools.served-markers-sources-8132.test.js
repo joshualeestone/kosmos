@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8132: every marker tools/served-markers.json says must be PRESENT in a served artifact has a source in this
  * repo, so a marker that names a sentence no file has fails here, when it is added or when its source is changed,

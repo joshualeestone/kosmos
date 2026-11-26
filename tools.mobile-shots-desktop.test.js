@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* claude-setup#100 (/design-shots): mobile-shots.js refuses a run that would take no shot, and decides it before
  * any browser or board starts, so this needs neither. The phone-only skip at the desktop size is exercised for
  * real by the gate's mobile-shots arm (tools/browser-checks.sh), which runs nav-menu at se and desktop. */

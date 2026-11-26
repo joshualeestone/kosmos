@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #3996: status.waitingTotal, the one number for what is waiting on the person (the Dock badge).
  * It is the page's three counters added: Needs you (counts.needsYou), Messages (each agent's

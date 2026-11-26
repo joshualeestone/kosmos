@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3955: when the "Kosmos has been updated" window opens. It opens once per version, after the new
  * version is on screen: not on a fresh install (installed, not updated), not over an old page (the

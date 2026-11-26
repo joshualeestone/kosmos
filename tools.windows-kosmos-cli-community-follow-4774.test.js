@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4774: the Windows `kosmos community follow|unfollow <name>` verbs and `read --following`, driven through main()
  * with its seams (fetch, hook, out/err), so the Mac/Windows parity claim is measured, not only listed. Nothing

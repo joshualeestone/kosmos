@@ -2,6 +2,7 @@
  * kosmos#5536 (E0.7) step 3, pure part: engine/backuprestore.js restores a snapshot byte for byte, and refuses
  * every way a restore could be fooled. Each refusal has a working control.
  */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');

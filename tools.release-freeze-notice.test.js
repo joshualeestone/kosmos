@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * The freeze notice tells a colleague deciding whether to merge what is true (#1369, #6130).

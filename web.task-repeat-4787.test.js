@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#4787: the Tasks row's repeat line, from the page's real functions (tskRepeatSentence, tskRow).
    The rule's words and the next run come from the board; the page only says them. */
 const fs = require('node:fs');

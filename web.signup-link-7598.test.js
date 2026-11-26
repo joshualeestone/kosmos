@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7598: the board keeps the sign-up address /api/remote names only when it is a plain https address; anything
    else leaves the code step's "Create an account" with no link rather than a wrong one. The link and its words are
    checked in the real page by docs/browser-checks/render-plus-signin-3478.js. */

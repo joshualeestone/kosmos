@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4491 slice 4: the Windows CLI's reads (`kosmos room`, `kosmos task list`, `kosmos agent roles`,
    `kosmos agent role-draft`) present the agent's own token as well as the board token, the parity half of
    cli.agent-token-verbs-4491.test.js. fetch is injected (tools.windows-kosmos-cli-project-4581.test.js's harness). */

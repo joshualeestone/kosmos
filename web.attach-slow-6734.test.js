@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#6734: the cap is 100 MB, but Kosmos waits five minutes for a whole upload. When a large file's upload fails
  * at the network, the page says that a slow connection can outlast the wait; a small one keeps the plain sentence.

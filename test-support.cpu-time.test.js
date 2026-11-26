@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // #3715: the shared CPU-time helper the backtracking guards use. Two controls: the units
 // (milliseconds, not seconds or microseconds) and the kind (CPU, not wall).
 const test = require('node:test');

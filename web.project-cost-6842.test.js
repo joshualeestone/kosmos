@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6842 slice 2: the words Project settings shows for what a project's finished tasks cost, from the real functions
  * in web/index.html.
  *   node --test web.project-cost-6842.test.js */

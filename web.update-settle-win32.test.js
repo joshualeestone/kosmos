@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * win32-update-arm (S4): the update overlay's Windows wording -- the "Downloading X" -> "Updating"

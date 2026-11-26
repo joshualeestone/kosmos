@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #761 (the room) and #764: the link card reads down with a big picture, an
  * image attachment shows at the card's width, the empty status line takes no

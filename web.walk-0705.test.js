@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* The 0.7.03 design walk (Mona Lisa, 2026-09-27): three small fixes found on the served build, pinned here.
  *   node --test web.walk-0705.test.js
  */

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #729: the code box says what it is waiting for, to whom, and that it can
  * fail. Driven THROUGH the handler (the #752 lesson) against a fake fetch: a

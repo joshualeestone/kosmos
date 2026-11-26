@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* kosmos#4784: the Windows `kosmos inbox`, the twin of install/kosmos cmd_inbox (review 2: it had no behavioural
    test). Driven through the CLI's own main() with an injected fetch, as the #4491 reads test does. */

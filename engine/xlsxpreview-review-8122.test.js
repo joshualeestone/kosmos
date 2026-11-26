@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8122 review 1: the hostile and real-world workbooks the first reader got wrong, each pinned. Two froze the
  * board (a format code full of "[", and many sheets naming one big part), one gave a blank grid for a workbook a

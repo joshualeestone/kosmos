@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4103: the installed phone app's offline copy of '/' is only ever the board, never the relay's Kosmos+ sign-in

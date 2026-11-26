@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5169: source-wiring guards for the run/both main-frame navigation policy.
  *
  * The PURE behaviour (connectLinkDecision and isKosmosPlusSiteURL, including the Stripe-checkout

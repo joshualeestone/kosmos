@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#2129 recovery: the one-click "Trust and restart" button, surfaced in
  * the chat-view "Needs you" box (#d-qask), not only on the Terminal tab. Josh

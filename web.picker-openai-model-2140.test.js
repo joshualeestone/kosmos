@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2140: the OpenAI create-model picker. Runs the SHIPPED functions
  * (paintOpenaiCreateModel + openaiNoModelsNote) against a fake document with a

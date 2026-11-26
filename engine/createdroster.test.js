@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1078: the created-never-run roster source. A Kosmos agent that has a launchd
  * job + worker dir on disk but has never run (no pane, no beat) must be surfaced

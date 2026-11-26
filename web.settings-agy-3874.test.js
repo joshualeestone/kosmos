@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3874: Settings, AI Models, Add a provider offers Gemini on a Google subscription, the choice the
  * first-run Gemini row already offers. The subscription step is the SAME driver as first run

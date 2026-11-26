@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5191 / #5197 follow-up (Renet's review): both revoke graces rest on one assumption. The owner's
  * graceAfter and the member's REVOKE_GRACE_MS treat EVERY room-key rotation as a revoke. That holds only while

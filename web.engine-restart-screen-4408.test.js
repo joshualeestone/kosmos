@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4408: while the board restarts itself from the Restart Kosmos button, the full-page "Kosmos requires a
  * full restart" screen (#4343) stands down, the way it does during an update; the board is away on purpose.

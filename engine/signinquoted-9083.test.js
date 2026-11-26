@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#9083: "Not logged in" printed by a command or a tool is not the agent's own sign-in failure; Claude Code's own, drawn with the
  * same `\u23bf`, still is. On real 2.1.332 screens (test-support/claude-screens/signin-*), written with the remedy's command spelled

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6231 items 9 and 10 (follow-up to #6214; item 9 covers a failed or thrown put-back, a hand change to a third account,

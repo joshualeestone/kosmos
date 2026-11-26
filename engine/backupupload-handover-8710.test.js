@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8710 slice 3: engine/backupupload.js under opts.handover. A hand-over pack goes through kosmos-relay's
  * /v1/mac/org/handover/grant and /manifest (coordinator/src/handover.rs, slice 2): unlocked, write-once grants that sign
  * four headers (content-length, the digest, host, if-none-match), keys `handover/<org>/<id>/<random>` and

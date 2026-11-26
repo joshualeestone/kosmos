@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #774 (Josh, 2026-08-24 22:34): switching to the consolidated view rendered
  * differently depending on what the Agents page was last left on. The org

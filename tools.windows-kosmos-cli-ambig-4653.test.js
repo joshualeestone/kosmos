@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4653 on Windows: `kosmos post` prints the board's ambiguousNote after its verdict, like install/kosmos,
  * so a Windows agent whose @-word named two members is told it reached neither.

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5836: a repeating task's line on the page says its last verified reading against what the person was last told,
    so a change the person never heard about shows. From the page's real functions, lifted (as web.task-runrollup-5643). */
 const fs = require('node:fs');

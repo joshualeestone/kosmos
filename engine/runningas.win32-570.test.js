@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #570: the win32 arm of `runningas` -- "what account and model is this agent
  * ACTUALLY running on", on a machine with no tmux.

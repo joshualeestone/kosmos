@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5949: when a Windows agent's state is a held reading (Kosmos's check on it just failed), or

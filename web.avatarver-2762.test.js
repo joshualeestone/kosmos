@@ -65,6 +65,7 @@
  * NO behavioural arm anywhere in the repo, so for those three THIS FILE IS THE ONLY
  * GUARD. That is why it pins `avatarVer` by name and not merely `?v=`.
  */
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

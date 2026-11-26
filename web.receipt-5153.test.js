@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5153 slice 1: the words a closed task's change receipt shows, from the real functions in web/index.html.
  *   node --test web.receipt-5153.test.js */
 const test = require('node:test');

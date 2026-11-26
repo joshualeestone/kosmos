@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4648 (weekend goal #4647): "Your computers" in the top-left Kosmos menu.
  * These run the SHIPPED computersRender / computersFetch from web/index.html against a

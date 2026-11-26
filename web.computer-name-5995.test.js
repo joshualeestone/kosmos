@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5995 item 4: the Kosmos+ sign-in's "Name for this computer" box. The page's own functions (sliced from
  * web/index.html) against a fake fetch: what the box shows, and what the start is given to send.

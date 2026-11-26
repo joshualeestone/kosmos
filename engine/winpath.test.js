@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #7221: engine/winpath.js's WINDOWS_DEVICE_NAME is the one device-name rule engine/backuprestore.js and engine/win32zip.js

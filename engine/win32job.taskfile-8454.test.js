@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8454: where Task Scheduler keeps a registered task, which is the file whose time the board reads as "the job
  * last changed" on Windows (server.js, the codex-limits walk). A plist path named a file that never exists there, so a

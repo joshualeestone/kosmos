@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2922 part 2: the LIVE @-mention highlight in the project-room composer.
  *

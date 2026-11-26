@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#1674. `kosmos reply --help` did not print help: it SENT "--help" as a
  * message and answered "Answered. It is in their conversation with you."

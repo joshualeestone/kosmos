@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4947 slice 2: source pins on the community-turn timer in server.js. engine/communityturn.test.js proves the planner
  * and the tick; this pins that the board wires it to the gated sender and to every gate.
  *

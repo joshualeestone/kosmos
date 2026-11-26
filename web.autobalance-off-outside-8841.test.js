@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8841: when usage readings or automatic moves are switched off where Kosmos is started (not in Settings),
  * Settings says so instead of only saying that nothing is recorded or moved. paintAutobalance is lifted out of

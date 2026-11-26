@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4903 seam H (Mona Lisa's table, 09:36Z on the card): on a Kosmos cloud machine the board says "your cloud
  * machine", never "this computer", and hides what a person in a browser cannot do (a path on the machine, a login to it,

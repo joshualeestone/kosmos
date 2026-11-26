@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6205: mobile-shots.js awaited ctx.close() and browser.close() with no time limit, so when the engine died

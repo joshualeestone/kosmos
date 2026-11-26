@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5957 slice 2: an agent whose working rules are far behind says so on its card (stateReason, lifted from the
    page as web.agypoolcard-4588.test.js does). The number comes from the server (engine/doctrine.js rulesBehind). */
 const test = require('node:test');

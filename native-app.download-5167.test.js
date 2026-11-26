@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5167: the macOS app saves a download the page asks for. Without this, an `<a download>` click (#4930's

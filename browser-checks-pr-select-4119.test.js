@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4119: tools/bc-pr-select.js names the browser checks a page diff touches, so the PR-time

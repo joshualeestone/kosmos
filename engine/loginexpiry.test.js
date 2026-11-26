@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3532: login-expiry detector (keychain refreshTokenExpiresAt).
  *   node --test loginexpiry.test.js
  * The service-name hashes below are byte-exact from the box measured 2026-09-23

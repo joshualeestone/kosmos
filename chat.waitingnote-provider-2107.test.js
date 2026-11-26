@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #2107/#2093: provider-name leak in running-agent state copy. The AUTH_FAILED

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#1193. Josh: "We should have a View All link for tasks and maybe we only
  * display the first N number. I'll let you decide what that is." Five.

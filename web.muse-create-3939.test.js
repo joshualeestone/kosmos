@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3939 slice 3c-3b: Meta Muse in the Create Agent form. The Meta option is gated on GET /api/muse
  * (turned on here, installed, signed in), a read turned off here is asked again only after the page's

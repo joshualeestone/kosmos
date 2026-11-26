@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3942: the code a paste into a Kosmos+ sign-in code field takes, run from the page's real

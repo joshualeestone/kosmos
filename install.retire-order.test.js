@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #793: the uninstall retires this Mac at the coordinator BEFORE it destroys
    the key it signs with. After `rm -rf "$KOSMOS_HOME"` the connector is gone,
    and after the remote/ state is gone the key is; a retire placed after either

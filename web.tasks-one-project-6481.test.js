@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6481: on Tasks, a row leaves out its project line when every row in view is in one project (the line says
  * nothing then), and keeps it as soon as two projects are in view. On the REAL functions lifted from web/index.html:
  * the rule (tskRowsShareOneProject), the row (tskRow), and search (tskMatches), which must still find a task by its

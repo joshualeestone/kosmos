@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7839 (Josh, iPhone build 29): the "Kosmos has been updated" window is about the Mac or Linux app, so a phone
    never shows it, and records nothing there, so the computer's own window still shows it. The functions are lifted
    from the page, so the test cannot drift from what ships. */

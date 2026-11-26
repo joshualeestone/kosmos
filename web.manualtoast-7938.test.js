@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7938: a board whose newer version comes only as a manual offer (`updateManual`: Windows in a folder the in-app

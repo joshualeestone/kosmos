@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #7445: the switch dialog warns that the conversation does not come across for a switch between two runners that are
  * not Claude Code (OpenAI's Codex to Gemini, Gemini to Grok, ...), and offers "Write handoff, then switch" there.

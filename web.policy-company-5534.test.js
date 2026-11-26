@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5534 slice 4: the Settings AI policies screen shows the company's AI policy (from its applied Kosmos policy) first,

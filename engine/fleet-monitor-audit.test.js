@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3239: the fleet-monitor audit - which DECLARED monitors are MISSING (not
  * loaded) on a box. The load-bearing property: it must actually REPORT a loss
  * (that is the whole point), so every "present" arm is paired with a "missing"

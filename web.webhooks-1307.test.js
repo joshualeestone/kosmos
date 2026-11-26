@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #1307: the page's webhook pieces, run from the real page source against a stub DOM, so the fast

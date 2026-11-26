@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8636, the page half: a link preview picture that fails to load in the browser takes its box away
  * (lpvImageFailed, listening for errors in the capture phase), so the card keeps its words and never shows a broken

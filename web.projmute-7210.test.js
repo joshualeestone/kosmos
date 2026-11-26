@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7210: the project settings' notification choice (All / Mentions only / Muted), run from the shipped page.
  *   - a choice paints at once and is saved; the board's answer is what the page keeps;

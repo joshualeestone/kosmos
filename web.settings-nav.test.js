@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The Settings page's sections (settings-nav, 2026-08-23): which box lives in
  * which section, the landing, and the two headings the mock renamed.

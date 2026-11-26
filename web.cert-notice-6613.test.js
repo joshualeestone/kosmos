@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6613: the compact notice for a certificate check finding (paintCwNote), and the Plus pane's Got it for a lost
  * report (paintPlusCertWatch).

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#1011 and #1012, both in Settings > Plus Account, and both the same
  * shape: two lines computed at different moments and never reconciled, so

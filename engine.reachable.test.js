@@ -12,6 +12,7 @@
  * fails on any name not explicitly excused below, so the fifth instance is
  * caught the week it is written rather than found by a person.
  */
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

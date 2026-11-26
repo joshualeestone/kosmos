@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3739 (Josh, 0.6.94: the guide "renders with no context ring"): before its first session the setup guide's own
  * page draws the empty memory ring (the track, nothing filled). Any other agent with no reading still draws

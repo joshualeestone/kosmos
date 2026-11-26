@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8451 item 1: the folders a PATH= value in a hook line may put in front, for a deny guard (naming one too many is
    harmless, missing one is a hole). Hooks run in a POSIX shell (Git Bash on Windows, measured with Claude Code 2.1.319),
    so ':' splits the value. Measured in Git Bash: a drive path in the value, typed or from a variable such as

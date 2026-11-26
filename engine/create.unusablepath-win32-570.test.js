@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #570: `unusablePath` refused EVERY path that can exist on Windows. Its reject
    set carried a backslash -- a POSIX-only hazard -- and every absolute Windows
    path is full of them, so the rule answered TRUE for the runner, for tmux and

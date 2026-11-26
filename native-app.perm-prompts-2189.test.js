@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#1 / #2189: on-demand permission prompts. Josh's 0.6.39 fresh-account test
  * found the permission screens' grant buttons never fired the REAL macOS prompts (they

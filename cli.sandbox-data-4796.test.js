@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4796: a CLI test that runs `install/kosmos` against a stub board must give the CLI a temporary data root

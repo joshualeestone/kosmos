@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6846 part c: inside the iPhone app with its native tab bar (html.kapptabs, set by the app), the Kosmos+ bar is the

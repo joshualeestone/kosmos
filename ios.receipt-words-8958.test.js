@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8958 slice B4: the iPhone draws a task's receipt in the board's words, so those words are written twice (web/index.html
    tkReceiptHtml and its helpers, ios/Kosmos/TaskPageLogic.swift). This holds them together through one file:
    ios/LogicTests/taskpage/receipt-words.json is what the page's own functions say for each case below, this test fails when

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3568 on Windows, the page half: "Sign in with Google" for Gemini on a Google subscription shows the
  * person Google's page (opened by the board) and a code box, never a Terminal, and it is offered on

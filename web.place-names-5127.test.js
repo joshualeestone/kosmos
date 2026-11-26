@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5127, #5128 (the #5114 class): no sentence a person can see uses the spellings in OLD below, which name
  * places that do not exist. Other wordings ("its Terminal", "Terminal view") are not caught; a bare "Terminal" is

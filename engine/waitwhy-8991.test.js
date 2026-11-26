@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8991: an agent waiting on the person says so in plain words, in the pill's hover and its hidden text (the
  * tile carries no sentence, #6716): a question, a question held until the person is back, a permission prompt, or

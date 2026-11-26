@@ -3,6 +3,7 @@
  * rostered admins (and the security contact for break-glass), on this service's org and id, past its wait on this
  * service's own clock, inside its 7-day window, with an unused nonce. Each refusal has a working control.
  */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');

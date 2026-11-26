@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4588 part 3: an Antigravity agent whose own quota reset has passed, while its Google account's shared quota
    is still paused (one account, one quota), reads Paused with the pool's reset, not "the quota reset at". */
 const test = require('node:test');

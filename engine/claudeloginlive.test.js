@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3997 (ruling C): the login-date reader's own rules. */
 const test = require('node:test');
 const assert = require('node:assert/strict');

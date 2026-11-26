@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7693: six sweeps that decide or only tell share one roster reading at most 20 s old, and every send they make reads a fresh one.
    kosmos#8952 slice (d) adds a seventh, permgrow: it sends nothing, and the windows it resizes are named by a fresh
    `tmux list-windows` each tick, the roster only matching a window to its agent.

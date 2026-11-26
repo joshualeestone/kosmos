@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#1772 (REVERSED by Josh, live, 2026-09-04): the first-run About-you step

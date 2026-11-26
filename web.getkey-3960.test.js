@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3960 (Josh, 2026-09-26): a "Get a key" link beside every provider API-key box, in Settings and
    first run, all read from ONE table (KEY_PAGES) so a moved key page is one edit. These tests read
    the shipped page: the table, the links, and that no key-page address lives anywhere else. */

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5977 slice 3: the Qwen add flow's "on this computer" panel. Runs the page's own acctQwenShow, acctQwenLocalPaint
  * and button handler against a fake page, fake server and fake clock, so what the person reads, what is sent, and

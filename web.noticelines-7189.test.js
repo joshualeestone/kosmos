@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7189: a room notice (a Kosmos note) keeps its line breaks, so the page draws them as breaks; the text is

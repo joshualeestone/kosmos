@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6214: stopping a running account move. Driven with its dependencies stated, as accountmove-6173.test.js is: what is

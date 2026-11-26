@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8453: ui-sample.sh --uikit --shard 1/2 and 2/2 split the UIKit arm's classes in two CI jobs. Together they must be
    exactly the whole list, each class once with its own count, or a class silently stops running on CI. */
 const test = require('node:test');

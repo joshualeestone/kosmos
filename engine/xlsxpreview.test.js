@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8122: the read-only spreadsheet preview's reader (engine/xlsxpreview.js). Workbooks are built here with the
  * repo's own zip writer (engine/zipwrite.js), so each case is exactly the bytes it names, hostile ones included.

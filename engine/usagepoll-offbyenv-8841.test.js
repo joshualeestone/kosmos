@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8841: offByEnv says whether the start environment itself switched the usage poll or the mover off, as against
  * the default reading off (one login, a test, a dry run). Settings names only the first.

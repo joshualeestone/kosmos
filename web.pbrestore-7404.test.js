@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7404: the restore-from-a-backup screen's words, in Mona Lisa's design review (fleetbuilders m2528). The end of
    a restore says what happened and where the copy is; a stop says the copy's place in words, because a stopped restore's
    answer names no copy; files left out when the backup was made are said as not in it; failed files are counted and,

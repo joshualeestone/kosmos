@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #570 BLOCKER 4, half two: a Windows board can be BOUNCED, and when it cannot it
  * says which of the two reasons applies.

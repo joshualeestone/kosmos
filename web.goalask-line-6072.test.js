@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6072 slice 2: the line under a project's name when the Assigner gave up today on asking an agent to plan
    work toward its goal (paintGoalAsk), from the page's real function. */
 const fs = require('node:fs');

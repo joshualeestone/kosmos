@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5871: which id names this computer now (engine/enrolment.js currentMacIdBy), the same rule as the tunnel's
    MacState::identity_record. Pure: the files are a map, their times a second map. */
 const test = require('node:test');

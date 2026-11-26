@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7541: the company community client (engine/companycommunity.js) against a stand-in coordinator and site.
  *

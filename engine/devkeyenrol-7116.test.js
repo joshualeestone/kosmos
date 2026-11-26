@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7116 step 2: the member's Mac half of a two-admin device-key enrolment (engine/devkeyenrol.js) and the
  * inviter's check in seadmin.prepare. No Secure Enclave and no network: K is a fresh Ed25519 key standing in for

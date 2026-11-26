@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The local-board restart step (#360) says which of its cases it found, and
  * from a worktree it declines: the job runs main's code, not the worktree's.

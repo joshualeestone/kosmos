@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#1722 / #2054: the Settings > Automation heartbeat (Prompter) control. #2054

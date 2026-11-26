@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4889, the Windows half (tools/windows/kosmos-cli.js), parity with install/kosmos and
  * cli.unknown-flag-4889.test.js. An option a verb does not know used to become its text and exit 0. Now it is

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7404 (backupscreens-7404, challenge round 1): every <style> block in web/index.html closes every brace it opens.
  * A rule copied without its last line left one `{` open, and a browser with CSS nesting then read the ~470 lines after

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5145: chooseSwitchedAccount decides which account the page records after a provider switch (the "Right now"
    bracket and Move both read it). A table, one row per precedence rule, so a change to any rule fails by name.
    Review 2 asked for this: the browser checks cover two arms; this covers every branch. */

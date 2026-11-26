@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8733: the one-time key tied to the successor's computer, and the pack's signer to the leaving member's, through
    escrowd's signed device-key history. The history fixture is shown to verify honestly first, so a refusal below
    cannot come from a broken fixture. */

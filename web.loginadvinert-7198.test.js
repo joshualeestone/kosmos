@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7198 review 7: loginAdvInert gives back only what it made inert. While the Sign in again dialog is open the
  * login notices are out of reach; closing it must not un-inert a notice slot something else had already made inert

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6947: the task page tells the board the person has a task's conversation in front of them (POST .../task/<n>/seen).
  * paintTaskActivity marks it once per state of the conversation it drew (opening the task, a redraw after an action,

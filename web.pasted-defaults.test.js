@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #591: told before the write. Whatever a person writes in the instructions
  * box, the working rules follow it under their own heading; the form says so

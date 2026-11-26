@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5959 slice 2: the agent's page carries one health line: sign-in, usage, and when it last worked, from the card's
  * state and its lastWorked (engine/status.js lastWorkedOf). No line for a card with no lastWorked.
  * The page's own functions, lifted out of index.html and run.

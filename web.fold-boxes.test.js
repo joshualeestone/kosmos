@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #370, Josh 2026-08-23 19:30: "Boxes, fold to one if engineering mode is

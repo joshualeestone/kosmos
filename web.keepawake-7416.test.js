@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7416 slice 3: the "Keep this computer awake while agents are working" switch on Settings > Computer, from
  * the page's own source. As the start-at-sign-in switch (web.win32-start-at-sign-in.test.js): drawn only for a

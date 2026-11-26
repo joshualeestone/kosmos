@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3013: server-side wiring of the workspace-trust diagnosis onto the offline row.
  *

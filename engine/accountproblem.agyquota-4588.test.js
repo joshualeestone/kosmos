@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4588: what the person and the manager are told about an Antigravity agent paused on its Google account's shared
    quota: firm, the shared account named, the reset given, and no "add credits" (it is a subscription allowance). */
 const test = require('node:test');

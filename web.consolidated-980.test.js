@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #980 spec pins (Josh, 2026-08-26 08:31): the boxless consolidated view's

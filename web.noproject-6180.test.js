@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6180 part 4 (Josh, 2026-10-14 17:05: "when we create agents here we should mark it as optional to assign them to a

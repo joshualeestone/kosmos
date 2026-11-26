@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5674: a post taken back while a copy MAY have arrived under a registration Kosmos no longer holds (#5636) says so on

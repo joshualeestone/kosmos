@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6719 review 3: two quick presses on one star are saved one at a time, in press order. Sent as two concurrent PUTs

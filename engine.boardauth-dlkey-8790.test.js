@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8790: the board's download keys (engine/boardauth.js mintDownloadKey / redeemDownloadKey). A key opens one
  * download address, once, within DL_KEY_TTL_MS. The server's use of it is in server.download-key-8790.test.js.

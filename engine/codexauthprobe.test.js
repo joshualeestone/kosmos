@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // kosmos#2093 -- tests for the per-account live-auth cache (engine/codexauthprobe.js).
 //
 // The load-bearing arm is the SAFETY one, and it is the MIRROR of authprobe's: this probe

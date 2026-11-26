@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6239 (Kosmos+Kids slice 2): a FAMILY account's words are shown and accepted before this computer joins.
    plusOrgConnect stops after the preview for a family and shows the words (plusOrgFamilyShow); Accept and join sends the
    enroll with wordsShown (plusOrgFamilyAccept). A company still joins at once (web.joincorp-5791.test.js). The panel's

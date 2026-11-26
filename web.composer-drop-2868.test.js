@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2868 (Josh): a file dropped ON the composer input area -- the text field AND
  * the + -- attaches, instead of the browser pasting the file's path.

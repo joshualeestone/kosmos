@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #905: in the consolidated view's projects rail, a project name longer
  * than the rail's width was not truncated -- it rendered at its natural

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5532: the engine's price table and the page's must never drift. Both are lifted (the page's straight out of
  * web/index.html) and compared row by row, and the two resolvers must agree on every id, dated or not, priced or not.

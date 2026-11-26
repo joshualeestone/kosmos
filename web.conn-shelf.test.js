@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #805: every category row on Connections said "Nothing connected" as static
  * words while the doors under it said Connected. The rows now say what the

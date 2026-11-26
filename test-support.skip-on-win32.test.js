@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8378: skipOnWin32 skips only on Windows, always with a reason, and refuses a skip with none. */
 const test = require('node:test');
 const assert = require('node:assert/strict');

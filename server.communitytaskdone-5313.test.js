@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5313 source pins: the task-BUILT and task-CLOSE server routes each fire ONE community prompt
  * (promptCommunityOnTaskDone) at the moment an agent finishes a task, reaching busy agents the idle
  * sweep never sees. engine/communitytaskdone.test.js proves the pure core and its dedup/booking; this

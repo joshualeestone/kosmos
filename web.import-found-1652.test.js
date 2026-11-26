@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1652 PR2 + #2419: the "or choose one below" found-import UI. The disk scan
  * (discover.scan().importable) finds loose agent files a person downloaded or was

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4588: an Antigravity agent paused on its Google account's shared quota reads as Paused (rate_limited) until the
    reset its bridge reported, and as its ordinary report once the reset has passed. */
 const test = require('node:test');

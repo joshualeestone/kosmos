@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#1189. Josh: "I want the width of agents to be the same width as
  * projects and I want that also to be the same width as the columns for tasks,

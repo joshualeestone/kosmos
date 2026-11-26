@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5874: the CLIs' task-event words (engine/taskactphrase.js) are the page's (web/index.html tkActPhrase), word for word,
    for every kind either knows. The page's function is lifted from the page source and run, not read as text. */
 const test = require('node:test');

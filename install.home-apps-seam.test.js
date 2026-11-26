@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #721: the installer reaches the person's Applications folder through ONE
    name, HOME_APP_DIR, overridable independently of HOME. A test that must keep
    HOME real (a signed-in Claude lives under it) can still write nothing real.

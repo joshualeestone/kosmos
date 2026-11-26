@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6358: the board's browser sessions end when it restarts, so an app window finds itself signed out after a

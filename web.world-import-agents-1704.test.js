@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1704 PR4: the settings cog next to EVERY Kosmos, and the "add agents from another
  * Kosmos" pane it opens (Josh: "I can always get back to that pane if I go to the little

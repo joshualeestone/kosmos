@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5551 (V2, Josh's drawing of 2026-10-09): the agent page's way back.

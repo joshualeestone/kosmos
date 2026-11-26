@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5920: a run that recovers after scheduled runs that never happened says so, on the repeat line (from the task's
    lastRunRecovered) and on its own history row (missedBefore), and is never folded into the "nothing new" rollup. From
    the page's real functions, lifted. */

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #718 mobile: the project room on a phone. The geometry and the tap behaviour are measured
    by docs/browser-checks/render-room-msgbox-2806.js (phone, touch and hover arms). This file
    pins SOURCE, not behaviour: that the conversation-first order is written as a DOM move, and

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4375: the board's baked industry list against a REAL kosmos-community's public GET /industries. Skipped unless
  * KOSMOS_COMMUNITY_CONTRACT_URL names one (as communitysend.contract.test.js is), so the suite never reaches a

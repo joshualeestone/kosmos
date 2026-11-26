@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * win32-board-copy: "does this computer sleep", "where is Kosmos" and "open it",
  * answered on Windows.

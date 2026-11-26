@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5359, the Windows half: `kosmos accounts` in tools/windows/kosmos-cli.js, mirroring cli.accounts-5359.test.js for
  * install/kosmos. Driven through main() with its seams (fetch, hook, out/err); nothing leaves the process.

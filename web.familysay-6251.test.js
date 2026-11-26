@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6251 (board half): the joined panel tells a family's computer about its family. The page words the sentences
    it builds itself by the kind /api/org reports for the record (plusOrgIn), as engine/orgenroll.js inKind does. */
 const test = require('node:test');

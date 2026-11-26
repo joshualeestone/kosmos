@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4649 pilot walk (prod 0.7.35, the "Kosmos as main comms" join steps): two places a first-timer stalled.

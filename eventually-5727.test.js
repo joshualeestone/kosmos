@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // #5727: the shared wall-clock poll helper test-support/eventually.js and the scale
 // it reads from KOSMOS_TEST_TIME_SCALE. These assertions are deterministic -- they turn
 // on the predicate and a call COUNT, never on measured wall time -- so this test does

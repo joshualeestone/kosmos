@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1704 / #2828: a Windows agent's machine-wide names -- its Scheduled Task and
  * its channel pipe -- are keyed by the process's own Kosmos, the default world's

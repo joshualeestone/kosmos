@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7978 item 1: the words for what an agent's processes hold. The agent's page says the numbers; the card says

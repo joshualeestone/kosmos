@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4474: what createTeam hands to create when an AGENT asks for a role it wrote (team.vetAgentMember), read off a
  * stub createAgent so the exact text create receives is the observable. create itself then appends the shared

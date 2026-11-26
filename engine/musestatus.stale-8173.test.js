@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #8173 (the Muse half of #8159): a Muse sign-in Kosmos last saw work weeks ago read green "confirmed 18 days ago".
  * Past 3 days it now reads not confirmed since then; within them it is green as before.

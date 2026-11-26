@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6411 part 2: since #6406 a run or both Mac can show another computer in its window, and Cmd-, then
  * clicked THAT computer's Settings tab while the menu reads as this computer's. openSettings now refuses unless the

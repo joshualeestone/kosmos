@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3380 the codex turn driver: arg construction and JSONL parsing, both pure and
  * asserted on any platform with no codex, no key and no spawn. runCodexTurn is

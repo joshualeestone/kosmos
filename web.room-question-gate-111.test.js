@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #111: THE ROOM'S QUESTION BOX IS A SAFETY GATE, NOT A PREFERENCE.

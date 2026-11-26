@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#1199, the icon half. Josh: "for some reason PDFs are not displaying the
  * PDF icon. I got Word, Excel, and PowerPoint files to display the proper ones."

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4588: the resume sweep is WIRED, not only written. engine/agyquota-4588.test.js drives the sweep itself; this
    pins that server.js builds its tick with the live-execution gate, the board's roster and chat.deliver, and runs
    it on a timer, so deleting the wiring reds a test instead of shipping a sweep nothing calls. */

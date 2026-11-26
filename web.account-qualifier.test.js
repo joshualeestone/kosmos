@@ -13,6 +13,7 @@
  *
  *   node --test web.account-qualifier.test.js
  */
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

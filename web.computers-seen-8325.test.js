@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8325: the computer switcher is painted from the last good answer until the first real one lands. */
 const test = require('node:test');
 const assert = require('node:assert/strict');

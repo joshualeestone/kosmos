@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /*
  * kosmos#8865: the words `kosmos start-check` prints (engine/startcheckwords.js), for the states the board's answer can

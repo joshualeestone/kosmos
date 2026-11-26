@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8685: the Windows CLI's limits for `kosmos agent delete-leftovers` cover the engine waits they sit in front of.

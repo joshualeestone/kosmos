@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4959, the page half: the restart wake's 'hello' is sent as an AUTOMATIC message ({ text: 'hello',

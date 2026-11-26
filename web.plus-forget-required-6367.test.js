@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6367: when the company's policy requires this computer to report, Remove this computer (Kosmos+) says the
  * company will see it stop. A warning, never a refusal. Covers the engine's reading of the policy and the confirm's

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #7206: the page's words for a guide running on DeepSeek when its own model fails (asbFallbackWords). A DeepSeek
  * account is a key, with no sign-in to renew: a refused key is never "choose Sign in again" (engine/accountproblem.js

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#1212. Josh: "at the top I'd like to include a picture of the icon to
  * remind people that they can add it to their desktop... It doesn't have to be

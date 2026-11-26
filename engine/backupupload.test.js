@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5535 E0.6: engine/backupupload.js. A local HTTP server stands in for the bucket (write-once, MD5-checked, as
  * measured on #5535) and a stub macRequest stands in for the coordinator's grant route, answering in the shape
  * kosmos-relay putgrant-5535's coordinator/src/backup.rs sends (ISO expires_at, headers without Content-Length,

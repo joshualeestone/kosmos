@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8728 slice 2: a Claude "Sign in again" refused from a remote session for want of a fresh Kosmos+ sign-in
    leaves one note in this tab; back from the fresh sign-in, the page reopens that account's dialog (and never starts a
    sign-in by itself). The functions are lifted from the page and run against a stand-in sessionStorage. */

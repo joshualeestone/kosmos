@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8786: engine/linuxjob.js ensureRuntimeDir keeps an inherited XDG_RUNTIME_DIR only when it is this user's own
  * folder, as setup.sh's _kosmos_own_runtime_dir does (tools/test-setup-xdg-own-8786.sh). Measured on a Cloud box: a root

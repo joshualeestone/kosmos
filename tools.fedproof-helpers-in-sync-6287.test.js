@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6287: tools/family-e2e-6239.js (#6239's end-to-end proof) carries a copy of tools/fed-own-e2e.js's (#4693)
  * harness helpers: the sandbox and free-port logic, process start, teardown and the orphan sweep, the HTTP helper,

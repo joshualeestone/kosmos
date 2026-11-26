@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5406 part 2 slice C: a question's choices as buttons inside its bubble in the direct-message thread (Josh's
  * #3419 ruling: no prompt box). Runs the shipped dmChoicesFrom / dmChoicesHtml / dmChoicePress against a small stub

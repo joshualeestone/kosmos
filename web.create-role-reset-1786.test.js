@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1786: a hand-edited (dirty) create-agent form must not persist across role re-picks.
  *

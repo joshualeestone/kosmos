@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5311: every reason the Mac app's VoiceBridge.endReason can return has its own sentence in the page's
  * VOICE_SAYS, so a new native reason can never fall to the catch-all by omission (Josh's mic said "Listening stopped

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#2838 (Josh, 2026-09-11, live review of 0.6.57): "I think we missed
  * deleting the arrow to pop down the project description and instead putting the

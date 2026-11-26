@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#3628: the CLI test harnesses turned a killed or unspawnable CLI into an exit code.
  *

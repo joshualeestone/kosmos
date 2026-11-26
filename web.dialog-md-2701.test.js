@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2701: the dialog message renderers must render markdown TABLES and size
  * heading LEVELS. Josh (design channel, 2026-09-10): "tables don't render

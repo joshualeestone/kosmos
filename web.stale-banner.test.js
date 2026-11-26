@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The "Running on older instructions" banner survives leaving the agent's page
  * and coming back to it.

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#6487, its third "done means": the code sends exactly the words docs/phone-notifications.md documents, and a

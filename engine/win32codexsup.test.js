@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3380 the codex supervisor: the per-turn loop that replaces the persistent
  * stream-json child for an OpenAI agent. Every arm runs on any platform -- the
