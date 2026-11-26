@@ -53,3 +53,7 @@ So both halves of the card's premise are off, and the defect is narrower and rea
   - NIT taken: two leftover `#firstrun` hides in the evaluate blocks, from the file:// version. Removed; the guide is
     closed with Escape and asserted closed.
   - NIT not taken: one try per teardown step (low value; browser.close now cannot throw out of the finally).
+- Round 2 (sonnet): 0 BLOCKER, 0 WARNING, 0 CONVENTION, 4 NIT. Converged.
+  - NITs not taken: the try body is not re-indented (keeps the diff to what changed); fleet.install and server.js load
+    at module top, outside the try (as render-occurrences-9142); the README row is long but accurate; the setInterval
+    stub hides a repeating poll's errors (kept from the original check, which did the same).
