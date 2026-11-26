@@ -190,8 +190,10 @@ test('kosmos#9097 review 7: off macOS the real-home guards stop a read before it
   // No real file is needed: both reads (fs.readFileSync, and fs.readFile behind the board's fileBodyNow, #9107) are
   // watched, and answer a fake body at once if they are ever reached.
   const realFile = path.join(os.userInfo().homedir, '.claude', '.credentials.json');
-  // #9107 item 2: compared resolved and without case, as Windows names one file (the code reads a path.resolve'd folder).
-  const same = (f) => path.resolve(String(f)).toLowerCase() === path.resolve(realFile).toLowerCase();
+  // #9107 item 2: compared resolved, and without case where the file system ignores it (Windows, macOS), as the code
+  // reads a path.resolve'd folder.
+  const fold = (p) => (process.platform === 'win32' || process.platform === 'darwin' ? p.toLowerCase() : p);
+  const same = (f) => fold(path.resolve(String(f))) === fold(path.resolve(realFile));
   const tried = [];
   const orig = fs.readFileSync;
   const origAsync = fs.readFile;
@@ -200,6 +202,7 @@ test('kosmos#9097 review 7: off macOS the real-home guards stop a read before it
   le._resetForTests();
   fs.readFileSync = function (f, ...rest) { if (same(f)) { tried.push(f); return body({ refreshTokenExpiresAt: UNTIL }); } return orig.call(this, f, ...rest); };
   fs.readFile = function (f, ...rest) {
+    // Answers at once, inside the call: so the CONTROL below gets a body on its first read. A real read lands later.
     if (same(f)) { tried.push(f); rest[rest.length - 1](null, body({ refreshTokenExpiresAt: UNTIL })); return; }
     return origAsync.call(this, f, ...rest);
   };

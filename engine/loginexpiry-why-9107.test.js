@@ -23,6 +23,22 @@ function homeWithLogin() {
   fs.writeFileSync(path.join(h, '.claude', '.credentials.json'), body({ refreshTokenExpiresAt: UNTIL }));
   return h;
 }
+// Counts the background reads still running, so a test can end only after its own have landed (review 1: a read left
+// running would land in the next test and move the login generation there).
+const realReadFile = fs.readFile;
+const inflight = new Map();
+fs.readFile = function (p, ...rest) {
+  const cb = rest.pop();
+  inflight.set(p, (inflight.get(p) || 0) + 1);
+  return realReadFile.call(this, p, ...rest, (...a) => { inflight.set(p, inflight.get(p) - 1); cb(...a); });
+};
+process.on('exit', () => { fs.readFile = realReadFile; });
+const pendingRead = (p) => (inflight.get(p) || 0) > 0;
+// Waits for a background read by its effect, never by a fixed time (review 1: a loaded Windows runner is slow).
+async function until(fn, ms = 10000) {
+  const end = Date.now() + ms;
+  while (!fn()) { if (Date.now() > end) throw new Error('timed out waiting'); await new Promise((r) => setTimeout(r, 10)); }
+}
 function capture() {
   const lines = [];
   le._resetForTests();
@@ -39,7 +55,7 @@ test('kosmos#9107 item 1: a folder outside the home says why, once, with no path
   assert.strictEqual(read(), null);
   assert.strictEqual(read(), null);
   assert.deepStrictEqual(lines, ['loginexpiry: ' + le.REFUSAL_WORDS.outside], 'said once for two refusals');
-  for (const l of lines) assert.ok(!l.includes(h) && !l.includes(elsewhere) && !l.includes(os.userInfo().username), 'no path or user name in: ' + l);
+  for (const l of lines) assert.ok(!l.includes(h) && !l.includes(elsewhere) && !l.includes(path.sep + 'Users') && !l.includes(path.sep + 'home'), 'no path in: ' + l);
   // CONTROL: a folder inside the home is read and says nothing.
   const inside = le.readCredDefault('Claude Code-credentials-x', path.join(h, '.claude'), { platform: 'linux', home: h, readNow: () => 'X' });
   assert.strictEqual(inside, 'X');
@@ -76,9 +92,8 @@ test('kosmos#9107 item 4: the first answer is null, the background read fills it
   le._resetForTests();
   const gen0 = le.loginGeneration();
   assert.strictEqual(le.fileBodyNow(f, 1000), null, 'the first answer does not wait for the file');
-  await new Promise((r) => setTimeout(r, 200));
+  await until(() => le.loginGeneration() > gen0);
   assert.strictEqual(le.fileBodyNow(f, 1000 + 1), body({ refreshTokenExpiresAt: UNTIL }), 'the background read is the next answer');
-  assert.ok(le.loginGeneration() > gen0, 'a new body asks the advisories to recompute');
   // Through the reader the board calls: the same answer, from the same file.
   assert.ok(le.readCredDefault(DEF, undefined, { platform: 'linux', home: h, userHome: h }));
 });
@@ -108,11 +123,50 @@ test('kosmos#9107 item 4: within the re-read time no new read starts; after it, 
   fs.readFile = function (p, ...rest) { if (p === f) started += 1; return orig.call(this, p, ...rest); };
   try {
     le.fileBodyNow(f, 0);
-    await new Promise((r) => setTimeout(r, 200));
+    await until(() => le.fileBodyNow(f, 0) !== null);
     const at = Date.now();
     le.fileBodyNow(f, at + 10);
     assert.strictEqual(started, 1, 'a fresh body is not read again');
     le.fileBodyNow(f, at + le.FILE_REREAD_MS + 10);
     assert.strictEqual(started, 2, 'an old one is');
+    await until(() => !pendingRead(f));   // no read left running past the test
+    assert.strictEqual(started, 2);
   } finally { fs.readFile = orig; }
+});
+
+test('kosmos#9107 review 1: a sign-in starts a new read at once, so the old notice does not stay its 5 minutes (#5018)', async () => {
+  const h = homeWithLogin();
+  const f = path.join(h, '.claude', '.credentials.json');
+  le._resetForTests();
+  const g0 = le.loginGeneration();
+  le.fileBodyNow(f, 0);
+  await until(() => le.loginGeneration() > g0);
+  const at = Date.now();
+  // The sign-in writes a new date, then says so.
+  fs.writeFileSync(f, body({ refreshTokenExpiresAt: UNTIL + 86400000 }));
+  le.loginChanged();
+  const g1 = le.loginGeneration();
+  assert.strictEqual(le.fileBodyNow(f, at + 10), body({ refreshTokenExpiresAt: UNTIL }), 'the old body until the new read lands');
+  await until(() => le.loginGeneration() > g1);
+  assert.strictEqual(le.fileBodyNow(f, at + 20), body({ refreshTokenExpiresAt: UNTIL + 86400000 }), 'the new date, well inside the re-read minute');
+  // CONTROL: with no sign-in, inside the minute, the file is not read again.
+  fs.writeFileSync(f, body({ refreshTokenExpiresAt: UNTIL + 2 * 86400000 }));
+  await new Promise((r) => setTimeout(r, 50));
+  assert.strictEqual(le.fileBodyNow(f, at + 30), body({ refreshTokenExpiresAt: UNTIL + 86400000 }));
+});
+
+test('kosmos#9107 review 1: an access-token refresh rewrites the file but does not move the login generation', async () => {
+  const h = homeWithLogin();
+  const f = path.join(h, '.claude', '.credentials.json');
+  fs.writeFileSync(f, body({ refreshTokenExpiresAt: UNTIL, expiresAt: 1 }));
+  le._resetForTests();
+  le.fileBodyNow(f, 0);
+  await until(() => le.fileBodyNow(f, 0) !== null);
+  const g = le.loginGeneration();
+  fs.writeFileSync(f, body({ refreshTokenExpiresAt: UNTIL, expiresAt: 2 }));   // what Claude Code does every few hours
+  const late = Date.now() + le.FILE_REREAD_MS + 10;
+  le.fileBodyNow(f, late);
+  await until(() => !pendingRead(f));
+  assert.strictEqual(le.fileBodyNow(f, Date.now()), body({ refreshTokenExpiresAt: UNTIL, expiresAt: 2 }), 'the new body is kept');
+  assert.strictEqual(le.loginGeneration(), g, 'no recompute for a refresh that keeps the login date');
 });
