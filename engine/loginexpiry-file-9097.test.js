@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#9097: off macOS, a Claude login's expiry is read from the config folder's .credentials.json (measured on the
  * Windows box 11-25: Claude Code 2.1.319 keeps it there, not in a keychain). Before this, the board read only the macOS
  * Keychain, so Windows never showed a login warning or an "Expires in N days" line. */
