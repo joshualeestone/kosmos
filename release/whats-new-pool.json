@@ -2924,7 +2924,7 @@
     },
     {
       "title": "A printed sign-in message is not the agent's",
-      "line": "When a command or MCP tool an agent runs prints Claude's own \"Not logged in\" line, its card no longer reads that as the agent's own sign-in failure.",
+      "line": "When a command or MCP tool prints Claude's own \"Not logged in\" line, the agent's card no longer reads it as its own sign-in failure.",
       "icon": "shield",
       "platforms": [
         "mac"
