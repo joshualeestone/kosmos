@@ -746,7 +746,30 @@ ok "#9118: a grace longer than the claim is sure to last is cut to fit (KILL aft
 mkdir -p $S/m9118-r08; o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-r08 QUEUED_HEAVY_RENEW_SEC=08 nocty /bin/bash $QH "t9118-r08" sh -c 'echo RAN-R08' </dev/null 2>&1); r=$?
 ok "#9118: QUEUED_HEAVY_RENEW_SEC=08 still runs the command (no octal error)" '[ "$r" = 0 ] && [[ "$o" == *RAN-R08* && "$o" == *"END rc=0"* && "$o" != *"value too great"* ]]'
 
-EXPECTED=162   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms
+# kosmos#9118 item 1: --withdraw "<what>" takes a run out by its label. A waiter (held back by a fake heavy holder in its
+# own marker dir) leaves the queue and its command never starts; the control label beside it stays queued.
+mkdir -p $S/mwd; printf '%s-%s-1 %s %s host queued run (not a cut): fake heavy\n' $H $((NOW-300)) $H $((NOW+1800)) > $S/mwd/machine-claim
+pre9118=0; free9118 || pre9118=1
+( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die' /bin/bash $QH "wd" sh -c "echo STARTED-WD; sleep $((U+5))" ) </dev/null > $S/wd.log 2>&1 & W1=$!; BG="$BG $W1"
+( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die' /bin/bash $QH "wd-other" true ) </dev/null > $S/wd2.log 2>&1 & W2=$!; BG="$BG $W2"
+until_true 30 'grep -q "waiting for a turn: wd " $S/wd.log && grep -q "waiting for a turn: wd-other" $S/wd2.log && [ -e $S/mwd/qh-label.$W1 ] && [ -e $S/mwd/qh-label.$W2 ]'; sw=$?
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd /bin/bash $QH --withdraw "wd" 2>&1); rw=$?
+ok "#9118: --withdraw takes a WAITING run out by its exact label (it ends, leaves the queue, its command never starts)" '[ "$pre9118" = 0 ] && [ "$sw" = 0 ] && [ "$rw" = 0 ] && [[ "$o" == *"withdrew 1 run"* ]] && ! kill -0 $W1 2>/dev/null && [ ! -e $S/mwd/suitewait.$W1 ] && [ ! -e $S/mwd/qh-label.$W1 ] && ! grep -q STARTED-WD $S/wd.log'
+ok "#9118: --withdraw matches the label exactly: \"wd-other\" is still queued" 'kill -0 $W2 2>/dev/null && [ -e $S/mwd/qh-label.$W2 ]'
+kill $W2 2>/dev/null; reap $W2 40 2>/dev/null; rm -f $S/mwd/machine-claim
+# A stale label file (its pid gone) is removed, and with nothing live it says so and exits 1.
+sleep 0 & DW=$!; wait $DW; echo wd > $S/mwd/qh-label.$DW
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd /bin/bash $QH --withdraw "wd" 2>&1); rw=$?
+ok "#9118: --withdraw with no live run of that label exits 1, says so, and removes a stale label file" '[ "$rw" = 1 ] && [[ "$o" == *"no live run labelled"* ]] && [ ! -e $S/mwd/qh-label.$DW ]'
+# A HOLDER: --withdraw stops its whole command (the #9118 stop) and the claim is released.
+pre9118=0; free9118 || pre9118=1
+qh9118 wdrun 5 sh -c "sleep $((U+6)) & wait"
+until_true 30 'grep -q "TURN: running t9118-wdrun" $L9 && ! gone $((U+6)) && [ -e $S/m9118-wdrun/qh-label.$Q9 ]'; sh9=$?
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-wdrun /bin/bash $QH --withdraw "t9118-wdrun" 2>&1); rw=$?
+ok "#9118: --withdraw stops a HOLDING run's command and its claim is released" '[ "$pre9118" = 0 ] && [ "$sh9" = 0 ] && [ "$rw" = 0 ] && gone $((U+6)) && ! kill -0 $Q9 2>/dev/null && [ ! -e $S/m9118-wdrun/machine-claim ] && [ ! -e $S/m9118-wdrun/qh-label.$Q9 ]'
+for p in $(pgrep -f "^sleep $((U+6))$"); do kill -KILL $p 2>/dev/null; done; for p in $(pgrep -f "^sleep $((U+5))$"); do kill -KILL $p 2>/dev/null; done
+
+EXPECTED=166   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, four #9118 withdraw arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
