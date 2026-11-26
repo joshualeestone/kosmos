@@ -36,6 +36,15 @@ test('CONTROL: a flag, a case change, a symbol and a path dot still print', () =
     ['run -d now', 'run -D now'],
     ['when a > b', 'when a < b'],
     ['open a.b/c', 'open ab/c'],
+    // Review 1: a mark standing alone, ? ! ; :, and leading indentation are never wording only.
+    ['git add .', 'git add'],
+    ['cd ..', 'cd'],
+    ['if ! grep -q x f; then', 'if grep -q x f; then'],
+    ['cmd1 ; rm x', 'cmd1 rm x'],
+    ['url https://a.com/x?', 'url https://a.com/x'],
+    ['Delete it?', 'Delete it.'],
+    ['  key: v', 'key: v'],
+    ['  - sub', '- sub'],
   ]) {
     const out = changedLines('# R\n' + a + '\n', '# R\n' + b + '\n');
     assert.ok(out.includes('- ' + a) && out.includes('+ ' + b), 'hidden as wording only: ' + a + ' -> ' + b);
@@ -46,4 +55,23 @@ test('CONTROL: a flag, a case change, a symbol and a path dot still print', () =
 test('CONTROL: an unchanged file still prints nothing, and a file with no wording-only change carries no note', () => {
   assert.equal(changedLines('# R\nA rule.\n', '# R\nA rule.\n'), '');
   assert.doesNotMatch(changedLines('# R\nOld rule.\n', '# R\nNew rule.\n'), NOTE);
+});
+
+test('review 1: a wording-only line under a moved heading does not leave the "may be in ... too" sentence behind', () => {
+  const moved = { under: '## Tasks', where: 'kosmos task --how', lines: new Set(['An old task rule.']) };
+  const out = changedLines('## Tasks\nKeep it short\n', '## Tasks\nKeep it short.\n', [moved]);
+  assert.match(out, NOTE);
+  assert.doesNotMatch(out, /may be in kosmos task --how too/, 'the conditional sentence printed with no - line shown');
+  // CONTROL: a real change under that heading still gets the sentence.
+  assert.match(changedLines('## Tasks\nOld rule.\n', '## Tasks\nNew rule.\n', [moved]), /may be in kosmos task --how too/);
+});
+
+test('a cut list with wording-only lines keeps the cap and ends with the cut note', () => {
+  const { CHANGES_LINES_MAX } = require('./instructionreread');
+  const a = [], b = [];
+  for (let i = 0; i < 400; i += 1) { a.push('Rule ' + i + ' old'); b.push(i % 2 ? 'Rule ' + i + ' old.' : 'Rule ' + i + ' new'); }
+  const out = changedLines('# R\n' + a.join('\n') + '\n', '# R\n' + b.join('\n') + '\n');
+  assert.ok(out.split('\n').length <= CHANGES_LINES_MAX, 'over the line cap');
+  assert.match(out, NOTE);
+  assert.match(out.split('\n').pop(), /^\[More changed than fits here/, 'the cut note is not last');
 });

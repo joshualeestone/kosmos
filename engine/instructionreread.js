@@ -355,26 +355,34 @@ function changedLines(before, after, moved = null) {
     if (run && run.head !== head) flush();
     if (!run) run = { head, lines: [] };
     // A removed line before the line that replaced it, as a reader expects.
-    if (removing) { const k = underMoved(headsA[pre + i]); if (k >= 0) shownUnder[k] += 1; run.lines.push('- ' + A[i]); i += 1; }
+    if (removing) { const k = underMoved(headsA[pre + i]); if (k >= 0) shownUnder[k] += 1; (run.movedOf = run.movedOf || []).push(k); run.lines.push('- ' + A[i]); i += 1; }
     else { run.lines.push('+ ' + B[j]); j += 1; }
   }
   flush();
   /* Review 5: each removed line beside the line that replaced it, so a cut keeps old and new together (removals all
      first would leave a cut file with only the rules that no longer apply). */
-  /* kosmos#9096 item 5: a removed line and the line that replaced it whose only difference is spacing, sentence
-     punctuation at the end of a word (. , ; : ! ?), or straight against curly quotes changed in wording only. Such a pair
-     is counted and not printed, so the capped list keeps its room for rules that changed. Narrow on purpose: case,
-     hyphens and every other symbol still count, because a flag (`--no-reply`, `-D`) or a path can differ by exactly
-     that. Telling a paraphrase from a change in meaning needs judgement, so it is never attempted here. */
-  const wordingOf = (t) => String(t).replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
-    .replace(/[.,;:!?]+(?=\s|$)/g, '').replace(/\s+/g, ' ').trim();
+  /* kosmos#9096 item 5: a removed line and the line that replaced it whose only difference is spacing after the
+     indentation, a full stop or comma that directly ends a word, or straight against curly quotes changed in wording
+     only. Such a pair is counted and not printed, so the capped list keeps its room for rules that changed.
+     Narrow on purpose (review 1): a mark standing alone is kept (`git add .`, `cd ..`); ? ! ; : are kept (a question is
+     not an instruction, `! cmd` negates, `;` separates commands, `key:` is YAML); leading indentation must match exactly
+     (YAML, nested bullets); case, hyphens and every other symbol count, because a flag (`--no-reply`, `-D`) or a path
+     can differ by exactly that. Telling a paraphrase from a change in meaning needs judgement, so it is never tried. */
+  const wordingOf = (t) => {
+    const s = String(t).replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+    const indent = s.match(/^[ \t]*/)[0];
+    return indent + s.slice(indent.length).replace(/(?<=\w)[.,]+(?=\s|$)/g, '').replace(/\s+/g, ' ').trim();
+  };
   let reworded = 0;
   for (const r of runs) {
     const minus = r.lines.filter((l) => l.startsWith('- '));
     const plus = r.lines.filter((l) => l.startsWith('+ '));
+    const movedOf = r.movedOf || [];   // the moved-heading index of each - line, in order (-1: none)
     for (let k = Math.min(minus.length, plus.length) - 1; k >= 0; k -= 1) {
       if (wordingOf(minus[k].slice(2)) !== wordingOf(plus[k].slice(2))) continue;
-      minus.splice(k, 1); plus.splice(k, 1); reworded += 1;
+      // Review 1: a hidden - line is no longer "still marked" under a moved heading.
+      if (movedOf[k] >= 0) shownUnder[movedOf[k]] -= 1;
+      minus.splice(k, 1); plus.splice(k, 1); movedOf.splice(k, 1); reworded += 1;
     }
     r.lines = minus.concat(plus);
   }
