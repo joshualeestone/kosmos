@@ -55,3 +55,8 @@ fix; it cannot go silently green, because an unknown wording is a FAIL.
     them changes what 14 checks catch and needs its own headed/headless measurement; noted on #9161 as a follow-up.
   - NITs not taken: the old-copy sweep matches the exact line only (its job is the copy that went red); the 2606
     allowance becomes dead once #9164 merges (harmless; remove then); the wiring test is textual.
+- Final validation (6j) on 436c7977c6: FAILED, 31529 tests, 1 fail: test-support.tmpscope-first-9104.test.js, because
+  the new browser-checks-file-console-9161.test.js did not require test-support/tmpscope first (#9104). Fixed (one
+  line, as browser-checks-indexed.test.js); both files 8/8. Back into the loop for another round, then validate again.
+- Behaviour after the change, measured on 436c7977c6 (one queued turn, ended 17:18): all 17 checks headless rc 0 and
+  headed rc 0, 0 CORS lines and 0 FAIL lines each (before: 14 red headed).

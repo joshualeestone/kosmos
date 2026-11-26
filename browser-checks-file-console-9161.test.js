@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#9161: docs/browser-checks/lib-file-console.js is the one pattern a file:// browser check uses to ignore its
  * own start-up fetch noise. These pin it against the lines Chromium prints in both modes, and against the lines it
