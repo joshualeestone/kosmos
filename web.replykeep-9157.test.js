@@ -26,14 +26,17 @@ const END_AT = SCRIPT.indexOf('function draftsKept(m)');
 const END = SCRIPT.indexOf('\n}\n', END_AT) + 3;
 const HELPER = SCRIPT.slice(START, END);
 
-function memoryStorage({ failWrites = false } = {}) {
+function memoryStorage({ failWrites = false, failPrefix = null } = {}) {
   const data = new Map();
   return {
     data,
     get length() { return data.size; },
     key: (i) => [...data.keys()][i] ?? null,
     getItem: (k) => (data.has(k) ? data.get(k) : null),
-    setItem: (k, v) => { if (failWrites) throw new Error('QuotaExceededError'); data.set(k, String(v)); },
+    setItem: (k, v) => {
+      if (failWrites || (failPrefix && k.indexOf(failPrefix) === 0)) throw new Error('QuotaExceededError');
+      data.set(k, String(v));
+    },
     removeItem: (k) => { data.delete(k); },
   };
 }
@@ -64,6 +67,8 @@ test('#9157 premise: both reply maps are kept maps in the page', () => {
 test('#9157: a chat reply comes back after a reload, still answering its message', () => {
   const storage = memoryStorage();
   const h = helper(storage);
+  const talk = h.keptDrafts('talk');
+  talk.april = 'yes, that one';   // review 2: a reply comes back only with words beside it
   const replies = h.keptDrafts('dmreply', h.KEPT_DM_REPLY_OPTS);
   replies.april = REPLY;
   const after = helper(storage).keptDrafts('dmreply', h.KEPT_DM_REPLY_OPTS);
@@ -89,15 +94,16 @@ test('#9157: a kept reply with words no longer holds the restart; an unkept one 
   assert.equal(nothingToLose(h, { room, pjReply }), true, 'a kept room reply still held the restart');
 });
 
-test('#9157: a reply storage refused still holds the restart', () => {
-  const ok = memoryStorage();
-  const h = helper(ok);
+test('#9157: a reply storage refused still holds the restart, though its words are kept', () => {
+  // Review 2: one helper and one storage, refusing only the reply's keys, so the words ARE kept and the reply alone
+  // is what holds.
+  const h = helper(memoryStorage({ failPrefix: 'kosmos.draft.dmreply.' }));
   const talk = h.keptDrafts('talk');
   talk.april = 'yes, that one';
-  const refusing = helper(memoryStorage({ failWrites: true }));
-  const dmReply = refusing.keptDrafts('dmreply', h.KEPT_DM_REPLY_OPTS);
+  const dmReply = h.keptDrafts('dmreply', h.KEPT_DM_REPLY_OPTS);
   dmReply.april = REPLY;
-  assert.equal(refusing.draftsKept(dmReply), false, 'a refused write counted as kept');
+  assert.equal(h.draftsKept(talk), true, 'CONTROL: the words are kept');
+  assert.equal(h.draftsKept(dmReply), false, 'a refused write counted as kept');
   assert.equal(nothingToLose(h, { talk, dmReply }), false, 'a reply that could not be kept let the restart through');
 });
 
@@ -147,4 +153,20 @@ test('#9157 review 1: a reply older than the age-out is kept while its words are
   assert.equal(pj.p7 && pj.p7.id, 'm1', 'a room reply aged out while its words came back');
   assert.equal(dm.roo, undefined, 'CONTROL: an old reply with no words beside it still ages out');
   assert.equal(storage.getItem('kosmos.draft.dmreply.roo'), null, 'CONTROL: and leaves storage');
+});
+
+test('#9157 review 2: a reply picked with nothing typed after it is not brought back by a reload', () => {
+  const storage = memoryStorage();
+  const h = helper(storage);
+  const replies = h.keptDrafts('dmreply', h.KEPT_DM_REPLY_OPTS);
+  replies.april = REPLY;
+  replies.roo = REPLY;
+  h.keptDrafts('talk').roo = 'words for roo';
+  const after = helper(storage).keptDrafts('dmreply', h.KEPT_DM_REPLY_OPTS);
+  assert.equal(after.april, undefined, 'a reply with no words came back: the next message would go out as a reply');
+  assert.equal(after.roo && after.roo.at, REPLY.at, 'CONTROL: a reply with words beside it comes back');
+  const pjStore = memoryStorage();
+  const hp = helper(pjStore);
+  hp.keptDrafts('pjreply', hp.KEPT_PJ_REPLY_OPTS).p7 = { id: 'm1' };
+  assert.equal(helper(pjStore).keptDrafts('pjreply', hp.KEPT_PJ_REPLY_OPTS).p7, undefined, 'a room reply with no words came back');
 });

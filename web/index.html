@@ -44997,10 +44997,13 @@ function keptDrafts(kind, opts) {
       try { rec = JSON.parse(localStorage.getItem(k)); } catch { rec = null; }
       const fresh = (r) => !!r && r.v != null && typeof r.t === 'number' && r.t > cutoff;
       let keep = fresh(rec);
-      if (!keep && rec && rec.v != null && opts && opts.pair) {   // review 1: kept while its paired draft is
+      /* Review 1: a reply goes with its paired draft (opts.pair), however old the reply itself is. Review 2: and ONLY
+         with it: a reply with no words kept beside it (picked, never typed after) is not brought back, as before
+         this change, so the next unrelated message never goes out as a reply. */
+      if (rec && rec.v != null && opts && opts.pair) {
         let paired = null;
         try { paired = JSON.parse(localStorage.getItem('kosmos.draft.' + opts.pair + '.' + k.slice(prefix.length))); } catch { paired = null; }
-        keep = fresh(paired);
+        keep = fresh(paired) && !!keptDraftWords(paired.v).trim();
       }
       if (keep) map[k.slice(prefix.length)] = rec.v;
       else localStorage.removeItem(k);

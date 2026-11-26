@@ -71,3 +71,19 @@ reload.
   shows and x ends it; nothing goes out wrongly); a reload during a reply's send can bring back its strip (the
   automatic restart is held then anyway); another tab's room reply can bring a @mention not in this box (harmless);
   the browser check covers the chat, the room is unit-tested.
+
+#### Iteration 2 (blind review of the whole branch, sonnet)
+
+No BLOCKER, no SHOULD-FIX.
+- [NIT] taken: a reply picked with nothing typed after it was kept and came back on every reload, so the next
+  unrelated message could go out as a reply. A reply now comes back ONLY while its paired draft is stored, fresh and
+  has words (as main: an abandoned pick does not survive a reload). Tested with a control (a reply with words comes
+  back); removing the words requirement fails exactly that test.
+- [NIT] taken: the refused-write test used two helper instances, so its restart assertion could not fail. Now one
+  storage refusing only the reply's keys, with a control that the words are kept.
+- [NIT] recorded, not built: a reload in the moment between a reply's send landing and its delete (the automatic
+  restart is held then); the forget test pins the call sites' text rather than running forgetAgentDrafts (it lifts
+  only the helper block); an aliased in-place write (const r = DM_REPLY[a]; r.x = y) is outside the guard's regex
+  (none exists today); the browser check covers the chat, the room is unit-tested.
+web.replykeep-9157 8 of 8, web.keepdrafts-9132 and the affected suites and guards (120) pass; render-replykeep-9157
+passes both arms.
