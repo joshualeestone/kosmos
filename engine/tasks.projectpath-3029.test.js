@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3029: each Tasks row names its project's ancestors (projectPath, root first), so the Tasks screen can
  * label a subproject by its chain (Book A › Launch) the way the grid's ancestry line does.
  *

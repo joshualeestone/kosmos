@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6004: installing Muse Code from inside Kosmos. The real installer is never run here: the seam is replaced with a
    fake that writes (or does not write) the launcher where Kosmos looks, which is AGENT_WORKFORCE_MUSE_BIN in this
    sandbox. */

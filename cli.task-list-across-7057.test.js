@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7057 (feedback: in a mature project the history buries the open items, and there was no way to look across

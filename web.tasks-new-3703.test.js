@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3703: "+ New task" from the Tasks view, on the REAL dialog functions lifted from web/index.html
  * (openNewTask, ntAimAt, ntChoices, leaveNewTask) run against a stub DOM.
  *

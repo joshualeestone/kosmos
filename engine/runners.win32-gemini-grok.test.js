@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The Gemini CLI and the Grok CLI install on Windows (#3713's Windows half).
  *

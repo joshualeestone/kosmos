@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5406 Part 1 (Josh, 2026-10-07): a Kosmos-launched Claude agent does not stop on a permission prompt the person's own
  * ask rules raise. Kosmos passes its own settings file (one PermissionRequest hook answering allow) with --settings, on

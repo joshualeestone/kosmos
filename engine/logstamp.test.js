@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /*
  * #4199: every line the board writes into board.log starts with a UTC time; a pipe or a terminal is left alone.

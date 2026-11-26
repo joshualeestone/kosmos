@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * GET /api/project/:id/task/:n/activity (#768/#992): a task's recorded

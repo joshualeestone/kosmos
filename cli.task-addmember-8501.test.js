@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8501: `kosmos task add ... --who <agent> --add-member` and `kosmos task assign ... <agent> --add-member` from

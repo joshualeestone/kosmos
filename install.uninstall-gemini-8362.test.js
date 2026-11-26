@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #8362: the Mac/Linux uninstall takes back out of the person's Gemini settings the values Kosmos recorded filling in,

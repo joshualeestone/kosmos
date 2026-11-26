@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * world-guard-lift-1704: #2849's refusal is gone, so a board booted into a NAMED
  * Kosmos creates, restarts, removes and restores its own agents. The guard existed

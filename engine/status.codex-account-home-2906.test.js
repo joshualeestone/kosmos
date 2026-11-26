@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #2906/#4592: the Codex Memory reader must resolve each agent's OWN runtime home.

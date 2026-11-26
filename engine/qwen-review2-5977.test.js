@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5977 review 2: every reader that named an agent's provider from its runner alone called a Qwen agent OpenAI (Qwen
  * shares the codex runner). create.agentProvider reads the agent's launch job; these tests run each reader on a Qwen

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6994: both CLIs carry a project's records. `kosmos records <project>` prints the board's own rendering
  * (?as=text); `kosmos records set|remove|label` send one row's change. install/kosmos runs against a stub board (the

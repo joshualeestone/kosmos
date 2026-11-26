@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2955: an agent's supervisor reads through the tmux that can read the live server.
  *

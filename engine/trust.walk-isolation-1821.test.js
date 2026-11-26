@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1821: a QA walk that connects a provider or creates an agent must be able to
  * ISOLATE the trust write with a config seam, because trust.js resolves its

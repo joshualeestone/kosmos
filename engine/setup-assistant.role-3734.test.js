@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3734: an existing setup guide was born told it never creates agents. refreshGuideRole replaces that
  * paragraph, once, in the marked guide folder only.

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#2790 Phase 2 -- the OFFLINE signal that a ChatGPT-subscription sign-in is DEAD.
  *

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8992: `kosmos feedback pull` told an agent to file the collected-feedback token again when reading it merely
    failed or timed out. Now the pull asks the secrets map why and names the one next step that can help: file it (only
    when the map has no such target), run again, fix the filing or the file's mode, fix the folder's unreadable files, or

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3296 accounts slice: engine/geminiaccounts.js -- the Gemini (Google) account
  * module. Structurally the grok module with Google's key-check (the key rides the

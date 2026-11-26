@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4812: the Agents view lists the agents of this account's OTHER computers, read by this browser from
  * each of them. These run the SHIPPED oa* functions from web/index.html (lifted, as web.computers-switcher-4648

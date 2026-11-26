@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3805: tools/heavy-gate.sh answers "is it safe to start a heavy run?" for the whole fleet.

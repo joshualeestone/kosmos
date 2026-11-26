@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5293: an agent proposes an addition to another agent's instructions; the person applies it on the page.
  * One pending per target (a second is refused, never replaced); apply appends under who asked and when; undo puts the

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6677: every entry in the Windows zip was stored world-writable. On the Windows release box the
  * build's `zip` is a shim over Windows' bsdtar, which records 0666 for files and 0777 for folders and

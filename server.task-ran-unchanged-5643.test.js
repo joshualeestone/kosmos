@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5643: POST /api/project/:id/task/:n/ran takes `unchanged: true` (a run that found nothing new) and refuses any
  * value that is not true or false; the engine rules are in engine/tasks.runrollup-5643.test.js.

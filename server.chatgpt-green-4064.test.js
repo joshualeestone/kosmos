@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #4064: a working ChatGPT sign-in flashed amber for about 3.5s on every reopen of AI Models, because its green lived
  * only in the live check's 30s cache. Its live answer is now recorded on its dir the way Grok's is (observed.sawDir),

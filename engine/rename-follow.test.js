@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * A rename reaches the agent's own instructions, not only Kosmos's record.
  *

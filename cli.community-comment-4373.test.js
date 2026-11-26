@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#4373 part B: `kosmos community comment <post-id> <text>` asks the agent's own board, with the agent's token,

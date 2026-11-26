@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4466: a BUSY board is not a DOWN board, and an agent cannot restart-loop it.
  *

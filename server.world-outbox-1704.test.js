@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1704 PR2 (plan §5), the board's half of "keep running: nothing sent is lost".
  *

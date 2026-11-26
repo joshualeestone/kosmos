@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3703: the project View-all door opens the Tasks view scoped to its project. The view's read

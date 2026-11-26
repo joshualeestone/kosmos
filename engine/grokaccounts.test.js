@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3391 accounts slice: engine/grokaccounts.js -- the Grok (xAI) account module.
  * Mirrors engine/claudeaccounts.test.js + openaiaccounts.test.js. The live check is

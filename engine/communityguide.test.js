@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8735: `kosmos community --how` prints engine/communityguide.js guideText on both CLIs, as `kosmos connections --how`
  * prints the connections guide (engine/connections.test.js, kosmos#7875 item 2, which this mirrors). An agent's

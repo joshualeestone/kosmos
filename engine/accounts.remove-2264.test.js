@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #2264: DELETE AND REMOVE a Claude account -- the destructive sibling of
  * forgetAccount. forgetAccount renames the directory aside (the sign-in
  * survives); removeAccount DELETES it. These drive the real function against

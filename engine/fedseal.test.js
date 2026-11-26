@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // kosmos#3728: the sealing primitives. A temp data root; nothing touches a real store.
 const test = require('node:test');
 const assert = require('node:assert');

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3380 TRUE END-TO-END: a codex (OpenAI) agent, born through the REAL create flow
  * with its REAL generated brief, given a PLAIN operator message, actually

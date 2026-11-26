@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7621 item 1: the live mover's REAL wiring is run, not only matched as source text. The board's own deps

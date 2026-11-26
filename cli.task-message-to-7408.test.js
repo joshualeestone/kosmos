@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #7408: kosmos task message --to <agent> tells agents besides the assignees, from both commands (Mac install/kosmos,

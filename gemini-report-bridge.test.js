@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * The gemini report bridge (#3296), the stdin analog of codex-report-bridge.test.js.

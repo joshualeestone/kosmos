@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6727: the thread route serves a permission prompt read off the screen as a card (the question row's
  * `permission`, chat.permissionCard), so the page draws the short card and not the screen. Harness from

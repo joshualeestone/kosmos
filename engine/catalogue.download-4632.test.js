@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4632: the catalogue is downloaded when someone opens the role picker or the Team screen, kept
  * only when its signature verifies, and never replaced by an older one.

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #570 BLOCKER 4: the BOARD comes back at logon on Windows, can be bounced, and
  * says so when it cannot.

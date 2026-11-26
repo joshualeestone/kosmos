@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5998: the uninstall takes Kosmos's report hooks and status line back out of Claude Code's settings, and nothing else.

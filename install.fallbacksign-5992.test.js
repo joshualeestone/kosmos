@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #5992: the per-install Kosmos.app that build_app_bundle assembles (the fallback when the sealed app cannot be
  * placed) must carry a valid signature. A folder assembled around the signed kosmos-app has no _CodeSignature, so the

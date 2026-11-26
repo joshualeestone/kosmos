@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5683 slice 1, board half (part 1a): refusals by the company's own rules, read from token-only agents'
    transcripts and sent to the coordinator. */
 const test = require('node:test');

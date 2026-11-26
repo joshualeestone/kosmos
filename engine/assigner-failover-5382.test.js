@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5382: the Assigner's failover. With the setting's `failover` on, an agent whose card has read rate_limited for
  * FAILOVER_MS has its open parts given to an idle agent on the same project that runs on another provider. Real
  * inputs, as engine/assigner.test.js: board cards from test-support/fleet + status.snapshot(), commitments from

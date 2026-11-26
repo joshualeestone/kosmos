@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6609 phase 2b: with a recovery key pinned, the installer's own checks (setup.sh update_manifest_ok early/pre and

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6595: the board knows when a request arrives through Kosmos+ remote access (the tunnel sets x-forwarded-for
    on every request it forwards and x-forwarded-host on all but a webhook, writing over any value a client sent, per
    kosmos-relay crates/tunnel/src/proxy.rs (forward, forward_hook); not checked from this repo), and a device cannot

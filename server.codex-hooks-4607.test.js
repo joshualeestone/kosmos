@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4607: POST /api/agent/<name>/codex-hooks is the PERSON's only (trusting Codex hooks lets them run outside the

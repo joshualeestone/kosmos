@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5949 (root cause): every non-Claude Windows agent (Codex, Grok, Gemini, Antigravity) read "Can't tell" five
  * minutes after each turn. Its last report was the automatic "working" from the turn's start; its supervisor wrote

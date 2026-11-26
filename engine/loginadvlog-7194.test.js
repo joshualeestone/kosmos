@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7194: when the login-expiry notices change, the board log records, per named agent, the config folder the board
  * read and the process it read it from (status.logLoginAdvReads, called by computeLoginAdvisories). Josh's board once
  * named eight agents on a login they had left, and nothing recorded what had been read.

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5091 (Josh, 2026-10-02 22:10, on Mortals): a switch TO Claude can be told WHICH Claude account. Before, the switch

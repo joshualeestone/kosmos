@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2935: POST /api/worlds/hide {id} -- Josh's soft-delete ruling (hide a Kosmos from the list, keep
  * the on-disk store). The engine `hideWorld` is unit-tested in engine.worlds-hide-2935.test.js; this

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3923: the project notice (Mona Lisa's design, project-notice-mock.html). One notice above the
  * members list while an agent could not be given the project's folder, shaped by what the person

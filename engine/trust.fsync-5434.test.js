@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5434 slice 6: trust.js's saves (the trust line in .claude.json, its undo, the bypass pre-accept in
  * settings.json, the onboarding pre-accept, and Kosmos's own trust-writes record) go through

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * The Windows staging verification-record WRITER (tools/win-staging-verify.js), its one record

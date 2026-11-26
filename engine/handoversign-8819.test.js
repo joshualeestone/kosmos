@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8819 (#8764): an admin's computer signs a hand-over start (engine/handoversign.js, seadmin handoverStart).
  * The Enclave is stood in for by a small helper script answering `pub` and `sign` with a P-256 key, as

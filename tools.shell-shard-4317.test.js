@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4317: the test job runs as parallel jobs (the node suite, and test:shell split into shards).
  * A test nothing runs is an unarmed guard, so this proves every test:shell command lands in exactly

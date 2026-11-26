@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // #3311: a message from outside, recorded as its own kind and never as a local
 // author. Temp data root; nothing here touches a real store.
 const test = require('node:test');

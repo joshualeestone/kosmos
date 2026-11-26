@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3391 part 2: signing a Grok subscription account in AGAIN (startGrokLogin with
  * `reauthDir`). The sign-in runs in a staging slot, and only one that finishes as the

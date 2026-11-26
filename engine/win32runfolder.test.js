@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#1765: engine/win32runfolder.js, the board's half of "this board runs from a folder other people on this PC may
  * be able to change". Every outside thing is a seam (platform, bundle root, profile, the Kosmos.exe call), so this

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7586: the member's Kosmos keeps, from the company's full status answer, whether company backup is on and this
    member's last backup (kosmos-relay backupreq-7586: backupOn, backupAt), so the page can say a backup requirement is
    not met from the same record the console reads. Read from each answer, never carried: an answer without the field

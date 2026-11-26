@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#4163 gap 4: the board's real send to the coordinator (`phonenotify.defaultSend`),

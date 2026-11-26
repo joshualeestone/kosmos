@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #8215: the project's needs-you block shows an agent's own question in its words, and members asking the same thing

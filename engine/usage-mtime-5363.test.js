@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5363: Token Usage read every transcript ever written on every open (6.9 minutes on the fleet Mac, 14.8 GB), while

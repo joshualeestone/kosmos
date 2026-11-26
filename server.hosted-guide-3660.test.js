@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * POST /api/setup-guide/hosted (#3660), through the real server and a fake tunnel:

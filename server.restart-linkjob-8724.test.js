@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8724 item 1: POST /api/agent/<name>/restart for a window the person linked to Kosmos by hand, which has no
  * launch job. The plain restart is refused for want of a job, as before, and now says Kosmos can set the agent up and

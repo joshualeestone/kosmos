@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5881: on a Linux board the engine opens a FOLDER with xdg-open when the board's own environment has a desktop, and
    refuses with a sentence when it has none; a FILE is never opened there (download it). The Mac and Windows openers are
    unchanged. The runner seam for the routes; the production xdg-open line through a stand-in xdg-open on PATH. */

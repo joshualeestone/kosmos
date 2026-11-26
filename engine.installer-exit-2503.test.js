@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#2503: THE SPAWNED INSTALLER'S EXIT STATUS IS THE TRAILING `if`, so
  * update.js's failure-bookkeeping block was dead for every ordinary installer

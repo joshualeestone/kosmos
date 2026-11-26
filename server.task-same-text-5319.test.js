@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5319: `kosmos task add` with the same ask as an OPEN task still adds it (no silent dedup), and the board's answer

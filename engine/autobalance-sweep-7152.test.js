@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7152 slice 3: the auto-balance sweep's record (engine/autobalance-sweep.js) and the rule changes slice 3 brought
    to engine/autobalance.js. Every effect is a dep; the only file is the record, in a temp folder. Real board cards from
    test-support/fleet (fixture-discipline.test.js). */

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6071 (#5154 slice D, increment D1): engine/toolloop.js counts the SAME failed tool call repeating inside one turn.
  *   node --test engine/toolloop-6071.test.js */
 const test = require('node:test');

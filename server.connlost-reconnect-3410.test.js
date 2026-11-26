@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #3410: /api/status tells the page where a connection_lost agent's automatic reconnect stands,
  * read from the SAME book the self-heal sweep writes (server.js CONNLOST_BOOK). Proves the route

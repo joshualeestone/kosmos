@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6173: the pane roster read without blocking the board's thread (an account move's restarts ask it). One body

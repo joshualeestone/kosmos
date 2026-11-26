@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8616: `kosmos room <project> --post <post-id>` and `--since <post-id>` reach the board as &post= / &since=, a
  * bracketed id ([m42]) reads, a malformed id or a bad mix is refused before any request, and a board that ignored the

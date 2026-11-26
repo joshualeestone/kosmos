@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5300 (10-05 user diagnostic R10, and N11 in the 0.7.15 one): every project member showed its agent's one role, so
  * five agents made as Project Managers read as five Project Managers everywhere. `kosmos project role` lets a member

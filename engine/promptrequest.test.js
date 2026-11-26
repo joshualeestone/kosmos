@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * promptrequest: the engine's WRITE side of the on-demand permission-prompt seam
  * (#1 / #2189). The load-bearing properties:

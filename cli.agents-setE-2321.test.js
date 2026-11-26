@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2321 (sibling, same class as cmd_post): `kosmos agents` must NARRATE a tmux
  * that cannot list, not abort silently.

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1732 -- make the Windows-hostile-assumption CLASS visible on an all-macOS fleet.
  *

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * win32-cli-verbs: the verbs the Windows agent's `kosmos` gained, end to end.
  *

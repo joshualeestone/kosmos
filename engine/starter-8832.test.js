@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8832: a new agent could not tell its empty welcome project from an empty real project. Both rendered the same
    lines in its instructions ("No tasks set for this project yet. Add one with ..."), and an idle member of the welcome
    project was asked by the Assigner to draft tasks for its seeded goal, which is Kosmos's own sentence, not work.

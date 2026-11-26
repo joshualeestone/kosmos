@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #7262: one reader (tools/lib/command-words.cjs) says which words a child_process call runs, and both test guards
  * use it: the Windows scheduler guard (tools/lib/schtasks-call.cjs) and the real-CLI guard (test-support/tool-guard.js).

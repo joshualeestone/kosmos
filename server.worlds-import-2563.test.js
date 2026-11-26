@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #2563 route slice: GET /api/worlds/list (counted) and POST /api/worlds with
  * importAgentsFrom (copy agents into the new Kosmos), exercised over HTTP against a

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5957 slice 3: idleDays, how long an agent has gone without running, said only from two weeks.
  *

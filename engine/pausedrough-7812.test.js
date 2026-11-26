@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7812 (feedback 11-02): three rough edges around paused projects.
  *   1. a paused project's task does not read "decision" (Needs your decision), as the project page already hides it (#6341);
  *   2. a resume types each member one line, so it does not wait for its next idle check;

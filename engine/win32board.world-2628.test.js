@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2628: a Windows board serving a NAMED world keeps its machine paths -- the logon
  * task's anchor, its claim file, its restart log -- where the LAUNCH put them.

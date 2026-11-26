@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4004: a Gemini API-key agent on Google's daily limit. The two screens below are captured verbatim from Gemini
  * CLI 0.61.0 in a real tmux pane, driven by a fake endpoint answering Google's daily-quota 429 (2026-09-26).

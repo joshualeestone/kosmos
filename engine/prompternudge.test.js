@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * engine/prompternudge.js -- #3508: the Prompter's local in-app nudge store.
  * The store is the current pending set, replaced each tick; local 0600; carries

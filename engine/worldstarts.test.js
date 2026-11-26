@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1704 PR3: engine/worldstarts -- pausing a Kosmos's agents on a switch, and the
  * boot drain that brings them back.

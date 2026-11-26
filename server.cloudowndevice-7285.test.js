@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7285 item 1, through the real POST /api/remote/devices/(remove|deny) route: on a Kosmos cloud machine, a remote
  * session may not remove or turn away the very browser it is (named by the tunnel's x-kosmos-session-key or

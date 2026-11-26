@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3861 part 2: subtasks on the screen. The nesting rule (taskNest, shared by the Tasks view and
  * the project column) and the Tasks row, lifted REAL from web/index.html, fed rows from the REAL
  * engine (allTasks for the Tasks view, joinTaskClaims for the project page), so a field the engine

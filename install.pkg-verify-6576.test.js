@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6576: a first install from the .pkg is held to the SIGNED release. Four parts, each run for real:
  *   1. the helper's built-in release keys are engine/manifest-verify.js's KEYS (one list, two copies);

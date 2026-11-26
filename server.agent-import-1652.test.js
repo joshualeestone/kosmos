@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #1652: the parse endpoint the fourth create-an-agent option calls. POST
  * /api/agent-import {file} -> agentfile.importAgent's validated material
  * (name, displayName, provider, instructions) or a whole refusal. It parses,

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #570: the at-logon job -- launchd's RunAtLoad half, on Windows.
  *

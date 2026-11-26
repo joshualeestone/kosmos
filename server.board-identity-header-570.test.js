@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #570: the real board names the build its PROCESS loaded, and the world it booted,
    in a header on GET /.
    The Windows hand-off (engine/win32handoff.js) reads it to tell the code that is

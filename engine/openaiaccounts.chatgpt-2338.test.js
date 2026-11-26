@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2338: finishChatgptLogin is the "connected" GATE for the ChatGPT
  * subscription connect flow. It must accept ONLY a completed ChatGPT sign-in

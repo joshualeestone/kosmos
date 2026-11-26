@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8935, end to end in both CLIs: the first use prints the pointer on stderr (the command's own output unchanged),
    the second does not, reading the guide counts as seen, and a person never sees it. Every call here stays local
    (a usage error or a --how read), so no board is reached; the record is this test's own file. */

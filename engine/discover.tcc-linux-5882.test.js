@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5882: on a platform with no folder permission (Linux, Windows), the import scan walks ~/Documents,
  * ~/Downloads and ~/Desktop in the engine. Only macOS hands them to the app's hatch (#2125). Before, all three were

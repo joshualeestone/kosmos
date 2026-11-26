@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7032 (the iPhone's room, slice 9 of #6838): GET /api/project/:id/room pages its JSON arm. ?n=N returns the
  * room's last N rows, `olderCount` and a server-made `olderCursor`; ?n=N&cursor=<olderCursor> the page before it.

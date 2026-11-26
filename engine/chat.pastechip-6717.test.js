@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#6717 (cause confirmed 2026-10-20): Claude Code folds a long paste into a chip, "[Pasted text #N]", so the

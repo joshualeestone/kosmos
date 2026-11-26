@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6389: the /api/remote/forget route. A Remove that could not reach Kosmos+ removed nothing (the engine
    answers kept), and { anyway: true } is the person's choice to remove it from this computer only. The page and
    the engine are tested on their own; this pins the route between them, against the real server, with the

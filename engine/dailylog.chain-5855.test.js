@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5855 step 2: the daily-log compiler reads a rolled-over conversation whole. Its earlier rows sit in `.full`
  * files beside the thread file, each named by the file after it (`continues`); when every one can be followed, the

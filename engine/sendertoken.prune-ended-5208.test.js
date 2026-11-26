@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5208: bound the history of ended agents. Only the newest line per name can decide an endedSince answer, so a
  * compaction keeps that and changes no answer, for this build and for an older one that reads only the live file; and

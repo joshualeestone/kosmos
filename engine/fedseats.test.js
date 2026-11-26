@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // #3311: the seat manager, driven with a fake connector child and a stub
 // coordinator, in a temp data root.
 const test = require('node:test');

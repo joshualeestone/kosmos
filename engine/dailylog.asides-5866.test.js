@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5866: the two other kinds of file engine/chat.js sets aside beside a thread file. A `.superseded` file is an
  * earlier project's thread file and is compiled as a conversation, under a heading of its own. A thread file that is not read as a

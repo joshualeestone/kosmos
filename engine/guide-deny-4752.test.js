@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4752: the setup guide's deny rules name every folder of Kosmos's where a board token can sit, not only
  * the guide's own data folder: the older data folder (store.LEGACY_APP) and, for a guide in a named world,

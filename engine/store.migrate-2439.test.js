@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #2439: the AgentWorkforce -> Kosmos store-leaf rename carries a one-time data

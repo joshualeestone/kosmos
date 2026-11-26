@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5705 (user feedback, 2026-10-09): `kosmos task list` was one flat list of every task in every state. It now lists

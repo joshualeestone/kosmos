@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#2461: "Add to Kosmos" on a found agent file said "that file is not one we found on this computer
    to import". The file was offered by a COMPLETE import scan; the add came after the 30 s cache expired, the
    re-scan came back PARTIAL (the scan hatch's answer for Downloads/Documents/Desktop is consumed on read, so

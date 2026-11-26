@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #2270: on win32 `fs.accessSync(p, X_OK)` is a no-op (behaves as F_OK), so
  * runnableExactly accepted any file that merely exists - a plain extensionless
  * `claude` read as a launchable runner. On Windows executability is the

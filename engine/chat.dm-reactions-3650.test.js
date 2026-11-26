@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#3650: the person reacts to an agent's messages in a Direct Message.
  * engine/chat.js keeps the reaction ON the message (`reactions`), tells the agent on the

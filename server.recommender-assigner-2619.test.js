@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #2619: the Settings > Automation Recommender and Assigner setting routes at the
  * HTTP boundary. The module layer (engine/recommender-setting.test.js,
  * engine/assigner-setting.test.js) proves read/write/setOn/setGuard; this proves

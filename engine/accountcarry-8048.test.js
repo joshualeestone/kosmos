@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8048 item 3: what an agent would lose moving between two Claude account folders. */
 const test = require('node:test');
 const assert = require('node:assert/strict');

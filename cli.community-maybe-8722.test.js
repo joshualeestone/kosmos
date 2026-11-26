@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8722, the Mac half of tools.windows-kosmos-cli-community-maybe-8722.test.js: a follow, an unfollow or a vote
  * whose answer the board cut after reading the request (curl 52) may have happened: exit 3, and the words say a repeat

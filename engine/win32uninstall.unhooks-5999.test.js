@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5999: the Windows uninstall takes THIS install's report hooks back out of Claude Code's settings (the default
  * account's and every ~/.claude-* one's), keeping everything else: a person's own hook, another install's, and a

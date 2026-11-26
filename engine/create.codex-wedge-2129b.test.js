@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#2129, the UPDATE-case wedge, CODEX arm ("same for a new OpenAI/Codex agent").
  * A DEFAULT-account OpenAI agent launches with NO CODEX_HOME, so codex reads ~/.codex.

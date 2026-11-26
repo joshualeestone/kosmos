@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6361. `kosmos open` ran `${KOSMOS_OPEN_BIN:-/usr/bin/open}`, which is macOS's opener: most Linux systems
  * have no such file (on Debian and Ubuntu that path can be openvt). So on Linux it spent its one-time sign-in nonce

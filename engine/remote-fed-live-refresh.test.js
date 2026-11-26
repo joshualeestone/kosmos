@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * Federation launch flag, option 2 (the CUSTOMER un-hide): remote.refreshFederationLiveIfStale()

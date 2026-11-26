@@ -4,6 +4,7 @@
  * signed by a test escrowd key (engine/devkeyhist.js), and the member key reaches the destination as a real wrap.
  * Only the store and the clock are fakes.
  */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4540: after `kosmos task message` both CLIs used to print "any agents assigned to it were notified", which was
  * false for a switched-off swarm and for an assignee no longer on the project. The board now returns one plain

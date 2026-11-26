@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6239: the board's own refusals under the family policy keys (outside_contact, quiet_hours) are queued by
    agentevents.recordRefusal and sent by the same tick as the guard's refusals, under the same consent words. */
 const test = require('node:test');

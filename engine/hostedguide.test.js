@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // Sandbox every root BEFORE any require.
 const fs = require('node:fs');
 const os = require('node:os');

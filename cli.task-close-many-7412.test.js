@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #7412: kosmos task close takes several task numbers and closes each, from both commands (Mac install/kosmos,

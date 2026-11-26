@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4602 (#4580 item 13): a request with NO credential is told a token is missing and how one is sent, not only
  * "this board belongs to the account that started it" (read by an agent as "another machine's board"). A token

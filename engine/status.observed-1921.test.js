@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /*
  * kosmos#1921 -- snapshot() records the LAST OBSERVED real-call outcome per agent

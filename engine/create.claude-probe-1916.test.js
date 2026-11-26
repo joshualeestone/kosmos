@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1916: the REAL `claude -p` probe path (defaultClaudeProbe -> claudeAccountLive),
  * exercised without the setClaudeProbe stub. A fake `claude` binary stands in for

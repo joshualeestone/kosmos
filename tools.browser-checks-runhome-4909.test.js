@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /*
  * kosmos#4909 (found by April while fixing the red that aborted the 0.7.16 cut): tools/browser-checks.sh made ONE home

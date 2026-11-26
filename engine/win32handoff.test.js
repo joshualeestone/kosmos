@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #570: a board started by hand from the Windows zip hands itself to its logon
  * task instead of serving from the launcher's window.

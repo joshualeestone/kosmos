@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6611: the /api/remote/second-reset route passes on what the coordinator cleared. The page says the sign-out
    only for a kind, "nobody was signed out" only for null, and claims nothing when `had` is absent, so the route must
    keep the three apart: a kind and null pass through as they are, and absent stays absent (never null). This pins the

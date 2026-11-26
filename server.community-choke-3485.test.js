@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #3485: the community feed board->feed submit routes (POST /api/community/post
  * and /api/community/comment) -- the AGENT/BOARD caller of the engine/feedpublish.js

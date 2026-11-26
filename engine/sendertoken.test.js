@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 // ⚠️ SANDBOX FIRST, BEFORE ANY REQUIRE, and all four roots. store.js resolves
 // its root at module load, and `test-support/fleet` pulls in engine/status,

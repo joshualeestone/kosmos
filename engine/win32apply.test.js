@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * win32-update-apply (updater slice S3): the helper that swaps a staged Windows build in, its
  * rollback, and the resumers that finish an update a crash interrupted.

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8988: a Mac Claude agent's death is recorded, so its card can say "Restarted at <time>: <why>".
  *

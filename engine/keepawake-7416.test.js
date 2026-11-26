@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7416 slice 3: keep this computer awake while agents are working. The rule (engine/keepawake.js wants), the
    holder that runs caffeinate (with a fake spawn: nothing here starts a real caffeinate), and the setting
    (engine/keepawake-setting.js), whose file lives in a sandboxed store. */

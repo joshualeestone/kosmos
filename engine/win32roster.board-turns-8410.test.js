@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8410 item 1, the Windows half of #6173: the board keeps turning while the agent roster is read.
  *

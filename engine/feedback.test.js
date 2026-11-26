@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The local daily product-feedback report (kosmos#2037): written to the user's
  * own disk unconditionally (the send switch gates transmission, not the write),

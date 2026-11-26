@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#4784: `kosmos inbox` asks the agent's own board for its recent messages with the person, with the agent's

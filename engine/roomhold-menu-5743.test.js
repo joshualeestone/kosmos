@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5743: a colleague's room post to a Claude member whose screen shows its question menu is HELD (nothing typed into
  * the menu) and kept for that member, the #4588 hold shape; once the member is past the question, its next typed
  * arrival tells it. Same sandbox and scripted tmux as roomhold-agyhold-4588.test.js; cards from test-support/fleet,

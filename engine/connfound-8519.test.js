@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8519: engine/connfound.js records which actions of a connection work, as the agents found them.
  *   node --test engine/connfound-8519.test.js */
 const test = require('node:test');

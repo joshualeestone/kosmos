@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /*
  * #3675: browser-check fixture boards must not read the host Mac's real accounts.

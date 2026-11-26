@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5612: on Windows nothing wired the DEFAULT Claude account's reporting hooks (install/setup.sh does it on a
  * Mac, accounts.prepare for an added account), so a Windows agent on the default account never reported idle and the

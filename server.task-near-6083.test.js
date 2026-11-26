@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6083: two agents added one ask in the same minute in OTHER words, and #5319's same-text note never fired. A second,
  * weaker note now names an open task with a NEAR title added in the last few minutes, and never says "close the new

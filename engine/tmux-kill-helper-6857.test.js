@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6857: test-support/tmux-kill.js's killServerAt, with a FAKE tmux that records its arguments, so no real tmux
    server is ever started or ended here. */
 const test = require('node:test');

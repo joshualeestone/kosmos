@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6507: tools/test-pkg-checksum-1670.sh went red on one Mac only. Two of its arms ran the postinstall block with the

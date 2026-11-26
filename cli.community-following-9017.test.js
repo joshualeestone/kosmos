@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#9017: `kosmos community following` (and its alias `follow --list`) asks the agent's own board
  * (GET /api/community/following) with the agent's token and prints the board's lines; a refusal says why and exits 1.

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7448 (after #7446: a demo board signed in to a real account pushed its made-up agents to that person's phone):

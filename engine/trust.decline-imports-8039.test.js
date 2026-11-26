@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8039: "Continue without them" writes what Claude Code's own "No, disable external imports" writes for one
  * folder on one account (measured on 2.1.318: approved false, shown true), so a person can answer the question from the
@@ -12,7 +13,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
 
-require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits
 const SANDBOX = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'decline8039-')));
 process.env.AGENT_WORKFORCE_HOME = nodePath.join(SANDBOX, 'home');
 fs.mkdirSync(process.env.AGENT_WORKFORCE_HOME, { recursive: true });

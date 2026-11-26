@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6849: a handed-off file's fingerprint (engine/fileprint.js) is the same for the same source rendered twice. The
    fixtures in test-support/fileprint-6849/ are real renders of one markdown file, made twice on this Mac on 2026-10-21:
    chrome-a/-b by Chrome's print to PDF (they differ only in /CreationDate and /ModDate), cups-a/-b by macOS cupsfilter

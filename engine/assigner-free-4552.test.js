@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4552: the Assigner gave a real agent nothing, because it required a `clear` commitments record and
  * nothing shipped writes one (April, live: an idle agent in a live project with an unassigned task was
  * never given it; a hand-written empty list made it happen). Now the Assigner decides at check time

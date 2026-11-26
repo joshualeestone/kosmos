@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7614: the person deletes one of their own messages in a direct conversation. The row leaves the thread, a copy
  * still kept to type later is taken out of the queue (so it is never typed), and an agent that was given it is told in

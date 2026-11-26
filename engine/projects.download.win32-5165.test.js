@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5165 on a WINDOWS board. Over Kosmos+ a file click downloads, and the download routes
  * (/api/project/:id/file-download, /api/agent/:name/files/download) hand out the file

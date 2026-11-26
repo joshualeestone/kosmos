@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4733: the setup guide's words are masked for secrets (#3769's third layer) on the three writes that

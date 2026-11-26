@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#9001 part 2: the report hook refuses, before it runs, a Bash command that Claude Code's own safety check
  * would put to the person as a self-declining permission prompt ("Claude Code can't be sure it read this command the

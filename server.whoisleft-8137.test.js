@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8137: the real routes. POST .../built says who else is still to finish, and /api/tasks and /api/projects carry
  * whoIsLeft. Stored project records hold agent NAMES while projects.get() holds member OBJECTS, and only a real route can

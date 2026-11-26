@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #4538 (setup copied from server.chatgpt-green-4064.test.js): the ChatGPT row's STATE follows the same recorded answer
  * as its badge. #4064 made the badge outlast the live check's 30s cache; the row's state and reason stayed on that

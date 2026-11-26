@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5135: the mobile-shots leak and cover control arms in tools/browser-checks.sh. When an arm passes, the
  * one FAIL line its guard was planted to produce must reach the cut log as "CONTROL (expected): ", so nobody chases
  * it as a red, and any other FAIL line prints raw. When an arm does NOT pass, its output must print untouched, so a real red still reads as one. This lifts each

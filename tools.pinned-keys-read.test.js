@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6468 (0.7.57 cut, failed at step 4): tools/build-kosmos-bundle.sh reads the keys the bundle pins (pinned_keys, the

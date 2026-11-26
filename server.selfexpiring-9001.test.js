@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#9001 (Josh, 11-24 12:44: "I keep getting these"): Claude Code's own safety check on a shell command it cannot
  * read the way the shell will declines by itself in about two minutes ("Claude Code will automatically block this request

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8601 review 2: the job's model through the REAL reader, nothing stubbed. engine/status.cardmodel-8601.test.js
  * stubs create.plannedModelOf; this file writes the agent's job the way this platform keeps it (a launchd plist, a

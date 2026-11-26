@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8846: usage auto-balance is ON by default with 2+ Claude subscription accounts linked (Josh, 2026-10-25, on
    #7152), off with one; the env brakes stay; and #7548's weakest premise (a background shell job reads idle) is closed
    for idle moves by reading Claude Code's footer. */

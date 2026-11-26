@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /** #634: a board is sandboxed whole or not at all, and a half-sandboxed one refuses to start naming what is still live. */
 const test = require('node:test');
 const assert = require('node:assert/strict');

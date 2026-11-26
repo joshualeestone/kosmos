@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* kosmos#7875 item 1: `kosmos feedback day`, the asking agent's own day for its feedback report (engine/feedbackday.js).
    Readers are injected: no live store is read. Dates are built in local time, as feedback.dateKey reads them. */

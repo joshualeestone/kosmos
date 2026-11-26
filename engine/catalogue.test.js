@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4555: the catalogue of roles and prebuilt teams (engine/catalogue.js; since #4632 downloaded from
  * joshualeestone/kosmos-catalogue, here the stored test copy), and what team creation (#4557) relies on.

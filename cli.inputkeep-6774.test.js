@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#6774: `kosmos msg` to an agent whose input box holds text not yet sent is held by the board. Both CLIs say

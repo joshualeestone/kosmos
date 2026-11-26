@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * THE SHAPE OF A REAL MACHINE THAT SAW NO AGENTS (#1493), RUN THROUGH THE REAL
  * `found()` RATHER THAN A PROBE THAT REIMPLEMENTS IT.

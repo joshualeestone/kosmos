@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * POST /api/setup-guide/page (#3034): the help bubble tells the setup guide which

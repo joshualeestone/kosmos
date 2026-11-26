@@ -24,6 +24,7 @@
  * the suite rule: an unsealed home reads the operator's real accounts.
  */
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

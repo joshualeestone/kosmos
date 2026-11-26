@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5175: `kosmos task add` says the new task's number, from both commands (Mac install/kosmos, Windows

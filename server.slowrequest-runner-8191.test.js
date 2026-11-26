@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8191: a board a test boots writes "[slow request] ..." to its stdout once a request takes KOSMOS_SLOW_REQUEST_MS
  * (#6721, 5 s by default). Many tests read a board child's whole stdout as one JSON answer, so on a busy runner that line

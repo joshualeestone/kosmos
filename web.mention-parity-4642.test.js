@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4642: the page paints an @mention blue to say "this post will reach that agent". The engine decides
  * who it really reaches (engine/messages.js mentionedMembers). They are two copies of one rule, so this

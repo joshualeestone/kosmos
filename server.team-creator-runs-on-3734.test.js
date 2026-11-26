@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3734: the setup guide makes agents with `kosmos agent create`, a one-member POST /api/team with its
  * launch token. A member with no provider named runs where the agent that asked runs, so a guide on the

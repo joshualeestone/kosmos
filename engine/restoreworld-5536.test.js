@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#5536 slice 4b: the Restored world. A real worlds registry in a temp folder, a real restore sink opened on the

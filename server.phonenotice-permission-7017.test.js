@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7017 part 2, through the REAL GET /api/phone/notice route: a needs_you raised while the agent is stopped on
  * Claude Code's permission prompt carries Allow and Deny (`permission`), the prompt's own "Yes" and "No" options and

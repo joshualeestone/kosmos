@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5434: writeSecret flushes the temp file to disk BEFORE the rename makes it the file,
  * and a file system that refuses fsync does not stop the write. Every arm writes in its own

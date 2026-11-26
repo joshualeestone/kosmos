@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The tunnel supervisor: off by default, the switch is the only starter,
  * honest states with because sentences, and every process this module

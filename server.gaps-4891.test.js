@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4891, the board's half, over HTTP on a fully sandboxed board:
  *   N8  GET /api/project/:id/room?as=text&n=N shows the last N rows (1 to 200). Without n, or with a value out of

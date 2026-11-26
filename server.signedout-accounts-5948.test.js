@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5948 step 2, end to end through GET /api/accounts: a Grok agent whose job names an account folder with no sign-in
  * or key is reported in `unlistedAccounts` (and printed by `kosmos accounts`), never in `accounts`, so no account

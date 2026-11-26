@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5744: remote.macRequest reads the refusal line a tunnel since relay epochfield-5744 prints on stdout
  * ({"refusal":{"status","code","current_epoch"}}) and returns it as `refusal: { status, code, currentEpoch }`.

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6239 (first Kosmos+Kids slice): what `quiet_hours` stops on the board, through the policy as orgpolicy applies
  * it (a signed bundle). In the window nothing new is typed at any agent (chat.deliverWithGap, the one place every sender

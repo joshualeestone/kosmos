@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #7246: in a big project, room posts that do not name a member stop waking it at every turn end. The turn-end line
  * started a turn, which ended in another idle report that flushed whatever arrived meanwhile, so a busy room kept its

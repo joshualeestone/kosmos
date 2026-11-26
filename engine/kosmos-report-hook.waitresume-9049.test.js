@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#9049: the Windows report hook, at a SessionStart that continues a conversation after its SessionEnd (a /clear,
  * or a resume after a quit), asks /api/away for the reminder of the agent's own wait alone (as=waithook) and prints it.

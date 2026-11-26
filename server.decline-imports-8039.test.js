@@ -7,6 +7,7 @@
  * offers the box only while the real dialog is on the screen.
  */
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 const test = require('node:test');
 const jobfix = require('./test-support/jobfixture');
@@ -15,7 +16,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
 
-require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'srv-decline-imports-8039-'));
 const HOME = nodePath.join(SANDBOX, 'home');
 const BIN = nodePath.join(SANDBOX, 'bin');

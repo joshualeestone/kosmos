@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4771 (Josh's 0.7.15 report): a pause the person asked for in the room never reached the Prompter, because only the
  * screen could set one, so an agent held every task by hand. `kosmos project pause <project-id>` is the agent's way

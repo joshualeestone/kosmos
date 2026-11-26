@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4891 (the 0.7.15 diagnostic, items N4, N6, N8, N9), the Mac CLI's half, against a stub board that records
  * every request, so each arm is judged by what reached the board and not only by the exit code.

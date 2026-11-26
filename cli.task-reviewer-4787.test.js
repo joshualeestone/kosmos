@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4787 slice 3: `kosmos task repeat <project> <n> --reviewer <agent|none>` names who is told when a run is missed,
  * with or without a frequency. The Mac CLI against a stub board that records every request, and the Windows CLI through

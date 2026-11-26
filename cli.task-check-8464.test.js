@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #8464 item 2: both CLIs carry `kosmos task check <project> <n> <check-number> met|unmet "<how>"`, which POSTs
  * { check, met, how } to .../task/<n>/check with the agent token. install/kosmos runs against a stub board; the Windows

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 // Both sandbox knobs BEFORE any require, travelling together per #527
 // (accounts resolves HOME at module load, store its root).

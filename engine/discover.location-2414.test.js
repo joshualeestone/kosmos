@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2414: find-agents LOCATION coverage. Josh's requirement, verbatim: "look in ALL
  * the possible places ... it could have been called anything." He seeded agents in

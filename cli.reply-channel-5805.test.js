@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5805 part 2: `kosmos reply-channel`, on the Mac (install/kosmos, against a stub board) and on Windows
  * (tools/windows/kosmos-cli.js, its fetch captured). Setting sends the words with the agent's token, --clear sends

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6391: uninstalling a paired Windows PC with "also delete data" used to delete the Kosmos+ key
  * in `<dataDir>\remote` WITHOUT first retiring the computer at the coordinator, so its address

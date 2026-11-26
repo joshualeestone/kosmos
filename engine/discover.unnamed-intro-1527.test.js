@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * AN AGENT WHOSE NAME WE CANNOT READ IS OFFERED, NOT DROPPED (#1527).
  *

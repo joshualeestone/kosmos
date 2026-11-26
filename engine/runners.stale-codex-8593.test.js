@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#8593: a pin bump reaches a computer that already has Codex. A managed Mac/Linux Codex older than the pin is
  * still present (its agents keep running) but STALE, and install() replaces it instead of answering "installed".

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #992: task conversations are recorded. Covers the engine/taskchat.js store
  * (per-task append-only transcript under app data, retention-safe) and its

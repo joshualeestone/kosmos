@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#2575: POST /api/agent/:sessionName/clear-selfreport, over HTTP.
  *

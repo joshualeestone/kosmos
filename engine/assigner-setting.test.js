@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #2619 / #3595: the Assigner automation setting - ON by default since the idle-assign behaviour
  * landed (engine/assigner.js); corrupt reads off. Sandboxed data root before the require, as
  * heartbeat-setting.test.js. */

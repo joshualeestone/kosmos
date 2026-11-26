@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6054: an agent stopped on Claude Code's permission prompt is answered from its page. The thread serves the
  * prompt's own options as pressable (`asked` set), a press goes to the pane as the option's bare digit, checked against

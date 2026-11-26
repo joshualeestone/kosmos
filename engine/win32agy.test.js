@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3568: Antigravity (Google's agy) agents on Windows, one headless turn per message
  * (engine/win32agy.js), through the same per-turn supervisor as codex, Gemini and Grok. The agy here

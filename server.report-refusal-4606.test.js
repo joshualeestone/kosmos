@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4606 (follow-up to #4602, #4580 item 13): on an enforcing board, `kosmos report`, `kosmos report show` and

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#6436: a delivery left its line in an agent's input box, unsent, and then refused every later message ("its

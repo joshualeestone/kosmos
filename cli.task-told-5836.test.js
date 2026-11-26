@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5836: `kosmos task ran ... --value "<reading>"` sends the reading and says how it compares with what the PERSON was
  * last told (never / the same / changed); `kosmos task told ... [--value "..."]` records what the person was told. Both

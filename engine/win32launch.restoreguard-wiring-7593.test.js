@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7593: the guard reaches every place a Windows agent's environment is built, through the real code: launch(),

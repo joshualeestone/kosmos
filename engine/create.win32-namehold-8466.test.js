@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8466 (second half): on Windows a Kosmos Scheduled Task left with no agent folder holds its name.
  *

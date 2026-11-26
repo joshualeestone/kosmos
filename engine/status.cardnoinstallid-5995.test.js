@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5995: an agent's card carried the install's id. A profile keeps a copy of it (`idInstall`, beside the agent's
  * own id) and the card served the whole profile, to the page and through Kosmos+ to a phone. Nothing reads it there.

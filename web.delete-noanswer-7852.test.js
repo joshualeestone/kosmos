@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7852: a delete of what is left whose request got no answer may still be running on the board, so the dialog
  * must not say "Nothing was deleted". It asks for the plan again and says what that finds. The page's own

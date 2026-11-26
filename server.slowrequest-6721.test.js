@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6721: the board logs any request it answers slowly, or never, with its method, path and duration, so the next
  * "Your Mac is not answering" is measured rather than inferred. The path only: a query can carry a token (#1946).

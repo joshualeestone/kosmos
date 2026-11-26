@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * win32-installer-native round 8 (the round 7 review's finding 1): the uninstall and the move against the REAL
  * board request handler (server.js), listening on one of this PC's own non-loopback addresses that

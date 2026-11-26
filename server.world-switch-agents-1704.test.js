@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1704 PR3: POST /api/worlds/active {id, agents: 'pause'|'keep'} -- the route half
  * of "the switch dialog asks each time" (Josh).

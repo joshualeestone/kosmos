@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5165: over Kosmos+ a file click downloads to the device the person is on. These are the two download routes
  * the page uses there, against a real sandboxed board:
  *   GET /api/project/:id/file-download?name=   and   GET /api/agent/:name/files/download?name=

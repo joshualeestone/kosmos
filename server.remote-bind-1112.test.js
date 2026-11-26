@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1112 phase 2: the network bind, the auth that makes opening it safe, and
  * loopback-only remote token issuance.

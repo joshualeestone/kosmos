@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // kosmos#6487: the words behind a phone notification, found where they already are (engine/phonenotice.js).
 const test = require('node:test');
 const assert = require('node:assert/strict');

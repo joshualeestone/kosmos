@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5434 slice 3: the provider settings writers (reporthook.writeSettings, shared with allowance.js;
  * groksettings and geminisettings ensurePrepared) save through securewrite.writeSecret, so the bytes are

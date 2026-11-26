@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4889. A verb's text is whatever its options did not take, so an option it did not know became the text:
  * `kosmos report working --bogusflag "x"` exited 0 and recorded "--bogusflag x", and `kosmos report needs_you

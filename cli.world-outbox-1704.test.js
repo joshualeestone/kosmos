@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1704 PR2 (plan §5): the Mac `kosmos` command (install/kosmos) against a board
  * that is serving ANOTHER Kosmos. Every call names this agent's Kosmos in its

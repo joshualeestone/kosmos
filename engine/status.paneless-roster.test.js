@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The roster can hold an agent with NO PANE (#1112 phase 1).
  *

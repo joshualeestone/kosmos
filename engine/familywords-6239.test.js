@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6239 (Kosmos+Kids slice 2): a family's words (kosmos-relay org.rs family_consent) name the same reports in a
    family's words, so the board's checks that key on a phrase must read them too: the policy line (NAMES_POLICY) and the
    agent-events line ("stopped by the family's rules"). A preview keeps the org's kind; anything but 'family' is a company. */

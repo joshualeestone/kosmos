@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6249: a line typed into an idle Claude Code agent was left in its input box, unsent, and the log said placed.

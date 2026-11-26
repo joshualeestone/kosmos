@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /*
  * #4253: a browser check's fixture board never phones home, even run on its own. The runners

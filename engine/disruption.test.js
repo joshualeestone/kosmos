@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * Disruption: "we are deliberately restarting this agent right now" (#2019).
  * The three-answers discipline (no-record vs aged-out) and the window that

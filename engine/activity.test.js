@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * Activity: a per-(agent, pattern) line COUNT store for #1930's freshness tier.
  * The three-answers discipline (no-sample vs a real 0) is the load-bearing

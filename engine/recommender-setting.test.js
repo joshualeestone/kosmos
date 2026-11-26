@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #2619: the Recommender automation setting - off by default (behaviour not yet
  * wired), the three guards ON by default (the safe/restrictive direction).
  * Sandboxed data root before the require, exactly as heartbeat-setting.test.js. */

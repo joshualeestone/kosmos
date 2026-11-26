@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4134: every file the bundle `chmod +x`'s from the tree is executable IN the tree.

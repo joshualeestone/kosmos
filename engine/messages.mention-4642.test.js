@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4642: a room post addresses a member by its session name OR its display name, whatever the case and
  * punctuation, and only in the @ form. Before this, only the exact, case-sensitive session name counted, so

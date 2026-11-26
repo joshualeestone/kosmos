@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5448: an attached file reaches the agent with its facts beside its path,
  * so a screenshot-driven report does not start with the agent opening the

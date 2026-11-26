@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5896: a sealed, notarized Kosmos.app cannot be written to after it is signed, so the installer writes the app's

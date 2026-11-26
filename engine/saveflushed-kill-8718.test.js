@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8718: a writer killed mid-save leaves the old file or the new one, never a torn one. store.saveFlushed
  * (#5434) writes a temp, flushes it, and renames; this kills a child with SIGKILL while it saves in a loop and reads

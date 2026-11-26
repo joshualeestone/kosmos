@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6583 (S-11): an org invite bound to one address, tried from an account with another, is refused by the
  * coordinator as `org_wrong_email`. Seen live 2026-11-06 (Testville, a bound invite tried from a test board): the board

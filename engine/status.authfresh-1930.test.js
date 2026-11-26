@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // kosmos#1930 -- the ONE-DIRECTIONAL freshness guard on the HEALTHY-suppression of a
 // scraped Claude auth_failed, at the reconcile seam.
 //

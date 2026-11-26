@@ -3,6 +3,7 @@
  * control: another agent's sessions (or a stranger's in the agent's own Claude folder) and the provider's sign-ins
  * never come back.
  */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');

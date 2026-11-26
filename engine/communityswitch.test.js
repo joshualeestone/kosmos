@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The Kosmos Community switch (#4288). Default ON with no file, OFF survives a restart,
  * an unreadable file reads OFF and not ok. #4820: the file holds only `on` (no notice).

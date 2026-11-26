@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #2257: the context ring read "Not yet read" for a running OpenAI/Codex agent

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8417, end to end: on a Windows board, an offline agent whose Scheduled Task is switched off carries
  * `jobSwitchedOff: true` and the Task Scheduler sentence on /api/status, and a switched-on one carries neither.

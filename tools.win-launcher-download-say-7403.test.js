@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #7403 (Windows parity with the Mac's #7384, #5167): in Kosmos.exe's window, every download the window does not

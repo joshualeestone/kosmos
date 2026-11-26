@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * fileaccessstatus: the engine's read side of the native file-access verdict
  * (Screen 2, Access, gated-Next). The load-bearing property is the SAME

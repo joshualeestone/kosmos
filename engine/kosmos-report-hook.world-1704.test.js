@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1704 PR2 (plan §5): the Windows report hook names this agent's Kosmos on every
  * report, and a board serving ANOTHER Kosmos (421 wrongWorld) is neither kept

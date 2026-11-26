@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /*
  * #3801: a browser check's fixture board must not read, or WRITE, the host's real global

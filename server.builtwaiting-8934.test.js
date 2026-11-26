@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8934 (agent feedback, four installs): a built task says what it waits on, a fixed choice (person, review,

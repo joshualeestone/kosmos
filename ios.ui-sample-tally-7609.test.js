@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7609: ui-sample counts a retried test once, by its last result, and names one that failed then passed. */
 const test = require('node:test');
 const assert = require('node:assert/strict');

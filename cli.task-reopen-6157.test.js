@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6157: a done task can be put back from the terminal, by an agent, keeping its number and history, and the history

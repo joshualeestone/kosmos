@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2559/#2911: the /api/a11y-status route serves the Kosmos APP's Accessibility grant and
  * is the RE-GATE mechanism that decides whether S3 Next blocks. It prefers the LIVE TCC-db

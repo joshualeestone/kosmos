@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6231 item 9: the board's bulk account move gives the move a leftOnOld that writes #6174's note (engine/accountmoving)
  * for an agent left saved on the new account while it still runs on its old one: its session's start, and the account it

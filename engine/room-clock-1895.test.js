@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #1895: the `kosmos room` TEXT view showed UTC and named no zone, and a room

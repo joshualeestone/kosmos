@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3532: integration coverage for the snapshot() login-expiry glue -- the pane-filter
  * (isNamedOurs), the per-account grouping, and the TTL cache wiring in
  * status.computeLoginAdvisories. The pure detector (serviceNameFor/refreshExpiryFor/

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #7429: the Assigner hands no task to an agent whose role on the project is review only, moves no stalled part to
  * one, asks it to draft none, and its held part does not lock a task tree. Real cards, commitments and projects, as engine/assigner.test.js builds them; every rule with the arm that
  * must fire and the arm that must not.

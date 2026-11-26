@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4540: `kosmos task message` prints the board's own `summary` sentence about who was told, and never the old
  * blanket "any agents assigned to it were notified". An older board that sends no summary gets only the first

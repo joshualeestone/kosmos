@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4581: GET /api/projects/overview and GET /api/project/<id>/overview, which `kosmos project list` and
  * `kosmos project show` print. Pins: each member's model family, the brief's goal and "done" as written,

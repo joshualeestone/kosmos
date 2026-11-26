@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #2684: allow deleting the PRIMARY/default (.codex) OpenAI connection.
  *

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #7221: on a Windows board a reply attachment's path is refused by its spelling and by where its links point

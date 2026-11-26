@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8627 (Josh, 2026-11-17 08:53): "I need some way to sort these files on this screen and this probably exists
  * on the project screen as well." Four orders on an agent's Files page and a project's Files page: Newest first,

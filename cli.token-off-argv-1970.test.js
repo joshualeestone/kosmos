@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1970: the CLI must deliver its auth tokens to curl OFF the command line.
  *

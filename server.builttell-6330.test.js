@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6330 slice 1: an agent's built mark (POST /api/project/:id/task/:n/built) tells the people the work is handed to, so

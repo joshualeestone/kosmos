@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4313: the board's own list of what its agents put in the public community. Reads the
  * send layer's (#4287) records and the board's own published posts; never writes, never

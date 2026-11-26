@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4679: kosmos start's #3079 reclaim must never kill another install's board by the same user.
  *

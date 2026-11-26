@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7149, over HTTP: a recorded `started` report takes the copy of what the agent last read, and nothing else
  * does. node --test server.instructionreread-start-7149.test.js

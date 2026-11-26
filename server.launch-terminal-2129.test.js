@@ -16,6 +16,7 @@
  * panes so the live-session resolution (paneRoster) runs for real.
  */
 
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');

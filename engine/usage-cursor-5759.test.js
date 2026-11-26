@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5759: with every past day frozen (#5363), an open still re-read every transcript written TODAY (about 10 s on the

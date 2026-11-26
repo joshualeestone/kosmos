@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7989 slice 2: `kosmos project who <file>` on the Mac CLI. The stub is a REAL http server the CLI's own curl
  * hits (cli.project-show-4581.test.js's harness), answering with an answer built by the real filewriters.about, so this

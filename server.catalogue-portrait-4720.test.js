@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4720, through the real route: GET /api/catalogue/portrait answers a prebuilt team member's
  * portrait from the board's own address, downloaded by the board from beside the catalogue and

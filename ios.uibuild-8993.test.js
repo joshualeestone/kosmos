@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8993: ios.yml builds the sample-board app once (job `uibuild`) and its three UI jobs test those products
    (ui-sample.sh --products) instead of each building the same app. Source pins on the workflow, so a later edit cannot
    quietly drop the sharing (and the macOS minutes come back) or point a job at products nobody uploads; pins that the

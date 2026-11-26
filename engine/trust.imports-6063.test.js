@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6063: an account move carries the person's own answer to Claude Code's "allow external imports?" question.
  *

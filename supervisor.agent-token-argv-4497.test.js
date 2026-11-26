@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4497/#4507: launch secrets must reach every provider without becoming part of
  * tmux's process arguments. This executes the shipped supervisor and a tmux

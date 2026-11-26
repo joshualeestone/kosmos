@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5957 slice 2: doctrine.rulesBehind, the number a card shows when an agent's working rules are far behind.
  *

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7746 item 1: the backup state's async read and write give the event loop a turn every 50,000 rows and answer
  * as the sync ones do, and a write skips its full re-read of the old file only when that file is exactly the one this

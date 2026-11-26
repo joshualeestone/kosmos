@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3568: engine/agystatus.js, is Gemini on a Google subscription (agy) ready on this Mac. */
 const test = require('node:test');
 const assert = require('node:assert/strict');

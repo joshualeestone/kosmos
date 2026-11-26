@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5418: a test process never gets this machine's real data root. Each arm runs a child
  * node with a controlled environment and reads store.ROOT; the legacy migration is off in every

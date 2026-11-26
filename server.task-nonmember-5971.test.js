@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5971: giving a task to an agent who is not on the task's project, through the routes the agent CLI uses
  * (`kosmos task add --who`, `kosmos task assign`), says so and gives it to nobody; a member is unaffected.

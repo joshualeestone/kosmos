@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8735: `kosmos claim --how` prints engine/claimguide.js guideText on both CLIs, as `kosmos task --how` does
  * (engine/taskguide.test.js, which this mirrors). The working rules keep the claim rule and point at it for the cases

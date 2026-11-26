@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5946: a body path that works the same in every shell, and a PowerShell pipe that names it.
  *

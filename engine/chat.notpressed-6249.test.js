@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6249 (Angel, 11-16): a line Kosmos typed into an idle agent's input box that then held other text too was never

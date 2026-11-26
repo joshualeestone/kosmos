@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * world-guard-lift-1704, review round 1 (b): an offline row's two launchd facts,
  * "its background job was switched off" (#310) and "its job is running but no

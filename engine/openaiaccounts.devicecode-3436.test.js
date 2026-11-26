@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3436: on Windows, "Connect for OpenAI" (ChatGPT subscription) opened codex's
  * sign-in page BEHIND the Kosmos window. codex opens it from a background process and

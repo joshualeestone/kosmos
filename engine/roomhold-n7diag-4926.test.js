@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#4926 N7 (still on 0.7.50, the Meta seat only): a post told to a member at its turn end "again as new" after it
    answered it. Two causes fit, and the board log could tell neither: the member answered without citing the post (so
    staleHeld never counts it answered), or something else re-told it. This diagnostic lists, on every line that tells a

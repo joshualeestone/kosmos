@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // kosmos#6894: a recurring task's run that CHANGED something is said in the project room, through the real ran route
 // (setup as server.task-repeat-4787.test.js). Unchanged runs and duplicates say nothing there.
 const os = require('node:os');

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6609 phase 2a: with a recovery key pinned, `run-setup` (what the in-app update and `kosmos update` run) takes the

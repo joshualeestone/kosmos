@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * win32-agent-job-read: an agent's job on Windows is its Scheduled Task, and the
  * setters and Trust & Restart read and change it there.

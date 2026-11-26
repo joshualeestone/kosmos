@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6173: Settings' Move sends ONE request and reads the move's record until it is done. This lifts the page's real

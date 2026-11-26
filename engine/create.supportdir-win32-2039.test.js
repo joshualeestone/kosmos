@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #2039: create.js's supportDir carried a SECOND copy of the data-root path
    formula with NO win32 branch, so on the first real Windows test it built a
    literal Mac data path on an NTFS disk. store.js already had the ONE

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5913: when ANOTHER account's sealed Kosmos.app holds the shared Applications spot, this install reuses it (the

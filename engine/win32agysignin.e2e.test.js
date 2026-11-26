@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3568 on Windows, the board's own routes against the REAL agy on a computer that is signed in:
  * GET /api/antigravity says it is offered and installed, POST /api/antigravity/check answers signed in

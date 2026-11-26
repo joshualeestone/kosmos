@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5942: the card's waitingSince comes from the self-report's askedAt (#5943), only while the report's own
    state is the card's, and only a real time is kept. Both card paths (a pane card and a paneless one) carry it. */
 const test = require('node:test');

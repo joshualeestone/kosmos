@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1279 agent-token slice: POST /api/team is AGENT-callable (loopback), with the
  * caller's identity as the un-forgeable creator, a per-creator GLOBAL active-agent

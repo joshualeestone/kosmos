@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #9024: node tests that start a real pwsh off Windows give it a startup cache of its own (test-support/pwsh.js), so a
  * damaged shared ~/.cache/powershell profile, or two validations writing it at once, cannot reach them; and a pwsh that
  * is here but cannot start fails with "pwsh broken on this machine (startup cache?)", never as a parse failure or a

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3946 items 9 and 10 through the real server (in-process, every root sandboxed, dry run): a swarm's

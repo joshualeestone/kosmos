@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3559: the Tasks view's page logic, on the REAL functions lifted from web/index.html
  * (window, search, sort, scope), plus the wiring a tab needs (nav button, both allowlists,
  * showTab's load) and the two rules the build lives by: only provable groups, and no coloured

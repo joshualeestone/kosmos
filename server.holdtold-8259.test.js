@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8259, through POST /api/project/:id/task/:n/message: the person writing in a for-you hold's task conversation

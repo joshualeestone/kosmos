@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3769 (Josh, 2026-09-25 11:54: "We need to make sure the helper agent doesn't give out any passwords or

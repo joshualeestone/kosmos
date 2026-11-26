@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * dailylog: the daily conversation-log compiler (#2924). The load-bearing
  * properties: it is READ-ONLY over chats/ (originals never change), an absent

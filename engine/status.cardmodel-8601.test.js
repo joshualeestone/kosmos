@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8601 (the first half of #8466, measured on the Windows box 11-16): after a model change the card named the OLD
  * model until the agent's next turn. The change rewrites the job and restarts the agent, and until its next reply the

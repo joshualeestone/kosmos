@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5534 slice 3: at board start every agent's AI policy block is refreshed, so the company's AI policy text (from the

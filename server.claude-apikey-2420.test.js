@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2420: the POST /api/accounts/claude/apikey route wires the claudeaccounts
  * key module to HTTP. Tests the ROUTING (validation, needsRunner, live-refusal of

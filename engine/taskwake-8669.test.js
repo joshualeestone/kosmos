@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8669: a task's wake (engine/taskwake.js): what a person writes is read whole, the condition is read once when it
  * is set, the board's look finds it happened (and never before), the store keeps it once per wake, and one holder is

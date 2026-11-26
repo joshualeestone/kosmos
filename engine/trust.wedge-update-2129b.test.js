@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#2129, the UPDATE-case wedge (the fresh-install createIfAbsent fix was not
  * enough). A DEFAULT-account agent launches with NO CLAUDE_CONFIG_DIR, so Claude

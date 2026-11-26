@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7152 slice 2 through the real server (in-process, every root sandboxed, dry run): usage auto-balance's

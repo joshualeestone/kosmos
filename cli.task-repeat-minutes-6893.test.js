@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6893: both CLIs take a task that repeats every so many minutes ("30m", "2h"): the word goes to the board as the
    frequency (the board makes and checks the rule), --at and --on are refused with it, and the old words still work. The
    Mac CLI against a stub board that records every request, the Windows CLI through its main() with a fake fetch. */

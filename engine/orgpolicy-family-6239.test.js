@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#6239 (first Kosmos+Kids slice): the two policy keys this board enforces, as engine/orgpolicy.js reads them.

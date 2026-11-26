@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6213: the one part of the Windows status line wiring that only Windows can run: the 8.3 short name lookup
    (cmd.exe's %~sI). Everywhere else the rule is tested with the lookup stood in (engine/allowance.test.js); here the
    real one runs on a folder with a space. Runs on the Windows CI job (tools/windows-tests.js picks it by the win32 in its name); skipped elsewhere. */

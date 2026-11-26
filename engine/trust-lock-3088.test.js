@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 // #3088: exercise the lock under REAL cross-process concurrency. Spawns N real child
 // processes that each trust a DISTINCT folder against ONE shared config, concurrently,

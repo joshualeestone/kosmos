@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4381, the Windows half of #4356: Kosmos.exe asks whether this computer runs agents or connects to

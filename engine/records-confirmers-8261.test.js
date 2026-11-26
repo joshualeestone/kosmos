@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #8261: a record keeps every distinct writer of its current status (engine/records.js `confirmers`), so a second

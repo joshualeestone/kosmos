@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3013 round-2 must-fix: the ENABLED gate must be win32-correct, fresh, and
  * spawn-lean. This is the RUNTIME proof (the unit arms in win32trustcard.test.js

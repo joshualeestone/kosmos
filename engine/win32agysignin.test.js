@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3568 / #3998 on Windows: the Gemini-subscription sign-in with only Google's page and a Kosmos code
  * box (engine/win32agysignin.js). A stand-in agy (test-support/fake-agy.js) runs as a real child and

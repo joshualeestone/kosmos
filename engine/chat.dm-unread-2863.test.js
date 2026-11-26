@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #2863: a.dmUnread, the per-agent unread-DM count carried on the fleet

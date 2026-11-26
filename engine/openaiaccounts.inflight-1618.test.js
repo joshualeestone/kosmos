@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1618: two callers arriving together cost ONE live sweep, and the three-state
  * rule survives the sharing.

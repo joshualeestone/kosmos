@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3224: the daily rollup carries a counts-only "suspected cross-project
  * misroutes today" line, derived read-only at digest time. The load-bearing

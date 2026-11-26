@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2238: the board self-restart guard must FAIL SAFE. A wrong branch here bricks
  * a board (a from-source `node server.js` stopped with no KeepAlive never comes

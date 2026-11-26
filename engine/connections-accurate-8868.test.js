@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /*
  * kosmos#8868: an installed agent reported that the "Connecting providers, plugins and services" section of its own

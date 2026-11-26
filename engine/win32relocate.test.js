@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * win32-installer-native: "Move Kosmos" and "which Kosmos runs", the engine half
  * (engine/win32relocate.js).

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3595 phase 3: reading a project's goal from BRIEF.md. The parser against the REAL seeded stub
  * (projects.briefStubContent), and the safe reader against real files, a symlink and an oversize
  * file.

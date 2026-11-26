@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7586: backup required on the member's own board. backupRequired reads the policy by the same rule as
  * reportingRequired (#6367); backupLate reads the coordinator's record of this member's last backup (the status

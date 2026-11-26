@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #7508: a code fix's built mark can name the commit it landed as. The CLI resolves the ref in the agent's own checkout

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #570: `isRunnable` answered FALSE for a runner that Windows can launch.
    Claude's canonical rung is `<home>/.local/bin/claude` with no suffix; the file
    on a Windows box is `claude.exe`, so `statSync` on the canonical string threw

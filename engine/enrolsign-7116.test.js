@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7116 step 2, the caller (engine/enrolsign.js): finding kosmos-se in the app's own bundle, the inviter's kept
  * join codes, reviewing an enrolment with them, and approving it. The Enclave is stood in for by a small helper script

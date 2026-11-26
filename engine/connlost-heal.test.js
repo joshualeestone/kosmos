@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* #3410 PR 2b: the auto-recovery sweep. Rosters come from test-support/fleet and the REAL
    status snapshot (fixture discipline: no hand-built cards), fed the captured wedged frame.

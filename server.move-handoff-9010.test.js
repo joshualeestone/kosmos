@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#9010: the board's wiring of the move's handoff step (server.js moveHandoffDeps, on accountMoveDeps). Built in

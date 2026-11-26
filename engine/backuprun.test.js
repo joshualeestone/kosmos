@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5535 E0.6 slice (c), second half: engine/backuprun.js composes one backup run. The key step and the snapshot
  * are stand-ins that record what they were given; the state file, the pointer and the period logic are the real

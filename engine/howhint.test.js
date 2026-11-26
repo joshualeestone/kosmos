@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8935: the first use of a command with a longer guide names the guide, once per agent per guide; kosmos#9015: the
    same agent after a restart, and several calls at once. */
 const test = require('node:test');

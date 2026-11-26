@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 // #5309 part 2, slice 2: the /api/status wiring of the per-agent plugin-reach signal.
 // Drives the exported attachPluginReach (the seam the route calls) with fixture rows + an injected fs

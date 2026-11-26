@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#2019 -- a dead pane reads as RESTARTING, not "gone", while a
  * deliberate disruption we initiated (restart / model / provider / account /

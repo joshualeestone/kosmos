@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5376: `kosmos task add` with no --who gives the task to nobody, and the board's Assigner may later hand it to an

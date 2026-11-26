@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5152 slice 1: both CLIs carry a task's "done when". `kosmos task add ... --done "<check>"` (up to three) sends the
  * checks as `doneWhen`; `kosmos task done-when <project> <n> "<check>" ...` sets them and `--clear` takes them off;

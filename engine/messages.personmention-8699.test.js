@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8699 (agent feedback 11-17): an agent's room post that named the PERSON by the name their colleagues use
  * ("@Dana", "Leo -> Dana:") reached nobody: the phone's names-you notice fired only for a reply to the person's own

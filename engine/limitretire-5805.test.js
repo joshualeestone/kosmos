@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5805 slice 3b: a dateless Claude limit line ("You've hit your session limit · resets 4pm (America/Chicago)") holds

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2988: the Windows board's supervision (engine/win32boardwatch.js) and the watchdog task that
  * runs it (engine/win32board.js).

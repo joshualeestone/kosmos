@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6468 ask 2: a downloaded update must match its SIGNED release manifest, checked by the INSTALLED copy.

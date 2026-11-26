@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #7055 (slice 6 of the iPhone plan, #6838): the board still answers every route the iPhone app calls.

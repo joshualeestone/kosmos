@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2338: the 3 OpenAI subscription routes wire the ChatGPT-login DRIVER to HTTP
  * (POST .../subscription/start, GET .../status, POST .../cancel). This tests the

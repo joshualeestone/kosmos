@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4559: POST /api/orgchart/read, an org chart FILE into the New Agent preview's people.
  *

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6724 (Josh viewing a board from another computer: "Open in Finder" opens on the far Mac): the page's half.
  *   - every button that opens a window on the board's computer carries data-remote-hide, and is hidden while the page
  *     is reached through Kosmos+ (kplusRemote(): the page's own address is not loopback);

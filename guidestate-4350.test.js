@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#4350: the setup guide's outcome, recorded and sent as ONE WORD on the existing
  * install ping, so /admin can say whether an install got the guide and, if not, which gate

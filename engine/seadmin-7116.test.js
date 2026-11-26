@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7116 slice 4, Mac half: engine/seadmin.js (what an se-p256 admin key may sign) and native-se/main.swift

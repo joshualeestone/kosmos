@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3296 / #3391: the POST /api/agent/:name/provider route, EXECUTED for a switch to

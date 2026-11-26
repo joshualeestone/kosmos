@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5406 part 2: the direct-message route answers Claude Code's question menu by key. While that menu is the live
  * screen, a reply that is one of its numbers (typed, or a button with its words) is sent as the bare digit, nothing

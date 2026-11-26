@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3296/#3391 accounts slice: the create.js + accountenv wiring that lets a gemini
  * or grok agent run on a NAMED account. Covers the pieces the account modules'

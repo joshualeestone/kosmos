@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #6650: a sandboxed install (another KOSMOS_HOME) left three test boards as real launch agents on a release
  * Mac, respawning for 20 hours, one holding the real board off its port for three. setup.sh now refuses, before

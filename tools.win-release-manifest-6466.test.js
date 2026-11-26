@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6466: the release side of the Windows signed manifest (tools/lib/win-release-manifest.js): what the build
  * writes, what the publish checks before it uploads, and how the publish tells a build that checks signatures.

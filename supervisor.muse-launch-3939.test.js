@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3939 slice 3c-3a: a Meta Muse agent's pane runs Kosmos's own front (engine/musefront.js) under node, not a
  * vendor TUI, and is told where the report bridge is. Runs the real bin/agent-supervisor.sh against a fake tmux

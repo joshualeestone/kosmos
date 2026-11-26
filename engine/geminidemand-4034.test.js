@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4034: Gemini's question box for conditions other than a usage limit. NOT_FOUND is captured verbatim (trailing
  * space trimmed) from Gemini CLI 0.61.0 in a real tmux pane, driven by a fake endpoint answering 404 NOT_FOUND

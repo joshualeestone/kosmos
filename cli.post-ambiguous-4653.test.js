@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4653: when a room post's @-word named two members, it reached neither as a request, and the sender
  * is told. The board returns the sentence as `ambiguousNote` on the delivery; `kosmos post` prints it

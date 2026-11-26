@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5532 (contract v1.5): engine/orgenroll.js is the first caller of engine/computerprint.js. The print's own
  * test file (computerprint-5532.test.js) lets a file load it only together with these two guards:

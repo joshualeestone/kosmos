@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8862: a model's own weekly limit can be full while the account's overall one is not. The usage reader keeps
    those limits and the decision judges each agent by its own model, both for being at risk and for a target. The
    answer below is the one Splinter's probe read for account c on 2026-11-21 (overall 55%, Fable 100%). */

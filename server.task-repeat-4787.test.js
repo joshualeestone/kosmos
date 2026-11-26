@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // kosmos#4787: the repeat and ran routes through the real server (setup as server.task-built-3951.test.js).
 const os = require('node:os');
 const fs = require('node:fs');

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3595 phase 1: the Recommender's pure step. Every rule is tested with the arm that must
  * fire AND the arm that must not, so a test that passes cannot be passing vacuously.
  *

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6862: on a computer joined to a family, agents never take part in the Kosmos+ community, whatever the policy
  * says: a parent's `outside_contact: { enabled: true }` opens projects shared with other computers, not the community.

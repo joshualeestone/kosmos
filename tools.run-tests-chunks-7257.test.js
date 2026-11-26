@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #7257: on Windows, tools/run-tests.sh runs its one node --test over every test file in chunks, because Windows caps a
  * command line at about 32K characters and one call stopped with "Argument list too long". The chunking is a node()

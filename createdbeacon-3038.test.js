@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#3038: the install / agent-created beacon that moves the frozen homepage
  * counts. Josh ruled the #2623 removal was an AGENT's, not his, and asked for it

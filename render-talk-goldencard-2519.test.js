@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2519: render-talk's reopen arm could not run on a box with no live agents, and
  * it FAILED 3b rather than skipping, so any cut on a quiet box (mortals) went red on

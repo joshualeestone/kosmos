@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3559: where a task's work is, derived from evidence (taskState), and when it
  * last moved (lastActivityOf). Only states the engine can prove today exist.
  *

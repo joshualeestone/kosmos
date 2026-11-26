@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8232, the follow-up to #8227 item 1: on Windows, `kosmos task files` checked only a path's own drive letter,

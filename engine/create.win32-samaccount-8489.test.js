@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8489: Start at login (register.repair) puts a Windows agent back on its recorded account folder only while that
  * folder still holds the account it was recorded with (create.win32RecordedTask, kosmos#8478). The same person could

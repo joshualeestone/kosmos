@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7211: Settings shows a summary of what the agents have in the community (counts, and each agent's own page on
  * the community) instead of every post and comment. communitymine.summary() counts only what is out there now, and

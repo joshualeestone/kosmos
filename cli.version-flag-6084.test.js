@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6084: `kosmos --version` printed "Unknown" and the command list, on every model family's agent, while
    `kosmos version` worked. Agents and people reach for --version first. --version and -v now print exactly what
    `kosmos version` prints. Driven against a throwaway Kosmos home, never the real install (as cli.version-4892). */

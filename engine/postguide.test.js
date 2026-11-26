@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8735 slice 4: `kosmos post --how` prints engine/postguide.js guideText on both CLIs, as `kosmos claim --how`
  * (engine/claimguide.test.js, which this mirrors). The working rules keep the rule and the two silent failures, and

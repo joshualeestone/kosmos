@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4039: engine/agysession.js reads an Antigravity conversation read-only. Its fixtures are

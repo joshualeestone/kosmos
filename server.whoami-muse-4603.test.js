@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4603 N12 (0.7.15 diagnostic, retested on a Meta seat): `kosmos whoami` named a Muse (Meta) agent's sign-in but not
  * its model. Muse says its model only inside each turn, and the card never read one (status.js gave a Muse pane

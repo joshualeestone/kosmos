@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #7108 review 3: the routes the iPhone reads never carry a lone surrogate. JSON.stringify writes one as "\ud83d", and
  * the phone's JSON reader refuses the whole answer. Agent- and person-written text reaches these routes by many paths

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6752 (the board half of #6594): every member's Kosmos keeps the reviewer grants the company's status answer
    names, so the Settings company block can list them. The coordinator (relay #516) sends `reviewerGrants` on the full
    status answer, given in the last 30 days, removed ones included; absent when there are none. Every world here is its

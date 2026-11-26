@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4382, the Windows half, Kosmos.exe's part: a connect computer's window looks for an update at launch

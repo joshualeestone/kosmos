@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4589 (Josh, 2026-09-29 11:42): a new Codex agent stopped on Codex's "hooks need review" dialog, and Kosmos

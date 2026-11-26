@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5874: `kosmos task activity <project-id> <task-number>` prints a task's conversation, oldest first, one line per event,

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* #7212 slice 3, review 6: the AI Models badge's request evidence (server.js claudeObservationsFor) is ONE join, read by
    the accounts route and by a stuck card. Tested here on real job files and real observations, so a change in its

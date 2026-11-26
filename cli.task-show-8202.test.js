@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8202 (feedback: to learn a task's delivered files and the rest of its record, an agent had to search folders or

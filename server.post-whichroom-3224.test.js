@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3224, the proactive half: a room post that is NOT a reply (no in_reply_to), from
  * an agent that owes the person an answer in a DIFFERENT room, is held back once with

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #8464 item 2: an agent reports how each done-when check went (tasks.setCheckResult), into doneWhenResults, a list

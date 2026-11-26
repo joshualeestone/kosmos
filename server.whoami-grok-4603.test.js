@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4603 (#4580 item 12, the Grok agent: "kosmos whoami cannot name the Grok model or account, even when the session
  * is Grok 4.6 on a connected xAI subscription"). Traced on main: the runner WAS named, as "a grok agent" in lower

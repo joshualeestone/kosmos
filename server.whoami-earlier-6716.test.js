@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6716: a model borrowed from an agent's EARLIER session (its new one has not replied yet) is not what it runs. whoami
  * must not tell the agent it runs that; the live launch reading answers. CONTROL: with no new session the record is

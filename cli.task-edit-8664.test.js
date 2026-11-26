@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8664: `kosmos task edit <project> <n> [--title "<new>"] [--detail "<new>" | --clear-detail]` on both CLIs.
  * install/kosmos runs against a stub board (cli.task-donewhen-5152.test.js's harness); tools/windows/kosmos-cli.js gets

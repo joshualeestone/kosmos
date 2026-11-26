@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The model-change dialog reports its outcome, success as well as failure
  * (#619, the #788 family): driven THROUGH changeDialog and changeModelNow

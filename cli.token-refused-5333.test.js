@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5333 (a day-one report): an agent whose token Kosmos could not match was refused by `kosmos whoami`, `inbox` and
  * `reply` (and `msg`, `post`, `report` meet the same refusal) with the board's one sentence, and nothing said how to get

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2454: installedKosmosCli() is the safety GATE for the board's `kosmos restart`
  * self-restart (engine/boardrestart). It must return a path ONLY when the installed

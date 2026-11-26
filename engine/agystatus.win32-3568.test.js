@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3568 on Windows: installing Google's agy (checked SHA-512 AND Google's signature, into Kosmos's
  * runners folder, never `agy install`), finding it (only with its verified marker), and the switch

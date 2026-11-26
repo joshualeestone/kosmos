@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5805 slice 2a: `kosmos msg` to a Claude agent out of usage (a dated reset still ahead) is kept, not typed; the

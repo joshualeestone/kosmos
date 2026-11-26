@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6968: a board that is listening can still refuse a connection: one too busy to take new connections refuses
  * some outright (its accept queue is full; measured on macOS 2026-10-22, 40 connects at once: 3 refused, 36 timed

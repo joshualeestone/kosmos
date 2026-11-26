@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #1704 slice 2b-i: engine/worldenv.bootstrapWorldEnv applies the ACTIVE world's
  * data-root env BEFORE any engine module is required, so the ~26 modules that

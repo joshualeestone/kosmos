@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5434 slice 5: the two files Kosmos keeps in a provider's account folder (the weekly reading the statusline
  * records, and the weekly calibration) are saved through securewrite.writeSecret, so the bytes are flushed to disk

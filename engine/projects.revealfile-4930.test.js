@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4930: the full-page preview's "Open in Finder" shows ONE file selected in its folder, and never opens it.
  * On a Mac: `/usr/bin/open -R <file>`. On Windows: File Explorer with `/select,"<file>"`, through win32explorer's own

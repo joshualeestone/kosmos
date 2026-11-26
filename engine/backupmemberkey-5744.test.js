@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5744 slice 2b: engine/backupmemberkey.js registers this computer's member backup key, epoch 1 first, and
  * after a lost key the next epoch, against a fake coordinator that applies the member-key route's rules

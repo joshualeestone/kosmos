@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #4918 review 1 and 5 (Ice Cream Kitty): createAgent's Linux arm, end to end in a sandbox. The unit is written and
  * started through linuxjob, linger is read back and said, and a start systemd refuses rolls the agent back. Every

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6309: what a family policy's monthly `usage_cap` stops on the board. At the cap nothing new is typed at any
  * agent (chat.deliverWithGap) and no question is answered (chat.answerQuestionMenu), with the policy's own sentence;

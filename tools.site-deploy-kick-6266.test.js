@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6266: tools/site-deploy-kick.sh, the 15-minute backstop launchd runs on Mortals because GitHub's own schedule
    fired the site deploy only six times on 2026-10-15. A fake `gh` checks each call's exact arguments and applies the
    script's own --jq filter to sample runs with jq (a fake that ignored the filter could not see it wrong).

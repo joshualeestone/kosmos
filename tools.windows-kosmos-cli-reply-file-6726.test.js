@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6726: `kosmos reply --file <path>` on the Windows CLI (tools/windows/kosmos-cli.js), the parity half of
  * cli.reply-file-6726.test.js, arm for arm. The board decides which files may go (server.reply-file-6726.test.js);

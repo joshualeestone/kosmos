@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #2225: the agent-detail "runs on" parenthetical showed the path slug (`label`)

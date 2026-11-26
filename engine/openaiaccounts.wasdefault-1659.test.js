@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /*
  * #1659: `forgetAccount().wasDefault` must track WHERE THE DEFAULT HOME POINTS,

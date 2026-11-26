@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * win32-swap-atomic: the rename-swap primitives the anchor and the Windows updater
  * share (engine/win32swap.js), and the atomic write of the `engine-path` pointer.

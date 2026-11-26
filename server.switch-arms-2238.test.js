@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2238: route-level coverage for the world-switch RESTART arms of
  * POST /api/worlds/active. These are the arms that ride Josh's fresh-install

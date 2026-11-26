@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7797 item 1: tasks.askingWithoutTask lists an agent's question that no task row carries, so Needs your

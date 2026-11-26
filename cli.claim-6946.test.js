@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6946: `kosmos claim <project> <postId> [--release | --status]` posts to /api/react with `claim` set, as THIS agent, and says in
  * words whether the post is now yours, already yours, given back, or held by somebody else (exit 1, naming them). The

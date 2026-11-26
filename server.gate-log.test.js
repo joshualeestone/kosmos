@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #908: with KOSMOS_INSTALL_GATE=1 the board appends one line per request,
    `time method path user-agent`, to a file outside any sandbox, so the next
    time the install gate's page is loaded by something unknown (#891) the

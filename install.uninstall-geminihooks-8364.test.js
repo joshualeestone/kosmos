@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #8364: the Mac/Linux uninstall takes Kosmos's report hooks out of the person's Gemini settings, and nothing else.

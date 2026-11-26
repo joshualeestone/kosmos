@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* #4446: which agents the Instructions panel tells about a personal instructions file. */
 

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5154 slice B: the needs-you record for Kosmos's OTHER silent bounds (engine/ownbounds.js).
  * The record is on disk (store.ROOT/ownbounds) so forget is reachable from create/remove/delete-leftover;
  * the sandbox below points store.ROOT at a temp dir, as stuckterminal-5154 / crashloop-5154 tests do.

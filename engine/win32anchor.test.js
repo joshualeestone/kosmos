@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #570: the durable anchor -- what a Scheduled Task still finds after an update.
  *

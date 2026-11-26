@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5743: while Claude Code's question menu is on an agent's screen, nothing is typed into that pane. Measured on 2.1.29x
  * (#5406): the menu ignores a paste and the Enter after it takes the HIGHLIGHTED answer. A timer's line is HELD (the
  * #4588 hold shape, so a room keeps it for the next idle flush); every other sender is refused with nothing typed.

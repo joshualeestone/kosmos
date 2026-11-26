@@ -5,6 +5,7 @@
  * is never hideable and the active world must be switched away from first.
  */
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 const assert = require('node:assert/strict');
 const test = require('node:test');

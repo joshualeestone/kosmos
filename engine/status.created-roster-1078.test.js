@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1078: a Kosmos agent created but NEVER RUN must APPEAR on the board.
  *

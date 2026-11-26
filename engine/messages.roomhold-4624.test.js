@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4624 (#4580 item 9): a colleague's room post that does not name a member is held while that member

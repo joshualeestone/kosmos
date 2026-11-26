@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5434 slice 2: the provider account stores save a key, and Claude's settings.json, through
  * securewrite.writeSecret, so the bytes are flushed to disk BEFORE the rename makes them the file

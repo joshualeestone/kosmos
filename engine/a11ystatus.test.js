@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * a11ystatus: the engine's read side of the native Accessibility verdict (#2125
  * slice 3). The load-bearing property is the THREE-answers discipline: "the app

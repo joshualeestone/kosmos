@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #570: create.js starts a Windows agent through the win32 substrate, not launchd.
  *

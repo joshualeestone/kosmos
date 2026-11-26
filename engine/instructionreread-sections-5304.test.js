@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5304: each board-start block reports whether it rewrote the agent's file (`changed`), so a running agent can be
  * owed a re-read for that section (engine/instructionreread.js oweEach). Real cards from the real producer.
  *

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#3388: `kosmos project create "<name>" <folder> ["<desc>"]` POSTs to
  * /api/projects so an agent can make a project with one command instead of a raw

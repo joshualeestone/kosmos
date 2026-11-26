@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8897: the starter project shows the person what it is. projects.list (what /api/projects sends the page)
    marks the project Kosmos seeded `starter: true`, by the same isStarter rule the agents' instructions use, so the
    page can say it is a placeholder while it has no work. CONTROLS: a real empty project, the welcome project once

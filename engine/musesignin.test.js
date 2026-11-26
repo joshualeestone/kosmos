@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3939 slice 3: Muse Code's sign-in, driven end to end through a REAL tmux (on a private socket) against
    test-support/fake-muse-login.sh, which prints `muse login`'s screens in the words Homer captured and logs
    every key it was sent. Nothing here reaches Meta, the person's own muse, or the Keychain.

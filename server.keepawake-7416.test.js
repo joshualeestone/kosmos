@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7416 slice 3 through the real server (in-process, every root sandboxed, dry run): the keep-awake switch's

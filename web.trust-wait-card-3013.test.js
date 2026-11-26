@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3013: the board card and list row for a Windows agent stuck at Claude Code's
  * invisible workspace-trust prompt. A DOM-level test (it extracts the SHIPPED

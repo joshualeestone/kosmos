@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #5668: /api/status carries a token-only agent's last guard run (tokenGuard), read from the record every guard run
  * writes, so the agent's page can say when its protection is not complete or its shell may not run. Only an agent on

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2296: the collect -> triage bridge. Drives the REAL feedbackpull.pull with an
  * INJECTED transport (canned blobs), against a sandboxed data root, so nothing

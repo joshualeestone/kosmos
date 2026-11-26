@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6761 (a feedback report: a revised file handed over can be mistaken for an earlier version): every Files list row
  * carries its file's sha256 once the board has hashed it, in the background. Against a real sandboxed board:
  *   GET /api/agent/:name/files, GET /api/agent/:name/files/browse, GET /api/project/:id/documents.

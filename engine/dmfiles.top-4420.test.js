@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4420 (Josh, 2026-09-28 15:29): a Gemini agent saved a file for him in its own folder (the one above Files), so it
  * never showed on its page, then said it was in the files panel. The Files block did reach its GEMINI.md (measured),

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4543, the Windows half: opening Kosmos replaces a board that holds its port but does not answer.

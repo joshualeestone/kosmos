@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8724 item 3: a Codex, Antigravity or Grok window linked by hand carries Kosmos's mark and its runner. A
  * supervisor started for that agent later (a launch job written afterwards, or a restart of the board) must adopt the

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#2452 (c): a Gemini-format agent file (identity in YAML front-matter, not a
  * "You are <Name>" line) dropped as a LOOSE file OUTSIDE the known gemini home is

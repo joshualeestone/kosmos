@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4636 (#4580 item 10, the sandbox half): a shell whose sandbox may not connect even to 127.0.0.1 cannot reach the
  * board, and nothing in the CLI changes that. What it can do is say what is true. Before: `status` said "Kosmos is

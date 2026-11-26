@@ -2,6 +2,7 @@
  * #5711: tools/whats-new-pool.js makes ONE cumulative What's New: the top highlights by rank across everything since the
  * last PROD release, never a held feature and never one prod already showed. Each test has an arm that can fail.
  */
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

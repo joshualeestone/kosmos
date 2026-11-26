@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6103: a part records WHICH agent moved it (`movedBy`), beside how (`movedVia`) and when (`movedAt`), when a

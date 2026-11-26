@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7548 (#7152 slice 3b): the live mover (engine/automove.js), the skipTarget it brought to decide(), and
    accountmove's word on whether a write began (rule 11). Every effect is a dep; the only file is the record, in a temp
    folder. Real board cards from test-support/fleet (fixture-discipline.test.js). Ported from automove-live-7152's

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * The #1032 file-picker gate's VERDICT LOGIC, tested against the output shapes

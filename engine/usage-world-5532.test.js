@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5532: usage scoped to THIS Kosmos's own agents. The computer-wide reader counts every Claude session on the
  * computer; the scoped one counts only sessions launched from one of the given agent folders, per day and model.

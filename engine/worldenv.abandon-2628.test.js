@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2628: engine/worldenv records the world a boot ABANDONS (the #2528 lockout
  * recovery falls back to the default world when a named world will not come up), so

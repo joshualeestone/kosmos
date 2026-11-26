@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6734: the attachment store's stream lifecycle, with no /dev/fd and no board, so it also runs on Windows: a file is
  * stored whole, a stream past the cap or one that stops is refused, and nothing is left behind. It shows the lifecycle

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /** #529: the token doors. One engine, a spec per service; each door checks with the service, keeps mode 600, never answers the token. */
 const test = require('node:test');
 const assert = require('node:assert/strict');

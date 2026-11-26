@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #6176 slice 2: a ChatGPT sign-in (OpenAI) row in GET /api/accounts carries its plan limits as Codex last reported
  * them in its own session files; an API-key row carries none. Setup copied from server.chatgpt-row-4538.test.js: the

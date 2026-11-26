@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5943 through the real routes: a question the agent REPORTED is served dated from when it was first asked and
  * in its place in time (not under the person's answer), is clearable, goes when the person clears it, and while it

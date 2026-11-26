@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7875 item 3 (agent feedback, 11-03): a built task gave no sign the person had looked at it, so an agent could

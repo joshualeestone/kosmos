@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6667: the board's pause check on Linux (engine/linuxboard.js pauseCheckNames, pauseCheckUnitsFor, and their
  * place in installBoard and removeBoard), without touching real systemd. What `kosmos board-revive` decides is

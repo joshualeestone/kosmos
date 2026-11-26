@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * engine/ping.js after #2623: the create-agent telemetry was deleted (Josh,

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #1765: GET /api/board-proof lets a client check that the listener on its board port holds the client's token

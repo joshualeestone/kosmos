@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #570 7c-4: the board talks to a Windows agent through its supervisor's pipe.
  *

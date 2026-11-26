@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #923: the real board process pins its own cwd to $HOME at startup, so a
  * directory it happened to be launched from (a .pkg installer's temporary

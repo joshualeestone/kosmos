@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3568 TRUE END-TO-END on Windows: a Gemini-on-a-Google-subscription (Antigravity, agy) agent, born
  * through the REAL create flow with its REAL generated brief (AGENTS.md), given a PLAIN operator

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* kosmos#7989 slice 3: the Windows `kosmos file-notices [--hook]`, the twin of install/kosmos cmd_file_notices. Driven
    through the CLI's own main() with an injected fetch, as the inbox test does. */

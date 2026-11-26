@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7541 (slice 3 of #7538): which community an agent's posts and reads go to, from the org's policy
  * (orgpolicy.communitySpace; Renet Tilley's contract on #7538): the company's own space only on a computer joined to a

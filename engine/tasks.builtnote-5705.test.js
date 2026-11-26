@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5705 slice 2 (user feedback, 2026-10-09): a task stayed "built" though the work was never done. A task with
  * done-when checks (#5152) says what finished means, so an agent's built mark on it must carry a note saying how the

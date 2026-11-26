@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * `presence` remembers a task's answer for a moment, and forgets it the instant
  * this process changes any task.

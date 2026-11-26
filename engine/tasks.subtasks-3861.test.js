@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3861 (Josh, 2026-09-25 20:20: "Let's add something to tasks so they can have a parent"):

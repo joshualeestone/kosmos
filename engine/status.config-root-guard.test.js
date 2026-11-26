@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * A SANDBOXED FIXTURE MUST NOT READ THE OPERATOR'S REAL AGENTS AND ACCOUNTS.
  *

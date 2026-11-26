@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7213 (the 0.7.69 five-family report): `kosmos fingerprint` and `kosmos handoff` printed a PDF's normalized hash
    as "sha256:", the label an approval's plain sha256 carries, so for one unchanged file the two values differed and a
    reader concluded the file had changed. The kinds are now labelled (sha256: is always the plain sha256, a PDF whose

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6714 review 3: the restart notice's routes over HTTP, not only the engine under them. A route that ignored `name`,
  * read `{}` as a refusal, or mapped a failure to the "already done" 400 would pass every engine test.

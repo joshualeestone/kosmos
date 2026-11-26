@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8846 review 2: the board's usage-poll plan through its REAL wiring (server.js usagePollPlan): the Settings

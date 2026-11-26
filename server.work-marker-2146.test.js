@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#2146: the /api/report route writes a WORK-ACTIVITY marker (activity.js
  * key 'working') ONLY for a `working` report -- never for idle/needs_you/etc.

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #7968: a renamed project's folder can be renamed to match, by the person, on the project's page
  * (PUT /api/project/<id> {renameFolder: true}). The id stays; a folder outside the projects root is never offered.
