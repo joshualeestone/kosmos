@@ -36,3 +36,18 @@ only there. Relay deploy is separate from a Kosmos cut.
   since the ruling is about blue backgrounds. Say so in the PR.
 - THEN: reshoot round 3 (light lane), blind review, proof, PR into main AFTER or WITH #9101 (coordinate with
   PigeonPete), then slice 2 in kosmos-relay.
+
+## Review round 1 (opus, blind): no BLOCKER; all WARNINGs fixed (head 52dd310567)
+- Fixed: the code step's address (.plus-si-addr b) was invisible on light; .plus-signin-link and the child-box summary's
+  focus were blue; the sign-in caret and OTP autofill text were near-white; the #pb restore field was a navy fill; the
+  key-changed box was dark; the request sheets (.askreq, .askcard) were a navy gradient with a blue Allow (now the
+  board's card and gold primary, app-wide, since they paint wherever a request shows); the Connected pill was 4.18:1
+  (8% tint: 4.55:1 light, 9.86 dark, measured); the backup field's focus ring was blue.
+- Added web.plusnavy-9103.test.js: runs the page's syncPlusChrome; skin OFF in the app, ON in a browser (control: with
+  the fix reverted, the app test fails); and every app rule is scoped to html.kapptabs. Tree guards pass.
+- Left, said in the PR: the browser's default focus ring on .btn is blue on every board button (not navy-era, not
+  this card); the signed-out marketing view (state 1) keeps its blue but is not reachable in the app (signed in); the
+  wordmark's blue "+" is brand.
+- Round 4 shots: 12 of 14 taken, all read, 0 overflow. plus-waiting-6590 timed out in the app layout (both themes):
+  check whether it does the same on the base (acaa7eeb50) before the PR; if so, it is the screen, not this change.
+- NEXT: that control; review round 2 (whole branch); proof; PR with --base navyweb-9101 (PigeonPete's plan).
