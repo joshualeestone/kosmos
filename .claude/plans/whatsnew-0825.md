@@ -57,5 +57,11 @@ Four, not five: nothing else pending is board-visible and not notesOnly. Checked
 - #9119 has no notesOnly entry: it changes the instructions agents are given, not a command they run, and the notes
   `kosmos whats-new` prints are about commands and behaviour an agent can use.
 
+## Review 4 calls
+- The #9083 line now says the command or MCP tool prints Claude's own "Not logged in" line: the fix needs that exact
+  sentence with its remedy (NOT_LOGGED_IN_ROW), not any text that says "not logged in".
+- When #9097's held item is set pending (rank 12.7) the window becomes five items, mac 5 and windows 2; the four here
+  is the count for this cut only.
+
 ## Weakest premise
 That "rarely meets" is right for #9112's 409. If Windows sends fail that way often, it deserves a line.
