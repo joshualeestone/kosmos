@@ -58,6 +58,12 @@ test('#9157 premise: both reply maps are kept maps in the page', () => {
   assert.ok(START > 0 && END > END_AT, 'the keptDrafts block was not found');
   assert.match(SCRIPT, /const DM_REPLY = keptDrafts\('dmreply', KEPT_DM_REPLY_OPTS\);/);
   assert.match(SCRIPT, /const PJ_REPLY = keptDrafts\('pjreply', KEPT_PJ_REPLY_OPTS\);/);
+  // Review 6: each reply map is paired with the draft kind its words really live in (a mistyped pair would never bring
+  // a reply back, and every other test would stay green).
+  assert.match(SCRIPT, /const TALK_DRAFTS = keptDrafts\('talk'\);/);
+  assert.match(SCRIPT, /const PJ_ROOM_DRAFTS = keptDrafts\('room'\);/);
+  assert.match(SCRIPT, /const KEPT_DM_REPLY_OPTS = \{[^}]*pair: 'talk' \}/);
+  assert.match(SCRIPT, /const KEPT_PJ_REPLY_OPTS = \{[^}]*pair: 'room' \}/);
   // A property set on a stored reply would bypass the kept map (the room's @mention is written as a new object).
   // Review 1: an assignment (not ==/===) to any field of either map's entry.
   const inPlace = SCRIPT.match(/(DM_REPLY|PJ_REPLY)\[[^\]]+\]\.[A-Za-z_$]+\s*(\+|-)?=(?!=)/g) || [];
@@ -223,6 +229,9 @@ test('#9157 review 5: words typed where the reply is not never come back as that
   await settle();
   const two = tabPage(shared);   // tab 2 loads: no reply shown there
   await settle();
+  // Review 6: a real gap. Equal milliseconds count as "beside" (the re-save writes words and reply in one), and no
+  // person clicks Reply in one tab and types in another within the same millisecond.
+  await new Promise((r) => setTimeout(r, 5));
   two.talk.april = 'an unrelated message';   // typed in tab 2, newer than the reply
   await settle();
   const three = tabPage(shared);   // a reload (or the restart onto an update)
@@ -247,4 +256,26 @@ test('#9157 review 5: words typed beside the reply bring it back, in every tab (
   delete two.dm.april;   // x in tab 2
   await settle();
   assert.equal(one.dm.april, undefined, 'cancelling in tab 2 did not end the reply in tab 1');
+});
+
+test('#9157 review 6: a room reply comes back after a reload with its @mention, beside the words in the post box', () => {
+  const storage = memoryStorage();
+  const h = helper(storage);
+  const room = h.keptDrafts('room');
+  const pj = h.keptDrafts('pjreply', h.KEPT_PJ_REPLY_OPTS);
+  pj.p7 = { id: 'm1', from: 'roo', who: 'Roo', words: 'a post', mention: null };
+  pj.p7 = Object.assign({}, pj.p7, { mention: '@roo ' });   // as pjReplyMention writes it
+  room.p7 = '@roo yes, that one';
+  assert.equal(h.draftsKept(pj), true, 'a room reply beside its words is not counted as kept');
+  const after = helper(storage);
+  after.keptDrafts('room');
+  const back = after.keptDrafts('pjreply', h.KEPT_PJ_REPLY_OPTS).p7;
+  assert.equal(back && back.id, 'm1', 'a room reply did not come back with its words');
+  assert.equal(back && back.mention, '@roo ', 'the @mention Reply put in the box did not come back with it');
+  // CONTROL: words typed in another project's box bring nothing back for this one.
+  const other = memoryStorage();
+  const ho = helper(other);
+  ho.keptDrafts('room').p8 = 'other words';
+  ho.keptDrafts('pjreply', ho.KEPT_PJ_REPLY_OPTS).p7 = { id: 'm1', mention: null };
+  assert.equal(helper(other).keptDrafts('pjreply', ho.KEPT_PJ_REPLY_OPTS).p7, undefined, 'CONTROL: a room reply came back with no words of its own');
 });

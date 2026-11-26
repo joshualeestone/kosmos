@@ -26029,8 +26029,9 @@ function updateNothingToLose() {
   /* Review 1: a reply being written (the message it answers is kept only on this page) holds the restart while it has
      words: a reload would keep the words and lose what they reply to, and Send would post them as a plain message.
      A reply picked with nothing typed held nothing before and holds nothing now. Round 4: only the box the reply goes
-     with counts (an agent's chat box; a project room's post box). kosmos#9157: a reply is now kept with its draft, so
-     only a reply map that is NOT kept (storage refused, or another tab overwrote it) holds; a reply left half-written
+     with counts (an agent's chat box; a project room's post box). kosmos#9157: a reply is now kept with its words, so
+     only a reply map that is NOT kept holds (storage refused it, another tab overwrote it, or words newer than it were
+     typed where it was not, so a reload would bring the words back plain: see draftsKept); a reply left half-written
      in a chat never reopened no longer holds the restart forever. */
   const wordsFor = (m, key) => !!m && String((m[key] && (typeof m[key] === 'string' ? m[key] : m[key].text)) || '').trim() !== '';
   if (typeof DM_REPLY !== 'undefined' && DM_REPLY && !keptMap(DM_REPLY) && Object.keys(DM_REPLY).some((k) => DM_REPLY[k]
@@ -44978,8 +44979,9 @@ function keptDraftWords(v) { return String(typeof v === 'string' ? v : (v && v.t
    Review 5 (the design, rebuilt): a reply is the reply TO the words beside it. Saving those words on a page that holds
    the reply re-saves the reply too (KEPT_DRAFT_FOLLOW), so a kept reply is never older than its words; a reload
    brings a reply back only when its words are stored, fresh, and NO NEWER than it. So words typed where the reply was
-   not (another tab, or after it ended) never come back as a reply, and a reply picked with nothing typed after it is
-   not brought back, as before this change. A load writes and removes nothing but entries past the age-out, so it
+   not (another tab, or after it ended) never come back as a reply, and a chat reply picked with nothing typed after
+   it is not brought back, as before this change. (Review 6: a room reply on an agent's post puts that agent's
+   @mention in the box, and those are words, so it does come back, mention and all.) A load writes and removes nothing but entries past the age-out, so it
    cannot reach into another open tab. */
 const KEPT_REPLY_SIG = (v) => (v ? JSON.stringify([String(v.at || v.id || ''), String(v.mention || '')]) : '');
 const KEPT_DM_REPLY_OPTS = { present: (v) => !!v, sig: KEPT_REPLY_SIG, pair: 'talk' };

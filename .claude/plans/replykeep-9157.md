@@ -146,3 +146,21 @@ render-replykeep-9157 pass.
   x ends it).
 web.replykeep-9157 11 of 11, web.keepdrafts-9132 and the affected suites and guards (116), the browser-check wiring
 tests (121), and render-replykeep-9157 pass.
+
+#### Iteration 6 (blind review of the whole branch, sonnet)
+
+No BLOCKER.
+- [SHOULD-FIX] taken: nothing failed if a reply map's `pair` named the wrong draft kind (room replies would never
+  come back, yet count as kept). The premise test now pins both pairs against the real draft kinds, and a room reply
+  reload test (with the @mention Reply puts in the box, plus a control: another project's words bring nothing back).
+  A mistyped pair ('rooms') fails both.
+- [NIT] taken: the restart-hold comment names the current reasons; the design comment says a ROOM reply on an
+  agent's post does come back with nothing typed (its @mention is words in the box).
+- Found while running: the round-5 cross-tab test could land the other tab's words in the same millisecond as the
+  reply (equal times count as beside, which the re-save needs). It now waits 5 ms, as a person always does; 8 of 8
+  runs pass.
+- [NIT] recorded, not built: draftsKept judges a reply map whole, so one unkept reply holds a restart for the others
+  (as #9132's draft maps do, and only while a write is refused or a reload would drop one); words typed in a second
+  tab can fill this tab's empty box under its reply strip (Send posts a reply a reload would not keep; the restart
+  waits meanwhile); a clock stepped backwards with an orphan reply in storage; the in-place-write guard misses a
+  one-step alias (none exists); keptDraftHeard's reply branches are untested (a repaint only).
