@@ -110,8 +110,8 @@ classes="$classes AIPoliciesUITests:1"
 #   chat's query limit that keeps ChatOpensAtNewestUITests by hand. Its own line, as above.
 classes="$classes ChatTallOpenUITests:2"
 # kosmos#9002: DuoFoldUITests, two panes, a fold and an unfold with a project's page open and a chat three pages deep, and an
-#   upright phone keeping its tabs out of a project's room, page and task (2 checks).
-classes="$classes DuoFoldUITests:2"
+#   upright phone keeping its tabs out of a project's room, page and task, and a long bubble through a fold and an unfold (3 checks).
+classes="$classes DuoFoldUITests:3"
 skip=""
 arm="lazy"
 if [ "$uikit" = 1 ]; then
