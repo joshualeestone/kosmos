@@ -1,0 +1,42 @@
+# tallopen-9089: a chat of tall replies opens on its newest message
+
+Card: kosmos#9089. Built by Angel (fix 4571db2412, measured 11-25 21:55); handed to Mona Lisa 11-26 03:04 to take to PR
+(review loop, Mortals validation, merge) while Angel works #9002. Not in build 73 (decided: reviewer chats are short).
+
+## Done when
+
+On the iPhone's lazy chat list (iOS 27), a short chat of tall replies (tall20: 20 messages, replies of up to 14
+paragraphs) opens with its newest message wholly on screen, the first time and on coming back, as the same chat in
+one-liners (short20, the control) already does; the UIKit list still does too. The check runs in CI's sample run, so a
+regression turns a PR red.
+
+## Cause (Angel, measured 11-25)
+
+The lazy list's id anchor goes to the end marker over rows whose heights are still estimates. When the tall rows are
+measured, the end is pushed below the box: 20 tall messages opened short 3 of 3; the same 20 as one-liners 0 of 3; the
+UIKit list 0 of 3.
+
+## The change
+
+- ChatView.landOnNewest (after goNewest on open): at 0.3, 0.8 and 1.6 s, while the end has never shown, the chat is
+  still the same one (epoch, listEpoch), visible, not searching, at the bottom, rows are drawn, and nothing is under a
+  finger or being moved by the person, it scrolls to the end once more. The first time the end shows, it stops.
+  Id-anchor list only (iOS 17+). KOSMOS_SAMPLE_NOOPENLAND=1 (Debug) leaves it out: the control.
+- BoardClient DEBUG sample: KOSMOS_SAMPLE_LONG=tall20 (the varied pattern that fails: 0, 1, 3, 8, 2, 14 paragraphs on
+  Dana's replies) and short20 (one-liners, the control).
+- ChatTallOpenUITests (2): tall20 and short20, first open and second open; the newest drawn within 5 s and wholly
+  between the top bar and the box once the list is still. TEST_RUNNER_KOSMOS_NOOPENLAND=1 runs the app without the fix.
+- ios/tools/ui-sample.sh (Mona Lisa): ChatTallOpenUITests:2 in the lazy arm, so CI runs it.
+
+## Measured
+
+- Angel, 11-25 21:55: ChatTallOpenUITests x3, iPhone 17, iOS 27, lazy list, with the fix: 6 of 6 passed. Before the fix
+  the lazy arm failed 3 of 3. short20 passes either way (it is the control for the sample, not for the fix).
+- Pending (Angel's queued run, results on #9089): the lazy arm WITHOUT the fix (TEST_RUNNER_KOSMOS_NOOPENLAND=1) must
+  FAIL, or the pass is not shown to come from the fix; and the UIKit arm with the fix.
+
+## Weakest premise
+
+That three looks at 0.3, 0.8 and 1.6 s cover the time tall rows take to measure on a slow phone. They cover the measured
+case on a simulator; a slower device or a longer chat may measure later than 1.6 s, and then the open still lands short.
+The guard "the end has never shown" means a later look can never pull a person away from where they went.

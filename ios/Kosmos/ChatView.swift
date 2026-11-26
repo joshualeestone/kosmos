@@ -1265,7 +1265,7 @@ struct ChatView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + at) {
                 guard epoch == chatAt, listEpoch == listAt, visible, !searchMode, !endSeen, atBottom,
                       !onScreen.isEmpty, !personScrolling, !scrollBox.underFinger else { return }
-                Self.trace("open landed short of the end at \(at) s: to the newest again")
+                Self.trace("open landed short of the end: to the newest again")   // no value: the record admits only listed ones (#7420)
                 appMoves &+= 1
                 proxy.scrollTo("end", anchor: .bottom); positionId = "end"
             }
