@@ -615,27 +615,67 @@ ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "
 # it put in ANOTHER group (only a forwarded TERM reaches it); a command's cleanup is given its grace; KILL after the grace.
 qh9118() {   # qh9118 <tag> <grace s> <cmd...>: a main turn in its own marker dir, in the background; sets Q9 and L9
   mkdir -p $S/m9118-$1; L9=$S/9118-$1.log
-  ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-$1 QUEUED_HEAVY_STOP_GRACE_S=$2 exec /bin/bash $QH "t9118-$1" "${@:3}" ) > $L9 2>&1 & Q9=$!; BG="$BG $Q9"; }
-pre9118=0; gone $((U+5)) && gone $((U+6)) || pre9118=1
+  # stdin /dev/null: no terminal on any of the three, so the turn takes the background path whoever runs this file
+  ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-$1 QUEUED_HEAVY_STOP_GRACE_S=$2 exec /bin/bash $QH "t9118-$1" "${@:3}" ) </dev/null > $L9 2>&1 & Q9=$!; BG="$BG $Q9"; }
+free9118() { gone $((U+5)) && gone $((U+6)); }   # review 1: each arm starts with this run's two sleep lengths free
+pre9118=0; free9118 || pre9118=1
 qh9118 grp 60 sh -c "sleep $((U+5)) & wait"
 until_true 30 'grep -q "TURN: running t9118-grp" $L9 && ! gone $((U+5))'; s1=$?
 kill -TERM $Q9; until_true 40 'gone $((U+5)) && ! kill -0 $Q9 2>/dev/null'; r1=$?; o=$(cat $L9)
 ok "#9118: TERM to a main turn's wrapper stops a grandchild in its command's group, and releases the claim" '[ "$pre9118" = 0 ] && [ "$s1" = 0 ] && [ "$r1" = 0 ] && [[ "$o" == *"STOPPING: t9118-grp"* && "$o" == *"claim released"* ]] && [ ! -e $S/m9118-grp/machine-claim ]'
 printf '#!/bin/bash\nset -m; sleep %s & c=$!; set +m\ntrap '"'"'kill -- -$c 2>/dev/null; exit 143'"'"' TERM\nwait $c\n' $((U+6)) > $S/rt9118; chmod +x $S/rt9118
+pre9118=0; free9118 || pre9118=1
 qh9118 rt 60 $S/rt9118
 until_true 30 'grep -q "TURN: running t9118-rt" $L9 && ! gone $((U+6))'; s2=$?
 kill -TERM $Q9; until_true 40 'gone $((U+6)) && ! kill -0 $Q9 2>/dev/null'; r2=$?; o=$(cat $L9)
-ok "#9118: TERM to a main turn's wrapper reaches a run-tests.sh-shaped command, whose trap stops a child in another group" '[ "$s2" = 0 ] && [ "$r2" = 0 ] && [ ! -e $S/m9118-rt/machine-claim ]'
+ok "#9118: TERM to a main turn's wrapper reaches a run-tests.sh-shaped command, whose trap stops a child in another group" '[ "$pre9118" = 0 ] && [ "$s2" = 0 ] && [ "$r2" = 0 ] && [ ! -e $S/m9118-rt/machine-claim ]'
+pre9118=0; free9118 || pre9118=1
 qh9118 grace 60 bash -c "trap 'sleep 2; echo CLEANED > $S/9118-cleaned; exit 0' TERM; sleep $((U+5)) & wait"
 until_true 30 'grep -q "TURN: running t9118-grace" $L9 && ! gone $((U+5))'; s3=$?
 kill -TERM $Q9; until_true 40 '! kill -0 $Q9 2>/dev/null'; r3=$?; o=$(cat $L9)
-ok "#9118: a main command's own TERM cleanup is given its grace before any KILL" '[ "$s3" = 0 ] && [ "$r3" = 0 ] && [ "$(cat $S/9118-cleaned 2>/dev/null)" = CLEANED ] && gone $((U+5))'
+ok "#9118: a main command's own TERM cleanup is given its grace before any KILL" '[ "$pre9118" = 0 ] && [ "$s3" = 0 ] && [ "$r3" = 0 ] && [ "$(cat $S/9118-cleaned 2>/dev/null)" = CLEANED ] && gone $((U+5))'
+pre9118=0; free9118 || pre9118=1
 qh9118 kill 1 sh -c "trap '' TERM; sleep $((U+6)) & wait"
 until_true 30 'grep -q "TURN: running t9118-kill" $L9 && ! gone $((U+6))'; s4=$?
 kill -TERM $Q9; until_true 40 'gone $((U+6)) && ! kill -0 $Q9 2>/dev/null'; r4=$?; o=$(cat $L9)
-ok "#9118: a main command that ignores TERM is KILLed after the grace (QUEUED_HEAVY_STOP_GRACE_S), and the claim released" '[ "$s4" = 0 ] && [ "$r4" = 0 ] && [[ "$o" == *"KILL after 1s"* ]] && [ ! -e $S/m9118-kill/machine-claim ]'
+ok "#9118: a main command that ignores TERM is KILLed after the grace (QUEUED_HEAVY_STOP_GRACE_S), and the claim released" '[ "$pre9118" = 0 ] && [ "$s4" = 0 ] && [ "$r4" = 0 ] && [[ "$o" == *"KILL after 1s"* ]] && [ ! -e $S/m9118-kill/machine-claim ]'
 
-EXPECTED=146   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, four #9118 main-turn stop arms
+# #9118 review 1: a SIGKILLed wrapper (no trap runs) still has its command stopped, by the watcher, within about 5 s.
+pre9118=0; free9118 || pre9118=1
+qh9118 sigkill 60 sh -c "sleep $((U+5)) & wait"
+until_true 30 'grep -q "TURN: running t9118-sigkill" $L9 && ! gone $((U+5))'; s5=$?
+kill -KILL $Q9; until_true 40 'gone $((U+5))'; r5=$?; reap $Q9 40 2>/dev/null
+ok "#9118: a SIGKILLed main turn's command is stopped by its watcher" '[ "$pre9118" = 0 ] && [ "$s5" = 0 ] && [ "$r5" = 0 ]'
+for p in $(pgrep -f "^sleep $((U+5))$"); do kill -KILL $p 2>/dev/null; done; until_true 10 'gone $((U+5))'   # so a red here cannot cascade
+# #9118 review 1: a command that ENDS ON ITS OWN keeps what it left in its group running (as before), with no stop line.
+pre9118=0; free9118 || pre9118=1
+qh9118 linger 60 sh -c "sleep $((U+6)) </dev/null >/dev/null 2>&1 & exit 0"
+until_true 30 '! kill -0 $Q9 2>/dev/null'; s6=$?; reap $Q9 40; o=$(cat $L9)
+ok "#9118: a main command that ends on its own is not stopped: its leftover runs on and no STOPPING line is printed" '[ "$pre9118" = 0 ] && [ "$s6" = 0 ] && [[ "$o" == *"END rc=0"* && "$o" != *STOPPING* ]] && ! gone $((U+6)) && [ ! -e $S/m9118-linger/machine-claim ]'
+for p in $(pgrep -f "^sleep $((U+6))$"); do kill -KILL $p 2>/dev/null; done; until_true 10 'gone $((U+6))'
+# #9118 review 1: the DEFAULT grace (nothing set) outlasts a 12 s cleanup, longer than a side turn's 10 s stop.
+pre9118=0; free9118 || pre9118=1; rm -f $S/9118-cleaned
+qh9118 default "" bash -c "trap 'sleep 12; echo CLEANED > $S/9118-cleaned; exit 0' TERM; sleep $((U+5)) & wait"
+until_true 30 'grep -q "TURN: running t9118-default" $L9 && ! gone $((U+5))'; s7=$?
+kill -TERM $Q9; until_true 60 '! kill -0 $Q9 2>/dev/null'; r7=$?; o=$(cat $L9)
+ok "#9118: the default grace (60 s) gives a command's 12 s TERM cleanup its time" '[ "$pre9118" = 0 ] && [ "$s7" = 0 ] && [ "$r7" = 0 ] && [ "$(cat $S/9118-cleaned 2>/dev/null)" = CLEANED ] && [[ "$o" == *"KILL after 60s"* ]]'
+for p in $(pgrep -f "^sleep $((U+5))$"); do kill -KILL $p 2>/dev/null; done; until_true 10 'gone $((U+5))'
+# #9118 review 1: a grace written 08 is 8 s (base 10), not an arithmetic error inside the EXIT trap.
+pre9118=0; free9118 || pre9118=1
+qh9118 octal 08 sh -c "sleep $((U+6)) & wait"
+until_true 30 'grep -q "TURN: running t9118-octal" $L9 && ! gone $((U+6))'; s8=$?
+kill -TERM $Q9; until_true 40 'gone $((U+6)) && ! kill -0 $Q9 2>/dev/null'; r8=$?; o=$(cat $L9)
+ok "#9118: QUEUED_HEAVY_STOP_GRACE_S=08 is 8 s and the stop completes" '[ "$pre9118" = 0 ] && [ "$s8" = 0 ] && [ "$r8" = 0 ] && [[ "$o" == *"KILL after 8s"* && "$o" != *"value too great"* ]] && [ ! -e $S/m9118-octal/machine-claim ]'
+# #9118 review 1: with a terminal, the command stays in the wrapper's own process group (the foreground path). Control:
+# the same command without a terminal runs in a group of its own.
+printf '#!/bin/sh\necho "PG $(ps -o pgid= -p $$ | tr -d " ") $(ps -o pgid= -p $PPID | tr -d " ")"\n' > $S/pg9118; chmod +x $S/pg9118
+mkdir -p $S/m9118-tty $S/m9118-notty
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-tty perl -e 'alarm(60); exec @ARGV' script -q /dev/null /bin/bash $QH "t9118-tty" $S/pg9118 </dev/null 2>&1 | tr -d '\r\004\010')   # script's own stdin /dev/null: on a socket it fails (tcgetattr)
+o2=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-notty /bin/bash $QH "t9118-notty" $S/pg9118 </dev/null 2>&1)
+pg1=$(printf '%s\n' "$o" | sed -n 's/^PG //p'); pg2=$(printf '%s\n' "$o2" | sed -n 's/^PG //p')
+ok "#9118: with a terminal the command shares the wrapper's group (foreground); without one it has its own" '[ -n "$pg1" ] && [ "${pg1% *}" = "${pg1#* }" ] && [ -n "$pg2" ] && [ "${pg2% *}" != "${pg2#* }" ]'
+
+EXPECTED=151   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, nine #9118 main-turn stop arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
