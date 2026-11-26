@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8384: Settings > Computer on Linux reads Linux's own answers to the two questions the Mac rows answer.

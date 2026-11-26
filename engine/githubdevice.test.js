@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 // Both sandbox knobs BEFORE any require, travelling together per #527.
 const fs = require('node:fs');

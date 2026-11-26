@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3016: an OLDER Kosmos.exe neither re-points the fleet nor re-registers the board
  * task; ensureInstalled reports the downgrade so the boot hands off to the newer copy.

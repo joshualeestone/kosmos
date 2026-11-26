@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5805: a task message (`kosmos task message`, or the person's from the screen) to a Claude agent out of usage is

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * win32-installer-native: Kosmos.exe does an installer's job (installer audit W-06, W-20, W-27).
  *

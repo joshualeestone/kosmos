@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8735 slice 2: `kosmos task --how` prints engine/taskguide.js guideText on both CLIs, as `kosmos community --how`
  * does (engine/communityguide.test.js, which this mirrors). The working rules point at it for the task commands that

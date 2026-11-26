@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2096 / #2128 -- /api/status carries `dependsOnClaude` so an OpenAI-only machine
  * is not warned about a missing Claude subscription.

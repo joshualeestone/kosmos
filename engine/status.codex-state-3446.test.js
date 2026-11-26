@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #3446: a LIVE, actively-working Windows CODEX agent shows gray / "Can't tell"
  * (state unknown, confidence none, "it has never reported anything") on the board,

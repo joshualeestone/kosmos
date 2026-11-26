@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4583 (#4580 item 3): a project asks what done looks like at creation. (Item 4, a warning to the person when two

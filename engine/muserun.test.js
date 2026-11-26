@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #3939 slice 2: engine/muserun.js. A fake `muse` in a sandboxed home prints events in the shape
  * Homer captured on card #3939; the real Muse Code is never run here.

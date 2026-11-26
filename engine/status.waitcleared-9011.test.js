@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#9011 part 1: the real status.snapshot() puts waitCleared on the card from the agent's own record, on a pane
  * card and on a paneless (created, not running) card. engine/waitcleared-9011.test.js tests the pieces; this tests that

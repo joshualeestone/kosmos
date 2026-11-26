@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1704 PR4: engine/worldimport -- copying agents from one Kosmos into another, one
  * at a time, completely (profile, avatar, brief), into the target's own store and a

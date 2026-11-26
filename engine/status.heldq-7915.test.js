@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7915: a held report reaches the card the board builds, as stateHeld, from both card builders (snapshot's pane
  * card and panelessCard), so the card word reads "Question held". Real producers (test-support/fleet), each with an

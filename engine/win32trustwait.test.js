@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2281: detecting an agent stuck at Claude Code's workspace-trust prompt.
  *

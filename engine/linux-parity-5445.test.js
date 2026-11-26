@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5445 (Linux port B follow-ups): a stopped Linux agent stays on the board (its unit is listed as a plist is), the
  * board can read which units systemd switched off and which are running, a masked unit reads as masked, a test that

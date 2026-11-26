@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3391 subscription half: a Grok account signed in with `grok login --device-auth`
  * (auth.json, no key file). Covers identity + listing, the OFFLINE verdict, the free

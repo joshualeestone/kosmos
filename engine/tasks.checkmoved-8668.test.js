@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #8668: a check report's evidence holds 1000 characters (the built note's room, #8352), and an unmet check can say

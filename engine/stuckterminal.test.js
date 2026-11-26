@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5154 slice C: the bounded-retry logic for a recurring terminal error (engine/stuckterminal.js).
  * The anchor is on disk (store.ROOT/stuck) so forget is reachable from create/remove/delete-leftover;
  * the sandbox below points store.ROOT at a temp dir, as crashloop-5154.test.js does.

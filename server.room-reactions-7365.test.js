@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7365: a room read hands reactionsFor and claimOf only the post's own reaction rows, grouped once per request.
  * Before, each post's call walked the whole log, so a read was O(posts x log): a 5,500-post room took about 400 ms to

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8719 part 2: the page's side of "Link this window to Kosmos" (linkSubmit), run against a stand-in page and a
    stand-in fetch: the POST it sends, where a refusal and a success are said, the button while a request is out, and
    that it never pulls the person back to an agent they moved away from. */

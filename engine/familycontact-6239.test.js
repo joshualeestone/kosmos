@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6239 (first Kosmos+Kids slice): what `outside_contact: { enabled: false }` stops on the board, through the
  * policy as orgpolicy applies it (a signed bundle, as a company or a parent pushes it). The community: every sender

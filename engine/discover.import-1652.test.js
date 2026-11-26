@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1652 (reopened): the disk scan must find LOOSE IMPORTABLE agent files (an agent .md
  * a person downloaded or was sent, to bring in via the import flow), not only folders

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6176 slice 1: Claude's five-hour limit. The statusline already receives rate_limits.five_hour and used to drop it;
  * it now records it in its own file (kosmos-fivehour.json), and allowance.readFiveHour serves it. Driven the way

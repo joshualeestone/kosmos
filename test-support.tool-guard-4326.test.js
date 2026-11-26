@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #4326: test-support/tool-guard.js refuses a REAL gh / vercel / cloudflared and fails the file.
  * Nothing real is ever spawned here: the children run with a PATH of a harmless stand-in dir plus

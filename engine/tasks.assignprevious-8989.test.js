@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8989: assignPart says who held the part before a real move (`previous`), read inside the same write, so the
    board can tell the agent a part was taken from (server.js givePart). Not on a resubmit of the same holder, nor on a
    refused move. */

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8734 (feedback 11-19): three small Tasks CLI defects, each run here against a real board on a sandbox:

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4896: one folder is one agent. Connecting a folder another name already records was allowed, because every
  * check asked only about the NEW name. Both names then resolved to the same instructions file, so every one of

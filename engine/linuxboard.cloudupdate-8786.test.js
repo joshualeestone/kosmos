@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8786 S2: the Cloud box's nightly update units (engine/linuxboard.js cloudUpdateNames, cloudUpdateUnitsFor, and
  * their place in installBoard and removeBoard), without touching real systemd. What the run decides is

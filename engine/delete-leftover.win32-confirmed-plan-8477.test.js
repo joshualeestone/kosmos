@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8477: the leftover delete plans again when it runs, so what runs can differ from what the person confirmed.
  * On Windows, a dialog for a task left with no folder asks "Remove X's startup job?" (only the task goes, recoverable).

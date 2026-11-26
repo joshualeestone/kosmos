@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #718: the ship gate (Liu Kang, 2026-09-24). While engine/phonenotify.js's gate is

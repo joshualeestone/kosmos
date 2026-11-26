@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2584: the chatgpt-subscription REAUTH-IN-PLACE driver mode. Signing in again
  * AS an existing account must REFRESH it, never duplicate it (#1492) and never

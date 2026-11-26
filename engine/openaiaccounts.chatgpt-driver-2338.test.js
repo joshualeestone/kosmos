@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2338: the ChatGPT (subscription) sign-in DRIVER lifecycle -- spawn `codex login`
  * async into a fresh isolated CODEX_HOME, watch it, and on a clean exit hand off to

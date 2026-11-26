@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The TRANSMIT half of the daily product-feedback loop (kosmos#2037): the
  * separate, gated send layer over engine/feedback.js. Sending is ON by default

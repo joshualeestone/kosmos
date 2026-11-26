@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6692: the Windows updater takes the release key list (#6609) before it checks a release manifest, when a
  * recovery key is set, and checks the manifest with the LIST's keys. Off (no recovery key, as shipped): nothing more

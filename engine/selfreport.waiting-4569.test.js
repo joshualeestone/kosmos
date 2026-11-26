@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4569 fix 4: a busy Muse agent's queue ({ n, yours }) is kept on a working self-report, read back, and carried by
  * status onto the card while that report is fresh. Kosmos's count, checked here, never the agent's words.

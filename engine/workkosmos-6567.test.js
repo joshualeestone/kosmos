@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#6567 (follow-up from #6565): sentences that pass through neither the page's plusOrgIn nor the engine's inKind

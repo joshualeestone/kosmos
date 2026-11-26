@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6487, through the REAL GET /api/phone/notice route: the phone asks this computer for the words behind a
  * notification. A real report and a real direct reply are recorded the way the routes record them, then asked for by

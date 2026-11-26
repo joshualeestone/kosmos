@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5732 with the #5743/#5754 floor: the own-computer nudge types nothing into a Claude agent whose screen waits on a
  * permission prompt or the question menu (an Enter there would take the highlighted answer), and its gap is not spent,
  * so the next post nudges once the screen is idle. The harness is chat.menuhold-5743.test.js's: real screen captures,

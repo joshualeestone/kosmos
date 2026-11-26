@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #1373: the switch to OpenAI can be TOLD which sign-in, instead of stating a

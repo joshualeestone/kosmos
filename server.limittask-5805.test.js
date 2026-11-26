@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5805: the task message route, driven end to end. An assignee out of usage is kept (nothing typed, `delivered` says

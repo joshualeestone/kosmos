@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7835: on Windows the drive probe and the Recycle Bin move (Windows PowerShell) held the whole board while they
  * ran. planAsync and delAsync give the answers plan and del give, with those waits off the board. Driven from any

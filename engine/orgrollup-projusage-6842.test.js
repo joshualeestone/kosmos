@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6842 slice 3: per-project token use in the company rollup (engine/orgrollup.js projectUsageByDay,
  * readProjectUsage, build's projectUsage, and the daily-only, consent-only read in tick).

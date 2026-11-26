@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3861: subtasks over HTTP and from both `kosmos` commands. The engine rules (no loops, no

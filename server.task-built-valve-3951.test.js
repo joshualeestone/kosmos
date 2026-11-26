@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3951 (review rounds 5 and 7): the built route's valve, in a file of its own so the count is exact. With a cap of

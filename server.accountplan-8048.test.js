@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8048 item 3: GET /api/agents/account-plan, through the real board. What moving one agent to one Claude account
  * would lose (engine/accountcarry.js does the reading; engine/accountcarry-8048.test.js covers it). Here: the route

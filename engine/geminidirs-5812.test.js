@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5812: a Gemini agent's workspace includes the folders of the projects it is on
  * (engine/geminidirs.js), on the Mac at launch and on Windows at every turn.

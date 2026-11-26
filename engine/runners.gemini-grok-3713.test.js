@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3713: Kosmos installs the Gemini CLI and the Grok CLI itself, pinned and checksum-verified,
  * through the same install() as OpenAI's Codex. Two shapes are new here:

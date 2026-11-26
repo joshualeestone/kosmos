@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #1026: GET /api/accounts/openai/models?dir=<dir> serves the chat models a

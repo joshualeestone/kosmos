@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2528: the world-switch lockout guard. A non-default world whose board fails to
  * SERVE on THRESHOLD consecutive boots must be abandoned so the user is never

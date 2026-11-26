@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6616 (R01b, the board button): when this computer's Kosmos+ connector also serves /_kosmos/signin?fresh=1
    (its `capabilities` lists fresh-signin; kosmos-relay gatefresh-6616), a remote session's step-up refusal says so,
    and the board page offers one Sign in again button for it. Every arm here is on the function or on the page's own

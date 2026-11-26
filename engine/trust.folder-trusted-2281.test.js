@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2281 review r1: trust.folderTrusted -- the POSITIVE signal the supervisor uses
  * to tell a trust-dialog hang from a slow-but-healthy start. It must ask the exact

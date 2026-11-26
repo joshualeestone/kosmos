@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6609 phase 2c: `tools/lib/manifest-sign.js check-list`, which release.sh step 1c runs before anything is built. With a
  * recovery key pinned in the checkout, the cut's signing key must be on the release key list the site serves, or every

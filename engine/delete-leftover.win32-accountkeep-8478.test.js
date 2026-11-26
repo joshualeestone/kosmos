@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8478: on Windows the account folder a Claude or Codex agent runs on, and the model it was set to, lived only in
  * its Scheduled Task. So kosmos#8475's task-only leftover delete (which removes the task and keeps everything else, so

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5535 E0.6 slice (d): engine/backuptick.js, what a company backup covers (rootsFor, on real folders in a
  * sandbox, checked by the real snapshot's own root rules) and the tick (startTick, with a stand-in run and clock).

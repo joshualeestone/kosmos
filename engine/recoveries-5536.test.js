@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5536 (#5529: every recovery is shown to the affected employee unless offboarded): the member's Kosmos keeps
    the recoveries of its own backup that the company's full status answer lists (kosmos-relay #781, `recoveries`), so
    Settings can show them. [] means none; the field absent means the coordinator could not read its log, and the list

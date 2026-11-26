@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8790: download keys, through the real dispatch. A browser that sends no Sec-Fetch-Site (Safari before 16.4)
  * gets no board token from a Kosmos+ connector on a navigation, so the page mints a key with its marked fetch and

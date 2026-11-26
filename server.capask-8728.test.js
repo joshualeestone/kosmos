@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8728: a Mac that had just restarted (load ~150) refused the first remote action six minutes later with
    "cannot vouch ... update Kosmos". The connector's own answer was right; the board's one ask at tunnel start most
    likely did not answer in time, and nothing asked again until a person's request did, which was then refused.

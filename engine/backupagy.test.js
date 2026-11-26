@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5883 slice 3: engine/backupagy.js stages Antigravity conversations for the company backup. A real agy home in
  * a sandbox: conversation_summaries.db with workspace URIs, and conversation databases in WAL mode, as agy keeps them.

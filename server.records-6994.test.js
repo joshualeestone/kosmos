@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6994: the records routes. GET /api/project/:id/records lists a project's records with their age and the stale

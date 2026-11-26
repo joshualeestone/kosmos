@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // #2698: the org-chart view kept showing an agent's OLD profile image after an
 // update, because its avatar URL was bare and its repaint was skipped as
 // unchanged. store.avatarVersion gives the URL a value that MOVES when the

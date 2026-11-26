@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #1662: the installer's reachability check must be able to say NO.
  *
  * The shipped `reachable()` accepted every URL, including names that cannot

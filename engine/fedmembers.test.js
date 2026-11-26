@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // #4649: the owner's invites from an existing project, the Members list from outside, Remove and Withdraw. A stub
 // remote answers per route, so no test reaches a coordinator, and a temp data root keeps every record off a real store.
 const test = require('node:test');

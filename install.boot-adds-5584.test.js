@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5584: the install gate's "only expected files added" check (tools/test-install.sh, EXPECTED_ADDS) ran only
  * inside a release cut, so a PR that made the board write a NEW file at start merged green and failed the next cut

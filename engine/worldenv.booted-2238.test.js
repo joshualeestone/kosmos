@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2238: engine/worldenv captures the world the board BOOTED into, and that value
  * must NOT move when the registry pointer is later flipped by POST

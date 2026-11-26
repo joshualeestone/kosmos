@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3660 fallback (Josh, 2026-09-25 07:22): the setup assistant uses the person's own model, and falls
  * back to the hosted assistant only while their guide cannot answer (the three states #3723 surfaces).

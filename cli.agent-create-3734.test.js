@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3734: `kosmos agent create "<name>" <role> ["<why>"]` asks for a one-member team (POST /api/team) with
  * the agent's launch token, and says what the board answered: made, or refused with its reason. `kosmos

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8214 (feedback: an agent used `task built --file` to catch a file rebuilt without the task being marked again,

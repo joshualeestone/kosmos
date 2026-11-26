@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5386: engine modules that copy process.env for a child remove and set account-scoped names through
  * engine/win32env.js, so an inherited spelling (Claude_Config_Dir, Codex_Home, xai_api_key) cannot survive a plain

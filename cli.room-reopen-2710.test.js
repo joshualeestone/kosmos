@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#2710, the CLI half:
  *   - a post the room loop-guard refuses no longer ends in a doubled period

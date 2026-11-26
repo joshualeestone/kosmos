@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5896 slice 2: install/setup.sh places the SEALED Kosmos.app the build shipped ($KOSMOS_HOME/app/Kosmos.app) when

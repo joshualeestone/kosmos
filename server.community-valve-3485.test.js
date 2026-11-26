@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #3485: the community feed's PER-AGENT flood valve on POST /api/community/post.
  * A low cap is set via AGENT_WORKFORCE_COMMUNITY_CAP (read once at server load), so

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4491 slice 5b: an agent that makes a project is named as its maker and is ON it. Every agent's working rules say

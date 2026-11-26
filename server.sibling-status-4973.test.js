@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4973: a read of /api/status that another of the person's computers' pages caused (Sec-Fetch-Site same-site or
  * cross-site; the #4812 relay passes that header through) gets the agents only: sessionName, name,

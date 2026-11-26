@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8724: register.repair({ only, linked: true }), the job half of "Set up and restart" for a window the person

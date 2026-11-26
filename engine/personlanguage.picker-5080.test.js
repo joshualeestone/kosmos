@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 // #5080: the person's choice in Settings ("The language your agents write to you in"). Every root sandboxed BEFORE any
 // require, the same rule personlanguage.test.js states, so the choice file is never the real one.

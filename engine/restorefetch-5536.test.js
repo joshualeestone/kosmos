@@ -5,6 +5,7 @@
  * distinct keys, each of the request's epoch and the manifest's period) and the store is a fake that serves presigned
  * URLs and lets them expire.
  */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');

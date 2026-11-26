@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6468 ask 3: an update checks the installer script against the target version's SIGNED manifest before it runs it.

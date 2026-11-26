@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8415: a Windows supervisor records its own presence (engine/win32presence.js), so an agent whose supervisor
  * is up BETWEEN Claude children reads as running unseen ("could not check"), not "Not running", and an agent whose

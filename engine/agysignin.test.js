@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3998: the hidden Antigravity sign-in, driven end to end through a REAL tmux (on a private socket)
    against test-support/fake-agy-signin.sh, which prints agy 1.2.11's screens in the same words and
    logs every key it was sent. Nothing here reaches Google or the person's own agy. */

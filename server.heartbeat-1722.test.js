@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #1722: the Settings > Automation heartbeat setting routes. GET returns the
  * in-force value (the setting file the runner reads, no second copy) plus the
  * closed interval choices; PUT takes an on/off change, an interval change, or

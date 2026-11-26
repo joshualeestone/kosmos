@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8952 slice (c), through the REAL routes: a permission prompt whose box top scrolled away is never approved
  * (server.permscroll-8952.test.js), but its own No can be pressed. The thread serves `denyOnly` on the live question row

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4491 (proof of concept): on an enforcing board, an agent reaches its everyday routes with ONLY

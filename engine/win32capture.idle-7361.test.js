@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #7361: a new Windows agent's card stayed "working" for five minutes after its first reply (the 0.7.71 V2 run). Its
  * first turn's hook wrote the automatic `working` and the Stop hook's `idle` never landed; the supervisor's stream file

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#2509: board.token must be resolvable across the #2439 store-leaf rename
  * (AgentWorkforce -> Kosmos). A `kosmos` CLI bundle predating #2439 resolves the OLD

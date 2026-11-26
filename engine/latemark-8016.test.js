@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8016: a `kosmos msg` the board kept (here behind a stuck input box, #6774) and typed later says so, as it

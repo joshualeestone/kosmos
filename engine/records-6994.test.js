@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6994: a project's records (engine/records.js). The routes and the two CLIs are covered in

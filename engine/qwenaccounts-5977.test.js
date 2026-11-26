@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5977: Qwen accounts. An account is ~/.kosmos-qwen-<label> holding kosmos-endpoint.json (mode 600). These pin what
  * is stored, what is listed, the live check's verdicts, and the guards on forgetting and removing an account.

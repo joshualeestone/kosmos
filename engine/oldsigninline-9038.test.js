@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#9038: a sign-in line from before the account's last sign-in stops recording refusals on the account check's
  * re-check ticks, and nothing else changes. Drives the real snapshot() through test-support/fleet, with the account

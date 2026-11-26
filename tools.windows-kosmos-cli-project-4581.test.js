@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4581: `kosmos project list` / `show` on the Windows CLI, the parity half of cli.project-show-4581.test.js. fetch
    is injected (tools.windows-kosmos-cli-570.test.js's harness); the renderer is the real engine/projectview.js. */
 const fs = require('node:fs');

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6249 (0.7.70 report, after #6780): delivered messages sat unsent in idle agents' input boxes, and the log said Enter

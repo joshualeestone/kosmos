@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5948 step 2: an account an agent is set up to use stays listed, as signed out, when its sign-in or key is gone.

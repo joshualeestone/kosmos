@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6178: Settings > AI Models shows the accounts on the person's OTHER computers, read by this browser from each
  * one (the #4812 sibling read). These run the SHIPPED ao* functions from web/index.html (lifted, as

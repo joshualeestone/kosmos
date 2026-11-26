@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7989 slice 2: `kosmos project who <file>` on the Windows CLI, the parity half of cli.project-who-7989.test.js.
    fetch is injected (tools.windows-kosmos-cli-project-4581.test.js's harness); the answer is a real filewriters.about
    answer and the renderer is the real engine/filewhoview.js. */

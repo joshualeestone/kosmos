@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #7247: a test run on a Windows computer is kept off its real Task Scheduler by tools/no-schtasks-preload.cjs, which
  * tools/windows-tests.js (and tools/run-tests.sh, through it) load by themselves there, except on CI and when

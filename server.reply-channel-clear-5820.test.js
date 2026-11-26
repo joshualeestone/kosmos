@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5820: the person sees an agent's declared reply channel (#5805 part 2) on its page and can clear it. Over HTTP
  * on a sandboxed board: /api/status carries `replyChannel` on an agent that declared one and on no other, the page's

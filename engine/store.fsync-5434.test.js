@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5434 slice 4: store.js's saves (writeProfile, writeSettings, saveAvatar, keepAvatarOriginal) go through
  * securewrite.writeSecret, so the bytes are flushed to disk BEFORE the rename makes them the file (#5431), an existing

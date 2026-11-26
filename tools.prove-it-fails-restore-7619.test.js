@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7619: tools/prove-it-fails.sh, killed mid-run, restores the tree. On 10-30 the tmux server died and sent a
    hangup to every run in every pane; a mutation run that dies holding its break leaves it for the next commit. The tool
    runs here in a throwaway git repo of its own (a copy of the script, a file to break and a slow test), and is sent

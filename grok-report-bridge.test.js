@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * The grok report bridge (#3391), the stdin analog of gemini-report-bridge.test.js /

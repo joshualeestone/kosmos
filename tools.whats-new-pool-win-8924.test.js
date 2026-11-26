@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8924: a Windows-only highlight (tagged windows, not mac) is never shown by the Mac, so the Mac sync (#5713)
  * can never retire it; it used to be retired by hand. `build` now also reads what WINDOWS prod serves (latest-win.json,

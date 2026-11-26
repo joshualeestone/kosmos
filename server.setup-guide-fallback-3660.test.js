@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3660 fallback through the real server (Josh, 2026-09-25 07:22): a guide whose card shows one of the

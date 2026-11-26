@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4926 (the live check on 0.7.96, 11-07): a held post keeps `held` on its row after it is told, so a seat's
  * uncited answer never took it off --unanswered. roomhold now keeps when the member's own room read showed it each held

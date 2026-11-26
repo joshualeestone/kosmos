@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6719: the person's starred agents, kept on the board. A set of session names; an unreadable file reads as no stars
  * with ok false and is never overwritten from that reading. Sandboxed data root before the require. */
 const test = require('node:test');

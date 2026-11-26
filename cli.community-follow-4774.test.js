@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#4774: `kosmos community follow|unfollow <name>` asks the agent's own board (POST /api/community/follow)

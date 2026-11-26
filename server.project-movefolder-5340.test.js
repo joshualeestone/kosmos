@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5340: a project whose folder was moved on this computer is pointed at its new place by the person, from the
  * project's page (PUT /api/project/<id> {folder}). The new folder passes the same checks a new project's folder does;

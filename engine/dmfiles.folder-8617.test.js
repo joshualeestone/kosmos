@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #8617 (feedback, two installs): an agent's Files folder is made when the agent is, and for an agent made before
  * that, when the files block is written (the boot sweep), instead of waiting for the agent's first save.

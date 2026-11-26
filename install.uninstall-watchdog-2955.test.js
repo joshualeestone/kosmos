@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // #2955: --uninstall must remove the board WATCHDOG login job, not only the
 // board's. The watchdog is a second LaunchAgent added by this change; if the
 // uninstall left it behind it would wake on its interval and keep trying to

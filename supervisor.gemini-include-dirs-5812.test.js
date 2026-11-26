@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5812: bin/agent-supervisor.sh launches a gemini agent with --include-directories for each
  * folder of a project it is on (engine/geminidirs.js). This EXECUTES the shipped script from a

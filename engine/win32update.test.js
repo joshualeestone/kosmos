@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * win32-update-stage (updater slice S2): `prepare()` downloads, verifies and stages a Windows
  * build, and never swaps it in.

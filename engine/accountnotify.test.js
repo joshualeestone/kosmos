@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3723 slice 2: engine/accountnotify.js tells the person's project manager once per incident.

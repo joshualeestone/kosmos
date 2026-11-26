@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#5820: the agent page says where an agent says it answers the person (card.replyChannel, #5805 part 2) and

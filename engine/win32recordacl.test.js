@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6692: the release key list's record on Windows is the person's alone: only they, SYSTEM and Administrators may
  * reach its folder. The rule (judge) everywhere; the real access list read on Windows.

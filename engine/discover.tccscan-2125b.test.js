@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3 / #2125: scan() routes the TCC-protected roots through the app-identity hatch instead of
  * walking them in the engine (which re-prompts). This pins the ENGINE half of that seam:

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7989 slice 3: `kosmos file-notices [--hook]` takes the agent's own file-owner notices (POST

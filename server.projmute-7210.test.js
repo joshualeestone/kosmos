@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7210 (Josh, 2026-10-26: "mute projects so that I can select the notifications on a project-by-project
  * basis"): a project's notification level, All / Mentions only / Muted, kept on the board's project record.

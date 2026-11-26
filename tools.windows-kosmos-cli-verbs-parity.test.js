@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * win32-cli-verbs (convention 5): every verb Kosmos teaches an agent exists in the
  * Windows agent's `kosmos` (tools/windows/kosmos-cli.js), and the Windows command

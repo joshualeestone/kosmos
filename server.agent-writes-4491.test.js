@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4491 slice 5: `kosmos task add` and `kosmos task close` answer to the agent's own token. The board names the

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #6563: `kosmos update` appended the installer's console to install.log while the installer already writes every
  * line there itself, so each line was logged twice. The installer now honours KOSMOS_LOG_FILE_ONLY=1 (file copy

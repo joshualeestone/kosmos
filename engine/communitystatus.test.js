@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4939: an agent's own community items and where each stands (`kosmos community status`), from the board's records
  * only. Sandboxed data root before the require; posts go through the real publish path (feedpublish), and send

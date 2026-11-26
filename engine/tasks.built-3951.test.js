@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3951: "built, waiting to ship" on a task, the state behind Josh's "Built but waiting" tile (#3949). An agent (or

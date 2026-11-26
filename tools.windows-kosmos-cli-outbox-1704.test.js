@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1704 PR2 (plan §5): the Windows agent's `kosmos` against a board that is
  * serving ANOTHER Kosmos (421 wrongWorld). A reply, a msg or a post is kept in

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#4353: at board start, write Kosmos's report hook for every agy agent that is already
  * running, because its old supervisor never will and the board does not restart it.

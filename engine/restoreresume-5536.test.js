@@ -4,6 +4,7 @@
  * restore skips what is already there (engine/backuprestore.js has(), engine/restorerun.js's plan). Real
  * filesystem, real snapshot; only the store, the coordinator and the clock are fakes.
  */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');

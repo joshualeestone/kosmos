@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /*
  * #3424 RE-VERIFY HARNESS for the #2129/#3383/#3406/#3417 trust fix.

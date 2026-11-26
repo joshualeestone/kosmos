@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1618, doors half: the Connections shelf is read once however many callers ask
  * at once, and a mutator still observes its OWN write.

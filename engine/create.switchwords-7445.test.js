@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #7445: a switch between two runners that are not Claude Code (Codex to Gemini, Gemini to Grok, ...) loses the

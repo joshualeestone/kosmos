@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * win32-board-copy (parity P0-6, installer audit W-19): a project's folder and files
  * open in File Explorer on Windows.

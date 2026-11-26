@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6590 (S-7d branch c, c1a): the typed-code Allow's routes, against the real server with the engine's calls
    replaced so a call that got through is seen. Reading the waiting browsers needs a loopback connection no forwarder
    touched; acting on them also needs the request made on this computer (loopback Host and Origin) by a person at the

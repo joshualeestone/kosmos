@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7514: a close asked withBuilt also closes the built subtasks; a plain close names those left; both commands (Mac install/kosmos,

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8024: opening an agent's chat acknowledges the needs-you pushes it holds, through the real routes.
  *

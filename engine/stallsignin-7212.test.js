@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* #7212 slice 3: a stuck Claude agent whose own account was signed out says so, from at most one live check of that
    account per hour (engine/stallsignin.js), read as the AI Models badge reads it (observed.verdict). */

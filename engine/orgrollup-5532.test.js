@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5532 (Enterprise E0.3): the rollup body. Pure: no file, no network.
  * The card's done-when includes "no rollup field can carry chat or file text": build() is handed only plain fields,

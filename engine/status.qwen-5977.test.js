@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5977: a Qwen agent runs on the codex runner with a Qwen account (an endpoint folder, no auth.json) as its account
  * home. None of the OpenAI sign-in paths may judge it: the live-auth probe leaves it unjudged, the signed-out list

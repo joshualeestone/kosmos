@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7835: the async runner the Windows drive probe and Recycle Bin move go through, driven against the real
  * Windows PowerShell. Every other #7835 test stubs PowerShell, so only this file shows that a real run answers: its

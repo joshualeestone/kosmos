@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // #3311: the board's federation calls and link record, with a stub remote so no
 // test reaches a coordinator, and a temp data root so none touches a real store.
 const test = require('node:test');

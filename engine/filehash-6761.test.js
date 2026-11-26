@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6761: the background fingerprint cache for Files rows (engine/filehash.js).
  *   node --test engine/filehash-6761.test.js */
 const fs = require('node:fs');

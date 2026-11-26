@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8917 (feedback, 2026-11-22): `kosmos project show` printed "N open (M built)", counting built and held tasks as
    open, while `kosmos task list <id> --state open` excludes both, so "no open tasks" from one meant nearly the opposite
    of the other. The summary now counts the task list's own groups (open, built, held, done) by the list's own rule

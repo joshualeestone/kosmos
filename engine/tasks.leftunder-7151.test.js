@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7151 (feedback: tasks left behind by finished cycles pile up across releases): tasks.leftUnder and

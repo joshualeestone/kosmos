@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8710 slice 3: a hand-over pack, end to end. engine/backupsnapshot.js takes it with input.handover through the
  * REAL uploaders (engine/backupupload.js, hand-over layout) to a local bucket, behind a coordinator stub in the shape of
  * kosmos-relay's /v1/mac/org/handover/grant and /manifest (slice 2). Then the successor's side opens it through the

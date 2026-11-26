@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* Mona's look review of #3701 (the Tasks view, #3559): each thing said once per row, the Assigned
  * row in Josh's words where that is true, no Closed tile, and the two big gaps halved. The row is
  * the REAL tskRow lifted from web/index.html; "never reported" is the engine's field, end to end.

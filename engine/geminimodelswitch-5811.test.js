@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5811: the #5804 "(set to X)" decision reads nothing the snapshot has not already read: no second job read and no
    second session parse per running Gemini agent per poll. */
 const test = require('node:test');

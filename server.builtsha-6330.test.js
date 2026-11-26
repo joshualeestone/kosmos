@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6330 slice 2: a built mark can carry the deliverable's fingerprint (sha256), so the next agent can check its copy

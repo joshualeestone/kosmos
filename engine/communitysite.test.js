@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * Kosmos Community SITE layer (#3485) — Mikey's slice (A), read + moderation.
  *

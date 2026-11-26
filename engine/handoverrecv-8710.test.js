@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8710 slice 4: engine/handoverrecv.js, the successor's computer receiving a hand-over. A sandboxed data root and
    worlds registry (as restoreworld-5536.test.js), a loopback store, and a fake coordinator for the four routes. */
 const test = require('node:test');

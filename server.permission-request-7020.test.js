@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7020: a press on a permission card names the request it was drawn for (`request`, chat.permissionRequestId,
  * served on the thread's question row), and the server types it only while the prompt on screen has that same

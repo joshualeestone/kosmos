@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4649: the owner's outside-invite routes, end to end through server.js, with the connector stubbed

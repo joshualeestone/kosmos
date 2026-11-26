@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /*
  * #2808 class-1 (c) ARMED sweep, against REAL reconciled cards.

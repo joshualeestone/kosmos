@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8735 slice 7: `kosmos agent --how` prints engine/agentguide.js guideText on both CLIs, as `kosmos claim --how`
  * does (engine/claimguide.test.js, which this mirrors). The #4474 new-role asserts moved here from engine/roles.test.js.

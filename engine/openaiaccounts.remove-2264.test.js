@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #2264: DELETE AND REMOVE an OpenAI account. forgetAccount renames it aside
  * (the sign-in survives, and it CAN forget the default); removeAccount DELETES
  * the directory and REFUSES the default, because deleting the default codex home

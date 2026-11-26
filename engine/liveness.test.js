@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * Liveness: the pane's OTHER job, and the one arm that keeps it from becoming
  * a state report.

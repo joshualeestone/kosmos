@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6231 item 6 (follow-up to #6214): the stop route and the moveStoppable note, driven through the REAL board's routes
  * rather than read in server.js as text. The move itself is the engine's (engine/accountmove-stop-6214.test.js covers

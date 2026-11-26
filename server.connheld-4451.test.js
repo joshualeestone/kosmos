@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4451: agents know the Connections tab, can MARK a service they connect, and read what is
  * connected CHEAPLY.

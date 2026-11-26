@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3296/#3391 accounts slice: bin/agent-supervisor.sh injects the PER-ACCOUNT key
  * into a gemini/grok pane. This EXECUTES the shipped script with a recorder fake tmux

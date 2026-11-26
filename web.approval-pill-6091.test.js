@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6091 (follow-up to #6054): while a Claude agent waits on its permission prompt, its status pill read "Issue", which

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4530: on a Mac, a run's sender token must stop being a credential once that run is over.
  * Before this, nothing retired it (only the Windows path called retire), so every past launch

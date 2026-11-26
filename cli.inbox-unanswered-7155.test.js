@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7155: `kosmos inbox --unanswered` and `--since <time>` reach the board as the same query from the Mac CLI and

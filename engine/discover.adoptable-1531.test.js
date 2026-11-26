@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * THE FOLDERS A PERSON COULD ADOPT, NOT JUST HOW MANY (#1531).
  *

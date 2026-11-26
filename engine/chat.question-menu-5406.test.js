@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5406 part 2: Claude Code's question menu (its question tool) takes an answer only by key. Measured on Claude
  * Code 2.1.29x: a bare digit selects at once; the message path's paste is ignored and its Enter takes the HIGHLIGHTED

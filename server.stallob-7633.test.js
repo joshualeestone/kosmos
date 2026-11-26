@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7633: the stall push skips an agent only when the own-bounds sweep TOLD the person, within a day, that its idle

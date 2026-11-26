@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6713: a board started from a source checkout or a worktree that adds or reconnects an account in the REAL
  * home must leave that account's Claude settings alone (its hooks and statusline would name its own throwaway

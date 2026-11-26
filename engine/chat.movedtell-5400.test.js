@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5400: the failover's "your part was moved" notice rides on whatever Kosmos next types into an owed agent
  * (chat.setMovedTell). Its own file, with chat.test.js's sandbox and scripted tmux, so every "typed" below is measured
  * on the argv handed to tmux, never on a real pane. Cards come from test-support/fleet.

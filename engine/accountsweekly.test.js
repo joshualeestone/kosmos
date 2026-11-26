@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6178: the weekly facts per Claude account, shared by /api/accounts and /api/status. */
 const test = require('node:test');
 const assert = require('node:assert/strict');

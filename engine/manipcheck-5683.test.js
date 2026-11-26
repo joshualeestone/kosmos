@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5683 slice 3: the on-device manipulation check, in slice 1's one transcript pass (engine/agentevents.js). */
 const test = require('node:test');
 const assert = require('node:assert/strict');

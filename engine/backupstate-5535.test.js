@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // kosmos#5535 E0.6 slice (c), first half: what one backup run keeps for the next (engine/backupstate.js).
 const test = require('node:test');
 const assert = require('node:assert/strict');

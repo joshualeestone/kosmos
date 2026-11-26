@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6468 ask 1: install/setup.sh's update_signer_ok refuses a downloaded update whose signed parts are not signed like

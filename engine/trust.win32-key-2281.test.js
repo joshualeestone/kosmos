@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2281: the trust key Kosmos writes must be the spelling Claude Code READS.
  *

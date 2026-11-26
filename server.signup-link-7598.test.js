@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7598: GET /api/remote names the account-only sign-up on the coordinator this board signs in to, so the code
    step's "Create an account" goes there and not to the pricing page (a company member's seat is already paid for by
    the company, so buying there pays for nothing). Against the real server; the page's half is

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6265: `kosmos feedback triage` with no --dir read this computer's own daily reports, not the folder
    `kosmos feedback pull` had just filled, and said nothing about which it read. Now it reads the pulled folder when it
    holds reports, else its own, and every run names the folder it read (both commands print the notes on stderr). */

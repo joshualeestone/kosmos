@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2255 (agent-delivery): `kosmos react <project> <postId> <emoji>` posts to
  * /api/react as THIS agent. The route + engine (the toggle, the membership gate,

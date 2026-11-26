@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1618: the Claude-account sweep is collapsed too, not only the OpenAI one.
  *

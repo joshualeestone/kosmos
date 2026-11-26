@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1574: the 281MB confirm is decided by the SERVER, in the same call that would
  * start the download, so a stale client cannot skip it.

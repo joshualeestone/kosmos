@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3953: the supervisor's own "a live agent is running here" allowlist (bin/agent-supervisor.sh) had no
  * Grok names, so a supervisor re-run against a live Grok agent read its `grok-native` pane as a crashed

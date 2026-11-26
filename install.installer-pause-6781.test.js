@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#6781 (O04-5c): the fleet's update pause holds the installs that do not pass run-setup. install/setup.sh asks

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3296 / #3391: installJob (the backfill / adopt / repair / import path) now writes a

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8724: "Set up and restart" writes a launch job for a window the person linked to Kosmos by hand, and writing
  * the job starts its supervisor at once, while that window is still live. The supervisor must adopt the window (leave it

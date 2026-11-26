@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#2125: the disk scan must NOT enter the TCC-protected home folders
  * (Documents, Downloads, Desktop). On a fresh macOS user, deep-walking ~/Documents

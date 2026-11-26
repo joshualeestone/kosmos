@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7152 slice 1: engine/usagepoll.js reads each Claude account's usage from the usage endpoint, idle accounts
    included, and accountsweekly prefers the newer of that reading and the status line's. No real credential and no
    network: the Keychain reader and the HTTPS request are injected. */

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8071 review 1: POST /api/agent/<name>/restart does not start a removed agent again. The route passes
  * startIfDead, and on Linux a removed agent's kept job could be started; the page offers no Restart for one, and the

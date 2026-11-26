@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3441 - the Windows supervisor's persisted, bounded, redacted event log.
  *

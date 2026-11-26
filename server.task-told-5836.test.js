@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // kosmos#5836: last verified (a run's --value) and last communicated (kosmos task told), and the check between them,
 // through the real server (setup as server.task-repeat-4787.test.js).
 const os = require('node:os');

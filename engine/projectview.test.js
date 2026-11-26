@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4581: engine/projectview.js, the payload and the words `kosmos project list/show` print on Mac and Windows. */
 const fs = require('node:fs');
 const os = require('node:os');

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#1765: the board's routes for "this board runs from a folder other people on this PC may be able to change".
  * A real board in a sandbox, as server.storecheck-7248 does. From a source checkout there is no bundle root, so the

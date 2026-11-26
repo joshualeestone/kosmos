@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4624: an agent's `idle` report (its turn ended) tells it, in one typed line, about the room posts

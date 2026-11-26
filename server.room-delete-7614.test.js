@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7614: the person deletes one of their own room posts. It leaves the room for every reader (and its reactions
  * go with it), a copy still held for a busy member is dropped and never delivered, and a member that was given it (typed,

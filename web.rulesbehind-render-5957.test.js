@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5957 slice 2: a RUNNING idle card and list row draw the far-behind sentence through the real card() and
    lrow() (evaluated from the real page region, STATE_COPY through lrow, as web.connection-lost-3410.test.js does), so
    dropping `card: true` at either call site cannot leave the lifted stateReason tests green alone. */

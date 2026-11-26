@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5534 (Enterprise E0.5): the board verifies the coordinator-signed company policy bundle, refuses a tampered, foreign,

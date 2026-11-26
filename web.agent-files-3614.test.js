@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3614: the agent page's Files block, as #3757 reshaped it (no section while there are no files;
  * View All with any file, even one (#3994); Open in Finder on the Files screen). Placement is checked on the shipped markup (directly under
  * the four-pack, inside the left column); the painter is the REAL function lifted from

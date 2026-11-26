@@ -2,6 +2,7 @@
  * kosmos#5536 (E0.7) step 3: engine/restoresink.js meets each sink duty engine/backuprestore.js states, measured on
  * the real filesystem. Each refusal has a working control.
  */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');

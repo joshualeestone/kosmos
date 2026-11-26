@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5531 (Enterprise E0.2): enrolling ONE work Kosmos, with consent before anything binds.
    Done-when (the card): on a board with two worlds, enrolling one sends nothing about the other (every outbound
    payload is read), and declining sends nothing at all. Every world here is its own temp data root, as

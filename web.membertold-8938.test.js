@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8938: a company member's own Kosmos says it is the company's. This lifts the page's real functions and runs

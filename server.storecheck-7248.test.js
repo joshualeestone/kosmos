@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7248: at board start, Kosmos names any of its own JSON stores that a crash left empty, filled with NUL bytes

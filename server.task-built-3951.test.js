@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3951: POST /api/project/:id/task/:n/built, and `kosmos task built` on Mac (install/kosmos) and Windows

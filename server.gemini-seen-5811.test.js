@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #5811: `geminiSeen` is the snapshot's input to the #5804 "(set to X)" decision. /api/status takes it off every row
  * before the page gets it (and safeRoster off every roster row), and still sends the decision (settingModelName). CONTROL: the snapshot the

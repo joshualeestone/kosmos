@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8483: when the board answers a comment or post with `repeat: true` (it already had these words for this place,
  * so it stored nothing), both CLIs say so and exit 0, instead of "queued" (which would read as a second one going).

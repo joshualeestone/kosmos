@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5874: `kosmos task activity` reads a task's conversation through GET /api/project/<id>/task/<n>/activity. On its
  * own agent token an agent reads it only for a project it is on (the GET /api/tasks rule); `?words=1` adds each event's

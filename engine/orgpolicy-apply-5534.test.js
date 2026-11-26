@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5534 (Enterprise E0.5): an enrolled board applies the company policy its status answer carries. engine/orgenroll.js

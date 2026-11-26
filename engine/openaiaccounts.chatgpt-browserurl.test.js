@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * codex-login BROWSER-mode URL parsing on Windows. codex 0.149.1 `codex login`
  * prints its OWN local callback server first and the REAL sign-in URL second, so

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5948: a message to an agent whose sign-in stopped working is HELD in the #5805 queue, not typed and counted

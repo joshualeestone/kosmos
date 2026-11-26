@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* #1402. The property under test is that the directory is GONE AFTER THE
    PROCESS EXITS, which no in-process assertion can observe: the handler has not

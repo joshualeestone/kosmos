@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4382, the Windows half: a computer that connects to agents on another computer updates, and rolls
  * back, with no board (engine/win32connectupdate.js).

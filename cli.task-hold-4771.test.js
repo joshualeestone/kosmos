@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4771: the Mac CLI's `kosmos task hold|unhold` and the "[on hold]" marker in `kosmos task list`, driven against a
  * fake board (the Windows twin is tools.windows-kosmos-cli-570.test.js). The harness is cli.task-2662.test.js's.

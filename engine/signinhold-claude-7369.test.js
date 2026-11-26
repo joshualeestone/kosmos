@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #7369 (Mac): a Claude agent whose screen shows its sign-in being rejected ("Sign-in Issue") has its messages HELD in

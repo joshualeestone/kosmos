@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7915: `kosmos report needs_you --held '<question>'` sends `"held":true` to the board; anything else sends
  * `"held":false`; --held on any other state is refused before any request. Both CLIs, each against what reached the

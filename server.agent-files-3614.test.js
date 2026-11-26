@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3614 items 1, 2, 4: the agent page's Files routes, against a real sandboxed board.
  * GET /api/agent/:name/files, POST .../files/open, POST .../files/reveal. The opener is the
  * injected reveal runner, so nothing opens on this machine.

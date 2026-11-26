@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* The board's ensure tick (Josh's fresh Mac, 2026-08-26 08:50: "The board has
    not started the tunnel" after sign-in, every precondition true, no child).
    engine/remote.js starts the tunnel only when somebody calls ensure(); if

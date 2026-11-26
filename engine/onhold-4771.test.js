@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4771 (a real user's lead agent, relayed by Josh 2026-09-30): the Prompter and the Assigner pushed agents onto work the
    person had put on hold. A task can now be ON HOLD and a project PAUSED; neither automation touches held work, and it
    reads as "held" on the Tasks view. Every "not touched" below has a control: the same task, not held, is touched. */

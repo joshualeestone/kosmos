@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5946: tools/doctrine-past.js keeps what the default branch's table already holds, and reads only the default
  * branch's history. Run against a throwaway git repository holding a stand-in engine/defaults.js, so it touches

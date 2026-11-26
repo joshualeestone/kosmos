@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5535 E0.6 slice (d): engine/backuptick.js inputsHere, the real sources (profiles, the workers root, the
  * projects file, the config roots), in a sandboxed data root, workers root and projects root. Its own file because

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3997: an idle, signed-in Claude account shows its login as good ("Signed in · login good until <date>"), read
    from its own login date. Ruling C (09-28) drew it neutral; ruling A (Josh, 10-02) draws it green.
    The login-date reader is injected (claudeloginlive.setReaderForTests): no keychain is read. */

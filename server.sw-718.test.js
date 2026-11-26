@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #718, the push third: the service worker is served AT THE ROOT, AS A WORKER.

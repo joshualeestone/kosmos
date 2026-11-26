@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8137: both CLIs say who is still to finish on a task with several agents, in `task list` and when an agent marks
  * its part built. install/kosmos against a stub board, as cli.agent-token-verbs-4491.test.js; the Windows CLI through its
  * own main, as tools.windows-kosmos-cli-570.test.js.

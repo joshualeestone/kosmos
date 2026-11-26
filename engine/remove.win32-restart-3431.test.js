@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3431 + #6183: the win32 restart path VERIFIES the supervisor came up, and (as of #6183) runs
  * its commands as ASYNC STEPS so an account-move restart does not block the board thread.

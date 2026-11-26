@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#1676. The "Who you report to" block is written into every agent's
  * instructions, and NOTHING asserted a word of it. PigeonPete measured that

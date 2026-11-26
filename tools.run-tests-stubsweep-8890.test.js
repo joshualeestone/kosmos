@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8890: a run of tools/run-tests.sh that is stopped part way stops the processes its tests left running inside
    its own run root (kt<pid>), such as a test's stub server, which otherwise outlive the folder re-parented to init and
    hold their ports. In the two run arms, the CONTROLS (stubs under kt<pid>9 and another root, and an observer naming

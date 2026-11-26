@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8877: a card blocked by Claude Code's own usage-limit report says so as a field (limitReported), and the usage
    mover's at-limit rescue acts on it, through the decision's own risk rules. The card is the real one: the report through
    selfreport.record (as kosmos-report-hook.js now records a real stop), the screen through the real snapshot, using the

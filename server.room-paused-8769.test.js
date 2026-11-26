@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8769 item 3: GET /api/project/:id/room?as=text, the view `kosmos room` prints and agents read before they post,
  * says when agents waking each other is paused in that room (roomloop.readerNote), and not when it is not.

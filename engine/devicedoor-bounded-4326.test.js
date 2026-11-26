@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #4326: the door's status probe must ALWAYS end. execFile's `timeout` sent SIGTERM and nothing
  * after it, so a CLI that ignored SIGTERM kept running with its callback never called (a

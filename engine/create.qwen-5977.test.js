@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5977: an agent can be switched onto and off Qwen (provider `alibaba`, the codex runner pointed at a Qwen
  * account's endpoint). OpenAI and Qwen share the codex runner, so the provider a job runs on is read from the job

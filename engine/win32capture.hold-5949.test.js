@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5949: a healthy Windows Claude agent flipped to "Can't tell" on ONE failed status read,
  * every Claude card at once, with no reason anywhere.

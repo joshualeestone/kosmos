@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6921 (agent feedback 10-22): a task title over SENTENCE_MAX made the add fail outright, so the agent had to retry.
  * Now the title is shortened and the whole of it goes first in the detail; the add answers with a note saying so. Pure

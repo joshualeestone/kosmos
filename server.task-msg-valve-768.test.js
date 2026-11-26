@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * The task-message valve (#768): a PROCESS (an agent running `kosmos task message`)

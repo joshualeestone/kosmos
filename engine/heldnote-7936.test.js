@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7936: a `kosmos msg` kept because its recipient's input box held text not yet sent was kept for a day, and

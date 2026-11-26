@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5688 (Josh, 2026-10-09 08:45): a project showed a red Issue, and its page never said what the issue was or how to

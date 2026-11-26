@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5811: what status.snapshot() puts on a running Gemini agent's card for the #5804 "(set to X)" decision, read end to

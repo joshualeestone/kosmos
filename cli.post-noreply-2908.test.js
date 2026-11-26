@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #2908: `kosmos post --no-reply <project> <text>` marks a room post an acknowledgement, so a

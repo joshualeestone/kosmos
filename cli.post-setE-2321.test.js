@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2321: `kosmos post` must REPORT a curl failure, not abort silently.
  *

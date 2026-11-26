@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2662: the `kosmos task` verb (list/add/close) is security-critical -- it carries
  * the board token to the board -- and it reproduces cmd_post's two load-bearing

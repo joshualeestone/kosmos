@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6473: the tmux bundle the Mac installer fetches is held to the tmux_sha256 of the target release's SIGNED manifest,

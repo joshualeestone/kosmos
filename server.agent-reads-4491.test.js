@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4491 slice 4: three READS an agent already makes every day with the board token (`kosmos agent roles`,

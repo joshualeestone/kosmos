@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1704 / #2827 / #2828 (Mac): an agent's launchd label, plist path and tmux
  * session are keyed by its Kosmos, and the DEFAULT world is unchanged byte for

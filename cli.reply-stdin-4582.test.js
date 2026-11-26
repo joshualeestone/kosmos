@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4582: `kosmos reply --stdin` reads the answer to the person from standard input, so a formatted

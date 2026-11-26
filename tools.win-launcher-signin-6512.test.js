@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6512: the Windows window signs itself in again after a board restart, and the committed Kosmos.exe

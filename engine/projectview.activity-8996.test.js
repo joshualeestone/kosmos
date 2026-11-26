@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8996: `kosmos project show` says when the project last had activity, and when quiet has gone on long enough to
    tell the person (14 days). Activity is the newest of a room post, a task's last activity and the making; a project whose
    quiet is expected (paused, archived, test, starter, parked) says why and is never called quiet; an unreadable room log

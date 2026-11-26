@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4771 (Josh's 0.7.15 report), the board's half of `kosmos project pause`. Two kinds of arm (review 6): GUARDS of
  * what the board already did before the verb existed (the pause flags, the 403, the Prompter skip), pinned for the

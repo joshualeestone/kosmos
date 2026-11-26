@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5805 slice 2a: `kosmos msg` to an agent out of usage is held by the board. Both CLIs say so, with the time, tell

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6263 (board half): a family's policy is said as the family's. The create refusals (orgpolicy.allows), the
    agent's instruction block (policy.blockBody/stackedBody and its provenance line) and the oversize refusal all read
    the kind of the org this Kosmos is enrolled to. A company's, and a Kosmos in no org, keep their bytes exactly, so no

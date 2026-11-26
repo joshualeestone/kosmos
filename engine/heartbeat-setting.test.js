@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #1722: the persisted on/off + interval for the product heartbeat. On by
  * default (#2013), a closed set of interval choices, validation refuses a nonsense
  * period. Sandboxed data root before the require, exactly as notify.test.js. */

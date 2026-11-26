@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#2037: the LOCAL /api/feedback route. GET lists the report dates and
  * returns a day's body; POST writes today's (or a given day's) report to the

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2837 (producer half): a post into a project room carries THAT project onto the
  * poster's self-report state, so the automatic `working` heartbeats inherit it

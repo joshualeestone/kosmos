@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7508 slice 2: engine/landedcheck.js against real repositories made here. A commit a branch contains is kept
    (the control) and says whether a remote-tracking ref has it; the same commit once its branch is deleted, and an
    object the repository never had, are missing; a repository that is gone, or a git that fails or runs out of time,

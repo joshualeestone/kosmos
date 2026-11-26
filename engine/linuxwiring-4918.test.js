@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #4918 review 1 (Ice Cream Kitty): the Linux lifecycle WIRING, not only the linuxjob primitives. remove.js's
  * jobOps / jobFor and delete-leftover's plan, each driven with platform 'linux' and an injected systemd runner,

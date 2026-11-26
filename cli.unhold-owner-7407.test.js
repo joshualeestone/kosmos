@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #7407: taking a task off hold keeps whoever is on it, and the answer says who has it now (or that the next idle agent

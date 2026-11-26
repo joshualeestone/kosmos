@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // kosmos#5535 E0.6 slice (b): the device key a manifest is signed with is the connector's mac_key.
 const test = require('node:test');
 const assert = require('node:assert/strict');

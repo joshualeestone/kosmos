@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #2563 / #1704 PR4: the per-world path helpers the import reads and writes through --
  * worldProfileNames (a Kosmos's agents), and the profiles / avatars / workers folders of a

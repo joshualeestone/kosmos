@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3769 (Josh, 2026-09-25 11:54: the helper agent must never give out passwords or keys): the output
  * mask. Every shape it exists for is masked, ordinary text is not, the value never reaches the report,

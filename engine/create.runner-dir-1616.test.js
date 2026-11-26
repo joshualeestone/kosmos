@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #1616: A DIRECTORY AT THE RUNNER PATH PASSED THE GATES THAT LAUNCH AN AGENT.

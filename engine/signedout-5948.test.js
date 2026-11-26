@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5948: an agent whose provider sign-in stopped working must say so. The seam is the automatic blocked line

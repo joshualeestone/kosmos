@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8640: delete-leftovers must never offer an agent that is RUNNING, whatever the record says.
  *

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4720: a prebuilt team member's portrait is downloaded from beside the catalogue, used only
  * when it is exactly the image the signed catalogue names, and kept in the data folder.

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8050: Kosmos's own keychain read answers a fixture on a board started by tools/browser-checks.sh.
  *   tools/run-tests.sh --only engine/loginexpiry-sandbox-8050.test.js
  * No arm can touch the real keychain: PATH holds only a fake `security`, which records that it ran. Its shebang names

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#8598: a proved upgrade of the managed Codex records what it replaced and when (upgraded.json beside the tree),
  * which the board's runner-restart sweep (engine/runnerrestart.js) reads to restart agents still on the replaced

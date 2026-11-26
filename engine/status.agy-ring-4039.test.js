@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4039: an Antigravity (agy) agent's context ring said "Kosmos cannot read how much of its memory

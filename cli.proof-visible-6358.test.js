@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6358: an installed Kosmos that cannot run the board proof (#1765) sends its token without it, by design
  * (kosmos_board_proven returns 0 there). That state must be seen, not silent: `kosmos status` names it. A source

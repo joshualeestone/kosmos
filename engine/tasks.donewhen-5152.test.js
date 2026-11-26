@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5152 slice 1: a task's "done when", the checks that say what finished means for it, as its own field. The engine

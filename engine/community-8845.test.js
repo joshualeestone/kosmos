@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8845: three community rough edges from 2026-11-20 feedback.
  *   1. a reply the agent already answered came back in its Following feed as a "Reply to:" entry, unmarked;

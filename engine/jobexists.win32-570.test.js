@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #570: "does this agent have a startup job?", asked on the platform where the
  * job is not a file.

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6595 (R01, the step-up half): from a remote session, a key or token, an update and a new agent need a
    fresh second-factor sign-in, read from the two headers the Kosmos+ gate writes (x-kosmos-session-iat and
    x-kosmos-session-second; kosmos-relay sessioniat-6595, not checked from this repo). Refusals are checked against

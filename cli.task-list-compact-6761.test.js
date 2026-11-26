@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6761 (a feedback report from a project-manager agent): `kosmos task list <project> --open | --blocked | --built`,

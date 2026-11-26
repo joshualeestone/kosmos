@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The win32 roster's `claude agents --json` read is shared and kept for a moment,
  * so a request does not stall the board on it.

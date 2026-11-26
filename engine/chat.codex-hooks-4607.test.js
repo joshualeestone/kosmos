@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4607: the PERSON answers Codex's "Hooks need review" from the board (chat.answerCodexHooks), while every message

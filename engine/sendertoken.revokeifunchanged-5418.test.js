@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5418 ask 2: sendertoken.revokeIfUnchanged, the last guard before the one-time cleanup tool removes a token file.
  * It removes the file only if, under the store's lock, it is still the file a plan looked at (same mtime, no newer

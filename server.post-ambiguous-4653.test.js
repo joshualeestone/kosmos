@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4653 at the route: a real `/api/post` room post whose @-word names two members answers with the
  * sentence, and `kosmos post`'s own read (the sed expression, lifted from install/kosmos and run by the

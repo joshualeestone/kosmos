@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6256 items 1 to 4: follow-ups to #6249 (a line left unsent in an idle Claude Code agent's input box).

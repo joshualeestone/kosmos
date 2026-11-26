@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6157: tasks.waitingOnOf says WHICH agents put a task in Needs your decision and why, from the same cards as

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8566: a room post whose own header names someone who is not a member ("Leo -> Josh: done") woke no one by that
  * name, and nothing told the poster. The board now says so, with the members' exact handles, in the note kosmos post

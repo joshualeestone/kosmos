@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3380 INTEGRATION: a codex agent driven through the real supervision path against
  * a real, signed-in OpenAI account on this box -- proving it actually responds and

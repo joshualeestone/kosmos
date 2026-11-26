@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#1957. `kosmos open` with no argument was SILENCE PLUS EXIT 0. cmd_open
  * ran `exec /usr/bin/open "$URL"`, which prints nothing on success and, on a Mac

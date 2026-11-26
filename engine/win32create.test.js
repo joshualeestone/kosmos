@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #570: the win32 create-side record-write. prepareSession mints a session id,
  * records it as Kosmos-owned, and returns the launch args that pin that id. These

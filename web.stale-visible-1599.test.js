@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1599: a list that goes stale WHILE THE PICKER IS ALREADY VISIBLE now says so.
  *

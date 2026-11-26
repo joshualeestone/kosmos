@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #7410: a switch that starts a new conversation copies the agent's OWN Claude memory notes into its folder

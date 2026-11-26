@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7753: this computer signs its member key record (org, member, epoch, member_public) with its device key and
  * sends the signature with the registration, as member_key_sig, so escrowd can refuse a release whose key no device of

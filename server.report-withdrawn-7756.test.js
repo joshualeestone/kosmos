@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7756 part 2: a question taken back with a reason stays on record in the agent's chat with the person.
  * Over real reports on a sandboxed board.

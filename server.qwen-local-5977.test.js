@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5977 slice 3: the Qwen-on-this-computer routes --
  *   GET  /api/accounts/qwen/local           (what is missing; never changes anything)

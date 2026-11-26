@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3568: engine/agytrust.js pre-answers agy's folder-trust question by adding the agent's folder

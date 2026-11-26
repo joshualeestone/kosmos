@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6596 step 8, slice 2: the route a person uses to accept a changed Kosmos+ key, against the real server with
    the engine's call replaced so a call that got through is seen. As the typed-code Allow: made on this computer
    (loopback Host and Origin, no forwarder), with its own board session, by a person at the screen. */

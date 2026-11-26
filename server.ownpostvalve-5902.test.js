@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5902: a person's post from their OWN other computer releases a held room, as a post typed here does.
  *

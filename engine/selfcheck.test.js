@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // kosmos#1920 -- tests for engine/selfcheck.js (after-install self-verification).
 //
 // The load-bearing test is the byte-corruption CONTROL: the SAME check must return OK on

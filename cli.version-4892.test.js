@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4892: `kosmos version` printed the installed app's version even when the command being run was an old patched
    copy elsewhere (an agent's in /tmp, lacking newer commands). It now says so on stderr; stdout stays the version.
    Driven against a throwaway Kosmos home, never the real install. */

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #8631 (the board's half of #8625): the room read says how many of its messages a block hides (hiddenBlocked), so the
  * board can say so in one line. On the whole room and on a page; never sent as 0; gone again after Unblock.

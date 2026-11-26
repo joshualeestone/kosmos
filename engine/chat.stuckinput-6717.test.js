@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#6717: text stuck unsent in an idle agent's input box is cleared by Kosmos itself, not by a person opening the

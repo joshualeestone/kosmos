@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // #2704: "Dismiss forever" was a GLOBAL flag -- once pressed, EVERY agent found
 // afterwards (Josh's Liu Kang) was hidden forever. Dismiss is now a SNAPSHOT of
 // what was on offer, and `dismissed()` re-shows the block the moment a folder that

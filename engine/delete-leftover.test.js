@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #514: the separate verb that frees a name. Sandboxed on every root, the
  * same way remove.test.js is: this module MOVES OR DELETES FOLDERS, and an

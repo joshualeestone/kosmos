@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #908's control: with neither KOSMOS_INSTALL_GATE=1 nor a
    KOSMOS_INSTALL_GATE_LOG path the board writes NO request log. The instrument is for the install
    gate; a product board must never grow a request log by accident. Own

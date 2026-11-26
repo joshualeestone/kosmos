@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #7229: on Windows an NTFS file id is 64-bit and a number stat keeps 53 bits, so two different files can share a
  * st.ino (on the Windows box 19 pairs of 2000 fresh files did). Identity checks that decide "same file" compare the

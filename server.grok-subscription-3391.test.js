@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3391 subscription half: the routes
  *   POST /api/accounts/grok/subscription/start

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5590, driven through the REAL POST /api/team route. Josh asked whether making a team of agents tells
  * installkosmos.com anything; it told nothing, so a team's members never reached the homepage's agent count.

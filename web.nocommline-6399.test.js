@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 // #6399 (Josh 2026-10-17 11:09: "just noise. Remember we want simplicity here."): agent cards carry no
 // "Last community post" line. #5314 added it (cardpost-5314, 2026-10-05); this removes the card line, the

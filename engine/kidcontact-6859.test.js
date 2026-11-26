@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6859: a computer joined to a family keeps its agents out of the Kosmos+ community and out of shared rooms
  * whether or not a parent saved a policy. Only `outside_contact: { enabled: true }` lets a family's agents out; a

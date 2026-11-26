@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1765: the Windows updater checks the new launcher's signature before installing, by the same rule
  * and the same pins tools/windows/setup.ps1 applies to a fresh install.

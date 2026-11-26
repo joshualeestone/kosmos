@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#5841 (piece 2): a conversation that reaches the engine's cap (chat.MAX_MESSAGES) ROLLS OVER instead of

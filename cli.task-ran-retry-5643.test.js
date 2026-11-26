@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5643 (the 10-07 to 10-09 reports: results lost after the check succeeded): `kosmos task ran` asks again,
  * twice, when the board did not take the run (no answer, a timeout, a 503), in both CLIs. A run that still was not

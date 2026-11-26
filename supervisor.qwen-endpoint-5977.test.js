@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5977: a codex agent whose account home holds kosmos-endpoint.json is launched against that endpoint. This
  * EXECUTES the shipped bin/agent-supervisor.sh with a recorder fake tmux (the shape supervisor.provider-key-inject-3296

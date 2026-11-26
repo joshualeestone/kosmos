@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8230, the board's half, on the real route (a sandboxed board, as server.blocked-owner-person-5318.test.js):

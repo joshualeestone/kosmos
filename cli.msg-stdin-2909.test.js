@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #2909: `kosmos msg --stdin <agent>` reads the direct message from standard input, so backticks

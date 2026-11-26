@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5713: `whats-new-pool.js build` first brings the pool up to what Mac PROD has shown, read from the site itself (the
  * prod pointer names the version and its manifest; the manifest names the app commit the build was cut from), so no

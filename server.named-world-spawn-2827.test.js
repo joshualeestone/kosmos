@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #2827 / world-guard-lift-1704: a board booted into a NAMED world runs its agents.
  *

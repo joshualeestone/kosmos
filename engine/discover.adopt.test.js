@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 // ⚠️ SANDBOX BEFORE REQUIRING, because these modules resolve their roots at load.
 // This file's own first draft set the environment per test, AFTER the requires,

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8475: on Windows, a Kosmos Scheduled Task left with no agent folder is listed in the removed list, and its
  * delete is fully recoverable: it removes the Scheduled Task and nothing else.

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #2140 Surface 2, the fail-closed corner: GET /api/accounts/openai/models with

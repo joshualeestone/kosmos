@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8510: the clause that ends the task-only delete's sentences and Restore's (delete-leftover.startsAgainWords)
  * says what Start at login (register.repair) brings back. The account and the model are decided separately by the

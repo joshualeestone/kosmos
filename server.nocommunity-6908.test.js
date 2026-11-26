@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6908, through the REAL POST /api/agents route: `community: false` makes an agent whose instructions have no
  * Kosmos+ community section (the promote gate's throwaway agents must not be asked to post in public). The Community

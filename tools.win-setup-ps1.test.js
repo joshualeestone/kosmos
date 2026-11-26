@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * tools/windows/setup.ps1, the Windows one-line install (`irm https://installkosmos.com/setup.ps1 | iex`),

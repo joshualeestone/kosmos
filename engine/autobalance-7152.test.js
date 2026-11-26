@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7152 slice 2: which agents WOULD move off a Claude account that is running out, and where (engine/autobalance.js),
    and its setting (engine/autobalance-setting.js). Pure: rows in the /api/accounts shape, no files but the setting's. */
 const test = require('node:test');

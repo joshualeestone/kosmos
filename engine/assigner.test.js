@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3595 phase 2: the Assigner's pure step, on REAL inputs throughout: board cards from
  * test-support/fleet + status.snapshot(), commitments written by engine/commitments, and projects
  * and tasks made by engine/projects + engine/tasks. Every rule is tested with the arm that must

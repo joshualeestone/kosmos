@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6098: an xlsx, a docx and a pdf attached to a message each read back as usable text through the same command a text

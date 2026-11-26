@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4569 fix 4 (review round 2): the queue count reaches BOTH card builders in status.snapshot(), the pane card and
  * the paneless card, from a fresh working self-report; a stale report carries none.

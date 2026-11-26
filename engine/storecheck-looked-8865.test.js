@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /*
  * kosmos#8865 review round 1: the two states report() adds, tested on the real scan rather than on hand-built answers.

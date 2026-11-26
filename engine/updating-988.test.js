@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#988: while an update is applying, tell the coordinator, so a person on
  * their phone reads "your Mac is updating Kosmos, back in a moment" instead of

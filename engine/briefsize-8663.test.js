@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8663: a BRIEF.md over 64 KB was refused and read exactly like a missing one, so `kosmos project show` said
  * "there is no readable BRIEF.md" and the Assigner lost the project's goal, while the file was there with both

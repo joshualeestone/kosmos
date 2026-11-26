@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3224: an agent on multiple projects posts a reply into the WRONG project's room.
  * The fix binds a reply to the room the answered message came from: POST /api/post

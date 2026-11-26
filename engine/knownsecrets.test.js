@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3769: the values the board holds, for masking the setup guide's words by value. Every place Kosmos keeps
  * a key is read; a file elsewhere, and a value too short to be a key, are not.

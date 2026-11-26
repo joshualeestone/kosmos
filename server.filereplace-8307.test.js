@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8307: a built mark whose file replaces the one kept says so in the line it types (which file it replaces, and

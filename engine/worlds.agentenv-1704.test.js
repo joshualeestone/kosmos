@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1704 / #2827: how an AGENT process enters its Kosmos. `applyAgentWorldEnv`
  * turns `KOSMOS_WORLD` into that world's roots, once; `preWorldEnv` undoes it for

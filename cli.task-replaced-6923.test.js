@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6923: a task a later task replaced can be closed as "replaced by #N" from both commands (Mac install/kosmos,

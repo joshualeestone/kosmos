@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1329 / #1903 (OpenAI arm) — the OpenAI create path, driven END TO END through
  * the real POST /api/agents route.

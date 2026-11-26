@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * POST /api/project/:id/task/:n/due (#768): set or clear a task's due date.

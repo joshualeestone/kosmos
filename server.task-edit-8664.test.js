@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8664: POST /api/project/:id/task/:n/text changes a task's title, its detail, or both, after it is made

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#2702 / #3035 (Casey + Rocky fresh-install QA, 0.6.63): a project id must be
  * looked up EXACTLY, never STRIPPED. The old `sed "s/[^A-Za-z0-9._-]//g"` made a garbled

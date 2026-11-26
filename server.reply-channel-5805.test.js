@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5805 part 2: `kosmos reply-channel` (POST /api/agent/reply-channel). An agent whose instructions say to answer
  * the person somewhere Kosmos cannot see declares it, so the first-reply nudge stops saying nothing reached the person. Over HTTP

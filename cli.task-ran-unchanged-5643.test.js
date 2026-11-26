@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5643: `kosmos task ran <project> <n> --unchanged ["what it checked"]` in both CLIs sends `unchanged: true` with
  * the note and says the run found nothing new; without the flag it sends `unchanged: false` and the old words. install/kosmos runs against a stub board (cli.task-donewhen-5152's pattern); the Windows CLI

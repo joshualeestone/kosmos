@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8724 item 2, against the REAL engine: `kosmos adopt` runs this branch's own engine/status.js, adopt.js and
  * linkwindow.js (KOSMOS_HOME/app is this checkout), with test-support/fake-tmux.sh answering tmux reads from fixtures

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #3955: release.sh step 1b-ii refuses a cut whose web/whats-new.json is not for the version being
  * cut (tools/whats-new-check.js), with the KOSMOS_CUT_NO_WHATS_NEW=1 hotfix opt-out.

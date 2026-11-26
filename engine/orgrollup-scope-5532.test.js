@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5532 rollup review 1 (a BLOCKER): engine/usage.js reads every Claude config folder on this computer, with no
  * filter by world or agent, so its numbers include the person's other Kosmoses and their own sessions outside Kosmos.

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #5154 slice A: a crash loop (an agent Kosmos keeps restarting and that keeps stopping within minutes) is told,
  * not hidden. Pins the rule (engine/crashloop.js), the supervisor's run file (bin/agent-supervisor.sh record_run),

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2130 -- the global banner is a MACHINE-level fact and must agree with
  * Settings. checkCached() reads only the default ~/.claude.json, so a Claude

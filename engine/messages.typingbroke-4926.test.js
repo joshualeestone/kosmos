@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4926: a room post that reached its members must never be answered as a failure. A member whose typing path THREW
  * (not one that answered could_not) used to throw the whole post after every other member had been typed into and

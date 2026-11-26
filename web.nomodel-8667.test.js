@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8667 (from #8662, feedback 11-17): an agent with no model recorded said a bare "Unknown Model", which read as a

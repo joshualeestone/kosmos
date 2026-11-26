@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4382: `kosmos update --if-newer`, the update look the Mac app runs on a computer that connects to
  * agents on another computer and so runs no board. Driven end to end: the real install/kosmos and the

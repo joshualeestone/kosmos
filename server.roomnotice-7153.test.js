@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7153 (part of #5941, the fleet off Discord): a job on this Mac writes a line into a room in Kosmos's own voice,

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8952, through the REAL routes: since the "↑ N more lines" scroll line is skipped, a box whose top scrolled away
  * reads as a permission prompt (status.permscroll-8952.test.js). It still gets nothing to press: no Allow or Deny on the

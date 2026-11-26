@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8669: both CLIs' `kosmos task wake`: one of --pr, --branch, --file, --at or --clear goes to the board as the
    field of that name (the board reads GitHub or the file and checks it), a relative file is sent as its full path, and
    two conditions, none, a missing value or an unknown option are refused before the board is asked. The Mac CLI against

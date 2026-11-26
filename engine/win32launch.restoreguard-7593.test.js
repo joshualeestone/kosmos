@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7593 (the win32 half of #5536 4c-1): an agent in a world a restore made starts with git's hooks and fsmonitor

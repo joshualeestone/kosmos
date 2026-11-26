@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * win32-update-stage (updater slice S2): the zip reader the Windows updater unpacks a
  * downloaded build with. Every archive is built in the test (test-support/zipfixture.js), the

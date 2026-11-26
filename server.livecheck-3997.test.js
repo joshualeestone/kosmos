@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #3997 (Josh, 2026-09-26: "only some of these that are signed in are actually green"). The FREE live checks behind
  * the AI Models rows: a ChatGPT sign-in (codex's own handshake, faked through codexsigninlive.setRunner) and a Grok

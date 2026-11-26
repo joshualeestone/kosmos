@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7057 (feedback): `GET /api/tasks` on its cheap list arm gains two params, for `kosmos task list --all` and

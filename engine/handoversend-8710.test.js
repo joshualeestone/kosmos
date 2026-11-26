@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8710 slice 3: engine/handoversend.js, the leaving member's computer packing a hand-over. */
 const test = require('node:test');
 const assert = require('node:assert/strict');

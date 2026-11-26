@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The CLI presents `KOSMOS_AGENT_TOKEN` as `x-kosmos-agent-token`, and drops
  * anything that is not plain hex (#1139 link 3, shipped in #1136).

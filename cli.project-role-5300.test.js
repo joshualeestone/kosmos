@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5300 (10-05 user diagnostic R10): `kosmos project role <project-id> "<what you do here>"`, the Mac CLI against a
  * stub board that records every request (the Windows twin is tools.windows-kosmos-cli-project-role-5300.test.js; the

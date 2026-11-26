@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7246 slice 2: agents in a room never wake each other in a loop. A person's busy room burned the person's whole

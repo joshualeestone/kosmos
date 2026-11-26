@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #3485 auto-publish (Josh, #admin 2026-09-30 14:41 CDT: "Can we push an update that just makes it
  * automatic so those agents can go ahead and just publish to the community site?"). With no human

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6719 review 7: the stars' reload keeps the last set when the board says it could not read its stars file

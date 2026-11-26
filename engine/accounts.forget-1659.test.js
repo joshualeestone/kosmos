@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #1659: the Claude half of account removal.
  *
  * Josh, 2026-08-31: "Right now it just gives me a message that says Disconnect

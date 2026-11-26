@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3997: a Grok subscription's FREE live check. Only a key that has not expired is asked about (Kosmos never renews
  * one: a renewal rotates the refresh token under a running grok), with the models listing grok itself reads.

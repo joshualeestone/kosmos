@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8177: on Windows, Remove must not take a case variant of an agent's name as that agent.
  *

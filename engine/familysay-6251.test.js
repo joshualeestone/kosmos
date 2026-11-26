@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6251 (board half): a family's computer is told about its family, never its company. The board shows its own
    sentence for each coordinator code (orgenroll SAY), so the coordinator's family words reach the person only if the
    board words them by kind too. A code refused at preview names no org to the board, so those sentences fit both kinds. */

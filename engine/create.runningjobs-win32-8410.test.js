@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8410 item 2, the Windows half of #668: an agent whose process is up while the board can see no session for
  * it is "running, unseen" (the could-not-check pill), never a confident "Not running".

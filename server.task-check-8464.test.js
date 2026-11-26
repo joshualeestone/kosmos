@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #8464 item 2: POST /api/project/:id/task/:n/check reports how one done-when check went. The engine rules are in

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * A RELOCATED CLAUDE CONFIG DIR IS STILL A CONFIG DIR (#1523).
  *

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1704 PR4: the import routes over HTTP against a real sandboxed board --
  * POST /api/worlds/import (the settings cog), POST /api/worlds {importAgents} (the

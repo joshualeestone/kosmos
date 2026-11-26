@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6214: the page's Stop the move. Lifts the page's real stopAccountMove and offerStopMove and drives them against

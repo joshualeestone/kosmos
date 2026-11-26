@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8728: /api/connect/start tells the sign-in whether the request came from a remote session, so a remote-started
    Claude sign-in opens no browser on this computer (engine/connect.js, remoteStarted -> BROWSER=/usr/bin/true; that
    half is pinned in engine/connect.test.js). This file pins the server half: what the route hands connect.start.

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#9011 part 1, over the real /api/report route on a sandboxed board: `kosmos report clear` (a working report
  * with clear: true) is kept as the agent closing its question, and any other report of its own as the question being

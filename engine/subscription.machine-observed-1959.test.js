@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1959 -- computeMachine (the #2130 global banner) must honour the OBSERVED
  * per-dir liveness verdict, not only the raw credential-exists check().

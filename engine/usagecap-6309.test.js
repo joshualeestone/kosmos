@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#6309: this month's tokens for a family's usage cap (engine/usagecap.js). Every Claude transcript and its

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4409: voice in Kosmos. Talk to an agent (a mic in each composer, the Mac app's ON-DEVICE recognizer)
  * and hear an agent (read aloud, the page's on-device voices).

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3224: messages.projectOfPost(id) -- the NON-CIRCULAR oracle a reply binds to.

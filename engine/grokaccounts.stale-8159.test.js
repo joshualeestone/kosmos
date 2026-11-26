@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #8159: a Grok subscription sign-in that grok has not renewed for days read as "signed in" (Kosmos's record) for 18
  * days after its refresh token had died. grok renews its short key every run, so a key that expired days ago means

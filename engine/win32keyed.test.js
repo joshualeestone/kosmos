@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * Gemini and Grok agents on Windows: one headless turn per message, driven by the same
  * per-turn supervisor as codex (engine/win32keyed.js + win32codexsup). Every arm runs on

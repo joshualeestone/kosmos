@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#6309: a family's monthly usage cap, as engine/orgpolicy.js reads it. usage_cap is exactly

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1765: the board's side of the agent channel checks who holds the pipe before it writes anything
  * (engine/win32channel.js serverOwnerOf, ownerRefusal, and the check in clientMain).

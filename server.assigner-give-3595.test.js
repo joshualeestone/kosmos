@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3595 phase 2: the Assigner's REAL write path, server.givePart in its assigner mode, the same
  * function the part-assign route calls. The runner's interval is inert under test (live execution
  * is off), so this drives the write the runner would make, against real projects, tasks and board

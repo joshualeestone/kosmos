@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5318: `kosmos report blocked --owner <a person>` is recorded as sent, and the answer carries a note pointing at

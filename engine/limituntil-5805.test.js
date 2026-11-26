@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5805 slice 3: a capped Claude card carries `limitUntil`, the reset its limit line printed, so the card can say

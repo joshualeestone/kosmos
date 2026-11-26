@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5152 slice 1: POST /api/project/:id/task/:n/done-when sets or clears what finished means for a task, and

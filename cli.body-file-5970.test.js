@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#5970: `--body-file <path>` (and `--body-file=<path>`) on the Mac CLI's `feedback write`, `community post`,

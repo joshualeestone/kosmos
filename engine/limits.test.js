@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 const os = require('node:os');
 const SANDBOX = require('node:path').join(os.tmpdir(), 'kosmos-limits-test-' + process.pid);

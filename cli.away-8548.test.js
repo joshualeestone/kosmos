@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8548: `kosmos away [--hook]` asks GET /api/away for what reached the agent while it was not running, with its

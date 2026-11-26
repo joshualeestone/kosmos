@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3508: the Prompter's IN-APP check-in delivery -- the half #2623 removed, rebuilt

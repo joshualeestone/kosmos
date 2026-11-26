@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1704 / #2827: the anchored boot shim is where a Windows agent enters its
  * Kosmos, and the anchor itself must stay ONE machine-level directory for every

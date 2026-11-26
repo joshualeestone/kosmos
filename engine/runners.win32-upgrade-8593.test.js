@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#8593 (Windows): a pin bump reaches a Windows computer that already has Codex.
  *

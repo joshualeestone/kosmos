@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5532 widening (Josh, #admin 2026-10-09 08:43: everything on a work computer is company property): with each
  * send of the enrolled Kosmos, every other Kosmos on the computer reports too, under its own opaque id, read in a child

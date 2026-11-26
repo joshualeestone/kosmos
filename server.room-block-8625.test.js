@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #8625 (App Store guideline 1.2): the person blocks someone from outside this Kosmos, named by one of their messages.
  * The block is kept by the account the relay stamped, so it covers that person's other computers and every room; their

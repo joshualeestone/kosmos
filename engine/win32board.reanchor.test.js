@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * win32-installer-native, round 1 finding 3: a board booting from a real Kosmos build points the
  * engine pointer at ITSELF, whatever state the board's logon task is in, and registers nothing.

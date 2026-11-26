@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4671: the report hook refuses a tool call that would stop EVERY process the person owns.
  *

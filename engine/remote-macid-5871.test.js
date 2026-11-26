@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5871: remote.js macIdHere is wired to the tunnel's rule (engine/enrolment.js currentMacIdBy), not to the
    mac_id file alone: with a newer mac_identity beside an older mac_id (a registration cut between the two), the app
    names the computer the tunnel signs as. Sandboxed data root and state folder before the require. */

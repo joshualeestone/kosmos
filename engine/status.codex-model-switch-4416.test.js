@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4416 (challenge-loop iteration 5): after Kosmos switches a Codex agent's model, its card must not name the OLD

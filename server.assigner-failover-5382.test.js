@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5382: the Assigner's failover through its REAL write path, server.givePart with `from` (the rate-limited agent the
  * part is taken from). Same harness as server.assigner-give-3595.test.js: real projects, tasks and board cards, the
  * runner's interval inert under test.

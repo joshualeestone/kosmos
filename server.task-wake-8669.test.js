@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8669: POST /api/project/<id>/task/<n>/wake through the real server, and the board's own minute tick (sped up
    with AGENT_WORKFORCE_TASK_WAKE_MS). GitHub is a fake gh (AGENT_WORKFORCE_GH_BIN, the GitHub door's own switch) that
    answers each API path from a file this test writes, so a pull request can be open on one look and merged on the next.

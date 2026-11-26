@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5977: a Qwen agent runs on codex, so its runner alone says OpenAI. The board marks its
    account `provider: 'alibaba'` (server accountForAgent), and the page reads that in three
    places: the provider word (providerOf), the accounts it may move to (acctMoveWorld), and

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2911: the /api/tmux-a11y-status route serves tmux's OWN Accessibility grant
  * (a11ystatus.tmuxGrant) and maps the present:false verdict (tmux not yet listed in the

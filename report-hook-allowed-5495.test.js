@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5495: after #5406 Kosmos's own PermissionRequest hook answers allow for most requests, so no prompt shows. The report

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7032: the words behind a room notification. A `posted` push carries `post:<post id>` (server.js); the phone
  * asks GET /api/phone/notice for its words, and the computer answers with the post's text and its author, as it does

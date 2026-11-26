@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6341 (Josh, 10-16 19:43): POST /api/project/<id>/needs-dismiss keeps a dismissed "needs you" row on the project,
  * per member and reason, over HTTP on a fully sandboxed board; it refuses what the page cannot have shown.

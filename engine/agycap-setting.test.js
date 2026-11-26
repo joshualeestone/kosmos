@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4588 ask 3: the persisted cap on how many Gemini (Antigravity) agents work at once. No limit by default, a closed
  * set of choices, and a bad file reads no limit (never a hold on every automatic message). Sandboxed data root before
  * the require, as heartbeat-setting.test.js. */

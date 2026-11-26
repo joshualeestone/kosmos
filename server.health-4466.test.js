@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4466: GET /api/health is the CLI's cheap health probe, so a busy board is not read as "not running".
  *

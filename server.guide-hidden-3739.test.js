@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3739 (Josh, 2026-09-25): the setup guide is titled "Kosmos Guide", hidden from every list and count (bubble
  * only; ruled 09:22), and never reads "Unknown Model" (since #8667, "No model recorded"). /api/status marks its row `isGuide` (every row says

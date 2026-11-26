@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3769: `kosmos reply` presents the agent's own token (KOSMOS_AGENT_TOKEN, hex only) as

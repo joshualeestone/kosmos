@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6180: offWriteIsQuiet decides whether the write that takes an agent off its last project is quiet (no stale

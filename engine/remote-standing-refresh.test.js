@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * Federation Kosmos+ gate, W1 refresh: remote.refreshStandingIfStale() (engine).

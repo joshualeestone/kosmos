@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4557, driven through the real routes: the seeded-team reads, and the specs they return made into real
  * agents through the real POST /api/agents, in order, the way the page will make them.

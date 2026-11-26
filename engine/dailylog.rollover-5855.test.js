@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5855: when the daily-log compiler cannot follow a rolled-over conversation whole (earlier rows in a `.full`
  * file beside the thread file; the fresh thread file names it in `continues`), it refuses the run: nothing written,

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7820: on Windows, "Delete what is left" sends the agent's folder to the Recycle Bin when it can, and says
  * "deleted for good" when it cannot. Driven from any platform: the win32 arm is injected, and PowerShell is a stub

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4887: POST /api/project/:id/tasks with `who` from `kosmos task add --who <agent>`. `me` is the caller (its token,

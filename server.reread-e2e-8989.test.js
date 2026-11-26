@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8989, end to end with nothing stubbed: a real project, real tasks, real instructions files and the real re-read

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5333 slice 2: a RUNNING agent that has lost its link to Kosmos is shown as such on its card. The session carries the
  * run's sender-token instance (@kosmos_token_instance, stamped by the supervisor); the card's `linkLost` is true when
