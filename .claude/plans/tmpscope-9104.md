@@ -66,3 +66,13 @@ Earlier single-site fixes: #8225, #7442, #6017, #9098.
 - SHOULD-FIX (guard cannot see socket budget): noted in the EXEMPT comment of the guard.
 - NITs left: textual-only guard (require inside a callback, createRequire, import(), a TMPDIR read before it); a lazy
   require in a function above the line reads as a require before it. None occur today.
+
+## Challenge round 4 (21:29): CONVERGED, no blocker, no should-fix
+- Clean (measured): tmux -L sockets ignore TMPDIR; other unix sockets under os.tmpdir() within budget; no file asserts
+  on the old/new prefixes; leak guard counts a kts- folder only when it survives its sweep; heavy-gate and store
+  run-root checks still match; heavy-gate, store.real-root, fixture-discipline, one-derivation, uncaught-handler,
+  comment-deferral green under a run-root-shaped TMPDIR, root left empty.
+- NITs left: Windows unmeasured (231 of the 303 Windows-runner files change; TEMP/TMP also scoped there; the
+  pull_request Windows workflow decides); an open PR adding a new test file goes red on the guard until it adds the
+  line (said in the PR text); run-tests.sh:745's tmux comment is stale (tmux reads TMUX_TMPDIR, not TMPDIR), the
+  guard's 104-byte note is about net.listen sockets, which is right.
