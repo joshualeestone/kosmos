@@ -1519,6 +1519,29 @@ bwp=""; for _w in $(seq 1 20); do ( for _j in $(seq 1 15); do KOSMOS_RUN_MARKER_
 for _p in $bwp; do wait "$_p"; done   # the writers only: a bare wait would also wait for this file's hour-long stand-ins
 nl9139="$(wc -l < "$MB/beside-runs.log" | tr -d ' ')"; nw9139="$(grep -c '^E w' "$MB/beside-runs.log")"
 { [ "$nl9139" -ge 400 ] && [ "$nl9139" -le 500 ] && [ "$nw9139" = 300 ]; } && pass "#9139 twenty writers at once lose no line across the trim" || fail "#9139 concurrent writers lost lines ($nl9139 lines, $nw9139 of 300 writer lines)"
+# #9139 follow-up (CI 11-26 19:06 UTC lost 1 of 300 above): a writer that cannot get the lock gives up after a COUNT of
+# polls, which load reaches; it then appended unlocked and a trim's rename could drop the line. Now its line goes to a
+# pending file, read by readers and folded in by the next writer that holds the lock.
+: > "$MB/beside-runs.log"; rm -f "$MB"/beside-runs.log.pending.* 2>/dev/null; mkdir "$MB/beside-runs.log.lock"
+KOSMOS_RUN_MARKER_DIR="$MB" KOSMOS_BESIDE_LOCK_TRIES=2 kosmos_note_beside_run start gaveup "the gave-up run"
+np9139=$(ls "$MB" | grep -c '^beside-runs\.log\.pending\.')
+{ [ "$np9139" = 1 ] && ! grep -q gaveup "$MB/beside-runs.log" && KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0 | grep -qF "the gave-up run (gaveup)"; } \
+  && pass "#9139 a writer that cannot get the lock writes a pending file, and the reader still names its run" || fail "#9139 a gave-up writer's line: pending files $np9139, reader: $(KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0)"
+rmdir "$MB/beside-runs.log.lock"; KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end gaveup
+{ [ -z "$(ls "$MB" | grep '^beside-runs\.log\.pending')" ] && grep -q '^S gaveup ' "$MB/beside-runs.log" && KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0 | grep -F "(gaveup)" | grep -vq "still going"; } \
+  && pass "#9139 the next writer with the lock folds the pending line in, and the run reads as ended" || fail "#9139 the fold: $(ls "$MB" | grep pending) / $(KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0)"
+# The same 20 writers with 2 polls each, so giving up is the common case across the trims: still no line lost once a
+# last writer with the lock has folded what was pending.
+: > "$MB/beside-runs.log"; for _i in $(seq 1 490); do echo "E pad$_i 1" >> "$MB/beside-runs.log"; done
+# The lock is held for the first 1.5 s, so the early writers must give up (counted just before it is let go) while
+# later ones fold and trim beside them.
+mkdir "$MB/beside-runs.log.lock"
+bwp=""; for _w in $(seq 1 20); do ( for _j in $(seq 1 15); do KOSMOS_RUN_MARKER_DIR="$MB" KOSMOS_BESIDE_LOCK_TRIES=2 kosmos_note_beside_run end "g${_w}x${_j}"; done ) & bwp="$bwp $!"; done
+sleep 1.5; ng9139=$(ls "$MB" | grep -c '^beside-runs\.log\.pending\.'); rmdir "$MB/beside-runs.log.lock"
+for _p in $bwp; do wait "$_p"; done
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end last-fold
+nw9139="$(grep -c '^E g' "$MB/beside-runs.log")"
+{ [ "$ng9139" -ge 1 ] && [ "$nw9139" = 300 ] && [ -z "$(ls "$MB" | grep '^beside-runs\.log\.pending')" ]; } && pass "#9139 twenty writers that mostly give up lose no line once folded ($ng9139 had given up while the lock was held)" || fail "#9139 writers that give up lost lines ($nw9139 of 300, $ng9139 were pending)"
 # Review 2: a lock left by a writer killed while holding it is broken once it is older than 10 s.
 mkdir "$MB/beside-runs.log.lock"; TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 60 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( $(date +%s) - 60 ))" +%Y%m%d%H%M.%S)" "$MB/beside-runs.log.lock"   # UTC both sides (#7725)
 st9139=$(date +%s); KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end after-stale; el9139=$(( $(date +%s) - st9139 ))

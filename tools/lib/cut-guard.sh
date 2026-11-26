@@ -1817,7 +1817,7 @@ _kosmos_beside_lock() {
   local d="$1" i=0 age
   [ -w "${d%/*}" ] || return 1
   until mkdir "$d" 2>/dev/null; do
-    i=$((i + 1)); [ "$i" -ge 100 ] && return 1
+    i=$((i + 1)); [ "$i" -ge "${KOSMOS_BESIDE_LOCK_TRIES:-100}" ] && return 1   # a count, not a time: under load it is reached
     age=$(( $(date +%s) - $(_kosmos_beside_mtime "$d") ))
     if [ "$age" -gt 10 ]; then
       local sd="$d.stale.$$.$RANDOM"
@@ -1841,9 +1841,27 @@ kosmos_note_beside_run() {
   local what; what="$(printf '%s' "${3:-}" | tr '\n\r' '  ')"   # review 3: one record is one line
   id="$(printf '%s' "${2:-unnamed}" | tr ' \t\n\r' '____')"; [ -n "$id" ] || id=unnamed   # review 5: no -s (it squeezed "_" too)
   _kosmos_beside_lock "$l" && got=1
+  # #9139 follow-up: a writer that could not get the lock (100 lost polls: reached under CI load, with 20 writers) used
+  # to append to the log anyway, and a trim's rename running at that moment lost the line (CI, 11-26 19:06 UTC: 299 of
+  # 300). It writes to a pending file of its own instead, which no trim touches; readers read the pending files too,
+  # and the next writer that holds the lock folds them into the log.
+  # A pending file is written under a temporary name and renamed into place, so a writer folding it never reads one
+  # half-made (it would remove it with the line still to come).
+  # The name from mktemp, not $$.$RANDOM: $$ is the PARENT's pid in a ( ) & subshell, so twenty writer subshells shared
+  # it, and two could choose the same name and the second mv overwrote the first's line (299 of 300, measured).
+  local out="$f"; [ "$got" = 1 ] || out="$(mktemp "$f.pending-tmp.XXXXXXXX" 2>/dev/null)" || out="$f"
   # Review 4: the redirect inside a group, so a file that cannot be opened is silent and, under set -e, not fatal.
-  if [ "$1" = start ]; then { printf 'S %s %s %s\n' "$id" "$now" "$what" >> "$f"; } 2>/dev/null || true
-  else { printf 'E %s %s\n' "$id" "$now" >> "$f"; } 2>/dev/null || true; fi
+  if [ "$1" = start ]; then { printf 'S %s %s %s\n' "$id" "$now" "$what" >> "$out"; } 2>/dev/null || true
+  else { printf 'E %s %s\n' "$id" "$now" >> "$out"; } 2>/dev/null || true; fi
+  # The pending name keeps mktemp's unique suffix, and mv -n never replaces another writer's file.
+  [ "$out" = "$f" ] || { mv -n "$out" "$f.pending.${out##*pending-tmp.}" 2>/dev/null; [ -e "$out" ] && { cat "$out" >> "$f"; rm -f "$out"; } 2>/dev/null; true; }
+  if [ "$got" = 1 ]; then
+    local pf
+    for pf in "$f".pending.*; do
+      [ -f "$pf" ] || continue
+      { cat "$pf" >> "$f"; } 2>/dev/null && rm -f "$pf" 2>/dev/null
+    done
+  fi
   if [ "$got" = 1 ] && [ "$(wc -l < "$f" 2>/dev/null | tr -d ' ')" -gt 500 ] 2>/dev/null; then
     { tail -n 400 "$f" > "$f.tmp.$$"; } 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null || true
   fi
@@ -1863,14 +1881,16 @@ kosmos_beside_runs_since() {
   omax="${KOSMOS_BESIDE_OPEN_MAX_S:-7200}"; case "$omax" in ''|*[!0-9]*) omax=7200 ;; esac
   # awk picks the overlapping runs (tab-separated: what, id, start, end or "-"); the times are formatted below, since
   # macOS awk has no strftime (date -d @ first, which fails at once on macOS, then date -r).
-  awk -v t0="$t0" -v now="$now" -v omax="$omax" '
-    $1 == "S" && $3 ~ /^[0-9]+$/ { id = $2; s[id] = $3 + 0; delete e[id]; w = ""; for (i = 4; i <= NF; i++) w = w (w == "" ? "" : " ") $i; what[id] = w; if (!(id in on)) { on[id] = 1; order[++n] = id } }
+  # #9139 follow-up: the pending files too, through cat (an unmatched glob stays literal, and macOS awk stops at a file
+  # it cannot open; cat goes on past it).
+  cat "$f" "$f".pending.* 2>/dev/null | awk -v t0="$t0" -v now="$now" -v omax="$omax" '
+    $1 == "S" && $3 ~ /^[0-9]+$/ { id = $2; s[id] = $3 + 0; if ((id in e) && e[id] < s[id]) delete e[id]; w = ""; for (i = 4; i <= NF; i++) w = w (w == "" ? "" : " ") $i; what[id] = w; if (!(id in on)) { on[id] = 1; order[++n] = id } }
     $1 == "E" && $3 ~ /^[0-9]+$/ { e[$2] = $3 + 0 }
     END { for (k = 1; k <= n; k++) { id = order[k]
             if (s[id] > now) continue
             if (id in e) { if (e[id] < t0) continue }
             else if (now - s[id] > omax + 0) continue
-            printf "%s\t%s\t%s\t%s\n", (what[id] == "" ? "a run" : what[id]), id, s[id], ((id in e) ? e[id] : "-") } }' "$f" 2>/dev/null |
+            printf "%s\t%s\t%s\t%s\n", (what[id] == "" ? "a run" : what[id]), id, s[id], ((id in e) ? e[id] : "-") } }' 2>/dev/null |
   while IFS="$(printf '\t')" read -r what id st en; do
     st="$(date -d "@$st" '+%m-%d %H:%M:%S' 2>/dev/null || date -r "$st" '+%m-%d %H:%M:%S' 2>/dev/null)"
     if [ "$en" = - ]; then en="still going"; else en="$(date -d "@$en" '+%m-%d %H:%M:%S' 2>/dev/null || date -r "$en" '+%m-%d %H:%M:%S' 2>/dev/null)"; fi
