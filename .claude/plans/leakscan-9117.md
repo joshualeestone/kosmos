@@ -23,6 +23,9 @@ through ENVIRON, not -v, so a backslash is literal; index() makes a dot literal.
 lookalike is still refused by leak_names_root; all 3 loops read the filtered lines.
 Perturbations: no filter -> 2 new checks red; one loop back on the whole snapshot -> the wiring check red.
 
+## Split, measured (same Mac, 00:3x, load 10.5, 1,127 processes, two runs)
+`ps -A` 0.05 to 0.07 s; the old per-line loop 0.91 to 1.32 s; the new filter 0.04 to 0.05 s. The loop is the cost, it
+grows with load (0.2 ms a line at load 8, about 1 ms at 10.5, April's 10 ms at 17), and the filter replaces it.
+
 ## Weakest premise
-That the per-line bash loop is what made April's scans slow. If `ps -A` itself was the slow part under load, this
-change helps little. The measurement that would settle it is a timed scan at load 15 or more, split into ps and loop.
+That the loop's growth with load continues to April's 11 s; only load 8 to 10.5 is measured here.
