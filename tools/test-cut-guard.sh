@@ -1615,6 +1615,19 @@ PATH="$MB/awkbin:$PATH" KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end s
 ns9139="$(wc -l < "$MB/beside-runs.log" | tr -d ' ')"; rm -rf "$MB/awkbin"
 { [ "$ns9139" -ge 520 ] && ! grep -q '^E bogus' "$MB/beside-runs.log" && [ -z "$(ls "$MB" | grep '\.trim\.')" ]; } \
   && pass "#9139 a trim whose result is short is not installed, and leaves no temp file ($ns9139 lines kept)" || fail "#9139 a short trim was installed or left behind ($ns9139 lines)"
+# #9139 follow-up: the lock names its holder. A lock whose HOLDER IS ALIVE is never broken, however old (a slowed holder
+# was broken at 10 s, and two holders at once cut the log short); a lock whose holder is gone is broken at once.
+: > "$MB/beside-runs.log"; rm -f "$MB"/beside-runs.log.pending.* 2>/dev/null
+mkdir -p "$MB/beside-runs.log.lock"; sleep 300 & LH9139=$!; echo "$LH9139" > "$MB/beside-runs.log.lock/pid"
+TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 120 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( $(date +%s) - 120 ))" +%Y%m%d%H%M.%S)" "$MB/beside-runs.log.lock"
+KOSMOS_RUN_MARKER_DIR="$MB" KOSMOS_BESIDE_LOCK_TRIES=3 kosmos_note_beside_run start live-held "live holder"
+{ [ "$(cat "$MB/beside-runs.log.lock/pid" 2>/dev/null)" = "$LH9139" ] && ! grep -q live-held "$MB/beside-runs.log" && [ -n "$(ls "$MB" | grep '^beside-runs\.log\.pending\.')" ]; } \
+  && pass "#9139 a lock whose holder is alive is not broken, however old (the writer leaves a pending file)" || fail "#9139 a live holder's lock was broken"
+kill "$LH9139" 2>/dev/null; wait "$LH9139" 2>/dev/null
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end live-held
+{ [ ! -e "$MB/beside-runs.log.lock" ] && grep -q '^E live-held ' "$MB/beside-runs.log" && grep -q '^S live-held ' "$MB/beside-runs.log"; } \
+  && pass "#9139 once that holder is gone its lock is broken at once, and the pending line is folded in" || fail "#9139 a dead holder's lock was not broken ($(ls "$MB" | grep lock))"
+rm -f "$MB"/beside-runs.log.pending.* 2>/dev/null
 # Review 1 (besidefix): a pending line is read while the log does not exist yet.
 rm -f "$MB/beside-runs.log" "$MB"/beside-runs.log.pending.*; printf 'S p9 %s only-pending\n' "$now9139" > "$MB/beside-runs.log.pending.test2"
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0 | grep -qF "only-pending (p9)" && pass "#9139 a pending line is named while the log does not exist yet" || fail "#9139 a pending line with no log was not named"
