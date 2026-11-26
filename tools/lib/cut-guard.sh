@@ -1797,12 +1797,14 @@ _kosmos_old_qh_waiter_live() {
 # kosmos_note_beside_run start <id> <what> | end <id>. Best-effort: a line it cannot write changes nothing else, and it
 # returns 0 even under `set -e` (review 4: GitHub Actions runs steps as bash -eo pipefail, and a failed mkdir or rmdir
 # here ended the CI step). The writer's id should be unique per attempt (a CI run id with its attempt number): a new
-# start line for an id replaces its earlier window. Spaces
+# start line for an id replaces its earlier window, but only one at least as new as the current start (lines folded in
+# from pending files arrive out of order). Spaces
 # and tabs in <id> become "_" (an id is one field). Review 1: every append and the trim happen under one mkdir lock, so
 # a rename cannot drop a line appended meanwhile. Review 2: the hold is short (the time is read before the lock, and the
 # file is trimmed only past 500 lines, back to 400, so most appends never rewrite it); a writer waits up to about 10 s;
 # a lock older than 10 s (a writer killed while holding it: a real hold lasts milliseconds) is broken and retried. A
-# lock still not got appends anyway and skips the trim (a lost line costs less than a CI step that waits).
+# writer that still has not got it writes a pending file instead (#9139 follow-up, below) and skips the trim; it falls
+# back to an unlocked append only if mktemp fails (a lost line costs less than a CI step that waits).
 # Review 3: GNU stat first. GNU `stat -f` means "file system": it prints lines of text and THEN fails, so a BSD-first
 # fallback fed text into the arithmetic and bash dropped the whole call on Linux (as launchagent-leak-guard.sh:27
 # already orders it; BSD stat rejects -c at once). A stale lock is renamed to a name of this writer's own, and its age
@@ -1857,7 +1859,14 @@ kosmos_note_beside_run() {
     local pf
     for pf in "$f".pending.*; do
       [ -f "$pf" ] || continue
-      { cat "$pf" >> "$f"; } 2>/dev/null && rm -f "$pf" 2>/dev/null
+      { cat "$pf" >> "$f"; } 2>/dev/null && { rm -f "$pf" 2>/dev/null || true; }
+    done
+    # Review 2: a writer killed between its mktemp and its rename leaves a pending-tmp file nothing reads. Past 60 s its
+    # writer is gone (a write is one printf), so it is folded too.
+    for pf in "$f".pending-tmp.*; do
+      [ -f "$pf" ] || continue
+      [ $(( $(date +%s) - $(_kosmos_beside_mtime "$pf") )) -gt 60 ] || continue
+      { cat "$pf" >> "$f"; } 2>/dev/null && { rm -f "$pf" 2>/dev/null || true; }
     done
   fi
   if [ "$got" = 1 ] && [ "$(wc -l < "$f" 2>/dev/null | tr -d ' ')" -gt 500 ] 2>/dev/null; then
@@ -1884,7 +1893,7 @@ kosmos_beside_runs_since() {
   # it cannot open; cat goes on past it).
   # Review 1: grouped with || true: cat of an unmatched glob exits 1, and under set -eo pipefail that ended the caller.
   { cat "$f" "$f".pending.* 2>/dev/null || true; } | awk -v t0="$t0" -v now="$now" -v omax="$omax" '
-    $1 == "S" && $3 ~ /^[0-9]+$/ { id = $2; s[id] = $3 + 0; if ((id in e) && e[id] < s[id]) delete e[id]; w = ""; for (i = 4; i <= NF; i++) w = w (w == "" ? "" : " ") $i; what[id] = w; if (!(id in on)) { on[id] = 1; order[++n] = id } }
+    $1 == "S" && $3 ~ /^[0-9]+$/ && (!($2 in s) || $3 + 0 >= s[$2]) { id = $2; s[id] = $3 + 0; if ((id in e) && e[id] < s[id]) delete e[id]; w = ""; for (i = 4; i <= NF; i++) w = w (w == "" ? "" : " ") $i; what[id] = w; if (!(id in on)) { on[id] = 1; order[++n] = id } }
     $1 == "E" && $3 ~ /^[0-9]+$/ { if (!($2 in s) || $3 + 0 >= s[$2]) e[$2] = $3 + 0 }   # review 1: an older end, folded late, does not end a newer run
     END { for (k = 1; k <= n; k++) { id = order[k]
             if (s[id] > now) continue
