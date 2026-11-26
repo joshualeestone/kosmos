@@ -76,3 +76,12 @@ Earlier single-site fixes: #8225, #7442, #6017, #9098.
   pull_request Windows workflow decides); an open PR adding a new test file goes red on the guard until it adds the
   line (said in the PR text); run-tests.sh:745's tmux comment is stale (tmux reads TMUX_TMPDIR, not TMPDIR), the
   guard's 104-byte note is about net.listen sockets, which is right.
+
+## Validation 1 (Mortals 00:37): RED, a real defect, fixed
+- Node part 31,296 tests, 0 failed; shell shards 2-4 green; shard 1 red on tools/test-bc-quarantine.sh (36 passed,
+  3 failed): it copies browser-checks-quarantine-guard.test.js into a fixture folder with no test-support/, and the
+  inserted require threw "Cannot find module './test-support/tmpscope'".
+- Fixed: the shell test copies tmpscope.js and what it loads (remove-at-end.js, remove-tree.js) beside the copy.
+  Measured: 39 passed, 0 failed. It is the only suite script that runs a suite test file outside the repo (the node
+  part, which would have failed the same way on any other, was 0 failed; tools/test-install-gate-control.sh is only
+  `bash -n` and names no .test.js). release.sh step 1e runs the file in the repo, unaffected.
