@@ -57,3 +57,9 @@ restart would lose kept words; measuring it on the app (type, let it restart, re
   page the three kept-draft assertions fail.
 - The four tests that lift updateNothingToLose pass (61); the wiring and tree guards pass.
 - bc-pr-select: 80 checks selected (the four boxes and the open agent/project are genuinely touched).
+- The surface gate (#2518) maps 11 checks to the box ids updateNothingToLose now names (d-say, pj-post,
+  d-term-say). Those ids are only compared there; nothing drawn changes. All 11 run on the branch and pass, by their
+  own counts: render-dm-chatfirst-718 413, render-composer-stroke 63, render-dm-sideways-3969 83, render-voice-4409
+  79, render-dm-emoji-3744 74, render-room-reply-3745 71, render-phone-taps-5218 47, render-dm-reply-4256 22,
+  render-type-to-focus-3283 19, render-gutter-return-4506 15, render-dm-sendjump-4639 8. Each carries a
+  Browser-check-surface trailer saying so.
