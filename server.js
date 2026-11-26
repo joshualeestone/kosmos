@@ -11979,6 +11979,8 @@ const server = http.createServer(async (req, res) => {
       if (!statusCard) { sendJson(res, 409, { error: 'we could not check which agents are running', because: 'unreadable', retry: true }); return; }
     }
     if (!statusCard) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    /* No log line here, on purpose: the dialog polls this about once a second, and the ask that started the wait already
+       logged the outage (noteOutageSend / noteUnreadableSend). */
     const session = statusCard.session || null;   // the same read as the verdict (sessionOf would read the roster again)
     if (!session) { sendJson(res, 409, { error: 'this agent is not running' }); return; }
     let baseline = '';

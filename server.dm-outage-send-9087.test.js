@@ -210,6 +210,22 @@ test('#9087 the channel card agrees with snapshot\'s card for the same Windows r
   assert.equal(built.outageCard, true);
 });
 
+/* kosmos#9090 review 2: the parity loop above compares `swarm` on an agent with no swarm (null and null), which cannot
+   fail. Here the same comparison on a PAUSED swarm lead, on the fields that do not move with the clock. */
+test('#9090 the channel card carries the same swarm field as snapshot for a paused swarm lead', () => {
+  const store = require('./engine/store');
+  store.writeProfile('raph', { kind: 'swarm', swarm: { maxHelpers: 3, active: false, pausedBecause: 'person', pausedAt: '2026-11-26T10:00:00.000Z' } });
+  try {
+    source = () => win32roster.rowLine('raph', '') + '\n';
+    const fromSnapshot = status.snapshot().agents.find((a) => a.sessionName === 'raph');
+    const built = status.channelCardFor('raph', '');
+    assert.ok(fromSnapshot && fromSnapshot.swarm, 'CONTROL: snapshot reads the swarm');
+    assert.ok(built.swarm, 'the outage card carries a swarm field');
+    for (const k of ['active', 'pausedBecause', 'maxHelpers']) assert.deepEqual(built.swarm[k], fromSnapshot.swarm[k], k);
+    assert.equal(built.swarm.active, false);
+  } finally { store.writeProfile('raph', { kind: null, swarm: null }); }
+});
+
 test('#9087 win32roster.make emits rowLine\'s bytes for a recorded Claude session', () => {
   const src = win32roster.make({ run: () => [{ sessionId: 'abc12345-0000-4000-8000-000000000001', name: 'raph' }],
     record: { read: () => ({ 'abc12345-0000-4000-8000-000000000001': { name: 'raph', runner: '' } }) }, codexLive: () => [] });
