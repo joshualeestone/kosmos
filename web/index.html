@@ -12318,7 +12318,10 @@ html.kapptabs #s-sec-plus .plus-pill { background: var(--k-sunk); color: var(--k
 html.kapptabs #s-sec-plus .plus-pill[data-state="up"] { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
 html.kapptabs #s-sec-plus .plus-pill[data-state="connecting"] { background: var(--k-sunk); color: var(--k-ink-2); }
 html.kapptabs #s-sec-plus .plus-pill[data-state="down"] { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
-html.kapptabs #s-sec-plus .plus-chip { background: var(--k-sunk); border-color: var(--k-rule); }
+html.kapptabs #s-sec-plus .plus-chip { background: var(--k-sunk); border-color: var(--k-rule);
+  /* Without the skin the section takes the board's own box (the new look's .dbox rules apply once plus-active is off),
+     so the chip's -12px bleed, sized for the navy box, ran 12px past the panel: it sits inside the box instead. */
+  margin-left: 0; margin-right: 0; }
 html.kapptabs #s-sec-plus .plus-cx-art { color: var(--k-ink-2); }
 html.kapptabs #s-sec-plus :is(.plus-cx-row, .plus-foot), html.kapptabs #s-sec-plus #plus-org { border-top-color: var(--k-rule); }
 html.kapptabs #s-sec-plus .plus-qr-box { border: 1px solid var(--k-rule); }
