@@ -716,6 +716,9 @@ elif command -v kosmos_holds_machine_claim >/dev/null 2>&1 && kosmos_holds_machi
   _rt_took_turn=1
   command -v kosmos_suite_turn_log >/dev/null 2>&1 && kosmos_suite_turn_log took "cap=claim head=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo '?') tree=$(basename "$REPO")"
 fi
+# kosmos#9139 review 1: the window for the runs that went beside this one starts when it takes its turn, not before its
+# queue wait (a run beside the holder it waited behind never overlapped one of its tests).
+_rt_t0="$(date +%s)"
 # #4609: the queue overrides and wait controls are for THIS run's wait, read above; nothing later in this script reads
 # them. Its descendants lose them on purpose, a nested run-tests.sh in a test included (it waits on its own terms, and
 # does not inherit an operator's KOSMOS_IGNORE_MACHINE_CLAIM either). Unset

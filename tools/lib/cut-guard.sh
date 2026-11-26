@@ -1794,38 +1794,48 @@ _kosmos_old_qh_waiter_live() {
 # as the change (PigeonPete, 11-26). One line per event in <marker dir>/beside-runs.log:
 #   S <id> <epoch> <what>     when it starts beside a holder
 #   E <id> <epoch>            when it ends
-# kosmos_note_beside_run start <id> <what> | end <id>. Best-effort: a line it cannot write changes nothing else. The
-# file keeps its last 400 lines.
+# kosmos_note_beside_run start <id> <what> | end <id>. Best-effort: a line it cannot write changes nothing else. Spaces
+# and tabs in <id> become "_" (an id is one field). Review 1: every append and the trim (to the last 400 lines) happen
+# under one mkdir lock, so a rename cannot drop a line appended meanwhile; a lock not got in about 2 s skips the trim
+# (and appends anyway: a lost line costs less than a wait in CI).
+_kosmos_beside_lock() { local d="$1" i=0; until mkdir "$d" 2>/dev/null; do i=$((i + 1)); [ "$i" -ge 20 ] && return 1; sleep 0.1; done; return 0; }
 kosmos_note_beside_run() {
-  local f; f="$(_kosmos_marker_dir)/beside-runs.log"
+  local f l id got=0; f="$(_kosmos_marker_dir)/beside-runs.log"; l="$f.lock"
   mkdir -p "$(_kosmos_marker_dir)" 2>/dev/null
-  case "${1:-}" in
-    start) printf 'S %s %s %s\n' "${2:-unnamed}" "$(date +%s)" "${3:-}" >> "$f" 2>/dev/null ;;
-    end)   printf 'E %s %s\n' "${2:-unnamed}" "$(date +%s)" >> "$f" 2>/dev/null ;;
-    *) return 2 ;;
-  esac
-  if [ "$(wc -l < "$f" 2>/dev/null | tr -d ' ')" -gt 400 ] 2>/dev/null; then
+  id="$(printf '%s' "${2:-unnamed}" | tr -s ' \t' '__')"; [ -n "$id" ] || id=unnamed
+  case "${1:-}" in start|end) ;; *) return 2 ;; esac
+  _kosmos_beside_lock "$l" && got=1
+  if [ "$1" = start ]; then printf 'S %s %s %s\n' "$id" "$(date +%s)" "${3:-}" >> "$f" 2>/dev/null
+  else printf 'E %s %s\n' "$id" "$(date +%s)" >> "$f" 2>/dev/null; fi
+  if [ "$got" = 1 ] && [ "$(wc -l < "$f" 2>/dev/null | tr -d ' ')" -gt 400 ] 2>/dev/null; then
     tail -n 400 "$f" > "$f.tmp.$$" 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null
   fi
+  [ "$got" = 1 ] && rmdir "$l" 2>/dev/null
   return 0
 }
-# kosmos_beside_runs_since <epoch>: one line for each run noted above whose window overlaps <epoch> to now (a run with
-# no end line yet counts as still going), as "<what> (<id>), from HH:MM:SS to HH:MM:SS" or "... still going".
+# kosmos_beside_runs_since <epoch>: one line for each run noted above whose window overlaps <epoch> to now, as
+# "<what> (<id>), from MM-DD HH:MM:SS to MM-DD HH:MM:SS" or "... to still going". Review 1: a run with no end line counts
+# as still going only for KOSMOS_BESIDE_OPEN_MAX_S (default 7200 s, past relay CI's job limit): a job cancelled or killed
+# before its end line would otherwise read as still going forever. A new start line for an id clears its old end. A
+# line whose epoch is not a number is skipped. The date is printed with the time, so an older run cannot read as today.
 kosmos_beside_runs_since() {
-  local f t0="${1:-0}" now what id st en; f="$(_kosmos_marker_dir)/beside-runs.log"; now="$(date +%s)"
+  local f t0="${1:-0}" now omax what id st en; f="$(_kosmos_marker_dir)/beside-runs.log"; now="$(date +%s)"
   [ -r "$f" ] || return 0
   case "$t0" in ''|*[!0-9]*) t0=0 ;; esac
-  # awk picks the overlapping runs (tab-separated: what, id, start, end or "-"); the times are formatted here, since
-  # macOS awk has no strftime (date -r on macOS, date -d @ on Linux).
-  awk -v t0="$t0" -v now="$now" '
-    $1 == "S" { id = $2; s[id] = $3; w = ""; for (i = 4; i <= NF; i++) w = w (w == "" ? "" : " ") $i; what[id] = w; order[++n] = id }
-    $1 == "E" { e[$2] = $3 }
-    END { for (k = 1; k <= n; k++) { id = order[k]; if (seen[id]++) continue
-            if (s[id] > now) continue; if ((id in e) && e[id] < t0) continue
+  omax="${KOSMOS_BESIDE_OPEN_MAX_S:-7200}"; case "$omax" in ''|*[!0-9]*) omax=7200 ;; esac
+  # awk picks the overlapping runs (tab-separated: what, id, start, end or "-"); the times are formatted below, since
+  # macOS awk has no strftime (date -d @ first, which fails at once on macOS, then date -r).
+  awk -v t0="$t0" -v now="$now" -v omax="$omax" '
+    $1 == "S" && $3 ~ /^[0-9]+$/ { id = $2; s[id] = $3 + 0; delete e[id]; w = ""; for (i = 4; i <= NF; i++) w = w (w == "" ? "" : " ") $i; what[id] = w; if (!(id in on)) { on[id] = 1; order[++n] = id } }
+    $1 == "E" && $3 ~ /^[0-9]+$/ { e[$2] = $3 + 0 }
+    END { for (k = 1; k <= n; k++) { id = order[k]
+            if (s[id] > now) continue
+            if (id in e) { if (e[id] < t0) continue }
+            else if (now - s[id] > omax + 0) continue
             printf "%s\t%s\t%s\t%s\n", (what[id] == "" ? "a run" : what[id]), id, s[id], ((id in e) ? e[id] : "-") } }' "$f" 2>/dev/null |
   while IFS="$(printf '\t')" read -r what id st en; do
-    st="$(date -r "$st" +%H:%M:%S 2>/dev/null || date -d "@$st" +%H:%M:%S 2>/dev/null)"
-    if [ "$en" = - ]; then en="still going"; else en="$(date -r "$en" +%H:%M:%S 2>/dev/null || date -d "@$en" +%H:%M:%S 2>/dev/null)"; fi
+    st="$(date -d "@$st" '+%m-%d %H:%M:%S' 2>/dev/null || date -r "$st" '+%m-%d %H:%M:%S' 2>/dev/null)"
+    if [ "$en" = - ]; then en="still going"; else en="$(date -d "@$en" '+%m-%d %H:%M:%S' 2>/dev/null || date -r "$en" '+%m-%d %H:%M:%S' 2>/dev/null)"; fi
     printf '%s (%s), from %s to %s\n' "$what" "$id" "$st" "$en"
   done
   return 0
