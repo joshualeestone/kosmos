@@ -52,11 +52,9 @@ test('#9095 nothing laid over a failure screen forces the dark appearance (it wa
   const agents = fs.readFileSync(path.join(__dirname, 'ios', 'Kosmos', 'AgentsView.swift'), 'utf8');
   const content = fs.readFileSync(path.join(__dirname, 'ios', 'Kosmos', 'ContentView.swift'), 'utf8');
   for (const [name, src] of [['AgentsView.swift', agents], ['ContentView.swift', content]]) {
-    let at = src.indexOf('LoadFailureView(');
-    assert.ok(at > -1, name + ' no longer shows LoadFailureView; re-aim this test');
-    for (; at > -1; at = src.indexOf('LoadFailureView(', at + 1)) {
-      // each use is found; the forced-appearance check below covers the whole file (an ancestor could force it too)
-    }
+    // The whole file, not each use: an ancestor view in the same file could force the appearance too. A forced
+    // appearance set in some other file (the window, a parent view elsewhere) is outside what this test can see.
+    assert.ok(src.includes('LoadFailureView('), name + ' no longer shows LoadFailureView; re-aim this test');
     assert.doesNotMatch(src, /colorScheme,\s*\.dark|preferredColorScheme\(\.dark\)|overrideUserInterfaceStyle/, name + ': the file forces a dark appearance somewhere a failure screen can sit under');
   }
   assert.match(agents, /MacSwitcher\(client: client\)\.frame\(minHeight: 44\)\.padding\(16\)/, 'the switcher over the Mac-not-answering screen changed; re-check it on cream');

@@ -54,3 +54,8 @@ Review 4 (sonnet, blind, on the hook): no BLOCKER. Fixed: the comment now says e
 KOSMOS_SAMPLE_AGENTS (that makes Today native); the buttons do nothing while the hook holds (a real Try again reloaded
 the page behind it); the value is lowercased; the test now pins Trying, the detail, the Mac name and all three no-op
 buttons (seven mutants, each red). Left: an unknown value silently does nothing (NIT; the shot shows it at once).
+Review 5 (opus, blind, whole branch): no BLOCKER. Fixed: an empty loop in the forced-dark test (it now says the
+whole file is the scope and what it cannot see); the sampled Mac screen shows "last heard two hours ago" and asks no
+network for it. Left, and said on the card: the hook reaches the web tabs only, so the Agents tab's Mac screen with its
+switcher is shot from a real sleeping Mac or not at all; Palette.primary/secondary matches are view-wide (NIT).
+The source test has 6 tests (an earlier line here said 5/5, before the hook's test was added).

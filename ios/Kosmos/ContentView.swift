@@ -7,7 +7,7 @@ import WebKit
 struct ContentView: View {
     // kosmos#9095: KOSMOS_SAMPLE_FAILURE=offline|unreachable|mac|other, with ",trying" for the Try again wait, holds every
     // web tab (Today among them) on that failure screen whatever the page does, so all four can be photographed in both
-    // appearances. Launch without KOSMOS_SAMPLE_AGENTS: with it Today is native and draws no web tab. Its buttons do
+    // appearances (the Mac one says it was last heard from two hours ago). Launch without KOSMOS_SAMPLE_AGENTS: with it Today is native and draws no web tab. Its buttons do
     // nothing while it holds, so a tap never starts a real load or leaves the screen. A Debug build only: a Release
     // build has no way to reach it.
     static let sampleFailure: (failure: Shell.LoadFailure, trying: Bool)? = {
@@ -755,12 +755,12 @@ struct ContentView: View {
                                 onBack: Self.sampleFailure == nil ? shell.back : {},
                                 onOtherComputer: Self.sampleFailure == nil ? shell.otherComputer : {},
                                 macName: Self.sampleFailure.map { _ in "Studio Mac" } ?? shell.failureMac,
-                                lastHeard: board.lastHeard(address: shell.failureAddress, name: shell.failureMac))
+                                lastHeard: Self.sampleFailure.map { _ in Date().timeIntervalSince1970 - 2 * 3600 } ?? board.lastHeard(address: shell.failureAddress, name: shell.failureMac))
                     // kosmos#7416 review 3 and 4: keyed on the failure, the computer and each Try again, not on the view
                     // appearing: this screen stays up across all three (a failed Try again shows the same failure), so
                     // onAppear would miss them. The return to the app is below, in onChange(of: scenePhase).
                     .task(id: "\(failure)|\(shell.failureAddress ?? "")|\(shell.retryCount)") {
-                        if failure == .macUnreachable { board.refreshLastSeen() }
+                        if failure == .macUnreachable && Self.sampleFailure == nil { board.refreshLastSeen() }
                     }
             }
             // kosmos#7389 (Mona Lisa): a file that takes more than a second says so, with Cancel, so a big file never looks like
