@@ -49,10 +49,10 @@ struct HopGameView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { model.tap() }
-        // VoiceOver: one element, never a trap. It says what it is and the best; a double-tap hops.
+        // VoiceOver: one element, never a trap (no direct interaction, so a touch there is still VoiceOver's). It says what
+        // it is and the best; a double-tap hops.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Offline game, best \(model.logic.best)")
-        .accessibilityAddTraits(.allowsDirectInteraction)
         .accessibilityAction { model.tap() }
     }
 
