@@ -48,6 +48,12 @@ correction (17:21) and Homer's measurements (17:3x).
 - Which platform gets what: the file read is for Windows AND Linux. The job-folder source for the warning is Windows
   only; on Linux the warning still reads each agent's folder from tmux and `ps eww`, which Linux has.
 
+- Review 3: the row's read rule is one pure function, claudeloginlive.liveReadAllowed: always, except inside
+  `node --test` with no seam set. It has no platform condition, and a test holds that.
+- Review 3: off macOS a caller that names a non-default credential but no folder reads nothing, never the default
+  account's file (the file is chosen by the folder, so that would be a wrong-account answer).
+- Review 3: on Windows the explicit-default check compares folders without case, as Windows does.
+
 ## Not changed
 - engine/connect.js readRefreshExpiry, the proof that a Mac sign-in finished. It stays macOS-only: Windows sign-in
   completes through win32signin.js's own path, and changing that proof is outside this card.
@@ -71,6 +77,9 @@ correction (17:21) and Homer's measurements (17:3x).
 - Mutants, each run on a committed tree and restored: the Windows branch in status.js removed turns the warning test
   red; the bucket merge removed, and the folder dropped from the row's read, each turn their own test red.
 - No test calls the macOS reader for a real entry: on a Mac that would read the real Keychain.
+- Review 3: the non-default-without-folder refusal and the case-blind Windows match each have a test, and each turns
+  red when its line is removed. liveReadAllowed's test can catch a platform condition only on a non-Mac: added on this
+  Mac, a darwin-only check still passes there. The repo's Linux CI is where that arm bites.
 - Not covered by a test: the real `create.readJob` on Windows (the tests inject it). Review 2 read its win32 arm: it
   returns `{ configDir, runner }` from the Scheduled Task, a failed read gives null, and the agent is then skipped.
 
