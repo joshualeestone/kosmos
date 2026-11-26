@@ -572,6 +572,7 @@ fi
 if [ $((RT_FILE_TIMEOUT_S % 60)) = 0 ]; then RT_FILE_TIMEOUT_LABEL="$((RT_FILE_TIMEOUT_S / 60)) min"; else RT_FILE_TIMEOUT_LABEL="$RT_FILE_TIMEOUT_S s"; fi
 RT_TEST_TIMEOUT_MS="${KOSMOS_TEST_TIMEOUT_MS:-$(awk -v s="$KOSMOS_TEST_TIME_SCALE" 'BEGIN { v = 600000 * s; if (v < 600000 || v != v) v = 600000; printf "%d", v + 0.5 }')}"
 BEFORE="$(seen_before)"
+_rt_t0="$(date +%s)"   # kosmos#9139: this run's start, for the runs that said they went beside it (below)
 
 # #1962: refuse to run the suite while a RELEASE holds the machine. This is every
 # agent's pre-PR validation and the ordinary tenant a cut's hold list kept missing
@@ -715,6 +716,9 @@ elif command -v kosmos_holds_machine_claim >/dev/null 2>&1 && kosmos_holds_machi
   _rt_took_turn=1
   command -v kosmos_suite_turn_log >/dev/null 2>&1 && kosmos_suite_turn_log took "cap=claim head=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo '?') tree=$(basename "$REPO")"
 fi
+# kosmos#9139 review 1: the window for the runs that went beside this one starts when it takes its turn, not before its
+# queue wait (a run beside the holder it waited behind never overlapped one of its tests).
+_rt_t0="$(date +%s)"
 # #4609: the queue overrides and wait controls are for THIS run's wait, read above; nothing later in this script reads
 # them. Its descendants lose them on purpose, a nested run-tests.sh in a test included (it waits on its own terms, and
 # does not inherit an operator's KOSMOS_IGNORE_MACHINE_CLAIM either). Unset
@@ -1074,13 +1078,25 @@ fi
 if [ "$NODE_STATUS" -ne 0 ]; then
   echo
   echo "=== the machine, when this run started (#708) ==="
+  # kosmos#9139: the runs that said they went beside this one after it took its turn (BEFORE sees only the start).
+  _rt_beside=""; command -v kosmos_beside_runs_since >/dev/null 2>&1 && _rt_beside="$(kosmos_beside_runs_since "$_rt_t0")"
   if [ -n "$BEFORE" ]; then
     echo "This run shared the Mac with:"
     printf '%s\n' "$BEFORE" | sed 's/^/  /'
     echo "A red that is green alone is contention, not the change; rerun the failing file alone before calling it a defect."
     echo "A test that dies on 'we could not see what is running' or a timeout met a busy machine, not a missing thing (#704)."
   else
-    echo "Nothing else was on the default port and no page gate was running, so this red is not contention with a board; read it."
+    if [ -n "$_rt_beside" ]; then
+      echo "Nothing else was on the default port and no page gate was running when it started; but read the runs below, which went beside it later, before calling this red a defect."
+    else
+      echo "Nothing else was on the default port and no page gate was running, so this red is not contention with a board; read it."
+    fi
+  fi
+  if [ -n "$_rt_beside" ]; then
+    echo
+    echo "=== runs that went beside this one while it ran, and said so (#9139) ==="
+    printf '%s\n' "$_rt_beside" | sed 's/^/  /'
+    echo "A red inside one of these windows is contention first: rerun the failing file alone before calling it a defect."
   fi
   # #6668: the limits this run's node part had (scaled by the time-scale above), under their own label, so a red
   # beside a TIMED OUT line or a cancelled test reads against the limit it met. Only when the NODE part itself was red: a
