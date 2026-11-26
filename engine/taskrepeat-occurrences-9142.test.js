@@ -108,6 +108,19 @@ test('review 3: a long history gives the same rows, without a slot sum for every
   assert.ok(occ / scan < 8, 'occurrences took ' + (occ / scan).toFixed(1) + 'x a plain scan of ' + rows.length + ' runs');
 });
 
+test('review 4: a run stamped in the future answers nothing (as dueSlot reads it)', () => {
+  const got = occurrences(task(), [{ at: iso(D(22, 9, 5)), kind: 'run', by: 'nova' }], D(21, 12));
+  assert.ok(!got.some((r) => r.kind === 'delivered'), JSON.stringify(got));
+  // CONTROL: within a minute ahead still counts (a clock a few seconds off).
+  assert.ok(occurrences(task(), [{ at: iso(D(21, 12) + 30e3), kind: 'run', by: 'nova' }], D(21, 12)).some((r) => r.kind === 'delivered'));
+});
+
+test('review 4: a closed task stops at its close: no missed rows after it', () => {
+  const t = task({ isClosed: true, closedAt: iso(D(21, 10)) });
+  const got = occurrences(t, [{ at: iso(D(20, 9, 1)), kind: 'run', by: 'nova' }], D(25, 12));
+  assert.deepEqual(got.map((r) => r.due), [iso(D(21, 9)), iso(D(20, 9))], JSON.stringify(got));
+});
+
 test('CONTROL: not a repeating task, or junk input, gives no rows and never throws', () => {
   assert.deepEqual(occurrences({}, [], Date.now()), []);
   assert.deepEqual(occurrences(task(), null), []);

@@ -64,6 +64,12 @@ its review is still pending, and the page shows the two states apart. The ask wa
   - NIT: late now computed from the slot (runIsLate's rule), so an old record without the field reads right. NIT: a stale
     page comment. Both fixed.
 
+- Round 4: 0 BLOCKER, 2 SHOULD, 1 NIT. SHOULD: a run stamped in the future made a false future "delivered" row. Fixed:
+  a run more than a minute ahead answers nothing, as dueSlot reads it. SHOULD: a closed task kept growing missed rows.
+  Fixed: the walk and the miss test stop at closedAt, as missedRuns does. NIT: runs are cut at the floor and records at
+  the first slot; harmless, since rows older than the walk are sliced off. Left. The floor, the late mark (equal to
+  runIsLate for every rule kind) and the ratio test were checked and hold.
+
 ## Weakest premise
 That "review status" in the feedback means the miss review. If the agent meant a reviewer confirming each delivered run,
 that is a new mark and a product decision (a separate card).

@@ -475,9 +475,12 @@ function occurrences(t, rows, now = Date.now(), max = OCCURRENCES_MAX) {
     const first = nextAfter(rule, from);
     const grace = missGraceFor(rule);
     const flag = (v) => v === true || v === 'true';
+    /* Review 4: a closed task stops at its close, as missedRuns does: no slot after it is missed. */
+    const closedAt = Date.parse(t.closedAt || '');
+    const end = (t.isClosed === true || t.closedAt) && Number.isFinite(closedAt) ? Math.min(now, closedAt) : now;
     // The newest past-grace slots (at most `max`), walked first: they bound which runs can reach the rows shown.
     const walked = [];
-    let s = latestAtOrBefore(rule, first, now - grace);
+    let s = latestAtOrBefore(rule, first, end - grace);
     for (let k = 0; s !== null && s >= first && k < max; k += 1) { walked.push(s); s = latestAtOrBefore(rule, first, s - 1); }
     /* Review 3: a run older than the oldest walked slot (less its early window) cannot reach the rows shown, since every
        walked slot makes a row; it is skipped before answeredSlot, so a long history costs a scan, not a slot sum per run.
@@ -492,7 +495,8 @@ function occurrences(t, rows, now = Date.now(), max = OCCURRENCES_MAX) {
       const at = Date.parse(r.at || '');
       if (!Number.isFinite(at) || at < from) continue;
       if (r.kind === 'run') {
-        if (at < floor) continue;
+        // Review 4: a run stamped more than a minute ahead (a clock stepped back) answers nothing, as dueSlot reads it.
+        if (at < floor || at > now + 60 * 1000) continue;
         const run = { at, person: flag(r.person), by: r.by ? String(r.by) : '' };
         const due = answeredSlot(rule, first, at);
         if (due === null) { early.push(run); continue; }
@@ -513,14 +517,14 @@ function occurrences(t, rows, now = Date.now(), max = OCCURRENCES_MAX) {
       const run = bySlot.get(slot);
       // Review 3: a slot a run already answered shows even before its time (a run in the early window); an unanswered
       // one waits for its time and its grace.
-      if (!run && slot > now) continue;
+      if (!run && slot > end) continue;
       const rev = told.get(slot);
       const review = rev ? { review: rev.review, ...(rev.who ? { who: rev.who } : {}) } : {};
       if (run) {
         // Review 3 NIT: late is computed from the slot (runIsLate's rule), so a record from before the late field reads right.
         out.push({ kind: 'delivered', due: iso(slot), at: iso(run.at), late: run.at - slot >= grace,
           ...(run.person ? { person: true } : (run.by ? { by: run.by } : {})), ...review });
-      } else if (slot + grace <= now) {
+      } else if (slot + grace <= end) {
         out.push({ kind: 'missed', due: iso(slot), ...review });
       }
     }
