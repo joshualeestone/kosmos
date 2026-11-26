@@ -453,4 +453,55 @@ function roomRunLine(prev, after, said) {
   return { text: 'Task #' + after.number + ', "' + roomPlain(after.sentence || '', ROOM_SENTENCE_MAX) + '" (' + describe(after.repeat) + '): ' + parts.join('; '), note, reading };
 }
 
-module.exports = { roomRunLine, sameWords, VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, earlyWindowFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
+/* kosmos#9142 (#9096 item 4, an agent's feedback): a repeating task's recent occurrences, one row each, newest first, from
+   its history (taskchat rows, oldest first) and its current rule. Only what is recorded is said:
+   - a delivered row: `due` (the slot the run answered, answeredSlot, the same rule as the late mark), `at` (when the run
+     was recorded), `late`, and who ran it (`by`, or `person`);
+   - a missed row: `due` (the slot), `count` (slots missed in that stretch, `more` past the cap) and its review: the
+     reviewer was told (`review: 'told'`, `who`), could not be reached (`'unreached'`, `who`), or the person was asked
+     (`'asked'`); and, for a miss that is open now but not yet told, `'pending'` (no reviewer: `'none'`).
+   No run is reviewed one by one (nothing records that), so `review` exists only on missed rows. Rows from before the
+   current rule was set or changed (repeatSetAt) are left out, as the late mark leaves them out. Pure; never throws. */
+const OCCURRENCES_MAX = 10;
+function occurrences(t, rows, now = Date.now(), max = OCCURRENCES_MAX) {
+  try {
+    if (!t || !t.repeat || !Array.isArray(rows)) return [];
+    const from = Date.parse(t.repeatSetAt || t.createdAt || '');
+    if (!Number.isFinite(from)) return [];
+    const first = nextAfter(t.repeat, from);
+    const out = [];
+    let newestMissed = -Infinity;
+    for (const r of rows) {
+      if (!r || typeof r !== 'object') continue;
+      const at = Date.parse(r.at || '');
+      if (!Number.isFinite(at) || at < from) continue;
+      if (r.kind === 'run') {
+        const due = answeredSlot(t.repeat, first, at);
+        out.push({ kind: 'delivered', due: due === null ? null : new Date(due).toISOString(), at: new Date(at).toISOString(),
+          late: r.late === true || r.late === 'true', ...(r.person === true || r.person === 'true' ? { person: true } : (r.by ? { by: String(r.by) } : {})) });
+      } else if (r.kind === 'missed') {
+        const slot = Date.parse(r.slot || '');
+        if (!Number.isFinite(slot) || slot < from) continue;
+        newestMissed = Math.max(newestMissed, slot);
+        const person = r.person === true || r.person === 'true';
+        const reached = r.reached === true || r.reached === 'true';
+        out.push({ kind: 'missed', due: new Date(slot).toISOString(), count: Number(r.count) || 1, ...(r.more ? { more: true } : {}),
+          review: person ? 'asked' : (reached ? 'told' : 'unreached'), ...(!person && r.told ? { who: String(r.told) } : {}) });
+      }
+    }
+    // A miss open now that the history does not hold yet: the review is still to come (or there is no reviewer).
+    const open = missedRuns(t, now);
+    if (open && open.count > 0 && Number.isFinite(open.lastAt) && open.lastAt > newestMissed) {
+      const hasReviewer = typeof t.reviewer === 'string' && t.reviewer !== '' && t.reviewer !== 'none';
+      out.push({ kind: 'missed', due: new Date(open.lastAt).toISOString(), count: open.count, ...(open.more ? { more: true } : {}),
+        review: hasReviewer ? 'pending' : 'none', open: true });
+    }
+    const key = (o) => Date.parse(o.due || o.at || '') || 0;
+    out.sort((a, b) => key(b) - key(a));
+    return out.slice(0, Math.max(0, max));
+  } catch {
+    return [];
+  }
+}
+
+module.exports = { occurrences, OCCURRENCES_MAX, roomRunLine, sameWords, VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, earlyWindowFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
