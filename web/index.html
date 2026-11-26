@@ -4722,6 +4722,11 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
 /* kosmos#4787 slice 2: a repeating task's line turns the error red while a run is missed (row and task page alike). */
 .tsk-row .why.tsk-repeat.missed, #tk-repeat-line.missed { color: var(--danger); }
+/* kosmos#9142: a repeating task's recent runs and misses; a missed or late one in the missed colour. */
+.tk-occ { margin: 8px 0 0; }
+.tk-occ-h { margin: 0; font-size: 12px; color: var(--k-ink-2); }
+.tk-occ-list { margin: 2px 0 0; padding-left: 18px; font-size: 13px; }
+.tk-occ-list li.tk-occ-off { color: var(--danger); }
 .why.tsk-landed-missing { color: var(--danger); }   /* kosmos#7508: a closed fix whose change cannot be found */
 .why.tsk-landed-local { color: var(--warn-ink); }   /* kosmos#7508: a closed fix that is only on this computer (Mona Lisa: amber, not red) */
 .tsk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 120px; }
@@ -18461,6 +18466,9 @@ window.kosmosMeasureScrollbarWidth();
           <select id="tk-review-who" class="tsk-sel" aria-label="Who is told if a run is missed"></select>
         </div>
         <p class="fmsg" id="tk-review-msg" aria-live="polite" style="margin:2px 0 0;"></p>
+        <!-- kosmos#9142: a repeating task's recent runs and misses, one row each (when it was due, when it was delivered,
+             and what the review did with a miss), newest first, from the activity route. Hidden when there are none. -->
+        <div id="tk-occurrences" class="tk-occ" hidden><p class="tk-occ-h">Recent runs</p><ul id="tk-occ-list" class="tk-occ-list" aria-label="Recent runs and misses, newest first"></ul></div>
         <p class="dhint" style="margin:12px 0 0;">Anything written here is part of the task, so an agent picking it up later reads the whole thing rather than just the title.</p>
       </aside>
     </div>
@@ -75815,6 +75823,52 @@ async function paintTaskReceipt(n) {
    in-app change (tkPartPost / the done button), and on the five-second read while
    the task's page is up and visible and the person is there (#6951: drawn only when it changed). `n` is checked against TK_OPEN after the await so a fetch
    that lands after the person has left the task cannot paint the wrong page. */
+/* kosmos#9142: a repeating task's recent runs and misses (the activity route's occurrences), one row each, newest first:
+   when it was due, and either when it was delivered (on time or late, and by whom) or what happened to the miss (its
+   reviewer told, could not be reached, or you asked; only when a record names that slot). Text only (textContent), never markup from the board.
+   Hidden when there are none, so a task that does not repeat shows nothing new. */
+function tkOccWhen(iso) {
+  const t = new Date(iso);
+  if (!Number.isFinite(t.getTime())) return '';
+  return t.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+function tkOccWords(o) {
+  const who = (s) => tskAgentName(s);
+  // Review 2: what happened to the slot's miss, only when the board names a record for that slot.
+  const rv = o.who ? who(o.who) : 'Its reviewer';   // review 5: never a missing subject
+  const review = o.review === 'told' ? rv + ' was told it was missed'
+    : o.review === 'unreached' ? rv + ' could not be reached about the miss'
+    : o.review === 'asked' ? 'it waited for you in Needs Your Decision' : '';
+  if (o.kind === 'delivered') {
+    const by = o.person ? 'you' : (o.by ? who(o.by) : 'someone');
+    if (!o.due) return 'Ran ' + tkOccWhen(o.at) + ', by ' + by + ', before its first scheduled run';
+    return 'Due ' + tkOccWhen(o.due) + ': delivered ' + (o.late ? 'late' : 'on time') + (o.at ? ', ' + tkOccWhen(o.at) : '') + ', by ' + by + (review ? '; ' + review : '');
+  }
+  if (o.kind === 'missed') return 'Due ' + tkOccWhen(o.due) + ': missed' + (review ? '; ' + review : '');
+  return '';
+}
+function tkPaintOccurrences(occ, task) {
+  const box = document.getElementById('tk-occurrences');
+  const list = document.getElementById('tk-occ-list');
+  if (!box || !list) return;
+  /* Review 1: `occ` null means "this read failed": keep what is shown only if it is THIS task's, else clear it, so a
+     previous task's runs never show under another. */
+  if (occ === null) { if (list.dataset.task !== task) { list.dataset.task = task || ''; list.dataset.drawn = ''; list.textContent = ''; box.hidden = true; } return; }
+  list.dataset.task = task || '';
+  // Each row's words beside its own entry, so the missed or late mark stays on the right line.
+  const rows = (Array.isArray(occ) ? occ : []).map((o) => ({ o, w: o && typeof o === 'object' ? tkOccWords(o) : '' })).filter((r) => r.w);
+  const key = rows.map((r) => r.w).join('\n');
+  if (list.dataset.drawn === key) { box.hidden = !rows.length; return; }
+  list.dataset.drawn = key;
+  list.textContent = '';
+  for (const r of rows) {
+    const li = document.createElement('li');
+    li.textContent = r.w;
+    if (r.o.kind === 'missed' || r.o.late === true) li.classList.add('tk-occ-off');
+    list.appendChild(li);
+  }
+  box.hidden = !rows.length;
+}
 async function paintTaskActivity(n, opts) {
   // #6951: the poll's call. No braces in the signature: the page's tests lift this function by its first brace.
   const onlyIfChanged = !!(opts && opts.onlyIfChanged);
@@ -75828,14 +75882,17 @@ async function paintTaskActivity(n, opts) {
   const seq = holder.tkSeq = (holder.tkSeq || 0) + 1;
   const openId = holder.tkOpen;
   let events = [];
+  let occurrences = [];   // kosmos#9142
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + n + '/activity', { cache: 'no-store' });
     if (n !== TK_OPEN || p.id !== PJ_CURRENT) return;
     if (!res.ok) throw new Error('not ok');
     const out = await res.json();
     events = Array.isArray(out.events) ? out.events : [];
+    occurrences = Array.isArray(out.occurrences) ? out.occurrences : [];   // kosmos#9142
   } catch {
     if (n !== TK_OPEN || p.id !== PJ_CURRENT || seq < (holder.tkDrawnSeq || 0)) return;   // #6951: a stale read's failure is not news either
+    if (typeof tkPaintOccurrences === 'function') tkPaintOccurrences(null, p.id + '#' + n);   // kosmos#9142 review 1
     /* A failed read says nothing about the task, so it must not read as "nothing
        happened". Keep whatever is already shown; only when the list is empty put
        a quiet could-not-read line, never a false empty state. */
@@ -75849,6 +75906,8 @@ async function paintTaskActivity(n, opts) {
      second await is a second chance for the page to have moved on. */
   if (n !== TK_OPEN || p.id !== PJ_CURRENT) return;
   if (seq < (holder.tkDrawnSeq || 0)) return;
+  // kosmos#9142: guarded, so a test that lifts this function alone does not need the painter.
+  if (typeof tkPaintOccurrences === 'function') tkPaintOccurrences(occurrences, p.id + '#' + n);
   const last = events[events.length - 1];
   const drawn = p.id + '#' + n + '#' + events.length + '#' + (last ? last.at + '#' + last.kind : '');
   /* #6951: kept on the holder, not in globals, so the page's sliced tests need nothing new. tkDrawn: the conversation
@@ -75978,6 +76037,8 @@ function openTaskPage(n) {
      cannot leave the previous task's events on screen. */
   const acts = document.getElementById('tk-activity');
   if (acts) { acts.innerHTML = ''; acts.tkDrawn = null; acts.tkMarked = null; acts.tkMarking = null; acts.tkRecorded = null; acts.tkReturnAt = 0; acts.tkDrawnSeq = (acts.tkSeq || 0) + 1; acts.tkOpen = {}; }   // #6951: a new open: nothing drawn or marked for it yet, and no earlier read or record speaks for it
+  // kosmos#9142 review 5: the previous task's runs go with its events, so a slow read cannot leave them under this one.
+  { const ob = document.getElementById('tk-occurrences'), ol = document.getElementById('tk-occ-list'); if (ob) ob.hidden = true; if (ol) { ol.textContent = ''; if (ol.dataset) { ol.dataset.drawn = ''; ol.dataset.task = ''; } } }
   const receipt = document.getElementById('tk-receipt');
   if (receipt) { receipt.hidden = true; receipt.innerHTML = ''; }
   const undoBox = document.getElementById('tk-undo');   // #5153 slice 4

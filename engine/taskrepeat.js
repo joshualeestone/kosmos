@@ -453,4 +453,113 @@ function roomRunLine(prev, after, said) {
   return { text: 'Task #' + after.number + ', "' + roomPlain(after.sentence || '', ROOM_SENTENCE_MAX) + '" (' + describe(after.repeat) + '): ' + parts.join('; '), note, reading };
 }
 
-module.exports = { roomRunLine, sameWords, VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, earlyWindowFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
+/* kosmos#9142 (#9096 item 4, an agent's feedback): a repeating task's recent occurrences, one row per SCHEDULED SLOT,
+   newest first. Review 2: the rows come from the schedule and the runs, never from the miss records' counts (a record
+   stands for a stretch, told once per stall, and summing or spreading them double-counted and hid misses). So:
+   - a slot a run answered (answeredSlot, the late mark's rule; the first run for a slot) is `delivered`, `late` or not
+     (computed from the slot, as runIsLate), with `at` and who ran it, even before the slot's time (an early run);
+   - a slot past its miss grace that no run answered is `missed`;
+   - either kind carries `review` (told / unreached / asked, and `who`) only when a miss record names THAT slot (a record
+     names the latest slot of its stretch); otherwise no review is claimed, since whether anyone is told depends on the
+     reviewer, a pause, a hold and the throttle, which this cannot see;
+   - a run before the rule's first slot answered none: `due` is null.
+   Only since the current rule was set (repeatSetAt), as the late mark. Bounded: at most `max` rows, and the slot walk
+   takes at most `max` steps back from now. Pure; never throws. */
+const OCCURRENCES_MAX = 10;
+function occurrences(t, rows, now = Date.now(), max = OCCURRENCES_MAX) {
+  try {
+    if (!t || !t.repeat || !Array.isArray(rows)) return [];
+    const rule = t.repeat;
+    const from = Date.parse(t.repeatSetAt || t.createdAt || '');
+    if (!Number.isFinite(from)) return [];
+    const first = nextAfter(rule, from);
+    const grace = missGraceFor(rule);
+    const flag = (v) => v === true || v === 'true';
+    /* Review 4: a closed task stops at its close, as missedRuns does: no slot after it is missed. */
+    const closedAt = Date.parse(t.closedAt || '');
+    const end = (t.isClosed === true || t.closedAt) && Number.isFinite(closedAt) ? Math.min(now, closedAt) : now;
+    // The newest past-grace slots (at most `max`), walked first: they bound which runs can reach the rows shown.
+    const walked = [];
+    let s = latestAtOrBefore(rule, first, end - grace);
+    for (let k = 0; s !== null && s >= first && k < max; k += 1) { walked.push(s); s = latestAtOrBefore(rule, first, s - 1); }
+    /* Review 3: a run older than the oldest walked slot (less its early window) cannot reach the rows shown, since every
+       walked slot makes a row; it is skipped before answeredSlot, so a long history costs a scan, not a slot sum per run.
+       When the walk reached the first slot, nothing is older, and runs before the first slot still count. */
+    const reachedFirst = walked.length < max;
+    const floor = reachedFirst ? from : walked[walked.length - 1] - earlyWindowFor(rule);
+    const bySlot = new Map();   // slot ms -> the first run that answered it
+    const early = [];           // runs before the first slot (they answered none)
+    const told = new Map();     // slot ms -> the latest miss record naming it
+    let skewed = false;         // review 5: a run stamped ahead was seen
+    for (const r of rows) {
+      if (!r || typeof r !== 'object') continue;
+      const at = Date.parse(r.at || '');
+      if (!Number.isFinite(at) || at < from) continue;
+      if (r.kind === 'run') {
+        /* Review 4: a run stamped more than a minute ahead (a clock stepped back) answers nothing, as dueSlot reads it.
+           Review 5: and then no slot is claimed missed either, as missedRuns claims none: that run may have been the
+           very run a slot shows missed. */
+        if (at > now + 60 * 1000) { skewed = true; continue; }
+        if (at < floor) continue;
+        const run = { at, person: flag(r.person), by: r.by ? String(r.by) : '' };
+        const due = answeredSlot(rule, first, at);
+        if (due === null) { early.push(run); continue; }
+        const had = bySlot.get(due);
+        if (!had || at < had.at) bySlot.set(due, run);   // review 2: the first run for a slot
+      } else if (r.kind === 'missed') {
+        const slot = Date.parse(r.slot || '');
+        if (!Number.isFinite(slot) || slot < first) continue;
+        const person = flag(r.person);
+        told.set(slot, { review: person ? 'asked' : (flag(r.reached) ? 'told' : 'unreached'), who: !person && r.told ? String(r.told) : '' });
+      }
+    }
+    const slots = new Set([...walked, ...bySlot.keys(), ...told.keys()]);
+    const iso = (ms) => new Date(ms).toISOString();
+    const out = [];
+    for (const slot of slots) {
+      if (slot < first) continue;
+      const run = bySlot.get(slot);
+      // Review 3: a slot a run already answered shows even before its time (a run in the early window); an unanswered
+      // one waits for its time and its grace.
+      if (!run && slot > end) continue;
+      const rev = told.get(slot);
+      const review = rev ? { review: rev.review, ...(rev.who ? { who: rev.who } : {}) } : {};
+      if (run) {
+        // Review 3 NIT: late is computed from the slot (runIsLate's rule), so a record from before the late field reads right.
+        out.push({ kind: 'delivered', due: iso(slot), at: iso(run.at), late: run.at - slot >= grace,
+          ...(run.person ? { person: true } : (run.by ? { by: run.by } : {})), ...review });
+      } else if (!skewed && slot + grace <= end) {
+        out.push({ kind: 'missed', due: iso(slot), ...review });
+      }
+    }
+    for (const run of early) {
+      out.push({ kind: 'delivered', due: null, at: iso(run.at), late: false, ...(run.person ? { person: true } : (run.by ? { by: run.by } : {})) });
+    }
+    const key = (o) => Date.parse(o.due || o.at || '') || 0;
+    out.sort((a, b) => key(b) - key(a));
+    return out.slice(0, Math.max(0, max));
+  } catch {
+    return [];
+  }
+}
+
+/* kosmos#9142: one occurrence row in words, for an agent reader (the CLIs print it beside the row's due time). `nameOf`
+   turns a session name into the name the page shows; the person is "the person", as taskactphrase words it for agents. */
+function occurrenceWords(row, nameOf = (s) => s) {
+  const name = (s) => { try { return String(nameOf(s) || s); } catch { return String(s); } };
+  if (!row || typeof row !== 'object') return '';
+  // What happened to its miss, only when a record names this slot (review 2).
+  const rv = row.who ? 'its reviewer ' + name(row.who) : 'its reviewer';   // review 5: never "undefined"
+  const review = row.review === 'told' ? rv + ' was told it was missed'
+    : row.review === 'unreached' ? rv + ' could not be reached about the miss'
+    : row.review === 'asked' ? 'the person was asked about the miss (Needs Your Decision)' : '';
+  if (row.kind === 'delivered') {
+    const who = row.person ? 'the person' : (row.by ? name(row.by) : 'someone');
+    if (row.due === null) return 'delivered by ' + who + ' before its first scheduled run';
+    return (row.late ? 'delivered late' : 'delivered on time') + ' by ' + who + (review ? '; ' + review : '');
+  }
+  if (row.kind === 'missed') return 'missed' + (review ? '; ' + review : '');
+  return '';
+}
+
+module.exports = { occurrences, occurrenceWords, OCCURRENCES_MAX, roomRunLine, sameWords, VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, earlyWindowFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };

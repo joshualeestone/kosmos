@@ -1956,6 +1956,15 @@ async function taskActivity(ctx, args) {
     // One line, with control and format characters taken out (review 4: an escape sequence must not reach the terminal).
     ctx.out(when(e.at) + '  ' + w.replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '').trim());
   }
+  // kosmos#9142: a repeating task's runs and misses, one row each, newest first, as install/kosmos prints them.
+  const oc = Array.isArray(r.json.occurrences) ? r.json.occurrences : [];
+  if (oc.length) {
+    ctx.out('Runs and misses, newest first (when each was due):');
+    for (const o of oc) {
+      const w = typeof o.words === 'string' ? o.words : String(o.kind || '');
+      ctx.out(when(o.due || o.at) + '  ' + w.replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '').trim() + (o.kind === 'delivered' && o.at && o.due ? ' (at ' + when(o.at) + ')' : ''));
+    }
+  }
   /* #6947, as install/kosmos: when the person viewed the task (as its conversation now stands), against the latest message, so an agent
      can tell an unseen nudge from one seen and not yet acted on. An older board sends no field and nothing is said. */
   if ('seenByPerson' in r.json) {
