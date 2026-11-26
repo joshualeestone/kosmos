@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.24",
+  "lastProd": "0.8.25",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -2871,7 +2871,8 @@
       "icon": "tasks",
       "rank": 12,
       "since": "0.8.23",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.25"
     },
     {
       "title": "A wait outlives a /clear",
@@ -2900,7 +2901,8 @@
       "platforms": [
         "mac"
       ],
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.25"
     },
     {
       "title": "An old sign-in message no longer misleads",
@@ -2908,10 +2910,11 @@
       "icon": "shield",
       "rank": 13,
       "since": "0.8.23",
-      "status": "pending",
+      "status": "shown",
       "platforms": [
         "mac"
-      ]
+      ],
+      "shownIn": "0.8.25"
     },
     {
       "title": "A wait is reminded twice, then not again",
@@ -2931,7 +2934,8 @@
       ],
       "rank": 12.6,
       "since": "0.8.25",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.25"
     },
     {
       "title": "Windows warns before a Claude login ends",
@@ -2973,5 +2977,5 @@
       "status": "pending"
     }
   ],
-  "lastProdWin": "0.8.24"
+  "lastProdWin": "0.8.25"
 }

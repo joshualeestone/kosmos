@@ -1,34 +1,18 @@
 {
-  "version": "0.8.25",
+  "version": "0.8.26",
   "highlights": [
     {
-      "icon": "tasks",
-      "title": "A closed question says who closed it",
-      "line": "Hovering an agent's status says, for 12 hours, when its question for you was closed, and whether the agent or something else closed it."
-    },
-    {
       "icon": "shield",
-      "title": "An expired Claude login is said",
-      "line": "An agent stopped by an expired Claude login shows a sign-in issue on its card; kosmos accounts says so, and agents are not moved onto it.",
+      "title": "A refused download offers a restart",
+      "line": "When Kosmos was updated while its window stayed open and macOS refuses a download, Kosmos offers to restart onto the new version.",
       "platforms": [
         "mac"
       ]
     },
     {
-      "icon": "shield",
-      "title": "A printed sign-in message is not the agent's",
-      "line": "When a command or MCP tool prints Claude's own \"Not logged in\" line, the agent's card no longer reads it as its own sign-in failure.",
-      "platforms": [
-        "mac"
-      ]
-    },
-    {
-      "icon": "shield",
-      "title": "An old sign-in message no longer misleads",
-      "line": "An old sign-in message left on an agent's screen no longer marks a Claude account as refused once it is signed in again elsewhere.",
-      "platforms": [
-        "mac"
-      ]
+      "icon": "list",
+      "title": "The agent list stops redrawing itself",
+      "line": "The agent list and grid now update only the rows that changed, instead of redrawing every row when one changes."
     }
   ]
 }
