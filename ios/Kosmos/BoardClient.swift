@@ -1848,7 +1848,7 @@ final class BoardClient: ObservableObject {
                let t = Board.parseThread(data) { sampleThreads["dana"] = t }
         }
         // kosmos#9089: KOSMOS_SAMPLE_LONG=tall20 is a short chat of tall replies, 20 messages and none older, the size of a
-        // reviewer's chat after one long answer: Dana's replies of 3, 8 and 14 paragraphs, the person's one line, the newest the
+        // reviewer's chat after one long answer: Dana's replies of up to 14 paragraphs, the person's one line, the newest the
         // person's "Message 20 of 20.". KOSMOS_SAMPLE_LONG=short20 is the same 20 with every message one line (the control).
         if let long = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_LONG"], long == "tall20" || long == "short20" {
             var rows: [[String: Any]] = []
@@ -1856,9 +1856,12 @@ final class BoardClient: ObservableObject {
             for i in 0..<20 {
                 let at: String = String(format: "2026-10-23T09:%02d:00Z", i)
                 var text = "Message \(i + 1) of 20."
+                // The varied sample's own pattern (0, 1, 3, 8, 2, 14 paragraphs): it puts a 14-paragraph reply at message 11 and an
+                // 8-paragraph one at 19, which is what Mona Lisa's 20-message case had (11-25). A pattern with the tallest reply
+                // early (3, 8, 14, 2, 8) opened on the newest every time.
                 if long == "tall20" && i % 2 == 0 {
-                    let paragraphs = [3, 8, 14, 2, 8][i / 2 % 5]
-                    text += "\n\n" + Array(repeating: para, count: paragraphs).joined(separator: "\n\n")
+                    let paragraphs = [0, 1, 3, 8, 2, 14][i / 2 % 6]
+                    if paragraphs > 0 { text += "\n\n" + Array(repeating: para, count: paragraphs).joined(separator: "\n\n") }
                 }
                 rows.append(["at": at, "text": text, "from": i % 2 == 0 ? "dana" : NSNull()])
             }

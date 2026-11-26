@@ -16,11 +16,17 @@ final class ChatTallOpenUITests: XCTestCase {
     // The bubble wholly between the top bar and the box, read once the list has been still for half a second.
     private func shownWhole(_ app: XCUIApplication, _ when: String) {
         XCTAssertTrue(composer(app).waitForExistence(timeout: 20), "the chat did not open, \(when)")
+        // Where the newest is the moment the chat shows (a late landing is the person seeing the wrong place first), read
+        // within the 5 s that ChatOpensAtNewestUITests allows, then again once the list is still.
+        let early = newest(app).waitForExistence(timeout: 5)
+        print("UI-NOTE kosmos#9089 \(when): newest drawn within 5 s: \(early)\(early ? " at \(Int(newest(app).frame.minY))" : "")")
+        let firstLook = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); firstLook.name = when + ", at 5 s"; firstLook.lifetime = .keepAlways; add(firstLook)
         let any = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", ": Message ")).firstMatch
         var last = CGRect.null
         for _ in 0..<12 { let now = any.exists ? any.frame : .null; if now == last && !now.isNull { break }; last = now; Thread.sleep(forTimeInterval: 0.5) }
         let n = newest(app), top = app.navigationBars.firstMatch.frame.maxY, bottom = composer(app).frame.minY
         let a = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); a.name = when; a.lifetime = .keepAlways; add(a)
+        XCTAssertTrue(early, "\(when): the newest message was not drawn within 5 s of the chat showing")
         XCTAssertTrue(n.exists, "\(when): the newest message is not drawn (the list opened above it)")
         print("UI-NOTE kosmos#9089 \(when): newest \(Int(n.frame.minY))-\(Int(n.frame.maxY)), band \(Int(top))-\(Int(bottom))")
         XCTAssertTrue(n.frame.minY >= top - 1 && n.frame.maxY <= bottom + 1, "\(when): the newest message is not wholly on screen: \(n.frame), band \(top) to \(bottom)")
