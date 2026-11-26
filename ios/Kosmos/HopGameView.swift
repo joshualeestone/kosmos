@@ -33,7 +33,9 @@ struct HopGameView: View {
 struct HopPlayView: View {
     @StateObject private var model = HopModel()
     @Environment(\.scenePhase) private var scenePhase
-    @State private var pressed = false
+    // Review 2: a GestureState, so it resets when a touch is CANCELLED (a scroll taking over, Notification Center, a
+    // call), not only when it ends. As an @State it stayed true after a cancel and every later touch was ignored.
+    @GestureState private var pressed = false
 
     var body: some View {
         TimelineView(.animation(paused: !model.ticking)) { context in
@@ -54,14 +56,16 @@ struct HopPlayView: View {
         }
         .contentShape(Rectangle())
         // A hop on touch-down, not on lift (review 1: a tap gesture fires on lift, late for a reflex game). One hop per
-        // touch: `pressed` holds until the finger lifts.
-        .gesture(DragGesture(minimumDistance: 0)
-            .onChanged { _ in if !pressed { pressed = true; model.tap() } }
-            .onEnded { _ in pressed = false })
+        // touch: `pressed` holds until the finger lifts or the touch is cancelled. Review 2: simultaneous, so on a screen
+        // tall enough to scroll a swipe that starts on the panel still scrolls (it hops once as well).
+        .simultaneousGesture(DragGesture(minimumDistance: 0)
+            .updating($pressed) { _, state, _ in
+                if !state { state = true; DispatchQueue.main.async { model.tap() } }
+            })
         // VoiceOver: one element, never a trap (no direct interaction, so a touch there is still VoiceOver's). It says
         // what it is and the best; a double-tap hops.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Offline game, best \(model.logic.best)")
+        .accessibilityLabel("Offline game, score \(model.logic.score), best \(model.logic.best)")
         .accessibilityHint("Double-tap to hop")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { model.tap() }
@@ -84,7 +88,7 @@ struct HopPlayView: View {
     private var hintWords: String? {
         switch model.logic.phase {
         case .ready: return "Tap to hop over the drifting dots"
-        case .over: return "Tap to play again"
+        case .over: return model.logic.canRestart ? "Tap to play again" : nil   // review 2: not while taps are ignored
         case .running: return nil
         }
     }
