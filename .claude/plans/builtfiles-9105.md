@@ -144,4 +144,12 @@ said "withdraws all" assuming one sender; per-file is the consistent reading.
   the worst case per task) and speed is negligible (filesOf a few times per mark, at most 20x20 name compares).
   An unnamed file cannot be named in --check; a mark without --check checks it (decided: rare, older CLIs only).
   Measured after: new 59/59; older 297 pass, 0 fail, 7 platform skips; 4 new mutants red.
+- Round 8 (sonnet, blind, final, whole branch): 0 BLOCKER, 0 MAJOR, 4 MINOR. CONVERGED.
+  After it, one small change, tested and NOT re-reviewed (said so here on purpose): 1 two senders who each check the
+  other's file could never end a review (round 7's rule): a mark that itself adds a check of another sender's file
+  now ends it, while a sender's bare re-mark still cannot (test + mutant red). 2 the prune comment said "oldest";
+  it is first in the list. Decided, not changed: 3 a pruned withdrawn file sent back is a new file, its old checks
+  gone (said in the comment; the cap is the reason); 4 a 20-file task whose files are all other senders' refuses a
+  third agent's new file until a sender withdraws or the mark is cleared (rare; the refusal is honest).
+  Measured after: 86/86 across the new files plus server.builtwaiting-8934 and tasks.filereplace-8307.
 

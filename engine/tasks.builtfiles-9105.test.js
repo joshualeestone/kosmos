@@ -426,3 +426,16 @@ test('#9105 review 7: a rebuild from the single-file fields never makes two entr
   const names = tasks.filesOf(get(n)).map((e) => e.name);
   assert.equal(new Set(names).size, names.length, 'two entries share a name: ' + JSON.stringify(names));
 });
+
+test('#9105 review 8: two senders checking each other\'s files end the review; a bare re-mark still does not', () => {
+  const n = freshTask();
+  mark(n, { by: 's1', files: [{ name: 'a.md', fingerprint: A }], waitingOn: 'review' });
+  mark(n, { by: 's2', files: [{ name: 'b.md', fingerprint: B }] });
+  mark(n, { by: 's1', check: ['b.md'], note: 'read b' });
+  assert.equal(get(n).builtWaitingOn, 'review');
+  mark(n, { by: 's2', check: ['a.md'], note: 'read a' });
+  assert.equal(get(n).builtWaitingOn, undefined, 'a review checked both ways never ended');
+  mark(n, { by: 's1', files: [{ name: 'a.md', fingerprint: A }], waitingOn: 'review' });
+  mark(n, { by: 's1', files: [{ name: 'a.md', fingerprint: A }], note: 'again' });
+  assert.equal(get(n).builtWaitingOn, 'review', 'CONTROL: a sender\'s bare re-mark ended the review');
+});

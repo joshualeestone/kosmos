@@ -1337,7 +1337,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       }
       let files = after.filter(Boolean);
       /* The cap is on the task's current files, so a looping sender of new names cannot grow the store past it. Withdrawn
-         entries past the cap go, oldest first (a withdrawal frees its place), so withdrawing is a way back under it. */
+         entries past the cap go, first in the list first (a withdrawal frees its place), so withdrawing is a way back
+         under it. A pruned file sent back is a new file: its earlier checks went with it. */
       const currentCount = files.filter((e) => e.fingerprint).length;
       if (currentCount > BUILT_FILES_MAX && currentCount > before.filter((e) => e.fingerprint).length) throw new Error(`a task keeps at most ${BUILT_FILES_MAX} delivered files, so this mark was not recorded: send fewer, or withdraw yours first with a mark without --file`);
       while (files.length > BUILT_FILES_MAX) {
@@ -1360,13 +1361,16 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       /* kosmos#9105: with several files, a review is done only once every current file has a checker who is not its
          sender (or the person): a check of one file leaves the others still waiting on it. */
       const current = files.filter((e) => e.fingerprint);
+      // This mark itself checked another sender's file (two senders checking each other's files end the review).
+      const checkedOthersNow = who !== null && current.some((e) => e.by !== who && (e.checkedBy || []).includes(who)
+        && !before.some((b) => b.name === e.name && b.fingerprint === e.fingerprint && (b.checkedBy || []).includes(who)));
       const everyChecked = current.every((e) => e.checkedByPerson === true || (e.checkedBy || []).some((x) => x !== e.by));
       /* Against each file's sender, not the last marker: a checker who checks the files over two marks is the last
          marker after the first, and must still be able to end the review with the second. A marker who sent any of the
-         current files never ends it (checks from before a review was asked for again would otherwise let a sender's own
-         re-mark end the review it asked for). */
+         current files ends it only with a check of another sender's file made in this mark (else checks from before a
+         review was asked for again would let a sender's own re-mark end the review it asked for). */
       const reviewDone = t.builtWaitingOn === 'review' && who !== null
-        && (current.length <= 1 ? (t.builtBy || null) !== who : everyChecked && !current.some((e) => e.by === who));
+        && (current.length <= 1 ? (t.builtBy || null) !== who : everyChecked && (!current.some((e) => e.by === who) || checkedOthersNow));
       waits = sent || (!isPerson && !dropWaits && !reviewDone && t.builtAt && WAITING_ON.includes(t.builtWaitingOn) ? t.builtWaitingOn : '');
       const landedOnRemoteNow = landed && (landed.onRemote || (t.landedOnRemote === true && t.landedCommit === landed.sha && t.landedRepo === landed.repo));
       /* Review 4: a mark that changes nothing but what it waits on (the hint's advice, followed) is a change, but not new
