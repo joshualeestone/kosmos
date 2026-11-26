@@ -10,7 +10,7 @@
  */
 /* #6330, #7213: a fingerprint names its kind. */
 const FINGERPRINT_RE = /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/;
-/* A file's name as sent: its base name, no folder, no control characters. Neither / nor \ (review 1: a name holding a
+/* A file's name as sent: its base name, no folder, no control characters. Neither / nor \ (a name holding a
    backslash can carry a whole Windows path, C:\Users\..., past every view that strips paths, and into panes). A Mac file
    whose name holds one is sent the older way, without a name. */
 function builtFileName(v) {
@@ -40,7 +40,7 @@ function replacedRecord(r) {
  * fields describe (a mark from before #9105), else none. An entry with no fingerprint is a withdrawn file (its replaces). */
 function filesOf(t) {
   if (!t || !t.builtAt) return [];
-  /* Review 1: setBuilt stamps the list with the builtAt it wrote it with. A board from before #9105 drops neither (it
+  /* setBuilt stamps the list with the builtAt it wrote it with. A board from before #9105 drops neither (it
      does not know them), so after its clear, close or new mark the list no longer belongs to this mark: it is not read,
      and the task is the one file the single-file fields describe. That can leave out a file another mark sent (said
      too little), never brings back a cleared one (said too much). */
@@ -70,7 +70,7 @@ function filesOf(t) {
   return list.map((e, i) => (i === mi ? { ...one, name: one.name || e.name } : e));
 }
 
-/* Review 3: a file's name as the readout shows it: the long list's q() (quotes to ', brackets to parentheses, NFKC, one
+/* A file's name as the readout shows it: the long list's q() (quotes to ', brackets to parentheses, NFKC, one
    space) with format characters left out, as the readout prints it. A check given in this form finds its file. */
 function shownName(v) {
   return String(v).normalize('NFKC').replace(/\p{Cf}/gu, '').replace(/\s+/g, ' ').trim()

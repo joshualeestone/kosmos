@@ -106,3 +106,18 @@ test('#9105 review 3 Windows: a no-op --check says nothing of an older board; a 
   assert.equal(r.code, 0, r.err);
   assert.equal(r.calls[0].body.files[1].name, 'odd.csv', 'the trailing dot and space were kept in the name');
 });
+
+test('#9105 Windows: task list says 1 of N files only for a list written with this mark; a dots-only name among several is refused', async () => {
+  const fp = 'sha256:' + 'a'.repeat(64);
+  const files = [{ name: 'a.md', fingerprint: fp }, { name: 'b.md', fingerprint: fp }];
+  const fresh = await run(['task', 'list', 'proj'], () => ({ body: { tasks: [{ number: 1, sentence: 'Two', builtAt: 'T1', builtFilesAt: 'T1', builtFingerprint: fp, builtFingerprintBy: 'mona', builtFiles: files }] } }));
+  assert.match(fresh.out, /\(1 of 2 files: kosmos task show lists them\)/);
+  const stale = await run(['task', 'list', 'proj'], () => ({ body: { tasks: [{ number: 1, sentence: 'Two', builtAt: 'T2', builtFilesAt: 'T1', builtFingerprint: fp, builtFingerprintBy: 'mona', builtFiles: files }] } }));
+  assert.doesNotMatch(stale.out, /of 2 files/, 'a list an older board left behind was counted');
+  const dots = path.join(DIR, '...');
+  fs.writeFileSync(dots, 'dots\n');
+  const r = await run(['task', 'built', 'proj/1', '4', 'x', '--file', REPORT, '--file', dots], newer);
+  assert.equal(r.code, 2, r.err);
+  assert.match(r.err, /only dots and spaces, among several files/);
+  assert.equal(r.calls.length, 0);
+});

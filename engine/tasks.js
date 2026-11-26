@@ -1057,10 +1057,10 @@ function sameList(a, b) {
 }
 /* kosmos#9105: at most this many files on one built mark, so a looping sender cannot grow the store. */
 const BUILT_FILES_MAX = 20;
-/* kosmos#9105 review 2: a file's name in a refusal, between single quotes and with no double quote or backslash, which the
+/* kosmos#9105: a file's name in a refusal, between single quotes and with no double quote or backslash, which the
    Mac CLI's sed reads the error up to (a JSON-quoted name cut it at its first quote). */
 function plainName(v) {
-  return "'" + String(v).replace(/["\\\u0000-\u001f\u007f]/g, ' ').replace(/\p{Cf}/gu, '').replace(/'/g, '\u2019') + "'";   // review 3: no direction override, no closing quote
+  return "'" + String(v).replace(/["\\\u0000-\u001f\u007f]/g, ' ').replace(/\p{Cf}/gu, '').replace(/'/g, '\u2019') + "'";   // no direction override, no closing quote
 }
 /* The files a mark sends, checked: [{ name, fingerprint, path }], or a string saying what is wrong. */
 function builtFilesValue(files) {
@@ -1165,7 +1165,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   let unsaid = 0;
   let unmetSaid = false;   // #8464: every check reported, some not met
   let replacedNow = null;
-  let sentNow = null;   // kosmos#9105 review 1: the names of the files this mark sent (null: it sent none)
+  let sentNow = null;   // kosmos#9105: the names of the files this mark sent (null: it sent none)
   let replacedAll = [];   // kosmos#9105: every file this mark replaced or withdrew, each with its name
   let waits = '';   // kosmos#8934: what the mark leaves it waiting on, worked out inside the write
   let waitsOnly = false;   // review 4: only what it waits on changed
@@ -1271,8 +1271,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         return { kept, keptBy, keptPath, printAt, checkedBy, checkedByPerson, replaces, now };
       };
       const before = filesOf(t);
-      const senderOf = (e) => (e.fingerprint ? e.by : e.replaces && e.replaces.by) || null;   // review 3: a withdrawn file's too
-      /* Review 3: a check names a file as the readout shows it (shownName), or exactly; one file each, or it is refused. */
+      const senderOf = (e) => (e.fingerprint ? e.by : e.replaces && e.replaces.by) || null;   // a withdrawn file's too
+      /* A check names a file as the readout shows it (shownName), or exactly; one file each, or it is refused. */
       const checkedNow = [];
       if (checkNames) {
         const findName = (x) => {
@@ -1284,7 +1284,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         };
         for (const x of checkNames) { const got = findName(x); if (got !== undefined) checkedNow.push(got); }
         const bad = checkNames.find((x) => findName(x) === undefined);
-        // Review 2: the names are said here, since a one-file task's readout shows none.
+        // The names are said here, since a one-file task's readout shows none.
         const here = before.filter((e) => e.fingerprint && e.name).map((e) => plainName(e.name));
         if (bad !== undefined) throw new Error('no file named ' + plainName(bad) + ' is delivered on this task (' + (here.length ? 'its files: ' + here.join(', ') : 'it has no named file') + ')');
         if (who === null) throw new Error('a check of named files needs the checker\'s name');
@@ -1307,7 +1307,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       };
       if (sentFiles) {
         /* Each file sent is matched by its name. The one unnamed file a mark from before #9105 left (no path, so no name)
-           is taken over only by its own sender sending one file (review 3: else an added file deleted it, against the
+           is taken over only by its own sender sending one file (else an added file deleted it, against the
            help's "files not sent stay"); any other file sent beside it is a new file. */
         let unnamed = sentFiles.length === 1 ? before.findIndex((e) => e.name === '' && senderOf(e) === who && who !== null) : -1;
         for (const f of sentFiles) {
@@ -1317,11 +1317,11 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         }
         sentNow = sentFiles.map((f) => f.name);
       } else if (print) {
-        /* One fingerprint sent the old way (a CLI from before #9105): the file of its path's name when the task has one
-           (review 1: else a second entry of that name), otherwise the task's first file, as it always was. */
+        /* One fingerprint sent the old way (a CLI from before #9105): the file of its path's name when the task has one,
+           so no second entry of that name is made. Otherwise, below. */
         const sentName = fileNameOf(sentPath);
         const named = sentName ? before.findIndex((e) => e.name === sentName) : -1;
-        /* Review 3: on a task with several files, a fingerprint without a name of the task's is the sender's own file
+        /* On a task with several files, a fingerprint without a name of the task's is the sender's own file
            (its first, current or withdrawn), never another sender's, else a new file. One file or none: as always. */
         const own = before.findIndex((e) => who !== null && senderOf(e) === who);
         const i = named >= 0 ? named : before.length <= 1 ? mirrorIndex(before) : own;
@@ -1336,7 +1336,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         }
       }
       const files = after.filter(Boolean);
-      // Review 1: the cap is on the task, so a looping sender of new names cannot grow the store past it.
+      // The cap is on the task, so a looping sender of new names cannot grow the store past it.
       if (files.length > BUILT_FILES_MAX && files.length > before.length) throw new Error(`a task keeps at most ${BUILT_FILES_MAX} delivered files, so this mark was not recorded: send fewer, or withdraw them first with a mark without --file`);
       const top = files.length ? files[mirrorIndex(files)] : null;
       const kept = top && top.fingerprint ? top.fingerprint : '';
@@ -1379,7 +1379,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
           ...(top.at ? { builtFingerprintAt: top.at } : {}), builtCheckedBy: top.checkedBy, ...(top.checkedByPerson ? { builtCheckedByPerson: true } : {}) } : {}),
         ...(replaces ? { builtReplaces: replaces } : {}),   // kosmos#8307: kept without a current file too (a withdrawn one)
         ...(files.length ? { builtFiles: files } : {}),   // kosmos#9105: the record; the fields above are its first file
-        // Review 1: and the builtAt it was written with, so a list an older board left behind is known as stale (filesOf).
+        // And the builtAt it was written with, so a list an older board left behind is known as stale (filesOf).
         ...(files.length ? { builtFilesAt: waitsOnly && t.builtAt ? t.builtAt : stamp } : {}),
         // #7508: a mark without --commit keeps a commit already recorded (a checker's mark is not new work).
         ...(landed ? { landedCommit: landed.sha, landedRepo: landed.repo, landedOnRemote: landedOnRemoteNow, landedBy: who, landedAt: new Date().toISOString() } : {}),

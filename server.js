@@ -613,13 +613,13 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
   const who = clean(by) || 'An agent';
   const note = clean(t.builtNote || '');
   const WAITS_ON_WORDS = { person: 'the person', review: 'a review', release: 'a release' };   // kosmos#8934
-  /* kosmos#9105: the files THIS mark sent (review 1: not every file by its marker, which named files sent earlier, and
-     missed a file sent by a second sender while the first file was another's). null: a caller from before #9105, which
-     names the one file as #6330 did. A checker's mark sends none (#6330 review 5). */
-  /* Review 3: a file's name in a line typed into panes: single-quoted, without format characters (a direction override)
-     or a quote that would close it, cut to 80 characters; at most 5 named, then how many more. */
+  /* kosmos#9105: a file's name in a line typed into panes: single-quoted, without format characters (a direction
+     override) or a quote that would close it, cut to 80 characters; at most 5 named, then how many more. */
   const fileWord = (x) => "'" + Array.from(clean(x || 'a file').replace(/\p{Cf}/gu, '').replace(/'/g, '\u2019')).slice(0, 80).join('') + "'";
   const someFiles = (list, each) => list.slice(0, 5).map(each).join(', ') + (list.length > 5 ? ' and ' + (list.length - 5) + ' more (kosmos task show ' + clean(projectId) + ' ' + t.number + ')' : '');
+  /* kosmos#9105: the files THIS mark sent (sentNow, from setBuilt), not every file by its marker. The route always passes
+     a list; null is a direct caller from before #9105, which names the one file as #6330 did. A checker's mark sends
+     none (#6330 review 5). */
   const sentByMarker = Array.isArray(sentNow) ? tasks.filesOf(t).filter((e) => e.fingerprint && sentNow.includes(e.name)) : null;
   const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
     + (n ? ': "' + n + '"' : '')

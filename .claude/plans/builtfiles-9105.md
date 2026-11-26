@@ -40,8 +40,7 @@ Second: a mark from two senders. A no-file mark by A withdraws A's files and che
 said "withdraws all" assuming one sender; per-file is the consistent reading.
 
 ## Proven (measured on this branch)
-- engine/tasks.builtfiles-9105.test.js 16/16; server.builtfiles-9105.test.js 11/11 (route + Mac CLI + reads);
-  tools.windows-kosmos-cli-builtfiles-9105.test.js 3/3.
+- Final counts are in the last ledger entry (the first build had engine 16, route+Mac+reads 11, Windows 3).
 - Mutants, each applied exactly once and each red: engine 6 (check filter, authority, path strip, same-check,
   unnamed match, mirror-to-current), route 5, Mac CLI 4, Windows CLI 4, reads 3.
 - Old files green: tasks.filereplace-8307, localpaths-8585, closedhow-8552, server.filereplace-8307,
@@ -94,4 +93,15 @@ said "withdraws all" assuming one sender; per-file is the consistent reading.
     hand-edited store, and a test added for a real older-board replacement (one file left). 8 Windows trailing dots
     and spaces are dropped from a name.
   Measured after: engine 25, route+Mac 16, Windows 5, all green; 7 new mutants red; 297 older tests green.
+- Round 4 (sonnet, blind, whole branch, asked for fixes that contradict each other and stale comments): 0 BLOCKER,
+  0 MAJOR, 9 MINOR. Fixed: 1 the old-style branch's comment still said "else the first file"; 2 the sentByMarker
+  comment sat above fileWord; 6 both CLIs' "1 of N files" ignored the builtFilesAt stamp (a stale list said too
+  much); 7 a Windows name that trims to nothing among several files gets its own refusal; 9 the review tags I had
+  put in code comments came out (the repo's own older tags inside the moved #8307 code were kept). Decided, not
+  changed: 3 on a one-file task an old-style fingerprint from another sender still replaces the file, exactly as
+  before #9105 (the one-file world is untouched on purpose); 4 an unnamed caller's no-file mark withdraws every
+  file, as the one-file rule always did for an unnamed caller (an unnamed mark cannot be told from its sender; it
+  is recoverable by re-sending); 5 a pre-#9105 unnamed file re-sent beside a second file stays as its own entry
+  (the round 3 rule; the cost is a duplicate that says itself, never a lost file); 8 hand-edited stores only.
+  Measured after: 343 pass, 0 fail, 7 platform skips across the new and older files; stale-list mutant red.
 

@@ -1585,8 +1585,8 @@ async function taskList(ctx, args) {
     }
     // #6330 slice 2, as install/kosmos: a built task's fingerprint, so the next agent can check its copy.
     if (x.builtAt && /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(x.builtFingerprint || '')) ctx.out('    fingerprint ' + x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : '')
-      // kosmos#9105 review 2, as install/kosmos: a mark with several files says there are more.
-      + (Array.isArray(x.builtFiles) && x.builtFiles.filter((e) => e && e.fingerprint).length > 1 ? ' (1 of ' + x.builtFiles.filter((e) => e && e.fingerprint).length + ' files: kosmos task show lists them)' : ''));
+      // kosmos#9105, as install/kosmos: a mark with several files says there are more.
+      + (Array.isArray(x.builtFiles) && x.builtFilesAt === x.builtAt && x.builtFiles.filter((e) => e && e.fingerprint).length > 1 ? ' (1 of ' + x.builtFiles.filter((e) => e && e.fingerprint).length + ' files: kosmos task show lists them)' : ''));
   }
   return 0;
 }
@@ -2237,10 +2237,10 @@ async function taskBuilt(ctx, args) {
       const got = one(f);
       if (got.code) return got.code;
       // kosmos#9105: the file's name is how the board knows it: its own name, given once.
-      // Review 3: without the trailing dots and spaces Windows itself ignores, so report.pdf. is report.pdf.
+      // Without the trailing dots and spaces Windows itself ignores, so report.pdf. is report.pdf.
       let name = String(typeof got.whole === 'string' ? got.whole : f).split(/[\\/]/).pop().replace(/[. ]+$/, '');
-      if (/[\u0000-\u001f\u007f]/.test(name)) {
-        if (files.length > 1) { ctx.err('Kosmos cannot send a file whose name has control characters in it among several files: rename it first.'); return 2; }
+      if (/[\u0000-\u001f\u007f]/.test(name) || !name) {
+        if (files.length > 1) { ctx.err('Kosmos cannot send a file whose name has control characters in it, or is only dots and spaces, among several files: rename it first.'); return 2; }
         name = '';   // one such file goes the older way only, as before #9105
       }
       if (name && sent.some((x) => x.name === name)) { ctx.err('Two files named ' + name + ': give each file once (the board knows a file by its name).'); return 2; }
@@ -2307,8 +2307,8 @@ async function taskBuilt(ctx, args) {
       }
       if (!Array.isArray(r.json.task.builtFiles)) ctx.out('This Kosmos kept only the first file, ' + sent[0].file + ': it may be older than more than one --file. Update it, then mark the task again.');
     }
-    // Review 1, as install/kosmos: an older board does not know --check, so it counted the mark as a check of its one file.
-    // Review 3: not for the same mark again (changed false), whose answer is the task as stored.
+    // As install/kosmos: an older board does not know --check, so it counted the mark as a check of its one file.
+    // Not for the same mark again (changed false), whose answer is the task as stored.
     if (!clear && checkNames && r.json.changed !== false && !Array.isArray(r.json.task.builtFiles)) ctx.out('This Kosmos does not know --check, so it counted this as a check of the file it keeps: it may be older than --check. Update it, then mark the task again.');
     if (!clear && fingerprint && sent.length <= 1) ctx.out('Fingerprint sent: ' + fingerprint + ' for ' + file);
     if (!clear && fingerprint && sent.length <= 1 && !filePath && pathWhy) ctx.out('Its path was not sent (' + pathWhy + '), so kosmos task files cannot check this mark.');

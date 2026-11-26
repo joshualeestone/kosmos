@@ -394,7 +394,7 @@ function showLines(body, num, project) {
     const names = (list, person) => [...(Array.isArray(list) ? list.filter((v) => typeof v === 'string' && v).map(q) : []), ...(person === true ? ['the person'] : [])];
     field('Delivered files', String(delivered.filter((e) => e.fingerprint).length) + ' (check them again: kosmos task files ' + one(project) + ')');
     for (const e of delivered) {
-      const label = e.name ? require('./builtfiles').shownName(e.name) : 'a file sent without its name';   // review 3: the form --check takes
+      const label = e.name ? require('./builtfiles').shownName(e.name) : 'a file sent without its name';   // the form --check takes
       if (e.fingerprint) {
         field('File ' + label, e.fingerprint + (e.by ? ', sent by ' + q(e.by) : '')
           + (e.path ? '' : ' (its fingerprint only: no path was recorded. Check a copy with: kosmos fingerprint <file> ' + e.fingerprint + ')'));
@@ -767,7 +767,7 @@ function filesLines(body, opts = {}) {
     if (tally.nopath) bits.push(tally.nopath + ' with no path recorded');
     if (tally.elsewhere) bits.push(tally.elsewhere + ' marked on another kind of computer');
     if (tally.unchecked) bits.push(tally.unchecked + ' not opened (see each line for why)');
-    // kosmos#9105 review 2: the tallies count files, so when a mark sent several the line says how many.
+    // kosmos#9105: the tallies count files, so when a mark sent several the line says how many.
     const fileCount = tally.matches + tally.changed + tally.missing + tally.unreadable + tally.nopath + tally.elsewhere + tally.unchecked;
     lines.push(checked + ' built task' + (checked === 1 ? '' : 's') + ' with a delivered file ' + (every ? 'across your projects' : where)
       + (fileCount !== checked ? ' (' + fileCount + ' files)' : '') + ': ' + bits.join(', ') + '.'
