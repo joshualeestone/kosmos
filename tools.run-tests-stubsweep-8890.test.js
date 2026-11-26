@@ -32,7 +32,9 @@ const SANDBOX_HOME = fs.mkdtempSync(path.join(DIR, 'home-'));
 function env() {
   const e = { ...process.env };
   for (const k of RUNNER_SET) delete e[k];
-  return { ...e, TMPDIR: PLAIN_TMP, HOME: SANDBOX_HOME, KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1' };
+  // #9115: the inner run's per-test limit outlives the fixture (2 x EXIT_BOUND_MS), whatever scale that run computes.
+  return { ...e, TMPDIR: PLAIN_TMP, HOME: SANDBOX_HOME, KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1',
+    KOSMOS_TEST_TIMEOUT_MS: String(4 * EXIT_BOUND_MS) };
 }
 
 /* A killed child of this test stays a zombie until node reaps it, which it cannot while a spawnSync blocks; kill(pid, 0)
@@ -44,10 +46,12 @@ const alive = (pid) => {
 };
 const nap = (ms) => new Promise((r) => setTimeout(r, ms));
 /* #9115: how long a stopped run may take to exit. On a Ctrl-C bash outlives node and finishes the run (the leak guard's
-   sweep, about 10 ms per process on the machine, #9117), which is slow on a busy Mac: passing CI runs took the Ctrl-C arm 37 s, 49 s, 54 s and 89.8 s against the old
-   90 s, and one went 0.6 s over (on a Mac with nothing beside it, about 6 s). The bound is for a runner that never
-   exits, so it has room. The fixture below waits twice as long, so a run that IGNORED the signal cannot end on its own
-   inside the bound and pass on the leak guard's line (#9115 review 1). */
+   sweep, about 10 ms per process on the machine, #9117), which is slow on a busy Mac: passing CI runs took the Ctrl-C
+   arm 37 s, 49 s, 54 s and 89.8 s against the old 90 s, and one went 0.6 s over (on a Mac with nothing beside it,
+   about 6 s). The bound is for a runner that never exits, so it has room. The fixture below waits twice as long, and
+   the inner run's per-test limit is set to four times it (env(), since the inner run computes its own time scale), so
+   a run that IGNORED the signal cannot end on its own inside the bound and pass on the leak guard's line (review 1
+   and 2). */
 const EXIT_BOUND_MS = scaleBudget(240000);
 const STUB_SRC = "setInterval(() => {}, 1000);\n";
 

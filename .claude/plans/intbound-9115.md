@@ -30,3 +30,11 @@
 - The wind-down is the leak guard walking EVERY process in a bash loop: 11.6 s and 11.3 s for 1,139 processes at
   load ~17 here; a hand-timed Ctrl-C run was silent from 8.2 s to 23.4 s. main's own Ctrl-C arm took 86 s here at
   00:0x (5.7 s at 20:xx). The bound stays raised whatever #9117 does.
+
+## Review round 2 (00:12): no blocker, one should-fix, fixed
+- The fixture's wait is baked with the OUTER run's time scale, while the inner run computes its own; at an outer
+  scale above 2.5x the inner one, the inner per-test limit (600 s x inner scale) could end the fixture inside the
+  bound and reopen the ignored-signal false pass (reasoned). Fixed: env() hands the inner run
+  KOSMOS_TEST_TIMEOUT_MS = 4 x EXIT_BOUND_MS, which run-tests.sh takes as given (tools/run-tests.sh:573).
+- NIT fixed: the bound's comment rewrapped to 120 columns.
+- Measured: the file, 3 of 3, 29 s wall, equal to node's duration (no idle tail).
