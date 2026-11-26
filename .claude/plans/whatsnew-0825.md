@@ -4,7 +4,7 @@ Card: the gap alarm (kosmos#1050), 2026-11-26 03:23 CST: main 92 commits past st
 
 ## What 0.8.25 carries that a board user sees
 Read from every PR merged since v0824 (c806ac5dc1). Most of the 92 commits are test-only (#9104, #9115, #9045, #9123),
-internal (#9079 promote gate, #9085 send gate, SECURITY.md), or the iPhone app, which ships through TestFlight and is
+internal (#9079 promote gate, SECURITY.md), agent-facing (#9119 teaches --no-reply in project instructions), or the iPhone app, which ships through TestFlight and is
 not in the board's window (the pool has no iPhone entries). Board-visible:
 - #9083: a "Not logged in" that a command or tool prints is no longer read as the agent's own sign-in failure. Added,
   pending, every platform, rank 12.6 (beside the sign-in items 12.5 and 13).
@@ -31,6 +31,18 @@ Four, not five: nothing else pending is board-visible and not notesOnly. Checked
 - Listing the iPhone changes: the board window is not where an iPhone user sees them.
 - Putting #9097 in the window now: it would tell Windows users about a warning nobody has seen work on Windows.
 
+## Review 1 calls
+- #9083's line is tagged mac. Its fix reads an agent's tmux screen; a Windows agent has none and reads its sign-in from
+  the stream, which #9083 did not touch. Untagged it would tell Windows users about a change they do not have. The cost:
+  a Linux board shows only untagged highlights (engine/whatsnew.js has no linux tag), so Linux, where the fix does
+  apply, does not hear of it. Saying less there is better than claiming something false on Windows.
+- The line says "a command or MCP tool", not "a command or tool": the fix covers the first output block of a `!`
+  command, Bash, BashOutput, Monitor or an MCP tool only. The same line in a Read or Grep result is still read as a
+  sign-in failure.
+- #9085 (#9112) is not internal: on Windows, a send while the agent list cannot be read now answers 409, "try again",
+  where it said the agent did not exist. Left out of the window: an error path a person rarely meets, not a highlight.
+- The carry-overs were checked against main by the reviewer (status.js WAIT_CLEARED_SHOW_MS and the card sentence;
+  server.js loginEnded with accountline.js and autobalance.js; engine/oldsigninline.js, Mac only). All three hold.
+
 ## Weakest premise
-That the three 0.8.23 carry-overs still describe main. Each was true when written. A later change could have reworded
-or replaced one, and the build does not check a highlight against the code.
+That "rarely meets" is right for #9112's 409. If Windows sends fail that way often, it deserves a line.
