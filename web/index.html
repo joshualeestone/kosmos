@@ -44984,8 +44984,13 @@ function keptDraftWords(v) { return String(typeof v === 'string' ? v : (v && v.t
    @mention in the box, and those are words, so it does come back, mention and all.) A load writes and removes nothing but entries past the age-out, so it
    cannot reach into another open tab. */
 const KEPT_REPLY_SIG = (v) => (v ? JSON.stringify([String(v.at || v.id || ''), String(v.mention || '')]) : '');
-const KEPT_DM_REPLY_OPTS = { present: (v) => !!v, sig: KEPT_REPLY_SIG, pair: 'talk' };
-const KEPT_PJ_REPLY_OPTS = { present: (v) => !!v, sig: KEPT_REPLY_SIG, pair: 'room' };
+/* Review 7: `sending(key, v)`: this reply is on its way. Words typed meanwhile belong to the NEXT message, so they do
+   not re-save it: a reload before the send answers brings them back plain, never as a second reply to a message
+   already answered. (If the send fails, the reply stays and the next keystroke re-saves it.) */
+const KEPT_DM_REPLY_OPTS = { present: (v) => !!v, sig: KEPT_REPLY_SIG, pair: 'talk',
+  sending: (key, v) => typeof DM_REPLY_SENDING !== 'undefined' && !!DM_REPLY_SENDING && DM_REPLY_SENDING.agent === key && !!v && DM_REPLY_SENDING.at === v.at };
+const KEPT_PJ_REPLY_OPTS = { present: (v) => !!v, sig: KEPT_REPLY_SIG, pair: 'room',
+  sending: (key, v) => typeof PJ_REPLY_SENDING !== 'undefined' && !!PJ_REPLY_SENDING && PJ_REPLY_SENDING.project === key && !!v && PJ_REPLY_SENDING.id === v.id };
 const KEPT_DRAFT_FOLLOW = Object.create(null);   // a draft kind -> what re-saves the reply paired with it (by key)
 const KEPT_DRAFT_PAIR = new WeakMap();           // a kept reply map -> the draft kind its words live in
 /* The stored record for one key of a kind, or null. */
@@ -45040,7 +45045,10 @@ function keptDrafts(kind, opts) {
   KEPT_DRAFT_SIG.set(kept, sig);
   if (pair) {
     KEPT_DRAFT_PAIR.set(kept, pair);
-    KEPT_DRAFT_FOLLOW[pair] = (key) => { if (map[key] != null) keepEntry(key, map[key]); };
+    KEPT_DRAFT_FOLLOW[pair] = (key) => {
+      if (map[key] == null || (opts.sending && opts.sending(key, map[key]))) return;   // review 7: not while it is on its way
+      keepEntry(key, map[key]);
+    };
   }
   /* Round 2: another tab of the same board wrote or cleared one of these (sent it, typed more): this page's copy
      follows, written to the map itself so nothing is written back. A box already holding words keeps them; the

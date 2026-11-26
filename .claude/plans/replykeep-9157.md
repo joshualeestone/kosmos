@@ -164,3 +164,24 @@ No BLOCKER.
   tab can fill this tab's empty box under its reply strip (Send posts a reply a reload would not keep; the restart
   waits meanwhile); a clock stepped backwards with an orphan reply in storage; the in-place-write guard misses a
   one-step alias (none exists); keptDraftHeard's reply branches are untested (a repaint only).
+
+#### Iteration 7 (blind review of the whole branch, opus)
+
+No BLOCKER. The reviewer confirmed the restart is never held where main would not hold it, and the four old draft
+maps are unchanged.
+- [SHOULD-FIX] taken (recorded as a NIT in rounds 1 and 3, and rightly rated higher here): a reload during a reply's
+  send could turn the next message into a second reply. Enter lets the words go but the reply stays until the send
+  answers; words typed meanwhile re-saved that reply, so a reload paired them (measured by the reviewer). The re-save
+  now skips a reply that is on its way (opts.sending: DM_REPLY_SENDING / PJ_REPLY_SENDING naming the same key and
+  message). Tested: a reload during the send brings the next words back plain; control: once nothing is in flight
+  (the send failed), the next keystroke re-saves the reply and it comes back. Removing the skip fails exactly that
+  test.
+- [NIT] taken: the README row describes the control arm as it is (only the reply's key refused).
+- [NIT] recorded, not built: forgetDrafts removes only keys this page loaded, so a reply never loaded here stays in
+  storage after its agent or project is removed (it can never come back by itself: every write is stamped now, and
+  the server refuses a reply to a message not in the conversation); another tab's reply is taken without the load
+  rule (consistent and shown); the in-place-write guard misses Object.assign on an entry (none exists); no room reload
+  browser check; two storage writes per keystroke.
+web.replykeep-9157 13 of 13 (5 runs clean), the affected suites, guards and browser-check wiring tests (239), and
+render-replykeep-9157, render-keepdrafts-9132, render-room-reply-3745 (71), render-dm-send-clears-4944 (45) and
+render-dm-reply-4256 (22) pass.

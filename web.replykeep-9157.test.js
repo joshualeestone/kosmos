@@ -62,8 +62,8 @@ test('#9157 premise: both reply maps are kept maps in the page', () => {
   // a reply back, and every other test would stay green).
   assert.match(SCRIPT, /const TALK_DRAFTS = keptDrafts\('talk'\);/);
   assert.match(SCRIPT, /const PJ_ROOM_DRAFTS = keptDrafts\('room'\);/);
-  assert.match(SCRIPT, /const KEPT_DM_REPLY_OPTS = \{[^}]*pair: 'talk' \}/);
-  assert.match(SCRIPT, /const KEPT_PJ_REPLY_OPTS = \{[^}]*pair: 'room' \}/);
+  assert.match(SCRIPT, /const KEPT_DM_REPLY_OPTS = \{[^}]*pair: 'talk'[,\s}]/);
+  assert.match(SCRIPT, /const KEPT_PJ_REPLY_OPTS = \{[^}]*pair: 'room'[,\s}]/);
   // A property set on a stored reply would bypass the kept map (the room's @mention is written as a new object).
   // Review 1: an assignment (not ==/===) to any field of either map's entry.
   const inPlace = SCRIPT.match(/(DM_REPLY|PJ_REPLY)\[[^\]]+\]\.[A-Za-z_$]+\s*(\+|-)?=(?!=)/g) || [];
@@ -278,4 +278,31 @@ test('#9157 review 6: a room reply comes back after a reload with its @mention, 
   ho.keptDrafts('room').p8 = 'other words';
   ho.keptDrafts('pjreply', ho.KEPT_PJ_REPLY_OPTS).p7 = { id: 'm1', mention: null };
   assert.equal(helper(other).keptDrafts('pjreply', ho.KEPT_PJ_REPLY_OPTS).p7, undefined, 'CONTROL: a room reply came back with no words of its own');
+});
+
+test('#9157 review 7: words typed while a reply is on its way do not re-save it, so a reload brings them back plain', async () => {
+  const storage = memoryStorage();
+  const h = helper(storage);
+  const talk = h.keptDrafts('talk');
+  const dm = h.keptDrafts('dmreply', h.KEPT_DM_REPLY_OPTS);
+  talk.april = 'yes, that one';
+  dm.april = REPLY;
+  delete talk.april;   // Enter: the box empties and its words are let go; the reply stays until the send answers
+  globalThis.DM_REPLY_SENDING = { agent: 'april', at: REPLY.at };
+  try {
+    await new Promise((r) => setTimeout(r, 5));   // a person types after pressing Enter, never in the same millisecond
+    talk.april = 'and another thing';   // the NEXT message, typed while the reply is still on its way
+    const after = helper(storage);
+    after.keptDrafts('talk');
+    assert.equal(after.keptDrafts('dmreply', h.KEPT_DM_REPLY_OPTS).april, undefined,
+      'a reload during the send brought the reply back beside the next message: it would go out as a second reply');
+  } finally {
+    delete globalThis.DM_REPLY_SENDING;
+  }
+  // CONTROL: the send failed (nothing in flight now) and the person types again: the reply is re-saved with them.
+  await new Promise((r) => setTimeout(r, 5));
+  talk.april = 'and another thing, again';
+  const later = helper(storage);
+  later.keptDrafts('talk');
+  assert.equal(later.keptDrafts('dmreply', h.KEPT_DM_REPLY_OPTS).april.at, REPLY.at, 'CONTROL: with nothing in flight the reply did not come back');
 });
