@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: name-8959
-diff_hash: f540a94a7890aaa84615aa4151bf5b56915188f9bbd29df35ecf74b4312f592f
+diff_hash: 5675852449e5eb439cdf5cadb753c24af650e9a7385b4cc93acc7770d968ae29
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-25T15:00:39Z
+timestamp: 2026-11-26T05:09:21Z
 iterations: 8
 converged: false
 ---
@@ -19,7 +19,7 @@ converged: false
 
 ### Validation
 - AccountScreenUITests 3 of 3 in LIGHT and in DARK (UI run 04:39 CST 2026-11-25, 14 shots each), on the head before the rebases; the rebases onto main changed only the base (no file of B3 overlaps main's changes since, checked by Angel and by git).
-- Full validation on the rebased head: passed on Mortals 09:00 CST 2026-11-25 (mortals-validate.sh, rc 0, status clean, remote hash equal to the local one, base main d269e15c86). Only this proof file changed after it.
+- Full validation on the rebased head: passed on Mortals 23:08 CST 2026-11-25 (mortals-validate.sh, rc 0, remote hash equal to the local one, 5675852449e5, base main 95e208e6be with #9110). Rebased from 1bfbd1cdb0 with all 11 patches unchanged (range-diff). Only this proof file changed after it.
 
 ### Per-Iteration Breakdown
 
