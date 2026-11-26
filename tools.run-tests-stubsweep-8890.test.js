@@ -104,7 +104,10 @@ async function stoppedRunLeavesNoStub(signal, said0) {
     assert.ok(controls.every(alive), 'a control stub did not start');
     /* Stopped as a queue timeout or a person stops it: the whole foreground group (node --test with it). */
     process.kill(-child.pid, signal);
-    const code = await Promise.race([exited, nap(scaleBudget(90000)).then(() => 'still running')]);   // the leak guard's sweep is slow under load
+    /* #9115: on a Ctrl-C bash outlives node and finishes the run (the leak guard's sweep), which is slow on the CI Mac:
+       passing CI runs took this arm 37 s, 49 s, 54 s and 89.8 s against a 90 s bound, and one went 0.6 s over (here it
+       takes about 6 s). The bound is for a runner that never exits, so it has room: 240 s, scaled. */
+    const code = await Promise.race([exited, nap(scaleBudget(240000)).then(() => 'still running')]);
     assert.notEqual(code, 'still running', 'the runner did not exit after ' + signal + '\nthe runner said:\n' + said());
     const from = Date.now();
     while (alive(stub) && Date.now() - from < scaleBudget(5000)) await nap(50);
