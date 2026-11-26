@@ -54,6 +54,12 @@ correction (17:21) and Homer's measurements (17:3x).
   account's file (the file is chosen by the folder, so that would be a wrong-account answer).
 - Review 3: on Windows the explicit-default check compares folders without case, as Windows does.
 
+- Review 4: the Windows warning test uses rows shaped as win32roster emits them (its command, claim equal to the
+  session, which is a Windows row's only ownership evidence), and asserts they pass the pane filter. The real roster
+  feeds the same parser into the same pane list (status.js, the win32 row arm), so the warning does see the agents.
+  Not shown on a real Windows board.
+- Review 4: win32JobCcd names its source ("launch job") for the board's [loginadv] log line.
+
 ## Not changed
 - engine/connect.js readRefreshExpiry, the proof that a Mac sign-in finished. It stays macOS-only: Windows sign-in
   completes through win32signin.js's own path, and changing that proof is outside this card.
