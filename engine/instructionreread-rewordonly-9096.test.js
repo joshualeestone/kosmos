@@ -54,6 +54,9 @@ test('CONTROL: a flag, a case change, a symbol and a path dot still print', () =
     // Review 2: a line with a code span is compared exactly (its quotes and spacing are syntax).
     ['Run `grep "a  b" f`', 'Run `grep "a b" f`'],
     ["Run `echo 'x'`", 'Run `echo \u2018x\u2019`'],
+    // Review 3: a full stop inside the line is not wording.
+    ['Do not merge. Wait for CI', 'Do not merge Wait for CI'],
+    ['1. Push', '1 Push'],
   ]) {
     const out = changedLines('# R\n' + a + '\n', '# R\n' + b + '\n');
     assert.ok(out.includes('- ' + a) && out.includes('+ ' + b), 'hidden as wording only: ' + a + ' -> ' + b);
@@ -93,4 +96,16 @@ test('review 2: a line inside a code fence is compared exactly, even when only a
   assert.ok(out.includes("- echo 'x'") && out.includes('+ git add file'), 'a code change was not printed');
   // CONTROL: the same two edits in prose are wording only.
   assert.equal(changedLines('# R\nSay \'x\' now\nAdd the file.\n', '# R\nSay \u2018x\u2019 now\nAdd the file\n').match(NOTE)[1], '2');
+});
+
+test('review 3: a nested, tab-indented or quoted fence, and an indented code block, are code', () => {
+  for (const [before, after] of [
+    ['1. Run:\n\n    ```sh\n    echo \u201Ca\u201D\n    ```', '1. Run:\n\n    ```sh\n    echo "a"\n    ```'],
+    ['\t```sh\n\techo \u201Ca\u201D\n\t```', '\t```sh\n\techo "a"\n\t```'],
+    ['> ```sh\n> echo \u201Ca\u201D\n> ```', '> ```sh\n> echo "a"\n> ```'],
+    ['Text\n\n    echo \u201Chi\u201D', 'Text\n\n    echo "hi"'],
+  ]) {
+    const out = changedLines('# R\n' + before + '\n', '# R\n' + after + '\n');
+    assert.doesNotMatch(out, NOTE, 'code hidden as wording only: ' + JSON.stringify(after));
+  }
 });

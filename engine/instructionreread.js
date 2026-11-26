@@ -333,10 +333,13 @@ function changedLines(before, after, moved = null) {
     const code = new Array(lines.length).fill(false);
     let fence = null;
     for (let k = 0; k < lines.length; k += 1) {
-      const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(lines[k]);
+      /* Review 3: any indentation and any quote depth (a fence nested in a list item, after a tab, or in a > quote).
+         Erring towards code only shows more lines. */
+      const m = /^\s*(?:>\s*)*(`{3,}|~{3,})(.*)$/.exec(lines[k]);
       if (m && fence === null) { fence = m[1]; code[k] = true; }
       else if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !m[2].trim()) { fence = null; code[k] = true; }
-      else code[k] = fence !== null;
+      // Review 3: an indented code block (4 spaces or a tab) is code too.
+      else code[k] = fence !== null || /^(?: {4}|\t)/.test(lines[k]);
     }
     return code;
   };
@@ -377,7 +380,7 @@ function changedLines(before, after, moved = null) {
   /* Review 5: each removed line beside the line that replaced it, so a cut keeps old and new together (removals all
      first would leave a cut file with only the rules that no longer apply). */
   /* kosmos#9096 item 5: a removed line and the line that replaced it whose only difference is spacing after the
-     indentation, a single full stop that directly ends a word, or straight against curly quotes changed in wording
+     indentation, a single full stop that ends the line right after a word, or straight against curly quotes changed in wording
      only. Such a pair is counted and not printed, so the capped list keeps its room for rules that changed.
      Narrow on purpose (review 1): a mark standing alone is kept (`git add .`, `cd ..`); ? ! ; : are kept (a question is
      not an instruction, `! cmd` negates, `;` separates commands, `key:` is YAML); leading indentation must match exactly
@@ -387,7 +390,8 @@ function changedLines(before, after, moved = null) {
     const s = String(t).replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
     const indent = s.match(/^[ \t]*/)[0];
     // Review 2: one full stop only, right after a word (`main..` is a git range); a comma is never wording (JSON, args).
-    return indent + s.slice(indent.length).replace(/(?<=\w)\.(?=\s|$)/g, '').replace(/\s+/g, ' ').trim();
+    // Review 3: only at the END of the line ("1. Push" is a list item; "merge. Wait" is two sentences).
+    return indent + s.slice(indent.length).replace(/\s+/g, ' ').trim().replace(/(?<=\w)\.$/, '');
   };
   let reworded = 0;
   for (const r of runs) {

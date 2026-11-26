@@ -41,6 +41,13 @@ All 18 files that load the module: 759 tests, 0 fail.
   code (JSON, args). Fixed: commas always count. NIT: quotes and spacing inside code. Fixed: code lines and backtick
   lines are compared exactly. NIT: a markdown hard break (trailing two spaces). Left (the rule reads the same).
 
+- Round 3: SHOULD, a fence indented 4+ spaces, by a tab, or in a > quote was not seen as code. Fixed (any indentation
+  and quote depth). SHOULD: an indented code block. Fixed (4 spaces or a tab is code). NIT: a full stop inside a line
+  ("1. Push", "merge. Wait") was stripped. Fixed (end of line only). NIT: no test reaches a pair whose NEW side alone
+  is code. Measured: with the new-side flag forced false, every layout I could build still shows the pair, because
+  pairs match by position and the fence line itself pairs first. A test that cannot fail was worse than none, so it
+  was removed; the flag stays as a guard.
+
 ## Weakest premise
 That a pair matched by position inside one run is a reworded rule and not two different rules. The match needs the
 normalised text to be equal, so a false pair would be two rules that read the same anyway.
