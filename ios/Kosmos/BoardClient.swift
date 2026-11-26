@@ -67,6 +67,60 @@ final class BoardClient: ObservableObject {
             }
         }
 
+        /// kosmos#9111: what the sign-in screen does with this phase while it waits for the Mac. ContentView starts this
+        /// run from that screen, so the phone knocks at the Mac's gate there (before, only the Agents tab knocked, after
+        /// "Continue to the app", and a person who waited as told waited for ever). The gate's own code wins over the
+        /// one Kosmos+ gave: a gate with the board-v2 marker answers a keyed code, which is the one the Mac shows
+        /// (kosmos-relay proxy.rs), named with its Mac, since an account with two Macs knocks at one of them. Let in: the
+        /// screen moves on. A run that gave up (the Mac or Kosmos+ not answering, a refusal a new handoff may cure, no
+        /// computer yet): knock again shortly, or the wait is endless once more.
+        /// The gate's no (rounds 3 to 5): one answer can be OLD (Kosmos+ turns a no into a fresh Allow when the person
+        /// signs in again, and the Mac's denied list catches up at its next poll, every 5 s, at most 20 s each:
+        /// kosmos-relay lib.rs PENDING_POLL_SECS, proxy.rs kosmos#6407) or REAL and never told to Kosmos+ (a board-v2
+        /// Mac's "Not me" is local only, devices.rs drop_waiting, and turns the key away for 24 hours). The two answer
+        /// the same bytes, so time tells them apart: knocked again until the gate has said no without a break for
+        /// `realNoSeconds`, then the screen says so at the next knock (the knocks are 15, 30, 60 s apart, so about 105 s
+        /// after the first no).
+        enum AllowScreen: Equatable { case keep, code(String, mac: String), done, denied, knockAgain }
+        static let realNoSeconds: Double = 60
+        /// `gateNoFor`: how long the gate has said no without a break (0 at the first no).
+        func allowScreen(step: SignIn.Step, gateNoFor: Double = 0) -> AllowScreen {
+            let gateNo: AllowScreen = gateNoFor >= Self.realNoSeconds ? .denied : .knockAgain
+            switch step {
+            case .allow(let shown, true):
+                switch self {
+                case .live: return .done
+                case .waitingForAllow(let mac, let code?) where code != shown: return .code(code, mac: mac)
+                case .denied: return gateNo
+                default: return endedRun ? .knockAgain : .keep
+                }
+            case .denied(asking: true):
+                // Asked again after an earlier no: the same knock, so a yes now moves the screen on.
+                if case .live = self { return .done }
+                if case .denied = self { return gateNo }
+                return endedRun ? .knockAgain : .keep
+            default: return .keep
+            }
+        }
+
+        /// The phases a run ends on without a person's answer, where a later run may get through. Not signed out (no
+        /// session to knock with), not Kosmos+'s refusal of this iPhone, not the Mac's no, and not sign in again or sign
+        /// in here (only the person can cure those, in the app).
+        var endedRun: Bool {
+            switch self {
+            case .unreachable, .macRefused, .macHeld, .kosmosPlusDown, .noMac: return true
+            default: return false
+            }
+        }
+
+        /// Whether the sign-in screen's step is one that waits for the Mac, so the run knocks while it shows.
+        static func knocks(during step: SignIn.Step) -> Bool {
+            switch step {
+            case .allow(_, true), .denied(asking: true): return true
+            default: return false
+            }
+        }
+
         /// kosmos#8055 (reviews 4, 5, 7): the states an open chat stays open through, the ones the client leaves by itself:
         /// starting (a reconnect, often with no agents yet), connecting, the computer not answering (retried every 15 s), and
         /// live. Every other phase needs the person (Try again, Allow, sign in) on the connection screen, so it still closes

@@ -4803,6 +4803,64 @@ section("native board loop: connecting")
         c.stop()
     }
 
+    section("kosmos#9111: the sign-in screen knocks while it waits, and the tab's start replaces that run")
+    do {
+        // The sign-in screen starts the run (ContentView.knockIfWaiting); then the tab appears and starts it again.
+        let (c, w, _, _) = make("kst1")
+        w.sessionAnswer = (403, #"{"pending":true,"code":"K7"}"#)
+        c.start()
+        let knocked = await settle { c.phase == .waitingForAllow(mac: "Studio", code: "K7") }
+        check(knocked && w.count("/_kosmos/session") >= 1, "started from the sign-in screen, the run knocks at the Mac's gate and waits for Allow")
+        c.start()   // the tab
+        _ = await settle { w.count("/v1/account/handoff") == 2 }
+        w.sessionAnswer = (200, #"{"ok":true}"#)
+        let inside = await settle { isLive(c) }
+        for _ in 0..<3000 { await Task.yield() }   // room for a second run, if one were left, to be let in too
+        check(inside && w.admitted == 1 && w.count("/v1/account/handoff") == 2, "the tab's start replaced the sign-in screen's run: let in once, one handoff each (admitted \(w.admitted))")
+        c.stop()
+    }
+    do {
+        // Stopped when the person backs out of the wait: no more knocks.
+        let (c, w, _, _) = make("kst1")
+        w.sessionAnswer = (403, #"{"pending":true,"code":"K7"}"#)
+        c.start()
+        _ = await settle { c.phase == .waitingForAllow(mac: "Studio", code: "K7") }
+        c.stop()
+        let asked = w.count("/_kosmos/session")
+        for _ in 0..<3000 { await Task.yield() }
+        check(w.count("/_kosmos/session") == asked, "BoardClient.stop() (what the sign-in screen calls when the person backs out) ends the knocking")
+    }
+    do {
+        typealias P = BoardClient.Phase
+        let mac = Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true, lastSeen: 100)
+        let waiting = SignIn.Step.allow(matchCode: "AB12", hasComputer: true)
+        check(P.waitingForAllow(mac: "Studio", code: "K7").allowScreen(step: waiting) == .code("K7", mac: "Studio"), "the gate's code replaces Kosmos+'s, named with its Mac: it is the one that Mac shows (a v2 gate keys its own)")
+        check(P.waitingForAllow(mac: "Studio", code: "AB12").allowScreen(step: waiting) == .keep, "the same code: nothing to change")
+        check(P.waitingForAllow(mac: "Studio", code: nil).allowScreen(step: waiting) == .keep, "a gate with no code: Kosmos+'s stays")
+        check(P.live(mac: mac).allowScreen(step: waiting) == .done, "let in: the screen moves on to the app")
+        check(P.denied(mac: "Studio").allowScreen(step: waiting) == .knockAgain, "the gate's first no is knocked again: it can be old (a no turned into a fresh Allow reaches the Mac at its next poll)")
+        check(P.denied(mac: "Studio").allowScreen(step: waiting, gateNoFor: 59) == .knockAgain, "a no for under a minute: still knocked again (an old no lasts one poll, 25 s at most)")
+        check(P.denied(mac: "Studio").allowScreen(step: waiting, gateNoFor: 60) == .denied, "a no for a minute without a break is real (a v2 Mac's Not me, never told to Kosmos+): the screen says so")
+        check(P.denied(mac: "Studio").allowScreen(step: .denied(asking: true), gateNoFor: 60) == .denied, "asked again and a lasting no: the screen says so")
+        check(P.waitingForAllow(mac: "Studio", code: "K7").allowScreen(step: waiting, gateNoFor: 600) == .code("K7", mac: "Studio") && P.live(mac: mac).allowScreen(step: waiting, gateNoFor: 600) == .done, "how long a no lasted changes nothing for another answer")
+        check(P.live(mac: mac).allowScreen(step: .denied(asking: true)) == .done, "asked again after a no, then let in: the screen moves on")
+        check(P.denied(mac: "Studio").allowScreen(step: .denied(asking: true)) == .knockAgain, "asked again and the gate still says no: knocked again, not final (its denied list catches up at the next poll; a real no is Kosmos+'s to say)")
+        for phase in [P.starting, .connecting(mac: "Studio"), .signedOut, .kosmosPlusRefused, .signInAgain(mac: "Studio"), .signInHere(mac: "Studio")] {
+            check(phase.allowScreen(step: waiting) == .keep, "\(phase.word) while waiting: the screen keeps waiting, nothing knocks again (Continue to the app is still there)")
+        }
+        // Review 1: a run that gave up knocks again, or the wait is endless once more.
+        for phase in [P.unreachable(mac: "Studio"), .macRefused(mac: "Studio"), .macHeld(mac: "Studio", because: nil), .kosmosPlusDown, .noMac] {
+            check(phase.allowScreen(step: waiting) == .knockAgain, "\(phase.word) while waiting: knock again")
+            check(phase.allowScreen(step: .denied(asking: true)) == .knockAgain, "\(phase.word) while asked again: knock again")
+            check(phase.allowScreen(step: .email) == .keep, "\(phase.word) on another step: nothing")
+        }
+        check(P.live(mac: mac).allowScreen(step: .allow(matchCode: nil, hasComputer: false)) == .keep, "no computer yet: nothing knocks, nothing moves")
+        check(P.live(mac: mac).allowScreen(step: .email) == .keep && P.live(mac: mac).allowScreen(step: .done) == .keep, "not waiting: the run's phase changes nothing on the sign-in screen")
+        check(P.knocks(during: waiting) && P.knocks(during: .denied(asking: true)), "the steps that wait for the Mac knock")
+        check(!P.knocks(during: .allow(matchCode: nil, hasComputer: false)) && !P.knocks(during: .denied(asking: false))
+              && !P.knocks(during: .email) && !P.knocks(during: .done), "no computer, a final no, the email step, done: no knock")
+    }
+
     section("native board loop: not answering clears by itself")
     do {
         let (c, w, _, _) = make("kst1")

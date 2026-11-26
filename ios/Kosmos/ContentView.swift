@@ -97,6 +97,14 @@ struct ContentView: View {
     // (what the native screens cannot do, such as a company sign-in before iOS 17.4) turns it off for this launch.
     @State private var nativeSignIn = ContentView.startsSignedOut
     @StateObject private var signIn = SignInModel(client: SignInClient())
+    /// kosmos#9111: the board's run was started from the sign-in screen's wait for the Mac (knockIfWaiting).
+    @State private var knocking = false
+    /// kosmos#9111 round 2: the knock retries since the last start, so the wait grows; and every retry ever scheduled
+    /// (never reset, round 3), so only the latest one fires, even across a stop and a new start.
+    @State private var knockRetries = 0
+    @State private var knockTimers = 0
+    /// kosmos#9111 round 5: since when the Mac's gate has said no without a break (nil: it has not, or it answered since).
+    @State private var gateNoSince: Date?
     /// kosmos#8791/#8795: the fresh sign-in a step-up refusal asks for (FreshSignInCenter), given to every tab.
     @StateObject private var fresh = FreshSignInCenter()
     private static var startsSignedOut: Bool {
@@ -148,6 +156,24 @@ struct ContentView: View {
         #endif
         return board.youPicture
     }
+    /// kosmos#9111: the sign-in screen's "Waiting for your Mac" is only true if the phone has knocked at the Mac's gate,
+    /// and before, only the Agents tab knocked, after "Continue to the app". So while that screen waits, the board's own
+    /// run (the Macs list, a handoff, the gate) starts here with the session just issued. One run at a time: the account
+    /// change that same session causes restarts it (BoardClient.accountChanged), and the tab's start() later replaces it
+    /// (a new generation); neither runs beside it. Backed out of the wait: the run stops. Moved on to the app: the run is
+    /// left for the tab, which is already let in.
+    private func knockIfWaiting() {
+        #if !KOSMOS_STORE_SHOTS
+        let waits = nativeSignIn && BoardClient.Phase.knocks(during: signIn.step)
+            && signIn.issued != nil && SessionKeychain.live.load() == signIn.issued   // stored first, where the run reads it
+        if waits && !knocking { knocking = true; knockRetries = 0; gateNoSince = nil; board.start() }
+        else if !waits && knocking {
+            knocking = false
+            if signIn.step != .done { board.stop() }
+        }
+        #endif
+    }
+
     var body: some View {
         Group {
             if isUnlocked && nativeSignIn {
@@ -238,6 +264,7 @@ struct ContentView: View {
             guard let token = token else { return }
             pushManager.signedInNatively(token)
             web.signedInNatively()
+            knockIfWaiting()
         }
         // The person backed out of a session already issued (Use a different email, Sign in again): it is signed out,
         // so neither the app nor the web page keeps it (review round 2).
@@ -247,6 +274,38 @@ struct ContentView: View {
         }
         .onChange(of: signIn.step) { step in
             if step == .done { nativeSignIn = false; todayBoard = false; tab = AppTabs.todayTab ? .today : .agents }
+            knockIfWaiting()
+        }
+        // kosmos#9111: while the sign-in screen knocks, the run's answers move it: the Mac's own code, let in, or a no
+        // that has lasted (one alone can be old).
+        .onChange(of: board.phase) { phase in
+            guard knocking else { return }
+            switch phase {
+            case .denied: if gateNoSince == nil { gateNoSince = Date() }
+            case .waitingForAllow, .live: gateNoSince = nil   // the gate asked the Mac or let in: any no before is over
+            default: break
+            }
+            let gateNoFor = gateNoSince.map { Date().timeIntervalSince($0) } ?? 0
+            switch phase.allowScreen(step: signIn.step, gateNoFor: gateNoFor) {
+            case .keep: break
+            case .code(let code, let mac): signIn.showGateCode(code, mac: mac)
+            case .done: signIn.continueToApp()
+            case .denied: signIn.macSaidNo()
+            case .knockAgain:
+                // The run gave up (review 1): knocked again after 15 s, as the board's own run retries a Mac that is not
+                // answering, while the screen still waits and nothing else started a run meanwhile. Round 2: only the
+                // latest retry fires, and the wait doubles to two minutes at most, so a screen left up does not ask
+                // Kosmos+ every 15 s all night.
+                knockRetries += 1
+                knockTimers += 1
+                let mine = knockTimers, waitedOn = signIn.step
+                let wait = min(15 * pow(2, Double(min(knockRetries - 1, 3))), 120)
+                DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+                    guard knocking, mine == knockTimers, signIn.step == waitedOn,
+                          board.phase.allowScreen(step: signIn.step) == .knockAgain else { return }   // gateNoFor 0: a no knocks again
+                    board.start()
+                }
+            }
         }
         // A press was answered: opened, the bar is on the tab pressed; refused (a box was up), it goes to the tab the
         // page really shows, so pressing the same tab again later is a real press.
@@ -389,6 +448,9 @@ struct ContentView: View {
             if newPhase != .background && tabsBackgrounded && board.cameBackAt == nil { board.cameBackAt = Date(); board.noteTabsChange("the app came back to the front") }   // the first step back
             // kosmos#7050 slice C: here, not on the sign-in screen, so it runs even when the lock takes the screen away.
             if newPhase == .background { signIn.appLeft() }
+            // kosmos#9111 review 1: back at the front while the sign-in screen waits for the Mac: knock again, as the tabs
+            // start their run again on a return (a locked phone's run will have stopped at not answering).
+            if newPhase == .active, knocking { board.start() }
             // kosmos#7416 review 3: a not-answering screen left up overnight says this morning's time on the return.
             if newPhase == .active, shell.failure == .macUnreachable { board.refreshLastSeen() }
             // kosmos#7042 review round 2: a launch before the phone's first unlock reads no session, so the sign-in may
