@@ -703,16 +703,29 @@ ok "#9118: a controlling terminal with stdio redirected keeps the command in the
 
 # #9118 review 3: any fatal signal, not only TERM/INT/HUP: an ALRM (a perl alarm deadline) to the wrapper stops its command.
 pre9118=0; free9118 || pre9118=1
-qh9118 alrm 20 sh -c "trap '' TERM; sleep $((U+6)) & wait"
+# Review 5: a 5 s grace (a 20 s one ran past this arm's bound once under load), a generous wait for the wrapper to exit,
+# and "claim released" asserted on its own, so a red says whether the wrapper was slow or died before its release.
+qh9118 alrm 5 sh -c "trap '' TERM; sleep $((U+6)) & wait"
 until_true 30 'grep -q "TURN: running t9118-alrm" $L9 && ! gone $((U+6))'; s10=$?
-kill -ALRM $Q9; until_true 45 'gone $((U+6)) && ! kill -0 $Q9 2>/dev/null'; r10=$?; o=$(cat $L9)
-ok "#9118: an ALRM to a main turn's wrapper stops its command (KILL after the grace) and releases the claim" '[ "$pre9118" = 0 ] && [ "$s10" = 0 ] && [ "$r10" = 0 ] && [[ "$o" == *"STOPPING: t9118-alrm"* ]] && [ ! -e $S/m9118-alrm/machine-claim ]'
+kill -ALRM $Q9; until_true 90 '! kill -0 $Q9 2>/dev/null'; r10=$?; o=$(cat $L9)
+ok "#9118: an ALRM to a main turn's wrapper stops its command (KILL after the grace)" '[ "$pre9118" = 0 ] && [ "$s10" = 0 ] && [ "$r10" = 0 ] && [[ "$o" == *"STOPPING: t9118-alrm"* ]] && gone $((U+6))'
+ok "#9118: ... and the wrapper reaches its release (the claim line printed, the claim gone)" '[ "$r10" = 0 ] && [[ "$o" == *"claim released"* ]] && [ ! -e $S/m9118-alrm/machine-claim ]'
+for p in $(pgrep -f "^sleep $((U+6))$"); do kill -KILL $p 2>/dev/null; done; until_true 10 'gone $((U+6))'
+# Review 5: USR1 and HUP too (the background path's other fatal and trapped signals).
+for sg in USR1 HUP; do
+  pre9118=0; free9118 || pre9118=1
+  qh9118 $sg 5 sh -c "sleep $((U+5)) & wait"
+  until_true 30 'grep -q "TURN: running t9118-'$sg'" $L9 && ! gone $((U+5))'; sx=$?
+  kill -$sg $Q9; until_true 60 'gone $((U+5)) && ! kill -0 $Q9 2>/dev/null'; rx=$?; o=$(cat $L9)
+  ok "#9118: a $sg to a main turn's wrapper stops its command and releases the claim" '[ "$pre9118" = 0 ] && [ "$sx" = 0 ] && [ "$rx" = 0 ] && [[ "$o" == *"claim released"* ]] && [ ! -e $S/m9118-'$sg'/machine-claim ]'
+  for p in $(pgrep -f "^sleep $((U+5))$"); do kill -KILL $p 2>/dev/null; done; until_true 10 'gone $((U+5))'
+done
 for p in $(pgrep -f "^sleep $((U+6))$"); do kill -KILL $p 2>/dev/null; done; until_true 10 'gone $((U+6))'
 # #9118 review 3: in posix mode the /dev/tty probe must not end the wrapper (a failed redirection on `:` does there).
 mkdir -p $S/m9118-posix; o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-posix POSIXLY_CORRECT=1 nocty /bin/bash $QH "t9118-posix" sh -c 'echo RAN-9118' </dev/null 2>&1); r=$?
 ok "#9118: with POSIXLY_CORRECT set and no terminal, the command still runs" '[ "$r" = 0 ] && [[ "$o" == *RAN-9118* && "$o" == *"END rc=0"* ]]'
 
-EXPECTED=157   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, fifteen #9118 main-turn stop arms
+EXPECTED=160   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, eighteen #9118 main-turn stop arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
