@@ -134,7 +134,7 @@ test('kosmos#9097 review 2: off macOS an explicit <HOME>/.claude and an unset fo
   const run = (platform) => le.agentAdvisories({ agents, readCcd: (a) => ccdOf[a.name], now, readCred: winRead(h), platform, userHome: h });
   const win = run('win32');
   assert.strictEqual(win.length, 1, 'one notice for one login: ' + JSON.stringify(win));
-  assert.deepStrictEqual(win[0].agents.sort(), ['roo', 'pixel']);
+  assert.deepStrictEqual(win[0].agents.sort(), ['pixel', 'roo']);
   assert.strictEqual(win[0].ccd, null, 'the shared bucket is the default account, so its notice names the default row');
   // CONTROL: on macOS they stay two credentials (the #2129 class: the Keychain entry name differs).
   const mac = le.agentAdvisories({ agents, readCcd: (a) => ccdOf[a.name], now, readCred: () => body({ refreshTokenExpiresAt: UNTIL }), platform: 'darwin', userHome: h });
