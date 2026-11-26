@@ -674,6 +674,7 @@ _qh_take() {
 # take a new one, whichever the wait that ends it gives; neither moves it ahead of a waiter that joined earlier.
 QH_CAP_S="${QUEUED_HEAVY_CAP_S:-}"
 case "$QH_CAP_S" in ''|*[!0-9]*) QH_CAP_S="" ;; esac
+case "$QH_CAP_S" in ??????*) QH_CAP_S=86400 ;; esac   # review 4: six digits or more is a day (no 64-bit overflow)
 [ -n "$QH_CAP_S" ] && QH_CAP_S=$((10#$QH_CAP_S))
 [ "${KOSMOS_QUEUE_CLASS:-heavy}" = light ] && QH_CAP_S=""
 [ "${KOSMOS_NO_WAIT:-0}" = 1 ] && QH_CAP_S=""
@@ -729,7 +730,11 @@ _qh_cut_or_beside() {
     waited=1; passes=$((passes + 1))
     # Review 3: said on the first pass and every tenth, not on every pass of a two-hour cut.
     [ $(( (passes - 1) % 10 )) = 0 ] && echo "QUEUED-HEAVY $(date '+%H:%M:%S') the cap (${QH_CAP_S}s) ran out while a release cut holds the machine; waiting past the cap (pass $passes, kosmos#9139): $WHAT"
-    KOSMOS_NO_WAIT=0 kosmos_wait_until_clear "$WHAT" --suite-queue _qh_clear && return 0
+    # Review 4: no kosmos_wait_until_clear here. With a ceiling of 0 it gave up at once and dropped this run's place
+    # every pass, so a run that joined DURING the cut took the turn when it ended and this one went beside it; and each
+    # pass printed the lib's refusal. The place (its join time) is kept instead, and a free turn is tried quietly, in
+    # order (_qh_take checks earlier waiters against the kept place).
+    [ -e "$(_kosmos_suite_waiter_file "$$")" ] || kosmos_mark_suite_waiting "$QH_JOINED"
     _qh_free_now && return 0
     sleep "$every"
   done
@@ -771,9 +776,6 @@ until { { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_A
 done
 if [ -n "$QH_BESIDE" ]; then   # kosmos#9139: no claim was taken; leave the queue, say so, note the start
   kosmos_unmark_suite_waiting
-  QH_BESIDE_ID="queued-heavy-$$-$(date +%s)"
-  command -v kosmos_note_beside_run >/dev/null 2>&1 && kosmos_note_beside_run start "$QH_BESIDE_ID" "$WHAT" \
-    || echo "QUEUED-HEAVY: this lib has no kosmos_note_beside_run, so the holder's summary will not name this run" >&2
   unset QUEUED_HEAVY_CAP_S   # a queued-heavy inside a beside run has no claim to inherit, and would wait the cap again
 fi
 RENEWER=""
@@ -924,6 +926,10 @@ QH_FGSIG=""
 if [ "$LANE" = side ]; then
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') SIDE TURN: running $WHAT beside the heavy holder (#4911; stopped if it runs past ${SIDE_MIN} min)"
 elif [ -n "$QH_BESIDE" ]; then
+  # Review 4: the start is noted here, after `trap _qh_end EXIT`, so every exit from now on writes the end too.
+  QH_BESIDE_ID="queued-heavy-$$-$(date +%s)"
+  command -v kosmos_note_beside_run >/dev/null 2>&1 && kosmos_note_beside_run start "$QH_BESIDE_ID" "$WHAT" \
+    || echo "QUEUED-HEAVY: this lib has no kosmos_note_beside_run, so the holder's summary will not name this run" >&2
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') RUNNING BESIDE the queue: the cap (${QH_CAP_S}s) ran out and no release cut holds the machine, so this shares the box with whatever holds it; no claim is taken (kosmos#9139): $WHAT"
 else
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') TURN: running $WHAT (machine claimed, renewed every ${RENEW_SEC}s while it runs)"
@@ -1051,7 +1057,10 @@ else
       if _qh_wrapper_gone "$$"; then
         kill -TERM -- "-$CMD" 2>/dev/null; end=$(( $(date +%s) + STOP_GRACE_S ))   # review 7: a clock deadline
         while kill -0 -- "-$CMD" 2>/dev/null && [ "$(date +%s)" -lt "$end" ]; do sleep 0.5; done
-        kill -KILL -- "-$CMD" 2>/dev/null; exit 0
+        kill -KILL -- "-$CMD" 2>/dev/null
+        # kosmos#9139 review 4: a beside run's end, which the killed wrapper could not write.
+        [ -n "$QH_BESIDE_ID" ] && command -v kosmos_note_beside_run >/dev/null 2>&1 && kosmos_note_beside_run end "$QH_BESIDE_ID"
+        exit 0
       fi
     done ) </dev/null >/dev/null 2>&1 &
   CAPPER=$!; set +m

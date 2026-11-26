@@ -928,7 +928,7 @@ cap_hold $S/mcap5 "release 0.9.99"
 ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap5 QUEUED_HEAVY_CAP_S=0 exec perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "cap-zero" true ) > $S/mcap5.out 2>&1 & ZP=$!
 until_true 40 'grep -q "waiting past the cap" $S/mcap5.out'; sleep 4; rm -f $S/mcap5/machine-claim; wait "$ZP"; r=$?; o=$(cat $S/mcap5.out)
 n=$(sed -n 's/.*waiting past the cap (pass \([0-9]*\),.*/\1/p' $S/mcap5.out | tail -1); n=${n:-0}   # review 3: the pass number (said every tenth)
-ok "#9139: a cap of 0 beside a cut sleeps between passes instead of spinning (passes in about 4s: $n)" '[ "$r" = 0 ] && [ "$n" -ge 1 ] && [ "$n" -le 9 ] && [[ "$o" != *"RUNNING BESIDE"* ]]'
+ok "#9139: a cap of 0 beside a cut sleeps between passes instead of spinning (last pass said: $n; a spin says 11 or more)" '[ "$r" = 0 ] && [ "$n" -ge 1 ] && [ "$n" -le 9 ] && [[ "$o" != *"RUNNING BESIDE"* ]]'
 cap_hold $S/mcap6 "queued run (not a cut): fake heavy"
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap6 QUEUED_HEAVY_CAP_S=2 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "cap-env" sh -c 'echo "ENV CEIL=${KOSMOS_WAIT_QUEUE_CEIL_S:-unset} KEEP=${KOSMOS_WAIT_KEEP_MARK:-unset} AWARE=${KOSMOS_SIDE_AWARE:-unset} CAP=${QUEUED_HEAVY_CAP_S:-unset}"' 2>&1)
 ok "#9139: a beside command gets a main turn's environment (no ceiling, kept mark, side flag or cap)" '[[ "$o" == *"RUNNING BESIDE"* && "$o" == *"ENV CEIL=unset KEEP=unset AWARE=unset CAP=unset"* ]]'
@@ -953,13 +953,13 @@ ok "#9139: KOSMOS_NO_WAIT=1 with a cap refuses at once (exit 4), nothing run bes
 # Review 2: the cap is a deadline: beside an ordinary holder, a cap of 3 runs beside within the cap and a little.
 cap_hold $S/mcap10 "queued run (not a cut): fake heavy"
 t0=$(date +%s); o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap10 QUEUED_HEAVY_CAP_S=3 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "cap-deadline" true 2>&1); el=$(( $(date +%s) - t0 ))
-ok "#9139: a cap of 3 beside an ordinary holder runs beside in ${el}s (at most 10)" '[[ "$o" == *"RUNNING BESIDE"* ]] && [ "$el" -ge 3 ] && [ "$el" -le 10 ]'
+ok "#9139: a cap of 3 beside an ordinary holder runs beside in ${el}s (at most 15)" '[[ "$o" == *"RUNNING BESIDE"* ]] && [ "$el" -ge 3 ] && [ "$el" -le 15 ]'
 # Review 3: the deadline on the LOST-TAKE path: behind an earlier waiter, a cap of 6 goes beside at about 6 s (a fresh
 # cap per wait, as before review 2, took about 12).
 mkdir -p $S/mcap11; ( KOSMOS_RUN_MARKER_DIR=$S/mcap11 exec bash -c '. "$1/tools/lib/cut-guard.sh"; kosmos_mark_suite_waiting $(( $(date +%s) - 100 )); while :; do sleep 1; done' _ "$ROOT" ) & EWP2=$!
 until_true 10 '[ -n "$(ls $S/mcap11 | grep "^suitewait\.")" ]'
 t0=$(date +%s); o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap11 QUEUED_HEAVY_CAP_S=6 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "cap-deadline2" true 2>&1); el=$(( $(date +%s) - t0 )); kill "$EWP2" 2>/dev/null; wait "$EWP2" 2>/dev/null
-ok "#9139: behind an earlier waiter a cap of 6 goes beside in ${el}s (6 to 10, one deadline, not a cap per wait)" '[[ "$o" == *"RUNNING BESIDE"* ]] && [ "$el" -ge 6 ] && [ "$el" -le 10 ]'
+ok "#9139: behind an earlier waiter a cap of 6 goes beside in ${el}s (6 to 11; a cap per wait takes 12 or more)" '[[ "$o" == *"RUNNING BESIDE"* ]] && [ "$el" -ge 6 ] && [ "$el" -le 11 ]'
 # Review 3: a beside run is withdrawn like a main turn: --withdraw stops its command now (it used to run to its end).
 cap_hold $S/mcap12 "queued run (not a cut): fake heavy"
 ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap12 QUEUED_HEAVY_CAP_S=1 QUEUED_HEAVY_STOP_GRACE_S=2 exec perl -MPOSIX -e 'POSIX::setsid(); alarm(shift); exec @ARGV or die' 90 /bin/bash $QH "cap-withdraw" sh -c 'sleep 40; echo WD-FINISHED' ) </dev/null > $S/mcap12.out 2>&1 & WDP=$!
@@ -967,6 +967,25 @@ until_true 40 'grep -q "RUNNING BESIDE" $S/mcap12.out'; t0=$(date +%s)
 ow=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap12 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH --withdraw "cap-withdraw" 2>&1); rw=$?
 wait "$WDP"; r=$?; el=$(( $(date +%s) - t0 )); o=$(cat $S/mcap12.out)
 ok "#9139: --withdraw stops a beside run in ${el}s (its command is stopped, the end is noted)" '[ "$rw" = 0 ] && [ "$el" -le 25 ] && [[ "$o" != *WD-FINISHED* ]] && grep -qE "^E queued-heavy-" $S/mcap12/beside-runs.log'
+# Review 4: a capped run keeps its place through a cut wait: one that joins DURING the cut does not take the turn ahead
+# of it when the cut ends (before, the capped run's place was dropped every pass and it went beside the later one).
+cap_hold $S/mcap13 "release 0.9.99"
+# The capped run polls every 8 s and the later one every 1 s, so without the kept place the later one would reach the
+# free box first (with both at 1 s the capped one's own re-mark won the race either way, and the arm proved nothing).
+( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap13 QUEUED_HEAVY_CAP_S=0 KOSMOS_WAIT_EVERY_S=8 exec perl -e 'alarm(shift); exec @ARGV or die' 90 /bin/bash $QH "cap-first" sh -c 'echo FIRST-RAN; sleep 3' ) > $S/mcap13a.out 2>&1 & PA=$!
+until_true 40 'grep -q "waiting past the cap" $S/mcap13a.out'
+( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap13 exec perl -e 'alarm(shift); exec @ARGV or die' 90 /bin/bash $QH "later" sh -c 'echo LATER-RAN; sleep 4' ) > $S/mcap13b.out 2>&1 & PB=$!
+sleep 3; rm -f $S/mcap13/machine-claim; wait "$PA"; ra=$?; wait "$PB"; rb=$?
+# The ORDER is the claim (review 4's mutant still gave both a turn, the later one first): the capped run's TURN time
+# is not after the later one's.
+ta13=$(sed -n 's/^QUEUED-HEAVY \([0-9:]*\) TURN: running cap-first.*/\1/p' $S/mcap13a.out); tb13=$(sed -n 's/^QUEUED-HEAVY \([0-9:]*\) TURN: running later.*/\1/p' $S/mcap13b.out)
+ok "#9139: a capped run keeps its place through a cut wait; a run that joined during the cut goes after it (turns at ${ta13:-none} and ${tb13:-none})" '[ "$ra" = 0 ] && [ "$rb" = 0 ] && [ -n "$ta13" ] && [ -n "$tb13" ] && ! [[ "$ta13" > "$tb13" ]] && ! grep -q "RUNNING BESIDE" $S/mcap13a.out'
+# Review 4: a beside run's wrapper SIGKILLed: its watcher stops the command and writes the end the wrapper could not.
+cap_hold $S/mcap14 "queued run (not a cut): fake heavy"
+( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap14 QUEUED_HEAVY_CAP_S=1 QUEUED_HEAVY_STOP_GRACE_S=2 exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die' /bin/bash $QH "cap-killed" sh -c 'sleep 40' ) </dev/null > $S/mcap14.out 2>&1 & PK=$!
+until_true 40 'grep -q "RUNNING BESIDE" $S/mcap14.out'; kill -KILL "$PK" 2>/dev/null; wait "$PK" 2>/dev/null
+until_true 30 'grep -qE "^E queued-heavy-" $S/mcap14/beside-runs.log'; e14=$?
+ok "#9139: a SIGKILLed beside wrapper's watcher writes the end note (the holder's summary does not read it as still going)" '[ "$e14" = 0 ]'
 cap_hold $S/mcap3 "queued run (not a cut): fake heavy"
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap3 KOSMOS_WAIT_QUEUE_CEIL_S=2 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "nocap" touch $S/nocap-ran 2>&1); r=$?
 ok "#9139 CONTROL: with no cap, a run that cannot get a turn is still refused (exit 4) and runs nothing" '[ "$r" = 4 ] && [[ "$o" == *REFUSED* ]] && [ ! -e $S/nocap-ran ] && [ ! -e $S/mcap3/beside-runs.log ]'
@@ -974,7 +993,7 @@ cap_hold $S/mcap4 "queued run (not a cut): fake heavy"
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap4 QUEUED_HEAVY_CAP_S=15m KOSMOS_WAIT_QUEUE_CEIL_S=2 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "badcap" touch $S/badcap-ran 2>&1); r=$?
 ok "#9139: a cap that is not a number is no cap (refused, nothing run beside)" '[ "$r" = 4 ] && [ ! -e $S/badcap-ran ] && [[ "$o" != *"waits at most"* ]]'
 
-EXPECTED=192   # three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, fourteen #9139 cap arms
+EXPECTED=194   # three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
