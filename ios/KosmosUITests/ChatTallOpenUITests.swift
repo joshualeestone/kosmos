@@ -35,6 +35,8 @@ final class ChatTallOpenUITests: XCTestCase {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": sample]
+        // TEST_RUNNER_KOSMOS_NOOPENLAND=1: the app without the open's second look, the control (kosmos#9089).
+        if ProcessInfo.processInfo.environment["KOSMOS_NOOPENLAND"] == "1" { app.launchEnvironment["KOSMOS_SAMPLE_NOOPENLAND"] = "1" }
         UIKitListArm.set(app)
         app.launch()
         UIKitListArm.assertDrawn(app)
