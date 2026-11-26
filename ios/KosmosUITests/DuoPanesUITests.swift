@@ -94,6 +94,9 @@ final class DuoPanesUITests: DuoPanesCase {
         let app = try launch("fold:40")
         XCTAssertTrue(box(app).waitForExistence(timeout: 30), "Dana's chat did not open")
         XCTAssertTrue(holds(5) { self.tabsShow(app) }, "CONTROL: unfolded, no tabs beside the chat")
+        // Beside its list the tabs show, so the message box must sit above them, not under (#7847's 170 pt stacking).
+        let bar = app.tabBars.firstMatch
+        XCTAssertTrue(box(app).frame.maxY <= bar.frame.minY + 1, "unfolded, the message box is under the tab bar (box \(box(app).frame), bar \(bar.frame))")
         XCTAssertFalse(backShows(app), "unfolded, the chat has a back button with no list under it")
         shot(app, "unfolded")
         XCTAssertTrue(holds(8) { self.beside(app) }, "unfolded, the list is not beside the chat (row \(row(app).frame), box \(box(app).frame))")
