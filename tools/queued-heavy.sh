@@ -80,6 +80,39 @@ unset KOSMOS_LIGHT_SIDE_COOKIE KOSMOS_SIDE_CAPABLE KOSMOS_WAIT_LANE KOSMOS_SIDE_
 # Every waiter of this script knows about side turns (marker line 6 "aware", or "side" for one that takes them), so a
 # side turn waits only on waiters of an OLDER script, which would not wait for it.
 export KOSMOS_SIDE_AWARE=1
+# The marker dir as the lib names it (_kosmos_marker_dir in cut-guard.sh; keep the two the same), needed before the lib
+# is loaded (and, #9118, by --withdraw below).
+_qh_marker_dir_raw() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cache/kosmos-run-markers}"; }
+# kosmos#9118 item 1: `queued-heavy.sh --withdraw "<what>"` takes a run out by its label, waiting or holding the turn,
+# instead of its owner finding and killing pids by hand (nine runs were moved that way on 11-25). Every run records its
+# label in <marker dir>/qh-label.<pid> while it waits or runs (below). This sends a TERM to each LIVE queued-heavy.sh
+# whose label is exactly "<what>": a waiter then leaves the queue; a holder stops its whole command and releases the
+# claim (the stop above). It waits up to QUEUED_HEAVY_WITHDRAW_WAIT_S (default 90 s, past the 60 s grace) for them to
+# end. Exit 0 when every one ended, 1 when no live run has that label, 3 when one is still ending at the bound.
+# A label file whose pid is gone is stale and removed; one whose pid is not a queued-heavy.sh (a reused pid) is skipped.
+if [ "${1:-}" = --withdraw ]; then
+  _qw="${2:-}"; [ -n "$_qw" ] || { echo "usage: queued-heavy.sh --withdraw \"<what>\"" >&2; exit 2; }
+  _qd="$(_qh_marker_dir_raw)"; _qn=0; _qp=""
+  for _qf in "$_qd"/qh-label.*; do
+    [ -e "$_qf" ] || continue   # an unmatched glob stays literal
+    _q="${_qf##*.}"; case "$_q" in ''|*[!0-9]*) continue ;; esac
+    [ "$_q" = "$$" ] && continue
+    if ! kill -0 "$_q" 2>/dev/null; then rm -f "$_qf"; continue; fi
+    case "$(ps -ww -o command= -p "$_q" 2>/dev/null)" in *"${QH_TEST_PS_NAME:-queued-heavy.sh}"*) ;; *) continue ;; esac
+    [ "$(head -1 "$_qf" 2>/dev/null)" = "$_qw" ] || continue
+    if kill -TERM "$_q" 2>/dev/null; then _qp="$_qp $_q"; _qn=$((_qn + 1)); echo "QUEUED-HEAVY $(date '+%H:%M:%S') withdrawing pid $_q: $_qw"; fi
+  done
+  [ "$_qn" -gt 0 ] || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') no live run labelled \"$_qw\" to withdraw"; exit 1; }
+  _qe="${QUEUED_HEAVY_WITHDRAW_WAIT_S:-90}"; case "$_qe" in ''|*[!0-9]*|?????*) _qe=90 ;; esac
+  _qe=$(( $(date +%s) + 10#$_qe ))
+  while :; do
+    _ql=""; for _q in $_qp; do kill -0 "$_q" 2>/dev/null && _ql="$_ql $_q"; done
+    [ -n "${_ql// /}" ] || break
+    [ "$(date +%s)" -lt "$_qe" ] || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') still ending at the bound:$_ql ($_qw)"; exit 3; }
+    sleep 0.5
+  done
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') withdrew $_qn run(s) labelled \"$_qw\""; exit 0
+fi
 if [ "${1:-}" = --light ]; then export KOSMOS_QUEUE_CLASS=light; shift; fi
 WHAT="${1:?what}"; shift
 # 2026-09-30 10:44: a batch waited 97 minutes for its turn and then died "Permission denied" (rc 126): the script it
@@ -296,9 +329,6 @@ _qh_lib_check() {
   fi
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9} DIFFERS from origin/main ${main:0:9} (${diff}); not moved ($why), so this run joins on the lib as it is (#5923)"
 }
-# The marker dir as the lib names it (_kosmos_marker_dir in cut-guard.sh; keep the two the same), needed before the lib
-# is loaded.
-_qh_marker_dir_raw() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cache/kosmos-run-markers}"; }
 # Removes the lib lock only while it is still this run's (a joiner may have taken it over).
 _qh_lib_unlock() { [ -n "$QH_LIB_LOCK" ] && [ "$(cat "$QH_LIB_LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$QH_LIB_LOCK"; return 0; }
 mkdir -p "$(_qh_marker_dir_raw)" 2>/dev/null
@@ -438,6 +468,11 @@ _qh_clear() {
   return 0
 }
 echo "QUEUED-HEAVY $(date '+%H:%M:%S') waiting for a turn: $WHAT (class ${KOSMOS_QUEUE_CLASS:-heavy})"
+# kosmos#9118 item 1: this run's label, for --withdraw. Removed on every exit: here while it waits (a TERM ends the wait
+# through this trap, which also takes this run's place out of the queue), and in _qh_end once it holds the turn.
+QH_LABEL="$(_qh_marker_dir_raw)/qh-label.$$"
+printf '%s\n' "$WHAT" > "$QH_LABEL" 2>/dev/null || QH_LABEL=""
+trap '[ -n "$QH_LABEL" ] && rm -f "$QH_LABEL"; type kosmos_unmark_suite_waiting >/dev/null 2>&1 && kosmos_unmark_suite_waiting' EXIT
 # The claim line is labelled "release ${V}" by the library; say plainly that this is not a cut.
 # #4911: a light turn says so in its label, so a light run asking for a side turn never starts beside it.
 if [ "${KOSMOS_QUEUE_CLASS:-}" = light ]; then export V="(not a cut) queued one-off [light]: $WHAT"; else export V="(not a cut) queued one-off: $WHAT"; fi
@@ -673,6 +708,7 @@ _qh_end() {
   # Review 4: the stop file too, once the capper is gone (a yield in the window before could write it again).
   rm -f ${QH_STOPPED:+"$QH_STOPPED"} ${QH_DESC:+"$QH_DESC"}
   if [ "$LANE" = side ]; then kosmos_release_light_side; else kosmos_release_machine; fi
+  [ -n "${QH_LABEL:-}" ] && rm -f "$QH_LABEL"   # #9118 item 1: the label goes with the claim
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') claim released"
 }
 trap _qh_end EXIT
