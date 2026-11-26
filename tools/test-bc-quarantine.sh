@@ -117,6 +117,9 @@ blk="$(awk '/^step "== 1e\./{on=1; next} on&&/^step "== /{exit} on{print}' "$REP
 case "$blk" in *'KOSMOS_QUARANTINE_AT_VERSION="$V"'*'exit 1'*) ok "step 1e runs the guard test against the version being cut" ;; *) bad "step 1e block not found or changed: $blk" ;; esac
 fx="$TMP/fx"; mkdir -p "$fx/docs/browser-checks"
 cp "$REPO/browser-checks-quarantine-guard.test.js" "$fx/"
+# #9104: every suite test file requires ./test-support/tmpscope first, so the copy needs it (and what it loads) beside it.
+mkdir -p "$fx/test-support"
+cp "$REPO/test-support/tmpscope.js" "$REPO/test-support/remove-at-end.js" "$REPO/test-support/remove-tree.js" "$fx/test-support/"
 printf '{ "version": "0.7.01" }\n' > "$fx/package.json"
 for n in $(seq 1 101); do printf "const b = await chromium.launch();\nconsole.log('PASS  c$n');\nprocess.exit(0);\n" > "$fx/docs/browser-checks/c$n.js"; done
 printf "(async () => {\n  // QUARANTINE until=0.7.03 card=#9999: planted\n  console.log('PASS  planted QUARANTINED');\n  process.exit(0);\n  const b = await chromium.launch();\n})();\n" > "$fx/docs/browser-checks/planted.js"
