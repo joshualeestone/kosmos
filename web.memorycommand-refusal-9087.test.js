@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#9087: the board's compact and clear buttons (memoryCommand) said "Asked it to compact." for a refusal that
