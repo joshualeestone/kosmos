@@ -820,6 +820,40 @@ func downloadRefusedWords(_ error: Error) -> String {
         + "if Kosmos was updated while it was open, quitting and reopening it may be enough."
 }
 
+/// #9093: what identifies this app's executable on disk (its device and inode). Read at launch, and again when macOS
+/// refuses a download. Measured 11-25 on Josh's Mac: a window opened on 0.8.11 kept running after an update replaced the
+/// app (0.8.24) beneath it; `codesign --verify <pid>` then answered "No such file or directory" for that window, and
+/// macOS refused its saves to Downloads ("Operation not permitted") with no prompt. Restarting onto the new app is the
+/// remedy; System Settings is not.
+struct ExecutableID: Equatable { let dev: UInt64; let ino: UInt64 }
+func executableID(_ path: String?) -> ExecutableID? {
+    guard let path else { return nil }
+    var st = stat()
+    guard stat(path, &st) == 0 else { return nil }
+    return ExecutableID(dev: UInt64(st.st_dev), ino: UInt64(st.st_ino))
+}
+/// Read once, as main.swift's top-level code runs, before the app starts: the file this process was started from.
+/// 🛑 This relies on main.swift being built in script mode (one file, no -parse-as-library): there a global is set when the
+/// top-level code reaches it. In a library-mode build it would be set lazily on first use and read the NEW file.
+let launchedExecutableID = executableID(Bundle.main.executablePath)
+/// #9093: PURE. The app was replaced since launch: the file at its path is another file now, or there is none.
+/// Not known at launch: never claimed (the person is then asked as before).
+func replacedSinceLaunch(launched: ExecutableID?, now: ExecutableID?) -> Bool {
+    guard let launched else { return false }
+    return now != launched
+}
+let downloadUpdatedTitle = "Kosmos was updated or moved while it was open"
+/// #9093: PURE. The restart question's words. Review 1 (#4356): "your agents keep running" is not true of a computer that
+/// connects to another one, so it is said only where this computer runs them. Review 2: words not sent yet are named when
+/// the page says a restart would lose them. Review 4: another place is offered when the Save panel question would be.
+func downloadUpdatedWords(connect: Bool, losing: Bool, elsewhere: Bool) -> String {
+    "macOS did not let this window save to Downloads. Restarting Kosmos onto the new version should let it save again: "
+        + "restart, then download the file again."
+        + (losing ? " If you restart, words you have not sent yet in this window will be lost." : "")
+        + (connect ? "" : " Your agents keep running.")
+        + (elsewhere ? " Or choose another place to save it now." : "")
+}
+
 /// #5167 (11-06): PURE. A failed download for the unified log, in domains and numbers only (logToSystem's rule: no address,
 /// no file): "NSURLErrorDomain -3000, NSPOSIXErrorDomain 13", or the one domain when nothing lies under it.
 func downloadFailureCodes(_ error: Error) -> String {
@@ -4852,6 +4886,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
+    /// #5167 (11-18), shared with #9093: the request a refused download may be asked for again, with the page it began on,
+    /// or nil. Only a GET (a POST would be sent twice), only while the page it began on still shows, only one begun for the
+    /// page's main frame, only on this computer's board, and only when the request ITSELF is same-origin (a redirect can
+    /// make the request sent again differ from the answer that was checked): the #5167 reviews 2, 3 and 6.
+    private func saveElsewhereRequest(_ download: WKDownload, dest: URL?, begunOn: Int?) -> (request: URLRequest, webView: WKWebView, name: String)? {
+        guard let dest, let request = download.originalRequest, let webView = download.webView,
+              (request.httpMethod ?? "GET") == "GET", begunOn == pageCommits, downloadsFromMainFrame.contains(download),
+              isBoardPage(committedPageURL, board: badgeOrigin),
+              let asked = request.url, isSameOriginDownload(asked, page: committedPageURL) else { return nil }
+        return (request, webView, dest.lastPathComponent)
+    }
+
+    /// #9093: macOS refused a download because this window's app was replaced on disk. Asks once. Restart Kosmos restarts
+    /// onto the app now on disk, as the stale-app restart does (relaunch: the new copy first, then this one quits). The
+    /// page is asked first whether a restart would lose words not sent yet (the stale-app question), so the person is told.
+    private func offerRestartAfterUpdate(webView: WKWebView?, elsewhere: (() -> Void)?) {
+        alertsOnScreen += 1
+        let ask: (Bool) -> Void = { [weak self] losing in
+            guard let self else { return }
+            let alert = NSAlert()
+            alert.messageText = downloadUpdatedTitle
+            alert.informativeText = downloadUpdatedWords(connect: self.computerMode == .connect, losing: losing, elsewhere: elsewhere != nil)
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Restart Kosmos")
+            if elsewhere != nil { alert.addButton(withTitle: "Choose Where to Save\u{2026}") }
+            alert.addButton(withTitle: "Cancel")   // round 2: NSAlert gives Escape only to a button titled Cancel
+            // As in #5167 review 3: a failing download decides when this appears, so Return is the safe answer.
+            for b in alert.buttons { b.keyEquivalent = "" }
+            alert.buttons.last?.keyEquivalent = "\r"
+            let answer = alert.runModal()
+            self.alertsOnScreen -= 1
+            if answer == .alertSecondButtonReturn, let elsewhere { elsewhere(); return }
+            guard answer == .alertFirstButtonReturn else { logLine("#9093: the person chose not to restart now"); return }
+            let mine = self.runningAppVersion() ?? "unknown"
+            let onDisk = Self.onDiskVersion(Bundle.main.bundleURL) ?? mine
+            let target = Self.freshAppURL(theirs: onDisk) ?? Bundle.main.bundleURL
+            self.relaunch(mine: mine, theirs: onDisk, target: target, waited: 0, asked: true, askedBefore: true)
+            /* Review 3: relaunch records the version it restarted FROM, which #1182 reads as "reopening did not help" when the
+               new window starts at that same version. A same-version replacement (a reinstall) is not that, so it is cleared. */
+            if onDisk == mine { self.relaunchedAtVersion = nil }
+        }
+        guard let webView else { DispatchQueue.main.async { ask(false) }; return }
+        var answered = false
+        let once: (Bool) -> Void = { losing in DispatchQueue.main.async { if !answered { answered = true; ask(losing) } } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { once(false) }   // a page that does not answer does not hold the question
+        webView.evaluateJavaScript(Self.relaunchPageQuestion) { result, _ in once((result as? Bool) == false) }
+    }
+
     @objc(download:didFailWithError:resumeData:)
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download))
@@ -4874,10 +4956,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             } else if downloadsRestarted.contains(download) {
                 // Review 1: the place the person chose failed too: said as that place's, and not asked about again.
                 tellDownloadFailed("The file could not be saved where you chose (\(downloadFailureWords(error))).")
-            } else if let dest, downloadRefusedByMacOS(error), let request = download.originalRequest, let webView = download.webView,
-                      (request.httpMethod ?? "GET") == "GET", begunOn == pageCommits, downloadsFromMainFrame.contains(download),
-                      alertsOnScreen == 0, isBoardPage(committedPageURL, board: badgeOrigin),
-                      let asked = request.url, isSameOriginDownload(asked, page: committedPageURL) {
+            } else if downloadRefusedCode(error) == EPERM, alertsOnScreen == 0,
+                      replacedSinceLaunch(launched: launchedExecutableID, now: executableID(Bundle.main.executablePath)) {
+                /* #9093: this window's app was replaced on disk while it ran (an update). macOS will not let it save, and
+                   another place or a Settings switch does not fix that: restarting onto the new app does. */
+                logLine("#9093: macOS refused a save in a window whose app was replaced on disk, so a restart is offered")
+                // Review 4: another place stays on offer when the Save panel question would be (not measured in such a window).
+                let again = saveElsewhereRequest(download, dest: dest, begunOn: begunOn)
+                // Review 2 round 2: the page as it was at the failure. The question takes time, and a page that changed
+                // meanwhile voids the other place, as #5167 review 1 voids it inside offerSaveElsewhere (which reads the page
+                // only when it is called, so it would compare the new page with itself).
+                let failedOn = (commits: pageCommits, page: committedPageURL)
+                offerRestartAfterUpdate(webView: download.webView, elsewhere: again.map { r in { [weak self] in
+                    guard let self else { return }
+                    guard self.pageCommits == failedOn.commits, self.committedPageURL == failedOn.page else {
+                        logLine("#9093: the page changed while the person decided, so the file was not saved")
+                        self.tellDownloadFailed("The page changed while you decided, so the file was not saved. Try again.")
+                        return
+                    }
+                    self.offerSaveElsewhere(error, request: r.request, webView: r.webView, name: r.name) } })
+            } else if downloadRefusedByMacOS(error), alertsOnScreen == 0,
+                      let again = saveElsewhereRequest(download, dest: dest, begunOn: begunOn) {
                 /* Review 2: only a GET is asked for again (a POST would be sent twice), and only while the page it began on
                    still shows; review 3: and only one begun for the page's main frame (for an attachment that is the frame it
                    loaded into, not necessarily the one that asked); review 4: and only with no other alert up, so a page cannot
@@ -4885,7 +4984,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                    (a redirect can make the request that is sent again differ from the answer that was checked). Otherwise
                    the plain failure below. */
                 // 11-18: macOS refused the write to Downloads ("Operation not permitted"); another place can still take it.
-                offerSaveElsewhere(error, request: request, webView: webView, name: dest.lastPathComponent)
+                offerSaveElsewhere(error, request: again.request, webView: again.webView, name: again.name)
             } else {
                 tellDownloadFailed("The file could not be saved to Downloads (\(downloadFailureWords(error))).")   // 11-06: and why, when WebKit says
             }
@@ -9121,6 +9220,32 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         fr(!downloadRefusedByMacOS(fail(NSError(domain: NSPOSIXErrorDomain, code: 28))), downloadFailureWords(fail(NSError(domain: NSPOSIXErrorDomain, code: 28))), "#5167: CONTROL: a full disk is not (another place would not help)")
         fr(!downloadRefusedByMacOS(fail(NSError(domain: NSPOSIXErrorDomain, code: 17))), "File exists", "#5167: CONTROL: nor a taken name")
         fr(!downloadRefusedByMacOS(fail(nil)) && !downloadRefusedByMacOS(fail(NSError(domain: "SomeOtherDomain", code: 1))), "no POSIX reason", "#5167: CONTROL: nor a failure with no system reason, or a 1 that is not the system's")
+        // #9093: a window whose app was replaced on disk is told to restart.
+        let a = ExecutableID(dev: 1, ino: 10), b = ExecutableID(dev: 1, ino: 11)
+        fr(!replacedSinceLaunch(launched: a, now: a), "same file", "#9093: CONTROL: the same file is not a replacement")
+        fr(replacedSinceLaunch(launched: a, now: b), "another inode", "#9093: another file at the path is a replacement")
+        fr(replacedSinceLaunch(launched: a, now: nil), "no file", "#9093: and so is no file at the path")
+        fr(!replacedSinceLaunch(launched: nil, now: b), "unknown at launch", "#9093: CONTROL: unknown at launch is never claimed")
+        let tmp = NSTemporaryDirectory() + "kosmos-9093-\(getpid())"
+        FileManager.default.createFile(atPath: tmp, contents: Data("one".utf8))
+        let before = executableID(tmp)
+        FileManager.default.createFile(atPath: tmp + ".other", contents: Data("other".utf8))
+        let unchanged = executableID(tmp)
+        // Review 6: a rename OVER the existing file (as make_app's move-in does), checked, and the new file must exist.
+        FileManager.default.createFile(atPath: tmp + ".new", contents: Data("two".utf8))
+        let renamed = rename(tmp + ".new", tmp)
+        let after = executableID(tmp)
+        try? FileManager.default.removeItem(atPath: tmp); try? FileManager.default.removeItem(atPath: tmp + ".other")
+        fr(before != nil && before == unchanged, "\(String(describing: before))", "#9093: CONTROL: a file read twice, another file beside it, is the same file")
+        fr(renamed == 0 && after != nil && after != before && replacedSinceLaunch(launched: before, now: after), "\(String(describing: after))", "#9093: a file replaced by a rename over it, as an update does, reads as replaced")
+        let plain = downloadUpdatedWords(connect: false, losing: false, elsewhere: false)
+        fr(!plain.contains("System Settings") && plain.contains("Restarting Kosmos") && plain.contains("Your agents keep running")
+           && !downloadUpdatedTitle.contains("\u{2014}") && !plain.contains("\u{2014}"), plain, "#9093: the restart question names the remedy, not Settings")
+        let viaConnect = downloadUpdatedWords(connect: true, losing: false, elsewhere: false)
+        fr(!viaConnect.contains("agents keep running"), viaConnect, "#9093 review 1: a connect computer is not told its agents keep running")
+        let losing = downloadUpdatedWords(connect: false, losing: true, elsewhere: true)
+        fr(losing.contains("will be lost") && losing.contains("another place") && !plain.contains("will be lost") && !plain.contains("another place"),
+           losing, "#9093 reviews 2 and 4: unsent words and another place are said only when they hold (CONTROL: the plain words say neither)")
         fr(downloadRefusedWords(eperm).contains("(Cannot create file: Operation not permitted)") && downloadRefusedWords(eperm).contains("Privacy & Security, Files & Folders")
            && !downloadRefusedWords(eperm).contains("SECRET"), downloadRefusedWords(eperm), "#5167: the question names the reason and where to allow it, and no address")
         fr(downloadRefusedWords(eacces).contains("(Cannot create file: Permission denied)") && !downloadRefusedWords(eacces).contains("System Settings"),
@@ -9268,7 +9393,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         }
     }
     while certRows < 1 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
-    let expected = 320   // kosmos#5167 (11-18): +8 (downloadRefusedByMacOS and its question, incl. the EACCES control); kosmos#8121 re-land: +10 (accountVerdict rows), +4 (downloadAnswer rows); kosmos#8125: +3 (quitMissesAfter rows); kosmos#8118: +61 (7 computerToRemember rows, 7 rememberableHost rows, 15 reopenAnswerKeeps rows, 3 reopenMissesForget rows, 5 reopenMissesAfter rows, 3 reopenRetryAllowed rows, 6 quitKeeps rows, 15 reopenStep rows); kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 329   // kosmos#9093: +9 (4 replacedSinceLaunch rows incl. 2 controls, 2 real-file rows incl. a control, 3 restart-words rows); kosmos#5167 (11-18): +8 (downloadRefusedByMacOS and its question, incl. the EACCES control); kosmos#8121 re-land: +10 (accountVerdict rows), +4 (downloadAnswer rows); kosmos#8125: +3 (quitMissesAfter rows); kosmos#8118: +61 (7 computerToRemember rows, 7 rememberableHost rows, 15 reopenAnswerKeeps rows, 3 reopenMissesForget rows, 5 reopenMissesAfter rows, 3 reopenRetryAllowed rows, 6 quitKeeps rows, 15 reopenStep rows); kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

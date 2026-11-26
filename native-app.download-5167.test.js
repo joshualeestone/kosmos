@@ -112,7 +112,8 @@ test('#5167: the selftest runs the download rows and counts them', () => {
   const dl = (st.slice(0, st.indexOf('let expected')).match(/\n    dl\(/g) || []).length;
   const dest = (st.slice(0, st.indexOf('let expected')).match(/\n    dest\(/g) || []).length;
   assert.equal(dl + dest, 29, 'the #5167 rows changed; update the expected count with them');
-  assert.match(st, /let expected = 320\b/);   // kosmos#8125: +3 (quitMissesAfter); kosmos#8118: +61 (computerToRemember, rememberableHost, reopenAnswerKeeps, reopenMissesForget, reopenMissesAfter, reopenRetryAllowed, quitKeeps, reopenStep); kosmos#5167 (11-06): +6 (the failure reason rows); kosmos#7952: +12 (download-folder says rows, isFolderDownload rows, downloadAskedByPage rows, the marked request)
+  assert.match(st, /let expected = 329\b/);   // kosmos#9093: +9 (replacedSinceLaunch, the real-file rows, the restart words)
+  // kosmos#8125: +3 (quitMissesAfter); kosmos#8118: +61 (computerToRemember, rememberableHost, reopenAnswerKeeps, reopenMissesForget, reopenMissesAfter, reopenRetryAllowed, quitKeeps, reopenStep); kosmos#5167 (11-06): +6 (the failure reason rows); kosmos#7952: +12 (download-folder says rows, isFolderDownload rows, downloadAskedByPage rows, the marked request)
   // kosmos#5167 (2026-10-27): +9 refusalShouldShow rows; kosmos#6589: +14 tls-pin rows; #6585: +10 switchGoesHome rows; #5896: +14 config rows; #6411: +42 own-board, own-settings, address, board-start retry and advice-origin rows; #6358: +27 (sign-in-again, log redaction, sign-in-again page, decision)
 });
 
@@ -348,13 +349,20 @@ test('kosmos#7952 review 1: only a download the board page itself asked for is m
   const offerAt = SRC.indexOf('private func offerSaveElsewhere(');
   const secondAt = SRC.indexOf('startDownload(using:', SRC.indexOf('startDownload(using:') + 1);
   assert.ok(secondAt > offerAt && secondAt < SRC.indexOf('\n    }\n', offerAt), 'the second start is not the chosen-place restart');
-  assert.equal((SRC.match(/offerSaveElsewhere\(error,/g) || []).length, 1, 'the chosen-place restart is reached from somewhere new');
+  /* kosmos#9093: reached from two places, the Save panel question and the restart question's "Choose Where to Save...",
+     and both only with a request from saveElsewhereRequest (the #5167 GET, same-page, main-frame, same-origin guard). */
+  assert.equal((SRC.match(/offerSaveElsewhere\(error,/g) || []).length, 2, 'the chosen-place restart is reached from somewhere new');
+  assert.equal((SRC.match(/saveElsewhereRequest\(download, dest: dest, begunOn: begunOn\)/g) || []).length, 2, 'a caller of offerSaveElsewhere skips the shared guard');
   // Review 1: a restarted download's own failure is never asked about again (its place is not Downloads).
   const fail = SRC.slice(SRC.indexOf('@objc(download:didFailWithError:resumeData:)'));
   assert.ok(fail.indexOf('} else if downloadsRestarted.contains(download) {') < fail.indexOf('downloadRefusedByMacOS(error)'),
     'a restarted download that fails is asked about again, as if it were Downloads');
-  assert.match(SRC, /\} else if let dest, downloadRefusedByMacOS\(error\), let request = download\.originalRequest, let webView = download\.webView,\n\s+\(request\.httpMethod \?\? "GET"\) == "GET", begunOn == pageCommits, downloadsFromMainFrame\.contains\(download\),\n\s+alertsOnScreen == 0, isBoardPage\(committedPageURL, board: badgeOrigin\),\n\s+let asked = request\.url, isSameOriginDownload\(asked, page: committedPageURL\) \{/,
+  // kosmos#9093: the same limits, now in saveElsewhereRequest (pinned line by line in the #5167 (11-18) test), and the
+  // Save panel branch takes its request only from there, with no other alert up.
+  assert.match(SRC, /\} else if downloadRefusedByMacOS\(error\), alertsOnScreen == 0,\n\s+let again = saveElsewhereRequest\(download, dest: dest, begunOn: begunOn\) \{/,
     'the restart is no longer limited to a GET the page\'s main frame began, already given a Downloads path, on the page it began on');
+  assert.match(body('private func saveElsewhereRequest('), /guard let dest, let request = download\.originalRequest, let webView = download\.webView,/,
+    'the shared guard no longer needs a Downloads path (dest) and the original request');
   // Review 5: on a Kosmos+ page the restart is marked same-origin (the tunnel refuses an unmarked download) and is then one of
   // downloadsStartedHere, as kosmos#7952's marked starts are; on this computer's own board it is neither.
   const restartSrc = SRC.slice(SRC.indexOf('private func offerSaveElsewhere('), SRC.indexOf('@objc(download:didFailWithError:resumeData:)'));
@@ -388,7 +396,13 @@ test('#5167 (11-18): a download macOS refused in Downloads asks where else to sa
   assert.ok(at > 0, 'the failure path no longer tells a refusal by macOS apart');
   assert.ok(at < fail.lastIndexOf('tellDownloadFailed("The file could not be saved to Downloads'),
     'the refusal by macOS is checked after the plain failure alert, so it is never reached');
-  assert.match(fail, /offerSaveElsewhere\(error, request: request, webView: webView, name: dest\.lastPathComponent\)/);
+  assert.match(fail, /offerSaveElsewhere\(error, request: again\.request, webView: again\.webView, name: again\.name\)/);
+  // The #5167 reviews 2, 3 and 6, now in one place (kosmos#9093): a GET, on the page it began on, its main frame, same-origin.
+  const guard = body('private func saveElsewhereRequest(');
+  for (const need of ['(request.httpMethod ?? "GET") == "GET"', 'begunOn == pageCommits', 'downloadsFromMainFrame.contains(download)',
+    'isBoardPage(committedPageURL, board: badgeOrigin)', 'isSameOriginDownload(asked, page: committedPageURL)']) {
+    assert.ok(guard.includes(need), 'the shared guard lost: ' + need);
+  }
 });
 
 test('#5167 (11-18): the restarted download is this app\'s, has this delegate, and goes where the person chose', () => {
@@ -431,4 +445,34 @@ test('kosmos#8879: the refused-folder waits end by a clock, and one that runs ou
   const arms = [...BUILD.slice(BUILD.indexOf('--kosmos-app-download-selftest 2>&1')).split('esac')[0].matchAll(/^\s*\*"([^"]+)"\*\)/gm)].map((m) => m[1]);
   assert.ok(arms.length >= 4, 'read the bundle build\'s case arms for the download gate (found ' + arms.length + ')');
   for (const a of arms) assert.ok(!line.includes(a), 'the ran-out line contains the build arm "' + a + '"');
+});
+
+// kosmos#9093: macOS refusing Downloads in a window whose app was replaced on disk (an update while it was open) offers
+// Restart Kosmos, ahead of the Save panel question, because restarting onto the new app is the remedy.
+test('#9093: a refusal in a replaced window offers a restart, before the Save panel question', () => {
+  const fail = SRC.slice(SRC.indexOf('@objc(download:didFailWithError:resumeData:)'));
+  const restartAt = fail.indexOf('replacedSinceLaunch(launched: launchedExecutableID, now: executableID(Bundle.main.executablePath))');
+  const panelAt = fail.indexOf('offerSaveElsewhere(error, request: again.request');
+  assert.ok(restartAt > 0, 'the failure path no longer checks whether the app was replaced since launch');
+  assert.ok(panelAt > restartAt, 'the restart offer must come before the Save panel question');
+  assert.match(fail.slice(restartAt - 200, restartAt), /downloadRefusedCode\(error\) == EPERM/, 'only "Operation not permitted" (EPERM) is offered a restart');
+  assert.match(fail.slice(restartAt, panelAt), /offerRestartAfterUpdate\(webView: download\.webView, elsewhere:/);
+  // Read at launch, once, from the file this process started from.
+  assert.match(SRC, /^let launchedExecutableID = executableID\(Bundle\.main\.executablePath\)$/m);
+  const offer = SRC.slice(SRC.indexOf('private func offerRestartAfterUpdate('));
+  assert.match(offer.slice(0, 4000), /relaunchPageQuestion/, 'the page is asked whether a restart would lose words');
+  assert.match(offer.slice(0, 4000), /relaunch\(mine: mine, theirs: onDisk, target: target, waited: 0, asked: true, askedBefore: true\)/,
+    'Restart Kosmos goes through the stale-app relaunch (the new copy first, then this one quits)');
+  // Round 2: guards that had no pin. Never with another alert up; Return and Escape go to Cancel; a same-version restart
+  // clears the #1182 marker; only a page answer of false says words would be lost.
+  assert.match(fail.slice(restartAt - 200, restartAt), /alertsOnScreen == 0/, 'the restart question can stack on another alert');
+  assert.match(offer, /alert\.addButton\(withTitle: "Cancel"\)[\s\S]{0,400}for b in alert\.buttons \{ b\.keyEquivalent = "" \}\s*\n\s*alert\.buttons\.last\?\.keyEquivalent = "\\r"/,
+    'Return (and Escape, by the title Cancel) no longer goes to the safe answer');
+  assert.match(offer.slice(0, 4000), /if onDisk == mine \{ self\.relaunchedAtVersion = nil \}/);
+  assert.match(offer.slice(0, 4000), /once\(\(result as\? Bool\) == false\)/);
+  // Round 2: another place is voided by a page that changed while the person decided (as #5167 review 1 inside offerSaveElsewhere).
+  const branch = fail.slice(restartAt, panelAt);
+  assert.match(branch, /let failedOn = \(commits: pageCommits, page: committedPageURL\)/);
+  assert.match(branch, /guard self\.pageCommits == failedOn\.commits, self\.committedPageURL == failedOn\.page else \{/);
+  assert.ok(branch.indexOf('failedOn.page else {') < branch.indexOf('self.offerSaveElsewhere('), 'the page is checked after offerSaveElsewhere is called');
 });
