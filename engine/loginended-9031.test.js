@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#4273; #9082 made it create some)
 /**
  * kosmos#9031: an account whose Claude login has run out. Three things that missed it: the patterns that read Claude
  * Code's own sentence (the screen, the Windows stream; NOT Check now, see its test), the line `kosmos accounts` prints, and the mover's
