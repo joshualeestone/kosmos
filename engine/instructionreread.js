@@ -361,6 +361,24 @@ function changedLines(before, after, moved = null) {
   flush();
   /* Review 5: each removed line beside the line that replaced it, so a cut keeps old and new together (removals all
      first would leave a cut file with only the rules that no longer apply). */
+  /* kosmos#9096 item 5: a removed line and the line that replaced it whose only difference is spacing, sentence
+     punctuation at the end of a word (. , ; : ! ?), or straight against curly quotes changed in wording only. Such a pair
+     is counted and not printed, so the capped list keeps its room for rules that changed. Narrow on purpose: case,
+     hyphens and every other symbol still count, because a flag (`--no-reply`, `-D`) or a path can differ by exactly
+     that. Telling a paraphrase from a change in meaning needs judgement, so it is never attempted here. */
+  const wordingOf = (t) => String(t).replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
+    .replace(/[.,;:!?]+(?=\s|$)/g, '').replace(/\s+/g, ' ').trim();
+  let reworded = 0;
+  for (const r of runs) {
+    const minus = r.lines.filter((l) => l.startsWith('- '));
+    const plus = r.lines.filter((l) => l.startsWith('+ '));
+    for (let k = Math.min(minus.length, plus.length) - 1; k >= 0; k -= 1) {
+      if (wordingOf(minus[k].slice(2)) !== wordingOf(plus[k].slice(2))) continue;
+      minus.splice(k, 1); plus.splice(k, 1); reworded += 1;
+    }
+    r.lines = minus.concat(plus);
+  }
+  for (let ri = runs.length - 1; ri >= 0; ri -= 1) if (!runs[ri].lines.length) runs.splice(ri, 1);
   for (const r of runs) {
     const minus = r.lines.filter((l) => l.startsWith('- '));
     const plus = r.lines.filter((l) => l.startsWith('+ '));
@@ -390,6 +408,9 @@ function changedLines(before, after, moved = null) {
       : (shown ? mayBe : '');
   };
   const movedNotes = movedList.map((m, k) => noteFor(m, movedOut[k], shownUnder[k])).filter((t) => t !== '');
+  // kosmos#9096 item 5: said once, after the moved notes, so a reader knows lines were left out and why.
+  if (reworded) movedNotes.push('Not shown: ' + reworded + (reworded === 1 ? ' line that changed' : ' lines that changed')
+    + ' only in spacing or punctuation (the rule reads the same).');
   const movedNote = movedNotes.join('\n\n');   // each note its own paragraph, in the order the entries were given
   const lineRoom = CHANGES_LINES_MAX - 2 - 2 * movedNotes.length;
   const byteRoom = CHANGES_BYTES_MAX - Buffer.byteLength(NOTE) - 2 - (movedNote ? Buffer.byteLength(movedNote) + 2 : 0);
