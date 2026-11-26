@@ -149,7 +149,8 @@ function credPathOf(ccd, home, userHome, service) {
  * the next one: null the first time for a file, and a read that never returns holds back only that file's next read.
  * A read is started when the last is a minute old, or when the login generation moved since it (a sign-in, review 1:
  * else the old notice stayed up to the advisory cache's 5 minutes, #5018). A read that finds a new refresh-token expiry
- * moves the generation, so the advisories recompute; an access-token refresh alone does not.
+ * moves the generation, so the advisories recompute; an access-token refresh alone does not. Since any move re-reads
+ * every file, one account's new date reads each other account's file once more (review 4).
  * Review 2: at most FILE_READS_MAX of THESE reads run at once over all files, since each stalled one holds a thread of
  * libuv's shared pool (4 by default; dns and crypto use it too). The cap is this reader's only: readCredAsync and
  * usagepoll.readCredFor read the same files with no cap (review 3).
@@ -175,8 +176,10 @@ function fileBodyNow(f, now = Date.now()) {
     fileReadsRunning += 1;
     const startGen = loginGen;
     const epoch = fileReadsEpoch;
+    let answered = false;   // review 4: the catch below undoes a launch that threw, never a callback's own work
     try {
       fs.readFile(f, 'utf8', (err, body) => {
+        answered = true;
         if (epoch !== fileReadsEpoch) return;
         fileReadsRunning -= 1;
         r.reading = false;
@@ -192,7 +195,7 @@ function fileBodyNow(f, now = Date.now()) {
         if (changed) loginGen += 1;
         r.gen = movedDuring ? startGen : loginGen;   // moved during this read: read again next time
       });
-    } catch { fileReadsRunning -= 1; r.reading = false; r.at = now; r.gen = loginGen; }
+    } catch { if (!answered) { fileReadsRunning -= 1; r.reading = false; r.at = now; r.gen = loginGen; } }
   }
   return r.body;
 }

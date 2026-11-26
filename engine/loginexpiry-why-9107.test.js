@@ -175,6 +175,24 @@ test('kosmos#9107 review 2: at most FILE_READS_MAX reads run at once, however ma
   } finally { fs.readFile = orig; le._resetForTests(); }
 });
 
+test('kosmos#9107 review 4: a read that answers and then throws is counted out once, so the cap still holds', () => {
+  le._resetForTests();
+  const once = path.join(homeWithLogin(), '.claude', '.credentials.json');
+  const stalled = [0, 1, 2].map(() => path.join(homeWithLogin(), '.claude', '.credentials.json'));
+  const orig = fs.readFile;
+  let started = 0;
+  fs.readFile = function (p, ...rest) {
+    if (p === once) { rest[rest.length - 1](null, body({ refreshTokenExpiresAt: UNTIL })); throw new Error('after the answer'); }
+    if (stalled.includes(p)) { started += 1; return; }
+    return orig.call(this, p, ...rest);
+  };
+  try {
+    le.fileBodyNow(once, 0);
+    for (const f of stalled) le.fileBodyNow(f, 0);
+    assert.strictEqual(started, le.FILE_READS_MAX, 'a count taken out twice would let a third read start');
+  } finally { fs.readFile = orig; le._resetForTests(); }
+});
+
 // A stand-in fs.readFile for the named files that holds each callback until the test answers it.
 function heldReads(files) {
   const orig = fs.readFile;
