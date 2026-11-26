@@ -17,3 +17,16 @@
 - Weakest premise: that the CI slowness is contention and not a slow path that is getting worse. A runner that never
   exits still fails, at 240 s instead of 90 s. If a later run passes the new bound's half (120 s), that is the
   signal to look at the wind-down itself.
+
+## Review round 1 (00:01): no blocker, two should-fix, fixed
+- The race's timer was never cleared, so the file idled the whole bound after its tests passed (reviewer measured
+  240.9 s for ~12 s of tests). Fixed: clearTimeout once the race is decided.
+- With a 240 s bound, a runner that IGNORED the signal could still pass the Ctrl-C arm: the fixture's test ended on
+  its own after 120 s, the run ended normally and the leak guard's line satisfied the regex. Fixed: one
+  EXIT_BOUND_MS, and the fixture waits twice that.
+- NIT left: the 30 s spawnSync took 17.8 s on one CI run (one data point; watch).
+
+## Cause found, filed separately (#9117)
+- The wind-down is the leak guard walking EVERY process in a bash loop: 11.6 s and 11.3 s for 1,139 processes at
+  load ~17 here; a hand-timed Ctrl-C run was silent from 8.2 s to 23.4 s. main's own Ctrl-C arm took 86 s here at
+  00:0x (5.7 s at 20:xx). The bound stays raised whatever #9117 does.
