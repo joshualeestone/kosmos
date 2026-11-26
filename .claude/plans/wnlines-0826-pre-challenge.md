@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: wnlines-0826
-diff_hash: f8e8cbab91047c16eb9a974a44f9b27b2d5e244dc343f8ef4efcef66aff22ae5
-validation: passed
+diff_hash: fb0960203700037528ee2547068fbf9ebbd03cc87e72f49b1fc77ec5f109a674
+validation: passed (Mortals)
 subdir_audit: passed
-timestamp: 2026-11-26T19:33:11Z
+timestamp: 2026-11-26T20:03:39Z
 iterations: 1
 converged: true
 ---
@@ -30,3 +30,5 @@ converged: true
 - Caps, em dashes, `since` and ranks checked; no finding.
 
 Re-validated by Baron Draxum, 2026-11-26T19:33:11Z: rebased onto origin/main; validation PASSED on this Mac for hash f8e8cbab9104 (subdir audit passed). The diff is the same three files Kitty reviewed; the hash moved because the plan file was added after her validation.
+
+Then the built 0.8.26 window was added (70a1b2990c: tools/whats-new-pool.js build 0.8.26 read prod 0.8.25 and marked its four highlights shown; the window is the two new lines, mac 2, windows 1, whats-new-check passes). Validation PASSED on Mortals at 2026-11-26T20:03:39Z for hash fb0960203700, the hash above.
