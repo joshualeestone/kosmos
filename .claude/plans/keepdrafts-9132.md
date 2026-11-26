@@ -82,3 +82,17 @@ restart would lose kept words; measuring it on the app (type, let it restart, re
   unit test's pj-say case); keys are not scoped by world under MULTI_KOSMOS (off by default, a separate card).
 Tests: web.keepdrafts-9132 9 of 9 and the related suites (439, 0 failed); render-keepdrafts-9132 passes; both gates
 pass; bc-pr-select 81.
+
+#### Iteration 2 (blind review of the whole branch, sonnet)
+
+- [SHOULD-FIX] taken: round 1's IME flag could hold the restart forever (a composition whose end never arrived), the
+  very defect this card fixes. Now UPDATE_COMPOSING_SINCE: cleared on compositionend and on focusout, and a
+  composition older than a minute holds nothing. Tested: a fresh one holds, a 61 s one does not, none holds nothing.
+- [SHOULD-FIX] taken: tabs did not hear each other: a draft another tab sent stayed in this tab's map, so its
+  background tab held for good. keptDrafts now listens for the storage event on its own prefix and updates the map
+  directly (nothing written back). Tested with a fake window.
+- [NIT] taken: the backing map is Object.create(null) (an agent or project named __proto__ is an ordinary key);
+  forgetAllDrafts' comment says the page reloads after log out.
+- [NIT] not taken: the org chart's mid-run leave skips forgetting for agents already removed (the 14-day age-out
+  bounds it); a write per keystroke (fine, as the reviewer says); MULTI_KOSMOS world scoping (off by default).
+web.keepdrafts-9132 11 of 11 and the related suites pass (92); render-keepdrafts-9132 passes.

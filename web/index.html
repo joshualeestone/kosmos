@@ -25981,10 +25981,14 @@ if (typeof document !== 'undefined' && document.addEventListener) {
    now would drop nothing the person has on the way or has typed. */
 /* kosmos#9132 review 1: a composition (a Japanese, Chinese or Korean candidate being chosen) is not yet words: a
    restart now would keep the uncommitted text. Held while one is open. */
-let UPDATE_COMPOSING = false;
+// Round 2: never a block that can outlive the composition: cleared when focus leaves the box, and a composition older
+// than a minute (one whose end never arrived: the box was repainted away) no longer holds anything.
+let UPDATE_COMPOSING_SINCE = 0;
+const UPDATE_COMPOSING_MAX_MS = 60 * 1000;
 if (typeof document !== 'undefined' && document.addEventListener) {
-  document.addEventListener('compositionstart', () => { UPDATE_COMPOSING = true; }, true);
-  document.addEventListener('compositionend', () => { UPDATE_COMPOSING = false; }, true);
+  document.addEventListener('compositionstart', () => { UPDATE_COMPOSING_SINCE = Date.now(); }, true);
+  document.addEventListener('compositionend', () => { UPDATE_COMPOSING_SINCE = 0; }, true);
+  document.addEventListener('focusout', () => { UPDATE_COMPOSING_SINCE = 0; }, true);
 }
 function updateNothingToLose() {
   const busy = [typeof TALK_SENDING !== 'undefined' && TALK_SENDING, typeof PJ_SENDING !== 'undefined' && PJ_SENDING,
@@ -26005,7 +26009,8 @@ function updateNothingToLose() {
     typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING > 0,   // counted apart: Go to your team lets the team go while its pictures are still going up
     typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
   if (busy.some(Boolean)) return false;
-  if (typeof UPDATE_COMPOSING !== 'undefined' && UPDATE_COMPOSING) return false;
+  if (typeof UPDATE_COMPOSING_SINCE !== 'undefined' && UPDATE_COMPOSING_SINCE
+    && Date.now() - UPDATE_COMPOSING_SINCE < UPDATE_COMPOSING_MAX_MS) return false;
   const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
   /* kosmos#9132: a map whose words are all kept in localStorage (keptDrafts) loses nothing on a reload, so only an
      unkept one holds the restart. */
@@ -44948,7 +44953,7 @@ const KEPT_DRAFT_UNSAVED = new WeakMap();   // a kept map -> the keys whose last
 const KEPT_DRAFT_PREFIX = new WeakMap();    // a kept map -> its localStorage prefix
 function keptDrafts(kind) {
   const prefix = 'kosmos.draft.' + kind + '.';
-  const map = {};
+  const map = Object.create(null);   // round 2: an agent or project named __proto__ is an ordinary key
   const unsaved = new Set();
   try {
     const cutoff = Date.now() - KEPT_DRAFT_DAYS * 24 * 60 * 60 * 1000;
@@ -44975,6 +44980,21 @@ function keptDrafts(kind) {
   });
   KEPT_DRAFT_UNSAVED.set(kept, unsaved);
   KEPT_DRAFT_PREFIX.set(kept, prefix);
+  /* Round 2: another tab of the same board wrote or cleared one of these (sent it, typed more): this page's copy
+     follows, written to the map itself so nothing is written back. A box already holding words keeps them; the
+     restart check reads storage for a box, so a box that now differs from storage holds the restart. */
+  try {
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      window.addEventListener('storage', (e) => {
+        if (!e || typeof e.key !== 'string' || e.key.indexOf(prefix) !== 0) return;
+        const key = e.key.slice(prefix.length);
+        let rec = null;
+        try { rec = e.newValue == null ? null : JSON.parse(e.newValue); } catch { rec = null; }
+        if (rec && rec.v != null) map[key] = rec.v; else delete map[key];
+        unsaved.delete(key);
+      });
+    }
+  } catch { /* no window: a test's sandbox */ }
   return kept;
 }
 /* What storage holds for one key of a kept map, read now (review 1: another tab of the same board may have written
@@ -44997,7 +45017,8 @@ function forgetDrafts(maps, key) {
   if (key == null) return;
   for (const m of maps) { try { if (m && key in m) delete m[key]; } catch { /* nothing to forget */ } }
 }
-/* Logged out of this browser's Kosmos+ session: every kept draft goes, in storage and on the page. */
+/* Logged out of this browser's Kosmos+ session: every kept draft goes from storage (the page reloads to the sign-in
+   right after, so its own copies go with it). */
 function forgetAllDrafts() {
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {

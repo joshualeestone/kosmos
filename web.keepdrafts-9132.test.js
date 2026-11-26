@@ -41,19 +41,27 @@ function memoryStorage(seed = {}, { failWrites = false } = {}) {
 }
 
 // The page's helper, with this localStorage.
-function helper(storage) {
-  return new Function('localStorage', HELPER + '\nreturn { keptDrafts, draftsKept, keptDraftStored, forgetDrafts, forgetAllDrafts };')(storage);
+function helper(storage, win) {
+  return new Function('localStorage', 'window', HELPER + '\nreturn { keptDrafts, draftsKept, keptDraftStored, forgetDrafts, forgetAllDrafts };')(storage, win);
+}
+// A window that records its storage listeners, so a test can deliver another tab's write.
+function fakeWindow() {
+  const listeners = [];
+  return { listeners, addEventListener: (t, f) => { if (t === 'storage') listeners.push(f); },
+    fire: (e) => listeners.forEach((f) => f(e)) };
 }
 
 // updateNothingToLose as the page has it, given the four maps, the typed boxes and the open agent and project.
 function nothingToLose({ maps, typed = [], current = null, pjCurrent = null, draftsKept, keptDraftStored = () => null,
-  dmReply = {}, pjReply = {} }) {
+  dmReply = {}, pjReply = {}, composingSince = 0 }) {
   const typedSet = new Set(typed.map((t) => ({ isConnected: true, ...t })));
   return new Function('TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'UPDATE_TYPED', 'CURRENT', 'PJ_CURRENT',
     'draftsKept', 'keptDraftStored', 'DM_REPLY', 'PJ_REPLY', 'ATTACH_PENDING', 'tipModalOpen',
+    'UPDATE_COMPOSING_SINCE', 'UPDATE_COMPOSING_MAX_MS',
     page.liftAll(SCRIPT, ['updateNothingToLose']) + '\nreturn updateNothingToLose();')(
     maps.talk || {}, maps.term || {}, maps.pj || {}, maps.room || {}, typedSet, current, pjCurrent,
-    draftsKept, keptDraftStored, dmReply, pjReply, { room: {}, agent: {} }, () => false);
+    draftsKept, keptDraftStored, dmReply, pjReply, { room: {}, agent: {} }, () => false,
+    composingSince, 60 * 1000);
 }
 
 test('#9132 premise: the helper was found in the page', () => {
@@ -171,4 +179,38 @@ test('#9132 review 1: a removed agent\'s or project\'s drafts are forgotten, and
   storage.data.set('other.key', 'kept');
   h.forgetAllDrafts();
   assert.deepEqual([...storage.data.keys()], ['other.key'], 'logging out left a kept draft, or took something that is not one');
+});
+
+test('#9132 round 2: an open composition holds the restart, but never one older than a minute (its end never came)', () => {
+  const h = helper(memoryStorage());
+  assert.equal(nothingToLose({ maps: {}, composingSince: Date.now() - 1000, draftsKept: h.draftsKept }), false,
+    'a composition being typed did not hold the restart');
+  assert.equal(nothingToLose({ maps: {}, composingSince: Date.now() - 61 * 1000, draftsKept: h.draftsKept }), true,
+    'a composition whose end never arrived held the restart for good');
+  assert.equal(nothingToLose({ maps: {}, composingSince: 0, draftsKept: h.draftsKept }), true, 'CONTROL: no composition, nothing held');
+  assert.match(SCRIPT, /addEventListener\('focusout', \(\) => \{ UPDATE_COMPOSING_SINCE = 0; \}, true\)/, 'leaving the box does not clear it');
+});
+
+test('#9132 round 2: another tab sending or changing a draft updates this tab\'s copy, and nothing is written back', () => {
+  const storage = memoryStorage();
+  const win = fakeWindow();
+  const h = helper(storage, win);
+  const talk = h.keptDrafts('talk');
+  talk.april = 'typed here';
+  // Another tab sent it: its own page deleted the stored entry; this one hears the storage event.
+  storage.data.delete('kosmos.draft.talk.april');
+  win.fire({ key: 'kosmos.draft.talk.april', newValue: null });
+  assert.equal(talk.april, undefined, 'a draft another tab sent stayed in this tab\'s copy');
+  assert.equal(h.draftsKept(talk), true, 'this tab still counted words that are gone everywhere');
+  // Another tab typed more for Ben.
+  const rec = JSON.stringify({ v: 'from the other tab', t: Date.now() });
+  storage.data.set('kosmos.draft.talk.ben', rec);
+  win.fire({ key: 'kosmos.draft.talk.ben', newValue: rec });
+  assert.equal(talk.ben, 'from the other tab');
+  assert.equal(storage.data.get('kosmos.draft.talk.ben'), rec, 'hearing the event wrote it back (a new time)');
+  win.fire({ key: 'kosmos.draft.term.ben', newValue: JSON.stringify({ v: 'a terminal draft', t: Date.now() }) });
+  assert.equal(talk.ben, 'from the other tab', 'CONTROL: an event for another kind of draft changed this map');
+  assert.equal(talk['__proto__'], undefined, 'premise');
+  talk['__proto__'] = 'an agent named __proto__';
+  assert.equal(helper(storage).keptDrafts('talk')['__proto__'], 'an agent named __proto__', 'an odd agent name was not kept as a key');
 });
