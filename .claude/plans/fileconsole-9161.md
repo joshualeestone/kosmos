@@ -71,3 +71,8 @@ fix; it cannot go silently green, because an unknown wording is a FAIL.
   - NITs taken: the tmpscope comment claimed temp dirs this file does not make; a garbled test name.
   - NITs not taken: computers-4648's HARNESS keeps its dead "only supported for HTTP" arm (its pageerror path, not
     this card); WIRED is a hand list (the sweep is the class guard).
+- Round 4 (sonnet): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 3 NIT. Converged.
+  - WARNING: the broad carried-over arms again; a duplicate of round 2's DEFERRED item (the reviewer also calls it a
+    known follow-up, not a regression).
+  - NITs not taken: the HOLDERS comments state a measured fact about other files (on #9161); WIRED is textual (the sweep
+    is the class guard); one short wrapped README line.
