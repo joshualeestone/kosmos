@@ -1795,19 +1795,30 @@ _kosmos_old_qh_waiter_live() {
 #   S <id> <epoch> <what>     when it starts beside a holder
 #   E <id> <epoch>            when it ends
 # kosmos_note_beside_run start <id> <what> | end <id>. Best-effort: a line it cannot write changes nothing else. Spaces
-# and tabs in <id> become "_" (an id is one field). Review 1: every append and the trim (to the last 400 lines) happen
-# under one mkdir lock, so a rename cannot drop a line appended meanwhile; a lock not got in about 2 s skips the trim
-# (and appends anyway: a lost line costs less than a wait in CI).
-_kosmos_beside_lock() { local d="$1" i=0; until mkdir "$d" 2>/dev/null; do i=$((i + 1)); [ "$i" -ge 20 ] && return 1; sleep 0.1; done; return 0; }
+# and tabs in <id> become "_" (an id is one field). Review 1: every append and the trim happen under one mkdir lock, so
+# a rename cannot drop a line appended meanwhile. Review 2: the hold is short (the time is read before the lock, and the
+# file is trimmed only past 500 lines, back to 400, so most appends never rewrite it); a writer waits up to about 10 s;
+# a lock older than 10 s (a writer killed while holding it: a real hold lasts milliseconds) is broken and retried. A
+# lock still not got appends anyway and skips the trim (a lost line costs less than a CI step that waits).
+_kosmos_beside_lock() {
+  local d="$1" i=0 age
+  until mkdir "$d" 2>/dev/null; do
+    i=$((i + 1)); [ "$i" -ge 100 ] && return 1
+    age=$(( $(date +%s) - $(stat -f %m "$d" 2>/dev/null || stat -c %Y "$d" 2>/dev/null || date +%s) ))
+    [ "$age" -gt 10 ] && rmdir "$d" 2>/dev/null && continue
+    sleep 0.1
+  done
+  return 0
+}
 kosmos_note_beside_run() {
-  local f l id got=0; f="$(_kosmos_marker_dir)/beside-runs.log"; l="$f.lock"
+  local f l id got=0 now; f="$(_kosmos_marker_dir)/beside-runs.log"; l="$f.lock"; now="$(date +%s)"
   mkdir -p "$(_kosmos_marker_dir)" 2>/dev/null
   id="$(printf '%s' "${2:-unnamed}" | tr -s ' \t' '__')"; [ -n "$id" ] || id=unnamed
   case "${1:-}" in start|end) ;; *) return 2 ;; esac
   _kosmos_beside_lock "$l" && got=1
-  if [ "$1" = start ]; then printf 'S %s %s %s\n' "$id" "$(date +%s)" "${3:-}" >> "$f" 2>/dev/null
-  else printf 'E %s %s\n' "$id" "$(date +%s)" >> "$f" 2>/dev/null; fi
-  if [ "$got" = 1 ] && [ "$(wc -l < "$f" 2>/dev/null | tr -d ' ')" -gt 400 ] 2>/dev/null; then
+  if [ "$1" = start ]; then printf 'S %s %s %s\n' "$id" "$now" "${3:-}" >> "$f" 2>/dev/null
+  else printf 'E %s %s\n' "$id" "$now" >> "$f" 2>/dev/null; fi
+  if [ "$got" = 1 ] && [ "$(wc -l < "$f" 2>/dev/null | tr -d ' ')" -gt 500 ] 2>/dev/null; then
     tail -n 400 "$f" > "$f.tmp.$$" 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null
   fi
   [ "$got" = 1 ] && rmdir "$l" 2>/dev/null
@@ -1815,8 +1826,9 @@ kosmos_note_beside_run() {
 }
 # kosmos_beside_runs_since <epoch>: one line for each run noted above whose window overlaps <epoch> to now, as
 # "<what> (<id>), from MM-DD HH:MM:SS to MM-DD HH:MM:SS" or "... to still going". Review 1: a run with no end line counts
-# as still going only for KOSMOS_BESIDE_OPEN_MAX_S (default 7200 s, past relay CI's job limit): a job cancelled or killed
-# before its end line would otherwise read as still going forever. A new start line for an id clears its old end. A
+# as still going only for KOSMOS_BESIDE_OPEN_MAX_S (default 7200 s, past relay CI's job limits): a job cancelled or killed
+# before its end line would otherwise read as still going forever. It is a bound measured from now: such a job reads
+# as still going for up to that long, and a run noted beside a suite that itself runs longer than it is dropped. A new start line for an id clears its old end. A
 # line whose epoch is not a number is skipped. The date is printed with the time, so an older run cannot read as today.
 kosmos_beside_runs_since() {
   local f t0="${1:-0}" now omax what id st en; f="$(_kosmos_marker_dir)/beside-runs.log"; now="$(date +%s)"
