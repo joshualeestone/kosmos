@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#9094: patchBoardHtml, lifted from the page and run on a small fake DOM. It must leave the container in the
