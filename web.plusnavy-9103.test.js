@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#9103 (Josh 11-25 16:49: "we are not going to have the blue background anywhere in the app"): inside the iPhone
  * app (html.kapptabs) Settings > Kosmos Plus is shown without its navy skin (body.plus-active), while Kosmos+ in a
  * browser keeps it. This runs the page's own syncPlusChrome with the section on screen, once with the app's class on

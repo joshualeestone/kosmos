@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#9101 (Josh, 11-25 16:49: no blue background anywhere in the app): the iPhone painted Kosmos navy (#17233D)
  * behind the web board, under the tab bar and on the Close bar over a board page. The board's page ground is whatever
