@@ -20,82 +20,69 @@ test('an on-time run and a late run are delivered rows, each with the slot it an
     { at: iso(D(21, 9, 2)), kind: 'run', by: 'nova' },
     { at: iso(D(22, 11)), kind: 'run', by: 'nova', late: true },
   ];
-  const got = occurrences(task({ lastRunAt: iso(D(22, 11)) }), rows, D(22, 12));
-  assert.equal(got.length, 2);
+  const got = occurrences(task(), rows, D(22, 12));
   assert.deepEqual(got[0], { kind: 'delivered', due: iso(D(22, 9)), at: iso(D(22, 11)), late: true, by: 'nova' });
   assert.deepEqual(got[1], { kind: 'delivered', due: iso(D(21, 9)), at: iso(D(21, 9, 2)), late: false, by: 'nova' });
+  assert.equal(got[2].kind, 'missed', 'the 20th 09:00 slot (after the rule was set at 08:00) had no run');
 });
 
-test('a recorded miss says what the review did: told, unreached, or asked the person', () => {
+test('a slot with no run is missed, one row per slot; a record names only its own slot', () => {
   const rows = [
-    { at: iso(D(21, 10)), kind: 'missed', slot: iso(D(21, 9)), count: 1, told: 'quill', reached: true },
-    { at: iso(D(22, 10)), kind: 'missed', slot: iso(D(22, 9)), count: 1, told: 'quill', reached: false },
-    { at: iso(D(23, 10)), kind: 'missed', slot: iso(D(23, 9)), count: 2, person: true },
+    { at: iso(D(20, 9, 1)), kind: 'run', by: 'nova' },
+    // told on the 22nd about the stretch (21st and 22nd): it names the 22nd only, and adds no count
+    { at: iso(D(22, 10)), kind: 'missed', slot: iso(D(22, 9)), count: 2, told: 'quill', reached: true },
   ];
-  const got = occurrences(task({ lastRunAt: iso(D(23, 12)) }), rows, D(23, 12));
-  assert.deepEqual(got.map((r) => [r.due, r.review, r.who || null]), [
-    [iso(D(23, 9)), 'asked', null], [iso(D(22, 9)), 'unreached', 'quill'], [iso(D(21, 9)), 'told', 'quill']]);
+  const got = occurrences(task(), rows, D(23, 12));
+  assert.deepEqual(got.map((r) => [r.due, r.kind, r.review || null]), [
+    [iso(D(23, 9)), 'missed', null], [iso(D(22, 9)), 'missed', 'told'], [iso(D(21, 9)), 'missed', null], [iso(D(20, 9)), 'delivered', null]]);
+  assert.ok(!got.some((r) => 'count' in r), 'a row carries a stretch count');
 });
 
-test('a stretch of misses open now, not yet recorded, is one row that claims nothing about the review', () => {
-  const t = task({ repeatReviewer: 'quill', lastRunAt: iso(D(20, 9, 1)) });
-  const rows = [{ at: iso(D(20, 9, 1)), kind: 'run', by: 'nova' }];
-  const got = occurrences(t, rows, D(22, 12));
-  assert.equal(got[0].kind, 'missed');
-  assert.equal(got[0].review, 'open');
-  assert.equal(got[0].open, true);
-  assert.equal(got[0].count, 2, 'the 21st and the 22nd');
-  assert.equal(got[1].kind, 'delivered');
+test('review 2 A/B: no slot is counted twice, however the records overlap', () => {
+  const rows = [
+    { at: iso(D(20, 9, 1)), kind: 'run', by: 'nova' },
+    { at: iso(D(21, 10)), kind: 'missed', slot: iso(D(21, 9)), count: 1, told: 'quill', reached: true },
+    { at: iso(D(22, 10)), kind: 'missed', slot: iso(D(22, 9)), count: 2, told: 'quill', reached: true },
+    { at: iso(D(22, 14)), kind: 'run', by: 'nova', late: true, missedBefore: 1 },
+  ];
+  const got = occurrences(task(), rows, D(22, 15));
+  const dues = got.map((r) => r.due);
+  assert.equal(new Set(dues).size, dues.length, 'a slot twice: ' + JSON.stringify(got));
+  // E: the 22nd was told missed, then delivered late: ONE row says both.
+  const d22 = got.find((r) => r.due === iso(D(22, 9)));
+  assert.equal(d22.kind, 'delivered'); assert.equal(d22.late, true); assert.equal(d22.review, 'told');
 });
 
-test('review 1: once a miss in the stretch is recorded, no open row double-counts it', () => {
-  const t = task({ repeatReviewer: 'quill', lastRunAt: iso(D(20, 9, 1)) });
-  const rows = [{ at: iso(D(20, 9, 1)), kind: 'run', by: 'nova' },
-    { at: iso(D(21, 10)), kind: 'missed', slot: iso(D(21, 9)), count: 1, told: 'quill', reached: true }];
-  const got = occurrences(t, rows, D(22, 12));
-  assert.equal(got.filter((r) => r.kind === 'missed').length, 1, 'a second, overlapping missed row');
-  assert.equal(got[0].review, 'told');
+test('review 2 C: an unreachable reviewer recorded once still leaves every later missed slot a row', () => {
+  const rows = [
+    { at: iso(D(20, 9, 1)), kind: 'run', by: 'nova' },
+    { at: iso(D(21, 10)), kind: 'missed', slot: iso(D(21, 9)), count: 1, told: 'quill', reached: false },
+  ];
+  const got = occurrences(task(), rows, D(24, 12));
+  assert.deepEqual(got.filter((r) => r.kind === 'missed').map((r) => r.due), [iso(D(24, 9)), iso(D(23, 9)), iso(D(22, 9)), iso(D(21, 9))]);
 });
 
-test('review 1: an unreachable reviewer\'s later misses never read as "not told yet"', () => {
-  const t = task({ repeatReviewer: 'quill', lastRunAt: iso(D(20, 9, 1)) });
-  const rows = [{ at: iso(D(20, 9, 1)), kind: 'run', by: 'nova' },
-    { at: iso(D(21, 10)), kind: 'missed', slot: iso(D(21, 9)), count: 1, told: 'quill', reached: false }];
-  const got = occurrences(t, rows, D(23, 12));
-  assert.ok(!got.some((r) => r.review === 'pending' || r.review === 'open'), JSON.stringify(got));
+test('review 2 D: a run before the rule\'s first slot answered none: due is null, never a made-up time', () => {
+  const t = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(D(20, 10)).toISOString() };   // first slot: 21st 09:00
+  const got = occurrences(t, [{ at: iso(D(20, 15)), kind: 'run', by: 'nova' }], D(20, 16));
+  assert.deepEqual(got, [{ kind: 'delivered', due: null, at: iso(D(20, 15)), late: false, by: 'nova' }]);
 });
 
-test('review 1: misses a later run recovered are a row (no reviewer, so nothing else recorded them)', () => {
-  const rows = [{ at: iso(D(20, 9, 1)), kind: 'run', by: 'nova' },
-    { at: iso(D(23, 9, 5)), kind: 'run', by: 'nova', missedBefore: 2 }];
-  const got = occurrences(task({ lastRunAt: iso(D(23, 9, 5)) }), rows, D(23, 10));
-  const rec = got.find((r) => r.review === 'recovered');
-  assert.ok(rec, JSON.stringify(got));
-  assert.equal(rec.count, 2);
-  assert.equal(rec.due, iso(D(22, 9)), 'dated by the last slot before the recovering run');
-  // CONTROL: when a recorded miss covers that stretch, no second row.
-  const told = rows.concat([{ at: iso(D(21, 10)), kind: 'missed', slot: iso(D(21, 9)), count: 2, person: true }]);
-  assert.equal(occurrences(task({ lastRunAt: iso(D(23, 9, 5)) }), told, D(23, 10)).filter((r) => r.kind === 'missed').length, 1);
+test('review 2 F: two runs for one slot are one row (the first)', () => {
+  const rows = [{ at: iso(D(21, 9, 1)), kind: 'run', by: 'nova' }, { at: iso(D(21, 9, 5)), kind: 'run', by: 'quill' }];
+  const got = occurrences(task(), rows, D(21, 10)).filter((r) => r.due === iso(D(21, 9)));
+  assert.equal(got.length, 1); assert.equal(got[0].by, 'nova');
 });
 
-test('rows from before the rule was set are left out', () => {
-  // Few rows, so the cap cannot be what hides the old one.
-  const rows = [{ at: iso(D(19, 9)), kind: 'run', by: 'old' }, { at: iso(D(21, 9, 1)), kind: 'run', by: 'nova' }];
-  const got = occurrences(task({ lastRunAt: iso(D(21, 9, 1)) }), rows, D(21, 10));
-  assert.deepEqual(got.map((r) => r.by), ['nova'], 'a run from before the rule was shown');
-});
-
-test('newest first, capped at 10', () => {
-  const rows = [];
-  for (let d = 20; d <= 30; d += 1) rows.push({ at: iso(D(d, 9, 1)), kind: 'run', by: 'nova' });
-  const got = occurrences(task({ lastRunAt: iso(D(30, 9, 1)) }), rows, D(30, 10));
-  assert.equal(got.length, 10, 'not capped at 10');
-  assert.equal(got[0].at, iso(D(30, 9, 1)));
-  assert.equal(got[9].at, iso(D(21, 9, 1)));
+test('a slot still inside its miss grace is not missed yet; rows before the rule are left out; capped at 10', () => {
+  assert.ok(!occurrences(task(), [], D(20, 9, 5)).some((r) => r.kind === 'missed'), 'missed inside the grace');
+  const old = occurrences(task(), [{ at: iso(D(19, 9)), kind: 'run', by: 'old' }], D(20, 10));
+  assert.ok(!old.some((r) => r.by === 'old'), 'a run from before the rule');
+  assert.equal(occurrences(task(), [], D(30, 12)).length, 10);
 });
 
 test('CONTROL: not a repeating task, or junk input, gives no rows and never throws', () => {
   assert.deepEqual(occurrences({}, [], Date.now()), []);
   assert.deepEqual(occurrences(task(), null), []);
-  assert.deepEqual(occurrences(task(), [null, 3, { kind: 'run' }, { at: 'x', kind: 'run' }], D(21, 12)).filter((r) => r.kind === 'delivered'), []);
+  assert.doesNotThrow(() => occurrences(task(), [null, 3, { kind: 'run' }, { at: 'x', kind: 'run' }], D(21, 12)));
 });

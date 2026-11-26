@@ -1962,7 +1962,7 @@ async function taskActivity(ctx, args) {
     ctx.out('Runs and misses, newest first (when each was due):');
     for (const o of oc) {
       const w = typeof o.words === 'string' ? o.words : String(o.kind || '');
-      ctx.out(when(o.due || o.at) + '  ' + w.replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '').trim() + (o.kind === 'delivered' && o.at ? ' (at ' + when(o.at) + ')' : ''));
+      ctx.out(when(o.due || o.at) + '  ' + w.replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '').trim() + (o.kind === 'delivered' && o.at && o.due ? ' (at ' + when(o.at) + ')' : ''));
     }
   }
   /* #6947, as install/kosmos: when the person viewed the task (as its conversation now stands), against the latest message, so an agent

@@ -453,76 +453,72 @@ function roomRunLine(prev, after, said) {
   return { text: 'Task #' + after.number + ', "' + roomPlain(after.sentence || '', ROOM_SENTENCE_MAX) + '" (' + describe(after.repeat) + '): ' + parts.join('; '), note, reading };
 }
 
-/* kosmos#9142 (#9096 item 4, an agent's feedback): a repeating task's recent occurrences, one row each, newest first, from
-   its history (taskchat rows, oldest first) and its current rule. Only what is recorded is said:
-   - a delivered row: `due` (the slot the run answered, answeredSlot, the same rule as the late mark), `at` (when the run
-     was recorded), `late`, and who ran it (`by`, or `person`);
-   - a missed row: `due` (the slot), `count` (slots missed in that stretch, `more` past the cap) and its review: the
-     reviewer was told (`review: 'told'`, `who`), could not be reached (`'unreached'`, `who`), or the person was asked
-     (`'asked'`); and, for a miss that is open now but not yet told, `'pending'` (no reviewer: `'none'`).
-   No run is reviewed one by one (nothing records that), so `review` exists only on missed rows. Rows from before the
-   current rule was set or changed (repeatSetAt) are left out, as the late mark leaves them out. Pure; never throws. */
+/* kosmos#9142 (#9096 item 4, an agent's feedback): a repeating task's recent occurrences, one row per SCHEDULED SLOT,
+   newest first. Review 2: the rows come from the schedule and the runs, never from the miss records' counts (a record
+   stands for a stretch, told once per stall, and summing or spreading them double-counted and hid misses). So:
+   - a slot a run answered (answeredSlot, the late mark's rule; the first run for a slot) is `delivered`, `late` or not,
+     with `at` and who ran it;
+   - a slot past its miss grace that no run answered is `missed`;
+   - either kind carries `review` (told / unreached / asked, and `who`) only when a miss record names THAT slot (a record
+     names the latest slot of its stretch); otherwise no review is claimed, since whether anyone is told depends on the
+     reviewer, a pause, a hold and the throttle, which this cannot see;
+   - a run before the rule's first slot answered none: `due` is null.
+   Only since the current rule was set (repeatSetAt), as the late mark. Bounded: at most `max` rows, and the slot walk
+   takes at most `max` steps back from now. Pure; never throws. */
 const OCCURRENCES_MAX = 10;
 function occurrences(t, rows, now = Date.now(), max = OCCURRENCES_MAX) {
   try {
     if (!t || !t.repeat || !Array.isArray(rows)) return [];
+    const rule = t.repeat;
     const from = Date.parse(t.repeatSetAt || t.createdAt || '');
     if (!Number.isFinite(from)) return [];
-    const first = nextAfter(t.repeat, from);
+    const first = nextAfter(rule, from);
+    const grace = missGraceFor(rule);
     const flag = (v) => v === true || v === 'true';
-    const runs = [];
-    const misses = [];
+    const bySlot = new Map();   // slot ms -> the first run that answered it
+    const early = [];           // runs before the first slot (they answered none)
+    const told = new Map();     // slot ms -> the latest miss record naming it
     for (const r of rows) {
       if (!r || typeof r !== 'object') continue;
       const at = Date.parse(r.at || '');
       if (!Number.isFinite(at) || at < from) continue;
       if (r.kind === 'run') {
-        const due = answeredSlot(t.repeat, first, at);
-        runs.push({ at, due, late: flag(r.late), person: flag(r.person), by: r.by ? String(r.by) : '',
-          missedBefore: Number(r.missedBefore) || 0, missedMore: flag(r.missedMore) });
+        const run = { at, late: flag(r.late), person: flag(r.person), by: r.by ? String(r.by) : '' };
+        const due = answeredSlot(rule, first, at);
+        if (due === null) { early.push(run); continue; }
+        const had = bySlot.get(due);
+        if (!had || at < had.at) bySlot.set(due, run);   // review 2: the first run for a slot
       } else if (r.kind === 'missed') {
         const slot = Date.parse(r.slot || '');
-        if (!Number.isFinite(slot) || slot < from) continue;
+        if (!Number.isFinite(slot) || slot < first) continue;
         const person = flag(r.person);
-        misses.push({ kind: 'missed', due: slot, count: Number(r.count) || 1, more: flag(r.more),
-          review: person ? 'asked' : (flag(r.reached) ? 'told' : 'unreached'), who: !person && r.told ? String(r.told) : '' });
+        told.set(slot, { review: person ? 'asked' : (flag(r.reached) ? 'told' : 'unreached'), who: !person && r.told ? String(r.told) : '' });
       }
     }
-    runs.sort((a, b) => a.at - b.at);
-    const out = misses.slice();
-    for (let k = 0; k < runs.length; k += 1) {
-      const r = runs[k];
-      out.push({ kind: 'delivered', due: r.due, at: r.at, late: r.late, person: r.person, by: r.by });
-      /* Review 1: misses a run recovered (its missedBefore, kosmos#5920) are a row too, unless a recorded miss already
-         covers that stretch (after the run before, up to this run's slot): on a task with no reviewer nothing else
-         records them. Dated by the last slot before this run's. */
-      if (r.missedBefore > 0 && r.due !== null) {
-        const prev = k > 0 ? runs[k - 1].at : from;
-        const covered = misses.some((m) => m.due > prev && m.due < r.due);
-        const last = latestAtOrBefore(t.repeat, first, r.due - 1);
-        if (!covered && last !== null) out.push({ kind: 'missed', due: last, count: r.missedBefore, more: r.missedMore, review: 'recovered' });
-      }
-    }
-    /* A stretch of misses open now, shown only when NO recorded miss falls in it (review 1: a recorded one already counts
-       it, and its count is the whole stretch's). Its review is not claimed either way: whether anyone is told depends on
-       the reviewer, the project's pause, a hold and the throttle, none of which this can see. */
-    const open = missedRuns(t, now);
-    const start = firstUnanswered(t, now);
-    if (open && open.count > 0 && Number.isFinite(open.lastAt) && start !== null && !misses.some((m) => m.due >= start)) {
-      out.push({ kind: 'missed', due: open.lastAt, count: open.count, more: open.more, review: 'open', open: true });
-    }
+    // The slots to show: the newest past-grace slots (at most `max`), and every slot a run or a record names.
+    const slots = new Set([...bySlot.keys(), ...told.keys()]);
+    let s = latestAtOrBefore(rule, first, now - grace);
+    for (let k = 0; s !== null && s >= first && k < max; k += 1) { slots.add(s); s = latestAtOrBefore(rule, first, s - 1); }
     const iso = (ms) => new Date(ms).toISOString();
-    const shaped = out.map((o) => {
-      if (o.kind === 'delivered') {
-        return { kind: 'delivered', due: o.due === null ? null : iso(o.due), at: iso(o.at), late: o.late,
-          ...(o.person ? { person: true } : (o.by ? { by: o.by } : {})) };
+    const out = [];
+    for (const slot of slots) {
+      if (slot < first || slot > now) continue;
+      const run = bySlot.get(slot);
+      const rev = told.get(slot);
+      const review = rev ? { review: rev.review, ...(rev.who ? { who: rev.who } : {}) } : {};
+      if (run) {
+        out.push({ kind: 'delivered', due: iso(slot), at: iso(run.at), late: run.late,
+          ...(run.person ? { person: true } : (run.by ? { by: run.by } : {})), ...review });
+      } else if (slot + grace <= now) {
+        out.push({ kind: 'missed', due: iso(slot), ...review });
       }
-      return { kind: 'missed', due: iso(o.due), count: o.count, ...(o.more ? { more: true } : {}), review: o.review,
-        ...(o.who ? { who: o.who } : {}), ...(o.open ? { open: true } : {}) };
-    });
+    }
+    for (const run of early) {
+      out.push({ kind: 'delivered', due: null, at: iso(run.at), late: false, ...(run.person ? { person: true } : (run.by ? { by: run.by } : {})) });
+    }
     const key = (o) => Date.parse(o.due || o.at || '') || 0;
-    shaped.sort((a, b) => key(b) - key(a));
-    return shaped.slice(0, Math.max(0, max));
+    out.sort((a, b) => key(b) - key(a));
+    return out.slice(0, Math.max(0, max));
   } catch {
     return [];
   }
@@ -533,20 +529,16 @@ function occurrences(t, rows, now = Date.now(), max = OCCURRENCES_MAX) {
 function occurrenceWords(row, nameOf = (s) => s) {
   const name = (s) => { try { return String(nameOf(s) || s); } catch { return String(s); } };
   if (!row || typeof row !== 'object') return '';
+  // What happened to its miss, only when a record names this slot (review 2).
+  const review = row.review === 'told' ? 'its reviewer ' + name(row.who) + ' was told it was missed'
+    : row.review === 'unreached' ? 'its reviewer ' + name(row.who) + ' could not be reached about the miss'
+    : row.review === 'asked' ? 'the person was asked about the miss (Needs Your Decision)' : '';
   if (row.kind === 'delivered') {
     const who = row.person ? 'the person' : (row.by ? name(row.by) : 'someone');
-    return (row.late ? 'delivered late' : 'delivered on time') + ' by ' + who;
+    if (row.due === null) return 'delivered by ' + who + ' before its first scheduled run';
+    return (row.late ? 'delivered late' : 'delivered on time') + ' by ' + who + (review ? '; ' + review : '');
   }
-  if (row.kind === 'missed') {
-    const n = Number(row.count) || 1;
-    const what = 'missed' + (n > 1 ? ' (' + n + (row.more ? ' or more' : '') + ' runs)' : '');
-    const review = row.review === 'told' ? 'its reviewer ' + name(row.who) + ' was told'
-      : row.review === 'unreached' ? 'its reviewer ' + name(row.who) + ' could not be reached'
-      : row.review === 'asked' ? 'the person was asked (Needs Your Decision)'
-      : row.review === 'recovered' ? 'a later run caught up'
-      : row.review === 'open' ? 'no run since' : '';
-    return what + (review ? '; ' + review : '');
-  }
+  if (row.kind === 'missed') return 'missed' + (review ? '; ' + review : '');
   return '';
 }
 

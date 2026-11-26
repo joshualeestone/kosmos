@@ -10,12 +10,11 @@ its review is still pending, and the page shows the two states apart. The ask wa
   be reached, the person was asked, or (a miss open now, not yet recorded) not told yet / nobody set.
 
 ## Change
-- engine/taskrepeat.js `occurrences(t, history, now)`: rows newest first, capped at 10, only since the current rule was
-  set (as the late mark). Delivered rows: due (answeredSlot, the late mark's rule), at, late, by or person. Missed rows:
-  due (slot), count, more, review (told / unreached / asked), who; misses a run recovered (its missedBefore) when no
-  recorded miss covers them (review: recovered); and a stretch open now with no recorded miss in it (review: open, which
-  claims nothing about whether anyone will be told).
-  The reviewer is `repeatReviewer` or `repeatReviewerPerson`. Pure, never throws.
+- engine/taskrepeat.js `occurrences(t, history, now)`: one row per SCHEDULED SLOT, newest first, capped at 10, only
+  since the current rule was set. A slot a run answered (answeredSlot, the late mark's rule; the first run for a slot)
+  is delivered (late or not, at, by or person); a slot past its miss grace with no run is missed. Either carries a
+  review (told / unreached / asked, who) only when a miss record names THAT slot. A run before the first slot has due
+  null. The slot walk takes at most 10 steps back from now. Pure, never throws.
 - `occurrenceWords(row, nameOf)`: one row in words for an agent reader.
 - server.js, GET /api/project/:id/task/:n/activity: `occurrences` when the task repeats and has rows (absent otherwise,
   so every other answer is unchanged); with `?words=1` each row has `words`. Never fails the route.
@@ -49,6 +48,13 @@ its review is still pending, and the page shows the two states apart. The ask wa
     events, so the block is never skipped for one.
   - NIT: recordRun's `at` is not stored (taskchat stamps its own). Left: every caller passes now, so the two agree;
     noted for anyone who adds a caller that passes another time.
+
+- Round 2: 0 BLOCKER, 4 SHOULD, 2 NIT, one root: rows built from the miss records' stretch counts double-counted
+  (A, B), hid misses after a once-per-stall record (C), and a run before the first slot showed a made-up due time (D).
+  Fixed by design, not by patches: rows now come from the schedule and the runs, one per slot, and a record only
+  annotates the slot it names (no counts). NIT E (a missed slot delivered late was two rows) and NIT F (two runs for
+  one slot) are fixed by the same design (one row per slot, the first run). The CLIs no longer print the run's time
+  twice for a run before the first slot.
 
 ## Weakest premise
 That "review status" in the feedback means the miss review. If the agent meant a reviewer confirming each delivered run,

@@ -32,11 +32,12 @@ test('each kind of row is worded for the person, with agents by their card names
   const lib = make(fakeDoc());
   assert.match(lib.tkOccWords({ kind: 'delivered', due: '2026-11-21T15:00:00Z', at: '2026-11-21T15:02:00Z', late: false, by: 'nova' }), /^Due .+: delivered on time, .+, by Nova$/);
   assert.match(lib.tkOccWords({ kind: 'delivered', due: '2026-11-22T15:00:00Z', at: '2026-11-22T17:00:00Z', late: true, person: true }), /: delivered late, .+, by you$/);
-  assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z', count: 1, review: 'told', who: 'quill' }), /: missed; Quill was told$/);
-  assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z', count: 3, more: true, review: 'unreached', who: 'quill' }), /: missed \(3 or more runs\); Quill could not be reached$/);
-  assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z', review: 'asked' }), /; it waited for you in Needs Your Decision$/);
-  assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z', count: 2, review: 'recovered' }), /: missed \(2 runs\); a later run caught up$/);
-  assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z', review: 'open', open: true }), /: missed; no run since$/);
+  assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z', review: 'told', who: 'quill' }), /: missed; Quill was told it was missed$/);
+  assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z', review: 'unreached', who: 'quill' }), /: missed; Quill could not be reached about the miss$/);
+  assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z', review: 'asked' }), /: missed; it waited for you in Needs Your Decision$/);
+  assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z' }), /^Due .+: missed$/);
+  assert.match(lib.tkOccWords({ kind: 'delivered', due: '2026-11-22T15:00:00Z', at: '2026-11-22T18:00:00Z', late: true, by: 'nova', review: 'told', who: 'quill' }), /: delivered late, .+, by Nova; Quill was told it was missed$/);
+  assert.match(lib.tkOccWords({ kind: 'delivered', due: null, at: '2026-11-20T21:00:00Z', by: 'nova' }), /^Ran .+, by Nova, before its first scheduled run$/);
   assert.equal(lib.tkOccWords({ kind: 'something new' }), '');
 });
 
@@ -44,7 +45,7 @@ test('the painter draws one row each, marks a missed or late row on ITS line, an
   const doc = fakeDoc();
   const lib = make(doc);
   lib.tkPaintOccurrences([
-    { kind: 'missed', due: '2026-11-23T15:00:00Z', review: 'open', open: true },
+    { kind: 'missed', due: '2026-11-23T15:00:00Z' },
     { kind: 'odd' },   // no words: left out, and must not shift the marks onto the wrong line
     { kind: 'delivered', due: '2026-11-22T15:00:00Z', at: '2026-11-22T15:01:00Z', late: false, by: 'nova' },
     { kind: 'delivered', due: '2026-11-21T15:00:00Z', at: '2026-11-21T18:00:00Z', late: true, by: 'nova' },

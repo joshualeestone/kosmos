@@ -84,7 +84,7 @@ function mac(args, port = server.address().port) {
 }
 
 const HEAD = 'Runs and misses, newest first (when each was due):';
-const RUN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}  delivered (on time|late) by Mara Lane \(at \d{4}-\d{2}-\d{2} \d{2}:\d{2}\)$/m;
+const RUN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}  delivered (?:(?:on time|late) by Mara Lane \(at \d{4}-\d{2}-\d{2} \d{2}:\d{2}\)|by Mara Lane before its first scheduled run)$/m;
 
 test('Windows: a repeating task prints its runs and misses after the conversation, in the board\'s words', async () => {
   const w = await win(['task', 'activity', projectId, String(repeating)]);

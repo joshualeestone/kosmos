@@ -75657,20 +75657,16 @@ function tkOccWhen(iso) {
 }
 function tkOccWords(o) {
   const who = (s) => tskAgentName(s);
+  // Review 2: what happened to the slot's miss, only when the board names a record for that slot.
+  const review = o.review === 'told' ? who(o.who) + ' was told it was missed'
+    : o.review === 'unreached' ? who(o.who) + ' could not be reached about the miss'
+    : o.review === 'asked' ? 'it waited for you in Needs Your Decision' : '';
   if (o.kind === 'delivered') {
     const by = o.person ? 'you' : (o.by ? who(o.by) : 'someone');
-    return 'Due ' + tkOccWhen(o.due || o.at) + ': delivered ' + (o.late ? 'late' : 'on time') + (o.at ? ', ' + tkOccWhen(o.at) : '') + ', by ' + by;
+    if (!o.due) return 'Ran ' + tkOccWhen(o.at) + ', by ' + by + ', before its first scheduled run';
+    return 'Due ' + tkOccWhen(o.due) + ': delivered ' + (o.late ? 'late' : 'on time') + (o.at ? ', ' + tkOccWhen(o.at) : '') + ', by ' + by + (review ? '; ' + review : '');
   }
-  if (o.kind === 'missed') {
-    const n = Number(o.count) || 1;
-    const what = 'missed' + (n > 1 ? ' (' + n + (o.more ? ' or more' : '') + ' runs)' : '');
-    const review = o.review === 'told' ? who(o.who) + ' was told'
-      : o.review === 'unreached' ? who(o.who) + ' could not be reached'
-      : o.review === 'asked' ? 'it waited for you in Needs Your Decision'
-      : o.review === 'recovered' ? 'a later run caught up'
-      : o.review === 'open' ? 'no run since' : '';
-    return 'Due ' + tkOccWhen(o.due) + ': ' + what + (review ? '; ' + review : '');
-  }
+  if (o.kind === 'missed') return 'Due ' + tkOccWhen(o.due) + ': missed' + (review ? '; ' + review : '');
   return '';
 }
 function tkPaintOccurrences(occ, task) {
