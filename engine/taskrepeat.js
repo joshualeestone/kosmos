@@ -492,7 +492,8 @@ function occurrences(t, rows, now = Date.now(), max = OCCURRENCES_MAX) {
     // A miss open now that the history does not hold yet: the review is still to come (or there is no reviewer).
     const open = missedRuns(t, now);
     if (open && open.count > 0 && Number.isFinite(open.lastAt) && open.lastAt > newestMissed) {
-      const hasReviewer = typeof t.reviewer === 'string' && t.reviewer !== '' && t.reviewer !== 'none';
+      // The reviewer fields tasks.setReviewer writes: a named agent (repeatReviewer), or the person (repeatReviewerPerson).
+      const hasReviewer = t.repeatReviewerPerson === true || (typeof t.repeatReviewer === 'string' && t.repeatReviewer !== '' && t.repeatReviewer !== 'none');
       out.push({ kind: 'missed', due: new Date(open.lastAt).toISOString(), count: open.count, ...(open.more ? { more: true } : {}),
         review: hasReviewer ? 'pending' : 'none', open: true });
     }
