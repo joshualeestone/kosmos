@@ -633,7 +633,8 @@ _qh_stop_capper() {
   CAPPER=""
 }
 _qh_end() {
-  trap '' TERM INT HUP PIPE   # review 4: a second signal during cleanup must not abandon it (the command would run on
+  trap '' TERM INT HUP PIPE ALRM USR1 USR2   # #9118 review 5: ALRM, USR1, USR2 too (each is fatal through this trap now)
+  # review 4: a second signal during cleanup must not abandon it (the command would run on
                              # unclaimed); round 9: nor a reader that has gone (SIGPIPE at an echo below)
   [ -n "${QH_STOPPED:-}" ] && rm -f "$QH_STOPPED"
   # Stop the renewer and WAIT for it before releasing, so a renewal in flight cannot re-create the claim after
@@ -788,7 +789,8 @@ else
   # only RECORD it, and it is acted on once CMD is set. Not `trap ''`: an ignored signal stays ignored in the command.
   # Review 4: ALRM, USR1 and USR2 too, which would otherwise end bash in that moment with CMD empty; afterwards they are
   # back to their default (fatal, through the EXIT trap, which stops the command because QH_DONE is unset).
-  trap 'QH_PEND=143' TERM; trap 'QH_PEND=130' INT; trap 'QH_PEND=129' HUP; trap 'QH_PEND=142' ALRM; trap 'QH_PEND=138' USR1; trap 'QH_PEND=140' USR2
+  trap 'QH_PEND=143' TERM; trap 'QH_PEND=130' INT; trap 'QH_PEND=129' HUP
+  trap 'QH_PEND=$((128 + $(kill -l ALRM)))' ALRM; trap 'QH_PEND=$((128 + $(kill -l USR1)))' USR1; trap 'QH_PEND=$((128 + $(kill -l USR2)))' USR2   # review 5: the system's own numbers
   set -m; "$@" & CMD=$!
   trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP; trap - ALRM USR1 USR2
   [ -n "$QH_PEND" ] && { set +m; exit "$QH_PEND"; }
@@ -800,8 +802,9 @@ else
   ( trap - EXIT TERM INT HUP; trap '' PIPE
     while kill -0 -- "-$CMD" 2>/dev/null; do
       sleep 5 </dev/null >/dev/null 2>&1
-      # Review 3: if this script was KILLed during its own grace, this TERMs again and gives a second full grace: a
-      # slower stop than needed, never a missed one, and the claim reads free meanwhile (its holder is dead).
+      # Review 3: if this script was KILLed during its own grace, this TERMs again and gives a second full grace, and the
+      # claim reads free meanwhile (its holder is dead). Review 5: that second TERM can cut a command's cleanup short if
+      # the cleanup does not itself ignore TERM (run-tests.sh's does, after its first step).
       if _qh_wrapper_gone "$$"; then
         kill -TERM -- "-$CMD" 2>/dev/null; i=0
         while kill -0 -- "-$CMD" 2>/dev/null && [ "$i" -lt $(( STOP_GRACE_S * 2 )) ]; do sleep 0.5; i=$((i + 1)); done
