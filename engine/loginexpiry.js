@@ -251,12 +251,19 @@ function advisoriesFor({ accounts = [], now = Date.now(), warnWithinDays = WARN_
  * or `undefined` when it could not be resolved -- an unresolvable agent is SKIPPED (fail soft: no
  * warning beats a wrong-account warning), never bucketed as unset. Agents that resolve to the same
  * credential (serviceNameFor(ccd)) share one advisory. Pure: inject readCcd + readCred to test. */
-function agentAdvisories({ agents = [], readCcd, now = Date.now(), readCred, warnWithinDays = WARN_WITHIN_DAYS } = {}) {
+function agentAdvisories({ agents = [], readCcd, now = Date.now(), readCred, warnWithinDays = WARN_WITHIN_DAYS, platform = process.platform, userHome = os.homedir() } = {}) {
   const buckets = new Map(); // service -> { ccd, agents: [] }
   for (const a of agents) {
     let ccd;
     try { ccd = readCcd ? readCcd(a) : undefined; } catch { ccd = undefined; }
     if (ccd === undefined) continue;
+    /* kosmos#9097 review 2: off macOS the credential is a FILE, so an explicit <HOME>/.claude and an unset variable are
+       one login. Bucket them together (as unset), or the same login warns twice and the explicit one names no row.
+       On macOS they stay apart: there the Keychain entry's name differs (the #2129 class). */
+    if (platform !== 'darwin' && ccd != null && userHome) {
+      const v = String(ccd).replace(/[\r\n]+$/, '');
+      if (v !== '' && path.resolve(v) === path.resolve(path.join(userHome, '.claude'))) ccd = null;
+    }
     const service = serviceNameFor(ccd);
     if (!buckets.has(service)) buckets.set(service, { ccd: ccd == null ? null : String(ccd), agents: [] });
     buckets.get(service).agents.push(a.name);

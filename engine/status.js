@@ -9919,7 +9919,7 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
            for this folder in place, which must never be a folder with no account row (removed, or never listed). */
         return rowReads === adv.service && rowDirs && rowDirs.has(dir) ? dir : null;
       };
-      const out = le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred })
+      const out = le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred, ...(opts.platform ? { platform: opts.platform } : {}), ...(opts.userHome ? { userHome: opts.userHome } : {}) })
         .map((a) => ({ ...a, provider: 'Claude', email: emailOf(a.ccd), names: a.agents.map(nameOf), dir: dirOf(a) }));
       // A run through the readCcd seam (a test) writes nothing unless it asks for the lines with opts.log (review 3).
       const log = opts.log || (opts.readCcd ? () => {} : undefined);

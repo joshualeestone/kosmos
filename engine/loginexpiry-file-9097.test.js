@@ -116,3 +116,34 @@ test('kosmos#9097 review 1: on Windows the login warning finds the folder of eac
   const before = status.computeLoginAdvisories(panes, now, { ...opts, readDetail: () => ({ ccd: undefined, pid: null }), cache: { at: 0, value: [] } });
   assert.strictEqual(before.length, 0);
 });
+
+test('kosmos#9097 review 2: off macOS an explicit <HOME>/.claude and an unset folder are ONE login, one warning', () => {
+  const h = home();
+  const now = UNTIL - 3 * 86400000;
+  const agents = [{ name: 'amy' }, { name: 'ben' }];
+  const ccdOf = { amy: null, ben: path.join(h, '.claude') };
+  const run = (platform) => le.agentAdvisories({ agents, readCcd: (a) => ccdOf[a.name], now, readCred: winRead(h), platform, userHome: h });
+  const win = run('win32');
+  assert.strictEqual(win.length, 1, 'one notice for one login: ' + JSON.stringify(win));
+  assert.deepStrictEqual(win[0].agents.sort(), ['amy', 'ben']);
+  assert.strictEqual(win[0].ccd, null, 'the shared bucket is the default account, so its notice names the default row');
+  // CONTROL: on macOS they stay two credentials (the #2129 class: the Keychain entry name differs).
+  const mac = le.agentAdvisories({ agents, readCcd: (a) => ccdOf[a.name], now, readCred: () => body({ refreshTokenExpiresAt: UNTIL }), platform: 'darwin', userHome: h });
+  assert.strictEqual(mac.length, 2);
+});
+
+test('kosmos#9097 review 2: the account row reads its login off macOS, with its folder', async () => {
+  const live = require('./claudeloginlive');
+  const h = home();
+  const seen = [];
+  live._clearForTest();
+  live.setCredReaderForTests((service, ccd) => { seen.push([service, ccd]); return le.readCredAsync(service, ccd, { platform: 'win32', home: h }); });
+  try {
+    const own = path.join(h, '.claude-b');
+    assert.strictEqual(await live.validUntil({ dir: own, isDefault: false }), UNTIL + 5);
+    assert.strictEqual(await live.validUntil({ dir: path.join(h, '.claude'), isDefault: true }), UNTIL);
+    assert.deepStrictEqual(seen.map((x) => x[1]), [own, undefined], 'the folder (undefined for the default) reaches the read');
+  } finally { live.setCredReaderForTests(null); live._clearForTest(); }
+  // CONTROL: with no reader set, a test context reads nothing (never a real credential).
+  assert.strictEqual(await live.validUntil({ dir: path.join(h, '.claude-b'), isDefault: false }), null);
+});
