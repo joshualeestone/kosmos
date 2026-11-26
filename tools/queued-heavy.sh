@@ -410,6 +410,8 @@ MAX_RENEWALS="${QUEUED_HEAVY_MAX_RENEWALS:-12}"
 case "$CLAIM_MIN" in ''|*[!0-9]*) CLAIM_MIN=30 ;; esac
 case "$RENEW_SEC" in ''|*[!0-9]*) RENEW_SEC=600 ;; esac
 case "$MAX_RENEWALS" in ''|*[!0-9]*) MAX_RENEWALS=12 ;; esac
+STOP_GRACE_S="${QUEUED_HEAVY_STOP_GRACE_S:-60}"   # kosmos#9118: TERM to KILL, for a main turn's command group
+case "$STOP_GRACE_S" in ''|*[!0-9]*) STOP_GRACE_S=60 ;; esac
 _qh_clear() {
   kosmos_refuse_if_machine_claimed "$WHAT" || return 1
   # #4911: no main turn starts beside a light run's side turn, whatever its class: a light one would make two light
@@ -637,9 +639,15 @@ _qh_end() {
   # left of that group BEFORE the release (round 3), or it runs on uncapped and unclaimed. This also ends grandchildren
   # that outlived the command (one that ignored the cap's TERM) and stayed in its group; one that left the group (its
   # own session, as Playwright starts a browser) is ended by _qh_kill_desc, if the capper saw it.
-  if [ "$LANE" = side ] && [ -n "$CMD" ] && kill -0 -- "-$CMD" 2>/dev/null; then
+  # kosmos#9118: a MAIN command runs in its own group too now, so the same stop applies to it, with a longer grace
+  # (QUEUED_HEAVY_STOP_GRACE_S, default 60 s): run-tests.sh does its own cleanup on a TERM (its EXIT trap stops its
+  # shards and runs the leak guard, which can take tens of seconds), and a KILL before that ends would strand the
+  # shards that cleanup stops, which are in process groups of their own.
+  if [ -n "$CMD" ] && kill -0 -- "-$CMD" 2>/dev/null; then
+    _g=20; [ "$LANE" = side ] || _g=$(( ${STOP_GRACE_S} * 2 ))
+    [ "$LANE" = side ] || echo "QUEUED-HEAVY $(date '+%H:%M:%S') STOPPING: $WHAT (this script was signalled); TERM to its process group, KILL after ${STOP_GRACE_S}s"
     kill -TERM -- "-$CMD" 2>/dev/null
-    _i=0; while kill -0 -- "-$CMD" 2>/dev/null && [ "$_i" -lt 20 ]; do sleep 0.5; _i=$((_i + 1)); done
+    _i=0; while kill -0 -- "-$CMD" 2>/dev/null && [ "$_i" -lt "$_g" ]; do sleep 0.5; _i=$((_i + 1)); done
     kill -KILL -- "-$CMD" 2>/dev/null
   fi
   [ "$LANE" = side ] && _qh_kill_desc   # round 16 (Opus): what left the group (Playwright's detached browsers), before the release
@@ -653,10 +661,13 @@ _qh_end() {
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') claim released"
 }
 trap _qh_end EXIT
-# A side turn: a signal exits through the EXIT trap, so a killed script still stops its side command (in its own
-# process group, out of the signal's reach) and releases its claim. Not in a main turn: there bash would run the trap
-# only after the foreground command ends, so `kill` would stop doing anything until then (review 3).
-if [ "$LANE" = side ]; then trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP; fi
+# A signal exits through the EXIT trap, so a killed script still stops its command (in its own process group, out of
+# the signal's reach) and releases its claim. kosmos#9118: a main turn too, now that its command also runs in the
+# background with a `wait` the trap interrupts (review 3 kept main turns out while the command ran in the foreground,
+# where bash runs a trap only after the command ends). Before, a TERM to a main turn's wrapper ended bash and left the
+# command running unclaimed: on 11-25 two killed validations left their run-tests.sh suites running for about 70
+# minutes (52 processes). Not covered: a SIGKILL of this script, which no trap sees.
+trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP
 if [ "$LANE" = side ]; then
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') SIDE TURN: running $WHAT beside the heavy holder (#4911; stopped if it runs past ${SIDE_MIN} min)"
 else
@@ -751,7 +762,12 @@ if [ "$LANE" = side ]; then
     fi
   fi
 else
-  "$@"; rc=$?
+  # kosmos#9118: the command in its own process group, as a side turn's is, so a signal to this script can stop all of
+  # it (_qh_end). stdin as for a side turn: kept, and only a terminal swapped for /dev/null (a background job that reads
+  # a tty is stopped).
+  if [ -t 0 ]; then set -m; "$@" </dev/null & CMD=$!; set +m
+  else set -m; "$@" & CMD=$!; set +m; fi
+  wait "$CMD"; rc=$?
 fi
 echo "QUEUED-HEAVY $(date '+%H:%M:%S') END rc=$rc: $WHAT"
 exit $rc
