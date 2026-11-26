@@ -25917,7 +25917,17 @@ const server = http.createServer(async (req, res) => {
           } catch { /* the posts stay held */ }
         }
         const rowAt = new Map(readerName ? rows.map((r, n) => [r, n]) : []);   // kosmos#4926: a read walks up to 200 rows of a long room
-        const lines = tail.flatMap((m) => {
+        /* kosmos#9169: a date line before the first row and wherever the day changes (in the zone each time is shown in),
+           so lines from different days no longer read as one day. A row whose time cannot be read adds none. */
+        let shownDay = null;
+        const nowMs = Date.now();
+        const dayLine = (m) => {
+          const day = messages.roomDay(m.at, zone, nowMs);
+          if (!day || day === shownDay) return [];
+          shownDay = day;
+          return ['-- ' + day + ' --'];
+        };
+        const rowLines = (m) => {
           const when = messages.roomClock(m.at, zone);
           if (m.kind === 'valve') return [when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.')];
           if (m.kind === 'refused') return [when + '  [kosmos] ' + m.from + ' tried to ' + (m.doing || 'post') + ' here and Kosmos stopped it: ' + (m.because || 'no reason recorded')];
@@ -26016,7 +26026,8 @@ const server = http.createServer(async (req, res) => {
                 : 'If that answered it, it needs nothing more.')]
             : [];
           return [line, ...youAnswered, ...youPosted, ...reacted, ...claimed, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
-        });
+        };
+        const lines = tail.flatMap((m) => dayLine(m).concat(rowLines(m)));
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
           // kosmos#8616 review 1: a read by id says what it found in its own head; the room-wide empty lines would be false.

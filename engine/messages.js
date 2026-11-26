@@ -669,6 +669,26 @@ function roomClock(at, timezone) {
   catch { return '--:--'; }
 }
 
+/* kosmos#9169 (#9166 item 3): the room's text view gave each line only a time of day, so lines from several days ran
+   together and an evening line sat right above the next morning's. This is the day a row falls on, in the same zone
+   roomClock uses (the stored one, else the machine's), as "Wed 25 Nov"; the year is added only when it is not the
+   current year in that zone. null when the instant cannot be read, so the caller adds no date line for it. Never throws. */
+function roomDay(at, timezone, now) {
+  if (!at) return null;
+  const when = new Date(at);
+  if (Number.isNaN(when.getTime())) return null;
+  const nowAt = new Date(Number.isFinite(now) ? now : Date.now());
+  const fmt = (zone, extra) => new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', ...extra, ...(zone ? { timeZone: zone } : {}) });
+  const year = (zone) => new Intl.DateTimeFormat('en-GB', { year: 'numeric', ...(zone ? { timeZone: zone } : {}) });
+  for (const zone of timezone ? [timezone, null] : [null]) {
+    try {
+      const sameYear = year(zone).format(when) === year(zone).format(nowAt);
+      return fmt(zone, sameYear ? {} : { year: 'numeric' }).format(when).replace(/,/g, '');
+    } catch { /* stale or unknown id: the machine's zone next */ }
+  }
+  return null;
+}
+
 /* Injectable for tests, mirroring chat.setRunner: one tmux question, "whose
    session is this pane in". */
 let runner = null;
@@ -5263,7 +5283,7 @@ module.exports = {
   deletePostAsync,   // kosmos#7614
   react, reactionsFor, normalizeReactionEmoji, claimOf, claimMembers, claimAge, isClaimEmoji, freeClaim,
   messageIdOf, // #4631
-  operatorDirect, automaticWake, dmAnsweredParts, operatorNowLabel, validTimeZone, roomClock,
+  operatorDirect, automaticWake, dmAnsweredParts, operatorNowLabel, validTimeZone, roomClock, roomDay,
   START, END, blockBody,
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
