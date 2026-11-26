@@ -378,7 +378,9 @@ const STUB2 = hangFixture('stubborn2.test.js', true);
 test('#6668 a watchdog stopped while it is stopping one file does not go on to the next', async () => {
   assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
   fs.rmSync(PIDS, { force: true });
-  const child = spawn('bash', [RUNNER, '--only', STUBBORN, STUB2], { env: env({ KOSMOS_TEST_FILE_TIMEOUT_S: '3' }),
+  // kosmos#9159: with the runner's own stop of its node tree off, so this arm tests the WATCHDOG's stop checks (with it
+  // on, node and its files are gone within milliseconds of the TERM and the arm passed whether the checks were there).
+  const child = spawn('bash', [RUNNER, '--only', STUBBORN, STUB2], { env: env({ KOSMOS_TEST_FILE_TIMEOUT_S: '3', KOSMOS_RT_STOP_OWN_NODE: '0' }),
     detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   child.stdout.on('data', (d) => { out += d; });
@@ -391,8 +393,8 @@ test('#6668 a watchdog stopped while it is stopping one file does not go on to t
     await nap(scaleBudget(8000));   // the unchecked loop would print the second line within its 5 s grace plus a look
     assert.equal((out.match(/TIMED OUT after/g) || []).length, 1, 'the watchdog went on after its stop: ' + out.slice(-1200));
   } finally {
-    // A backstop: both fixtures ignored the TERM; since kosmos#9159 the runner's EXIT trap KILLs them, and this group
-    // kill stops anything left if it did not.
+    // The runner's own process group holds both fixtures (they ignored the TERM and, with the #9159 stop off here, their
+    // KILL was skipped).
     try { process.kill(-child.pid, 'SIGKILL'); } catch { /* the group is gone */ }
   }
 });
