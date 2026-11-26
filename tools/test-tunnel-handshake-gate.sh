@@ -257,6 +257,10 @@ PATH="$W/pgonce2:$PATH" run "a rescued pgrep failure is said, with its code and 
 mkdir -p "$W/pgfail2"; printf '%s\n' '#!/bin/sh' 'case "$*" in *tunnel-gate*) exit 3 ;; esac' "exec '$REAL_PGREP' \"\$@\"" > "$W/pgfail2/pgrep"; chmod +x "$W/pgfail2/pgrep"
 standin "$GT/tunnel-gate.Stale5/a1/state"
 PATH="$W/pgfail2:$PATH" run "a pgrep that fails on the second scan only -> CANNOT TELL, not PASS" 2 "could not list this computer's processes" "up" "up"; unstand
+# Review 2: exit 2 is pgrep refusing the pattern, a gate defect, and says so; and no scan leaves a temp file behind.
+mkdir -p "$W/pgbad"; printf '%s\n' '#!/bin/sh' 'echo "pgrep: invalid regex" >&2; exit 2' > "$W/pgbad/pgrep"; chmod +x "$W/pgbad/pgrep"
+PATH="$W/pgbad:$PATH" run "a pgrep that refuses the pattern (exit 2) -> CANNOT TELL, named as a gate defect" 2 "this is a gate defect" "up" "up"
+left=$(find "$GT" \( -name 'pgrep-err.*' -o -name 'tunnel-gate-pgrep.*' \) 2>/dev/null | grep -c .); [ "$left" = 0 ] && { pass=$((pass + 1)); echo "  ok    no pgrep temp file is left in the gate's temp root"; } || { fail=$((fail + 1)); echo "  FAIL  $left pgrep temp file(s) left in $GT"; }
 # ...but a LIVE one whose command line cannot be read still counts (fail closed). Played by a ps
 # that prints nothing while the stand-in runs.
 mkdir -p "$W/psbin"; printf '%s\n' '#!/bin/sh' 'exit 1' > "$W/psbin/ps"; chmod +x "$W/psbin/ps"
@@ -333,5 +337,5 @@ if [ "$left" = 0 ]; then pass=$((pass + 1)); echo "  ok    no connector left run
 else fail=$((fail + 1)); echo "  FAIL  $left stub connector(s) left running"; pkill -f "kosmos-gate-stub-$TAG"; fi
 
 echo "test-tunnel-handshake-gate: $pass passed, $fail failed"
-# 62 = every row above (57, plus five kosmos#9149 rows); equal to the count so a dropped row cannot pass.
-[ "$fail" -eq 0 ] && [ "$pass" -eq 62 ]
+# 64 = every row above (57, plus seven kosmos#9149 rows); equal to the count so a dropped row cannot pass.
+[ "$fail" -eq 0 ] && [ "$pass" -eq 64 ]
