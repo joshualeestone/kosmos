@@ -1766,9 +1766,11 @@ html.pnav-up { overflow: hidden; scrollbar-gutter: auto; }
    menu stands on the board's own ground and ink, as #9101 does for the bar above it. The mock's layout and words stay; only
    the colours change. Kosmos+ in a browser keeps its navy menu. The red badge and dot are meaning, so they stay red. */
 html.kapptabs .pnav, html.kapptabs .pnav-top { background: var(--k-bg); }
-html.kapptabs .pnav, html.kapptabs .pnav-x, html.kapptabs .pnav-back, html.kapptabs .pnav-item,
-  html.kapptabs .pnav-themeopt[aria-checked="true"] { color: var(--k-ink); }
+html.kapptabs .pnav, html.kapptabs .pnav-x, html.kapptabs .pnav-back, html.kapptabs .pnav-item { color: var(--k-ink); }
 html.kapptabs :is(.pnav-small, .pnav-stamp, .pnav-theme-l, .pnav-state, .pnav-item.pnav-off) { color: var(--k-ink-2); }
+/* After the :is() rule on purpose (review, navyweb-9101): both are (0,3,1), so the later wins, and the checked Light or
+   Dark option must be ink, not ink-2 like the unchecked ones. */
+html.kapptabs .pnav-themeopt[aria-checked="true"] { color: var(--k-ink); }
 html.kapptabs .pnav-msg { color: var(--danger); }
 html.kapptabs :is(.pnav-x, .pnav-back, .pnav-item, .pnav-small):focus-visible { outline-color: var(--k-ink); }
 html.kapptabs .pnav-level:focus-visible { outline-color: var(--k-rule); }
@@ -12340,10 +12342,12 @@ html.kapptabs :is(#plus-state2, #plus-org) .tk-inp:not(select) { --danger: inher
   color: var(--k-ink); -webkit-text-fill-color: var(--k-ink); }
 html.kapptabs :is(#plus-state2, #plus-org) .tk-inp::placeholder, html.kapptabs #plus-state2 .plus-si-otp::placeholder { color: var(--k-ink-2); -webkit-text-fill-color: var(--k-ink-2); }
 html.kapptabs :is(#plus-state2, #plus-org) .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px var(--k-bg) inset; }
-html.kapptabs :is(#plus-state2, #plus-org) .tk-inp:focus { outline-color: var(--gold); border-color: var(--gold); }
+/* Focus and the current code box in the board's --gold-edge, not --gold (review, navyweb-9101): --gold is about 2.2:1
+   on the light ground, under WCAG 1.4.11's 3:1 for a control's state; --gold-edge is #8a6614 light, #d6a62e dark. */
+html.kapptabs :is(#plus-state2, #plus-org) .tk-inp:focus { outline-color: var(--gold-edge); border-color: var(--gold-edge); }
 html.kapptabs #plus-state2 .otp-cell { background: var(--k-surface, var(--k-bg)); border-color: var(--k-rule); }
 html.kapptabs #plus-state2 .otp-boxes:focus-within .otp-cell { border-color: var(--k-ink-2); }
-html.kapptabs #plus-state2 .otp-cell.on { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold) inset; }
+html.kapptabs #plus-state2 .otp-cell.on { border-color: var(--gold-edge); box-shadow: 0 0 0 2px var(--gold-edge) inset; }
 /* The section's blue primary button is a blue fill, so inside the app it is the board's own primary (.dbox .btn.uprime):
    bright gold with dark ink. Its other buttons are outlined in the board's ink and rule. */
 html.kapptabs #plus-state2 .btn.uprime, html.kapptabs #plus-state2 .btn.uprime:hover { background: var(--gold-bright);
@@ -12361,7 +12365,7 @@ html.kapptabs #pb .tk-inp:not(select) { --danger: inherit; background: var(--k-s
   -webkit-text-fill-color: var(--k-ink); caret-color: var(--k-ink); border-color: var(--k-rule); }
 html.kapptabs #pb .tk-inp::placeholder { color: var(--k-ink-2); -webkit-text-fill-color: var(--k-ink-2); }
 html.kapptabs #pb .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px var(--k-bg) inset; }
-html.kapptabs #pb .tk-inp:focus { outline-color: var(--gold); border-color: var(--gold); }
+html.kapptabs #pb .tk-inp:focus { outline-color: var(--gold-edge); border-color: var(--gold-edge); }
 /* The request sheets (a computer asking in, a code to type) were a navy gradient with a blue Allow: the board's own
    card and its gold primary in the app. */
 html.kapptabs :is(.askreq, .askcard) { background: var(--k-sunk); border-color: var(--k-rule); color: var(--k-ink); }
@@ -12371,7 +12375,7 @@ html.kapptabs .askreq .askdev { background: var(--k-surface, var(--k-bg)); }
 html.kapptabs .askreq .askdev svg { stroke: var(--k-ink-2); }
 html.kapptabs .askreq :is(.askcodein, .waitcodein) { border-color: var(--k-rule); background: var(--k-surface, var(--k-bg)); color: var(--k-ink); }
 html.kapptabs .askreq :is(.askcodein, .waitcodein)::placeholder { color: var(--k-ink-2); }
-html.kapptabs .askreq :is(.askcodein, .waitcodein):focus-visible { outline-color: var(--gold); }
+html.kapptabs .askreq :is(.askcodein, .waitcodein):focus-visible { outline-color: var(--gold-edge); }
 html.kapptabs :is(.askreq, .askcard) .btn.uprime, html.kapptabs :is(.askreq, .askcard) .btn.uprime:hover,
   html.kapptabs .askreq .acts .btn.uprime[aria-disabled="true"] { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
 html.kapptabs .askreq .btn.quiet { color: var(--k-ink-2); }
