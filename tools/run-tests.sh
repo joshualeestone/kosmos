@@ -374,23 +374,38 @@ rt_file_watchdog_start() {
 # pgrep (kosmos#9149: a failed pgrep reads as "none"). Nothing else is touched: not another suite's node, nor a
 # node this runner did not start. On a normal exit node has already ended, so this finds nothing.
 rt_stop_own_node() {
-  local p c cmd all="" i alive
-  for p in $(ps -A -o pid=,ppid= 2>/dev/null | awk -v me="$$" '$2 == me { print $1 }'); do
-    cmd="$(ps -o command= -p "$p" 2>/dev/null)"
-    case "$cmd" in
-      "node --test "*|*"/node --test "*)
-        all="$all $p"
-        for c in $(ps -A -o pid=,ppid= 2>/dev/null | awk -v me="$p" '$2 == me { print $1 }'); do all="$all $c"; done ;;
-    esac
-  done
-  [ -n "$all" ] || return 0
-  kill -TERM $all 2>/dev/null
+  # Review 1: the WHOLE tree under this run's own node runners, from ONE ps snapshot taken before the first signal: a
+  # test file's own children (a stub server, a browser) outlived a TERM to node alone, and they stay in the caller's
+  # process group, so a group kill is not an option (it would stop the caller: queued-heavy, CI). Also the shell part's
+  # foreground `node .../shell-shard.js run` (serial and CI paths), the same shape one step over. KILL only a pid whose
+  # command line is still the one noted (a pid reused during the grace is not ours; as the file watchdog does).
+  local snap roots="" p pp cmd list i alive keep
+  snap="$(ps -A -ww -o pid=,ppid=,command= 2>/dev/null)" || return 0
+  roots="$(printf '%s\n' "$snap" | awk -v me="$$" '$2 == me {
+      c = $0; sub(/^ *[0-9]+ +[0-9]+ +/, "", c)
+      if (c ~ /^([^ ]*\/)?node --test / || c ~ /^([^ ]*\/)?node [^ ]*shell-shard\.js run( |$)/) print $1 }')"
+  [ -n "$roots" ] || return 0
+  # Every descendant of those roots, from the same snapshot (breadth-first; a pid seen twice is listed once).
+  list="$(printf '%s\n' "$snap" | awk -v roots="$roots" '
+      { pid[NR] = $1; par[NR] = $2; c = $0; sub(/^ *[0-9]+ +[0-9]+ +/, "", c); cmd[$1] = c; n = NR }
+      END { k = split(roots, q, /[ \n]+/); for (i = 1; i <= k; i++) if (q[i] != "") take[q[i]] = 1
+            grew = 1; while (grew) { grew = 0; for (j = 1; j <= n; j++) if ((par[j] in take) && !(pid[j] in take)) { take[pid[j]] = 1; grew = 1 } }
+            for (x in take) print x "\t" cmd[x] }')"
+  [ -n "$list" ] || return 0
+  kill -TERM $(printf '%s\n' "$list" | cut -f1) 2>/dev/null
   for i in 1 2 3 4 5 6 7 8 9 10; do
-    alive=0; for p in $all; do kill -0 "$p" 2>/dev/null && alive=1; done
+    alive=0
+    while IFS="$(printf '\t')" read -r p cmd; do kill -0 "$p" 2>/dev/null && alive=1; done <<EOF_9159
+$list
+EOF_9159
     [ "$alive" = 0 ] && return 0
     sleep 0.5
   done
-  kill -KILL $all 2>/dev/null
+  while IFS="$(printf '\t')" read -r p cmd; do
+    [ "$(ps -ww -o command= -p "$p" 2>/dev/null)" = "$cmd" ] && kill -KILL "$p" 2>/dev/null
+  done <<EOF_9159
+$list
+EOF_9159
   return 0
 }
 # After node: stop the loop, and a file it timed out makes the run red whatever node said (that backstop for a node
@@ -818,7 +833,7 @@ else
   export KOSMOS_TEST_RUN="${TMPDIR:-/tmp}"
   # #6668: with no run root there is no exit trap above, so this one signals the file watchdog on a TERM (a Ctrl-C
   # waits for node, and the normal stop follows).
-  trap '_rt_turn_end $?; rt_stop_own_node; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"' EXIT
+  trap '_rt_turn_end $?; trap "" PIPE INT TERM; rt_stop_own_node; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"' EXIT
 fi
 
 # --- coverage assertion: every *.test.js is CONSIDERED (kosmos#1934) -----------

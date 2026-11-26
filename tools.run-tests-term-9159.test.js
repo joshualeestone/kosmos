@@ -69,32 +69,39 @@ async function until(fn, ms) {
 }
 
 const PIDS = path.join(DIR, 'fixture.pids');
+const KIDS = path.join(DIR, 'fixture-child.pids');
 const FIXTURE = path.join(DIR, 'sleeps-9159.test.js');
+/* The file starts a child of its own (as a stub server or a browser would) and records both pids. */
 fs.writeFileSync(FIXTURE, `'use strict';
-require('node:fs').appendFileSync(${JSON.stringify(PIDS)}, process.pid + '\\n');
+const fs = require('node:fs');
+const kid = require('node:child_process').spawn('perl', ['-e', 'sleep 120'], { stdio: 'ignore' });
+fs.appendFileSync(${JSON.stringify(KIDS)}, kid.pid + '\\n');
+fs.appendFileSync(${JSON.stringify(PIDS)}, process.pid + '\\n');
 require('node:test')('sleeps two minutes', () => new Promise((r) => setTimeout(r, 120000)));
 `);
+const firstPid = (f) => { const t = fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim() : ''; return t ? parseInt(t.split('\n')[0], 10) : 0; };
 
-test('#9159: a TERM to run-tests.sh ALONE stops its node --test and the file it was running', async () => {
+test('#9159: a TERM to run-tests.sh ALONE stops its node --test, the file it was running, and the file\'s own child', async () => {
   assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
   const perl = spawn('perl', ['-e', GROUP, 'bash', RUNNER, '--only', FIXTURE], { env: env(), stdio: 'ignore' });
   try {
-    const filePid = await until(() => {
-      const s = fs.existsSync(PIDS) ? fs.readFileSync(PIDS, 'utf8').trim() : '';
-      return s ? parseInt(s.split('\n')[0], 10) : 0;
-    }, scaleBudget(60000));
+    const filePid = await until(() => firstPid(PIDS), scaleBudget(60000));
+    const kidPid = firstPid(KIDS);
     assert.ok(filePid > 0, 'the fixture never started (no pid written)');
     const bashPid = childrenOf(perl.pid)[0];
     assert.ok(bashPid > 0, 'run-tests.sh was not found under its perl parent');
     const nodePid = ppidOf(filePid);
-    // CONTROL: the fixture really is this runner's grandchild through its node --test, so a pass cannot come from
-    // stopping something else.
-    assert.equal(ppidOf(nodePid), bashPid, `the fixture's node --test (${nodePid}) is not run-tests.sh's child (${bashPid})`);
+    // CONTROL: the fixture really is under this runner through its node --test (a node shim, as Volta's, adds one
+    // level: review 1), so a pass cannot come from stopping something else.
+    const up = ppidOf(nodePid);
+    assert.ok(up === bashPid || ppidOf(up) === bashPid, `the fixture's node --test (${nodePid}) is not under run-tests.sh (${bashPid})`);
+    assert.ok(kidPid > 0 && alive(kidPid), 'the fixture\'s own child did not start');
     process.kill(bashPid, 'SIGTERM');   // the runner's pid ALONE, as a person or a wrapper sends it
-    const gone = await until(() => !alive(filePid) && !alive(nodePid), scaleBudget(20000));
-    assert.ok(gone, `after a TERM to run-tests.sh (${bashPid}), its node --test (${nodePid}: ${alive(nodePid) ? 'alive' : 'gone'}) ` +
-      `and the file (${filePid}: ${alive(filePid) ? 'alive' : 'gone'}) were still there`);
+    const gone = await until(() => !alive(filePid) && !alive(nodePid) && !alive(kidPid), scaleBudget(20000));
+    assert.ok(gone, `after a TERM to run-tests.sh (${bashPid}), its node --test (${nodePid}: ${alive(nodePid) ? 'alive' : 'gone'}), ` +
+      `the file (${filePid}: ${alive(filePid) ? 'alive' : 'gone'}) and the file's own child (${kidPid}: ${alive(kidPid) ? 'alive' : 'gone'}) were not all stopped`);
   } finally {
+    { const k = firstPid(KIDS); if (k) { try { process.kill(k, 'SIGKILL'); } catch { /* gone */ } } }   // it left the group
     try { process.kill(-perl.pid, 'SIGTERM'); } catch { /* gone */ }
     await sleep(500);
     try { process.kill(-perl.pid, 'SIGKILL'); } catch { /* gone */ }
