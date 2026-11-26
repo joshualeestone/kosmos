@@ -2867,7 +2867,7 @@
     },
     {
       "title": "A closed question says who closed it",
-      "line": "For up to 12 hours, while an agent is idle or working, hovering its status says when its question for you was closed, and by whom.",
+      "line": "For up to 12 hours, while an agent is idle or working, hovering its status says when its question for you was closed, and what ended it.",
       "icon": "tasks",
       "rank": 12,
       "since": "0.8.23",
@@ -2966,7 +2966,7 @@
     },
     {
       "title": "The agent list stops redrawing itself",
-      "line": "The agent list and grid now update only the rows that changed, instead of redrawing everything every 10 seconds.",
+      "line": "The agent list and grid now update only the rows that changed, instead of redrawing every row when one changes.",
       "icon": "list",
       "rank": 10.5,
       "since": "0.8.25",
