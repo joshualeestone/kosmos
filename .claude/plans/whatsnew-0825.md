@@ -51,5 +51,11 @@ Four, not five: nothing else pending is board-visible and not notesOnly. Checked
   highlight is held for. Windows now shows one highlight; the build allows it.
 - The plan's counts and the #9083 platform line were stale after review 1; corrected here.
 
+## Review 3 calls
+- The held #9097 line named Mac as well as Windows while tagged windows only; engine/whatsnew.js would refuse the
+  window the day it is set to pending. Reworded to name only Windows.
+- #9119 has no notesOnly entry: it changes the instructions agents are given, not a command they run, and the notes
+  `kosmos whats-new` prints are about commands and behaviour an agent can use.
+
 ## Weakest premise
 That "rarely meets" is right for #9112's 409. If Windows sends fail that way often, it deserves a line.
