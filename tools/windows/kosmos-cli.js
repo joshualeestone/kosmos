@@ -2247,7 +2247,10 @@ async function taskBuilt(ctx, args) {
       if (name && typeof got.whole === 'string') {
         try {
           const dir = (ctx.pathRules || path).dirname(got.whole);
-          const listed = ctx.engine('builtfiles').diskName(name, (ctx.fs || fs).readdirSync(dir));
+          // A short 8.3 alias (REPORT~1.PDF) is not in the listing: the file's long name, from the system, first.
+          let long = null;
+          try { const real = (ctx.fs || fs).realpathSync.native(got.whole); if (String((ctx.pathRules || path).dirname(real)).toLowerCase() === String((ctx.fs || fs).realpathSync.native(dir)).toLowerCase()) long = (ctx.pathRules || path).basename(real); } catch (_) { long = null; }
+          const listed = ctx.engine('builtfiles').diskName(long || name, (ctx.fs || fs).readdirSync(dir));
           if (typeof listed === 'string' && listed && !/[\\/\u0000-\u001f\u007f]/.test(listed)) name = listed.replace(/[. ]+$/, '') || name;
         } catch (_) { /* the name as typed */ }
       }

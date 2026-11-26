@@ -1315,7 +1315,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
           if (i < 0 && unnamed >= 0) { i = unnamed; unnamed = -1; }
           apply(i, f.name, f.fingerprint, f.path);
         }
-        sentNow = sentFiles.map((f) => f.name);
+        sentNow = sentFiles.map((f) => ({ name: f.name, fingerprint: f.fingerprint }));
       } else if (print) {
         /* One fingerprint sent the old way (a CLI from before #9105): the file of its path's name when the task has one,
            so no second entry of that name is made. Otherwise, below. */
@@ -1326,7 +1326,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         const own = before.findIndex((e) => who !== null && senderOf(e) === who);
         const i = named >= 0 ? named : before.length <= 1 ? mirrorIndex(before) : own;
         apply(i, sentName || (i >= 0 ? before[i].name : ''), print, sentPath);
-        sentNow = [sentName || (i >= 0 ? before[i].name : '')];
+        sentNow = [{ name: sentName || (i >= 0 ? before[i].name : ''), fingerprint: print }];
       } else {
         /* No file sent: each file takes the mark as #8307 did (a check by another agent, the person's check, its own
            sender's withdrawal). With --check, only the files named. */
@@ -1354,7 +1354,10 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
          sender (or the person): a check of one file leaves the others still waiting on it. */
       const current = files.filter((e) => e.fingerprint);
       const everyChecked = current.every((e) => e.checkedByPerson === true || (e.checkedBy || []).some((x) => x !== e.by));
-      const reviewDone = t.builtWaitingOn === 'review' && who !== null && (t.builtBy || null) !== who && (current.length <= 1 || everyChecked);
+      /* Against each file's sender, not the last marker: a checker who checks the files over two marks is the last
+         marker after the first, and must still be able to end the review with the second. */
+      const reviewDone = t.builtWaitingOn === 'review' && who !== null
+        && (current.length <= 1 ? (t.builtBy || null) !== who : everyChecked && !current.every((e) => e.by === who));
       waits = sent || (!isPerson && !dropWaits && !reviewDone && t.builtAt && WAITING_ON.includes(t.builtWaitingOn) ? t.builtWaitingOn : '');
       const landedOnRemoteNow = landed && (landed.onRemote || (t.landedOnRemote === true && t.landedCommit === landed.sha && t.landedRepo === landed.repo));
       /* Review 4: a mark that changes nothing but what it waits on (the hint's advice, followed) is a change, but not new
@@ -1408,7 +1411,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   // kosmos#8934 review 5: a correction of only the wait writes no second "marked it built" line; the row shows the wait.
   if (!waitsOnly) taskchat.record(projectId, changed.number, { kind: 'built', by: who, ...(isPerson ? { person: true } : {}), ...(said ? { note: said } : {}) });
   /* kosmos#8307: `replaced` only when this mark replaced a file, so the notice can say so and reach its checkers. */
-  return { ok: true, task: changed, changed: true, ...(replacedNow ? { replaced: replacedNow } : {}), ...(replacedAll.length ? { replacedFiles: replacedAll } : {}), ...(sentNow ? { sentFiles: sentNow } : {}), ...(waitsOnly ? { waitsOnly: true } : {}) };
+  return { ok: true, task: changed, changed: true, ...(replacedNow ? { replaced: replacedNow } : {}), ...(replacedAll.length ? { replacedFiles: replacedAll } : {}), ...(sentNow ? { sentFiles: sentNow.map((x) => x.name), sentPrints: sentNow } : {}), ...(waitsOnly ? { waitsOnly: true } : {}) };
 }
 
 /** Take the built mark off (the work turned out not to be done). A task with no mark records nothing. */

@@ -121,4 +121,14 @@ said "withdraws all" assuming one sender; per-file is the consistent reading.
   is told to the marker alone (the #8307 rule).
   Measured after: new 52/52; older 297 pass, 0 fail, 7 platform skips; 7 new mutants red (both case-name ones too,
   so the case tests ran on this disk rather than returning early).
+- Round 6 (sonnet, blind, whole branch, aimed at the round 5 changes): 0 BLOCKER, 1 MAJOR, 4 MINOR. Fixed:
+  1 MAJOR a checker who checked the files over two marks could never end the review (the rule compared the last
+    marker, who after the first check is the checker): on a multi-file task it now asks that every current file is
+    checked and that the marker is not the sender of them all. 2 two files without a name (older CLIs from two
+    senders) were taken for each other in the told line: setBuilt returns sentPrints (name and fingerprint) and the
+    line matches on both; an unnamed file reads "file without a name", not "'a file'". 3 task files called a stale
+    list "withdrawn": withdrawn now means the files read are withdrawn ones. 4 the several-files wording counted
+    withdrawn entries: it counts current files. 5 a Windows 8.3 alias (REPORT~1.PDF) is named by its long name
+    (realpath.native, when it stays in the same folder): REASONED, not testable on this Mac.
+  Measured after: new 56/56; older 297 pass, 0 fail, 7 platform skips; 3 new mutants red.
 

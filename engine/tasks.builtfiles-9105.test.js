@@ -366,3 +366,30 @@ test('#9105 review 5: diskName gives the name as the folder lists it', () => {
   assert.equal(diskName('Résumé.pdf', ['Résumé.pdf']), 'Résumé.pdf');
   assert.equal(diskName('a.md', []), 'a.md');
 });
+
+test('#9105 review 6: one checker who checks the files over two marks ends the review', () => {
+  const n = freshTask();
+  mark(n, { by: 'mona', files: two(), waitingOn: 'review' });
+  mark(n, { by: 'ivy', check: ['report.md'], note: 'one' });
+  assert.equal(get(n).builtWaitingOn, 'review');
+  mark(n, { by: 'ivy', check: ['data.csv'], note: 'two' });
+  assert.equal(get(n).builtWaitingOn, undefined, 'the checker of every file could not end the review');
+  // CONTROL: the files' own sender re-marking never ends it.
+  const m = freshTask();
+  mark(m, { by: 'mona', files: two(), waitingOn: 'review' });
+  mark(m, { by: 'ivy', check: ['report.md', 'data.csv'], note: 'both' });
+  assert.equal(get(m).builtWaitingOn, undefined);
+  const k = freshTask();
+  mark(k, { by: 'mona', files: two(), waitingOn: 'review' });
+  mark(k, { by: 'mona', files: [{ name: 'report.md', fingerprint: C }], note: 'again' });
+  assert.equal(get(k).builtWaitingOn, 'review', 'the sender\'s own re-send ended the review');
+});
+
+test('#9105 review 6: sentPrints tells two files without a name apart', () => {
+  const n = freshTask();
+  mark(n, { by: 'mona', fingerprint: A });
+  mark(n, { by: 'bob', files: [{ name: 'g.md', fingerprint: B }] });
+  const r = mark(n, { by: 'cat', fingerprint: C });
+  assert.deepEqual(r.sentPrints, [{ name: '', fingerprint: C }]);
+  assert.deepEqual(get(n).builtFiles.map((e) => [e.name, e.fingerprint]), [['', A], ['g.md', B], ['', C]]);
+});

@@ -410,3 +410,34 @@ test('#9105 review 5 Mac: a name typed in another case is the name the folder li
   assert.equal(r.code, 0, r.out);
   assert.equal(stored(n).builtFiles[0].name, 'report.md');
 });
+
+test('#9105 review 6: the line names only the unnamed file this mark sent, not another sender\'s', async () => {
+  const n = tasks.create(projectId, { sentence: 'Two unnamed', who: 'mona' }).number;
+  tasks.addPart(projectId, n, { sentence: 'Read', who: 'zed' });
+  tasks.setBuilt(projectId, n, { by: 'mona', fingerprint: A });
+  await mark(n, asAgent('ivy'), { files: [{ name: 'g.md', fingerprint: B }] });
+  // A third sender, on an older CLI with no path: its file is a new one without a name, beside mona's.
+  const { typed } = await capture(() => mark(n, asAgent('zed'), { fingerprint: C, note: 'old cli' }));
+  assert.ok(typed.length >= 1, JSON.stringify(typed));
+  for (const line of typed) {
+    assert.match(line, / - file without a name, fingerprint /, line);
+    assert.doesNotMatch(line, new RegExp(A), 'another file without a name was named as sent now: ' + line);
+    assert.match(line, new RegExp(C));
+  }
+});
+
+test('#9105 review 6 Mac: task files counts a stale list as built without --file, and a withdrawn file as withdrawn', macOnly, async () => {
+  const tok = sendertoken.mint('mona').token;
+  const p = projects.create({ name: 'Counts' });
+  const roster = fleet.install([fleet.agent('mona', { state: 'idle' })]).agents;
+  projects.addAgent(p.id, 'mona', roster);
+  const a = tasks.create(p.id, { sentence: 'Stale', who: 'mona' }).number;
+  tasks.setBuilt(p.id, a, { by: 'mona', files: [{ name: 'x.md', fingerprint: A }] });
+  // An older board's new mark with no file: a new builtAt, the list left behind.
+  projects.mutate(p.id, (q) => ({ ...q, tasks: q.tasks.map((t) => { if (t.number !== a) return t; const y = { ...t, builtAt: new Date(Date.now() + 5).toISOString() }; delete y.builtFingerprint; delete y.builtFingerprintBy; delete y.builtCheckedBy; delete y.builtFingerprintAt; return y; }) }));
+  const b = tasks.create(p.id, { sentence: 'Withdrawn', who: 'mona' }).number;
+  tasks.setBuilt(p.id, b, { by: 'mona', files: [{ name: 'y.md', fingerprint: B }] });
+  tasks.setBuilt(p.id, b, { by: 'mona', note: 'not ready' });
+  const files = await mac(['task', 'files', p.id], { KOSMOS_AGENT_TOKEN: tok });
+  assert.match(files.out, /\(1 built without --file\)\. 1 built with files since withdrawn\./, files.out);
+});

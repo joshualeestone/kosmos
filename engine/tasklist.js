@@ -703,9 +703,11 @@ function filesLines(body, opts = {}) {
     const x = scrub(found);
     /* kosmos#9105: every current file of the mark, each checked as one file always was (a list from an older board,
        without builtFiles, is its one file). builtAt is not asked of: this list is the board's built list already. */
-    const current = PRINT_RE.test(x.builtFingerprint || '') || Array.isArray(found.builtFiles)
-      ? require('./builtfiles').filesOf({ ...found, builtAt: found.builtAt || true }).filter((e) => PRINT_RE.test(e.fingerprint || '')) : [];
-    if (!current.length) { if (Array.isArray(found.builtFiles) && found.builtFiles.length) withdrawnAll += 1; else noFile += 1; continue; }
+    const listed = PRINT_RE.test(x.builtFingerprint || '') || Array.isArray(found.builtFiles) || found.builtReplaces
+      ? require('./builtfiles').filesOf({ ...found, builtAt: found.builtAt || true }) : [];
+    const current = listed.filter((e) => PRINT_RE.test(e.fingerprint || ''));
+    // Withdrawn only when the files read are withdrawn ones: a list an older board left behind (stale) is no file.
+    if (!current.length) { if (listed.length) withdrawnAll += 1; else noFile += 1; continue; }
     lines.push((every ? one(x.projectId || '?') + '  ' : '') + '#' + (x.number != null ? x.number : '?') + '  ' + titleOf(x));
     for (const file of current) {
     const print = file.fingerprint;

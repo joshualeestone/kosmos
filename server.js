@@ -615,14 +615,16 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
   const WAITS_ON_WORDS = { person: 'the person', review: 'a review', release: 'a release' };   // kosmos#8934
   /* kosmos#9105: a file's name in a line typed into panes: single-quoted, without format characters (a direction
      override) or a quote that would close it, cut to 80 characters; at most 5 named, then how many more. */
-  const fileWord = (x) => "'" + Array.from(clean(x || 'a file').replace(/\p{Cf}/gu, '').replace(/'/g, '\u2019')).slice(0, 80).join('') + "'";
+  const fileWord = (x) => (!x ? 'without a name' : "'" + Array.from(clean(x).replace(/\p{Cf}/gu, '').replace(/'/g, '\u2019')).slice(0, 80).join('') + "'");
   const someFiles = (list, each) => list.slice(0, 5).map(each).join(', ') + (list.length > 5 ? ' and ' + (list.length - 5) + ' more (kosmos task show ' + clean(projectId) + ' ' + t.number + ')' : '');
   /* kosmos#9105: the files THIS mark sent (sentNow, from setBuilt), not every file by its marker. The route always passes
      a list; null is a direct caller from before #9105, which names the one file as #6330 did. A checker's mark sends
      none (#6330 review 5). */
   // kosmos#9105: on a task with several files every file is named, even when this mark sent or replaced only one.
-  const several = tasks.filesOf(t).length > 1;
-  const sentByMarker = Array.isArray(sentNow) ? tasks.filesOf(t).filter((e) => e.fingerprint && sentNow.includes(e.name)) : null;
+  const several = tasks.filesOf(t).filter((e) => e.fingerprint).length > 1;   // current files: a withdrawn one is not named
+  // Matched by name and fingerprint, so two files without a name (from older CLIs) are never taken for each other.
+  const sentByMarker = Array.isArray(sentNow) ? tasks.filesOf(t).filter((e) => e.fingerprint && sentNow.some((s) => (typeof s === 'string'
+    ? s === e.name : s && s.name === e.name && s.fingerprint === e.fingerprint))) : null;
   const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
     + (n ? ': "' + n + '"' : '')
     // kosmos#8934: what it waits on, when the mark says (a fixed word, never the sender's text).
@@ -28417,7 +28419,7 @@ const server = http.createServer(async (req, res) => {
             const no = taskMessageRefusal();
             if (!no) taskMessageValveRecord();
             return no;
-          }, out.replacedFiles || out.replaced || null, out.sentFiles || []);   // kosmos#8307; kosmos#9105: every file it replaced, and the files it sent
+          }, out.replacedFiles || out.replaced || null, out.sentPrints || out.sentFiles || []);   // kosmos#8307; kosmos#9105: every file it replaced, and the files it sent
         } catch (err) {
           process.stderr.write('task built: could not tell the people task ' + out.task.number + ' goes to: ' + ((err && err.message) || err) + '\n');
           delivered = [];
