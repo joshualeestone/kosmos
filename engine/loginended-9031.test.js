@@ -54,17 +54,22 @@ test('#9031: the Windows stream reads the same two, and the headless sentences',
   }
 });
 
-test('#9031: create and Check now do NOT take "not logged in" or an ended login from their probe as a dead sign-in (0.8.23\'s promote gate)', async () => {
-  /* The probe names the default account's folder, so Claude Code reads an entry the plain login is not in: a working account answers
-     this way. Unknown: create goes on, and Check now marks nothing rejected. */
-  const check = async (out, exitCode) => { create.setClaudeProbe(async () => ({ exitCode, out })); return create.claudeAccountCheck('/u/x/.claude'); };
+test('kosmos#9082: create and Check now take "not logged in" and an ended login from their probe as a dead sign-in again', async () => {
+  /* #9031's words came out after 0.8.23's promote gate (the probe named the default account's folder, so Claude Code read an
+     entry the plain login is not in). kosmos#9082 makes the default probe UNSET, the login its agents use, so these mean a
+     dead login again. The folder passed here is a labelled account's (its own entry), not the default. */
+  const check = async (out, exitCode) => { create.setClaudeProbe(async () => ({ exitCode, out })); return create.claudeAccountCheck('/u/x/labelled'); };
   for (const out of [NONE, LIMIT, HEADLESS_LIMIT, HEADLESS_REFRESH]) {
     const got = await check(out, 1);
-    assert.equal(got.state, subscription.STATE.UNKNOWN, 'refused: ' + out);
+    assert.equal(got.state, subscription.STATE.NONE, 'not read as dead: ' + out);
   }
   assert.equal((await check('ok', 0)).state, subscription.STATE.CONNECTED, 'CONTROL: a real answer');
-  assert.equal((await check('Login expired · Please run ' + '/login', 1)).state, subscription.STATE.NONE, 'CONTROL: a token Anthropic refused is dead');
-  assert.equal((await check('OAuth access token has been revoked', 1)).state, subscription.STATE.NONE, 'CONTROL: a revoked one too');
+  assert.equal((await check('API Error: 529 overloaded', 1)).state, subscription.STATE.UNKNOWN, 'CONTROL: capacity is not a dead login');
+  // The only gate on this: the default account is probed unset (claudeProbeDir), never with its folder.
+  create.setProbeRealHomeForTests(require('./accounts').homeDir());   // review 4: independent of an ambient HOME
+  try { assert.equal(create.claudeProbeDir(require('./accounts').homeDir() + '/.claude', { run: () => ({ ran: true, status: 1, out: '' }) }), null, 'the default account would be probed with its folder'); }   // review 2: a stub tmux, never the host's
+  finally { create.setProbeRealHomeForTests(null); }
+  assert.equal(create.claudeProbeDir('/u/x/labelled'), '/u/x/labelled', 'CONTROL: a labelled account keeps its folder');
 });
 
 const row = (connection) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'a@example.com', connection });
@@ -124,4 +129,85 @@ test('#9031: the sweep reads an ended login as a stopped one, never as a blip, a
   assert.equal(at('login-ended')[1].connection.badge, 'rejected');
   assert.deepEqual(ab.decide({ rows: at('login-ended'), movable: () => true, nowMs: NOW }).moves, [], 'agents would move onto an ended login');
   assert.equal(ab.decide({ rows: at('token-expired'), movable: () => true, nowMs: NOW }).moves.length, 1, 'CONTROL: a renewal is a blip');
+});
+
+test('kosmos#9082 review 1: the default is probed with the tmux server\'s pinned folder when set, else unset; a sandbox keeps its folder', () => {
+  const nodePath = require('node:path');
+  const os = require('node:os');
+  const def = nodePath.join(require('./accounts').homeDir(), '.claude');
+  create.setProbeRealHomeForTests(require('./accounts').homeDir());   // review 4: independent of an ambient HOME
+  const tmux = (status, out, ran = true) => ({ run: () => ({ ran, status, out }) });
+  assert.equal(create.claudeProbeDir(def, tmux(0, 'CLAUDE_CONFIG_DIR=/Users/x/.claude\n')), '/Users/x/.claude', 'a tmux-pinned folder (the supervisor pins default agents to it) was not probed');
+  assert.equal(create.claudeProbeDir(def, tmux(0, '-CLAUDE_CONFIG_DIR\n')), null, 'a removed global is not a pin');
+  assert.equal(create.claudeProbeDir(def, tmux(1, '')), null, 'tmux says unknown variable: unset');
+  assert.equal(create.claudeProbeDir(def, tmux(null, '', false)), null, 'no tmux to ask: unset, as the supervisor finds nothing either');
+  assert.equal(create.claudeProbeDir('/u/x/labelled', tmux(0, 'CLAUDE_CONFIG_DIR=/elsewhere\n')), '/u/x/labelled', 'CONTROL: a labelled account keeps its own folder');
+  const was = process.env.AGENT_WORKFORCE_HOME;
+  const sandbox = require('node:fs').mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-9082-sandbox-'));
+  process.env.AGENT_WORKFORCE_HOME = sandbox;
+  try {
+    const sdef = nodePath.join(sandbox, '.claude');
+    assert.equal(require('./accounts').isDefaultDir(sdef), true, 'CONTROL: the sandbox folder is the default there');
+    create.setProbeRealHomeForTests(null);
+    assert.equal(create.claudeProbeDir(sdef, tmux(1, '')), sdef, 'a sandboxed board would probe the real login');
+  } finally { create.setProbeRealHomeForTests(null); if (was === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = was; }
+});
+
+test('kosmos#9082 review 1: #9031\'s state words count only from a run that failed', async () => {
+  const check = async (out, exitCode) => { create.setClaudeProbe(async () => ({ exitCode, out })); return create.claudeAccountCheck('/u/x/labelled'); };
+  try {
+    assert.equal((await check('A notice: Not logged in · Please run /' + 'login (another tool)\nok', 0)).state, subscription.STATE.CONNECTED, 'a run that answered was read as dead');
+    assert.equal((await check(NONE, 1)).state, subscription.STATE.NONE, 'CONTROL: the same words from a failed run are dead');
+    assert.equal((await check('Login expired · Please run /' + 'login', 0)).state, subscription.STATE.NONE, 'CONTROL: a refused token stays dead whatever the exit');
+  } finally { create.setClaudeProbe(null); }
+});
+
+test('kosmos#9082 review 2: the tmux lookup runs without TMUX, so a board started in a pane asks the default server', () => {
+  const fs = require('node:fs'); const nodePath = require('node:path'); const os = require('node:os');
+  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-9082-tmux-'));
+  const stub = nodePath.join(dir, 'tmux');
+  fs.writeFileSync(stub, '#!/bin/sh\necho "CLAUDE_CONFIG_DIR=${TMUX:-noTMUX}"\n', { mode: 0o755 });
+  const was = process.env.TMUX;
+  process.env.TMUX = '/tmp/some-pane-socket,1,0';
+  try {
+    assert.equal(require('./sessionccd').globalClaudeDir({ bin: stub }), 'noTMUX', 'the lookup inherited the pane\'s TMUX');
+    assert.equal(require('./sessionccd').globalClaudeDir({ bin: stub, env: { ...process.env } }), '/tmp/some-pane-socket,1,0', 'CONTROL: the stub reports TMUX when given it');
+  } finally { if (was === undefined) delete process.env.TMUX; else process.env.TMUX = was; }
+});
+
+test('kosmos#9082 review 3: a sandbox that replaces HOME itself keeps its folder (the real home comes from the OS)', () => {
+  const fs = require('node:fs'); const nodePath = require('node:path'); const os = require('node:os');
+  const sandbox = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-9082-home-'));
+  const wasHome = process.env.HOME; const wasAWH = process.env.AGENT_WORKFORCE_HOME;
+  process.env.HOME = sandbox; delete process.env.AGENT_WORKFORCE_HOME;
+  const noPin = { run: () => ({ ran: true, status: 1, out: '' }) };
+  try {
+    const sdef = nodePath.join(sandbox, '.claude');
+    assert.equal(require('./accounts').isDefaultDir(sdef), true, 'CONTROL: the sandbox folder is the default there');
+    assert.equal(create.claudeProbeDir(sdef, noPin), sdef, 'a harness that replaced HOME would probe the real login');
+    create.setProbeRealHomeForTests(sandbox);
+    assert.equal(create.claudeProbeDir(sdef, noPin), null, 'CONTROL: named as the real home, it is probed unset');
+  } finally {
+    create.setProbeRealHomeForTests(null);
+    if (wasHome === undefined) delete process.env.HOME; else process.env.HOME = wasHome;
+    if (wasAWH === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = wasAWH;
+  }
+});
+
+test('kosmos#9082 review 3: a pin reaches the probe through the real lookup (the board\'s tmux, not a stub run)', () => {
+  const fs = require('node:fs'); const nodePath = require('node:path'); const os = require('node:os');
+  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-9082-pin-'));
+  const stub = nodePath.join(dir, 'tmux');
+  fs.writeFileSync(stub, '#!/bin/sh\n[ "$1 $2 $3" = "show-environment -g CLAUDE_CONFIG_DIR" ] && echo "CLAUDE_CONFIG_DIR=/pinned/by/tmux" && exit 0\nexit 1\n', { mode: 0o755 });
+  const was = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  process.env.AGENT_WORKFORCE_TMUX_BIN = stub;
+  create.setProbeRealHomeForTests(require('./accounts').homeDir());   // review 4
+  try {
+    const def = nodePath.join(require('./accounts').homeDir(), '.claude');
+    assert.equal(require('./status').boardTmux(), stub, 'CONTROL: the board would ask this tmux');
+    assert.equal(create.claudeProbeDir(def), '/pinned/by/tmux', 'a tmux-pinned folder did not reach the probe through the real lookup');
+  } finally {
+    create.setProbeRealHomeForTests(null);
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = was;
+  }
 });

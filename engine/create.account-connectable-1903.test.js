@@ -29,11 +29,20 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'create-connectable-19
 const HOME = nodePath.join(SANDBOX, 'home');
 fs.mkdirSync(HOME, { recursive: true });
 process.env.AGENT_WORKFORCE_HOME = HOME;
+// kosmos#9082 review 2: a stub tmux whose global environment has nothing, never the host's server (a Mac whose tmux
+// carries a leaked CLAUDE_CONFIG_DIR would otherwise pin the default's probe to it).
+{
+  const stub = require('node:path').join(HOME, 'tmux-stub-9082');
+  require('node:fs').writeFileSync(stub, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  process.env.AGENT_WORKFORCE_TMUX_BIN = stub;
+}
+process.env.HOME = HOME;   // kosmos#9082: the sandbox's default is this HOME's .claude (create.claudeProbeDir keeps a folder that is not)
 delete process.env.AGENT_WORKFORCE_GROK_HOME;   // #3391: the default Grok home must be HOME/.grok here, never an ambient override
 delete process.env.AGENT_WORKFORCE_CODEX_HOME;
 delete process.env.CODEX_HOME;
 
 const create = require('./create');
+create.setProbeRealHomeForTests(HOME);   // kosmos#9082 review 3: this sandbox's HOME stands for the real home
 const openai = require('./openaiaccounts');
 
 // Default Claude account (record BESIDE ~/.claude) + a labelled one.
@@ -178,33 +187,24 @@ test('#1903: an UNKNOWN account is accepted here (createAgentInner owns that ref
   } finally { create.setClaudeProbe(null); }
 });
 
-test('#1903/#1916/#3189: the DEFAULT account is checked with its RESOLVED dir (not null), and a dead default is refused', async () => {
-  /* #3189 instance #4: the create gate now probes the default with its RESOLVED
-     config dir (<HOME>/.claude), NOT null. The old `isDefault ? null` made
-     claudeAccountLive's `claude -p` lean on the board's launchd ambient default
-     resolution, which fails (no ambient shell env -> UNKNOWN, the #3136 class).
-     The stub is dead ONLY when it receives the resolved default dir, so a refusal
-     here proves the default was checked with the explicit resolved dir. NEGATIVE
-     CONTROL: on a regression back to `isDefault ? null` the default is probed with
-     null, the stub answers ALIVE, and `assert.equal(r.ok, false)` reds (it fires
-     first). The `sawConfigDir === DEFAULT_DIR` assertion is a second, explicit guard
-     that pins the EXACT resolved dir the probe must receive, documenting the contract
-     as a machine-checked assertion rather than leaving it implicit in the r.ok outcome.
-     (This is a `claude -p` probe; checkLive's default arm correctly uses UNDEFINED
-     for the opposite reason -- see the accounts.js listLiveNow decoy comment.) */
+test('#1903/#1916/kosmos#9082: the DEFAULT account is checked with CLAUDE_CONFIG_DIR UNSET (null), and a dead default is refused', async () => {
+  /* kosmos#9082 (replacing #3189 instance #4): the default is probed with null, so claude -p reads the plain Keychain
+     entry its agents use; set to <HOME>/.claude it reads a hashed entry those agents never use (#2129), measured 11-25.
+     The stub is dead ONLY when it receives null, so a refusal proves the default was checked unset. NEGATIVE CONTROL: a
+     regression back to the resolved dir is probed with DEFAULT_DIR, the stub answers ALIVE, and r.ok reds first. */
   const DEFAULT_DIR = nodePath.join(HOME, '.claude');
   let sawConfigDir = 'unset';
   create.setClaudeProbe(async (configDir) => {
     sawConfigDir = configDir;
-    return configDir === DEFAULT_DIR
-      ? { exitCode: 1, out: DEAD_AUTH_OUT }   // dead ONLY for the resolved default dir
+    return configDir == null
+      ? { exitCode: 1, out: DEAD_AUTH_OUT }   // dead ONLY when probed unset, as the default's agents run
       : { exitCode: 0, out: 'ok' };
   });
   try {
     const r = await create.accountConnectable({ provider: 'anthropic', accountDir: '' });
-    assert.equal(r.ok, false, 'a dead DEFAULT account was accepted, or it was checked with the wrong dir (null/scoped instead of the resolved default dir)');
+    assert.equal(r.ok, false, 'a dead DEFAULT account was accepted, or it was checked with its folder instead of unset');
     assert.match(r.because, /sign-in is not working/);
-    assert.equal(sawConfigDir, DEFAULT_DIR, 'the create gate must probe the default with its RESOLVED dir (#3189), not null/empty -- a null here is the launchd-ambient-lean regression #3136 fixed');
+    assert.equal(sawConfigDir, null, 'the create gate must probe the default UNSET (kosmos#9082), not with ' + DEFAULT_DIR);
   } finally { create.setClaudeProbe(null); }
 });
 

@@ -16225,22 +16225,13 @@ const server = http.createServer(async (req, res) => {
         const acct = accounts.list().find((a) => a.dir === resolved);
         if (!acct) { sendJson(res, 404, { error: 'we could not find that account on this computer' }); return; }
         let state;
-        // #3136: pass the account's RESOLVED config dir explicitly, for the DEFAULT too,
-        // instead of deleting CLAUDE_CONFIG_DIR and leaning on claude -p's own ambient
-        // default resolution. That ambient path fails in the board's launchd process
-        // (wrong/missing HOME -> claude cannot find the default config -> a fast non-zero
-        // exit -> UNKNOWN -> the badge never greens; reproduced server-side on 0.6.70:
-        // a LABELED account greens, the DEFAULT stays neutral, and the default probe
-        // fails in ~4-5s, not the 15s timeout). acct.dir is already <homeDir>/.claude
-        // (accounts.js, env-resolved via AGENT_WORKFORCE_HOME || os.homedir()), so passing
-        // it is env-INDEPENDENT -- the same explicit-resolution pattern as #3113's bundled-
-        // tmux fix (the launchd-missing-ambient-env class, kosmos#3189). Keyed by acct.dir
-        // below for the badge join, as before, so the default reaches the right badge.
-        // Aligned with #3113 (merged): the same explicit-resolution pattern, different
-        // resolver (config-dir vs installedRoot), so no shared helper. (The temporary
-        // #3136 diag instrument that surfaced the discarded probe output on UNKNOWN was
-        // removed once the default account was board-confirmed green on the prod board.)
-        const probeDir = acct.dir;
+        // kosmos#9082 (replaces #3136's "pass the RESOLVED dir for the DEFAULT too"): the default account is probed with
+        // CLAUDE_CONFIG_DIR UNSET, the way its agents run, because set to <home>/.claude Claude Code reads another Keychain
+        // entry (#2129: usually none, or a stale one). #3136's failure under launchd was most likely a missing USER, which
+        // the probe now fills from the operating system; a tmux-pinned folder is used when set
+        // (create.claudeProbeDir); measured 11-25 under launchd: unset
+        // answers, set read a month-old entry. Keyed by acct.dir below for the badge join, as before.
+        const probeDir = create.claudeProbeDir(acct.dir);
         // A validator CRASH fails open (UNKNOWN), never a false "not connected" --
         // the same #1916 rule the create gate states: a broken checker is not a
         // dead account. claudeAccountLive already returns UNKNOWN (not a throw)
