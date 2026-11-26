@@ -82,3 +82,7 @@ test('the markup has the list, hidden, and the loader hands the occurrences to t
   assert.match(loader, /if \(typeof tkPaintOccurrences === 'function'\) tkPaintOccurrences\(occurrences, p\.id \+ '#' \+ n\);/);
   assert.match(loader, /tkPaintOccurrences\(null, p\.id \+ '#' \+ n\)/, 'a failed read does not tell the painter');
 });
+
+test('review 5: opening a task clears the previous task\'s runs with its events (no stale rows while the new read loads)', () => {
+  assert.match(HTML, /if \(acts\) \{ acts\.innerHTML = '';[^\n]*\n[^\n]*\n  \{ const ob = document\.getElementById\('tk-occurrences'\), ol = document\.getElementById\('tk-occ-list'\); if \(ob\) ob\.hidden = true; if \(ol\) \{ ol\.textContent = ''; if \(ol\.dataset\) \{ ol\.dataset\.drawn = ''; ol\.dataset\.task = ''; \} \} \}/);
+});

@@ -70,6 +70,13 @@ its review is still pending, and the page shows the two states apart. The ask wa
   the first slot; harmless, since rows older than the walk are sliced off. Left. The floor, the late mark (equal to
   runIsLate for every rule kind) and the ratio test were checked and hold.
 
+- Round 5 (whole branch, nothing pre-cleared): 0 BLOCKER, 2 SHOULD, 2 NIT. SHOULD: opening a task left the previous
+  task's runs showing while the new read loaded. Fixed: cleared in the same reset as its events (guarded: a test's fake
+  element has no dataset; web.task-seen-6947 caught that). SHOULD: with a run stamped ahead, slots it answered read as
+  missed while missedRuns claims none. Fixed: no missed rows are claimed then. NIT: a review with no name said
+  "undefined". Fixed. NIT: closing a task deletes its repeat, so the closed-task branch never runs in production; kept as
+  a guard (it agrees with missedRuns), its test documents that.
+
 ## Weakest premise
 That "review status" in the feedback means the miss review. If the agent meant a reviewer confirming each delivered run,
 that is a new mark and a product decision (a separate card).

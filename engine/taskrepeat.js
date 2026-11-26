@@ -490,13 +490,17 @@ function occurrences(t, rows, now = Date.now(), max = OCCURRENCES_MAX) {
     const bySlot = new Map();   // slot ms -> the first run that answered it
     const early = [];           // runs before the first slot (they answered none)
     const told = new Map();     // slot ms -> the latest miss record naming it
+    let skewed = false;         // review 5: a run stamped ahead was seen
     for (const r of rows) {
       if (!r || typeof r !== 'object') continue;
       const at = Date.parse(r.at || '');
       if (!Number.isFinite(at) || at < from) continue;
       if (r.kind === 'run') {
-        // Review 4: a run stamped more than a minute ahead (a clock stepped back) answers nothing, as dueSlot reads it.
-        if (at < floor || at > now + 60 * 1000) continue;
+        /* Review 4: a run stamped more than a minute ahead (a clock stepped back) answers nothing, as dueSlot reads it.
+           Review 5: and then no slot is claimed missed either, as missedRuns claims none: that run may have been the
+           very run a slot shows missed. */
+        if (at > now + 60 * 1000) { skewed = true; continue; }
+        if (at < floor) continue;
         const run = { at, person: flag(r.person), by: r.by ? String(r.by) : '' };
         const due = answeredSlot(rule, first, at);
         if (due === null) { early.push(run); continue; }
@@ -524,7 +528,7 @@ function occurrences(t, rows, now = Date.now(), max = OCCURRENCES_MAX) {
         // Review 3 NIT: late is computed from the slot (runIsLate's rule), so a record from before the late field reads right.
         out.push({ kind: 'delivered', due: iso(slot), at: iso(run.at), late: run.at - slot >= grace,
           ...(run.person ? { person: true } : (run.by ? { by: run.by } : {})), ...review });
-      } else if (slot + grace <= end) {
+      } else if (!skewed && slot + grace <= end) {
         out.push({ kind: 'missed', due: iso(slot), ...review });
       }
     }
@@ -545,8 +549,9 @@ function occurrenceWords(row, nameOf = (s) => s) {
   const name = (s) => { try { return String(nameOf(s) || s); } catch { return String(s); } };
   if (!row || typeof row !== 'object') return '';
   // What happened to its miss, only when a record names this slot (review 2).
-  const review = row.review === 'told' ? 'its reviewer ' + name(row.who) + ' was told it was missed'
-    : row.review === 'unreached' ? 'its reviewer ' + name(row.who) + ' could not be reached about the miss'
+  const rv = row.who ? 'its reviewer ' + name(row.who) : 'its reviewer';   // review 5: never "undefined"
+  const review = row.review === 'told' ? rv + ' was told it was missed'
+    : row.review === 'unreached' ? rv + ' could not be reached about the miss'
     : row.review === 'asked' ? 'the person was asked about the miss (Needs Your Decision)' : '';
   if (row.kind === 'delivered') {
     const who = row.person ? 'the person' : (row.by ? name(row.by) : 'someone');

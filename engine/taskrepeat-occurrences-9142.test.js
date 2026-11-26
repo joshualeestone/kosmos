@@ -115,6 +115,17 @@ test('review 4: a run stamped in the future answers nothing (as dueSlot reads it
   assert.ok(occurrences(task(), [{ at: iso(D(21, 12) + 30e3), kind: 'run', by: 'nova' }], D(21, 12)).some((r) => r.kind === 'delivered'));
 });
 
+test('review 5: with a run stamped ahead, no slot is claimed missed (missedRuns claims none either)', () => {
+  const t = { repeat: { every: 'hour' }, repeatSetAt: new Date(D(21, 8)).toISOString() };
+  const got = occurrences(t, [{ at: iso(D(21, 12)), kind: 'run', by: 'nova' }], D(21, 10, 30));
+  assert.ok(!got.some((r) => r.kind === 'missed'), JSON.stringify(got));
+});
+
+test('review 5: a review with no name never prints "undefined"', () => {
+  const { occurrenceWords } = require('./taskrepeat');
+  assert.equal(occurrenceWords({ kind: 'missed', review: 'told' }), 'missed; its reviewer was told it was missed');
+});
+
 test('review 4: a closed task stops at its close: no missed rows after it', () => {
   const t = task({ isClosed: true, closedAt: iso(D(21, 10)) });
   const got = occurrences(t, [{ at: iso(D(20, 9, 1)), kind: 'run', by: 'nova' }], D(25, 12));

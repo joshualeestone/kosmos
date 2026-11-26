@@ -75658,8 +75658,9 @@ function tkOccWhen(iso) {
 function tkOccWords(o) {
   const who = (s) => tskAgentName(s);
   // Review 2: what happened to the slot's miss, only when the board names a record for that slot.
-  const review = o.review === 'told' ? who(o.who) + ' was told it was missed'
-    : o.review === 'unreached' ? who(o.who) + ' could not be reached about the miss'
+  const rv = o.who ? who(o.who) : 'Its reviewer';   // review 5: never a missing subject
+  const review = o.review === 'told' ? rv + ' was told it was missed'
+    : o.review === 'unreached' ? rv + ' could not be reached about the miss'
     : o.review === 'asked' ? 'it waited for you in Needs Your Decision' : '';
   if (o.kind === 'delivered') {
     const by = o.person ? 'you' : (o.by ? who(o.by) : 'someone');
@@ -75859,6 +75860,8 @@ function openTaskPage(n) {
      cannot leave the previous task's events on screen. */
   const acts = document.getElementById('tk-activity');
   if (acts) { acts.innerHTML = ''; acts.tkDrawn = null; acts.tkMarked = null; acts.tkMarking = null; acts.tkRecorded = null; acts.tkReturnAt = 0; acts.tkDrawnSeq = (acts.tkSeq || 0) + 1; acts.tkOpen = {}; }   // #6951: a new open: nothing drawn or marked for it yet, and no earlier read or record speaks for it
+  // kosmos#9142 review 5: the previous task's runs go with its events, so a slow read cannot leave them under this one.
+  { const ob = document.getElementById('tk-occurrences'), ol = document.getElementById('tk-occ-list'); if (ob) ob.hidden = true; if (ol) { ol.textContent = ''; if (ol.dataset) { ol.dataset.drawn = ''; ol.dataset.task = ''; } } }
   const receipt = document.getElementById('tk-receipt');
   if (receipt) { receipt.hidden = true; receipt.innerHTML = ''; }
   const undoBox = document.getElementById('tk-undo');   // #5153 slice 4
