@@ -75648,7 +75648,7 @@ async function paintTaskReceipt(n) {
    that lands after the person has left the task cannot paint the wrong page. */
 /* kosmos#9142: a repeating task's recent runs and misses (the activity route's occurrences), one row each, newest first:
    when it was due, and either when it was delivered (on time or late, and by whom) or what happened to the miss (its
-   reviewer told, could not be reached, you asked, or not told yet). Text only (textContent), never markup from the board.
+   reviewer told, could not be reached, or you asked; only when a record names that slot). Text only (textContent), never markup from the board.
    Hidden when there are none, so a task that does not repeat shows nothing new. */
 function tkOccWhen(iso) {
   const t = new Date(iso);

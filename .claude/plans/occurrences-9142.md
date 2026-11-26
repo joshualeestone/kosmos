@@ -56,6 +56,14 @@ its review is still pending, and the page shows the two states apart. The ask wa
   one slot) are fixed by the same design (one row per slot, the first run). The CLIs no longer print the run's time
   twice for a run before the first slot.
 
+- Round 3: 0 BLOCKER, 2 SHOULD, 2 NIT.
+  - SHOULD: a run in the early window was hidden until its slot's time. Fixed: a slot a run answered shows at once.
+  - SHOULD: every run since the rule went through answeredSlot (102 ms for a year of 15-minute runs, on the 5-second
+    poll). Fixed: runs older than the oldest walked slot (less its early window) are skipped; they cannot reach the rows
+    shown. Tested against a plain scan timed side by side (not a fixed deadline): 1.3x with the floor, 30 to 39x without.
+  - NIT: late now computed from the slot (runIsLate's rule), so an old record without the field reads right. NIT: a stale
+    page comment. Both fixed.
+
 ## Weakest premise
 That "review status" in the feedback means the miss review. If the agent meant a reviewer confirming each delivered run,
 that is a new mark and a product decision (a separate card).

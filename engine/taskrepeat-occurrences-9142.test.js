@@ -81,6 +81,33 @@ test('a slot still inside its miss grace is not missed yet; rows before the rule
   assert.equal(occurrences(task(), [], D(30, 12)).length, 10);
 });
 
+test('review 3: a run in the early window shows at once, before its slot\'s time', () => {
+  const got = occurrences(task(), [{ at: iso(D(26, 8, 45)), kind: 'run', by: 'nova' }], D(26, 8, 50));
+  assert.equal(got[0].kind, 'delivered');
+  assert.equal(got[0].due, iso(D(26, 9)));
+  assert.equal(got[0].late, false);
+});
+
+test('review 3: late is computed from the slot, so a record without the late field still reads late', () => {
+  const got = occurrences(task(), [{ at: iso(D(22, 11)), kind: 'run', by: 'nova' }], D(22, 12));
+  assert.equal(got.find((r) => r.due === iso(D(22, 9))).late, true);
+});
+
+test('review 3: a long history gives the same rows, without a slot sum for every old run', () => {
+  const t = { repeat: { every: 'minutes', n: 15 }, repeatSetAt: new Date(D(1, 0) - 365 * 864e5).toISOString() };
+  const rows = [];
+  for (let at = Date.parse(t.repeatSetAt) + 15 * 60e3 + 60e3; at < D(26, 12); at += 15 * 60e3) rows.push({ at: iso(at), kind: 'run', by: 'nova' });
+  const recent = rows.slice(-12);
+  assert.ok(rows.length > 30000, 'the fixture is not long: ' + rows.length);
+  assert.deepEqual(occurrences(t, rows, D(26, 12)), occurrences(t, recent, D(26, 12)), 'old runs changed the rows shown');
+  /* Not a fixed deadline (a load assertion): the cost against a plain scan of the same rows, timed side by side, so load
+     moves both. Measured: 1.3x with the floor, about 30x without it. */
+  const time = (f) => { const a = process.hrtime.bigint(); for (let i = 0; i < 3; i += 1) f(); return Number(process.hrtime.bigint() - a); };
+  const scan = time(() => { let n = 0; for (const r of rows) if (Number.isFinite(Date.parse(r.at))) n += 1; return n; });
+  const occ = time(() => occurrences(t, rows, D(26, 12)));
+  assert.ok(occ / scan < 8, 'occurrences took ' + (occ / scan).toFixed(1) + 'x a plain scan of ' + rows.length + ' runs');
+});
+
 test('CONTROL: not a repeating task, or junk input, gives no rows and never throws', () => {
   assert.deepEqual(occurrences({}, [], Date.now()), []);
   assert.deepEqual(occurrences(task(), null), []);
