@@ -153,3 +153,9 @@ said "withdraws all" assuming one sender; per-file is the consistent reading.
   third agent's new file until a sender withdraws or the mark is cleared (rare; the refusal is honest).
   Measured after: 86/86 across the new files plus server.builtwaiting-8934 and tasks.filereplace-8307.
 
+
+## After review: the validation red (11-26 01:10)
+engine/windows-tests-1777.test.js: server.builtfiles-9105.test.js branches on a win32 host and nothing ran it on
+Windows. Decided: HOST_BRANCH_EXCLUDED with the reason (its only win32 branch skips the Mac CLI arms), the same as
+server.builtwaiting-8934. Rejected: ALSO_ROOT, which would run its route arms on the Windows job for the first time
+with no Windows machine here to see them pass first. Measured: windows-tests-1777 24/24; both browser-check gates pass.
