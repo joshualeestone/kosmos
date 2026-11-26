@@ -25998,12 +25998,28 @@ function updateNothingToLose() {
     typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
   if (busy.some(Boolean)) return false;
   const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
+  /* kosmos#9132: a map whose words are all kept in localStorage (keptDrafts) loses nothing on a reload, so only an
+     unkept one holds the restart. */
+  const keptMap = (m) => typeof draftsKept === 'function' && draftsKept(m);
   if ([typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS,
-    typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS].some(drafted)) return false;
+    typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS]
+    .some((m) => drafted(m) && !keptMap(m))) return false;
   for (const t of [...UPDATE_TYPED]) if (t.isConnected === false) UPDATE_TYPED.delete(t);   // a removed field holds nothing (and is let go)
   /* Still holding words, shown or not (round 5): a hidden box is not a saved one (New task keeps its
      words when closed, #766), so any typed box with words waits for the person's Reload. */
-  if ([...UPDATE_TYPED].some((t) => String(t.isContentEditable ? t.textContent : t.value || '').trim())) return false;
+  /* kosmos#9132: a chat or room box whose words are exactly its kept draft (they park on every keystroke) is not words
+     to lose: the draft comes back into it when that chat or room opens again. Any other box, or one that differs from
+     its kept draft, still holds the restart. */
+  const boxKept = (t) => {
+    const map = t.id === 'd-say' ? (typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS)
+      : t.id === 'd-term-say' ? (typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS)
+      : t.id === 'pj-say' ? (typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS)
+      : t.id === 'pj-post' ? (typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS) : null;
+    const key = (t.id === 'd-say' || t.id === 'd-term-say') ? (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName)
+      : (typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT);
+    return !!map && !!key && keptMap(map) && String(map[key] || '').trim() === String(t.value || '').trim();
+  };
+  if ([...UPDATE_TYPED].some((t) => String(t.isContentEditable ? t.textContent : t.value || '').trim() && !boxKept(t))) return false;
   const attached = typeof ATTACH_PENDING !== 'undefined' && ATTACH_PENDING;
   if (attached && Object.values(attached).some((m) => m && Object.values(m).some((v) => Array.isArray(v) ? v.length : !!v))) return false;
   if (typeof tipModalOpen === 'function' && tipModalOpen()) return false;
@@ -44901,13 +44917,59 @@ let TALK_SENDING = false;
 // Which agent the in-flight send belongs to. `TALK_SENDING` alone is a fact
 // about the page; the controls it disables belong to one agent.
 let TALK_FLIGHT = null;
+/* kosmos#9132: the four draft maps below (TALK_DRAFTS, TERM_DRAFTS, PJ_DRAFTS, PJ_ROOM_DRAFTS) are KEPT across a
+   reload. Each is the same plain map the page always used, wrapped so that every write or delete also writes that one
+   entry to localStorage ("kosmos.draft.<kind>.<agent or project>", {v, t}), and filled from it on load. Per entry, not
+   one blob, so two windows of the same board never overwrite each other's drafts. Entries older than 14 days are
+   dropped on load (an agent or project long gone). A write that fails (storage refused or full) marks the map as not
+   kept until that entry writes again, and then updateNothingToLose counts its words as words to lose, as before.
+   Why: a reload lost these words, so the Mac window refused to restart itself onto an update while any map held
+   some, and a window with one parked draft never updated (Josh's, 11-25: 13 versions behind). */
+const KEPT_DRAFT_DAYS = 14;
+const KEPT_DRAFT_UNSAVED = new WeakMap();   // a kept map -> the keys whose last write failed ('*' when it could not load)
+function keptDrafts(kind) {
+  const prefix = 'kosmos.draft.' + kind + '.';
+  const map = {};
+  const unsaved = new Set();
+  try {
+    const cutoff = Date.now() - KEPT_DRAFT_DAYS * 24 * 60 * 60 * 1000;
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (!k || k.indexOf(prefix) !== 0) continue;
+      let rec = null;
+      try { rec = JSON.parse(localStorage.getItem(k)); } catch { rec = null; }
+      if (rec && rec.v != null && typeof rec.t === 'number' && rec.t > cutoff) map[k.slice(prefix.length)] = rec.v;
+      else localStorage.removeItem(k);
+    }
+  } catch { unsaved.add('*'); }
+  const write = (key, v) => {
+    try {
+      const words = typeof v === 'string' ? v : (v && v.text) || '';
+      if (String(words).trim()) localStorage.setItem(prefix + key, JSON.stringify({ v, t: Date.now() }));
+      else localStorage.removeItem(prefix + key);
+      unsaved.delete(key);
+    } catch { unsaved.add(key); }
+  };
+  const kept = new Proxy(map, {
+    set(o, key, v) { o[key] = v; if (typeof key === 'string') write(key, v); return true; },
+    deleteProperty(o, key) { delete o[key]; if (typeof key === 'string') write(key, undefined); return true; },
+  });
+  KEPT_DRAFT_UNSAVED.set(kept, unsaved);
+  return kept;
+}
+/* True when every word in this map is in localStorage too, so a reload or restart loses none of it. A plain map (a
+   test's, or any map not made by keptDrafts) is never kept. */
+function draftsKept(m) {
+  const unsaved = m && typeof KEPT_DRAFT_UNSAVED !== 'undefined' && KEPT_DRAFT_UNSAVED.get(m);
+  return !!unsaved && unsaved.size === 0;
+}
 /**
  * ⚠️ THE DRAFT IS PARKED PER AGENT, like the room's `PJ_DRAFTS`. Without this,
  * opening the board and coming back destroyed whatever was half-typed — the
  * never-delete rule this branch holds on disk, broken in the one place the
  * words exist only in the DOM.
  */
-const TALK_DRAFTS = {};
+const TALK_DRAFTS = keptDrafts('talk');   // kosmos#9132: kept across a reload
 /**
  * The person's own message, drawn the moment they press Send, per agent.
  *
@@ -44924,7 +44986,7 @@ let TALK_SEND_GEN = 0;   // #4944: which send last said "Sending…", so an olde
 /* #967: the Terminal tab's respond-in-context box parks its draft per agent too,
    so switching agents never loses a half-typed reply and never carries it onto
    the next agent's window. Mirrors TALK_DRAFTS. */
-const TERM_DRAFTS = {};
+const TERM_DRAFTS = keptDrafts('term');   // kosmos#9132
 
 /**
  * One message the person sent, in the pack's bubble.
@@ -71551,7 +71613,7 @@ let PJ_READ_FAILED = false;
 // box and this map ever hold a draft; nothing is written to disk. Sites
 // that clear the box programmatically (a send that took the text) also
 // clear the entry, because a programmatic clear fires no input event.
-const PJ_DRAFTS = {};
+const PJ_DRAFTS = keptDrafts('pj');   // kosmos#9132
 // The last project opened, for openProject's same-project skip; survives
 // the Back button on purpose (round 36).
 let PJ_LAST_OPENED = null;
@@ -81390,7 +81452,7 @@ function openProject(id) {
    the receipt under a post names each recipient's real delivery state,
    built from the outcomes the engine returns -- a post to three that
    reaches two must never render as sent. */
-const PJ_ROOM_DRAFTS = {};
+const PJ_ROOM_DRAFTS = keptDrafts('room');   // kosmos#9132
 /* #3745: the post a reply is answering, one per project (like the drafts): { id, who, words }. */
 const PJ_REPLY = {};
 /* #3745: the room's posts by id, refreshed on every paint, so a reply's header can name the post it
