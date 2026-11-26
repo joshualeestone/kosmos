@@ -61,14 +61,14 @@ final class ShellState: ObservableObject {
     func loaded() { failure = nil; retrying = false; autoRetried = false }
 }
 
-// kosmos#9101: the board's own page ground (web/index.html --bg: #faf9f7 light, #1c1c1e in the dark scheme), painted
-// behind the web view, the tab bar and the Close bar so the space around a page is the page's colour, with no flash of
-// another while it loads. It was Kosmos navy (#17233D), which matched neither scheme; Josh, 11-25 16:49: no blue
-// background anywhere in the app. Navy remains only on the board's own Kosmos Plus section (body.plus-active).
+// kosmos#9101: the board's own page ground (web/index.html body's background, var(--k-bg): #faf9f7 light, #0c0d0f in
+// the dark scheme; the same values as Palette.ground), painted behind the web view, the tab bar and the Close bar so the
+// space around a page is the page's colour, with no flash of another while it loads. It was Kosmos navy (#17233D);
+// Josh, 11-25 16:49: no blue background anywhere in the app.
 extension UIColor {
     static let boardGround = UIColor { trait in
         trait.userInterfaceStyle == .dark
-            ? UIColor(red: 0x1C / 255.0, green: 0x1C / 255.0, blue: 0x1E / 255.0, alpha: 1)
+            ? UIColor(red: 0x0C / 255.0, green: 0x0D / 255.0, blue: 0x0F / 255.0, alpha: 1)
             : UIColor(red: 0xFA / 255.0, green: 0xF9 / 255.0, blue: 0xF7 / 255.0, alpha: 1)
     }
 }

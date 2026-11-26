@@ -195,7 +195,8 @@ test('#6846: the app header is scoped to the app (kapptabs) on a phone over Kosm
   const block = PAGE.slice(at);
   const end = block.indexOf('\n}\n');
   const inPhone = block.slice(0, end);
-  for (const rule of ['html.kremote.kapptabs .kplus-bar { height: 44px; min-height: 44px; }',
+  // kosmos#9101: the bar rule now also sets the page's ground and ink, so it is matched by its opening.
+  for (const rule of ['html.kremote.kapptabs .kplus-bar { height: 44px; min-height: 44px; background: var(--k-bg); color: var(--k-ink);',
     'html.kremote.kapptabs .kplus-bar-mark, html.kremote.kapptabs .kplus-bar-menu { display: none; }']) {
     assert.ok(inPhone.includes(rule), 'missing inside the phone block: ' + rule);
   }

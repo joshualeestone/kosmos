@@ -67,7 +67,7 @@ const look = (page) => page.evaluate(() => {
   const face = q('#kapp-me > img, #kapp-me > .youtint');
   return {
     pageW: Math.round(document.body.getBoundingClientRect().right),
-    bar: rect(q('#kplus-bar')), barBg: q('#kplus-bar') ? getComputedStyle(q('#kplus-bar')).backgroundColor : null,
+    bar: rect(q('#kplus-bar')), barBg: q('#kplus-bar') ? getComputedStyle(q('#kplus-bar')).backgroundColor : null, pageBg: getComputedStyle(document.body).backgroundColor,
     mark: vis(q('#kplus-bar canvas')), twoLines: vis(q('#kplus-menu')),
     tabs: vis(q('#tabs')), burger: vis(q('#burger')), klink: vis(q('#klink')),
     comp: vis(q('#kapp-comp')) ? rect(q('#kapp-comp')) : null, compName: q('#kapp-comp-name') ? q('#kapp-comp-name').textContent : null,
@@ -191,8 +191,8 @@ const teardownFails = [];
         {
           const { ctx, page } = await open('remote.test', theme, { computers: ONE });
           const l = await look(page);
-          chk(l.bar && l.bar.t === 0 && l.bar.h === 44 && l.bar.l === 0 && l.bar.r === l.pageW && l.barBg === NAVY,
-            T + 'H1 the app header is the navy bar, 44px, edge to edge at the top', JSON.stringify({ bar: l.bar, bg: l.barBg, pageW: l.pageW }));
+          chk(l.bar && l.bar.t === 0 && l.bar.h === 44 && l.bar.l === 0 && l.bar.r === l.pageW && l.barBg === l.pageBg && l.barBg !== NAVY,
+            T + 'H1 the app header is a 44px bar on the page\'s own ground (kosmos#9101: never navy), edge to edge at the top', JSON.stringify({ bar: l.bar, bg: l.barBg, page: l.pageBg, pageW: l.pageW }));
           chk(!l.mark && !l.twoLines && !l.tabs && !l.burger && !l.klink,
             T + 'H2 no Kosmos+ mark, no two lines, no tab strip, no menu button, no K mark', JSON.stringify({ mark: l.mark, two: l.twoLines, tabs: l.tabs, burger: l.burger, klink: l.klink }));
           chk(!l.comp && l.compName === 'studio-laptop', T + 'H3 one computer: nothing on the left (Josh #6396), though the header knows its name', JSON.stringify({ comp: l.comp, name: l.compName }));
