@@ -191,11 +191,10 @@ struct ChatView: View {
     @State private var keepAtEndTick = 0
     // Review 3: whether the end marker has ever shown (atBottom starts true, so it alone cannot say the reader got there).
     @State private var endSeen = false
-    /// kosmos#9089 review 1: every scroll that comes to rest (PersonScroll's rested: a person's own, and an animated one
-    /// such as a status-bar tap), and a sample walk's start, so the open's later looks stand down once anything has
-    /// scrolled: atBottom alone cannot say so while the end has never shown (endVisible keeps its starting true, and a
-    /// rest copies it). Round 3: if an animation rests during the open, the later looks stand down too (measured by the
-    /// with-fix arm passing).
+    /// kosmos#9089 review 1: the person's own scrolls (counted when personScrolling turns true: the interacting,
+    /// decelerating and tracking phases, never animating), and a sample walk's start, so the open's later looks stand
+    /// down once the person has moved: atBottom alone cannot say so while the end has never shown. Measured 11-26:
+    /// counting every REST instead silenced the looks (the list's own settling rests), and the with-fix arm failed 3/3.
     @State private var personMoves = 0
     // The conversation's items on screen now.
     @State private var onScreen: Set<String> = []
@@ -900,9 +899,12 @@ struct ChatView: View {
                 .accessibilityHidden(rebuildHiding)
                 .id(listEpoch)   // kosmos#7420: a new epoch is a new list (recoverEmpty's .rebuild)
                 .scrollDismissesKeyboard(.interactively)
+                // kosmos#9089 (measured 11-26: counting every rest silenced the open's looks, the list's own settling rests
+                // too): only a scroll in the person's phases (PersonScroll sets personScrolling for interacting,
+                // decelerating and tracking, never for animating) counts as their move.
+                .onChange(of: personScrolling) { now in if now { personMoves &+= 1 } }
                 .modifier(PersonScroll(scrolling: $personScrolling) {
                     // Their scroll has come to rest: they are at the newest message exactly when the end shows.
-                    personMoves &+= 1   // kosmos#9089
                     atBottom = endVisible
                     if endVisible { unseenNew = false }
                     Self.trace("person scroll rested, atBottom \(endVisible)")

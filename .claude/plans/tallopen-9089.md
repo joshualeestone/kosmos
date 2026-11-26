@@ -84,3 +84,14 @@ No BLOCKER; no code SHOULD-FIX. Converged on the code.
 - [NIT] not taken: CI's run sets no trace (a CI pass still means the newest is wholly on screen); no scenePhase check
   (a background scroll is harmless); an end marker's onAppear just below the box can make a look stand down early
   (not the measured case).
+
+#### Measured 11-26 05:1x, at 6d54df5ddb (iPhone 17, iOS 27, x3 each)
+
+- lazy WITH the fix: tall20 FAILED 3 of 3 (newest at 878-936 against a band ending 797: opened short, as the bug);
+  short20 passed 3 of 3.
+- lazy WITHOUT the fix: tall20 failed (the control behaves).
+- So the head's fix did not fire. Cause (from the code): round 1's personMoves counted every scroll REST
+  (PersonScroll's rested fires on any change to idle, including the list's own settling and animations), so the open's
+  first look already saw a "move" and every look stood down. Angel's original (no personMoves) passed 6 of 6.
+- Fix: personMoves now counts only when personScrolling turns true (the interacting, decelerating and tracking phases;
+  PersonScroll never sets it for animating), plus a sample walk's start. Re-measured below.
