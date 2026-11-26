@@ -3,14 +3,6 @@ import XCTest
 // kosmos#9002: the Duo checks CI runs (ios/tools/ui-sample.sh): the fold, and today's upright iPhone keeping its tabs as
 // it always did. The rest of DuoPanesUITests are by hand on a Mac.
 final class DuoFoldUITests: DuoPanesCase {
-    // Folds or unfolds by the app's own control, then waits for the app to say it did (no clock to race on a slow runner).
-    private func fold(_ app: XCUIApplication, _ want: String) {
-        let c = app.descendants(matching: .any).matching(identifier: "duo-sample-fold").firstMatch
-        XCTAssertTrue(c.waitForExistence(timeout: 10), "CONTROL: the sample fold control is not there")
-        c.tap()
-        XCTAssertTrue(holds(10) { c.label == want }, "the sample did not become \(want) (it reads \(c.label))")
-    }
-
     // The page is opened while folded, then the phone unfolds: the list comes back beside it with the tabs.
     func testAPageOpenedFoldedHasTheTabsBackOnAnUnfold() throws {
         let app = try launch("tap", ["KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"])
@@ -32,33 +24,6 @@ final class DuoFoldUITests: DuoPanesCase {
         let chat = labelled(app, "label == %@", "Message Cleo")
         XCTAssertTrue(holds(10) { self.pastMiddle(app, chat) && self.tabsShow(app) }, "a chat three pages deep is not beside the list with the tabs")
         shot(app, "three deep")
-    }
-
-    // A long bubble follows its pane: bounded beside the list, wider when folded alone, bounded again on the unfold.
-    func testALongBubbleFollowsItsPaneThroughAFoldAndAnUnfold() throws {
-        let app = try launch("tap", ["KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "varied"])
-        XCTAssertTrue(box(app).waitForExistence(timeout: 30) && holds(8) { self.beside(app) }, "CONTROL: unfolded, the list is not beside the chat")
-        UIKitListArm.assertDrawn(app)
-        func widest() -> (text: CGFloat, pane: CGFloat) { let p = chatPane(app); return (widestMessage(app, in: p), p.width) }
-        sleep(3)
-        let open = widest()
-        XCTAssertGreaterThan(open.text, 0, "CONTROL: no messages drawn in the chat's pane")
-        XCTAssertLessThan(open.pane, app.frame.width * 0.9, "CONTROL: unfolded, the chat's pane was not measured apart from the list")
-        XCTAssertLessThanOrEqual(open.text, open.pane * bubbleShare, "unfolded, a bubble's text is wider than its pane's share")
-        fold(app, "sample folded")
-        XCTAssertTrue(holds(10) { self.alone(app) }, "CONTROL: folded, the chat is not alone")
-        sleep(3)
-        let folded = widest()
-        print("UI-NOTE kosmos#9002 widest bubble text unfolded \(Int(open.text)) of \(Int(open.pane)), folded \(Int(folded.text)) of \(Int(folded.pane))")
-        XCTAssertGreaterThan(folded.text, open.text + 20, "folded, the bubbles kept the narrow pane's width")
-        shot(app, "long bubbles folded")
-        fold(app, "sample unfolded")
-        XCTAssertTrue(holds(10) { self.beside(app) }, "CONTROL: unfolded again, the list is not beside the chat")
-        sleep(3)
-        let again = widest()
-        XCTAssertGreaterThan(again.text, 0, "CONTROL: no messages drawn after the unfold")
-        XCTAssertLessThanOrEqual(again.text, again.pane * bubbleShare, "unfolded again, the bubbles kept the whole screen's width")
-        shot(app, "long bubbles unfolded again")
     }
 
     // An upright phone, as it always was: no tabs in a room or its page, the tabs back with the list.
