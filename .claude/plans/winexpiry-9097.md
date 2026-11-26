@@ -27,6 +27,18 @@ correction (17:21) and Homer's measurements (17:3x).
 - engine/claudeloginlive.js: the account row's live read runs on every platform. It passes the folder through, and
   readCredAsync picks the Keychain or the file by platform.
 
+- engine/status.js (review 1 BLOCKER): the login WARNING learns each agent's folder from tmux plus `ps eww`, neither
+  of which exists on Windows, and an agent whose folder is unknown is skipped on purpose. So on Windows it now takes
+  the folder from the agent's launch job instead (win32JobCcd): `configDir`, or null for a default-account agent. An
+  agent with no readable Claude job is still skipped. On macOS the job cannot be used (the #2129 class: the Keychain
+  entry's name depends on whether CLAUDE_CONFIG_DIR is set at all), but off macOS the credential is a file in the folder
+  itself, so the job's folder is the one read.
+- Review 1: with CLAUDE_CONFIG_DIR unset, the folder is `<os.homedir()>/.claude`, the folder Claude Code itself reads.
+  A sandboxed board sets its own HOME, so its default folder falls outside the real home and is refused, rather than
+  reading the operator's own file (as usagepoll's review 7).
+- A visible effect beyond the warning (review 1): once a Windows or Linux Claude row has a login date, ruling A's
+  green-from-login applies to it, as it already does on the Mac. The row can then read green from its login date.
+
 ## Not changed
 - engine/connect.js readRefreshExpiry, the proof that a Mac sign-in finished. It stays macOS-only: Windows sign-in
   completes through win32signin.js's own path, and changing that proof is outside this card.
@@ -41,11 +53,13 @@ correction (17:21) and Homer's measurements (17:3x).
 - The async reader reads the same file off macOS.
 - An advisory is built on Windows three days out. Control: the old behaviour (a reader that finds nothing) gives none,
   which is the 11-25 Windows board's empty list.
+- Review 1: the Windows warning, through computeLoginAdvisories with platform win32, names the default-account agent
+  and the agent on its own folder, and never the non-Claude one. Control: the pane reader Windows used before (which
+  finds no folder) gives no warning.
+- Review 1: a sandbox HOME is never read as the real default; control: HOME at the real home reads it.
 - No test calls the macOS reader for a real entry: on a Mac that would read the real Keychain.
 
 ## Weakest premise
-The warning (status.js computeLoginAdvisories) learns each agent's CLAUDE_CONFIG_DIR from its live process. Where
-Windows cannot read that, an agent counts as on the default account. On Homer's box every agent is on the default
-account, so the warning is right there. On a Windows PC with several Claude accounts, an agent's warning could name
-the default account's date. The account row (claudeloginlive) reads each account's own folder, so it is right either
-way.
+That a Windows agent's launch job names the folder its claude process really uses. Kosmos writes the job when it
+creates or moves the agent, and the job is what Windows starts the agent from, but nobody has compared it with a
+running process on Windows. An agent started by hand outside Kosmos has no job, and is skipped, not guessed.
