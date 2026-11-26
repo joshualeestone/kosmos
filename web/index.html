@@ -4722,6 +4722,11 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
 /* kosmos#4787 slice 2: a repeating task's line turns the error red while a run is missed (row and task page alike). */
 .tsk-row .why.tsk-repeat.missed, #tk-repeat-line.missed { color: var(--danger); }
+/* kosmos#9142: a repeating task's recent runs and misses; a missed or late one in the missed colour. */
+.tk-occ { margin: 8px 0 0; }
+.tk-occ-h { margin: 0; font-size: 12px; color: var(--muted); }
+.tk-occ-list { margin: 2px 0 0; padding-left: 18px; font-size: 13px; }
+.tk-occ-list li.tk-occ-off { color: var(--danger); }
 .why.tsk-landed-missing { color: var(--danger); }   /* kosmos#7508: a closed fix whose change cannot be found */
 .why.tsk-landed-local { color: var(--warn-ink); }   /* kosmos#7508: a closed fix that is only on this computer (Mona Lisa: amber, not red) */
 .tsk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 120px; }
@@ -75672,15 +75677,16 @@ function tkPaintOccurrences(occ) {
   const box = document.getElementById('tk-occurrences');
   const list = document.getElementById('tk-occ-list');
   if (!box || !list) return;
-  const rows = (Array.isArray(occ) ? occ : []).map(tkOccWords).filter(Boolean);
-  const key = rows.join('\n');
+  // Each row's words beside its own entry, so the missed or late mark stays on the right line.
+  const rows = (Array.isArray(occ) ? occ : []).map((o) => ({ o, w: o && typeof o === 'object' ? tkOccWords(o) : '' })).filter((r) => r.w);
+  const key = rows.map((r) => r.w).join('\n');
   if (list.dataset.drawn === key) { box.hidden = !rows.length; return; }
   list.dataset.drawn = key;
   list.textContent = '';
-  for (let i = 0; i < rows.length; i += 1) {
+  for (const r of rows) {
     const li = document.createElement('li');
-    li.textContent = rows[i];
-    if ((occ[i] || {}).kind === 'missed' || (occ[i] || {}).late) li.classList.add('tk-occ-off');
+    li.textContent = r.w;
+    if (r.o.kind === 'missed' || r.o.late === true) li.classList.add('tk-occ-off');
     list.appendChild(li);
   }
   box.hidden = !rows.length;
