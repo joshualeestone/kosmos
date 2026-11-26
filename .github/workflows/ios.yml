@@ -214,6 +214,13 @@ jobs:
           ios/LogicTests/run-orb.sh | tee "$RUNNER_TEMP/orb.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/orb.log"
 
+      # kosmos#9091: Hop, the one-tap game under the offline screen (its rules, HopLogic.swift).
+      - name: Hop logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-hop.sh | tee "$RUNNER_TEMP/hop.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/hop.log"
+
       # kosmos#7954: the board's Sweep loader (eight dots on a ring) on the first-connect wait, against the board's numbers.
       # kosmos#7945: it also checks the launch screen (the same ring) against the palette, that its PNGs are current, and
       # that the wait centres its ring on the screen where the launch screen draws it.
