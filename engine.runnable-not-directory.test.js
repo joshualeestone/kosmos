@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1592: `fs.accessSync(p, X_OK)` SUCCEEDS ON A DIRECTORY, so every hand-rolled
  * "is this runnable" check accepted a folder as an executable.

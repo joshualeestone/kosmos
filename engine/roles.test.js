@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 const test = require('node:test');
 // #4632: the ready-made roles are downloaded; sandbox the data root and store the signed fixture

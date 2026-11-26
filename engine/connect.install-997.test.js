@@ -24,6 +24,7 @@
  * `message`) is equally true of the failure shape. Cancellation is now driven
  * by a flag set when `got >= total`, which is chunk-count independent.
  */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const { test } = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #1556: A PROBE THAT DID NOT RUN IS NOT A PASS.

@@ -12,6 +12,7 @@
  * REINTRODUCED #1560 while the whole suite stayed green. These cells are what
  * caught it. They belong somewhere they will be run.
  */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

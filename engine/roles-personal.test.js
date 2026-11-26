@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * Josh, #chaoskosmos-design, 2026-08-25: "I think we could also have 3-4
  * like personal or family type roles to inject as well." Proposed four

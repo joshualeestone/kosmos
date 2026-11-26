@@ -27,3 +27,14 @@ Earlier single-site fixes: #8225, #7442, #6017, #9098.
 ## Measured
 - Guard green on the branch; control (guard over origin/main's test files) red with 1,116 files named, 1,114 + 2.
 - Sample: 25 random changed files, 307 tests, 0 fail.
+
+## Challenge round 1 (20:56): no blocker; fixed
+- SHOULD-FIX: 13 files made temp folders through helpers (mkTemp in test-support/tmpdir.js, catalogue-fixture), which
+  sweep on 'exit' only, so the guard (looking for tmpdir( in the file) could not see them. Fixed: the guard finds every
+  test-support helper whose source calls tmpdir(, counts a file that loads one as a user, and the 13 now require
+  tmpscope (123 tests pass). Reviewer measured mkTemp + SIGTERM leaving a folder, and none with tmpscope first.
+- SHOULD-FIX: a tmpscope mention in a comment counted as the require. Fixed: the require is matched in code only.
+- NIT fixed: `${os.tmpdir()}` in a template before the require is now seen (parens kept in blanked strings).
+- NIT left: supervisor.macrestart-8988.test.js socket path is about 99 of ~104 bytes under run-tests (reasoned, it
+  passes 14/14 alone). Left: the full validation measures it; if it fails there, exempt with reason.
+- NIT left: regex literals in codeOnly are not modelled (documented, no live instance).

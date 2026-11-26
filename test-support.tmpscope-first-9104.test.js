@@ -32,10 +32,22 @@ const EXEMPT = new Map([
 ]);
 const USES_TMPDIR = /\btmpdir\s*\(/;
 const BUILTIN = new Set(builtinModules);
+const HELPER_REQ = /require\(\s*(?:[\w.]+\s*\+\s*)?(['"])(?:\.\.?)?(?:\/\.\.)*\/?test-support\/([\w.-]+?)(?:\.js)?\1\s*\)/g;
 
-// The code before index `end`, with comments and string/template contents blanked, so a comment that names
-// tmpdir() or require() is not read as a call. Quotes inside a regex literal are not modelled; the prefix this reads
-// is a file's first few requires, where none appears.
+// The test-support helpers that make temp paths themselves (mkTemp in tmpdir.js, catalogue-fixture...). A file that
+// loads one makes temp folders without ever writing tmpdir(, and those helpers sweep on 'exit' only, which a SIGTERM
+// never reaches (measured in the #9104 review: mkTemp then SIGTERM left its folder; with tmpscope first, nothing).
+function tempHelpers() {
+  const dir = path.join(ROOT, 'test-support');
+  return new Set(fs.readdirSync(dir)
+    .filter((n) => n.endsWith('.js') && !/^tmpscope/.test(n) && USES_TMPDIR.test(fs.readFileSync(path.join(dir, n), 'utf8')))
+    .map((n) => n.replace(/\.js$/, '')));
+}
+
+// The code before index `end`, with comments removed and string/template contents reduced to the characters a
+// module spec or a call can hold, so a comment that names tmpdir() or require() is not read as a call, while
+// `${os.tmpdir()}` inside a template still is. Quotes inside a regex literal are not modelled: a file whose prefix
+// holds one may be misread (none does today).
 function codeOnly(t, end) {
   let out = '';
   let i = 0;
@@ -46,7 +58,7 @@ function codeOnly(t, end) {
     if (c === "'" || c === '"' || c === '`') {
       let j = i + 1;
       while (j < end && t[j] !== c) { if (t[j] === '\\') j++; j++; }
-      out += c + t.slice(i + 1, Math.min(j, end)).replace(/[^\n]/g, (ch) => (/[\w\-/.:@]/.test(ch) ? ch : ' ')) + c;
+      out += c + t.slice(i + 1, Math.min(j, end)).replace(/[^\n]/g, (ch) => (/[\w\-/.:@()]/.test(ch) ? ch : ' ')) + c;
       i = j + 1;
       continue;
     }
@@ -56,12 +68,16 @@ function codeOnly(t, end) {
   return out;
 }
 
-// Why the text fails the rule, or null when it passes (or does not use tmpdir at all).
-function check(text) {
-  if (!USES_TMPDIR.test(text)) return null;
-  const m = SCOPE.exec(text);
-  if (!m) return 'calls tmpdir() and never requires test-support/tmpscope';
-  const before = codeOnly(text, m.index);
+// Why the text fails the rule, or null when it passes (or makes no temp path). `helpers` is tempHelpers().
+function check(text, helpers = new Set()) {
+  const viaHelper = [...text.matchAll(HELPER_REQ)].some((r) => helpers.has(r[2]));
+  if (!USES_TMPDIR.test(text) && !viaHelper) return null;
+  // Matched in the code only, so a comment that mentions the require does not count as one.
+  const code = codeOnly(text, text.length);
+  const m = SCOPE.exec(code);
+  if (!m) return viaHelper ? 'loads a test-support helper that makes temp folders and never requires test-support/tmpscope'
+    : 'calls tmpdir() and never requires test-support/tmpscope';
+  const before = code.slice(0, m.index);
   if (USES_TMPDIR.test(before)) return 'calls tmpdir() before requiring tmpscope';
   const reqs = before.matchAll(/\brequire\s*\(\s*(['"`])([^'"`]*)\1\s*\)/g);
   for (const r of reqs) {
@@ -97,18 +113,30 @@ test('controls: the check can return each failing answer, and passes the shapes 
   assert.equal(check(`const test = require('node:test');\n${S}\n${T};\n`), null);
   assert.equal(check(`const R = __dirname;\nrequire(R + '/test-support/tmpscope');\n${T};\n`), null);
   assert.match(check(`require('./test-support/tmpscopes');\n${T};\n`), /never requires/);
+  // A mention in a comment is not the require (#9104 review).
+  assert.match(check(`// new files: require('./test-support/tmpscope') first\n${T};\n`), /never requires/);
+  // A call inside a template literal is still a call.
+  assert.match(check('const d = `${' + T + '}/x`;\n' + S + '\n'), /before requiring/);
+  // A helper that makes temp folders counts as a use, and only one that does.
+  const H = new Set(['tmpdir']);
+  assert.match(check(`const { mkTemp } = require('../test-support/tmpdir');\n`, H), /loads a test-support helper/);
+  assert.equal(check(`require('../test-support/tmpscope');\nconst { mkTemp } = require('../test-support/tmpdir');\n`, H), null);
+  assert.equal(check(`const x = require('./test-support/plain');\n`, H), null);
 });
 
 test('every suite test file that calls tmpdir() requires tmpscope first (#9104)', () => {
   const files = suiteFiles();
   // A listing that found nothing would pass every file (bulletin a-test-nothing-runs-is-an-unarmed-guard).
   assert.ok(files.length > 1000, `listed only ${files.length} test files`);
+  const helpers = tempHelpers();
+  // The two the review found; if either stops making temp paths, this guard's helper arm has lost its examples.
+  assert.ok(helpers.has('tmpdir') && helpers.has('catalogue-fixture'), `temp helpers found: ${[...helpers].join(', ')}`);
   let users = 0;
   const bad = [];
   for (const f of files) {
     const text = fs.readFileSync(path.join(ROOT, f), 'utf8');
     if (USES_TMPDIR.test(text)) users++;
-    const why = EXEMPT.has(f) ? null : check(text);
+    const why = EXEMPT.has(f) ? null : check(text, helpers);
     if (why) bad.push(`${f}: ${why}`);
   }
   for (const f of EXEMPT.keys()) assert.ok(files.includes(f), `exempt file ${f} no longer exists: drop it from EXEMPT`);

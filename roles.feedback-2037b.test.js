@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#2037 slice 2b: the standing daily product-feedback instruction. The PM
  * role's starting instructions tell the agent to answer, once a day, three
