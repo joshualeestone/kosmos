@@ -1607,6 +1607,14 @@ for _i in $(seq 1 100); do echo "E kpadb$_i 1" >> "$MB/beside-runs.log"; done
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end keep-trim
 { grep -q "^S keep $((now9139 - 500)) new" "$MB/beside-runs.log" && grep -q "^E keep $((now9139 - 100))$" "$MB/beside-runs.log" && ! grep -q "^S keep $((now9139 - 900))" "$MB/beside-runs.log" && ! grep -q '^E keep 99999' "$MB/beside-runs.log"; } \
   && pass "#9139 the trim keeps an id's newest start and largest end, never a future-dated line" || fail "#9139 the trim kept the wrong partners: $(grep '^[SE] keep ' "$MB/beside-runs.log" | tr '\n' '|')"
+# #9139 follow-up (CI 11-26 16:4x, Ubuntu: the log cut to 188 lines): a trim whose result is short (two trims at once
+# wrote one shared temp file) is NOT installed. Played by an awk stand-in that answers the trim with 10 lines only.
+: > "$MB/beside-runs.log"; for _i in $(seq 1 520); do echo "E short$_i 1" >> "$MB/beside-runs.log"; done
+mkdir -p "$MB/awkbin"; RA=$(command -v awk); printf '%s\n' '#!/bin/sh' 'case "$*" in *keep=400*) i=0; while [ $i -lt 10 ]; do echo "E bogus$i 1"; i=$((i+1)); done; exit 0 ;; esac' "exec '$RA' \"\$@\"" > "$MB/awkbin/awk"; chmod +x "$MB/awkbin/awk"
+PATH="$MB/awkbin:$PATH" KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end short-trim
+ns9139="$(wc -l < "$MB/beside-runs.log" | tr -d ' ')"; rm -rf "$MB/awkbin"
+{ [ "$ns9139" -ge 520 ] && ! grep -q '^E bogus' "$MB/beside-runs.log" && [ -z "$(ls "$MB" | grep '\.trim\.')" ]; } \
+  && pass "#9139 a trim whose result is short is not installed, and leaves no temp file ($ns9139 lines kept)" || fail "#9139 a short trim was installed or left behind ($ns9139 lines)"
 # Review 1 (besidefix): a pending line is read while the log does not exist yet.
 rm -f "$MB/beside-runs.log" "$MB"/beside-runs.log.pending.*; printf 'S p9 %s only-pending\n' "$now9139" > "$MB/beside-runs.log.pending.test2"
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0 | grep -qF "only-pending (p9)" && pass "#9139 a pending line is named while the log does not exist yet" || fail "#9139 a pending line with no log was not named"

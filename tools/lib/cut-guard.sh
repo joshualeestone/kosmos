@@ -1878,12 +1878,19 @@ kosmos_note_beside_run() {
     # only that id's newest start and largest end are kept from before the cut (every line of a repeated id grew the
     # log without limit), and an empty id is never a partner.
     # Review 5: a line the reader skips (not a number, or more than a day ahead) is never chosen as a partner here.
+    # #9139 follow-up (CI, 11-26 16:4x CST, Ubuntu: 188 lines left, all of them writers'): the temp file was named
+    # "$f.tmp.$$", and $$ is the PARENT's pid in a ( ) & subshell, so writers shared one name and two trims at once (a
+    # stale-lock break under load) wrote it together. It is a mktemp name now, and a trim installs its result only if it
+    # kept at least the 400 lines a trim past 500 always keeps (a short file means the trim went wrong: keep the log).
+    local tf; tf="$(mktemp "$f.trim.XXXXXXXX" 2>/dev/null)" || tf="$f.trim.$$.$RANDOM"
     { awk -v keep=400 -v now="$now" 'NR == FNR { n = FNR; ln[FNR] = $2; ok = ($3 ~ /^[0-9]+$/ && $3 + 0 <= now + 86400)
            if (ok && $1 == "S" && (!($2 in bs) || $3 + 0 >= bsv[$2])) { bs[$2] = FNR; bsv[$2] = $3 + 0 }
            if (ok && $1 == "E" && (!($2 in be) || $3 + 0 > bev[$2])) { be[$2] = FNR; bev[$2] = $3 + 0 }
            next }
          FNR == 1 { for (i = n - keep + 1; i <= n; i++) if (i > 0 && ln[i] != "") ids[ln[i]] = 1 }
-         FNR > n - keep || (($2 in ids) && (FNR == bs[$2] || FNR == be[$2])) { print }' "$f" "$f" > "$f.tmp.$$"; } 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null || true
+         FNR > n - keep || (($2 in ids) && (FNR == bs[$2] || FNR == be[$2])) { print }' "$f" "$f" > "$tf"; } 2>/dev/null \
+      && [ "$(wc -l < "$tf" 2>/dev/null | tr -d ' ')" -ge 400 ] 2>/dev/null && mv -f "$tf" "$f" 2>/dev/null
+    rm -f "$tf" 2>/dev/null || true
   fi
   if [ "$got" = 1 ]; then rmdir "$l" 2>/dev/null || true; fi
   return 0
