@@ -4128,6 +4128,12 @@ function blockRules(sessionName, cliShown) {
       /* kosmos#8395: an answer suggested beside the question lets the person answer in a word. */
       'If you know the answer you would give, add it: `--suggest "<your answer>"`. It shows beside your question, so they',
       'can answer in a word.',
+      /* kosmos#9096 item 3 (an agent's feedback, 11-25): a delivery test or a "thanks, nothing needed" note arrived with
+         the usual answer command, which costs a round trip. --no-reply exists on both (#2908, #7893) and is never
+         inferred from the words, so the sender is taught it where it writes the closing note. */
+      'When a post or message only closes a thread or tests delivery (thanks, nothing needed), put --no-reply first:',
+      `\`${cliShown} post --no-reply <project-id> ...\` or \`${cliShown} msg --no-reply <agent> ...\`. It arrives marked no reply`,
+      'requested, so nobody is asked to answer it.',
       /* #5300: every member showed its agent's one role (five Project Managers on one project). */
       '',
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
