@@ -95,7 +95,7 @@ function sandboxCred(service) {
  * the real home is never read: a sandboxed board's folders are not the operator's. null for any doubt. */
 function realHome() { try { return os.userInfo().homedir; } catch { return null; } }
 function credFileFor(ccd, home = realHome(), userHome = os.homedir()) {
-  if (!home) return null;
+  if (!home) return refused('nohome');
   const v = ccd == null ? '' : String(ccd).replace(/[\r\n]+$/, '');
   /* Unset: the folder Claude Code itself reads, under the process's home (os.homedir: HOME on macOS and Linux,
      USERPROFILE on Windows), not the real home. A sandbox that moves that home falls outside the real one and is refused
@@ -103,8 +103,27 @@ function credFileFor(ccd, home = realHome(), userHome = os.homedir()) {
   const dir = path.resolve(v === '' ? path.join(userHome || home, '.claude') : v);
   // The check is by path, not by link: a symlink under the home that points outside is still read, as in usagepoll.
   const rel = path.relative(home, dir);
-  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return refused('outside');
   return path.join(dir, '.credentials.json');
+}
+
+/* kosmos#9107 item 1: off macOS each kind of refusal says once per board run why no login warning shows. Words only:
+ * never a path (it can name the user) and never a credential. Under `node --test` nothing is said unless a test sets the
+ * log (_setRefusalLogForTests), and the test-runner refusal in credPathOf below has no line at all. */
+const REFUSAL_WORDS = {
+  account: 'a Claude account with its own name but no config folder is not read off macOS (it would read the default account\'s file), so it shows no login expiry warning',
+  sandbox: 'this board is sandboxed, so it reads no Claude login file and shows no login expiry warning',
+  nohome: 'this user\'s home folder could not be read, so no Claude login file is read and no login expiry warning shows',
+  outside: 'a Claude config folder outside this user\'s home is not read, so its login shows no expiry warning',
+};
+const refusalsSaid = new Set();
+let refusalLog = process.env.NODE_TEST_CONTEXT ? () => {} : (line) => console.error(line);
+function refused(kind) {
+  if (!refusalsSaid.has(kind)) {
+    refusalsSaid.add(kind);
+    try { refusalLog('loginexpiry: ' + REFUSAL_WORDS[kind]); } catch { /* never breaks a read */ }
+  }
+  return null;
 }
 
 /* The two homes, for tests: an injected real home stands for HOME too unless HOME is given apart. */
@@ -112,11 +131,11 @@ function credPathOf(ccd, home, userHome, service) {
   /* Review 3: off macOS the file is chosen by the folder alone. A caller that names a non-default credential but no
      folder would otherwise read the DEFAULT account's file, a wrong-account answer. It reads nothing instead. */
   const unset = ccd == null || String(ccd).replace(/[\r\n]+$/, '') === '';
-  if (unset && service !== undefined && service !== DEFAULT_SERVICE) return null;
+  if (unset && service !== undefined && service !== DEFAULT_SERVICE) return refused('account');
   /* Review 5 and 6: a sandboxed board (AGENT_WORKFORCE_HOME is a sandbox) reads no credential file off macOS: neither
      the default account's (HOME alone does not show a sandbox on Windows, where os.homedir() reads USERPROFILE) nor one
      a job names under the real home. Only when no home is injected (production): tests inject their own. */
-  if (home === undefined && inSandboxHome()) return null;   // review 6: any folder, not only the unset one
+  if (home === undefined && inSandboxHome()) return refused('sandbox');   // review 6: any folder, not only the unset one
   /* Review 6: inside `node --test`, a read with no injected home reads nothing (the rule claudeloginlive.liveReadAllowed
      holds for the row), so no test off macOS depends on the runner's own login file. */
   if (home === undefined && process.env.NODE_TEST_CONTEXT) return null;
@@ -125,16 +144,39 @@ function credPathOf(ccd, home, userHome, service) {
   return credFileFor(ccd, real, user);
 }
 
+/* kosmos#9107 item 4: off macOS the file can sit on a home that stalls (a network share), and readCredDefault runs inside
+ * the snapshot on the board's only thread. So it answers with what a background read last found and starts the next
+ * one: null the first time for a file, and a read that never returns holds back only that file's next read. A changed
+ * body calls loginChanged(), so the advisories recompute without waiting out their cache. */
+const FILE_REREAD_MS = 60 * 1000;
+const fileReads = new Map();   // file -> { body, at, reading }
+function fileBodyNow(f, now = Date.now()) {
+  let r = fileReads.get(f);
+  if (!r) { r = { body: null, at: -Infinity, reading: false }; fileReads.set(f, r); }
+  if (!r.reading && now - r.at >= FILE_REREAD_MS) {
+    r.reading = true;
+    try {
+      fs.readFile(f, 'utf8', (err, body) => {
+        const next = err ? null : body;
+        const changed = next !== r.body;
+        r.body = next; r.at = Date.now(); r.reading = false;
+        if (changed) loginChanged();
+      });
+    } catch { r.reading = false; r.at = now; }
+  }
+  return r.body;
+}
+
 /* Default credential reader. macOS: the Keychain entry `service`. Elsewhere (kosmos#9097): the credentials file of the
  * folder `ccd` names. Returns the raw body (JSON string) or null. NEVER logs it; stderr is discarded so a "not found"
  * is a quiet null. */
-function readCredDefault(service, ccd, { platform = process.platform, home, userHome } = {}) {
+function readCredDefault(service, ccd, { platform = process.platform, home, userHome, readNow = fileBodyNow } = {}) {
   const sandbox = sandboxCred(service);
   if (sandbox !== undefined) return sandbox;
   if (platform !== 'darwin') {
     const f = credPathOf(ccd, home, userHome, service);
     if (!f) return null;
-    try { return fs.readFileSync(f, 'utf8'); } catch { return null; }
+    try { return readNow(f); } catch { return null; }
   }
   try {
     // 🛑 timeout is load-bearing, not tidiness. `security find-generic-password` can raise a
@@ -314,5 +356,7 @@ function loginGeneration() { return loginGen; }
 module.exports = {
   serviceNameFor, refreshExpiryFor, loginTimesFor, readCredAsync, readCredDefault, advisoriesFor, severityFor, ccdFromPsEnv, agentAdvisories,
   cachedAdvisories, loginChanged, loginGeneration, DEFAULT_SERVICE, DAY_MS, URGENT_DAYS, WARN_DAYS, WARN_WITHIN_DAYS,
-  daysLeftOf, daysLeftInWindow,
+  daysLeftOf, daysLeftInWindow, fileBodyNow, FILE_REREAD_MS, REFUSAL_WORDS,
+  _setRefusalLogForTests: (fn) => { refusalLog = fn; },
+  _resetForTests: () => { refusalsSaid.clear(); fileReads.clear(); },
 };
