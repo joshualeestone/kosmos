@@ -6,8 +6,13 @@
  * field-level (red border + message beside the field + focus), not as small text
  * far below the submit button (Josh's review; same structural defect as #1303 G,
  * one form along). Drives the SHIPPED pjFieldBad/pjFieldOk helper and the real
- * #pj-create empty-name gate against the real page (file://, no board needed:
- * the paths asserted are all client-side).
+ * #pj-create empty-name gate against the real page, served by a real board on a sandboxed
+ * home (#9158). It used to open web/index.html as file://, with no board; the page's own
+ * start-up fetches then fail as CORS refusals, and once the board added more of them the
+ * console guard below read every one as a FAIL, so the check was red on main and nothing ran it.
+ * With a board those fetches answer, so the guard keeps its full meaning: ANY console error fails.
+ * G0 plants one console error on every run and requires the guard to catch it, so a guard that
+ * stopped listening would fail here rather than pass quietly.
  *
  * Controls that can return the dangerous answer: the red border is read from
  * getComputedStyle (not the class alone), so the broadened `.frow input.bad`
@@ -16,11 +21,28 @@
  * stuck red border would fail. Both themes.
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-inline-field-errors-2606.js
- *      (HEADED=0 on a machine with no console session)
+ *      (HEADED=0 on a machine with no console session). tools/browser-checks.sh runs it (gated.txt).
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-ferr-'));
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-ferr-workers-'));
+process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-ferr-projects-'));
+process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-ferr-launch-'));
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-ferr-config-'));
+process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
+const SANDBOXES = [SANDBOX, process.env.AGENT_WORKFORCE_WORKERS, process.env.AGENT_WORKFORCE_PROJECTS,
+  process.env.AGENT_WORKFORCE_LAUNCH, process.env.AGENT_WORKFORCE_CONFIG_ROOT];
+
 const { chromium } = require('playwright');
-const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
+const fleet = require('../../test-support/fleet');
+const srv = require('../../server.js');
+fleet.install([]); // no agents: the board reads an empty fleet, never the host's tmux (without it /api/status answers 500)
 
 const problems = [];
 let pass = 0;
@@ -31,26 +53,40 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
 // not by a value that a theme edit could silently drift.
 function isColored(c) { return /^rgb/.test(c || '') && !/rgba\(0,\s*0,\s*0,\s*0\)/.test(c); }
 
+const PLANTED = 'kosmos-9158-planted-console-error';
+
 (async () => {
+  const server = await srv.start(0);
+  const URL = 'http://127.0.0.1:' + server.address().port;
   const browser = await chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] });
+  try {
   for (const theme of ['light', 'dark']) {
     const page = await browser.newPage({ viewport: { width: 1200, height: 900 }, colorScheme: theme });
     page.on('pageerror', (e) => problems.push(`[${theme}] pageerror: ${e.message}`));
-    // file:// fires startup polls that cannot load; stop the 5s poll and ignore the
-    // harness's own file:// fetch errors, so a genuine console error still surfaces.
+    // Stop the board's repeating polls, so nothing repaints the forms while they are read.
     await page.addInitScript(() => { window.setInterval = () => 0; });
+    // Every console error is a FAIL (no exemptions: the page is served by a real board). The one
+    // planted by G0 is counted, not failed, so G0 can prove this listener still hears errors.
+    let planted = 0;
     page.on('console', (m) => {
       if (m.type() !== 'error') return;
       const x = m.text();
-      if (/ERR_FILE_NOT_FOUND|URL scheme "file"|Failed to (fetch|load)/.test(x)) return;
+      if (x === PLANTED) { planted += 1; return; }
       problems.push(`[${theme}] console: ${x}`);
     });
-    await page.goto(PAGE);
+    await page.goto(URL, { waitUntil: 'networkidle' });
     const t = `[${theme}]`;
+    // A new board opens its first-run guide, and the guide holds focus while it is open, so it is closed the way a
+    // person closes it (Escape). Hiding it from script, as the file:// version did, leaves its focus where it was.
+    if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+    ok(`${t} the first-run guide is closed before the forms are read`, !(await page.$('#firstrun:not([hidden])')));
+    await page.evaluate((s) => console.error(s), PLANTED);
+    await page.waitForTimeout(200);
+    ok(`${t} G0 the console guard hears a console error (a planted one, counted not failed)`, planted === 1, `planted seen ${planted}`);
 
     // ---- Create an Agent: the field-level error mechanism renders ----
-    // The NAME error's real trigger is a server refusal (result.field === 'name'), so on
-    // file:// we drive the SHIPPED helper the handler calls, and read the field back. This
+    // The NAME error's real trigger is a server refusal (result.field === 'name'), which this
+    // empty board never sends, so we drive the SHIPPED helper the handler calls, and read the field back. This
     // proves the slot exists, the message lands beside the field, the input is flagged +
     // focused, and the broadened .frow input.bad selector actually paints a red border.
     const agent = await page.evaluate(() => {
@@ -100,8 +136,8 @@ function isColored(c) { return /^rgb/.test(c || '') && !/rgba\(0,\s*0,\s*0,\s*0\
 
     // ---- Create a Project: the REAL empty-name gate, driven by clicking Create project ----
     // This is the full handler path (not just the helper): the empty-name pre-check is the
-    // first gate in #pj-create after the resets, before any round trip, so it is deterministic
-    // on file://.
+    // first gate in #pj-create after the resets, before any round trip, so it does not depend
+    // on what the board answers.
     const project = await page.evaluate(() => {
       const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
       const pp = document.getElementById('panel-projects'); if (pp) pp.hidden = false;
@@ -129,7 +165,11 @@ function isColored(c) { return /^rgb/.test(c || '') && !/rgba\(0,\s*0,\s*0,\s*0\
 
     await page.close();
   }
-  await browser.close();
+  } finally {
+    await browser.close();
+    server.close();
+    for (const d of SANDBOXES) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  }
   console.log(`${pass} passed, ${problems.length} failed`);
   problems.forEach((p) => console.log('  FAIL ' + p));
   process.exit(problems.length ? 1 : 0);
