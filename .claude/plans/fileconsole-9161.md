@@ -60,3 +60,14 @@ fix; it cannot go silently green, because an unknown wording is a FAIL.
   line, as browser-checks-indexed.test.js); both files 8/8. Back into the loop for another round, then validate again.
 - Behaviour after the change, measured on 436c7977c6 (one queued turn, ended 17:18): all 17 checks headless rc 0 and
   headed rc 0, 0 CORS lines and 0 FAIL lines each (before: 14 red headed).
+- Round 3 (opus): 0 BLOCKER, 2 WARNING, 0 CONVENTION, 4 NIT.
+  - WARNING (SELF, prose): the README section claimed "this one pattern knows both" while four checks keep their own
+    filters. Fixed by deleting the claim; the section now says only what the module does.
+  - WARNING: the old-copy sweep matched one exact line (round 2 raised it as a NIT; now re-raised, and right). Fixed:
+    the sweep flags ANY file with `URL scheme "file"` outside a named list of holders (the module, the three green
+    variants, computers-4648, 2606 until #9164), with a positive control that it finds the module. Control: a
+    respelled copy (`/URL scheme "file"|ERR_FILE_NOT_FOUND/.test(m.text())`) planted in pjadd-back-2850 turns it red,
+    naming the file.
+  - NITs taken: the tmpscope comment claimed temp dirs this file does not make; a garbled test name.
+  - NITs not taken: computers-4648's HARNESS keeps its dead "only supported for HTTP" arm (its pageerror path, not
+    this card); WIRED is a hand list (the sweep is the class guard).

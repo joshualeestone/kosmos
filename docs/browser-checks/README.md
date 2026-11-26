@@ -895,8 +895,8 @@ it. `tools.browser-checks-home-3675.test.js` fails if a board-booting check skip
 
 **`isFilePageNoise(text)` says whether a console line is a file:// check's own start-up fetch noise (#9161).** A check
 that opens `web/index.html` as `file://` has no board, so the page's fetches to `/api/...` are refused, and Chromium
-logs each refusal. Headless and headed Chrome word it differently; this one pattern knows both, and its CORS arm needs a
-`file:///` URL and origin `'null'`, so a refusal of a real `http(s)` request still fails the check. Use it in the
+logs each refusal. Its CORS arm needs a `file:///` URL and origin `'null'`, so a refusal of a real `http(s)` request still
+fails the check. Use it in the
 check's console handler: `if (isFilePageNoise(x)) return;`. Its unit test is `browser-checks-file-console-9161.test.js`.
 
 ### `lib-close-quietly.js` is a library, not a check
