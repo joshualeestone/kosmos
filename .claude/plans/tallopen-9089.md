@@ -95,3 +95,6 @@ No BLOCKER; no code SHOULD-FIX. Converged on the code.
   first look already saw a "move" and every look stood down. Angel's original (no personMoves) passed 6 of 6.
 - Fix: personMoves now counts only when personScrolling turns true (the interacting, decelerating and tracking phases;
   PersonScroll never sets it for animating), plus a sample walk's start. Re-measured below.
+- Re-measured 11-26 07:20 at 23573eefcf: lazy WITH the fix, tall20 PASSED 3 of 3 (newest 666-724, inside the band
+  116-797, first and second open), short20 passed 3 of 3. With the 05:1x lazy WITHOUT the fix (failed 3 of 3, its path
+  unchanged since) and UIKit (6 of 6), the pass is shown to come from the fix. Posted on #9089 (comment 7193292665).
