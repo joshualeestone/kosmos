@@ -101,6 +101,11 @@ classes="$classes GlobalSkillsUITests:1"
 # kosmos#8959 slice D1b2: AIPoliciesUITests, Settings' AI policies row opening the native list, the confirm before a policy
 #   is handed out, and Remove asking once (1 check; lazy arm only). Its own line, as above.
 classes="$classes AIPoliciesUITests:1"
+# kosmos#9089: ChatTallOpenUITests, a short chat of tall replies (20 messages) opens on its newest, first time and on
+#   coming back, with the one-liner chat as its control (2 checks). This lazy-arm run only: the lazy list is the one that
+#   opened above the newest (3 of 3 before the fix), the UIKit list already passed. 20 messages, so not the 260-message
+#   chat's query limit that keeps ChatOpensAtNewestUITests by hand. Its own line, as above.
+classes="$classes ChatTallOpenUITests:2"
 skip=""
 arm="lazy"
 if [ "$uikit" = 1 ]; then
