@@ -191,6 +191,11 @@ struct ChatView: View {
     @State private var keepAtEndTick = 0
     // Review 3: whether the end marker has ever shown (atBottom starts true, so it alone cannot say the reader got there).
     @State private var endSeen = false
+    /// kosmos#9089 review 1: the person's own scrolls (counted when personScrolling turns true: the interacting,
+    /// decelerating and tracking phases, never animating), and a sample walk's start, so the open's later looks stand
+    /// down once the person has moved: atBottom alone cannot say so while the end has never shown. Measured 11-26:
+    /// counting every REST instead silenced the looks (the list's own settling rests), and the with-fix arm failed 3/3.
+    @State private var personMoves = 0
     // The conversation's items on screen now.
     @State private var onScreen: Set<String> = []
     // kosmos#7420 diagnostic: the list's size, the keyboard's height, the stack's width, and the report once one is made.
@@ -894,6 +899,10 @@ struct ChatView: View {
                 .accessibilityHidden(rebuildHiding)
                 .id(listEpoch)   // kosmos#7420: a new epoch is a new list (recoverEmpty's .rebuild)
                 .scrollDismissesKeyboard(.interactively)
+                // kosmos#9089 (measured 11-26: counting every rest silenced the open's looks, the list's own settling rests
+                // too): only a scroll in the person's phases (PersonScroll sets personScrolling for interacting,
+                // decelerating and tracking, never for animating) counts as their move.
+                .onChange(of: personScrolling) { now in if now { personMoves &+= 1 } }
                 .modifier(PersonScroll(scrolling: $personScrolling) {
                     // Their scroll has come to rest: they are at the newest message exactly when the end shows.
                     atBottom = endVisible
@@ -955,6 +964,7 @@ struct ChatView: View {
                     let firstEager = Board.eagerStart(items, from: nil, eager: Self.eagerTail)
                     if eagerFrom == nil, firstEager < items.count { eagerFrom = items[firstEager].id }
                     goNewest(proxy)
+                    landOnNewest(proxy)   // kosmos#9089
                     #if DEBUG
                     // Screenshots and checks only: KOSMOS_SAMPLE_SCROLLTOP=1 scrolls to the top 3 s after opening, as a
                     // person would (nothing in the simulator can scroll here).
@@ -1156,6 +1166,7 @@ struct ChatView: View {
                     let walking = phase == "start"
                     guard visible || !walking else { return }
                     personScrolling = walking
+                    if walking { personMoves &+= 1 }   // kosmos#9089
                     // A scroll by code leaves the id anchor naming "end", and SwiftUI puts the list back there on its next
                     // update (measured: from 5166 to 28435 on the poll); a finger's scroll moves the anchor, so let it go.
                     if personScrolling { atBottom = false; positionId = nil; anchorLetGo = true; rowTops.walkTaken = true }
@@ -1243,6 +1254,35 @@ struct ChatView: View {
             return
         }
         if animated { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { proxy.scrollTo("end", anchor: .bottom) }
+    }
+
+    // kosmos#9089 (measured 11-25, iOS 27, the lazy list): a chat of tall replies can open short of its end. The id anchor goes
+    // to the end marker over rows whose heights are still estimates, and when the tall rows are measured the end is pushed
+    // below the box (20 messages, 3 of 3; the same 20 as one-liners, 0 of 3; the UIKit list, 0 of 3). So the open looks
+    // again a few times: while the end is not on screen (never shown, or shown then pushed down as rows were measured: round
+    // 2), the person has not scrolled since the open (personMoves), nothing
+    // is under a finger or moving by them, and rows are drawn (a list with none is recoverEmpty's), it goes to the end once
+    // more. The first time the end shows, it stops. On iOS 17 PersonScroll reports no rest, so there only a scroll still
+    // under a finger or moving holds it off (review 1: a finished fling in the first 1.6 s is not seen there).
+    // KOSMOS_SAMPLE_NOOPENLAND=1 (Debug) leaves it out: the control.
+    static let openLandLooks: [Double] = [0.3, 0.8, 1.6]
+    #if DEBUG
+    static let sampleNoOpenLand = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOOPENLAND"] == "1"
+    #else
+    static let sampleNoOpenLand = false
+    #endif
+    private func landOnNewest(_ proxy: ScrollViewProxy) {
+        guard Self.idAnchor, !Self.sampleNoOpenLand else { return }
+        let chatAt = epoch, listAt = listEpoch, movesAt = personMoves
+        for at in Self.openLandLooks {
+            DispatchQueue.main.asyncAfter(deadline: .now() + at) {
+                guard epoch == chatAt, listEpoch == listAt, personMoves == movesAt, visible, !searchMode, !(endSeen && endVisible), atBottom,
+                      !onScreen.isEmpty, !personScrolling, !scrollBox.underFinger else { return }
+                Self.trace("open landed short of the end: to the newest again")   // no value: the record admits only listed ones (#7420)
+                appMoves &+= 1
+                proxy.scrollTo("end", anchor: .bottom); positionId = "end"
+            }
+        }
     }
 
     // Where the eager newest rows begin: none with the id anchor (iOS 17+), all with the debug EAGERALL switch.

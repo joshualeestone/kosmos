@@ -187,11 +187,15 @@ test('kosmos#9097 review 3: on Windows the explicit default folder matches witho
 test('kosmos#9097 review 7: off macOS the real-home guards stop a read before it is attempted', () => {
   // No real file is needed: fs.readFileSync is watched, and answers a fake body if it is ever reached.
   const realFile = path.join(os.userInfo().homedir, '.claude', '.credentials.json');
+  // kosmos#9107 item 2: compared resolved, and without case where the file system ignores it (Windows, and macOS by
+  // default), since the code reads a path.resolve'd folder.
+  const fold = (p) => (process.platform === 'win32' || process.platform === 'darwin' ? p.toLowerCase() : p);
+  const same = (f) => fold(path.resolve(String(f))) === fold(path.resolve(realFile));
   const tried = [];
   const orig = fs.readFileSync;
   const savedCtx = process.env.NODE_TEST_CONTEXT;
   const savedHome = process.env.AGENT_WORKFORCE_HOME;
-  fs.readFileSync = function (f, ...rest) { if (String(f) === realFile) { tried.push(f); return body({ refreshTokenExpiresAt: UNTIL }); } return orig.call(this, f, ...rest); };
+  fs.readFileSync = function (f, ...rest) { if (same(f)) { tried.push(f); return body({ refreshTokenExpiresAt: UNTIL }); } return orig.call(this, f, ...rest); };
   try {
     const read = () => le.readCredDefault(le.serviceNameFor(undefined), undefined, { platform: 'linux', userHome: os.userInfo().homedir });
     // A sandboxed board (AGENT_WORKFORCE_HOME is a sandbox), outside a test: refused, and the file is never opened.

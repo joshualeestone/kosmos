@@ -1789,6 +1789,94 @@ _kosmos_old_qh_waiter_live() {
   return 1
 }
 
+# kosmos#9139: a run that goes BESIDE a queued holder on purpose (relay CI past its wait cap on Mortals) says so here,
+# so the holder's red summary in run-tests.sh can name it: a red in that window then reads as contention at once, not
+# as the change (PigeonPete, 11-26). One line per event in <marker dir>/beside-runs.log:
+#   S <id> <epoch> <what>     when it starts beside a holder
+#   E <id> <epoch>            when it ends
+# kosmos_note_beside_run start <id> <what> | end <id>. Best-effort: a line it cannot write changes nothing else, and it
+# returns 0 even under `set -e` (review 4: GitHub Actions runs steps as bash -eo pipefail, and a failed mkdir or rmdir
+# here ended the CI step). The writer's id should be unique per attempt (a CI run id with its attempt number): a new
+# start line for an id replaces its earlier window. Spaces
+# and tabs in <id> become "_" (an id is one field). Review 1: every append and the trim happen under one mkdir lock, so
+# a rename cannot drop a line appended meanwhile. Review 2: the hold is short (the time is read before the lock, and the
+# file is trimmed only past 500 lines, back to 400, so most appends never rewrite it); a writer waits up to about 10 s;
+# a lock older than 10 s (a writer killed while holding it: a real hold lasts milliseconds) is broken and retried. A
+# lock still not got appends anyway and skips the trim (a lost line costs less than a CI step that waits).
+# Review 3: GNU stat first. GNU `stat -f` means "file system": it prints lines of text and THEN fails, so a BSD-first
+# fallback fed text into the arithmetic and bash dropped the whole call on Linux (as launchagent-leak-guard.sh:27
+# already orders it; BSD stat rejects -c at once). A stale lock is renamed to a name of this writer's own, and its age
+# read AGAIN there (review 4): a rename can move a lock another writer had just made fresh, and that one is put back.
+# The usual mkdir-lock limit remains: a holder stopped for over 10 s (SIGSTOP, a sleeping Mac) reads as stale, and its
+# release can then remove the next holder's lock. Either costs a line of a best-effort log, never a suite's result. A
+# marker dir that cannot be written gives up at once instead of spinning.
+_kosmos_beside_mtime() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(stat -f %m "$1" 2>/dev/null)" || m=""; case "$m" in ''|*[!0-9]*) date +%s ;; *) printf '%s' "$m" ;; esac; }
+_kosmos_beside_lock() {
+  local d="$1" i=0 age
+  [ -w "${d%/*}" ] || return 1
+  until mkdir "$d" 2>/dev/null; do
+    i=$((i + 1)); [ "$i" -ge 100 ] && return 1
+    age=$(( $(date +%s) - $(_kosmos_beside_mtime "$d") ))
+    if [ "$age" -gt 10 ]; then
+      local sd="$d.stale.$$.$RANDOM"
+      if mv "$d" "$sd" 2>/dev/null; then
+        if [ $(( $(date +%s) - $(_kosmos_beside_mtime "$sd") )) -gt 10 ]; then rmdir "$sd" 2>/dev/null || true
+        # Fresh after all: put it back, unless a new lock was made meanwhile (mv would move it INSIDE that one, review 5).
+        elif [ -e "$d" ]; then rmdir "$sd" 2>/dev/null || true
+        else mv "$sd" "$d" 2>/dev/null || rmdir "$sd" 2>/dev/null || true; fi
+        continue
+      fi
+    fi
+    sleep 0.1
+  done
+  return 0
+}
+kosmos_note_beside_run() {
+  local f l id got=0 now; f="$(_kosmos_marker_dir)/beside-runs.log"; l="$f.lock"; now="$(date +%s)"
+  # Review 5: a misspelled verb warns and returns 0 too (a set -e CI step must not die on a typo), before touching the dir.
+  case "${1:-}" in start|end) ;; *) echo "kosmos_note_beside_run: unknown verb '${1:-}' (start or end); nothing noted" >&2; return 0 ;; esac
+  mkdir -p "$(_kosmos_marker_dir)" 2>/dev/null || true
+  local what; what="$(printf '%s' "${3:-}" | tr '\n\r' '  ')"   # review 3: one record is one line
+  id="$(printf '%s' "${2:-unnamed}" | tr ' \t\n\r' '____')"; [ -n "$id" ] || id=unnamed   # review 5: no -s (it squeezed "_" too)
+  _kosmos_beside_lock "$l" && got=1
+  # Review 4: the redirect inside a group, so a file that cannot be opened is silent and, under set -e, not fatal.
+  if [ "$1" = start ]; then { printf 'S %s %s %s\n' "$id" "$now" "$what" >> "$f"; } 2>/dev/null || true
+  else { printf 'E %s %s\n' "$id" "$now" >> "$f"; } 2>/dev/null || true; fi
+  if [ "$got" = 1 ] && [ "$(wc -l < "$f" 2>/dev/null | tr -d ' ')" -gt 500 ] 2>/dev/null; then
+    { tail -n 400 "$f" > "$f.tmp.$$"; } 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null || true
+  fi
+  if [ "$got" = 1 ]; then rmdir "$l" 2>/dev/null || true; fi
+  return 0
+}
+# kosmos_beside_runs_since <epoch>: one line for each run noted above whose window overlaps <epoch> to now, as
+# "<what> (<id>), from MM-DD HH:MM:SS to MM-DD HH:MM:SS" or "... to still going". Review 1: a run with no end line counts
+# as still going only for KOSMOS_BESIDE_OPEN_MAX_S (default 7200 s, past relay CI's job limits): a job cancelled or killed
+# before its end line would otherwise read as still going forever. It is a bound measured from now: such a job reads
+# as still going for up to that long, and a run noted beside a suite that itself runs longer than it is dropped. A new start line for an id clears its old end. A
+# line whose epoch is not a number is skipped. The date is printed with the time, so an older run cannot read as today.
+kosmos_beside_runs_since() {
+  local f t0="${1:-0}" now omax what id st en; f="$(_kosmos_marker_dir)/beside-runs.log"; now="$(date +%s)"
+  [ -r "$f" ] || return 0
+  case "$t0" in ''|*[!0-9]*) t0=0 ;; esac
+  omax="${KOSMOS_BESIDE_OPEN_MAX_S:-7200}"; case "$omax" in ''|*[!0-9]*) omax=7200 ;; esac
+  # awk picks the overlapping runs (tab-separated: what, id, start, end or "-"); the times are formatted below, since
+  # macOS awk has no strftime (date -d @ first, which fails at once on macOS, then date -r).
+  awk -v t0="$t0" -v now="$now" -v omax="$omax" '
+    $1 == "S" && $3 ~ /^[0-9]+$/ { id = $2; s[id] = $3 + 0; delete e[id]; w = ""; for (i = 4; i <= NF; i++) w = w (w == "" ? "" : " ") $i; what[id] = w; if (!(id in on)) { on[id] = 1; order[++n] = id } }
+    $1 == "E" && $3 ~ /^[0-9]+$/ { e[$2] = $3 + 0 }
+    END { for (k = 1; k <= n; k++) { id = order[k]
+            if (s[id] > now) continue
+            if (id in e) { if (e[id] < t0) continue }
+            else if (now - s[id] > omax + 0) continue
+            printf "%s\t%s\t%s\t%s\n", (what[id] == "" ? "a run" : what[id]), id, s[id], ((id in e) ? e[id] : "-") } }' "$f" 2>/dev/null |
+  while IFS="$(printf '\t')" read -r what id st en; do
+    st="$(date -d "@$st" '+%m-%d %H:%M:%S' 2>/dev/null || date -r "$st" '+%m-%d %H:%M:%S' 2>/dev/null)"
+    if [ "$en" = - ]; then en="still going"; else en="$(date -d "@$en" '+%m-%d %H:%M:%S' 2>/dev/null || date -r "$en" '+%m-%d %H:%M:%S' 2>/dev/null)"; fi
+    printf '%s (%s), from %s to %s\n' "$what" "$id" "$st" "$en"
+  done
+  return 0
+}
+
 # kosmos_light_side_intruder <root pid>: 0 (and why, on stdout) when the side turn should YIELD; 1 to stay. queued-heavy.sh
 # asks it every few seconds through a side turn and stops its command when it says yes. Yields on: an older
 # queued-heavy.sh's waiter (round 16); a machine claim other than the holder the take recorded (round 17: an older

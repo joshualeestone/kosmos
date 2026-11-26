@@ -1482,6 +1482,70 @@ out="$(cd "$HERE/.." && KOSMOS_HARNESS_MIN_FREE_MB=999999999 KOSMOS_NO_WAIT=1 KO
 { [ "$rc" -eq 2 ] && has "$out" "unknown argument '--nowait'"; } && pass "#4498 test-install.sh refuses a mistyped --no-wait instead of waiting" \
   || fail "#4498 test-install.sh took an unknown argument (rc=$rc, $out)"
 
+# kosmos#9139: a run that goes beside a holder on purpose says so (kosmos_note_beside_run), and a suite's red summary
+# names it (kosmos_beside_runs_since the moment the suite took its turn). The holder's red then reads as contention.
+MB="$T/markers-beside"; mkdir -p "$MB"; nw=$(date +%s); bt0=$((nw - 100))
+printf 'S pre %s ran before and ended during\nE pre %s\n' $((nw - 300)) $((nw - 50)) >> "$MB/beside-runs.log"
+printf 'S old %s an old run\nE old %s\n' $((nw - 900)) $((nw - 600)) >> "$MB/beside-runs.log"
+printf 'S edge %s ended on the start\nE edge %s\n' $((nw - 200)) "$bt0" >> "$MB/beside-runs.log"
+printf 'S stale %s cancelled long ago\n' $((nw - 9000)) >> "$MB/beside-runs.log"
+printf 'S bad\nS worse notanumber x\n' >> "$MB/beside-runs.log"
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run start ci-a "relay CI shell tests"
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run start ci-b "relay CI cargo test"; KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end ci-b
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run start "id with space" "spaced"
+out="$(KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since "$bt0")"
+line() { printf '%s\n' "$out" | grep -F "($1)"; }
+line ci-a | grep -qF "to still going" && pass "#9139 a run still going beside this one is named, as still going" || fail "#9139 a still-going beside run was not named ($out)"
+{ line ci-b | grep -qF "relay CI cargo test (ci-b), from" && ! line ci-b | grep -qF "still going"; } \
+  && pass "#9139 a run that started and ended inside the window is named with its end" || fail "#9139 an ended beside run was not named with its end ($out)"
+line pre | grep -qF "ran before and ended during" && pass "#9139 a run that began BEFORE the window and ended inside it is named" || fail "#9139 a run overlapping the window's start was missed ($out)"
+line edge | grep -qF "ended on the start" && pass "#9139 a run that ended exactly at the window's start counts (the boundary is inclusive)" || fail "#9139 the boundary run was dropped ($out)"
+! line old >/dev/null && pass "#9139 CONTROL: a run that ended before this one started is not named" || fail "#9139 an earlier run was named ($out)"
+! line stale >/dev/null && pass "#9139 an open run older than KOSMOS_BESIDE_OPEN_MAX_S (a cancelled job) is not still going" || fail "#9139 a stale open run was named ($out)"
+# Review 2: with the stale-open limit out of the way, so only the format check can drop these (their start reads as 0).
+out2="$(KOSMOS_RUN_MARKER_DIR="$MB" KOSMOS_BESIDE_OPEN_MAX_S=99999999999 kosmos_beside_runs_since "$bt0")"
+{ ! printf '%s\n' "$out2" | grep -qF "(bad)" && ! printf '%s\n' "$out2" | grep -qF "(worse)"; } && pass "#9139 a malformed line is skipped" || fail "#9139 a malformed line was printed ($out2)"
+line id_with_space | grep -qF "spaced (id_with_space)" && pass "#9139 an id with spaces is kept as one field" || fail "#9139 an id with spaces was lost ($out)"
+printf '%s\n' "$out" | grep -qE 'from [0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}' && pass "#9139 the date is printed with the time" || fail "#9139 no date in the times ($out)"
+for _i in $(seq 1 520); do printf 'E x%s 1\n' "$_i" >> "$MB/beside-runs.log"; done   # past 500, so the next note trims
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end ci-a
+{ [ "$(wc -l < "$MB/beside-runs.log" | tr -d ' ')" = 400 ] && tail -1 "$MB/beside-runs.log" | grep -q '^E ci-a '; } \
+  && pass "#9139 the beside log is trimmed back to its last 400 lines past 500, the newest last" || fail "#9139 the beside log trim is wrong ($(wc -l < "$MB/beside-runs.log") lines, last: $(tail -1 "$MB/beside-runs.log"))"
+# Review 1: many writers at once lose no line (the append and the trim share a lock). 20 writers x 15 lines, from 490,
+# so the 300 lines cross the trim (past 500, back to 400) twice or more. Review 2: a writer waits up to 10 s, far past a
+# loaded hold, so the lossy give-up is not reached.
+: > "$MB/beside-runs.log"; for _i in $(seq 1 490); do echo "E pad$_i 1" >> "$MB/beside-runs.log"; done
+bwp=""; for _w in $(seq 1 20); do ( for _j in $(seq 1 15); do KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end "w${_w}x${_j}"; done ) & bwp="$bwp $!"; done
+for _p in $bwp; do wait "$_p"; done   # the writers only: a bare wait would also wait for this file's hour-long stand-ins
+nl9139="$(wc -l < "$MB/beside-runs.log" | tr -d ' ')"; nw9139="$(grep -c '^E w' "$MB/beside-runs.log")"
+{ [ "$nl9139" -ge 400 ] && [ "$nl9139" -le 500 ] && [ "$nw9139" = 300 ]; } && pass "#9139 twenty writers at once lose no line across the trim" || fail "#9139 concurrent writers lost lines ($nl9139 lines, $nw9139 of 300 writer lines)"
+# Review 2: a lock left by a writer killed while holding it is broken once it is older than 10 s.
+mkdir "$MB/beside-runs.log.lock"; TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 60 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( $(date +%s) - 60 ))" +%Y%m%d%H%M.%S)" "$MB/beside-runs.log.lock"   # UTC both sides (#7725)
+st9139=$(date +%s); KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end after-stale; el9139=$(( $(date +%s) - st9139 ))
+{ [ ! -e "$MB/beside-runs.log.lock" ] && tail -1 "$MB/beside-runs.log" | grep -q '^E after-stale ' && [ "$el9139" -lt 5 ]; } \
+  && pass "#9139 a stale lock (a writer killed holding it) is broken at once and the line is written" || fail "#9139 a stale lock was not broken (elapsed ${el9139}s, lock $( [ -e "$MB/beside-runs.log.lock" ] && echo present || echo gone))"
+# Review 4: the writer keeps going under set -e (GitHub Actions runs bash steps with errexit on), even with a marker dir
+# it cannot write. CONTROL: the same with a writable dir. errexit alone: the writer's only pipelines (printf into tr, and
+# a line count inside an if test) cannot fail, and turning pipefail on here would put this whole file under the #8195
+# pipefail ratchet, which reads such a line as this file's own setting.
+mkdir -p "$T/ro9139"; chmod 500 "$T/ro9139"
+if [ -w "$T/ro9139" ]; then
+  pass "#9139 (skipped: a dir of mode 500 is still writable here, as for root, so the unwritable path cannot be reached)"
+else
+  o9=$(bash -c 'set -e; . "$1"; KOSMOS_RUN_MARKER_DIR="$2/m" kosmos_note_beside_run start x y; echo AFTER' _ "$HERE/lib/cut-guard.sh" "$T/ro9139" 2>&1); r9=$?
+  { [ "$r9" = 0 ] && has "$o9" AFTER; } && pass "#9139 under set -e the writer returns 0 with an unwritable marker dir, and the caller goes on" || fail "#9139 the writer ended a set -e caller (rc=$r9, $o9)"
+fi
+chmod 700 "$T/ro9139"
+o9=$(bash -c 'set -e; . "$1"; KOSMOS_RUN_MARKER_DIR="$2" kosmos_note_beside_run stop x; echo AFTER' _ "$HERE/lib/cut-guard.sh" "$T/ro9139" 2>&1); r9=$?
+{ [ "$r9" = 0 ] && has "$o9" AFTER && has "$o9" "unknown verb"; } && pass "#9139 under set -e a misspelled verb warns, returns 0, and the caller goes on" || fail "#9139 a misspelled verb ended a set -e caller (rc=$r9, $o9)"
+o9=$(bash -c 'set -e; . "$1"; KOSMOS_RUN_MARKER_DIR="$2" kosmos_note_beside_run start x y; echo AFTER' _ "$HERE/lib/cut-guard.sh" "$MB" 2>&1); r9=$?
+{ [ "$r9" = 0 ] && has "$o9" AFTER && tail -1 "$MB/beside-runs.log" | grep -q '^S x '; } && pass "#9139 CONTROL: under set -e with a writable dir the line is written and the caller goes on" || fail "#9139 CONTROL: set -e writer failed (rc=$r9, $o9)"
+_wired "$HERE/run-tests.sh" '^_rt_t0="$(date +%s)"' && _wired "$HERE/run-tests.sh" 'kosmos_beside_runs_since "$_rt_t0"' \
+  && pass "#9139 run-tests.sh records its turn's start and names the beside runs in its red summary" \
+  || fail "#9139 run-tests.sh no longer records its start or no longer names the beside runs"
+awk '/kosmos_wait_until_clear "this test run" --suite-queue _rt_box_clear/ { w = NR } /^_rt_t0="\$\(date \+%s\)"/ { t = NR } END { exit !(w && t > w) }' "$HERE/run-tests.sh" \
+  && pass "#9139 the window starts after the queue wait (the last _rt_t0 comes after it)" || fail "#9139 the beside window starts before the queue wait"
+rm -rf "$MB"
 # #5914: a tripwire for the shape that went red, not a proof that no marker can be written early. It reads this file
 # and fails when a process started with `& name=$!` has its command read (ps with `command= -p` and that name, quoted) on that line or one
 # of the next eight with no q_ready "$name" before the read. Its limits, decided once (#5914 review 2): it sees the
