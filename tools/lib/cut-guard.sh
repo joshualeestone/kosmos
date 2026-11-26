@@ -1805,15 +1805,14 @@ _kosmos_old_qh_waiter_live() {
 # a rename cannot drop a line appended meanwhile. Review 2: the hold is short (the time is read before the lock, and the
 # file is trimmed only past 500 lines, back to 400 plus the partners of the ids kept (at most two lines each; a log
 # whose tail is 400 different ids can stay past 500 for a few hundred appends, each a rewrite of milliseconds); a writer waits up to about 10 s;
-# a lock older than 10 s (a writer killed while holding it: a real hold lasts milliseconds) is broken and retried. A
+# a lock is broken only when its holder is gone, or past 300 s, or with no pid yet past 10 s (see _kosmos_beside_stale). A
 # writer that still has not got it writes a pending file instead (#9139 follow-up, below) and skips the trim; it falls
 # back to an unlocked append only if mktemp fails (a lost line costs less than a CI step that waits).
 # Review 3: GNU stat first. GNU `stat -f` means "file system": it prints lines of text and THEN fails, so a BSD-first
 # fallback fed text into the arithmetic and bash dropped the whole call on Linux (as launchagent-leak-guard.sh:27
-# already orders it; BSD stat rejects -c at once). A stale lock is renamed to a name of this writer's own, and its age
-# read AGAIN there (review 4): a rename can move a lock another writer had just made fresh, and that one is put back.
-# The usual mkdir-lock limit remains: a holder stopped for over 10 s (SIGSTOP, a sleeping Mac) reads as stale, and its
-# release can then remove the next holder's lock. Either costs a line of a best-effort log, never a suite's result. A
+# already orders it; BSD stat rejects -c at once). A stale lock is broken in place by one breaker at a time (the
+# "$d.break" lock), only while it still names the holder judged dead. Remaining limit: a holder stopped for over 300 s
+# (SIGSTOP, a sleeping Mac) is broken by the ceiling; its release then removes nothing (it checks its own pid). A
 # marker dir that cannot be written gives up at once instead of spinning.
 _kosmos_beside_mtime() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(stat -f %m "$1" 2>/dev/null)" || m=""; case "$m" in ''|*[!0-9]*) date +%s ;; *) printf '%s' "$m" ;; esac; }
 # kosmos#9139 follow-up: the lock names its HOLDER (the real pid of the shell that took it: $$ is the parent's pid in a
@@ -1835,24 +1834,32 @@ _kosmos_beside_stale() {   # _kosmos_beside_stale <lock dir>: 0 when it may be b
     *) [ "$age" -gt 300 ] || ! kill -0 "$h" 2>/dev/null ;;
   esac
 }
+# Review (two holders): breakers are SERIALIZED by a small "$d.break" lock, and under it the lock is judged again and
+# removed IN PLACE only if it still names the same dead holder. Before, a breaker judged holder A, A released, B took
+# the lock, and B's live lock was moved aside and deleted: two holders. A break lock left by a killed breaker goes after
+# 10 s. The pid written here is kept in _KOSMOS_BESIDE_OWN for the release's own check.
 _kosmos_beside_lock() {
-  local d="$1" i=0
+  local d="$1" i=0 h1
   [ -w "${d%/*}" ] || return 1
   until mkdir "$d" 2>/dev/null; do
     i=$((i + 1)); [ "$i" -ge "${KOSMOS_BESIDE_LOCK_TRIES:-100}" ] && return 1   # a count, not a time: under load it is reached
     if _kosmos_beside_stale "$d"; then
-      local sd="$d.stale.$$.$RANDOM"
-      if mv "$d" "$sd" 2>/dev/null; then
-        if _kosmos_beside_stale "$sd"; then rm -f "$sd/pid" 2>/dev/null; rmdir "$sd" 2>/dev/null || true
-        # Not stale after all: put it back, unless a new lock was made meanwhile (mv would move it INSIDE that one, review 5).
-        elif [ -e "$d" ]; then rm -f "$sd/pid" 2>/dev/null; rmdir "$sd" 2>/dev/null || true
-        else mv "$sd" "$d" 2>/dev/null || { rm -f "$sd/pid" 2>/dev/null; rmdir "$sd" 2>/dev/null || true; }; fi
+      if mkdir "$d.break" 2>/dev/null; then
+        h1="$(cat "$d/pid" 2>/dev/null)"
+        if _kosmos_beside_stale "$d" && [ "$(cat "$d/pid" 2>/dev/null)" = "$h1" ]; then
+          rm -f "$d/pid" 2>/dev/null; rmdir "$d" 2>/dev/null || true
+        fi
+        rmdir "$d.break" 2>/dev/null || true
         continue
       fi
+      [ $(( $(date +%s) - $(_kosmos_beside_mtime "$d.break") )) -gt 10 ] && { rmdir "$d.break" 2>/dev/null || true; }
     fi
     sleep 0.1
   done
+  # Not $(sh -c 'echo $PPID'): inside a substitution its parent is the substitution's own short-lived subshell, so the
+  # lock named a pid that was already gone and the next writer broke a live lock (measured: a lost line). Write, then read back.
   { sh -c 'echo $PPID' > "$d/pid"; } 2>/dev/null || true
+  _KOSMOS_BESIDE_OWN="$(cat "$d/pid" 2>/dev/null)"
   return 0
 }
 kosmos_note_beside_run() {
@@ -1888,6 +1895,7 @@ kosmos_note_beside_run() {
       [ -f "$pf" ] || continue
       local cf="$f.folding.${pf##*.pending.}"
       mv "$pf" "$cf" 2>/dev/null || continue
+      touch "$cf" 2>/dev/null || true   # review: mv keeps the mtime, so an old claim read as 60 s old and was folded twice
       { cat "$cf" >> "$f"; } 2>/dev/null && { rm -f "$cf" 2>/dev/null || true; }
     done
     # Review 2: a writer killed between its mktemp and its rename leaves a pending-tmp file nothing reads. Past 60 s its
@@ -1918,7 +1926,8 @@ kosmos_note_beside_run() {
       && [ "$(wc -l < "$tf" 2>/dev/null | tr -d ' ')" -ge 400 ] 2>/dev/null && { mv -f "$tf" "$f" 2>/dev/null || true; }   # review: never ends an errexit caller
     rm -f "$tf" 2>/dev/null || true
   fi
-  if [ "$got" = 1 ]; then rm -f "$l/pid" 2>/dev/null || true; rmdir "$l" 2>/dev/null || true; fi
+  # Review: only a lock that still carries this writer's own pid (a ceiling break may have given it to another).
+  if [ "$got" = 1 ] && [ "$(cat "$l/pid" 2>/dev/null)" = "${_KOSMOS_BESIDE_OWN:-}" ]; then rm -f "$l/pid" 2>/dev/null || true; rmdir "$l" 2>/dev/null || true; fi
   return 0
 }
 # kosmos_beside_runs_since <epoch>: one line for each run noted above whose window overlaps <epoch> to now, as
@@ -1943,7 +1952,9 @@ kosmos_beside_runs_since() {
   # the glob was expanded (the next read sees it).
   # A line being folded is in a .folding. file for a moment: read those too (read twice is harmless: newest start,
   # largest end per id).
-  { cat "$f".pending.* "$f".folding.* "$f" 2>/dev/null || true; } | awk -v t0="$t0" -v now="$now" -v omax="$omax" '
+  # Review: three reads in turn, each glob expanded after the one before was read (one cat expanded both first, so a
+  # claim between the expansion and the read hid the line).
+  { { cat "$f".pending.* 2>/dev/null || true; }; { cat "$f".folding.* 2>/dev/null || true; }; { cat "$f" 2>/dev/null || true; }; } | awk -v t0="$t0" -v now="$now" -v omax="$omax" '
     # Review 3: ORDER-INDEPENDENT (folded lines arrive in any order): the newest start and the largest end per id; a run
     # has ended only if that end is at or after that start. Epochs more than a day ahead are malformed and skipped.
     ($1 == "S" || $1 == "E") && ($3 !~ /^[0-9]+$/ || $3 + 0 > now + 86400) { next }
