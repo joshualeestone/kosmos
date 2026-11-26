@@ -101,6 +101,7 @@ function credFileFor(ccd, home = realHome(), userHome = os.homedir()) {
      board sets its own HOME, so its default folder falls outside the real home and is refused by the check below,
      instead of reading the operator's own file (review 1, as usagepoll's review 7). */
   const dir = path.resolve(v === '' ? path.join(userHome || home, '.claude') : v);
+  // The check is by path, not by link: a symlink under the home that points outside is still read, as in usagepoll.
   const rel = path.relative(home, dir);
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
   return path.join(dir, '.credentials.json');

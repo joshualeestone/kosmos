@@ -9854,8 +9854,9 @@ function logLoginAdvReads(out, reads, log, state = LOGIN_ADV_LOGGED, progOf = pa
 function win32JobCcd(name, readJob) {
   let job = null;
   try { job = (readJob || require('./create').readJob)(name); } catch { job = null; }
-  if (!job || (job.runner && job.runner !== 'claude')) return { ccd: undefined, pid: null };
-  return { ccd: typeof job.configDir === 'string' && job.configDir ? job.configDir : null, pid: null };
+  if (!job || (job.runner && job.runner !== 'claude')) return { ccd: undefined, pid: null, cmd: 'launch job' };
+  // cmd names the source for the [loginadv] board log line (review 4: no ps ran here).
+  return { ccd: typeof job.configDir === 'string' && job.configDir ? job.configDir : null, pid: null, cmd: 'launch job' };
 }
 
 function computeLoginAdvisories(panes, nowMs, opts = {}) {
