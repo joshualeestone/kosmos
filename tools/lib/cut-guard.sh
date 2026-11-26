@@ -1874,16 +1874,18 @@ kosmos_note_beside_run() {
 # line whose epoch is not a number is skipped. The date is printed with the time, so an older run cannot read as today.
 kosmos_beside_runs_since() {
   local f t0="${1:-0}" now omax what id st en; f="$(_kosmos_marker_dir)/beside-runs.log"; now="$(date +%s)"
-  [ -r "$f" ] || return 0
+  # Review 1: pending lines count while the log does not exist yet too.
+  [ -r "$f" ] || ls "$f".pending.* >/dev/null 2>&1 || return 0
   case "$t0" in ''|*[!0-9]*) t0=0 ;; esac
   omax="${KOSMOS_BESIDE_OPEN_MAX_S:-7200}"; case "$omax" in ''|*[!0-9]*) omax=7200 ;; esac
   # awk picks the overlapping runs (tab-separated: what, id, start, end or "-"); the times are formatted below, since
   # macOS awk has no strftime (date -d @ first, which fails at once on macOS, then date -r).
   # #9139 follow-up: the pending files too, through cat (an unmatched glob stays literal, and macOS awk stops at a file
   # it cannot open; cat goes on past it).
-  cat "$f" "$f".pending.* 2>/dev/null | awk -v t0="$t0" -v now="$now" -v omax="$omax" '
+  # Review 1: grouped with || true: cat of an unmatched glob exits 1, and under set -eo pipefail that ended the caller.
+  { cat "$f" "$f".pending.* 2>/dev/null || true; } | awk -v t0="$t0" -v now="$now" -v omax="$omax" '
     $1 == "S" && $3 ~ /^[0-9]+$/ { id = $2; s[id] = $3 + 0; if ((id in e) && e[id] < s[id]) delete e[id]; w = ""; for (i = 4; i <= NF; i++) w = w (w == "" ? "" : " ") $i; what[id] = w; if (!(id in on)) { on[id] = 1; order[++n] = id } }
-    $1 == "E" && $3 ~ /^[0-9]+$/ { e[$2] = $3 + 0 }
+    $1 == "E" && $3 ~ /^[0-9]+$/ { if (!($2 in s) || $3 + 0 >= s[$2]) e[$2] = $3 + 0 }   # review 1: an older end, folded late, does not end a newer run
     END { for (k = 1; k <= n; k++) { id = order[k]
             if (s[id] > now) continue
             if (id in e) { if (e[id] < t0) continue }
