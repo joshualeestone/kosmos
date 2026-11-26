@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: plusnavy-9103
-diff_hash: 402fd231ee68305d269859989b4c5fd1979df6b6d9ed4cd915b84d20e053a5f6
-validation: web/index.html (app-scoped CSS and syncPlusChrome) + web.plusnavy-9103.test.js. The new test (4) and every root test touching these rules pass (146, server.test.js #1304 is this machine's); tree guards pass; mobile-shots round 5: 14 in the app (light, dark) and the browser control, 0 overflow
+diff_hash: 2899ce8ba1f995bc2096eb09386d04b67446dfe59bf76ba8450b6e446234f91b
+validation: (hash taken against origin/main, as the gate does; it includes #9101 and #9095 below this branch) web/index.html (app-scoped CSS and syncPlusChrome) + web.plusnavy-9103.test.js. The new test (4) and every root test touching these rules pass (146, server.test.js #1304 is this machine's); tree guards pass; mobile-shots round 5: 14 in the app (light, dark) and the browser control, 0 overflow
 subdir_audit: passed
 timestamp: 2026-11-26T01:07:57Z
 iterations: 2
