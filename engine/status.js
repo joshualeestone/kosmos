@@ -9824,7 +9824,8 @@ function logLoginAdvReads(out, reads, log, state = LOGIN_ADV_LOGGED, progOf = pa
  * configDir (null for a default-account agent). On macOS the job cannot be trusted for this (the #2129 class: the
  * Keychain entry's NAME depends on whether the variable is set at all), but off macOS the credential is a FILE in the
  * folder Claude Code uses, which the unset and the explicit default both resolve to. Returns { ccd, pid }: the folder,
- * null for the default account, or undefined (skipped, never guessed) when there is no readable Claude job. */
+ * null for the default account, or undefined (skipped, never guessed) when there is no readable Claude job. cmd is
+ * 'launch job', which the [loginadv] board log line names as the source. */
 function win32JobCcd(name, readJob) {
   let job = null;
   try { job = (readJob || require('./create').readJob)(name); } catch { job = null; }

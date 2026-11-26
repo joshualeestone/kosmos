@@ -62,8 +62,7 @@ correction (17:21) and Homer's measurements (17:3x).
 
 - Review 5: on a sandboxed board (AGENT_WORKFORCE_HOME is a sandbox, loginexpiry.inSandboxHome) the DEFAULT account's
   file is never read off macOS. HOME alone does not show a sandbox on Windows, where os.homedir() reads USERPROFILE.
-  Reasoned, not tested: proving it red would need a real credentials file in this Mac's real home, which a test must
-  never create.
+  Tested in review 7 (below).
 - Review 5: tools/windows-tests.js runs loginexpiry-file-9097.test.js on the Windows CI runner (ALSO), so the
   case-blind match and the home guard run on a real Windows host there.
 - Review 5: the [loginadv] board log line says "from its launch job" when that is where the folder came from.
@@ -72,10 +71,15 @@ correction (17:21) and Homer's measurements (17:3x).
 
 - Review 6: off macOS, with no home injected, a sandboxed board reads NO credential file (not only the default one: a
   job can name the real ~/.claude explicitly), and a read under `node --test` reads nothing, so no test depends on the
-  runner's own login file. Both reasoned, not tested: a non-vacuous test needs a real credentials file in the real home.
+  runner's own login file. Review 7 tests both: fs.readFileSync is watched, so no real file is needed, and each guard
+  is shown to stop the read before it starts, with a control (no guard holds) where the real path IS read. Removing
+  either guard turns that test red.
 - Review 6, deferred: the Windows job lookup passes no world id. win32job.taskName reads undefined as
   launchidentity.currentWorldId() (win32job.js:57), so it is already the board's own world, as for every other
   readJob caller in status.js.
+
+- Review 7: the Windows warning test asserts the board log names "its launch job" and never "ps eww", with its own log
+  state (so no later test inherits it). Removing the wording arm turns it red.
 
 ## Not changed
 - engine/connect.js readRefreshExpiry, the proof that a Mac sign-in finished. It stays macOS-only: Windows sign-in
