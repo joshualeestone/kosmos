@@ -15,8 +15,9 @@ const { changedLines } = require('./instructionreread');
 const NOTE = /Not shown: (\d+) lines? that changed only in spacing or punctuation \(the rule reads the same\)\./;
 
 test('a rule that only gained or lost end punctuation or spacing is counted, not printed; a real change still prints', () => {
-  const before = '# Rules\nUse kosmos post --no-reply to close a thread.\nKeep it short\nNever share keys.\n';
-  const after = '# Rules\nUse kosmos post --no-reply to close a thread\nKeep  it short.\nNever share secrets.\n';
+  // Review 5: each rule its own paragraph (a full stop is wording only where the line ends its paragraph).
+  const before = '# Rules\nUse kosmos post --no-reply to close a thread.\n\nKeep it short\n\nNever share keys.\n';
+  const after = '# Rules\nUse kosmos post --no-reply to close a thread\n\nKeep  it short.\n\nNever share secrets.\n';
   const out = changedLines(before, after);
   assert.match(out, /- Never share keys\.\n\+ Never share secrets\./, 'the real change is not printed');
   assert.doesNotMatch(out, /close a thread/, 'a punctuation-only change was printed');
@@ -119,4 +120,22 @@ test('review 4: a ``` indented deeper than its opener + 3 does not close the fen
   assert.doesNotMatch(changedLines(before, after), NOTE, 'a line still inside the fence was hidden');
   // CONTROL: the same line outside any fence is wording only.
   assert.match(changedLines('# H\ngrep  a x\n', '# H\ngrep a x\n'), NOTE);
+});
+
+test('review 5: a line-end full stop inside a hard-wrapped paragraph is shown; at a paragraph end it is wording', () => {
+  for (const [before, after] of [
+    ['Merge the PR\nonce CI is green on main.', 'Merge the PR.\nonce CI is green on main.'],
+    ['Never push to main.\nwithout review you may push to a branch.', 'Never push to main\nwithout review you may push to a branch.'],
+  ]) {
+    assert.doesNotMatch(changedLines('# R\n' + before + '\n', '# R\n' + after + '\n'), NOTE, 'a wrapped sentence split was hidden: ' + JSON.stringify(after));
+  }
+  // CONTROL: before a blank line, a list item or the end, the line ends its paragraph.
+  assert.match(changedLines('# R\nKeep it short\n\nNext.\n', '# R\nKeep it short.\n\nNext.\n'), NOTE);
+  assert.match(changedLines('# R\nKeep it short\n- a rule\n', '# R\nKeep it short.\n- a rule\n'), NOTE);
+});
+
+test('review 5: a line starting with an inline ```span``` does not open a fence', () => {
+  const before = '# R\n```x``` spans are code\n```\nfoo  bar\n```\n';
+  const after = '# R\n```x``` spans are code\n```\nfoo bar\n```\n';
+  assert.doesNotMatch(changedLines(before, after), NOTE, 'a line inside the real fence was hidden');
 });

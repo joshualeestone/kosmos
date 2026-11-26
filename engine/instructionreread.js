@@ -339,15 +339,25 @@ function changedLines(before, after, moved = null) {
          Review 4: a closer only up to 3 columns deeper than its opener, so a deeper ``` is content (a block showing a
          fence). Erring towards code only shows more lines. */
       const m = /^(\s*)(?:>\s*)*(`{3,}|~{3,})(.*)$/.exec(lines[k]);
-      if (m && fence === null) { fence = { mark: m[2], at: cols(m[1]) }; code[k] = true; }
-      else if (m && m[2][0] === fence.mark[0] && m[2].length >= fence.mark.length && !m[3].trim() && cols(m[1]) <= fence.at + 3) { fence = null; code[k] = true; }
+      // Review 5: a backtick run whose rest holds a backtick is an inline span, not an opener (CommonMark).
+      if (m && fence === null && !(m[2][0] === '`' && m[3].includes('`'))) { fence = { mark: m[2], at: cols(m[1]) }; code[k] = true; }
+      else if (m && fence !== null && m[2][0] === fence.mark[0] && m[2].length >= fence.mark.length && !m[3].trim() && cols(m[1]) <= fence.at + 3) { fence = null; code[k] = true; }
       // Review 3 and 4: an indented code block (4 columns or more, tabs counted to the next multiple of 4) is code too.
       else code[k] = fence !== null || cols(/^[ \t]*/.exec(lines[k])[0]) >= 4;
     }
     return code;
   };
-  const codeA = codeOf(a);
-  const codeB = codeOf(b);
+  /* Review 5: these scans only decide what may be hidden. If one ever throws, every line counts as code, so nothing is
+     hidden and the change list is printed whole, as before #9096. */
+  const safely = (scan, lines) => { try { return scan(lines); } catch { return lines.map(() => true); } };
+  const codeA = safely(codeOf, a);
+  const codeB = safely(codeOf, b);
+  /* Review 5: whether a line ends its paragraph (the next line is blank, the end, or starts a new block), so a full
+     stop at its end closes the paragraph rather than splitting a hard-wrapped sentence. */
+  const endsOf = (lines) => lines.map((_, k) => k + 1 >= lines.length
+    || /^\s*($|#{1,6}\s|[-*+]\s|\d+[.)]\s|>|`{3,}|~{3,})/.test(lines[k + 1]));
+  const endsA = safely(endsOf, a);
+  const endsB = safely(endsOf, b);
   const headAt = (heads, upTo) => (upTo >= 0 ? heads[upTo] : null);
   const runs = [];
   let run = null;
@@ -376,8 +386,8 @@ function changedLines(before, after, moved = null) {
     if (run && run.head !== head) flush();
     if (!run) run = { head, lines: [] };
     // A removed line before the line that replaced it, as a reader expects.
-    if (removing) { const k = underMoved(headsA[pre + i]); if (k >= 0) shownUnder[k] += 1; (run.movedOf = run.movedOf || []).push(k); (run.codeMinus = run.codeMinus || []).push(codeA[pre + i]); run.lines.push('- ' + A[i]); i += 1; }
-    else { (run.codePlus = run.codePlus || []).push(codeB[pre + j]); run.lines.push('+ ' + B[j]); j += 1; }
+    if (removing) { const k = underMoved(headsA[pre + i]); if (k >= 0) shownUnder[k] += 1; (run.movedOf = run.movedOf || []).push(k); (run.codeMinus = run.codeMinus || []).push(codeA[pre + i]); (run.endMinus = run.endMinus || []).push(endsA[pre + i]); run.lines.push('- ' + A[i]); i += 1; }
+    else { (run.codePlus = run.codePlus || []).push(codeB[pre + j]); (run.endPlus = run.endPlus || []).push(endsB[pre + j]); run.lines.push('+ ' + B[j]); j += 1; }
   }
   flush();
   /* Review 5: each removed line beside the line that replaced it, so a cut keeps old and new together (removals all
@@ -389,12 +399,14 @@ function changedLines(before, after, moved = null) {
      not an instruction, `! cmd` negates, `;` separates commands, `key:` is YAML); leading indentation must match exactly
      (YAML, nested bullets); case, hyphens and every other symbol count, because a flag (`--no-reply`, `-D`) or a path
      can differ by exactly that. Telling a paraphrase from a change in meaning needs judgement, so it is never tried. */
-  const wordingOf = (t) => {
+  const wordingOf = (t, endsParagraph) => {
     const s = String(t);
     const indent = s.match(/^[ \t]*/)[0];
     // Review 2: one full stop only, right after a word (`main..` is a git range); a comma is never wording (JSON, args).
     // Review 3: only at the END of the line ("1. Push" is a list item; "merge. Wait" is two sentences).
-    return indent + s.slice(indent.length).replace(/\s+/g, ' ').trim().replace(/(?<=\w)\.$/, '');
+    const body = indent + s.slice(indent.length).replace(/\s+/g, ' ').trim();
+    // Review 5: only when the line ends its paragraph; mid-paragraph, a line-end full stop splits a wrapped sentence.
+    return endsParagraph ? body.replace(/(?<=\w)\.$/, '') : body;
   };
   let reworded = 0;
   for (const r of runs) {
@@ -403,16 +415,19 @@ function changedLines(before, after, moved = null) {
     const movedOf = r.movedOf || [];   // the moved-heading index of each - line, in order (-1: none)
     const codeMinus = r.codeMinus || [];
     const codePlus = r.codePlus || [];
+    const endMinus = r.endMinus || [];
+    const endPlus = r.endPlus || [];
     for (let k = Math.min(minus.length, plus.length) - 1; k >= 0; k -= 1) {
       // Review 2: code (in a fence, or with a backtick span) is compared exactly, so it is never hidden.
       // Review 4: a line with any quote mark is compared exactly too (a command outside backticks: curly quotes, and
       // spacing inside quotes, change what runs).
       const exact = (l) => /[`'"\u2018\u2019\u201C\u201D]/.test(l);
       if (codeMinus[k] || codePlus[k] || exact(minus[k]) || exact(plus[k])) continue;
-      if (wordingOf(minus[k].slice(2)) !== wordingOf(plus[k].slice(2))) continue;
+      const ends = endMinus[k] === true && endPlus[k] === true;
+      if (wordingOf(minus[k].slice(2), ends) !== wordingOf(plus[k].slice(2), ends)) continue;
       // Review 1: a hidden - line is no longer "still marked" under a moved heading.
       if (movedOf[k] >= 0) shownUnder[movedOf[k]] -= 1;
-      minus.splice(k, 1); plus.splice(k, 1); movedOf.splice(k, 1); codeMinus.splice(k, 1); codePlus.splice(k, 1); reworded += 1;
+      minus.splice(k, 1); plus.splice(k, 1); movedOf.splice(k, 1); codeMinus.splice(k, 1); codePlus.splice(k, 1); endMinus.splice(k, 1); endPlus.splice(k, 1); reworded += 1;
     }
     r.lines = minus.concat(plus);
   }
