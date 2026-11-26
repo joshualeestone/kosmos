@@ -99,9 +99,12 @@ test('#5574: a wrong kind or a missing id is a usage error, and nothing is sent'
 }, { status: 200, body: { ok: true, kind: 'post', state: 'withheld' } }));
 
 test('#5574: the community help lists withdraw', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
-  const out = await runCli(['community', 'nope'], envFor(port));
+  // kosmos#9068: the full help is a bare `kosmos community` (an unknown word now gets the Unknown line and the list).
+  const out = await runCli(['community'], envFor(port));
   assert.equal(out.code, 2);
   assert.match(out.stdout, /kosmos community withdraw <post\|comment> <id>/);
+  const nope = await runCli(['community', 'nope'], envFor(port));
+  assert.match(nope.stdout, /Unknown: kosmos community nope\. Try: [^\n]*\bwithdraw\b/, 'the unknown-word list lacks withdraw');
 }, { status: 200, body: {} }));
 
 test('#5574 review 2: one whose send got no answer says what Kosmos will do about it', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {

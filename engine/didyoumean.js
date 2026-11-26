@@ -35,16 +35,23 @@ function distance(a, b) {
    - A plural of a real command: that command, with ` list` when it takes one.
    - Otherwise the one nearest command within two edits (one edit for a word under five letters), if exactly one is
      nearest. A tie, or nothing close, suggests nothing: a wrong guess costs more than the full list below it. */
-function suggest(word, verbs, listable = LISTABLE) {
+/* kosmos#9068: `group` (a command such as `community` or `task`) suggests one of that group's own subcommands,
+   `kosmos <group> <verb>`, from `verbs` (its subcommand names). A plural there suggests the singular when the singular
+   is a subcommand (no ` list`: that belongs to the top level). */
+function suggest(word, verbs, listable = LISTABLE, group) {
   try {
+    const g = typeof group === 'string' && /^[a-z][a-z-]*$/.test(group) ? group + ' ' : '';
     const w = String(word || '').trim().toLowerCase();
     if (!w || w.startsWith('-') || !/^[a-z][a-z-]*$/.test(w)) return null;
     const names = (Array.isArray(verbs) ? verbs : []).map((v) => String(v).trim().toLowerCase()).filter((v) => /^[a-z][a-z-]*$/.test(v));
-    if (!names.length || names.includes(w)) return null;
+    if (!names.length) return null;
+    /* kosmos#9068 review 1: a real name typed in another case ("Follow") is unknown to the dispatch, which is
+       case-sensitive, so it is suggested as written there; the exact name is not unknown at all. */
+    if (names.includes(w)) return String(word).trim() === w ? null : 'kosmos ' + g + w;
     const lists = new Set(Array.isArray(listable) ? listable : LISTABLE);
     if (w.endsWith('s') && names.includes(w.slice(0, -1))) {
       const one = w.slice(0, -1);
-      return 'kosmos ' + one + (lists.has(one) ? ' list' : '');
+      return 'kosmos ' + g + one + (!g && lists.has(one) ? ' list' : '');
     }
     const limit = w.length < 5 ? 1 : 2;
     let best = null;
@@ -55,22 +62,25 @@ function suggest(word, verbs, listable = LISTABLE) {
       if (d < bestD) { best = v; bestD = d; tie = false; } else if (d === bestD) tie = true;
     }
     if (best === null || bestD > limit || tie) return null;
-    return 'kosmos ' + best;
+    return 'kosmos ' + g + best;
   } catch { return null; }
 }
 
 /* The line to print before the command list, or ''. */
-function line(word, verbs, listable) {
-  const s = suggest(word, verbs, listable);
+function line(word, verbs, listable, group) {
+  const s = suggest(word, verbs, listable, group);
   return s ? 'Did you mean: ' + s : '';
 }
 
 module.exports = { LISTABLE, distance, suggest, line };
 
-/* install/kosmos runs this as a program: `node didyoumean.js <word> <verb>...`, prints the line (or nothing), exits 0. */
+/* install/kosmos runs this as a program: `node didyoumean.js <word> <verb>...`, or (kosmos#9068) for a group's
+   subcommands `node didyoumean.js --group <group> <word> <verb>...`; prints the line (or nothing), exits 0. */
 if (require.main === module) {
   try {
-    const out = line(process.argv[2] || '', process.argv.slice(3));
+    const a = process.argv.slice(2);
+    const grouped = a[0] === '--group';
+    const out = grouped ? line(a[2] || '', a.slice(3), undefined, a[1]) : line(a[0] || '', a.slice(1));
     if (out) process.stdout.write(out + '\n');
   } catch { /* never in the way of the answer */ }
   process.exitCode = 0;

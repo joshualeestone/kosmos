@@ -1245,6 +1245,7 @@ kosmos_engine_module() {
 # the Windows CLI's rule too), from the names kosmos_command_list prints. Prints nothing when nothing is close, or
 # when node or the module is missing; never fails the answer.
 _did_you_mean() {
+  case "${1:-}" in -*) return 0 ;; esac   # kosmos#9068 review 2: an option is never a command, and must not reach didyoumean.js's own --group
   local _dn _dm _dv
   _dn="$(kosmos_engine_node)" || return 0
   _dm="$(kosmos_engine_module didyoumean).js"
@@ -1253,6 +1254,23 @@ _did_you_mean() {
   # The line goes where the Unknown line goes (stdout); node's own errors are dropped.
   # shellcheck disable=SC2086
   "$_dn" "$_dm" "$1" $_dv </dev/null 2>/dev/null | sed 's/^/  /' || true
+  return 0
+}
+
+# kosmos#9068: one level down. "Unknown: kosmos <group> <word>. Try: <verbs>" with the group's own subcommand names,
+# then the nearest one, by the same rule (engine/didyoumean.js --group). <sep> is how the Try list joins them, kept as
+# each group always wrote it. Prints nothing extra when nothing is close, or when node or the module is missing.
+_unknown_sub() {
+  local _ug="$1" _uw="$2" _us="$3"; shift 3
+  local _ul="" _uv
+  for _uv in "$@"; do _ul="${_ul:+$_ul$_us}$_uv"; done
+  say "Unknown: kosmos $_ug $_uw. Try: $_ul"
+  local _un _um
+  _un="$(kosmos_engine_node)" || return 0
+  _um="$(kosmos_engine_module didyoumean).js"
+  [ -f "$_um" ] || return 0
+  local _ud; _ud="$("$_un" "$_um" --group "$_ug" "$_uw" "$@" </dev/null 2>/dev/null)" || _ud=""
+  [ -n "$_ud" ] && say "$_ud"   # say's own indent, as the Unknown line above (review 1)
   return 0
 }
 
@@ -4871,6 +4889,7 @@ _community_reason_line() {   # <exit code>
 # (#4287) ever talks to the public site. Identity rides the agent token and the pane, never the
 # body, exactly as cmd_report does. The JSON is built by node from environment variables, so
 # quotes, backticks, dollars and newlines in a post arrive as written.
+KOSMOS_COMMUNITY_VERBS="post read comment status ready follow unfollow following vote votes home endorse unendorse withdraw edit"   # kosmos#9068
 cmd_community() {
   local sub="${1:-}"; shift 2>/dev/null || true
   # kosmos#8735: --how prints how to take part (engine/communityguide.js guideText), the routine an agent's instructions
@@ -4912,6 +4931,17 @@ cmd_community() {
   if [ "$sub" = "endorse" ] || [ "$sub" = "unendorse" ]; then cmd_community_endorse "$sub" "$@"; return; fi
   if [ "$sub" = "withdraw" ]; then cmd_community_withdraw "$@"; return; fi   # #5574
   if [ "$sub" = "edit" ]; then cmd_community_edit "$@"; return; fi   # #5574 slice 2b
+  # kosmos#9068: a word that is not one of these says so first, with the nearest one; a bare `kosmos community` (or a
+  # flag) is the full usage below, as before. KOSMOS_COMMUNITY_VERBS is held to this function's checks and to the
+  # Windows CLI's community subcommands by engine/didyoumean-groups-9068.test.js.
+  case "$sub" in
+    ""|post|help|-*) ;;   # review 2: help is the usage, as in every group; a flag or nothing is the usage too
+    *)
+      # shellcheck disable=SC2086
+      _unknown_sub community "$sub" " | " $KOSMOS_COMMUNITY_VERBS
+      say "Every community command, with what it takes: kosmos community"
+      exit 2 ;;
+  esac
   if [ "$sub" != "post" ]; then
     say "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)"
     say "       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies] [--public]"
@@ -6823,7 +6853,7 @@ cmd_feedback() {
       exit 2
       ;;
     *)
-      say "Unknown: kosmos feedback $sub. Try: write | note | show | list | day | pull | triage"
+      _unknown_sub feedback "$sub" " | " write note show list day pull triage
       exit 2
       ;;
   esac
@@ -7327,7 +7357,7 @@ cmd_task() {
         esac
       fi ;;
     *)
-      say "Unknown: kosmos task $sub. Try: list | add | assign | close | reopen | message | activity | show | files | built | done-when | check | hold | unhold | repeat | ran | told | wake | edit"
+      _unknown_sub task "$sub" " | " list add assign close reopen message activity show files built done-when check hold unhold repeat ran told wake edit
       exit 2 ;;
   esac
   if ! healthy; then
@@ -8369,7 +8399,7 @@ cmd_project() {
       fi
       set -- "${_rmmw[0]}" "${_rmmw[1]}" ;;
     *)
-      say "Unknown: kosmos project $sub. Try: list | show | who | create | pause | test | role | remove-member"
+      _unknown_sub project "$sub" " | " list show who create pause test role remove-member
       exit 2 ;;
   esac
   if ! healthy; then
@@ -8918,7 +8948,7 @@ cmd_agent() {
       # A role is reused by its file, so an existing one is never replaced (a second role with the same short name).
       if [ "${1:-}" = "--to" ] && [ -e "$2" ]; then say "$2 already exists, and it may hold another role. Pick another name, or move it first."; exit 2; fi ;;
     *)
-      say "Unknown: kosmos agent $sub. Try: list, create, roles, role-draft, instructions-add, move, restart, model, remove, delete-leftovers"
+      _unknown_sub agent "$sub" ", " list create roles role-draft instructions-add move restart model remove delete-leftovers
       _kosmos_agent_list_hint "$sub"
       exit 2 ;;
   esac

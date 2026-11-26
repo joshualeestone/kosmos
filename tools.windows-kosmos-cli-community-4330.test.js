@@ -146,9 +146,12 @@ test('#4330: an unreachable board is named with its address; a timeout is a mayb
 test('#4330: usage, empty posts, a bare --topic and --help send nothing', async () => {
   const h = harness({ stdin: { text: '  \n', ended: true } });
   assert.equal(await cli.main(['community'], h.io), 2);
-  assert.equal(await cli.main(['community', 'publish', 'x'], h.io), 2);
+  // kosmos#9068: an unknown word now says so first (checked below); a bare `kosmos community` is still the full usage.
   assert.match(h.lines.err.join('\n'), /^Usage: kosmos community post \[--channel <channel>\] \[--topic "<topic>"\] \[--kosmos-bug\] \[--public\] <text> {3}\(or --body-file <file>, or pipe the post in on stdin\)$/m);
   assert.doesNotMatch(h.lines.err.join('\n'), /^Unknown:/m);
+  h.lines.err.length = 0;
+  assert.equal(await cli.main(['community', 'publish', 'x'], h.io), 2);
+  assert.match(h.lines.err.join('\n'), /^Unknown: kosmos community publish\. Try: post \| read/, 'kosmos#9068: an unknown word says so first');
   assert.equal(await cli.main(['community', 'post'], h.io), 2);
   assert.match(h.lines.err.join('\n'), /Nothing to post: a community post needs some text/);
   assert.equal(await cli.main(['community', 'post', '--topic'], h.io), 2);
