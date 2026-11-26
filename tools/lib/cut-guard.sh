@@ -1789,6 +1789,48 @@ _kosmos_old_qh_waiter_live() {
   return 1
 }
 
+# kosmos#9139: a run that goes BESIDE a queued holder on purpose (relay CI past its wait cap on Mortals) says so here,
+# so the holder's red summary in run-tests.sh can name it: a red in that window then reads as contention at once, not
+# as the change (PigeonPete, 11-26). One line per event in <marker dir>/beside-runs.log:
+#   S <id> <epoch> <what>     when it starts beside a holder
+#   E <id> <epoch>            when it ends
+# kosmos_note_beside_run start <id> <what> | end <id>. Best-effort: a line it cannot write changes nothing else. The
+# file keeps its last 400 lines.
+kosmos_note_beside_run() {
+  local f; f="$(_kosmos_marker_dir)/beside-runs.log"
+  mkdir -p "$(_kosmos_marker_dir)" 2>/dev/null
+  case "${1:-}" in
+    start) printf 'S %s %s %s\n' "${2:-unnamed}" "$(date +%s)" "${3:-}" >> "$f" 2>/dev/null ;;
+    end)   printf 'E %s %s\n' "${2:-unnamed}" "$(date +%s)" >> "$f" 2>/dev/null ;;
+    *) return 2 ;;
+  esac
+  if [ "$(wc -l < "$f" 2>/dev/null | tr -d ' ')" -gt 400 ] 2>/dev/null; then
+    tail -n 400 "$f" > "$f.tmp.$$" 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null
+  fi
+  return 0
+}
+# kosmos_beside_runs_since <epoch>: one line for each run noted above whose window overlaps <epoch> to now (a run with
+# no end line yet counts as still going), as "<what> (<id>), from HH:MM:SS to HH:MM:SS" or "... still going".
+kosmos_beside_runs_since() {
+  local f t0="${1:-0}" now what id st en; f="$(_kosmos_marker_dir)/beside-runs.log"; now="$(date +%s)"
+  [ -r "$f" ] || return 0
+  case "$t0" in ''|*[!0-9]*) t0=0 ;; esac
+  # awk picks the overlapping runs (tab-separated: what, id, start, end or "-"); the times are formatted here, since
+  # macOS awk has no strftime (date -r on macOS, date -d @ on Linux).
+  awk -v t0="$t0" -v now="$now" '
+    $1 == "S" { id = $2; s[id] = $3; w = ""; for (i = 4; i <= NF; i++) w = w (w == "" ? "" : " ") $i; what[id] = w; order[++n] = id }
+    $1 == "E" { e[$2] = $3 }
+    END { for (k = 1; k <= n; k++) { id = order[k]; if (seen[id]++) continue
+            if (s[id] > now) continue; if ((id in e) && e[id] < t0) continue
+            printf "%s\t%s\t%s\t%s\n", (what[id] == "" ? "a run" : what[id]), id, s[id], ((id in e) ? e[id] : "-") } }' "$f" 2>/dev/null |
+  while IFS="$(printf '\t')" read -r what id st en; do
+    st="$(date -r "$st" +%H:%M:%S 2>/dev/null || date -d "@$st" +%H:%M:%S 2>/dev/null)"
+    if [ "$en" = - ]; then en="still going"; else en="$(date -r "$en" +%H:%M:%S 2>/dev/null || date -d "@$en" +%H:%M:%S 2>/dev/null)"; fi
+    printf '%s (%s), from %s to %s\n' "$what" "$id" "$st" "$en"
+  done
+  return 0
+}
+
 # kosmos_light_side_intruder <root pid>: 0 (and why, on stdout) when the side turn should YIELD; 1 to stay. queued-heavy.sh
 # asks it every few seconds through a side turn and stops its command when it says yes. Yields on: an older
 # queued-heavy.sh's waiter (round 16); a machine claim other than the holder the take recorded (round 17: an older

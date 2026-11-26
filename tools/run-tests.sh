@@ -572,6 +572,7 @@ fi
 if [ $((RT_FILE_TIMEOUT_S % 60)) = 0 ]; then RT_FILE_TIMEOUT_LABEL="$((RT_FILE_TIMEOUT_S / 60)) min"; else RT_FILE_TIMEOUT_LABEL="$RT_FILE_TIMEOUT_S s"; fi
 RT_TEST_TIMEOUT_MS="${KOSMOS_TEST_TIMEOUT_MS:-$(awk -v s="$KOSMOS_TEST_TIME_SCALE" 'BEGIN { v = 600000 * s; if (v < 600000 || v != v) v = 600000; printf "%d", v + 0.5 }')}"
 BEFORE="$(seen_before)"
+_rt_t0="$(date +%s)"   # kosmos#9139: this run's start, for the runs that said they went beside it (below)
 
 # #1962: refuse to run the suite while a RELEASE holds the machine. This is every
 # agent's pre-PR validation and the ordinary tenant a cut's hold list kept missing
@@ -1081,6 +1082,14 @@ if [ "$NODE_STATUS" -ne 0 ]; then
     echo "A test that dies on 'we could not see what is running' or a timeout met a busy machine, not a missing thing (#704)."
   else
     echo "Nothing else was on the default port and no page gate was running, so this red is not contention with a board; read it."
+  fi
+  # kosmos#9139: runs that STARTED beside this one after it began (relay CI past its wait cap) and said so. BEFORE above
+  # only sees what was there at the start.
+  _rt_beside=""; command -v kosmos_beside_runs_since >/dev/null 2>&1 && _rt_beside="$(kosmos_beside_runs_since "$_rt_t0")"
+  if [ -n "$_rt_beside" ]; then
+    echo "Runs that went beside this one while it ran, and said so (#9139):"
+    printf '%s\n' "$_rt_beside" | sed 's/^/  /'
+    echo "A red inside one of these windows is contention first: rerun the failing file alone before calling it a defect."
   fi
   # #6668: the limits this run's node part had (scaled by the time-scale above), under their own label, so a red
   # beside a TIMED OUT line or a cancelled test reads against the limit it met. Only when the NODE part itself was red: a

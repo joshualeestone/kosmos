@@ -1488,6 +1488,26 @@ out="$(cd "$HERE/.." && KOSMOS_HARNESS_MIN_FREE_MB=999999999 KOSMOS_NO_WAIT=1 KO
 # first such start on a line and only a read written that way; a later start ends its watch on the one before; the
 # text q_ready "$name" counts wherever it stands, a comment included; and a read inside a helper (cw "$g1") or further
 # than eight lines on is not seen.
+# kosmos#9139: a run that goes beside a holder on purpose says so (kosmos_note_beside_run), and a suite's red summary
+# names it (kosmos_beside_runs_since its start). The holder's red then reads as contention, not as the change.
+MB="$T/markers-beside"; mkdir -p "$MB"
+bt0=$(( $(date +%s) - 5 ))
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run start ci-a "relay CI shell tests"
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run start ci-b "relay CI cargo test"; KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end ci-b
+printf 'S ci-old %s an old run\nE ci-old %s\n' $((bt0 - 600)) $((bt0 - 300)) >> "$MB/beside-runs.log"
+out="$(KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since "$bt0")"
+has "$out" "relay CI shell tests (ci-a), from" && has "$out" "to still going" \
+  && pass "#9139 a run still going beside this one is named, as still going" || fail "#9139 a still-going beside run was not named ($out)"
+{ has "$out" "relay CI cargo test (ci-b), from" && ! printf '%s\n' "$out" | grep -F "(ci-b)" | grep -qF "still going"; } \
+  && pass "#9139 a run that started and ended inside the window is named with its end" || fail "#9139 an ended beside run was not named with its end ($out)"
+! has "$out" "ci-old" && pass "#9139 CONTROL: a run that ended before this one started is not named" || fail "#9139 an earlier run was named ($out)"
+for _i in $(seq 1 420); do printf 'E x%s 1\n' "$_i" >> "$MB/beside-runs.log"; done
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end ci-a
+[ "$(wc -l < "$MB/beside-runs.log" | tr -d ' ')" -le 400 ] && pass "#9139 the beside log keeps its last 400 lines" || fail "#9139 the beside log grew past 400 lines"
+_wired "$HERE/run-tests.sh" '^_rt_t0="$(date +%s)"' && _wired "$HERE/run-tests.sh" 'kosmos_beside_runs_since "$_rt_t0"' \
+  && pass "#9139 run-tests.sh records its start and names the beside runs in its red summary" \
+  || fail "#9139 run-tests.sh no longer records its start or no longer names the beside runs"
+rm -rf "$MB"
 unready() { awk '
   function chk(s,   r, p) { if (!v) return; r = index(s, "q_ready \"$" v "\""); p = index(s, "command= -p \"$" v "\"")
     if (p && (!r || r > p)) { print at ": " v; v = "" } else if (r) v = "" }
