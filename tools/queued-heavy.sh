@@ -667,16 +667,23 @@ _qh_take() {
 # it runs BESIDE the holder, with no claim and no renewer, says so, and notes its start and end with
 # kosmos_note_beside_run, so the holder's red run-tests.sh summary names it (a red in that window reads as contention,
 # not as the change: PigeonPete). Unset, empty or not a number: no cap, the queue as before. A --light run ignores
-# it, even one sent to an ordinary turn. The place in the queue is not kept across a cut's re-wait (the wait takes a new one).
+# it, even one sent to an ordinary turn, and so does KOSMOS_NO_WAIT=1 (it still refuses at once, review 2).
+# Review 2: the cap is a DEADLINE from when the run joined, not a fresh wait each time: each wait gets what is left,
+# and past it one lost take (an earlier waiter took the free turn) sends the run beside. The cut wait has NO bound of
+# its own: the caller's own timeout ends it (relay CI's job limit). Across a cut the run may keep its join time or
+# take a new one, whichever the wait that ends it gives; neither moves it ahead of a waiter that joined earlier.
 QH_CAP_S="${QUEUED_HEAVY_CAP_S:-}"
 case "$QH_CAP_S" in ''|*[!0-9]*) QH_CAP_S="" ;; esac
 [ -n "$QH_CAP_S" ] && QH_CAP_S=$((10#$QH_CAP_S))
 [ "${KOSMOS_QUEUE_CLASS:-heavy}" = light ] && QH_CAP_S=""
+[ "${KOSMOS_NO_WAIT:-0}" = 1 ] && QH_CAP_S=""
 if [ -n "$QH_CAP_S" ] && ! command -v kosmos_machine_claim_status >/dev/null 2>&1; then   # review 1: or a cut reads as free
   echo "QUEUED-HEAVY: this lib has no kosmos_machine_claim_status, so QUEUED_HEAVY_CAP_S is ignored (the queue as before)" >&2
   QH_CAP_S=""
 fi
+QH_CAP_END=""; QH_CAP_TRIED=0
 if [ -n "$QH_CAP_S" ]; then
+  QH_CAP_END=$(( $(date +%s) + QH_CAP_S ))
   export KOSMOS_WAIT_QUEUE_CEIL_S="$QH_CAP_S"
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') waits at most ${QH_CAP_S}s for an ordinary holder, then runs beside it; a release cut is waited out (QUEUED_HEAVY_CAP_S, kosmos#9139): $WHAT"
 fi
@@ -718,22 +725,46 @@ _qh_run_beside() {
 # at once (a cap of 0, or KOSMOS_NO_WAIT=1) cannot spin beside a cut for its two hours.
 _qh_after_bound() {
   if [ -z "$QH_CAP_S" ]; then echo "QUEUED-HEAVY $(date '+%H:%M:%S') REFUSED (the queue's bound ran out): $WHAT"; exit 4; fi
-  _qh_free_now && return 0
-  local every="${KOSMOS_WAIT_EVERY_S:-30}"
+  # A wait that gave up early (KOSMOS_WAIT_MAX_S below the cap): wait out what is left of the deadline.
+  [ $(( QH_CAP_END - $(date +%s) )) -gt 0 ] && return 1
+  export KOSMOS_WAIT_QUEUE_CEIL_S=0
+  # Past the deadline: one free turn is taken in order; a lost take after that goes beside (review 2: it used to start
+  # a fresh cap each time, so "at most Ns" did not hold behind a waiter that never took).
+  if [ "$QH_CAP_TRIED" = 0 ] && _qh_free_now; then QH_CAP_TRIED=1; return 0; fi
+  _qh_cut_or_beside "$@"
+}
+# Past the deadline with no turn: a cut is waited out (sleeping between passes); then a free turn, or beside.
+_qh_cut_or_beside() {
+  local every="${KOSMOS_WAIT_EVERY_S:-30}" waited=0
   case "$every" in ''|*[!0-9]*|0) every=30 ;; esac
   while _qh_cut_holds; do
+    waited=1
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') the cap (${QH_CAP_S}s) ran out while a release cut holds the machine; waiting past the cap (kosmos#9139): $WHAT"
     KOSMOS_NO_WAIT=0 kosmos_wait_until_clear "$WHAT" --suite-queue _qh_clear && return 0
     _qh_free_now && return 0
     sleep "$every"
   done
-  _qh_free_now && return 0   # review 1: the cut may have ended between the last check and the loop's test
+  # Review 1: the cut may have ended between the last check and the loop's test. Review 2: only after a cut was waited
+  # out; a free box with no cut here is the one this run just lost a take on, and taking it again would only lose again.
+  [ "$waited" = 1 ] && _qh_free_now && return 0
   _qh_run_beside "$@"
 }
 QH_JOINED="$(date +%s)"
 export KOSMOS_WAIT_KEEP_MARK=1   # #5332, see _qh_take. Read only by a main-lane wait (a side wait returns first; the renewer never waits).
-until { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_ARGS[@]}"} _qh_clear || _qh_after_bound "$@"; _qh_take; }; do
+# kosmos#9139 review 2: `&&`, so a capped wait that _qh_after_bound sends round again does not take. Without a cap the
+# two forms are the same (_qh_after_bound exits 4 there, or returns 0).
+until { { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_ARGS[@]}"} _qh_clear || _qh_after_bound "$@"; } && _qh_take; }; do
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') did not get the turn (another run took it, or is ahead in the queue); waiting again: $WHAT"
+  # kosmos#9139 review 2: with a cap, the next wait gets only what is left of it, and a lost take pauses first (a cap of
+  # 0 behind an earlier waiter otherwise went round at full speed).
+  if [ -n "$QH_CAP_S" ] && [ "${KOSMOS_WAIT_LANE:-main}" != side ]; then
+    _qh_left=$(( QH_CAP_END - $(date +%s) )); [ "$_qh_left" -gt 0 ] || _qh_left=0
+    export KOSMOS_WAIT_QUEUE_CEIL_S="$_qh_left"
+    # Past the deadline the next wait has a ceiling of 0, so it gives up at once and _qh_after_bound decides (a cut
+    # waited out, or beside). That holds when only the TAKE lost (an earlier waiter on a free box) too: the wait sees
+    # the waiter ahead and gives up. Review 2's 169-take spin was _qh_cut_or_beside retaking that same free box.
+    sleep "${KOSMOS_WAIT_EVERY_S:-30}"
+  fi
   # Only when the place is gone (review 3): a lost take that kept its marker needs no re-mark.
   if [ "${KOSMOS_WAIT_LANE:-main}" != side ] && [ ! -e "$(_kosmos_suite_waiter_file "$$")" ]; then
     kosmos_mark_suite_waiting "$QH_JOINED"
