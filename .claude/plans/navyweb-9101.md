@@ -34,13 +34,17 @@ browser's Kosmos+ bar (not the app).
   Kosmos+ brand look, a decision of its own.
 - The board's hidden "new look" switch (html[data-look="new"], kosmos-look in localStorage) sets --k-bg to #fff/#000;
   boardGround stays #faf9f7/#0c0d0f, so a person on that look gets a hairline of difference around the page.
+- The Close bar frames Kosmos+ pages too (sign-in, the account page, the delete flow), which still paint navy: a cream
+  or near-black bar over a navy page, on the sign-in path (review 5). Navy was matching navy there. The fix is those
+  pages losing their navy inside the app, not the bar going back to navy; carried by #9103 with the phone menu and the
+  Kosmos Plus section's header. The owed screenshots include the sign-in page under Close, light and dark.
 - The full-screen phone menu (#pnav), opened from the in-app header, is still Kosmos+ navy with white type in both
   themes. It is a screen of its own (Josh's #4823 mock), filed as #9103 rather than widened in here.
 
 ## Tests
 ios.board-ground-9101.test.js: no Swift file uses or spells out the navy; boardGround's two values equal the token the
 board's body paints (found from the body rule, then read in the light :root and the dark block, bounded by its braces);
-the five places use it; the Close bar's words; the in-app header on --k-bg and --k-ink with no navy or white left. 4/4.
+the five places use it; the Close bar's words; the in-app header on --k-bg and --k-ink with no navy or white left; boardGround and Palette.ground equal. 5/5.
 Controls: the old dark value (#1c1c1e) fails test 2; a navy in-app header fails test 4.
 web.app-header-6846.test.js updated to the bar rule's new opening.
 render-apptabs-6846 (gated) is changed and not yet run: it goes in the queue with the iOS build.
