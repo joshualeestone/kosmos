@@ -591,6 +591,14 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 # every file in the zip.
 # connector.signature (older, #4597) repeats the connector's entry on purpose: it
 # stays where existing readers of the connector block look for it.
+# #9144: the launcher's repair checks a fresh copy of runtime\node.exe against this, so it is the STAGED file's own
+# sha256 (what the zip carries), never the download's. A file that cannot be read stops the build: a manifest
+# without it would make every repair skip the check without saying so.
+_node_exe_sha="$(shasum -a 256 "$STAGE/runtime/node.exe" | awk '{print $1}')"
+case "$_node_exe_sha" in
+  [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) [ "${#_node_exe_sha}" = 64 ] || { echo "could not read runtime/node.exe's sha256 for the manifest (#9144)" >&2; exit 1; } ;;
+  *) echo "could not read runtime/node.exe's sha256 for the manifest (#9144)" >&2; exit 1 ;;
+esac
 cat > "$STAGE/manifest.json" <<JSON
 {
   "product": "kosmos",
@@ -601,6 +609,7 @@ cat > "$STAGE/manifest.json" <<JSON
   "source_dirty": $SOURCE_DIRTY,
   "signatures": { "Kosmos.exe": "$_launcher_sig", "app/bin/kosmos-tunnel.exe": "$_tunnel_sig" },
   "node": { "version": "v$NODE_VERSION", "download_sha256": "$NODE_SHA" },
+  "runtime_node_sha256": "$_node_exe_sha",
   "webview2_loader": { "sdk_version": "$WEBVIEW2_SDK_VERSION", "download_sha256": "$WEBVIEW2_SDK_SHA256" },
   "agents_supported": true,
   "connector": { "file": "app/bin/kosmos-tunnel.exe", "sha256": "$_tunnel_staged", "commit": "$_tunnel_src", "signature": "$_tunnel_sig" }

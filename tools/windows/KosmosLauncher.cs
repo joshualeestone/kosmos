@@ -82,6 +82,10 @@ class KosmosLauncher
     // What Settings > Apps > Installed apps > Uninstall runs (see Uninstall).
     const string UninstallFlag = "--uninstall";
 
+    // #9144: repair a runtime that crashes on every run, from a console (RepairRuntime; Main offers the same repair to
+    // a person at the desktop when its runtime check fails).
+    internal const string RepairRuntimeFlag = "--repair-runtime";
+
     // kosmos#1765: what the board asks (engine/win32runfolder.js) when it is serving from a folder outside the
     // profile. It answers whether this folder is one other people on this PC can change, as one JSON line on stdout,
     // and does nothing else: no box, no console, no errand. The board asks this program rather than keeping a second
@@ -176,6 +180,7 @@ class KosmosLauncher
         bool wantsConsole = Array.Exists(args, a => string.Equals(a, ConsoleFlag, StringComparison.OrdinalIgnoreCase));
         bool wantsUninstall = Array.Exists(args, a => string.Equals(a, UninstallFlag, StringComparison.OrdinalIgnoreCase));
         bool wantsWindow = Array.Exists(args, a => string.Equals(a, WindowFlag, StringComparison.OrdinalIgnoreCase));
+        bool wantsRepair = Array.Exists(args, a => string.Equals(a, RepairRuntimeFlag, StringComparison.OrdinalIgnoreCase));
         showMessageBoxes = !wantsConsole && Environment.UserInteractive;
         if (!showMessageBoxes) ConnectToAConsole();
 
@@ -214,6 +219,16 @@ class KosmosLauncher
         // process: the board and the agents run under their own tasks, as they do on the Mac. It
         // never starts the board, offers a move or touches the Start menu.
         if (wantsWindow) return RunBoardWindow(here, node, opener, app, port);
+
+        // #9144: 🛑 A RUNTIME THAT CRASHES ON EVERY RUN IS FOUND HERE, BEFORE ANYTHING ELSE RUNS IT (the installer duties
+        // below run it too). Measured on the Windows box 11-26: runtime\node.exe died on every run, even `node -e 1`, while
+        // a byte-identical COPY ran clean; the likely cause is a damaged page in Windows' cached image of that one file.
+        // "Try again" failed the same way, and the logon task's board died seconds after the hand-off where nobody saw it.
+        // So: one `node -e 0` first, and an exit that is not 0 offers Repair (RepairRuntime). A check that does not finish
+        // says nothing either way and the launch goes on (fail open: this must never stop a working Kosmos).
+        if (wantsRepair) return RepairRuntimeFromConsole(here);
+        int? endedByRuntimeCheck = CheckRuntimeBeforeStarting(here, node);
+        if (endedByRuntimeCheck.HasValue) return endedByRuntimeCheck.Value;
 
         // win32-installer-native: a real build (manifest.json, see IsKosmosBuild) running from
         // Downloads, the Desktop, OneDrive or a temporary folder hands off to the Kosmos already
@@ -332,6 +347,7 @@ class KosmosLauncher
         // slow-but-successful boot. With --console, or with nobody at the desktop,
         // the launcher just waits, as it always did.
         bool stoppedByPerson = false;
+        bool servedHere = false;   // #9144: a board that served here did not hand off, so there is no hand-off to look after
         if (showMessageBoxes)
         {
             int stillToWaitMs = CheckForServingAfterMs - (int)sinceServerStarted.ElapsedMilliseconds;
@@ -340,7 +356,7 @@ class KosmosLauncher
                 while (!p.WaitForExit(ServingPollMs))
                 {
                     bool provablyServingHere = ListenerStateOf(p.Id) == ListenerAnswer.Listening || ServeHereSignalPresent(serveHereSignal);
-                    if (provablyServingHere) { stoppedByPerson = KeepBoardUntilPersonStopsIt(p); break; }
+                    if (provablyServingHere) { servedHere = true; stoppedByPerson = KeepBoardUntilPersonStopsIt(p); break; }
                 }
             }
         }
@@ -367,6 +383,10 @@ class KosmosLauncher
                 Hold();
             }
         }
+        // #9144: a board that handed off to its logon task exits 0 and leaves this launcher nothing to watch, so a board
+        // that then dies seconds into each start under the task was never seen (measured on the Windows box 11-26: no
+        // window, nothing said). Only for a person at the desktop, and only for a hand-off (not a board that served here).
+        if (p.ExitCode == 0 && !servedHere && !stoppedByPerson && showMessageBoxes) LookAfterHandOff(here, node, port);
         return p.ExitCode;
     }
 
@@ -1957,6 +1977,243 @@ class KosmosLauncher
     internal static void EnableBoardTask(string taskName)
     {
         if (taskName != null) RunSchtasks("/Change /TN " + QuoteArgument(taskName) + " /ENABLE");
+    }
+
+    // ---- a runtime that crashes on every run (#9144) -------------------------------
+
+    // How long the runtime's one `-e 0` may take. A first run after an install can be slowed by a scan of a 90 MB file,
+    // so this is generous; a check that does not finish says nothing (RuntimeLooksDamaged), never "damaged".
+    internal const int RuntimeCheckTimeoutMs = 30000;
+    // RuntimeCheckExitCode's two answers that are not an exit code.
+    internal const int RuntimeCheckDidNotFinish = int.MinValue;
+    internal const int RuntimeCheckCouldNotStart = int.MinValue + 1;
+    // The fresh copy is made and run under this name, in runtime\. An .exe, so Windows runs it as a program.
+    internal const string RepairCopyName = "node-repair.exe";
+    // The old runtime is kept beside the new one under this name and the time, for diagnosis.
+    internal const string DamagedRuntimePrefix = "node.exe.damaged-";
+    // manifest.json's record of runtime\node.exe's sha256, written by tools/build-kosmos-windows.sh. Builds made before
+    // #9144 have none, and the repair then checks only that the fresh copy runs.
+    internal const string RuntimeShaManifestKey = "runtime_node_sha256";
+    // How long after a hand-off the board may take to listen before the launcher looks into why. Generous: a first boot
+    // installs and syncs before it listens, and a false alarm would tell a person a working Kosmos is broken.
+    internal const int AfterHandOffLookMs = 90000;
+    const int AfterHandOffPollMs = 1000;
+
+    const string RepairDoesWhat = "Repair copies it fresh from this version's files.";
+    const string RestartAdvice = "Restart this computer, then open Kosmos again: a restart clears what Windows keeps in memory for a program. If it still does not start, download Kosmos again.";
+
+    // The runtime's exit code for `-e 0`, run where it sits; RuntimeCheckDidNotFinish or RuntimeCheckCouldNotStart
+    // otherwise. Never throws.
+    internal static int RuntimeCheckExitCode(string nodePath)
+    {
+        try
+        {
+            ProcessStartInfo c = new ProcessStartInfo(nodePath, "-e 0");
+            c.UseShellExecute = false;
+            c.CreateNoWindow = true;
+            c.WorkingDirectory = Path.GetDirectoryName(nodePath);
+            using (Process q = Process.Start(c))
+            {
+                if (q == null) return RuntimeCheckCouldNotStart;
+                if (!q.WaitForExit(RuntimeCheckTimeoutMs))
+                {
+                    try { q.Kill(); } catch { /* it is ended with this launcher anyway */ }
+                    return RuntimeCheckDidNotFinish;
+                }
+                return q.ExitCode;
+            }
+        }
+        catch { return RuntimeCheckCouldNotStart; }
+    }
+
+    // Damaged: it would not start, or it ended with anything but 0. A check that did not finish says nothing.
+    internal static bool RuntimeLooksDamaged(int exitCode)
+    {
+        return exitCode != 0 && exitCode != RuntimeCheckDidNotFinish;
+    }
+
+    internal static string RuntimeCodeWords(int exitCode)
+    {
+        if (exitCode == RuntimeCheckCouldNotStart) return "it would not start";
+        if (exitCode == RuntimeCheckDidNotFinish) return "it did not finish";
+        string hex = exitCode < 0 ? " (0x" + ((uint)exitCode).ToString("X8") + ")" : "";
+        return "it stopped with exit code " + exitCode + hex;
+    }
+
+    internal static string DamagedRuntimeQuestion(string what)
+    {
+        return "Kosmos's runtime (node.exe) is damaged on this computer: " + what + ".\n\n" + RepairDoesWhat + " Repair it now?";
+    }
+
+    const string NotStartedQuestion = "Kosmos did not start: its board stopped soon after it was opened. Its runtime (node.exe) may be damaged in a way a quick check cannot see.\n\n" + RepairDoesWhat + " Repair it now?";
+
+    internal static string RepairFailedMessage(string problem)
+    {
+        return "Kosmos could not repair its runtime: " + problem + ".\n\n" + RestartAdvice;
+    }
+
+    // Main's check (see the comment there): null to go on with the launch, or the exit code to end it with.
+    static int? CheckRuntimeBeforeStarting(string here, string node)
+    {
+        int code = RuntimeCheckExitCode(node);
+        if (!RuntimeLooksDamaged(code)) return null;
+        string what = RuntimeCodeWords(code);
+        if (!showMessageBoxes)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("Kosmos's runtime (runtime\\node.exe) is damaged on this computer: " + what + ".");
+            Console.Error.WriteLine("To repair it, run: Kosmos.exe " + RepairRuntimeFlag);
+            return 1;
+        }
+        if (!AskRepair(DamagedRuntimeQuestion(what))) return 1;
+        string problem = RepairRuntime(here);
+        if (problem == null) return null;   // repaired: the launch goes on, on the fresh copy
+        ShowMessageBox(RepairFailedMessage(problem), true);
+        return 1;
+    }
+
+    // `Kosmos.exe --repair-runtime`: the same repair, said where the person asked.
+    static int RepairRuntimeFromConsole(string here)
+    {
+        string problem = RepairRuntime(here);
+        string said = problem == null
+            ? "Kosmos's runtime is repaired: a fresh copy of runtime\\node.exe is in place, and the old one is kept beside it as " + DamagedRuntimePrefix + "<date and time>."
+            : RepairFailedMessage(problem);
+        if (showMessageBoxes)
+        {
+            if (problem == null) ShowNotice(said); else ShowMessageBox(said, true);
+        }
+        else if (problem == null) Console.WriteLine(said);
+        else Console.Error.WriteLine(said);
+        return problem == null ? 0 : 1;
+    }
+
+    // 🛑 THE REPAIR MAKES A NEW FILE, NEVER RE-WRITES THE OLD ONE, BECAUSE A NEW FILE IS WHAT FIXED IT. A copy is a new
+    // file, so Windows maps a new image of it; the old file's damaged cached image is left behind with the old file.
+    // In order: copy runtime\node.exe to runtime\node-repair.exe; its sha256 must be the manifest's (when the manifest
+    // has one); the copy must run `-e 0` to exit 0; the old file is renamed node.exe.damaged-<time> (a running program
+    // can be renamed, not deleted); the copy takes its name; and the check runs once more. null when repaired, or what
+    // went wrong, in words, with the copy removed. Never throws.
+    internal static string RepairRuntime(string here)
+    {
+        string runtime = Path.Combine(here, "runtime");
+        string node = Path.Combine(runtime, "node.exe");
+        string copy = Path.Combine(runtime, RepairCopyName);
+        try
+        {
+            if (!File.Exists(node)) return "its file is missing (runtime\\node.exe)";
+            if (File.Exists(copy)) File.Delete(copy);
+            File.Copy(node, copy);
+            string expected = ExpectedRuntimeSha256(here);
+            if (expected != null)
+            {
+                string got = FileSha256Hex(copy);
+                if (!string.Equals(got, expected, StringComparison.OrdinalIgnoreCase))
+                {
+                    TryDeleteFile(copy);
+                    return "its file does not match this version's (sha256 " + got + ", expected " + expected + "), so the file itself is damaged";
+                }
+            }
+            int code = RuntimeCheckExitCode(copy);
+            if (code != 0)
+            {
+                TryDeleteFile(copy);
+                return "a fresh copy of it does not run either (" + RuntimeCodeWords(code) + ")";
+            }
+            string damaged = Path.Combine(runtime, DamagedRuntimePrefix + DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+            File.Move(node, damaged);
+            try { File.Move(copy, node); }
+            catch (Exception e)
+            {
+                try { File.Move(damaged, node); } catch { /* the old one stays under its damaged name; said below */ }
+                TryDeleteFile(copy);
+                return "the fresh copy could not take its place (" + e.Message + ")";
+            }
+            int after = RuntimeCheckExitCode(node);
+            if (after != 0) return "the repaired runtime does not run (" + RuntimeCodeWords(after) + ")";
+            return null;
+        }
+        catch (Exception e)
+        {
+            TryDeleteFile(copy);
+            return "the fresh copy could not be made (" + e.Message + ")";
+        }
+    }
+
+    // The manifest's sha256 for runtime\node.exe, lower-case hex, or null when there is none (an older build) or it is
+    // not 64 hex characters.
+    internal static string ExpectedRuntimeSha256(string here)
+    {
+        try
+        {
+            string manifest = Path.Combine(here, ManifestFileName);
+            if (!File.Exists(manifest)) return null;
+            string sha = TopLevelJsonString(File.ReadAllText(manifest, Encoding.UTF8), RuntimeShaManifestKey);
+            if (sha == null || sha.Length != 64) return null;
+            foreach (char c in sha) if (Uri.IsHexDigit(c) == false) return null;
+            return sha.ToLowerInvariant();
+        }
+        catch { return null; }
+    }
+
+    internal static string FileSha256Hex(string path)
+    {
+        using (System.Security.Cryptography.SHA256 sha = System.Security.Cryptography.SHA256.Create())
+        using (FileStream f = File.OpenRead(path))
+        {
+            byte[] hash = sha.ComputeHash(f);
+            StringBuilder hex = new StringBuilder(64);
+            foreach (byte b in hash) hex.Append(b.ToString("x2"));
+            return hex.ToString();
+        }
+    }
+
+    static void TryDeleteFile(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch { /* a leftover copy is named for what it is */ }
+    }
+
+    // After a hand-off (see Main): nothing listening on the board's port within AfterHandOffLookMs means the board under
+    // its logon task did not come up. Then the runtime is checked again and the same Repair is offered, worded for
+    // what was seen. A table that cannot be read, or any failure here, says nothing: the board may well be fine.
+    static void LookAfterHandOff(string here, string node, int port)
+    {
+        try
+        {
+            Stopwatch waited = Stopwatch.StartNew();
+            while (waited.ElapsedMilliseconds < AfterHandOffLookMs)
+            {
+                List<int> listening = ListenersOnPort(port);
+                if (listening == null || listening.Count > 0) return;
+                Thread.Sleep(AfterHandOffPollMs);
+            }
+            int code = RuntimeCheckExitCode(node);
+            string question = RuntimeLooksDamaged(code) ? DamagedRuntimeQuestion(RuntimeCodeWords(code)) : NotStartedQuestion;
+            if (!AskRepair(question)) return;
+            string problem = RepairRuntime(here);
+            if (problem != null) ShowMessageBox(RepairFailedMessage(problem), true);
+            else ShowNotice("Kosmos's runtime is repaired. Open Kosmos again to start it.");
+        }
+        catch { /* a look that fails says nothing */ }
+    }
+
+    // A Repair question, Yes by default: unlike AskYesNo's questions, which remove things, Repair only makes a fresh copy
+    // and keeps the old file.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static bool AskRepair(string question)
+    {
+        try { SetProcessDPIAware(); } catch { /* blurry text is better than no text */ }
+        try
+        {
+            System.Windows.Forms.Application.EnableVisualStyles();
+            return System.Windows.Forms.MessageBox.Show(question, WindowTitle,
+                System.Windows.Forms.MessageBoxButtons.YesNo, System.Windows.Forms.MessageBoxIcon.Warning,
+                System.Windows.Forms.MessageBoxDefaultButton.Button1) == System.Windows.Forms.DialogResult.Yes;
+        }
+        catch
+        {
+            return MessageBoxW(IntPtr.Zero, question, WindowTitle, MB_YESNO | MB_ICONWARNING) == IDYES;
+        }
     }
 
     // ---- presenting to a person ----------------------------------------------
