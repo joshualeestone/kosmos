@@ -67,3 +67,18 @@ test('#9095 the two buttons keep a visible edge: the gold one in deep gold, the 
   assert.match(v, /\.background\(Palette\.starFill\)\s*\.clipShape\(RoundedRectangle\(cornerRadius: 12\)\)\s*(\/\/[^\n]*\n\s*)*\.overlay\(RoundedRectangle\(cornerRadius: 12\)\.stroke\(Palette\.starGold, lineWidth: 1\)\)/, 'Try again lost its deep-gold edge (the bright gold is under 3:1 on cream)');
   assert.match(v, /\.stroke\(Palette\.secondary, lineWidth: 1\)/, 'Choose another computer lost its secondary-colour outline (separator is about 1.3:1)');
 });
+
+// The screenshot hook: KOSMOS_SAMPLE_FAILURE holds Today on a failure screen, and only a Debug build can read it.
+test('#9095 the failure screenshot hook names all four screens and is Debug only', () => {
+  const content = fs.readFileSync(path.join(__dirname, 'ios', 'Kosmos', 'ContentView.swift'), 'utf8');
+  const at = content.indexOf('static let sampleFailure');
+  assert.ok(at > -1, 'ContentView has no sampleFailure hook');
+  const body = content.slice(at, content.indexOf('}()', at));
+  const debug = body.indexOf('#if DEBUG'), read = body.indexOf('KOSMOS_SAMPLE_FAILURE'), other = body.indexOf('#else');
+  assert.ok(debug > -1 && read > debug && other > read, 'KOSMOS_SAMPLE_FAILURE is read outside #if DEBUG');
+  assert.match(body.slice(other), /#else\s*return nil\s*#endif/, 'a Release build must answer nil');
+  for (const [word, kase] of [['offline', 'offline'], ['unreachable', 'unreachable'], ['mac', 'macUnreachable'], ['other', 'other']]) {
+    assert.match(body, new RegExp(`case "${word}": failure = \\.${kase}\\b`), `KOSMOS_SAMPLE_FAILURE=${word} does not reach .${kase}`);
+  }
+  assert.match(content, /if let failure = Self\.sampleFailure\?\.failure \?\? shell\.failure \{/, 'Today does not show the sampled failure');
+});

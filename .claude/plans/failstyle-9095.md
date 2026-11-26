@@ -41,3 +41,12 @@ edge comment (3). Deferred: onGold duplicating Palette.primary's light value (a 
 
 ## Still owed before the card is done
 An iOS build, then simulator screenshots of all four failure states in light and dark, including Trying.
+
+## Screenshot hook (added 11-25 20:3x, after review converged at round 3)
+ContentView.sampleFailure: KOSMOS_SAMPLE_FAILURE=offline|unreachable|mac|other[,trying] holds Today on that failure
+screen in a Debug build, with a fixed detail ("The request timed out.") and Mac name ("Studio Mac"), so all four
+states can be shot in light and dark. Decided: one env hook beside the 100+ KOSMOS_SAMPLE_* ones, read only under
+#if DEBUG. Rejected: real failures in the simulator (no way to reach "other" or hold Trying still). Weakest premise:
+that Today's web tab draws its overlay in a sample (no account) launch; unmeasured until the iOS build. Test: the new
+arm in ios.failure-screens-9095.test.js; a mutant moving the read above #if DEBUG turns it red. Needs one more blind
+review round (this is new code after convergence).
