@@ -616,6 +616,10 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
   /* kosmos#9105: the files THIS mark sent (review 1: not every file by its marker, which named files sent earlier, and
      missed a file sent by a second sender while the first file was another's). null: a caller from before #9105, which
      names the one file as #6330 did. A checker's mark sends none (#6330 review 5). */
+  /* Review 3: a file's name in a line typed into panes: single-quoted, without format characters (a direction override)
+     or a quote that would close it, cut to 80 characters; at most 5 named, then how many more. */
+  const fileWord = (x) => "'" + Array.from(clean(x || 'a file').replace(/\p{Cf}/gu, '').replace(/'/g, '\u2019')).slice(0, 80).join('') + "'";
+  const someFiles = (list, each) => list.slice(0, 5).map(each).join(', ') + (list.length > 5 ? ' and ' + (list.length - 5) + ' more (kosmos task show ' + clean(projectId) + ' ' + t.number + ')' : '');
   const sentByMarker = Array.isArray(sentNow) ? tasks.filesOf(t).filter((e) => e.fingerprint && sentNow.includes(e.name)) : null;
   const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
     + (n ? ': "' + n + '"' : '')
@@ -625,7 +629,7 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
     /* #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
        Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). kosmos#6849: it
        names the command, since a PDF's fingerprint is not its shasum and an older instruction says shasum. */
-    + (sentByMarker && sentByMarker.length > 1 ? ' - files ' + sentByMarker.map((e) => clean(e.name || 'a file') + ' ' + e.fingerprint).join(', ')
+    + (sentByMarker && sentByMarker.length > 1 ? ' - files ' + someFiles(sentByMarker, (e) => fileWord(e.name) + ' ' + e.fingerprint)
       + ' (check your copy with: kosmos fingerprint <file> <its fingerprint>)' : '')   // kosmos#9105
     + (sentByMarker && sentByMarker.length === 1 ? ' - fingerprint ' + sentByMarker[0].fingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')
     + (!sentByMarker && tasks.FINGERPRINT_RE.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')   // #7213: the value names its kind, and given it the command compares like with like
@@ -633,9 +637,9 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
     + (reps.length === 1 ? ' - it replaces the file sent earlier (' + replacedPrint + '), so a check of that file no longer counts'
       + (checkedOld(m) ? ': you checked that one' : '') : '')
     // kosmos#9105: several replaced at once are named, and each checker hears which of them it checked.
-    + (reps.length > 1 ? ' - it replaces ' + reps.length + ' files sent earlier (' + reps.map((x) => clean(x.name || 'a file') + ' ' + x.fingerprint).join(', ')
+    + (reps.length > 1 ? ' - it replaces ' + reps.length + ' files sent earlier (' + someFiles(reps, (x) => fileWord(x.name) + ' ' + x.fingerprint)
       + '), so a check of those no longer counts'
-      + (checkedOld(m) ? ': you checked ' + reps.filter((x) => checkersOf(x).some((o) => sameAgentName(o, m, false))).map((x) => clean(x.name || 'a file')).join(', ') : '') : '')
+      + (checkedOld(m) ? ': you checked ' + someFiles(reps.filter((x) => checkersOf(x).some((o) => sameAgentName(o, m, false))), (x) => fileWord(x.name)) : '') : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
   // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.
@@ -28438,7 +28442,8 @@ const server = http.createServer(async (req, res) => {
       const withdrawnFiles = Array.isArray(out.replacedFiles) ? out.replacedFiles.filter((x) => x && x.kind === 'withdrawn') : [];
       if (!viaScreen && body.clear !== true && withdrawnFiles.length > 1) {
         summary = (summary ? summary + ' ' : '') + 'This mark sent no file, so the ' + withdrawnFiles.length + ' files you sent are withdrawn ('
-          + withdrawnFiles.map((x) => String(x.name || '').replace(/["\\\u0000-\u001f\u007f]/g, ' ')).join(', ') + ').'
+          + withdrawnFiles.slice(0, 5).map((x) => "'" + Array.from(String(x.name || '').replace(/["\\\u0000-\u001f\u007f]/g, ' ').replace(/\p{Cf}/gu, '').replace(/'/g, '\u2019')).slice(0, 80).join('') + "'").join(', ')
+          + (withdrawnFiles.length > 5 ? ' and ' + (withdrawnFiles.length - 5) + ' more' : '') + ').'
           + ' To keep them, mark it again with --file and each path.';
       } else if (!viaScreen && body.clear !== true && out.replaced && out.replaced.kind === 'withdrawn') {
         summary = (summary ? summary + ' ' : '') + 'This mark sent no file, so the file the task named before is withdrawn.'

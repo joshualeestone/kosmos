@@ -2237,7 +2237,8 @@ async function taskBuilt(ctx, args) {
       const got = one(f);
       if (got.code) return got.code;
       // kosmos#9105: the file's name is how the board knows it: its own name, given once.
-      let name = String(typeof got.whole === 'string' ? got.whole : f).split(/[\\/]/).pop();
+      // Review 3: without the trailing dots and spaces Windows itself ignores, so report.pdf. is report.pdf.
+      let name = String(typeof got.whole === 'string' ? got.whole : f).split(/[\\/]/).pop().replace(/[. ]+$/, '');
       if (/[\u0000-\u001f\u007f]/.test(name)) {
         if (files.length > 1) { ctx.err('Kosmos cannot send a file whose name has control characters in it among several files: rename it first.'); return 2; }
         name = '';   // one such file goes the older way only, as before #9105
@@ -2307,7 +2308,8 @@ async function taskBuilt(ctx, args) {
       if (!Array.isArray(r.json.task.builtFiles)) ctx.out('This Kosmos kept only the first file, ' + sent[0].file + ': it may be older than more than one --file. Update it, then mark the task again.');
     }
     // Review 1, as install/kosmos: an older board does not know --check, so it counted the mark as a check of its one file.
-    if (!clear && checkNames && !Array.isArray(r.json.task.builtFiles)) ctx.out('This Kosmos does not know --check, so it counted this as a check of the file it keeps: it may be older than --check. Update it, then mark the task again.');
+    // Review 3: not for the same mark again (changed false), whose answer is the task as stored.
+    if (!clear && checkNames && r.json.changed !== false && !Array.isArray(r.json.task.builtFiles)) ctx.out('This Kosmos does not know --check, so it counted this as a check of the file it keeps: it may be older than --check. Update it, then mark the task again.');
     if (!clear && fingerprint && sent.length <= 1) ctx.out('Fingerprint sent: ' + fingerprint + ' for ' + file);
     if (!clear && fingerprint && sent.length <= 1 && !filePath && pathWhy) ctx.out('Its path was not sent (' + pathWhy + '), so kosmos task files cannot check this mark.');
     else if (!clear && fingerprint && sent.length <= 1 && !filePath) ctx.out('Its path was not sent (Kosmos keeps only a plain local path: absolute, with no . or .. in it, no control characters, not a network path, and 1024 characters at most), so kosmos task files cannot check this mark.');   // kosmos#8214 review 2, as install/kosmos

@@ -80,4 +80,18 @@ said "withdraws all" assuming one sender; per-file is the consistent reading.
   whose name and path differ is taken as sent (both CLIs send them matched); 10 an older board touching a multi-file
   mark leaves the one file it knows, without a withdrawn record: the safe direction, no notice is possible from a
   board that does not know the other files existed.
+- Round 3 (opus, blind, aimed at what rounds 1-2 were not): 0 BLOCKER, 2 MAJOR, 6 MINOR. All fixed:
+  1 MAJOR an old-style fingerprint without a name landed on ANOTHER sender's file (mirrorIndex picked the first
+    current one): on a task with several files it now goes to the sender's own file (current or withdrawn), else it
+    is a new file; a one-file task keeps the old behaviour. 2 MAJOR an added file took over a pre-#9105 unnamed file
+    and deleted it, against the help: only its own sender sending exactly one file takes it over now. 3 the readout's
+    q() form (NFKC, brackets to parentheses, no format characters) was refused by --check: one shownName in
+    builtfiles.js, used by the readout's file label and accepted by --check (unique match only). 4 a direction
+    override reached refusals and panes: names lose \p{Cf} and are single-quoted (a ' inside becomes U+2019) in
+    refusals, the told line and the withdrawal summary. 5 the told line had no cap: at most 5 names, each cut to 80
+    characters, then "and N more (kosmos task show ...)". 6 a no-op --check warned of an older board: not when changed
+    is false. 7 the authority test's name claimed more than any board produces: renamed to say it covers a
+    hand-edited store, and a test added for a real older-board replacement (one file left). 8 Windows trailing dots
+    and spaces are dropped from a name.
+  Measured after: engine 25, route+Mac 16, Windows 5, all green; 7 new mutants red; 297 older tests green.
 

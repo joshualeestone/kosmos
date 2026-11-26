@@ -7975,7 +7975,8 @@ cmd_task() {
             # An older board keeps only the first file (it does not know files) and answers without builtFiles.
             if [ "${#fps[@]}" -gt 1 ]; then case "$body" in *'"builtFiles":'*) ;; *) say "This Kosmos kept only the first file, ${files[0]}: it may be older than more than one --file. Update it, then mark the task again." ;; esac; fi
             # Review 1: an older board does not know --check, so it counted the mark as a check of its one file.
-            if [ "$_bcheck" -gt 0 ]; then case "$body" in *'"builtFiles":'*) ;; *) say "This Kosmos does not know --check, so it counted this as a check of the file it keeps: it may be older than --check. Update it, then mark the task again." ;; esac; fi
+            # Review 3: not for the same mark again (changed false), whose answer is the task as stored.
+            if [ "$_bcheck" -gt 0 ]; then case "$body" in *'"builtFiles":'*|*'"changed":false'*) ;; *) say "This Kosmos does not know --check, so it counted this as a check of the file it keeps: it may be older than --check. Update it, then mark the task again." ;; esac; fi
             # #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.
             # Review 5: only when the board's answer carries it (an older board drops a field it does not know).
             if [ -n "$csha" ]; then

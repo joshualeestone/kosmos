@@ -394,7 +394,7 @@ function showLines(body, num, project) {
     const names = (list, person) => [...(Array.isArray(list) ? list.filter((v) => typeof v === 'string' && v).map(q) : []), ...(person === true ? ['the person'] : [])];
     field('Delivered files', String(delivered.filter((e) => e.fingerprint).length) + ' (check them again: kosmos task files ' + one(project) + ')');
     for (const e of delivered) {
-      const label = q(e.name || 'a file sent without its name');
+      const label = e.name ? require('./builtfiles').shownName(e.name) : 'a file sent without its name';   // review 3: the form --check takes
       if (e.fingerprint) {
         field('File ' + label, e.fingerprint + (e.by ? ', sent by ' + q(e.by) : '')
           + (e.path ? '' : ' (its fingerprint only: no path was recorded. Check a copy with: kosmos fingerprint <file> ' + e.fingerprint + ')'));

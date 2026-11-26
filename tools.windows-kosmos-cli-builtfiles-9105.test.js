@@ -95,3 +95,14 @@ test('#9105 review 1 Windows: --check to a board that does not know it is said; 
   const now = await run(['task', 'built', 'proj/1', '4', 'read', '--check', 'data.csv'], newer);
   assert.doesNotMatch(now.out, /does not know --check/);
 });
+
+test('#9105 review 3 Windows: a no-op --check says nothing of an older board; a trailing dot is not part of a name', async () => {
+  const same = await run(['task', 'built', 'proj/1', '4', 'read', '--check', 'data.csv'], () => ({ body: { task: { number: 4 }, changed: false } }));
+  assert.doesNotMatch(same.out, /does not know --check/);
+  // A file whose own name ends in a dot and a space (this Mac keeps them; Windows drops them when it opens one).
+  const dot = path.join(DIR, 'odd.csv. ');
+  fs.writeFileSync(dot, 'odd\n');
+  const r = await run(['task', 'built', 'proj/1', '4', 'x', '--file', REPORT, '--file', dot], newer);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.calls[0].body.files[1].name, 'odd.csv', 'the trailing dot and space were kept in the name');
+});

@@ -177,14 +177,51 @@ test('#9105: one fingerprint sent the older way is the first file, and the other
   assert.deepEqual(get(n).builtFiles.map((e) => [e.name, e.fingerprint]), [['report.md', D], ['data.csv', B]]);
 });
 
-test('#9105: a file from before #9105 with no name is taken over by the first named file sent', () => {
+test('#9105 review 3: a file from before #9105 with no name is taken over only by its own sender sending one file', () => {
   const n = freshTask();
   mark(n, { by: 'mona', fingerprint: A });   // no path, so no name
   assert.deepEqual(get(n).builtFiles.map((e) => e.name), ['']);
-  const r = mark(n, { by: 'mona', files: [{ name: 'report.md', fingerprint: B }, { name: 'data.csv', fingerprint: C }] });
-  assert.equal(r.replacedFiles.length, 1);
-  assert.equal(r.replacedFiles[0].name, 'report.md');
-  assert.deepEqual(get(n).builtFiles.map((e) => [e.name, e.fingerprint]), [['report.md', B], ['data.csv', C]]);
+  const both = mark(n, { by: 'mona', files: [{ name: 'report.md', fingerprint: B }, { name: 'data.csv', fingerprint: C }] });
+  assert.equal(both.replacedFiles, undefined, 'an added file replaced the unnamed one');
+  assert.deepEqual(get(n).builtFiles.map((e) => [e.name, e.fingerprint]), [['', A], ['report.md', B], ['data.csv', C]]);
+  const m = freshTask();
+  mark(m, { by: 'mona', fingerprint: A });
+  mark(m, { by: 'zed', note: 'checked' });
+  const other = mark(m, { by: 'ivy', files: [{ name: 'extra.csv', fingerprint: B }] });
+  assert.equal(other.replacedFiles, undefined);
+  assert.deepEqual(get(m).builtFiles.map((e) => [e.name, e.checkedBy]), [['', ['zed']], ['extra.csv', []]]);
+  // CONTROL: its own sender re-sending one named file takes it over.
+  const k = freshTask();
+  mark(k, { by: 'mona', fingerprint: A });
+  const own = mark(k, { by: 'mona', files: [{ name: 'report.md', fingerprint: B }] });
+  assert.equal(own.replacedFiles[0].kind, 'replaced');
+  assert.deepEqual(get(k).builtFiles.map((e) => [e.name, e.fingerprint]), [['report.md', B]]);
+});
+
+test('#9105 review 3: a fingerprint without a name on a several-file task is the sender\'s own file, never another sender\'s', () => {
+  const n = freshTask();
+  mark(n, { by: 'mona', files: [{ name: 'a.md', fingerprint: A }] });
+  mark(n, { by: 'bob', files: [{ name: 'b.md', fingerprint: B }] });
+  mark(n, { by: 'mona', note: 'withdraw mine' });
+  const r = mark(n, { by: 'mona', fingerprint: C });
+  assert.deepEqual(get(n).builtFiles.map((e) => [e.name, e.fingerprint || null, e.by || null]), [['a.md', C, 'mona'], ['b.md', B, 'bob']]);
+  assert.equal((r.replacedFiles || []).some((x) => x.name === 'b.md'), false, 'bob\'s checkers were told his file was replaced');
+  mark(n, { by: 'ivy', fingerprint: D });
+  assert.deepEqual(get(n).builtFiles.map((e) => e.fingerprint), [C, B, D]);
+  // CONTROL: on a one-file task another sender's fingerprint replaces the file, as before #9105.
+  const m = freshTask();
+  mark(m, { by: 'mona', fingerprint: A });
+  assert.equal(mark(m, { by: 'ivy', fingerprint: B }).replaced.kind, 'replaced');
+});
+
+test('#9105 review 3: --check takes a name as the readout shows it; a direction override never reaches a refusal', () => {
+  const n = freshTask();
+  mark(n, { by: 'mona', files: [{ name: 'Résumé.pdf', fingerprint: A }, { name: 'report [v2].pdf', fingerprint: B }, { name: 'x‮fdp.exe', fingerprint: C }] });
+  mark(n, { by: 'zed', check: ['Résumé.pdf', 'report (v2).pdf', 'xfdp.exe'], note: 'as shown' });
+  assert.deepEqual(get(n).builtFiles.map((e) => e.checkedBy), [['zed'], ['zed'], ['zed']]);
+  const why = refused(n, { by: 'zed', check: ['nope'] });
+  assert.equal(/‮/.test(why), false, 'a direction override reached the refusal');
+  assert.match(why, /'xfdp\.exe'/);
 });
 
 test('#9105: a task marked before #9105 (no builtFiles) reads as its one file, and a repeat writes nothing', () => {
@@ -195,7 +232,7 @@ test('#9105: a task marked before #9105 (no builtFiles) reads as its one file, a
   assert.equal(mark(n, { by: 'mona', fingerprint: A, filePath: P_REPORT, note: 'old' }).changed, false);
 });
 
-test('#9105: an older board\'s change to the single-file fields wins over a stale builtFiles, and the other files stay', () => {
+test('#9105: a hand-edited store (single-file fields changed, builtAt kept) is read from those fields, the other files kept', () => {
   const n = freshTask();
   mark(n, { by: 'mona', files: two() });
   // As a board from before #9105 leaves it after a replacement: the fields changed, builtFiles untouched.
@@ -288,4 +325,11 @@ test('#9105 review 1: the mark says which files it sent', () => {
   assert.deepEqual(mark(n, { by: 'ivy', files: [{ name: 'c.md', fingerprint: C }] }).sentFiles, ['c.md']);
   assert.equal(mark(n, { by: 'zed', note: 'checked' }).sentFiles, undefined);
   assert.deepEqual(mark(n, { by: 'mona', fingerprint: D, filePath: P_DATA }).sentFiles, ['data.csv']);
+});
+
+test('#9105 review 3: an older board\'s replacement (a new builtAt) leaves the one file it knows', () => {
+  const n = freshTask();
+  mark(n, { by: 'mona', files: two() });
+  projects.mutate(pid, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === n ? { ...x, builtAt: new Date(Date.now() + 5).toISOString(), builtFingerprint: D, builtCheckedBy: [] } : x)) }));
+  assert.deepEqual(tasks.filesOf(get(n)).map((e) => [e.name, e.fingerprint]), [['report.md', D]], 'a file the older board never knew was read as current');
 });

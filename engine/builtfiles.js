@@ -70,4 +70,11 @@ function filesOf(t) {
   return list.map((e, i) => (i === mi ? { ...one, name: one.name || e.name } : e));
 }
 
-module.exports = { FINGERPRINT_RE, builtFileName, fileNameOf, mirrorIndex, replacedRecord, filesOf };
+/* Review 3: a file's name as the readout shows it: the long list's q() (quotes to ', brackets to parentheses, NFKC, one
+   space) with format characters left out, as the readout prints it. A check given in this form finds its file. */
+function shownName(v) {
+  return String(v).normalize('NFKC').replace(/\p{Cf}/gu, '').replace(/\s+/g, ' ').trim()
+    .replace(/["ʺˮ′‵״〃❝❞\p{Pi}\p{Pf}]/gu, "'")
+    .replace(/\p{Ps}/gu, '(').replace(/\p{Pe}/gu, ')');
+}
+module.exports = { FINGERPRINT_RE, builtFileName, fileNameOf, mirrorIndex, replacedRecord, filesOf, shownName };

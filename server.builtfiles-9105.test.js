@@ -117,7 +117,7 @@ test('#9105: a mark with two files stores both, and the line names each with its
   assert.deepEqual(stored(n).builtFiles.map((e) => [e.name, e.fingerprint, e.path]), [['report.md', A, P_REPORT], ['data.csv', B, P_DATA]]);
   assert.equal(stored(n).builtFingerprint, A);
   assert.equal(typed.length, 1, JSON.stringify(typed));
-  assert.match(typed[0], new RegExp(' - files report\\.md ' + A + ', data\\.csv ' + B + ' \\(check your copy with'));
+  assert.match(typed[0], new RegExp(" - files 'report\\.md' " + A + ", 'data\\.csv' " + B + ' \\(check your copy with'));
   assert.doesNotMatch(typed[0], / - fingerprint /, 'the one-file words were typed as well');
   assert.doesNotMatch(typed[0], new RegExp(SANDBOX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'a file path was typed into a pane');
 });
@@ -141,11 +141,11 @@ test('#9105: replacing two checked files tells each checker which one it checked
     files: [{ name: 'report.md', fingerprint: C }, { name: 'data.csv', fingerprint: D }], note: 'both redone' }));
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.deepEqual(told(r), ['ivy', 'zed']);
-  const toZed = typed.find((t) => /you checked report\.md$|you checked report\.md /.test(t));
-  const toIvy = typed.find((t) => /you checked data\.csv/.test(t));
+  const toZed = typed.find((t) => /you checked 'report\.md'/.test(t));
+  const toIvy = typed.find((t) => /you checked 'data\.csv'/.test(t));
   assert.ok(toZed && toIvy, JSON.stringify(typed));
   assert.doesNotMatch(toZed, /you checked [^-]*data\.csv/, 'zed was told it checked a file it never did');
-  for (const line of typed) assert.match(line, new RegExp('it replaces 2 files sent earlier \\(report\\.md ' + A + ', data\\.csv ' + B + '\\)'));
+  for (const line of typed) assert.match(line, new RegExp("it replaces 2 files sent earlier \\('report\\.md' " + A + ", 'data\\.csv' " + B + '\\)'));
 });
 
 test('#9105: re-sending one file tells only that file\'s checker', async () => {
@@ -178,7 +178,7 @@ test('#9105: the sender\'s mark with no file withdraws both, and the answer name
   await mark(n, asAgent('mona'), { files: two() });
   const r = await mark(n, asAgent('mona'), { note: 'not ready' });
   assert.equal(r.status, 200, JSON.stringify(r.json));
-  assert.match(r.json.summary, /the 2 files you sent are withdrawn \(report\.md, data\.csv\)\. To keep them, mark it again with --file and each path\./);
+  assert.match(r.json.summary, /the 2 files you sent are withdrawn \('report\.md', 'data\.csv'\)\. To keep them, mark it again with --file and each path\./);
   assert.doesNotMatch(r.json.summary, /["\\]/, 'the CLI sed cannot read a quote or backslash');
 });
 
@@ -366,4 +366,17 @@ test('#9105 review 2 Mac: task list says a multi-file mark has more files; task 
   assert.match(files.out, /built tasks? with a delivered file in .* \(\d+ files\): /, files.out);
   const bad = await mac(['task', 'built', projectId, String(one), 'x', '--check', 'nope.md'], { KOSMOS_AGENT_TOKEN: sendertoken.mint('zed').token });
   assert.match(bad.out, /its files: 'report\.md'\)/, bad.out);
+});
+
+test('#9105 review 3: the line names at most 5 files, quoted, cut to 80 characters, with no direction override', async () => {
+  const n = tasks.create(projectId, { sentence: 'Many files', who: 'mona' }).number;
+  tasks.addPart(projectId, n, { sentence: 'Read them', who: 'zed' });
+  const files = Array.from({ length: 7 }, (_, i) => ({ name: (i === 0 ? 'x‮' + 'y'.repeat(200) : 'f' + i) + '.md', fingerprint: 'sha256:' + String(i).repeat(64) }));
+  const { r, typed } = await capture(() => mark(n, asAgent('mona'), { files, note: 'seven' }));
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const line = typed[0];
+  assert.match(line, / and 2 more \(kosmos task show /);
+  assert.equal(/‮/.test(line), false, 'a direction override was typed into a pane');
+  assert.ok(line.includes("'x" + 'y'.repeat(79) + "'"), 'a long name was not cut to 80: ' + line.slice(0, 300));
+  assert.equal((line.match(/sha256:/g) || []).length, 5);
 });

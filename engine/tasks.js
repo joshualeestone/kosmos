@@ -937,7 +937,7 @@ const CHECKED_BY_MAX = 20;
    thing delivered. The CLI hashes the file; the board only checks the shape (the algorithm is named in the value).
    #7213: a PDF's fingerprint says pdf-normalized:, so it is never read as the plain sha256 an approval cites. */
 // kosmos#9105: one definition, in engine/builtfiles.js, which the task readout and `kosmos task files` read too.
-const { FINGERPRINT_RE, builtFileName, fileNameOf, mirrorIndex, filesOf } = require('./builtfiles');
+const { FINGERPRINT_RE, builtFileName, fileNameOf, mirrorIndex, filesOf, shownName } = require('./builtfiles');
 /* kosmos#8214: the delivered file's absolute path, as the CLI resolved it on the computer that marked it, kept beside its
    fingerprint so `kosmos task files` can check the file again there. The board never reads it. `kosmos task files`
    opens every path on a project, other markers' too, so only a path engine/fileprint.js keptPath allows is kept. */
@@ -1060,7 +1060,7 @@ const BUILT_FILES_MAX = 20;
 /* kosmos#9105 review 2: a file's name in a refusal, between single quotes and with no double quote or backslash, which the
    Mac CLI's sed reads the error up to (a JSON-quoted name cut it at its first quote). */
 function plainName(v) {
-  return "'" + String(v).replace(/["\\\u0000-\u001f\u007f]/g, ' ') + "'";
+  return "'" + String(v).replace(/["\\\u0000-\u001f\u007f]/g, ' ').replace(/\p{Cf}/gu, '').replace(/'/g, '\u2019') + "'";   // review 3: no direction override, no closing quote
 }
 /* The files a mark sends, checked: [{ name, fingerprint, path }], or a string saying what is wrong. */
 function builtFilesValue(files) {
@@ -1271,13 +1271,24 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         return { kept, keptBy, keptPath, printAt, checkedBy, checkedByPerson, replaces, now };
       };
       const before = filesOf(t);
+      const senderOf = (e) => (e.fingerprint ? e.by : e.replaces && e.replaces.by) || null;   // review 3: a withdrawn file's too
+      /* Review 3: a check names a file as the readout shows it (shownName), or exactly; one file each, or it is refused. */
+      const checkedNow = [];
       if (checkNames) {
-        const bad = checkNames.find((x) => !before.some((e) => e.name === x && e.fingerprint));
+        const findName = (x) => {
+          const cur = before.filter((e) => e.fingerprint);
+          const exact = cur.filter((e) => e.name === x);
+          if (exact.length) return exact[0].name;
+          const shown = cur.filter((e) => shownName(e.name) === shownName(x));
+          return shown.length === 1 ? shown[0].name : undefined;
+        };
+        for (const x of checkNames) { const got = findName(x); if (got !== undefined) checkedNow.push(got); }
+        const bad = checkNames.find((x) => findName(x) === undefined);
         // Review 2: the names are said here, since a one-file task's readout shows none.
         const here = before.filter((e) => e.fingerprint && e.name).map((e) => plainName(e.name));
         if (bad !== undefined) throw new Error('no file named ' + plainName(bad) + ' is delivered on this task (' + (here.length ? 'its files: ' + here.join(', ') : 'it has no named file') + ')');
         if (who === null) throw new Error('a check of named files needs the checker\'s name');
-        const own = checkNames.find((x) => before.some((e) => e.name === x && e.by === who));
+        const own = checkedNow.find((x) => before.some((e) => e.name === x && e.by === who));
         if (own !== undefined) throw new Error('you sent ' + plainName(own) + ' yourself, so your mark cannot check it');
       }
       const viewOf = (e) => (e ? { builtAt: t.builtAt, builtFingerprint: e.fingerprint, builtFingerprintBy: e.by, builtFilePath: e.path,
@@ -1295,9 +1306,10 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         if (r.now) events.push({ name, ...r.now });
       };
       if (sentFiles) {
-        /* Each file sent is matched by its name; the one unnamed file a mark from before #9105 left (no path, so no name)
-           is matched by the first sent file whose name is not on the task, so the first named re-send replaces it. */
-        let unnamed = before.findIndex((e) => e.name === '');
+        /* Each file sent is matched by its name. The one unnamed file a mark from before #9105 left (no path, so no name)
+           is taken over only by its own sender sending one file (review 3: else an added file deleted it, against the
+           help's "files not sent stay"); any other file sent beside it is a new file. */
+        let unnamed = sentFiles.length === 1 ? before.findIndex((e) => e.name === '' && senderOf(e) === who && who !== null) : -1;
         for (const f of sentFiles) {
           let i = before.findIndex((e) => e.name === f.name);
           if (i < 0 && unnamed >= 0) { i = unnamed; unnamed = -1; }
@@ -1309,14 +1321,17 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
            (review 1: else a second entry of that name), otherwise the task's first file, as it always was. */
         const sentName = fileNameOf(sentPath);
         const named = sentName ? before.findIndex((e) => e.name === sentName) : -1;
-        const i = named >= 0 ? named : mirrorIndex(before);
+        /* Review 3: on a task with several files, a fingerprint without a name of the task's is the sender's own file
+           (its first, current or withdrawn), never another sender's, else a new file. One file or none: as always. */
+        const own = before.findIndex((e) => who !== null && senderOf(e) === who);
+        const i = named >= 0 ? named : before.length <= 1 ? mirrorIndex(before) : own;
         apply(i, sentName || (i >= 0 ? before[i].name : ''), print, sentPath);
         sentNow = [sentName || (i >= 0 ? before[i].name : '')];
       } else {
         /* No file sent: each file takes the mark as #8307 did (a check by another agent, the person's check, its own
            sender's withdrawal). With --check, only the files named. */
         for (let i = 0; i < before.length; i += 1) {
-          if (checkNames && !checkNames.includes(before[i].name)) continue;
+          if (checkNames && !checkedNow.includes(before[i].name)) continue;
           apply(i, before[i].name, '', '');
         }
       }
