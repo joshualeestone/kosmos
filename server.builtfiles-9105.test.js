@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#9105: the built route takes every delivered file (`files`) and the files a checker checks (`check`), tells the
