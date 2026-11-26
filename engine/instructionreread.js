@@ -462,8 +462,9 @@ function changedLines(before, after, moved = null) {
   };
   const movedNotes = movedList.map((m, k) => noteFor(m, movedOut[k], shownUnder[k])).filter((t) => t !== '');
   // kosmos#9096 item 5: said once, after the moved notes, so a reader knows lines were left out and why.
-  if (reworded) movedNotes.push('Not shown: ' + reworded + (reworded === 1 ? ' line that changed' : ' lines that changed')
-    + ' only in spacing or punctuation (the rule reads the same).');
+  // Review 6: not "Not shown:", which the cut note also starts with.
+  if (reworded) movedNotes.push('Wording only, so left out: ' + reworded + (reworded === 1 ? ' line that changed' : ' lines that changed')
+    + ' only in spacing or a final full stop (the rule reads the same).');
   const movedNote = movedNotes.join('\n\n');   // each note its own paragraph, in the order the entries were given
   const lineRoom = CHANGES_LINES_MAX - 2 - 2 * movedNotes.length;
   const byteRoom = CHANGES_BYTES_MAX - Buffer.byteLength(NOTE) - 2 - (movedNote ? Buffer.byteLength(movedNote) + 2 : 0);

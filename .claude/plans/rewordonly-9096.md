@@ -14,8 +14,8 @@ fits here", which forced several --how reads.
   (straight or curly); and every other mark: ? ! ; : , a lone mark (`git add .`), stacked dots (`main..`), a full stop
   inside a line, leading indentation, case, hyphens.
 - A pair that is equal after that is counted and not printed.
-- One note says how many lines were left out: "Not shown: N lines that changed only in spacing or punctuation (the rule
-  reads the same)." It travels with the moved-line notes (kosmos#8743), so the room accounting, the cut and the
+- One note says how many lines were left out: "Wording only, so left out: N lines that changed only in spacing or a final
+  full stop (the rule reads the same)." It travels with the moved-line notes (kosmos#8743), so the room accounting, the cut and the
   only-notes return all handle it as they handle those.
 - Runs left empty are dropped, so no empty fence is printed.
 
@@ -64,6 +64,10 @@ Each review's fix was perturbed and its check went red. All 18 files that load t
   fence read in the closer branch); the new test caught it, the branch is guarded, and the scans now run inside a
   safety net that, if one ever throws, treats every line as code (nothing hidden, the list printed whole). No input
   reaches the net today, so it has no test of its own.
+
+- Round 6: CONVERGED (0 BLOCKER, 0 SHOULD; 300,000 random pairs, 2 MB lines and a 1,990-line run, no crash). NIT: the
+  note and the cut note both began "Not shown:". Fixed (the note now begins "Wording only, so left out:"). NIT: spacing
+  inside a raw HTML <pre> block is hidden. Left: rare in instruction files.
 
 ## Weakest premise
 That a pair matched by position inside one run is a reworded rule and not two different rules. The match needs the

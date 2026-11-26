@@ -12,7 +12,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { changedLines } = require('./instructionreread');
 
-const NOTE = /Not shown: (\d+) lines? that changed only in spacing or punctuation \(the rule reads the same\)\./;
+const NOTE = /Wording only, so left out: (\d+) lines? that changed only in spacing or a final full stop \(the rule reads the same\)\./;
 
 test('a rule that only gained or lost end punctuation or spacing is counted, not printed; a real change still prints', () => {
   // Review 5: each rule its own paragraph (a full stop is wording only where the line ends its paragraph).
