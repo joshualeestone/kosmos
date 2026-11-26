@@ -164,8 +164,7 @@ struct ChatList: UIViewRepresentable {
         var movedAt: CFTimeInterval = 0
         func moving() -> Bool { CACurrentMediaTime() - movedAt < 0.25 }
 
-        var wasTwoPanes = false   // kosmos#9002: whether two panes were showing at the last update
-        var redrawsAfterLeaving = 0   // kosmos#9002: width changes still redrawn after two panes went
+        var drawnInTwoPanes = false   // kosmos#9002: the visible cells were drawn at a two-pane width
         func redrawAtNewWidth() {
             guard let source, let list else { return }
             for ip in list.indexPathsForVisibleItems {
@@ -1079,16 +1078,15 @@ struct ChatList: UIViewRepresentable {
         co.landing = landing
         let wasWide = co.environment.paneWidth
         co.environment = context.environment
-        // kosmos#9002: a fold changes the pane's width; cells already drawn are drawn again at the new one. Only when two panes
-        // are, or were, showing: a phone rotating keeps its drawn cells as it always did. Leaving two panes keeps it armed for
-        // the next two width changes, since a fold can change the size classes before the screen reports its new width.
+        // kosmos#9002: a fold changes the pane's width; cells already drawn are drawn again at the new one. Only cells drawn in
+        // two panes, or while two panes show: a phone rotating keeps its drawn cells as it always did. Cells drawn in two panes
+        // stay marked until the next width change has redrawn them, however many updates the fold takes to report its width.
         let two = TwoPanes.shows(context.environment.horizontalSizeClass, context.environment.verticalSizeClass)
-        if co.wasTwoPanes && !two { co.redrawsAfterLeaving = 2 }
-        if abs(wasWide - co.environment.paneWidth) > 0.5, two || co.wasTwoPanes || co.redrawsAfterLeaving > 0 {
+        if two { co.drawnInTwoPanes = true }
+        if abs(wasWide - co.environment.paneWidth) > 0.5, co.drawnInTwoPanes {
             co.redrawAtNewWidth()
-            if !two && !co.wasTwoPanes { co.redrawsAfterLeaving -= 1 }
+            co.drawnInTwoPanes = two
         }
-        co.wasTwoPanes = two
         co.apply(ids, dropped: dropped)
         if newest != co.newest {
             co.newest = newest
