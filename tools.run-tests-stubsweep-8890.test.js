@@ -34,8 +34,10 @@ function env() {
   const e = { ...process.env };
   for (const k of RUNNER_SET) delete e[k];
   // #9115: the inner run's per-test limit outlives the fixture (2 x EXIT_BOUND_MS), whatever scale that run computes.
+  // kosmos#9159: the runner's own stop of its node tree OFF, so these arms test #8890's leak stop alone: with it on, a
+  // file that outlives bash's snapshot would have its stub stopped (and named in #9159's words) before #8890's look.
   return { ...e, TMPDIR: PLAIN_TMP, HOME: SANDBOX_HOME, KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1',
-    KOSMOS_TEST_TIMEOUT_MS: String(4 * EXIT_BOUND_MS) };
+    KOSMOS_TEST_TIMEOUT_MS: String(4 * EXIT_BOUND_MS), KOSMOS_RT_STOP_OWN_NODE: '0' };
 }
 
 /* A killed child of this test stays a zombie until node reaps it, which it cannot while a spawnSync blocks; kill(pid, 0)
