@@ -61,7 +61,7 @@ test('kosmos#9097: a folder outside the home, a missing file, or a bad file read
   assert.strictEqual(le.loginTimesFor(path.join(h, '.claude-none'), { readCred: winRead(h) }).refreshExpiresAt, null);
   fs.writeFileSync(path.join(h, '.claude', '.credentials.json'), '{not json');
   assert.strictEqual(le.loginTimesFor(undefined, { readCred: winRead(h) }).refreshExpiresAt, null);
-  assert.strictEqual(le.readCredDefault('x', undefined, { platform: 'win32', home: null }), null, 'no home, no read');
+  assert.strictEqual(le.readCredDefault(le.serviceNameFor(undefined), undefined, { platform: 'win32', home: null }), null, 'no home, no read');
 });
 
 test('kosmos#9097: the async reader reads the same file off macOS', async () => {
@@ -96,12 +96,12 @@ test('kosmos#9097 review 1: on Windows the login warning finds the folder of eac
   const status = require('./status');
   const fleet = require('../test-support/fleet');
   const now = UNTIL - 3 * 86400000;
-  const panes = [
-    status.parsePanes(fleet.line({ session: 'amy-discord', pane: '0.0' }))[0],
-    status.parsePanes(fleet.line({ session: 'ben-discord', pane: '0.1' }))[0],
-  ];
-  // Controls: the fixture really passes the pane filter (else every assertion below is vacuous).
-  assert.ok(panes.every((p) => status.isNamedOurs(p)), 'the fixture panes are ours');
+  // Review 4: Windows-shaped rows, as win32roster emits them: its command, and a claim equal to the session (the
+  // only ownership evidence a Windows row carries, launchidentity.paneSessionIsOurs).
+  const roster = require('./win32roster');
+  const panes = ['amy', 'ben'].map((n, i) => status.parsePanes(fleet.line({ session: n, pane: '0.' + i, command: roster.WIN32_COMMAND, claim: n }))[0]);
+  // Controls: the fixture really is a Windows row and passes the pane filter (else every assertion below is vacuous).
+  assert.ok(panes.every((p) => roster.isWin32Pane(p) && status.isNamedOurs(p)), 'Windows rows, and ours: ' + JSON.stringify(panes.map((p) => [p.command, p.claim])));
   const jobs = { amy: { runner: 'claude', configDir: null }, ben: { runner: 'claude', configDir: path.join(h, '.claude-b') } };
   const opts = {
     platform: 'win32', readJob: (n) => jobs[n] || null, readCred: winRead(h), cache: { at: 0, value: [] },
