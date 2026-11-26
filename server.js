@@ -27475,6 +27475,16 @@ const server = http.createServer(async (req, res) => {
     }
     const taskchat = require('./engine/taskchat');
     const events = taskchat.read(id, Number(taskActivity[2]));
+    /* kosmos#9142: a repeating task's occurrences (engine/taskrepeat.js occurrences), from these same events, so the page
+       and the CLIs show one row per run or miss. Only when the task repeats and has rows; never fails the route. */
+    const occurrencesFor = (all) => {
+      try {
+        const list = all || projects.readAll() || [];
+        let t = null;
+        for (const proj of list.filter((x) => x && x.id === id)) t = tasks.byNumber(proj, Number(taskActivity[2])) || t;
+        return t && t.repeat ? require('./engine/taskrepeat').occurrences(t, events) : [];
+      } catch { return []; }
+    };
     /* #5874: `?words=1` adds each event's words (engine/taskactphrase.js, the page's tkActPhrase, worded for an agent
        reader: "The person" for the page's "You", and a message quoted). Without it the answer is as before. */
     let wantWords = false;
@@ -27503,10 +27513,12 @@ const server = http.createServer(async (req, res) => {
       /* #6947: when the page last recorded the person viewing this task's conversation, so the agent can tell an unseen nudge from one seen and
          not yet acted on (null: not since this was recorded). */
       const seenByPerson = require('./engine/taskseen').seenAt(id, Number(taskActivity[2]));
-      sendJson(res, 200, { events: events.map((ev) => Object.assign({}, ev, { words: phrase(ev, nameOf, { forAgent: true }) })), count: events.length, seenByPerson });
+      const occ = occurrencesFor(everyProject);
+      sendJson(res, 200, { events: events.map((ev) => Object.assign({}, ev, { words: phrase(ev, nameOf, { forAgent: true }) })), count: events.length, seenByPerson, ...(occ.length ? { occurrences: occ } : {}) });
       return;
     }
-    sendJson(res, 200, { events, count: events.length });
+    const occ = occurrencesFor(everyProject);
+    sendJson(res, 200, { events, count: events.length, ...(occ.length ? { occurrences: occ } : {}) });
     return;
   }
 
