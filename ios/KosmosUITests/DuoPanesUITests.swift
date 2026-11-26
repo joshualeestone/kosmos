@@ -101,6 +101,7 @@ final class DuoPanesUITests: DuoPanesCase {
         box(app).typeText("kept words")
         XCTAssertTrue(((box(app).value as? String) ?? "").contains("kept words"), "CONTROL: the words were not typed")
         XCTAssertTrue(holds(50) { self.alone(app) }, "the fold never came, or Dana's chat is gone (box exists \(box(app).exists))")
+        XCTAssertTrue(holds(5) { self.backShows(app) }, "folded, the open chat has no back button to its list")
         XCTAssertTrue(holds(5) { !self.tabsShow(app) }, "folded, the tab bar is over the chat")
         shot(app, "folded")
         XCTAssertTrue(((box(app).value as? String) ?? "").contains("kept words"), "folded, the draft is gone (the box reads \((box(app).value as? String ?? "").debugDescription))")
@@ -180,6 +181,15 @@ final class DuoPanesUITests: DuoPanesCase {
         XCTAssertTrue(holds(5) { !self.tabsShow(app) }, "an upright phone shows the tabs in a project's room")
         app.buttons["room-info"].tap()
         XCTAssertTrue(words(app, "What it is for").waitForExistence(timeout: 10) && holds(5) { !self.tabsShow(app) }, "an upright phone shows the tabs over a project's page")
+        // A task opened from the project's page keeps the tabs hidden, as the rest of a project does (a change on purpose:
+        // the task page used to bring them back; Josh 11-03, no nav inside a project).
+        let inProject = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Choose the cover photo'")).firstMatch
+        for _ in 0..<4 where !(inProject.exists && inProject.isHittable) { app.swipeUp() }
+        XCTAssertTrue(inProject.waitForExistence(timeout: 10), "CONTROL: the project's page lists no task to open")
+        inProject.tap()
+        XCTAssertTrue(app.navigationBars["Task 7"].waitForExistence(timeout: 10), "CONTROL: the task did not open from the project's page")
+        XCTAssertTrue(holds(5) { !self.tabsShow(app) }, "the tabs show over a task opened inside a project")
+        back(app)
         back(app)
         XCTAssertTrue(app.buttons["room-info"].waitForExistence(timeout: 10), "CONTROL: back did not return to the room")
         XCTAssertTrue(holds(5) { !self.tabsShow(app) }, "the tabs show over the room on the way back")
@@ -232,11 +242,11 @@ final class DuoPanesUITests: DuoPanesCase {
         print("UI-NOTE kosmos#9002 widest bubble text \(Int(widest)) of window \(Int(app.frame.width)), \(rows.count) rows")
         XCTAssertGreaterThan(rows.count, 0, "CONTROL: no messages drawn in the chat's pane")
         // The chat's pane, measured by its message box (which spans the pane less its 16 pt margins): a bubble's text may take
-        // 0.78 of it, and one sized to the screen fills the row instead. The bound sits between the two on any phone.
+        // at most 0.78 of it; one sized to the screen fills the row instead.
         let pane = box(app).frame.width + 32
-        let limit = (pane * 0.78 + (pane - 32)) / 2
+        let limit = pane * 0.78
         print("UI-NOTE kosmos#9002 pane \(Int(pane)), bound \(Int(limit))")
-        XCTAssertLessThan(widest, limit, "a bubble is wider than its pane's share")
+        XCTAssertLessThanOrEqual(widest, limit, "a bubble's text is wider than its pane's share")
     }
 
     // The tab bar floats over the list: its last row can still be read above it.
