@@ -1801,8 +1801,8 @@ _kosmos_old_qh_waiter_live() {
 # from pending files arrive out of order). Spaces
 # and tabs in <id> become "_" (an id is one field). Review 1: every append and the trim happen under one mkdir lock, so
 # a rename cannot drop a line appended meanwhile. Review 2: the hold is short (the time is read before the lock, and the
-# file is trimmed only past 500 lines, back to 400 plus the partners of the ids kept (at most two lines each), so most
-# appends never rewrite it); a writer waits up to about 10 s;
+# file is trimmed only past 500 lines, back to 400 plus the partners of the ids kept (at most two lines each; a log
+# whose tail is 400 different ids can stay past 500 for a few hundred appends, each a rewrite of milliseconds); a writer waits up to about 10 s;
 # a lock older than 10 s (a writer killed while holding it: a real hold lasts milliseconds) is broken and retried. A
 # writer that still has not got it writes a pending file instead (#9139 follow-up, below) and skips the trim; it falls
 # back to an unlocked append only if mktemp fails (a lost line costs less than a CI step that waits).
@@ -1877,9 +1877,10 @@ kosmos_note_beside_run() {
     # split at the cut (a fold can put an end above its start, and the kept start then read as still going). Review 4:
     # only that id's newest start and largest end are kept from before the cut (every line of a repeated id grew the
     # log without limit), and an empty id is never a partner.
-    { awk -v keep=400 'NR == FNR { n = FNR; ln[FNR] = $2
-           if ($1 == "S" && (!($2 in bs) || $3 + 0 >= bsv[$2])) { bs[$2] = FNR; bsv[$2] = $3 + 0 }
-           if ($1 == "E" && (!($2 in be) || $3 + 0 > bev[$2])) { be[$2] = FNR; bev[$2] = $3 + 0 }
+    # Review 5: a line the reader skips (not a number, or more than a day ahead) is never chosen as a partner here.
+    { awk -v keep=400 -v now="$now" 'NR == FNR { n = FNR; ln[FNR] = $2; ok = ($3 ~ /^[0-9]+$/ && $3 + 0 <= now + 86400)
+           if (ok && $1 == "S" && (!($2 in bs) || $3 + 0 >= bsv[$2])) { bs[$2] = FNR; bsv[$2] = $3 + 0 }
+           if (ok && $1 == "E" && (!($2 in be) || $3 + 0 > bev[$2])) { be[$2] = FNR; bev[$2] = $3 + 0 }
            next }
          FNR == 1 { for (i = n - keep + 1; i <= n; i++) if (i > 0 && ln[i] != "") ids[ln[i]] = 1 }
          FNR > n - keep || (($2 in ids) && (FNR == bs[$2] || FNR == be[$2])) { print }' "$f" "$f" > "$f.tmp.$$"; } 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null || true
@@ -1904,8 +1905,9 @@ kosmos_beside_runs_since() {
   # #9139 follow-up: the pending files too, through cat (an unmatched glob stays literal, and macOS awk stops at a file
   # it cannot open; cat goes on past it).
   # Review 1: grouped with || true: cat of an unmatched glob exits 1, and under set -eo pipefail that ended the caller.
-  # Review 4: the pending files FIRST: a fold appends to the log before it removes a pending file, so a line is always
-  # in a file cat has not read yet (log first, a fold between the two reads hid it for that read).
+  # Review 4: the pending files FIRST: a fold appends to the log before it removes a pending file, so a line FOLDED
+  # during this read is still in a file cat has not read yet. Not seen, in either order: a pending file made after
+  # the glob was expanded (the next read sees it).
   { cat "$f".pending.* "$f" 2>/dev/null || true; } | awk -v t0="$t0" -v now="$now" -v omax="$omax" '
     # Review 3: ORDER-INDEPENDENT (folded lines arrive in any order): the newest start and the largest end per id; a run
     # has ended only if that end is at or after that start. Epochs more than a day ahead are malformed and skipped.
