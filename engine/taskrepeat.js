@@ -505,4 +505,26 @@ function occurrences(t, rows, now = Date.now(), max = OCCURRENCES_MAX) {
   }
 }
 
-module.exports = { occurrences, OCCURRENCES_MAX, roomRunLine, sameWords, VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, earlyWindowFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
+/* kosmos#9142: one occurrence row in words, for an agent reader (the CLIs print it beside the row's due time). `nameOf`
+   turns a session name into the name the page shows; the person is "the person", as taskactphrase words it for agents. */
+function occurrenceWords(row, nameOf = (s) => s) {
+  const name = (s) => { try { return String(nameOf(s) || s); } catch { return String(s); } };
+  if (!row || typeof row !== 'object') return '';
+  if (row.kind === 'delivered') {
+    const who = row.person ? 'the person' : (row.by ? name(row.by) : 'someone');
+    return (row.late ? 'delivered late' : 'delivered on time') + ' by ' + who;
+  }
+  if (row.kind === 'missed') {
+    const n = Number(row.count) || 1;
+    const what = 'missed' + (n > 1 ? ' (' + n + (row.more ? ' or more' : '') + ' runs)' : '');
+    const review = row.review === 'told' ? 'its reviewer ' + name(row.who) + ' was told'
+      : row.review === 'unreached' ? 'its reviewer ' + name(row.who) + ' could not be reached'
+      : row.review === 'asked' ? 'the person was asked (Needs Your Decision)'
+      : row.review === 'pending' ? 'its reviewer has not been told yet'
+      : row.review === 'none' ? 'it has no reviewer' : '';
+    return what + (review ? '; ' + review : '');
+  }
+  return '';
+}
+
+module.exports = { occurrences, occurrenceWords, OCCURRENCES_MAX, roomRunLine, sameWords, VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, earlyWindowFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };

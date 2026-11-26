@@ -27513,7 +27513,9 @@ const server = http.createServer(async (req, res) => {
       /* #6947: when the page last recorded the person viewing this task's conversation, so the agent can tell an unseen nudge from one seen and
          not yet acted on (null: not since this was recorded). */
       const seenByPerson = require('./engine/taskseen').seenAt(id, Number(taskActivity[2]));
-      const occ = occurrencesFor(everyProject);
+      // kosmos#9142: each occurrence in words too, as each event is (the CLIs print them).
+      const { occurrenceWords } = require('./engine/taskrepeat');
+      const occ = occurrencesFor(everyProject).map((o) => Object.assign({}, o, { words: occurrenceWords(o, nameOf) }));
       sendJson(res, 200, { events: events.map((ev) => Object.assign({}, ev, { words: phrase(ev, nameOf, { forAgent: true }) })), count: events.length, seenByPerson, ...(occ.length ? { occurrences: occ } : {}) });
       return;
     }
