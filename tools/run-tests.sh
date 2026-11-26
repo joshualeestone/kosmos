@@ -834,7 +834,7 @@ if mkdir -p "$KOSMOS_RUN_TMPDIR" 2>/dev/null; then
   # stopped run), before the root goes (lib/test-leak-guard.sh leak_process_stop_root). It ignores SIGPIPE first: a
   # Ctrl-C to `run-tests.sh | tee` ends tee, and the trap's first line would otherwise end the trap (#8890 review 2);
   # and a second INT or TERM, which would cut the clean-up short (review 3; a KILL still ends it).
-  trap '_rt_turn_end $?; trap "" PIPE INT TERM; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; _rt_wd_pid=""; rt_stop_own_node; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"; [ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; type leak_process_stop_root >/dev/null 2>&1 && leak_process_stop_root "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
+  trap '_rt_turn_end $?; trap "" PIPE INT TERM; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; _rt_wd_pid=""; rt_stop_own_node; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"; [ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; type leak_process_stop_root >/dev/null 2>&1 && leak_process_stop_root "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
   export TMPDIR="$KOSMOS_RUN_TMPDIR"
   export KOSMOS_TEST_RUN="$KOSMOS_RUN_TMPDIR"   # #5418, see above
 else
@@ -842,9 +842,11 @@ else
   echo "run-tests: could not make a per-run temp dir; the suite will use TMPDIR directly and leave its scratch behind" >&2
   # #5418: the marker is the temp folder in use, so this run's processes keep the real-root rule.
   export KOSMOS_TEST_RUN="${TMPDIR:-/tmp}"
+  # kosmos#9159: this trap ignores PIPE INT TERM first too (as the one above), so a second signal cannot cut its
+  # clean-up short now that rt_stop_own_node can take about 3 s. Not proven by a test (no run root is hard to reach).
   # #6668: with no run root there is no exit trap above, so this one signals the file watchdog on a TERM (a Ctrl-C
   # waits for node, and the normal stop follows).
-  trap '_rt_turn_end $?; trap "" PIPE INT TERM; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; _rt_wd_pid=""; rt_stop_own_node; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"' EXIT
+  trap '_rt_turn_end $?; trap "" PIPE INT TERM; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; _rt_wd_pid=""; rt_stop_own_node; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"' EXIT
 fi
 
 # --- coverage assertion: every *.test.js is CONSIDERED (kosmos#1934) -----------
