@@ -51,12 +51,18 @@ render-apptabs-6846 (gated) is changed and not yet run: it goes in the queue wit
 Still owed: an iOS build and screenshots (a board page, Today, the Close bar, light and dark).
 
 ## Review ledger
-Rounds: 1 opus, 2 sonnet, 3 opus, 4 sonnet. Fixed: boardGround's dark value read from the wrong token (1, BLOCKER),
-the navy in-app header the native code matched (1), render-apptabs-6846 S1's white (2, BLOCKER), the Palette.ground
-tie (2), the hairline as an inset shadow (3), the catalogue row (3), the guard's #ffffff and the word white (3), the
-ios README and stale navy wording in two UI tests, the sweep script and the check's header (4).
+6 blind rounds (1 opus, 2 sonnet, 3 opus, 4 sonnet, 5 opus, 6 sonnet). Converged at round 6: its two warnings repeated
+round 5's (deferred to #9103 with reasons); its one nit is fixed. Fixed along the way: boardGround's dark value read
+from the wrong token (1, BLOCKER), the navy in-app header the native code matched (1), render-apptabs-6846 S1's white
+(2, BLOCKER), the Palette.ground tie (2), the hairline as an inset shadow (3), the catalogue row (3), the guard's
+#ffffff and the word white (3), stale navy wording in the ios README, two UI tests, the sweep script and the check
+(4), the README's colour-change condition and the shared block's comments (5).
 Deferred: one value in two copies (boardGround and Palette.ground), pinned equal by test 5; the hidden
-.kplus-bar-menu's white (display:none inside the app; outside it is the browser's Kosmos+ bar, navy by design).
+.kplus-bar-menu's white; the Kosmos+ pages under Close, the phone menu and the Kosmos Plus section's header (#9103).
+
+## Decided (review 6)
+Merge #9101 together with #9103, or after it, so no shipped build has a cream Close bar over the still-navy sign-in
+page. Reversible: if #9103 slips, merging #9101 alone trades five navy surfaces for that one seam.
 
 ## Still owed before the card is done
 render-apptabs-6846 run on both engines (light lane, after the App Store gate); an iOS build; screenshots of a board
