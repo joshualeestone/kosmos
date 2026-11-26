@@ -45,3 +45,15 @@ Controls: the old dark value (#1c1c1e) fails test 2; a navy in-app header fails 
 web.app-header-6846.test.js updated to the bar rule's new opening.
 render-apptabs-6846 (gated) is changed and not yet run: it goes in the queue with the iOS build.
 Still owed: an iOS build and screenshots (a board page, Today, the Close bar, light and dark).
+
+## Review ledger
+3 blind rounds (1 opus, 2 sonnet, 3 opus). Converged at round 3: its findings were the README row, the hairline's
+half pixel and test-guard nits, all fixed; the owed run is recorded below. Fixed: boardGround's dark value read from
+the wrong token (round 1, a BLOCKER), the navy in-app header the native code matched (1), render-apptabs-6846 S1's
+white (round 2, a BLOCKER), the Palette.ground tie (2), the hairline drawn as an inset shadow so the bar keeps 44px of
+content (3), the catalogue row (3), the guard's #ffffff and the word white (3).
+Deferred: one value in two copies (boardGround and Palette.ground), pinned equal by test 5.
+
+## Still owed before the card is done
+render-apptabs-6846 run on both engines (light lane, after the App Store gate); an iOS build; screenshots of a board
+page, Today and the Close bar, light and dark.
