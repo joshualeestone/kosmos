@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.22",
+  "lastProd": "0.8.24",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -2802,10 +2802,11 @@
       "icon": "swarm",
       "rank": 9,
       "since": "0.8.23",
-      "status": "pending",
+      "status": "shown",
       "platforms": [
         "mac"
-      ]
+      ],
+      "shownIn": "0.8.24"
     },
     {
       "title": "A file that did not arrive whole is refused",
@@ -2813,7 +2814,8 @@
       "icon": "shield",
       "rank": 10,
       "since": "0.8.23",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.24"
     },
     {
       "title": "Account moves ask for a handoff first",
@@ -2821,7 +2823,8 @@
       "icon": "swarm",
       "rank": 11,
       "since": "0.8.23",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.24"
     },
     {
       "title": "The guide pointer shows once per agent",
@@ -2847,7 +2850,8 @@
       "icon": "shield",
       "rank": 8,
       "since": "0.8.22",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.24"
     },
     {
       "title": "A tall safety prompt does not buzz your phone",
@@ -2855,10 +2859,11 @@
       "icon": "shield",
       "rank": 8.5,
       "since": "0.8.22",
-      "status": "pending",
+      "status": "shown",
       "platforms": [
         "mac"
-      ]
+      ],
+      "shownIn": "0.8.24"
     },
     {
       "title": "A closed question says who closed it",
@@ -2913,7 +2918,35 @@
       "since": "0.8.24",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "A printed sign-in message is not the agent's",
+      "line": "When a command or tool an agent runs prints \"Not logged in\", its card no longer reads that as the agent's own sign-in failure.",
+      "icon": "shield",
+      "rank": 12.6,
+      "since": "0.8.25",
+      "status": "pending"
+    },
+    {
+      "title": "Windows warns before a Claude login ends",
+      "line": "On Windows, an agent whose Claude login is near its end gets the same warning and Refresh login button as on the Mac.",
+      "icon": "shield",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 12.7,
+      "since": "0.8.25",
+      "status": "held"
+    },
+    {
+      "title": "kosmos suggests a command one level down",
+      "line": "A mistyped kosmos command one level down now gets a did-you-mean suggestion.",
+      "icon": "tasks",
+      "rank": 155,
+      "since": "0.8.25",
+      "status": "pending",
+      "notesOnly": true
     }
   ],
-  "lastProdWin": "0.8.22"
+  "lastProdWin": "0.8.24"
 }
