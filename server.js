@@ -4614,7 +4614,9 @@ function readBody(req, limit) {
  * card spells it that way do we fall back to the sanitised key, which is what
  * keeps a healthy agent reachable under its normalised name.
  */
-function claimantFor(name) {
+function claimantFor(name) { return claimantFrom(paneRoster(), name); }
+/* kosmos#9085: claimantFor on a roster already read, so one read can decide both "could we look" and "is it ours". */
+function claimantFrom(roster, name) {
   // The route GATE stays safeKey-tolerant (keeps an agent REPORTABLE under its
   // sanitised name, #18). It is deliberately MORE tolerant than chat's send path
   // (chat.resolveCard case-folds only): a WRITE/SEND that merely sanitises to a
@@ -4622,7 +4624,6 @@ function claimantFor(name) {
   // #989 only needed the SEND to stop being stricter on CASE than this gate; it
   // did not need this gate to loosen, so this is intentionally NOT unified with
   // chat.resolveCard.
-  const roster = paneRoster();
   const asked = String(name);
 
   const exact = roster.filter((a) => a.sessionName === asked);
@@ -4694,6 +4695,27 @@ function nameRefusal(name) {
   } catch {
     return 'unreadable';
   }
+}
+
+/* kosmos#9085: why the Windows `claude agents --json` read is failing now (win32roster's cachedRun), or null; null on
+   every other platform. A test seam replaces it. */
+let claudeReadProblemSource = null;
+function _setClaudeReadProblemForTest(fn) { claudeReadProblemSource = typeof fn === 'function' ? fn : null; }
+function claudeReadProblem() {
+  try {
+    if (claudeReadProblemSource) return claudeReadProblemSource() || null;
+    return process.platform === 'win32' ? (require('./engine/win32roster').cachedRun.problem() || null) : null;
+  } catch { return null; }
+}
+
+/* kosmos#9085: the board's log line for a message not sent because the roster could not be read, with the read's own
+   reason where the Windows reader kept one (win32roster's cachedRun). Never throws. */
+function noteUnreadableSend(name) {
+  const why = claudeReadProblem();
+  try {
+    console.error('[kosmos#9085] a message to ' + JSON.stringify(String(name)) + ' was not sent: the running agents could not all be read'
+      + (why ? ' (' + why + ')' : '') + '; answered 409 unreadable, not 404');
+  } catch { /* never fatal */ }
 }
 
 /* The 404 body for a `nameRefusal` reason, shared by the DM thread's routes so the two
@@ -22137,15 +22159,47 @@ const server = http.createServer(async (req, res) => {
           throw new Error('an automatic message is plain text');
         }
 
-        // The write gate FIRST, then the expensive look. `knownAgent` is a
-        // `list-panes`; `safeRoster` is that plus a `capture-pane` per agent —
+        // The write gate FIRST, then the expensive look. The gate's one roster
+        // read is a `list-panes`; `safeRoster` is that plus a `capture-pane` per agent,
         // so ordering them the other way made a POST for a name nobody runs
         // pay for the whole fan-out before its 404, against this route's own
         // rule two blocks up that a message we would never send must not cost
         // a tmux fan-out.
         // (`chat.deliver` refuses on its own too — exact match to permit, tied,
         // and a pane with Claude in it. This one is about the NAME.)
-        if (!knownAgent(name)) {
+        /* kosmos#9085: ONE roster read. Its throw means we could not look; a name claimantFrom cannot key (a
+           store.safeKey throw) is only "not ours". On Windows a Claude read that is failing while a codex agent keeps
+           the roster readable (or during win32roster's hold) makes a name no card holds unknown too
+           (claudeReadProblem), so a window Kosmos did not start keeps the 409 'untied' below. Either way only for a
+           name whose agent folder is on this computer and not removed: a typo stays a 404 and is never told to
+           retry. */
+        let couldNotLook = false;
+        let known = false;
+        let gateRoster = null;
+        try { gateRoster = paneRoster(); } catch { couldNotLook = true; }
+        if (gateRoster) {
+          let gateCard = null;
+          try { gateCard = claimantFrom(gateRoster, name); known = Boolean(gateCard) && gateCard.isNamedOurs === true; } catch { known = false; }
+          if (!known && !gateCard && claudeReadProblem()) couldNotLook = true;
+        }
+        let agentHere = false;
+        if (couldNotLook) { try { agentHere = fs.existsSync(create.workerDir(name)) && !removal.isRemoved(name); } catch { agentHere = false; } }
+        const rosterUnreadable = couldNotLook && agentHere;
+        if (!known) {
+          /* kosmos#9085: a roster that cannot be READ is not "no agent by that name". On Windows a `claude agents --json`
+             that kept failing (five hours on 11-25) made the roster refuse, and every message to a running agent was
+             answered 404 as if the agent did not exist. Unknown is answered as unknown: a 409 with `because`
+             'unreadable' (nameRefusal's reason) and `retry`, and a line in the board's log. A 4xx, not a 503, for the
+             #8652 reason below: the page and the iPhone read a 5xx on a send as "it may have gone", and nothing was
+             typed. Any other absent name stays a 404 below. */
+          if (rosterUnreadable) {
+            noteUnreadableSend(name);
+            const unknown = new Error('we could not check which agents are running, so nothing was sent. Try again in a moment.');
+            unknown.status = 409;
+            unknown.because = 'unreadable';
+            unknown.retry = true;   // said plainly: nothing was sent, and the same message can be sent again
+            throw unknown;
+          }
           /* kosmos#8652: a just-created or just-restored agent is waited for briefly, then refused as starting
              (409, nothing typed, nothing kept), never as missing. A 4xx, not a 503: the page and the iPhone read a
              5xx on a send as "it may have gone" (BoardLogic.swift sendResult), and this one certainly did not. */
@@ -22883,7 +22937,8 @@ const server = http.createServer(async (req, res) => {
       })
       .catch((err) => sendJson(res, (err && err.status) || ((err && err.code === 'UNREADABLE') ? 500 : 400),
         { error: String((err && err.message) || 'we could not read that request'),
-          ...(err && (err.because === 'starting' || err.because === 'untied') ? { because: err.because } : {}) }))   // kosmos#8652, #8719
+          ...(err && (err.because === 'starting' || err.because === 'untied' || err.because === 'unreadable') ? { because: err.because } : {}),
+          ...(err && err.retry === true ? { retry: true } : {}) }))   // kosmos#8652, #8719, #9085
       .finally(() => { if (retryKey) DM_RETRYING.delete(retryKey); });   // kosmos#6720: after the verdict is written
     return;
   }
@@ -32245,7 +32300,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 /* kosmos#8340: ages one agent's shown-counts record, so a test can show the block comes back after COUNTS_SHOWN_FOR_MS. */
 function _ageCountsShownForTest(agentKey, ms) { const e = COUNTS_SHOWN.get(String(agentKey)); if (e) e.at -= ms; return Boolean(e); }
-module.exports = { _setStartedProofPlatformForTest, _setStartWaitForTest,   // kosmos#8652: the starting wait, for its test
+module.exports = { _setClaudeReadProblemForTest /* kosmos#9085 */, _setStartedProofPlatformForTest, _setStartWaitForTest,   // kosmos#8652: the starting wait, for its test
    _resetRoomRunSaidForTest, _ageRoomRunSaidForTest, _ageCountsShownForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it
