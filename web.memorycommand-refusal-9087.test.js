@@ -24,6 +24,7 @@ const CARD = fleet.install([fleet.agent('raph')]).agents.find((c) => c.sessionNa
 
 const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
 const SRC = page.lift(SCRIPT, 'memoryCommand');
+const AS_SENTENCE = page.lift(SCRIPT, 'asSentence');   // the page's one sentence-dresser, which memoryCommand calls
 
 async function press(status, body) {
   assert.ok(CARD, 'the fixture produced no card for raph');
@@ -31,7 +32,7 @@ async function press(status, body) {
   const said = [];
   const document = { getElementById: (id) => (id === 'd-compact-msg' ? msg : null) };
   const fetch = async () => ({ ok: status >= 200 && status < 300, status, json: async () => body });
-  const run = new Function('document', 'fetch', 'CURRENT', 'return (' + SRC + ');')(document, fetch, CARD);
+  const run = new Function('document', 'fetch', 'CURRENT', AS_SENTENCE + '\nreturn (' + SRC + ');')(document, fetch, CARD);
   await run('compact', (s, ok) => said.push({ s, ok }));
   return { text: msg.textContent, said };
 }
@@ -45,7 +46,7 @@ test('#9087 a 409 unreadable is shown as the route\'s words and as not done, nev
 
 test('#9087 a 404 "no agent by that name" is shown as a refusal too', async () => {
   const r = await press(404, { error: 'no agent by that name' });
-  assert.equal(r.text, 'No agent by that name');
+  assert.equal(r.text, 'No agent by that name.');
   assert.equal(r.said[0].ok, false);
 });
 

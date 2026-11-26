@@ -65001,7 +65001,7 @@ async function memoryCommand(which, say) {
        route's own words and no delivery; it was shown as "Asked it to compact." */
     const refused = !d && !res.ok;
     const sentence = refused
-      ? (out && typeof out.error === 'string' && out.error ? out.error.charAt(0).toUpperCase() + out.error.slice(1) : 'It could not be done just now.')
+      ? ((out && asSentence(out.error)) || 'It could not be done just now.')
       : d && d.state === 'could_not'
         ? (d.because || 'It could not be done just now.')
         : ((which === 'compact' ? 'Asked it to compact. ' : 'Asked it to clear. ') + (d && d.paneNote ? d.paneNote : 'It does this the moment it is between tasks.'));
