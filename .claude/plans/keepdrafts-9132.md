@@ -125,3 +125,17 @@ web.keepdrafts-9132 13 of 13 and the related suites and tree guards pass (104); 
   or cancelled (as any unsaved words did before).
 - [NIT] not taken: a search field left with a query holds the restart (main's, outside this card; a separate card).
 web.keepdrafts-9132 14 of 14 and the related suites and guards pass (105); render-keepdrafts-9132 passes.
+
+#### Iteration 5 (blind review of the whole branch, opus)
+
+- [SHOULD-FIX] taken: removing ANOTHER agent from the Agents tab nulls CURRENT and left the open chat's words, safe in
+  storage, holding the restart. boxKept now treats a box with no owner as safe when storage holds its words word for
+  word under some key of its map (true for any exit that nulls the owner). The round-3 control is now "stored nowhere".
+- [SHOULD-FIX] recorded as a decision, not built: a half-written reply whose chat is never reopened holds the restart
+  until sent or cancelled (DM_REPLY is not cleared on a switch). It held on main too. Keeping the reply target with the
+  draft would end it; that is its own card if Josh wants it (noted on #9132).
+- [NIT] taken: keptDraftHeard never writes into a disabled box (as paintTalk). The browser check now asserts, in both
+  arms, that nothing holds the restart before typing, so a held restart after is the draft's doing.
+- [NIT] not taken: log out empties a second tab's open box showing the old copy (that tab is signed out too); the
+  browser check covers d-say only (the other boxes share the same code paths, unit-tested).
+web.keepdrafts-9132 15 of 15 and related suites and guards (106) pass; render-keepdrafts-9132 passes.

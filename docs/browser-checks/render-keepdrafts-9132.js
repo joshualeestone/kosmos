@@ -61,6 +61,8 @@ async function run(browser, refuseStorage) {
   const errs = [];
   page.on('pageerror', (e) => errs.push('pageerror ' + e.message));
   await openApril(page, refuseStorage);
+  // Before typing, nothing holds the restart, so a held restart after typing is the draft's doing (both arms).
+  chk(await page.evaluate(() => updateNothingToLose()) === true, `${arm}: before typing, nothing holds the restart`);
   await page.click('#d-say');
   await page.keyboard.type(WORDS);
   const typed = await page.evaluate(() => ({

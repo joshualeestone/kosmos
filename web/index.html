@@ -26043,8 +26043,13 @@ function updateNothingToLose() {
        last OPENED (PJ_LAST_OPENED, written only by openProject, which is also what fills them). */
     const key = (t.id === 'd-say' || t.id === 'd-term-say') ? (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName)
       : ((typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT) || (typeof PJ_LAST_OPENED !== 'undefined' && PJ_LAST_OPENED));
-    const stored = map && key ? keptDraftStored(map, key) : null;   // review 1: what a reload brings back, read now
-    return !!map && !!key && keptMap(map) && stored != null && stored.trim() === String(t.value || '').trim();
+    const words = String(t.value || '').trim();
+    if (!map || !keptMap(map)) return false;
+    const stored = key ? keptDraftStored(map, key) : null;   // review 1: what a reload brings back, read now
+    if (stored != null && stored.trim() === words) return true;
+    /* Round 5: with no open agent or project to name the box's owner (another agent removed from the Agents tab nulls
+       CURRENT), the words are still safe if storage holds them, word for word, under some key of this map. */
+    return !key && !!words && Object.keys(map).some((k) => (keptDraftStored(map, k) || '').trim() === words);
   };
   if ([...UPDATE_TYPED].some((t) => String(t.isContentEditable ? t.textContent : t.value || '').trim() && !boxKept(t))) return false;
   const attached = typeof ATTACH_PENDING !== 'undefined' && ATTACH_PENDING;
@@ -45034,7 +45039,7 @@ function keptDraftHeard(kind, key, was, now) {
   const open = (kind === 'talk' || kind === 'term') ? (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName)
     : ((typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT) || (typeof PJ_LAST_OPENED !== 'undefined' && PJ_LAST_OPENED));
   const el = box && document.getElementById(box);
-  if (!el || !open || open !== key) return;
+  if (!el || el.disabled || !open || open !== key) return;   // round 5: never into a box that cannot be sent from (as paintTalk)
   const words = (v) => String(typeof v === 'string' ? v : (v && v.text) || '');
   if (String(el.value || '').trim() !== words(was).trim()) return;
   el.value = words(now);

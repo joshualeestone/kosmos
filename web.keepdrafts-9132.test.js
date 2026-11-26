@@ -227,8 +227,9 @@ test('#9132 round 3: a project box after Back (PJ_CURRENT null) belongs to the p
   const typed = [{ id: 'pj-post', value: 'a post for the room' }];
   assert.equal(nothingToLose({ maps: { room }, typed, pjCurrent: null, pjLastOpened: 'p7', draftsKept: h.draftsKept, keptDraftStored: h.keptDraftStored }), true,
     'words left in a room box after Back held the restart until another project was opened');
-  assert.equal(nothingToLose({ maps: { room }, typed, pjCurrent: null, pjLastOpened: null, draftsKept: h.draftsKept, keptDraftStored: h.keptDraftStored }), false,
-    'CONTROL: with no project to belong to, the words hold the restart');
+  assert.equal(nothingToLose({ maps: { room }, typed: [{ id: 'pj-post', value: 'words stored nowhere' }], pjCurrent: null, pjLastOpened: null,
+    draftsKept: h.draftsKept, keptDraftStored: h.keptDraftStored }), false,
+    'CONTROL: with no project to belong to and no stored copy anywhere, the words hold the restart');
   assert.equal(nothingToLose({ maps: { room }, typed: [{ id: 'pj-post', value: 'newer words' }], pjCurrent: null, pjLastOpened: 'p7',
     draftsKept: h.draftsKept, keptDraftStored: h.keptDraftStored }), false, 'words beyond the kept draft did not hold the restart');
 });
@@ -269,4 +270,14 @@ test('#9132 round 4: removing the agent whose chat is open empties its boxes as 
   assert.equal(boxes['d-say'].value + boxes['d-term-say'].value, '', 'the removed agent\'s words stayed in its open boxes');
   assert.equal(storage.data.has('kosmos.draft.talk.april') || storage.data.has('kosmos.draft.term.april'), false, 'its kept drafts stayed');
   assert.equal(storage.data.has('kosmos.draft.talk.roo'), true, 'another agent\'s draft was forgotten too');
+});
+
+test('#9132 round 5: with no open agent (another one removed from the Agents tab), box words stored under some agent hold nothing', () => {
+  const h = helper(memoryStorage());
+  const talk = h.keptDrafts('talk');
+  talk.april = 'words for April';
+  assert.equal(nothingToLose({ maps: { talk }, typed: [{ id: 'd-say', value: 'words for April' }], current: null,
+    draftsKept: h.draftsKept, keptDraftStored: h.keptDraftStored }), true, 'kept words in an ownerless box held the restart');
+  assert.equal(nothingToLose({ maps: { talk }, typed: [{ id: 'd-say', value: 'words stored nowhere' }], current: null,
+    draftsKept: h.draftsKept, keptDraftStored: h.keptDraftStored }), false, 'CONTROL: words stored nowhere did not hold the restart');
 });
