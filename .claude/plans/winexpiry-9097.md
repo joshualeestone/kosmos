@@ -60,6 +60,16 @@ correction (17:21) and Homer's measurements (17:3x).
   Not shown on a real Windows board.
 - Review 4: win32JobCcd names its source ("launch job") for the board's [loginadv] log line.
 
+- Review 5: on a sandboxed board (AGENT_WORKFORCE_HOME is a sandbox, loginexpiry.inSandboxHome) the DEFAULT account's
+  file is never read off macOS. HOME alone does not show a sandbox on Windows, where os.homedir() reads USERPROFILE.
+  Reasoned, not tested: proving it red would need a real credentials file in this Mac's real home, which a test must
+  never create.
+- Review 5: tools/windows-tests.js runs loginexpiry-file-9097.test.js on the Windows CI runner (ALSO), so the
+  case-blind match and the home guard run on a real Windows host there.
+- Review 5: the [loginadv] board log line says "from its launch job" when that is where the folder came from.
+- Never measured on Windows: a NAMED CLAUDE_CONFIG_DIR keeping its own .credentials.json (inherited from usagepoll's
+  same assumption); only the default account's file was measured on the box.
+
 ## Not changed
 - engine/connect.js readRefreshExpiry, the proof that a Mac sign-in finished. It stays macOS-only: Windows sign-in
   completes through win32signin.js's own path, and changing that proof is outside this card.

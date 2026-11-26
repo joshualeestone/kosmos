@@ -97,9 +97,9 @@ function realHome() { try { return os.userInfo().homedir; } catch { return null;
 function credFileFor(ccd, home = realHome(), userHome = os.homedir()) {
   if (!home) return null;
   const v = ccd == null ? '' : String(ccd).replace(/[\r\n]+$/, '');
-  /* Unset: the folder Claude Code itself reads, under the process's HOME (os.homedir), not the real home. A sandboxed
-     board sets its own HOME, so its default folder falls outside the real home and is refused by the check below,
-     instead of reading the operator's own file (review 1, as usagepoll's review 7). */
+  /* Unset: the folder Claude Code itself reads, under the process's home (os.homedir: HOME on macOS and Linux,
+     USERPROFILE on Windows), not the real home. A sandbox that moves that home falls outside the real one and is refused
+     by the check below (review 1, as usagepoll's review 7); credPathOf also refuses the default on a sandboxed board. */
   const dir = path.resolve(v === '' ? path.join(userHome || home, '.claude') : v);
   // The check is by path, not by link: a symlink under the home that points outside is still read, as in usagepoll.
   const rel = path.relative(home, dir);
@@ -113,6 +113,10 @@ function credPathOf(ccd, home, userHome, service) {
      folder would otherwise read the DEFAULT account's file, a wrong-account answer. It reads nothing instead. */
   const unset = ccd == null || String(ccd).replace(/[\r\n]+$/, '') === '';
   if (unset && service !== undefined && service !== DEFAULT_SERVICE) return null;
+  /* Review 5: a sandboxed board (AGENT_WORKFORCE_HOME is a sandbox) never reads the DEFAULT account's file. HOME alone
+     does not show a sandbox on Windows, where os.homedir() reads USERPROFILE, so the unset folder would be the real
+     one. Only when no home is injected (production): tests inject their own. */
+  if (unset && home === undefined && inSandboxHome()) return null;
   const real = home === undefined ? realHome() : home;
   const user = userHome !== undefined ? userHome : (home !== undefined ? home : os.homedir());
   return credFileFor(ccd, real, user);

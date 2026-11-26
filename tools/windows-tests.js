@@ -57,7 +57,8 @@ const cp = require('node:child_process');
 // Files without "win32" in their name that still speak about Windows behaviour. The engine ones
 // are named bare; root ones carry no prefix. Every test file that branches on a win32 HOST must
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
-const ALSO = ['macrestart-8988.test.js',   // kosmos#8988: the Mac card's restart reader is plain file reading; only the arm that runs a bash function skips
+const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS login file reader and the Windows warning, on a real Windows runner
+  'macrestart-8988.test.js',   // kosmos#8988: the Mac card's restart reader is plain file reading; only the arm that runs a bash function skips
   'storecheck-8863.test.js',   // kosmos#8863: the start check and last good copies, after a Windows crash report
   'instructionreread-noticeid-8912.test.js',   // kosmos#8912: the numbered changes-file entries; only the FIFO arm skips (Windows has no mkfifo)
   'attachments-stream-6734.test.js',   // #6734: the store's stream lifecycle (rename/remove after close)
