@@ -734,7 +734,11 @@ until_true 30 'grep -q "TURN: running t9118-clamp" $L9 && ! gone $((U+6))'; s11=
 kill -TERM $Q9; until_true 40 'gone $((U+6)) && ! kill -0 $Q9 2>/dev/null'; r11=$?; o=$(cat $L9)
 ok "#9118: a grace longer than the claim is sure to last is cut to fit (KILL after 30s)" '[ "$pre9118" = 0 ] && [ "$s11" = 0 ] && [ "$r11" = 0 ] && [[ "$o" == *"KILL after 30s"* ]]'
 
-EXPECTED=161   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, nineteen #9118 main-turn stop arms
+# #9118 review 7: a renewal period written 08 still runs (the grace clamp's arithmetic must read it in base 10).
+mkdir -p $S/m9118-r08; o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-r08 QUEUED_HEAVY_RENEW_SEC=08 nocty /bin/bash $QH "t9118-r08" sh -c 'echo RAN-R08' </dev/null 2>&1); r=$?
+ok "#9118: QUEUED_HEAVY_RENEW_SEC=08 still runs the command (no octal error)" '[ "$r" = 0 ] && [[ "$o" == *RAN-R08* && "$o" == *"END rc=0"* && "$o" != *"value too great"* ]]'
+
+EXPECTED=162   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
