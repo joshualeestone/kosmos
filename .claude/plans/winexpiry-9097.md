@@ -70,6 +70,13 @@ correction (17:21) and Homer's measurements (17:3x).
 - Never measured on Windows: a NAMED CLAUDE_CONFIG_DIR keeping its own .credentials.json (inherited from usagepoll's
   same assumption); only the default account's file was measured on the box.
 
+- Review 6: off macOS, with no home injected, a sandboxed board reads NO credential file (not only the default one: a
+  job can name the real ~/.claude explicitly), and a read under `node --test` reads nothing, so no test depends on the
+  runner's own login file. Both reasoned, not tested: a non-vacuous test needs a real credentials file in the real home.
+- Review 6, deferred: the Windows job lookup passes no world id. win32job.taskName reads undefined as
+  launchidentity.currentWorldId() (win32job.js:57), so it is already the board's own world, as for every other
+  readJob caller in status.js.
+
 ## Not changed
 - engine/connect.js readRefreshExpiry, the proof that a Mac sign-in finished. It stays macOS-only: Windows sign-in
   completes through win32signin.js's own path, and changing that proof is outside this card.

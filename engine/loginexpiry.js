@@ -113,10 +113,13 @@ function credPathOf(ccd, home, userHome, service) {
      folder would otherwise read the DEFAULT account's file, a wrong-account answer. It reads nothing instead. */
   const unset = ccd == null || String(ccd).replace(/[\r\n]+$/, '') === '';
   if (unset && service !== undefined && service !== DEFAULT_SERVICE) return null;
-  /* Review 5: a sandboxed board (AGENT_WORKFORCE_HOME is a sandbox) never reads the DEFAULT account's file. HOME alone
-     does not show a sandbox on Windows, where os.homedir() reads USERPROFILE, so the unset folder would be the real
-     one. Only when no home is injected (production): tests inject their own. */
-  if (unset && home === undefined && inSandboxHome()) return null;
+  /* Review 5 and 6: a sandboxed board (AGENT_WORKFORCE_HOME is a sandbox) reads no credential file off macOS: neither
+     the default account's (HOME alone does not show a sandbox on Windows, where os.homedir() reads USERPROFILE) nor one
+     a job names under the real home. Only when no home is injected (production): tests inject their own. */
+  if (home === undefined && inSandboxHome()) return null;   // review 6: any folder, not only the unset one
+  /* Review 6: inside `node --test`, a read with no injected home reads nothing (the rule claudeloginlive.liveReadAllowed
+     holds for the row), so no test off macOS depends on the runner's own login file. */
+  if (home === undefined && process.env.NODE_TEST_CONTEXT) return null;
   const real = home === undefined ? realHome() : home;
   const user = userHome !== undefined ? userHome : (home !== undefined ? home : os.homedir());
   return credFileFor(ccd, real, user);

@@ -148,7 +148,9 @@ test('kosmos#9097 review 2: the account row reads its login off macOS, with its 
     assert.strictEqual(await live.validUntil({ dir: path.join(h, '.claude'), isDefault: true }), UNTIL);
     assert.deepStrictEqual(seen.map((x) => x[1]), [own, undefined], 'the folder (undefined for the default) reaches the read');
   } finally { live.setCredReaderForTests(null); live._clearForTest(); }
-  // CONTROL: with no reader set, a test context reads nothing (never a real credential).
+  // CONTROL: with no reader set, a test context reads nothing (never a real credential). Review 6: only under node --test,
+  // so a direct run cannot reach a real Keychain or file through this arm.
+  assert.ok(process.env.NODE_TEST_CONTEXT, 'run this file with node --test');
   assert.strictEqual(await live.validUntil({ dir: path.join(h, '.claude-b'), isDefault: false }), null);
 });
 
@@ -174,3 +176,4 @@ test('kosmos#9097 review 3: on Windows the explicit default folder matches witho
   const win = le.agentAdvisories({ agents, readCcd: (a) => ccdOf[a.name], now, readCred: winRead(h), platform: 'win32', userHome: h });
   assert.strictEqual(win.length, 1, JSON.stringify(win));
 });
+
