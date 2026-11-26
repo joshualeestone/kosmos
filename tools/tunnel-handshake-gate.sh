@@ -218,13 +218,14 @@ echo $$ > "$LOCK/pid"; OWN_LOCK=1
 # (not printed), so cannot's exit ends the gate, not a $( ) subshell.
 _gate_pgrep() {
   local rc=0 i ef why
-  ef="$(mktemp "${TMPDIR:-/tmp}/tunnel-gate-pgrep.XXXXXX" 2>/dev/null)" || ef=/dev/null
+  # Review 2: inside WORK, which the EXIT trap removes, so a signal during a scan leaves nothing behind.
+  ef="$(mktemp "$WORK/pgrep-err.XXXXXX" 2>/dev/null)" || ef=/dev/null
   for i in 1 2 3; do
     GATE_PIDS="$(pgrep -f "$1" 2>"$ef")"; rc=$?
     case "$rc" in 0|1) [ "$ef" = /dev/null ] || rm -f "$ef"; return 0 ;; esac
     # Review 1: say each failure (its code and pgrep's own words) on stderr, so a rescued one is in the log too and the
     # next Mortals red can tell "pgrep failed" from "pgrep found nothing".
-    why="$(head -c 300 "$ef" 2>/dev/null | tr '\n' ' ')"
+    why="$(head -c 300 "$ef" 2>/dev/null | tr '\n' ' ')"; why="${why% }"
     say "pgrep exited $rc on attempt $i of 3${why:+: $why}" >&2
     [ "$i" = 3 ] || sleep 0.2
   done
