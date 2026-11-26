@@ -40,3 +40,17 @@ UIKit list 0 of 3.
 That three looks at 0.3, 0.8 and 1.6 s cover the time tall rows take to measure on a slow phone. They cover the measured
 case on a simulator; a slower device or a longer chat may measure later than 1.6 s, and then the open still lands short.
 The guard "the end has never shown" means a later look can never pull a person away from where they went.
+
+#### Iteration 1 (blind review, opus)
+
+- [SHOULD-FIX] taken: a later look could pull a reader back after they scrolled up in the first 1.6 s. While the end
+  has never shown, endVisible keeps its starting true (only the end's onDisappear clears it), and a person's resting
+  scroll copies it into atBottom, so atBottom could not tell "never moved" from "scrolled up". Now personMoves counts
+  the person's own scrolls (on each rest, and when a sample walk starts), and each look stands down if it changed since
+  the open. Known limit, written in the code: on iOS 17 PersonScroll reports no rest, so only a scroll still under a
+  finger or moving holds a look off there.
+- [SHOULD-FIX] (evidence, not code): the control (the lazy arm WITHOUT the fix must fail) has not run yet. Angel's
+  queued run does it; the merge waits for it, and for the trace line "open landed short of the end" in a passing run.
+- [NIT] not taken: the test's 5 s "drawn" check is weak (exists is true below the box); the frame-band check is the
+  real one and can fail. The header's "both chat lists" is true of the test, CI runs the lazy arm only.
+All 17 logic suites pass.

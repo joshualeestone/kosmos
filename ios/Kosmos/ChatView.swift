@@ -191,6 +191,10 @@ struct ChatView: View {
     @State private var keepAtEndTick = 0
     // Review 3: whether the end marker has ever shown (atBottom starts true, so it alone cannot say the reader got there).
     @State private var endSeen = false
+    /// kosmos#9089 review 1: the person's own scrolls (counted when one rests, or a sample walk starts), so the open's later
+    /// looks stand down once they moved: atBottom alone cannot say so while the end has never shown (endVisible keeps its
+    /// starting true, and a rest copies it).
+    @State private var personMoves = 0
     // The conversation's items on screen now.
     @State private var onScreen: Set<String> = []
     // kosmos#7420 diagnostic: the list's size, the keyboard's height, the stack's width, and the report once one is made.
@@ -896,6 +900,7 @@ struct ChatView: View {
                 .scrollDismissesKeyboard(.interactively)
                 .modifier(PersonScroll(scrolling: $personScrolling) {
                     // Their scroll has come to rest: they are at the newest message exactly when the end shows.
+                    personMoves &+= 1   // kosmos#9089
                     atBottom = endVisible
                     if endVisible { unseenNew = false }
                     Self.trace("person scroll rested, atBottom \(endVisible)")
@@ -1157,6 +1162,7 @@ struct ChatView: View {
                     let walking = phase == "start"
                     guard visible || !walking else { return }
                     personScrolling = walking
+                    if walking { personMoves &+= 1 }   // kosmos#9089
                     // A scroll by code leaves the id anchor naming "end", and SwiftUI puts the list back there on its next
                     // update (measured: from 5166 to 28435 on the poll); a finger's scroll moves the anchor, so let it go.
                     if personScrolling { atBottom = false; positionId = nil; anchorLetGo = true; rowTops.walkTaken = true }
@@ -1249,8 +1255,10 @@ struct ChatView: View {
     // kosmos#9089 (measured 11-25, iOS 27, the lazy list): a chat of tall replies can open short of its end. The id anchor goes
     // to the end marker over rows whose heights are still estimates, and when the tall rows are measured the end is pushed
     // below the box (20 messages, 3 of 3; the same 20 as one-liners, 0 of 3; the UIKit list, 0 of 3). So the open looks
-    // again a few times: while the end has never shown, nothing is under a finger or moving by the person, and rows are
-    // drawn (a list with none is recoverEmpty's), it goes to the end once more. The first time the end shows, it stops.
+    // again a few times: while the end has never shown, the person has not scrolled since the open (personMoves), nothing
+    // is under a finger or moving by them, and rows are drawn (a list with none is recoverEmpty's), it goes to the end once
+    // more. The first time the end shows, it stops. On iOS 17 PersonScroll reports no rest, so there only a scroll still
+    // under a finger or moving holds it off (review 1: a finished fling in the first 1.6 s is not seen there).
     // KOSMOS_SAMPLE_NOOPENLAND=1 (Debug) leaves it out: the control.
     static let openLandLooks: [Double] = [0.3, 0.8, 1.6]
     #if DEBUG
@@ -1260,10 +1268,10 @@ struct ChatView: View {
     #endif
     private func landOnNewest(_ proxy: ScrollViewProxy) {
         guard Self.idAnchor, !Self.sampleNoOpenLand else { return }
-        let chatAt = epoch, listAt = listEpoch
+        let chatAt = epoch, listAt = listEpoch, movesAt = personMoves
         for at in Self.openLandLooks {
             DispatchQueue.main.asyncAfter(deadline: .now() + at) {
-                guard epoch == chatAt, listEpoch == listAt, visible, !searchMode, !endSeen, atBottom,
+                guard epoch == chatAt, listEpoch == listAt, personMoves == movesAt, visible, !searchMode, !endSeen, atBottom,
                       !onScreen.isEmpty, !personScrolling, !scrollBox.underFinger else { return }
                 Self.trace("open landed short of the end: to the newest again")   // no value: the record admits only listed ones (#7420)
                 appMoves &+= 1
