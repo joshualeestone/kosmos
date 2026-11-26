@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: delete-8959
-diff_hash: 0db90138203da601db388a2bedbb239ddd7883662faa243fec384f651c375f10
+diff_hash: 61574a49c5740e3c0ced72fc2ad66e0a3f12f5726e800d3659b463fd3136a23f
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-26T17:39:17Z
+timestamp: 2026-11-26T20:07:18Z
 iterations: 8
 converged: false
 ---
@@ -18,10 +18,11 @@ converged: false
 **Asked (awaiting user):** 0
 
 ### Validation
-- Full validation on the rebased head: passed on this Mac 11:38 CST 2026-11-26 (validate-requeue.sh, rc 0, audit rc 0, head bcfd81d248, hash 0db90138203d). Only this proof file changed after it.
+- Full validation on the rebased head: passed on this Mac 13:59 CST 2026-11-26 (validate-requeue.sh, rc 0, audit rc 0, head df718b8199, hash 61574a49c574; 0 node failures, four shell shards green). Only this proof file changed after it.
+- An earlier pass at 11:38 (head bcfd81d248, hash 0db90138203d) was voided when main gained D1b2's ios.yml step and the branch was rebased again (both steps kept).
 - Before the rebase: passed 2026-11-25 01:46 (head 37241082be); never PR'd then (dropped across restarts).
 - UI run on the rebased head: DeleteAccountUITests light and dark, smallest iPhone, passed 2026-11-26 05:31 CST (rc 0, 12 shots; the confirm screen read in both themes, Delete disabled until the box is ticked).
-- Logic suites after the rebase: settings 46/46, deleteaccount 116/116, account 163/163.
+- Logic suites after the second rebase: settings 46/46, deleteaccount 116/116, account 163/163, aipolicies 104/104.
 - subdir CLAUDE.md audit: passed.
 
 ### Per-Iteration Breakdown
