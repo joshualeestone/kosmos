@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: wnlines-0826
-diff_hash: 506bac8cc260be0fda612bcc6f339936bb50a9a60309545c667151ff958300c9
+diff_hash: f8e8cbab91047c16eb9a974a44f9b27b2d5e244dc343f8ef4efcef66aff22ae5
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-26T16:14:00Z
+timestamp: 2026-11-26T19:33:11Z
 iterations: 1
 converged: true
 ---
@@ -28,3 +28,5 @@ converged: true
 - NIT: #9097 is unmeasured on a real Windows box --> it stays held
 - NIT: #9093's check also fires when the app was moved --> fine for a highlight
 - Caps, em dashes, `since` and ranks checked; no finding.
+
+Re-validated by Baron Draxum, 2026-11-26T19:33:11Z: rebased onto origin/main; validation PASSED on this Mac for hash f8e8cbab9104 (subdir audit passed). The diff is the same three files Kitty reviewed; the hash moved because the plan file was added after her validation.
