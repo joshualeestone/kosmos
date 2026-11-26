@@ -634,8 +634,11 @@ ok "#9118: TERM to a main turn's wrapper reaches a run-tests.sh-shaped command, 
 pre9118=0; free9118 || pre9118=1
 qh9118 grace 60 bash -c "trap 'sleep 2; echo CLEANED > $S/9118-cleaned; exit 0' TERM; sleep $((U+5)) & wait"
 until_true 30 'grep -q "TURN: running t9118-grace" $L9 && ! gone $((U+5))'; s3=$?
-kill -TERM $Q9; until_true 40 '! kill -0 $Q9 2>/dev/null'; r3=$?; o=$(cat $L9)
-ok "#9118: a main command's own TERM cleanup is given its grace before any KILL" '[ "$pre9118" = 0 ] && [ "$s3" = 0 ] && [ "$r3" = 0 ] && [ "$(cat $S/9118-cleaned 2>/dev/null)" = CLEANED ] && gone $((U+5))'
+# Review 4: the claim is still held while the command cleans up (released AFTER the stop, never before it).
+kill -TERM $Q9; until_true 10 'grep -q "STOPPING: t9118-grace" $L9'; sleep 0.5
+held3=1; [ -e $S/m9118-grace/machine-claim ] && [ ! -e $S/9118-cleaned ] && ! grep -q "claim released" $L9 && held3=0
+until_true 40 '! kill -0 $Q9 2>/dev/null'; r3=$?; o=$(cat $L9)
+ok "#9118: a main command's own TERM cleanup is given its grace before any KILL, with the claim held until it ends" '[ "$pre9118" = 0 ] && [ "$held3" = 0 ] && [ "$s3" = 0 ] && [ "$r3" = 0 ] && [ "$(cat $S/9118-cleaned 2>/dev/null)" = CLEANED ] && gone $((U+5))'
 pre9118=0; free9118 || pre9118=1
 qh9118 kill 1 sh -c "trap '' TERM; sleep $((U+6)) & wait"
 until_true 30 'grep -q "TURN: running t9118-kill" $L9 && ! gone $((U+6))'; s4=$?
@@ -653,6 +656,7 @@ for p in $(pgrep -f "^sleep $((U+5))$"); do kill -KILL $p 2>/dev/null; done; unt
 pre9118=0; free9118 || pre9118=1
 qh9118 linger 60 sh -c "sleep $((U+6)) </dev/null >/dev/null 2>&1 & exit 0"
 until_true 30 '! kill -0 $Q9 2>/dev/null'; s6=$?; reap $Q9 40; o=$(cat $L9)
+sleep 7   # review 4: past one 5 s watcher poll, so a watcher left running after a normal exit would have killed the leftover
 ok "#9118: a main command that ends on its own is not stopped: its leftover runs on and no STOPPING line is printed" '[ "$pre9118" = 0 ] && [ "$s6" = 0 ] && [[ "$o" == *"END rc=0"* && "$o" != *STOPPING* ]] && ! gone $((U+6)) && [ ! -e $S/m9118-linger/machine-claim ]'
 for p in $(pgrep -f "^sleep $((U+6))$"); do kill -KILL $p 2>/dev/null; done; until_true 10 'gone $((U+6))'
 # #9118 review 1: the DEFAULT grace (nothing set) outlasts a 12 s cleanup, longer than a side turn's 10 s stop.

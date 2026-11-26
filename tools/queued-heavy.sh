@@ -649,7 +649,7 @@ _qh_end() {
   # shards that cleanup stops, which are in process groups of their own.
   # #9118 review 1: for a main turn, only when this script ends BEFORE its command did (QH_DONE unset). A command that
   # ended on its own keeps what it left in its group running, as a main turn always has. Review 3: keyed on that, not
-  # on which signal arrived: an ALRM (a perl alarm deadline), QUIT or USR1 also ends bash through this trap, and keyed on
+  # on which signal arrived: an ALRM (a perl alarm deadline), USR1 or USR2 also ends bash (QUIT does not: non-interactive bash ignores it) through this trap, and keyed on
   # TERM/INT/HUP alone it released the claim, left the command running and then stopped the watcher that would have.
   if [ -n "$CMD" ] && { [ "$LANE" = side ] || [ -z "$QH_DONE" ]; } && kill -0 -- "-$CMD" 2>/dev/null; then
     _g=20; [ "$LANE" = side ] || _g=$(( STOP_GRACE_S * 2 ))
@@ -786,9 +786,11 @@ else
   # it (_qh_end). stdin is kept (no terminal here: QH_FG). An INT to this script reaches the command as a TERM.
   # Review 2: a signal between the fork and CMD=$! would find CMD empty and stop nothing, so for that moment the traps
   # only RECORD it, and it is acted on once CMD is set. Not `trap ''`: an ignored signal stays ignored in the command.
-  trap 'QH_PEND=143' TERM; trap 'QH_PEND=130' INT; trap 'QH_PEND=129' HUP
+  # Review 4: ALRM, USR1 and USR2 too, which would otherwise end bash in that moment with CMD empty; afterwards they are
+  # back to their default (fatal, through the EXIT trap, which stops the command because QH_DONE is unset).
+  trap 'QH_PEND=143' TERM; trap 'QH_PEND=130' INT; trap 'QH_PEND=129' HUP; trap 'QH_PEND=142' ALRM; trap 'QH_PEND=138' USR1; trap 'QH_PEND=140' USR2
   set -m; "$@" & CMD=$!
-  trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP
+  trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP; trap - ALRM USR1 USR2
   [ -n "$QH_PEND" ] && { set +m; exit "$QH_PEND"; }
   # The watcher, in its own process group too (so a KILL to this script's group does not reach it), stopped by
   # _qh_stop_capper like a side turn's capper. Every 5 s: once the command's GROUP has gone it exits; once THIS script
