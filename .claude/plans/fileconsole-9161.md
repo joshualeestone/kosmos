@@ -49,3 +49,9 @@ fix; it cannot go silently green, because an unknown wording is a FAIL.
   - NITs: the lib header said "fourteen copies" (13 and one variant) and read as if the old arms were precise. Fixed by
     cutting the header to what the code shows, saying the carried-over arms are as broad as before.
   - NIT not taken: render-firstrun-reentry-3359's require sits above the guarded playwright require (on purpose).
+- Round 2 (sonnet): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 2 NIT. Converged (the WARNING repeats round 1's decided item).
+  - WARNING DEFERRED: the three carried-over arms are broad substrings (e.g. any "Failed to load"). Same concern as
+    round 1's NIT, decided there: they are exactly what the 14 checks already ignored, so nothing loosens. Narrowing
+    them changes what 14 checks catch and needs its own headed/headless measurement; noted on #9161 as a follow-up.
+  - NITs not taken: the old-copy sweep matches the exact line only (its job is the copy that went red); the 2606
+    allowance becomes dead once #9164 merges (harmless; remove then); the wiring test is textual.
