@@ -24,45 +24,45 @@ converged: true
 **Reviewer model:** default (opus)
 **New findings:** 1 BLOCKER, 4 WARNINGs, 0 CONVENTIONs, 4 NITs
 **Self-generated:** 0 of the above
-- [BLOCKER] engine/loginexpiry.js fileBodyNow — a sign-in kept the old login notice up to 5 minutes (#5018 again) --> FIXED (b2c7cc5e65; later removed with item 4)
-- [WARNING] engine/loginexpiry.js — plan claimed the snapshot never waits on the home --> FIXED (claim narrowed)
-- [WARNING] engine/loginexpiry.js — every access-token refresh moved the login generation --> FIXED (b2c7cc5e65; later removed with item 4)
-- [WARNING] engine/loginexpiry-why-9107.test.js — fixed 200 ms waits --> FIXED
-- [WARNING] engine/loginexpiry-why-9107.test.js — a read left running past a test --> FIXED
+- [BLOCKER] engine/loginexpiry.js fileBodyNow - a sign-in kept the old login notice up to 5 minutes (#5018 again) --> FIXED (b2c7cc5e65; later removed with item 4)
+- [WARNING] engine/loginexpiry.js - plan claimed the snapshot never waits on the home --> FIXED (claim narrowed)
+- [WARNING] engine/loginexpiry.js - every access-token refresh moved the login generation --> FIXED (b2c7cc5e65; later removed with item 4)
+- [WARNING] engine/loginexpiry-why-9107.test.js - fixed 200 ms waits --> FIXED
+- [WARNING] engine/loginexpiry-why-9107.test.js - a read left running past a test --> FIXED
 - [NIT] test user-name check, sync-mock comment, Linux case-fold, readCredDefault doc --> fixed
 
 #### Iteration 2
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 3 of the above (all in iteration 1's background-read code)
-- [WARNING] engine/loginexpiry-why-9107.test.js — sign-in controls could not fail --> FIXED (0574bb0ed5)
-- [WARNING] engine/loginexpiry.js — stalled reads could exhaust libuv's pool --> FIXED (0574bb0ed5; later removed with item 4)
-- [WARNING] engine/loginexpiry.js — a torn body hid the warning a minute --> FIXED (0574bb0ed5; later removed with item 4)
+- [WARNING] engine/loginexpiry-why-9107.test.js - sign-in controls could not fail --> FIXED (0574bb0ed5)
+- [WARNING] engine/loginexpiry.js - stalled reads could exhaust libuv's pool --> FIXED (0574bb0ed5; later removed with item 4)
+- [WARNING] engine/loginexpiry.js - a torn body hid the warning a minute --> FIXED (0574bb0ed5; later removed with item 4)
 - [NIT] account line unreachable through the board's calls (kept, plan says why); move-during comment; load-time test log
 
 #### Iteration 3
 **Reviewer model:** default (opus)
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 1 CONVENTION, 5 NITs
 **Self-generated:** 3 of the above
-- [WARNING] engine/loginexpiry.js — EBUSY cleared the warning --> FIXED (460b963160; later removed with item 4)
-- [WARNING] engine/loginexpiry.js — a broken file kept an old date for good --> FIXED (460b963160; later removed with item 4)
-- [WARNING] engine/loginexpiry.js — the read cap was this reader's only --> FIXED (documented; later removed with item 4)
-- [CONVENTION] engine.reachable.test.js — _resetForTests had no EXCUSED reason --> FIXED
+- [WARNING] engine/loginexpiry.js - EBUSY cleared the warning --> FIXED (460b963160; later removed with item 4)
+- [WARNING] engine/loginexpiry.js - a broken file kept an old date for good --> FIXED (460b963160; later removed with item 4)
+- [WARNING] engine/loginexpiry.js - the read cap was this reader's only --> FIXED (documented; later removed with item 4)
+- [CONVENTION] engine.reachable.test.js - _resetForTests had no EXCUSED reason --> FIXED
 - [NIT] one clock for scheduling --> DEFERRED: production uses Date.now() throughout
 
 #### Iteration 4
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 3 of the above
-- [WARNING] engine/loginexpiry.js — a read could be counted out twice --> FIXED (a7f3c63929; later removed with item 4)
-- [WARNING] engine/loginexpiry.js — bad-read retries unspaced --> DEFERRED: callers call only on a recompute, minutes apart
-- [WARNING] engine/loginexpiry.js — one refusal line per kind, not per account --> DEFERRED: the card's ask
+- [WARNING] engine/loginexpiry.js - a read could be counted out twice --> FIXED (a7f3c63929; later removed with item 4)
+- [WARNING] engine/loginexpiry.js - bad-read retries unspaced --> DEFERRED: callers call only on a recompute, minutes apart
+- [WARNING] engine/loginexpiry.js - one refusal line per kind, not per account --> DEFERRED: the card's ask
 
 #### Iteration 5
 **Reviewer model:** default (opus)
 **New findings:** 1 BLOCKER, 4 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 5 of the above
-- [BLOCKER] engine/loginexpiry.js — with three or more accounts, those after the first two were never read again --> FIXED by removing item 4 (bd5eac81b9): five rounds found defects in the loop's own fixes; the read is synchronous again, as on main; what a working version needs is on kosmos#9107
+- [BLOCKER] engine/loginexpiry.js - with three or more accounts, those after the first two were never read again --> FIXED by removing item 4 (bd5eac81b9): five rounds found defects in the loop's own fixes; the read is synchronous again, as on main; what a working version needs is on kosmos#9107
 - [WARNING] timing comments, slot never freed, startup generation burst, no test through computeLoginAdvisories --> resolved by the same removal
 
 #### Iteration 6
@@ -70,7 +70,7 @@ converged: true
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0 of the above
 **Duplicates of prior findings:** 2 (the account line's reach, iteration 2; the load-time test log, iteration 2)
-**Converged** — no new actionable findings.
+**Converged** - no new actionable findings.
 
 ### Final Ledger
 
