@@ -96,12 +96,23 @@ test('#9144 review 2: the anchored copy is repaired only from the same version, 
   assert.match(check, /Console\.Error\.WriteLine\("If Kosmos does not start, run: Kosmos\.exe " \+ RepairRuntimeFlag\);\n\s+return null;/);
 });
 
+test('#9144 review 3: a fresh copy is stamped now, the anchored path cannot throw out of the launch, a failed repair goes on, and the update is asked again after a Yes', () => {
+  const repair = method('internal static string RepairRuntime(string from, string target, string expectedSha256)');
+  const copied = repair.indexOf('File.Copy(from, copy, true);');
+  const stamped = repair.indexOf('File.SetLastWriteTimeUtc(copy, DateTime.UtcNow);');
+  assert.ok(copied > -1 && stamped > copied && stamped < repair.indexOf('FileSha256Hex(copy)'), 'the copy keeps its source\'s time, so another launch\'s sweep can delete it mid-repair');
+  const check = method('static int? CheckRuntimesBeforeStarting(string here, string node)');
+  assert.match(check, /try \{ anchored = AnchoredRuntimePath\(\); \}\n\s+catch \{ return null; \}/, 'AnchoredRuntimePath can throw out of the launch');
+  assert.match(check, /if \(problem != null\) \{ ShowMessageBox\(RepairFailedMessage\(problem\), true\); return null; \}/, 'a failed repair ends the launch');
+  assert.equal((check.match(/if \(UpdateUnderWayHere\(here\)\) return null;/g) || []).length, 3, 'the update is not asked before the check and again after each Yes');
+});
+
 test('#9144: damaged means it RAN, finished, and did not end with 0; Windows refusing to start it is never repaired', () => {
   assert.match(SOURCE, /public bool LooksDamaged \{ get \{ return Started && Finished && ExitCode != 0; \} \}/);
   const check = method('static int? CheckRuntimesBeforeStarting(string here, string node)');
   assert.match(check, /if \(!AskRepair\(DamagedRuntimeQuestion\(own\.Words\)\)\) return null;/, 'a No does not let the launch go on');
   assert.match(check, /else if \(!own\.Finished \|\| !own\.Started\) return null;/, 'an unfinished or refused check does not let the launch go on');
-  assert.match(check, /if \(!task\.LooksDamaged \|\| !showMessageBoxes\) return null;/);
+  assert.match(check, /if \(!task\.LooksDamaged\) return null;/);
   const run = method('internal static RuntimeCheck CheckRuntime(string nodePath)');
   assert.match(run, /new ProcessStartInfo\(nodePath, "-e 0"\)/);
   assert.match(run, /catch \(Exception e\) \{ r\.StartError = e\.Message; return r; \}/, 'Windows\' reason for refusing to start it is dropped');

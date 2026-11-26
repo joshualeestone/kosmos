@@ -2127,15 +2127,29 @@ class KosmosLauncher
                 return null;
             }
             if (!AskRepair(DamagedRuntimeQuestion(own.Words))) return null;
+            // Review 3: the question can stay open for minutes, and the board can start an update meanwhile.
+            if (UpdateUnderWayHere(here)) return null;
             string problem = RepairRuntime(node, node, ExpectedRuntimeSha256(here));
-            if (problem != null) { ShowMessageBox(RepairFailedMessage(problem), true); return 1; }
+            // A failed repair is said, and the launch still goes on (review 3: nothing was swapped, so this is main's
+            // launch; a runtime that only dies at exit may still serve).
+            if (problem != null) { ShowMessageBox(RepairFailedMessage(problem), true); return null; }
         }
         else if (!own.Finished || !own.Started) return null;   // says nothing either way: the launch goes on as before
-        string anchored = AnchoredRuntimePath();
+        string anchored;
+        try { anchored = AnchoredRuntimePath(); }
+        catch { return null; }   // review 3: a malformed AGENT_WORKFORCE_DATA or LOCALAPPDATA must never end a launch
         if (!SameRuntimeVersion(node, anchored)) return null;
         RuntimeCheck task = CheckRuntime(anchored);
-        if (!task.LooksDamaged || !showMessageBoxes) return null;
+        if (!task.LooksDamaged) return null;
+        if (!showMessageBoxes)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("The copy of Kosmos's runtime that starts it at sign-in (" + anchored + ") looks damaged: " + task.Words + ".");
+            Console.Error.WriteLine("If Kosmos does not start, run: Kosmos.exe " + RepairRuntimeFlag);
+            return null;
+        }
         if (!AskRepair(DamagedRuntimeQuestion(task.Words))) return null;
+        if (UpdateUnderWayHere(here)) return null;
         string taskProblem = RepairRuntime(node, anchored, ExpectedRuntimeSha256(here));
         if (taskProblem != null) ShowMessageBox(RepairFailedMessage(taskProblem), true);
         return null;
@@ -2196,6 +2210,9 @@ class KosmosLauncher
         {
             if (!File.Exists(from)) return "its file is missing (" + from + ")";
             File.Copy(from, copy, true);
+            // Review 3: a copy keeps its source's last-write time, which would make it look days old to another launch's
+            // sweep below; stamped now, it is this repair's for the next ten minutes.
+            File.SetLastWriteTimeUtc(copy, DateTime.UtcNow);
             if (expectedSha256 != null)
             {
                 string got = FileSha256Hex(copy);
@@ -2305,6 +2322,7 @@ class KosmosLauncher
             RuntimeCheck task = CheckRuntime(anchored);
             if (!task.LooksDamaged) return;
             if (!AskRepair(DamagedRuntimeQuestion(task.Words))) return;
+            if (UpdateUnderWayHere(here)) return;
             string problem = RepairRuntime(node, anchored, ExpectedRuntimeSha256(here));
             if (problem != null) ShowMessageBox(RepairFailedMessage(problem), true);
             else ShowNotice("Kosmos's runtime is repaired. Open Kosmos again to start it; if it still does not open, restart this computer.");
