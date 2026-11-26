@@ -82,6 +82,17 @@ Earlier single-site fixes: #8225, #7442, #6017, #9098.
   3 failed): it copies browser-checks-quarantine-guard.test.js into a fixture folder with no test-support/, and the
   inserted require threw "Cannot find module './test-support/tmpscope'".
 - Fixed: the shell test copies tmpscope.js and what it loads (remove-at-end.js, remove-tree.js) beside the copy.
-  Measured: 39 passed, 0 failed. It is the only suite script that runs a suite test file outside the repo (the node
+  Measured: 39 passed, 0 failed. [CORRECTED by round 5: not the only one, see below] It looked like the only suite script that runs a suite test file outside the repo (the node
   part, which would have failed the same way on any other, was 0 failed; tools/test-install-gate-control.sh is only
   `bash -n` and names no .test.js). release.sh step 1e runs the file in the repo, unaffected.
+
+## Challenge round 5 (00:45): one SHOULD-FIX, fixed
+- tools.release-gate.test.js:539 also copies browser-checks-quarantine-guard.test.js into its release sandbox, with
+  no test-support/, and its arms run release.sh step 1e on it. It stayed GREEN because step 1e inherits
+  NODE_TEST_CONTEXT, with which a file that fails to load exits 0: the arms passed without step 1e checking anything.
+- Fixed: the sandbox gets tmpscope.js, remove-at-end.js, remove-tree.js. Measured: release-gate 71 of 71; the same
+  layout run by hand without the masking variable: without test-support rc 1 "Cannot find module", with it 14 of 14.
+- The masking is older than this branch: filed #9120 (unclaimed).
+- NIT left: both copy sites list the three files by hand; a new tmpscope require turns them red loudly, not green.
+- Ruled out by the reviewer: Linux/Windows build and bundle scripts skip *.test.js; CI workflows run from the
+  checkout; other tests copy only non-test files; a real cut runs step 1e in the repo.
