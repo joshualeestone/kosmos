@@ -99,8 +99,10 @@ _qh_pid_start() {
 # matching run could not be verified or signalled (it says which), 4 when
 # a matching run was NOT signalled because its command runs in the foreground (a terminal; see QH_FG below: a TERM
 # there would release the claim and leave the command running, so it is refused, and said, instead).
-# The label file is three lines: the label, the state (waiting, bg or fg) and the process's start time (as the lib's
-# waiter markers record it). Review 1: a pid is signalled only when it is alive, runs queued-heavy.sh AND has that same
+# Exit 6: two or more live runs carry that label and --all was not given (all are listed, none signalled). The wait is
+# at least QUEUED_HEAVY_WITHDRAW_WAIT_S (default 90 s) and never shorter than the longest withdrawn holder's grace + 30 s.
+# The label file is four lines: the label, the state (waiting, bg or fg), the process's start time (as the lib's
+# waiter markers record it) and its grace. Review 1: a pid is signalled only when it is alive, runs queued-heavy.sh AND has that same
 # start time, so a reused pid (another run's renewer or watcher, any shell) is never signalled. A file whose pid is gone
 # (ESRCH, not a refused probe) is stale and removed.
 if [ "${1:-}" = --withdraw ]; then
@@ -113,22 +115,31 @@ if [ "${1:-}" = --withdraw ]; then
   _qnot() { echo "QUEUED-HEAVY $(date '+%H:%M:%S') NOT withdrawn: $*"; }
   for _qf in "$_qd"/qh-label.*; do
     [ -e "$_qf" ] || continue   # an unmatched glob stays literal
-    _q="${_qf##*.}"
+    _q="${_qf##*/qh-label.}"
     case "$_q" in
-      ''|*[!0-9]*) _qt="${_q%.tmp}"; case "$_qt" in ''|*[!0-9]*) ;; *) _qgone "$_qt" && rm -f "$_qf" ;; esac; continue ;;   # a dead run's .tmp
+      *.tmp) _qt="${_q%.tmp}"; case "$_qt" in ''|*[!0-9]*) ;; *) _qgone "$_qt" && rm -f "$_qf" ;; esac; continue ;;   # a dead run's .tmp (review 4: the pid is the name's middle)
+      ''|*[!0-9]*) continue ;;
     esac
     [ "$_q" = "$$" ] && continue
     if _qgone "$_q"; then rm -f "$_qf"; continue; fi
     _ql1=""; _ql2=""; _ql3=""; _ql4=""
     if ! { IFS= read -r _ql1; IFS= read -r _ql2; IFS= read -r _ql3; IFS= read -r _ql4; true; } < "$_qf" 2>/dev/null; then
+      # Review 4: a run that ended between the look and the read (any run, any label) is not a failure.
+      { [ ! -e "$_qf" ] || _qgone "$_q"; } && continue
       _qnot "the label file of pid $_q could not be read"; _qbad=$((_qbad + 1)); continue
     fi
     [ "$_ql1" = "$_qw" ] || continue
     _qcmd="$(ps -ww -o command= -p "$_q" 2>/dev/null)"; _qnow="$(_qh_pid_start "$_q")"
     # Review 3: an EMPTY live read (ps refused, a hidden /proc) is "cannot verify", never "not a run".
-    if [ -z "$_qcmd" ] || [ -z "$_qnow" ] || [ -z "$_ql3" ]; then _qnot "pid $_q ($_qw) could not be verified (no command line or start time)"; _qbad=$((_qbad + 1)); continue; fi
+    # Review 4: every live match counts for --all (below), signalable, foreground or unverifiable; a PROVEN reused pid
+    # (another command, or another start time) is not a match.
+    if [ -z "$_qcmd" ] || [ -z "$_qnow" ] || [ -z "$_ql3" ]; then
+      _qnot "pid $_q ($_qw) could not be verified (no command line or start time)"; _qbad=$((_qbad + 1))
+      _qall_n=$((${_qall_n:-0} + 1)); _qall_p="${_qall_p:-} $_q"; continue
+    fi
     case "$_qcmd" in *queued-heavy.sh*) ;; *) continue ;; esac   # a reused pid running something else
     [ "$_qnow" = "$_ql3" ] || continue                             # a reused pid: not the run that wrote this label
+    _qall_n=$((${_qall_n:-0} + 1)); _qall_p="${_qall_p:-} $_q"
     if [ "$_ql2" = fg ]; then
       _qnot "pid $_q ($_qw) runs its command in the foreground of a terminal; a TERM would not stop it. Stop it in that terminal (Ctrl-C)."
       _qfg=$((_qfg + 1)); continue
@@ -136,9 +147,11 @@ if [ "${1:-}" = --withdraw ]; then
     _qc="$_qc $_q"; _qcn=$((_qcn + 1))
     case "$_ql4" in ''|*[!0-9]*) ;; *) [ "$_ql4" -gt "$_qgmax" ] && _qgmax="$_ql4" ;; esac
   done
-  if [ "$_qcn" -gt 1 ] && [ -z "$_qall" ]; then
-    echo "QUEUED-HEAVY $(date '+%H:%M:%S') NOT withdrawn: $_qcn live runs are labelled \"$_qw\"; nothing was signalled. They are:"
-    for _q in $_qc; do echo "  pid $_q: $(sed -n 2p "$_qd/qh-label.$_q" 2>/dev/null), running for $(ps -o etime= -p "$_q" 2>/dev/null | tr -d ' ')"; done
+  # Review 4: the count is every live match (signalable, foreground, unverifiable), not only the signalable ones: a
+  # foreground twin left out of it let a colleague's background run be withdrawn without --all.
+  if [ "${_qall_n:-0}" -gt 1 ] && [ -z "$_qall" ]; then
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') NOT withdrawn: ${_qall_n} live runs are labelled \"$_qw\"; nothing was signalled. They are:"
+    for _q in $_qall_p; do echo "  pid $_q: $(sed -n 2p "$_qd/qh-label.$_q" 2>/dev/null), running for $(ps -o etime= -p "$_q" 2>/dev/null | tr -d ' ')"; done
     echo "  Withdraw all of them with: queued-heavy.sh --withdraw \"$_qw\" --all"
     exit 6
   fi
