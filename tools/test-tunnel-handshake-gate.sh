@@ -206,7 +206,20 @@ tarball_case "--control-tarball with no connector -> CANNOT TELL, says why" 2 "g
 # Another connector with the gate's identity -> CANNOT TELL. Stand-ins carry the command line a
 # connector has: first a SIGKILLed earlier gate's (a tunnel-gate.* temp dir), then one started by
 # hand on the enrolled state dir, then (control) another Mac's.
-standin() { bash -c "exec -a 'kosmos-tunnel run${2:- --state-dir }$1 --coordinator x' sleep 30" & STALE=$!; sleep 0.3; }
+# kosmos#9113: wait until the stand-in SHOWS that command line, never a fixed sleep. Until its exec
+# lands the forked pid still carries this script's own command line, so a gate that scans first sees
+# no connector and says PASS (exit 0, wanted 2). A fixed 0.3 s lost that race on a loaded machine,
+# twice in one evening. /bin/ps by full path: one case below puts a ps that prints nothing on PATH.
+standin() {
+  bash -c "exec -a 'kosmos-tunnel run${2:- --state-dir }$1 --coordinator x' sleep 30" & STALE=$!
+  local end=$((SECONDS + 10))    # a deadline, not a count: each ps costs about as much as the sleep
+  until case "$(/bin/ps -o command= -p "$STALE" 2>/dev/null)" in "kosmos-tunnel run"*) true ;; *) false ;; esac; do
+    if [ "$SECONDS" -ge "$end" ]; then
+      fail=$((fail + 1)); echo "  FAIL  stand-in for $1 (pid $STALE) never showed its command line in 10s"; break
+    fi
+    sleep 0.05
+  done
+}
 unstand() { { kill "$STALE"; wait "$STALE"; } 2>/dev/null; }
 standin "$GT/tunnel-gate.Stale1/a1/state"
 run "an earlier gate's connector still running -> CANNOT TELL"       2 "gate's identity is still running"   "up" "up"; unstand
