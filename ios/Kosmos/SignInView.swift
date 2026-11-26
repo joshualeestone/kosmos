@@ -408,19 +408,18 @@ final class SignInModel: ObservableObject {
     /// Signed in already; the app opens without waiting for the Allow (its tabs say so until the Mac answers).
     func continueToApp() { attempt += 1; watch?.cancel(); step = .done }
 
-    /// kosmos#9111: the code the Mac's gate answered while this screen knocked there, which is the one the Mac shows.
     /// kosmos#9111: the Mac's gate has said no for longer than an old no lasts (BoardClient.Phase.realNoSeconds).
     func macSaidNo() {
         switch step { case .allow(_, true), .denied(asking: true): break; default: return }
         attempt += 1; watch?.cancel(); step = .denied(asking: false)
     }
 
+    /// kosmos#9111: the code the Mac's gate answered while this screen knocked there, which is the one the Mac shows.
     func showGateCode(_ code: String, mac: String) {
         guard case .allow(_, true) = step else { return }
         gateMac = mac
         step = .allow(matchCode: code, hasComputer: true)
     }
-
 
     /// A call that did not get an answer. A device key this iPhone cannot keep is not a network problem and would fail
     /// the same way every time, so that goes to the web sign-in page (review round 1).

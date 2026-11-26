@@ -129,3 +129,16 @@ Main logic suite PASS 2789/2789; settings, automation, actions, taskpage, room p
 - [NIT] not taken: .signInAgain/.signInHere/.kosmosPlusRefused keep the screen waiting with Continue (as on main;
   only the person cures them, in the app).
 Main logic suite PASS 2793/2793; settings, automation, actions, taskpage, room pass.
+
+#### Iteration 6 (blind review of the whole branch, sonnet)
+
+No BLOCKER, no SHOULD-FIX. Converged.
+- [NIT] taken: the real no is said at the next knock after 60 s, about 105 s after the first no (knocks 15, 30, 60 s
+  apart): the doc comment says so. gateNoSince's comment now says what clears it (the gate asked the Mac or let in).
+  showGateCode's doc comment was above macSaidNo: moved.
+- [NIT] not taken: a refusal between two noes does not clear gateNoSince (a false real no needs a no, a refusal, then
+  a no 60 s after the first: rare, and Continue and signing in again both still work); an .allow-to-.allow re-sign
+  restarts the run through BoardClient.accountChanged, gateNoSince stays (rare, the same outcome); the ContentView
+  wiring has no unit test (no logic suite compiles ContentView; the signed simulator walk covers it).
+- Iterations 3 and 4 describe macSaidNo as it was then; iteration 5 is the final state.
+Main logic suite PASS 2793/2793; room suite pass.

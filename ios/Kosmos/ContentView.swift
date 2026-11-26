@@ -282,7 +282,7 @@ struct ContentView: View {
             guard knocking else { return }
             switch phase {
             case .denied: if gateNoSince == nil { gateNoSince = Date() }
-            case .waitingForAllow, .live: gateNoSince = nil   // the gate answered otherwise: any no before is over
+            case .waitingForAllow, .live: gateNoSince = nil   // the gate asked the Mac or let in: any no before is over
             default: break
             }
             let gateNoFor = gateNoSince.map { Date().timeIntervalSince($0) } ?? 0

@@ -79,7 +79,8 @@ final class BoardClient: ObservableObject {
         /// kosmos-relay lib.rs PENDING_POLL_SECS, proxy.rs kosmos#6407) or REAL and never told to Kosmos+ (a board-v2
         /// Mac's "Not me" is local only, devices.rs drop_waiting, and turns the key away for 24 hours). The two answer
         /// the same bytes, so time tells them apart: knocked again until the gate has said no without a break for
-        /// `realNoSeconds`, then the screen says so.
+        /// `realNoSeconds`, then the screen says so at the next knock (the knocks are 15, 30, 60 s apart, so about 105 s
+        /// after the first no).
         enum AllowScreen: Equatable { case keep, code(String, mac: String), done, denied, knockAgain }
         static let realNoSeconds: Double = 60
         /// `gateNoFor`: how long the gate has said no without a break (0 at the first no).
