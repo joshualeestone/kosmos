@@ -1,7 +1,7 @@
 import XCTest
 
 // kosmos#8959 slice A: "Use text messages instead" on the second-step setup opens the phone's own number screen, not
-// the web sign-in page (the navy Close page). The sample screens (KOSMOS_SAMPLE_SIGNIN) have no client, so nothing is
+// the web sign-in page (the page with a Close bar). The sample screens (KOSMOS_SAMPLE_SIGNIN) have no client, so nothing is
 // sent. The shots take the simulator's own appearance: XCUIDevice.shared.appearance did not change it on an iOS 27.0
 // simulator (two runs, both "dark" sets came out light), so dark shots come from `xcrun simctl ui <device> appearance dark`.
 final class TextSetupUITests: XCTestCase {

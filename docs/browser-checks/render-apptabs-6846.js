@@ -3,7 +3,8 @@
 
 /**
  * kosmos#6846 part c (Mona Lisa's frames, ios-design-2026-10-19/tabbar-6846): inside the iPhone app with its native tab
- * bar, the app adds `kapptabs` to <html> and the board's navy bar becomes the app's own header: 44px, no Kosmos+ mark,
+ * bar, the app adds `kapptabs` to <html> and the board's Kosmos+ bar becomes the app's own header (on the page's own
+ * ground since kosmos#9101, navy before): 44px, no Kosmos+ mark,
  * no two lines; this computer's name on the left only when there is another computer to switch to (Josh #6396), the
  * person's face on the right; the name opens the phone menu at Switch Computers, the face at Settings, and closing
  * gives focus back to the one that opened it.
