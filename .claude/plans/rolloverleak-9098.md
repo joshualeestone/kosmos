@@ -19,3 +19,8 @@ require('./test-support/tmpscope') first in the file, as #8225 did.
 1,307 test files on main make a raw os.tmpdir() mkdtemp; 843 of them do not require tmpscope (counted with git show
 over every *.test.js on origin/main 8049029dc4). Any of them can leave a folder the same way. A guard test plus an
 843-file change needs its own card and a full run; noted on #9098, not done here.
+
+## Review ledger
+1 blind round (opus): no blocker, no warning; converged. Taken: the header's "before any require" now names the one
+exception, so the require is not moved back below the sandbox. Deferred: test.after()'s own removal, now redundant but
+harmless (defence if tmpscope cannot make a scope).

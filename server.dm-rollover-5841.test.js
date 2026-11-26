@@ -6,7 +6,8 @@
  * goes on in a fresh file that names it (`continues`). The thread route counts the chain, and the older route pages
  * across it with positions from the OLDEST message. Each arm reads through the real engine and routes.
  *
- * ⚠️ SANDBOX EVERY ROOT BEFORE ANY REQUIRE (HOME included).
+ * ⚠️ SANDBOX EVERY ROOT BEFORE ANY REQUIRE (HOME included), except tmpscope, which goes first (kosmos#9098): it reads none
+ * of these roots, and it must run before the sandbox's own mkdtemp.
  *
  *   node --test server.dm-rollover-5841.test.js
  */
