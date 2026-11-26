@@ -1762,6 +1762,16 @@ html.pnav-up { overflow: hidden; scrollbar-gutter: auto; }
 .pnav-state { display: block; font-size: 15px; color: rgba(255,255,255,.62); margin-top: 2px; }
 .pnav-item.pnav-comp { flex-direction: column; align-items: flex-start; justify-content: center; padding-top: 6px; padding-bottom: 6px; }
 .pnav-item.pnav-off { color: rgba(255,255,255,.55); cursor: default; }
+/* kosmos#9103 (Josh 11-25 16:49: "we are not going to have the blue background anywhere in the app"): inside the app the
+   menu stands on the board's own ground and ink, as #9101 does for the bar above it. The mock's layout and words stay; only
+   the colours change. Kosmos+ in a browser keeps its navy menu. The red badge and dot are meaning, so they stay red. */
+html.kapptabs .pnav, html.kapptabs .pnav-top { background: var(--k-bg); }
+html.kapptabs .pnav, html.kapptabs .pnav-x, html.kapptabs .pnav-back, html.kapptabs .pnav-item,
+  html.kapptabs .pnav-themeopt[aria-checked="true"] { color: var(--k-ink); }
+html.kapptabs :is(.pnav-small, .pnav-stamp, .pnav-theme-l, .pnav-state, .pnav-item.pnav-off) { color: var(--k-ink-2); }
+html.kapptabs .pnav-msg { color: var(--danger); }
+html.kapptabs :is(.pnav-x, .pnav-back, .pnav-item, .pnav-small):focus-visible { outline-color: var(--k-ink); }
+html.kapptabs .pnav-level:focus-visible { outline-color: var(--k-rule); }
 @keyframes pnav-fwd-out { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(-8px); } }
 @keyframes pnav-fwd-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes pnav-back-out { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(8px); } }
