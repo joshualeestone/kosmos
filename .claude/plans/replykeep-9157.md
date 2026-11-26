@@ -185,3 +185,15 @@ maps are unchanged.
 web.replykeep-9157 13 of 13 (5 runs clean), the affected suites, guards and browser-check wiring tests (239), and
 render-replykeep-9157, render-keepdrafts-9132, render-room-reply-3745 (71), render-dm-send-clears-4944 (45) and
 render-dm-reply-4256 (22) pass.
+
+#### Iteration 8 (blind review of the whole branch, sonnet): converged
+
+No BLOCKER, no SHOULD-FIX. NITs, not taken:
+- After a FAILED send the words are put back while the sending guard is still set, so they are newer than the stored
+  reply; a manual reload before the next keystroke brings them back plain (as main always does), and the automatic
+  restart stays held in that state. The next keystroke re-saves the reply.
+- draftsKept judges a reply map whole: one unkept reply over-holds the restart for another (no loss).
+- Two tabs on one chat: a reply started in the other tab swaps this tab's strip (shown).
+- The new tests use 5 ms real gaps for strictly newer timestamps; no global leaks.
+The reviewer checked the temporal dead zone of DM_REPLY_SENDING / PJ_REPLY_SENDING (read only on a word save, after
+load): fragile but correct.
