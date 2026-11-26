@@ -138,14 +138,14 @@ enum Shell {
 
     // kosmos#7197 (Josh, 10-26 08:29, with two Macs): a Mac that is not answering is named, so the person knows which
     // one to wake. The name is the Mac's address label (the first part of its host), as Kosmos+ lists it; with no
-    // name the wording is the old "Your Mac".
+    // name the wording is "Your computer" (kosmos#9064: Kosmos runs on Windows too).
     static func macName(fromHost host: String?) -> String? {
         guard let first = host?.split(separator: ".").first, !first.isEmpty else { return nil }
         return String(first)
     }
 
     static func macUnreachableTitle(_ name: String?) -> String {
-        guard let n = name?.trimmingCharacters(in: .whitespaces), !n.isEmpty else { return "Your Mac isn't answering" }
+        guard let n = name?.trimmingCharacters(in: .whitespaces), !n.isEmpty else { return "Your computer isn't answering" }
         return "\(n) isn't answering"
     }
 
@@ -172,7 +172,7 @@ enum Shell {
     static func macUnreachableMessage(_ name: String?, lastSeen: Double? = nil, now: Date = Date(),
                                       calendar: Calendar = .current, locale: Locale = .current) -> String {
         let n = name?.trimmingCharacters(in: .whitespaces) ?? ""
-        let who = n.isEmpty ? "your Mac" : "the Mac called \(n)"
+        let who = n.isEmpty ? "your computer" : "the computer called \(n)"
         let heard = lastHeardSentence(lastSeen, now: now, calendar: calendar, locale: locale).map { " " + $0 } ?? ""
         return "Your phone is online, but \(who) didn't reply. It may be asleep, off or offline.\(heard) Wake it, then try again."
     }

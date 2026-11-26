@@ -27,7 +27,7 @@ final class CentredWaitsUITests: XCTestCase {
             // Both waits are measured by the orb and the title themselves (review 3: Allow's combined element fills the whole
             // space, so its frame said nothing about the orb). The children are still in the hierarchy under .combine.
             let titleText = wait == "allow" ? "Allow this iPhone on Studio Mac." : "Connecting to Studio Mac."
-            let orb = app.otherElements["Waiting for your Mac"]
+            let orb = app.otherElements["Waiting for your computer"]
             let title = app.staticTexts[titleText]
             XCTAssertTrue(orb.waitForExistence(timeout: 10) && title.exists, "\(wait): the orb or the words are not showing")
             keep(app, "wait-" + wait)

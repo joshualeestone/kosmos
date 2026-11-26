@@ -314,10 +314,10 @@ check(!Shell.offersOtherComputer(.unreachable), "Kosmos+ not answering: the comp
 check(Shell.macName(fromHost: "10102026.kosmosplus.com") == "10102026", "a Mac's name is its address label")
 check(Shell.macName(fromHost: nil) == nil && Shell.macName(fromHost: "") == nil, "no host, no name")
 check(Shell.macUnreachableTitle("10102026") == "10102026 isn't answering", "the title names the Mac")
-check(Shell.macUnreachableMessage("tmnt").contains("the Mac called tmnt didn't reply"), "the message names the Mac")
-check(Shell.macUnreachableTitle(nil) == "Your Mac isn't answering" && Shell.macUnreachableTitle("  ") == "Your Mac isn't answering",
-      "CONTROL: no name keeps the old wording")
-check(Shell.macUnreachableMessage(nil) == "Your phone is online, but your Mac didn't reply. It may be asleep, off or offline. Wake it, then try again.",
+check(Shell.macUnreachableMessage("tmnt").contains("the computer called tmnt didn't reply"), "the message names the Mac")
+check(Shell.macUnreachableTitle(nil) == "Your computer isn't answering" && Shell.macUnreachableTitle("  ") == "Your computer isn't answering",
+      "CONTROL: no name says \"Your computer\" (kosmos#9064)")
+check(Shell.macUnreachableMessage(nil) == "Your phone is online, but your computer didn't reply. It may be asleep, off or offline. Wake it, then try again.",
       "kosmos#7416: the unnamed message with no time, word for word (Mona Lisa's first sentence)")
 // kosmos#7416 slice 2: when Kosmos+ last heard from the Mac, in the person's clock and Mona Lisa's words. A fixed
 // calendar, zone and locale, so the words do not depend on the Mac running the tests.
@@ -358,9 +358,9 @@ do {
     check(heard(now.addingTimeInterval(30), now) == "We last heard from it at 10:00 PM.", "CONTROL: a clock a few seconds ahead is still now")
     let seen = at(2026, 10, 27, 20, 12).timeIntervalSince1970
     check(Shell.macUnreachableMessage("tmnt", lastSeen: seen, now: now, calendar: cal, locale: en).replacingOccurrences(of: "\u{202F}", with: " ")
-            == "Your phone is online, but the Mac called tmnt didn't reply. It may be asleep, off or offline. We last heard from it at 8:12 PM. Wake it, then try again.",
+            == "Your phone is online, but the computer called tmnt didn't reply. It may be asleep, off or offline. We last heard from it at 8:12 PM. Wake it, then try again.",
           "the message: the Mac named, Mona's first sentence, then the time")
-    check(Shell.macUnreachableMessage("tmnt", lastSeen: 0, now: now) == "Your phone is online, but the Mac called tmnt didn't reply. It may be asleep, off or offline. Wake it, then try again.",
+    check(Shell.macUnreachableMessage("tmnt", lastSeen: 0, now: now) == "Your phone is online, but the computer called tmnt didn't reply. It may be asleep, off or offline. Wake it, then try again.",
           "CONTROL: no time leaves the sentence out, nothing else")
     // Which computer's time: by address, else by a name only one computer has.
     let listed = [Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true, lastSeen: 300),
@@ -403,8 +403,8 @@ do {
     check(Shell.notUpdatingLine("Studio", lastHeard: nil) == "Not updating. Studio isn't answering." && Shell.notUpdatingLine("Studio", lastHeard: 0) == "Not updating. Studio isn't answering.",
           "CONTROL: with no time the list's line is as before")
 }
-check(Shell.notUpdatingLine("tmnt") == "Not updating. tmnt isn't answering." && Shell.notUpdatingLine(nil) == "Not updating. Your Mac isn't answering.",
-      "the banner over a list names the Mac, and keeps the old words with no name")
+check(Shell.notUpdatingLine("tmnt") == "Not updating. tmnt isn't answering." && Shell.notUpdatingLine(nil) == "Not updating. Your computer isn't answering.",
+      "the banner over a list names the computer, and says \"Your computer\" with no name (kosmos#9064)")
 check(BoardClient.Phase.unreachable(mac: "10102026").macName == "10102026" && BoardClient.Phase.live(mac: Board.Mac(name: "tmnt", address: "tmnt.kosmosplus.com", usable: true)).macName == "tmnt"
       && BoardClient.Phase.starting.macName == nil, "a phase names its Mac, or none")
 check(Board.sessionRequest(mac: URL(string: "https://studio.kosmosplus.com")!, handoffToken: "t").timeoutInterval == 8, "a session request waits 8 s, so three tries take about 30 s")
