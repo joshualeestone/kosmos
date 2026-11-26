@@ -317,6 +317,28 @@ else
 fi
 grep -q 'leak_labels_snapshot > "$_tl_labels_before"' "$rt" && ok "run-tests.sh snapshots the labels before the suite" || bad "run-tests.sh does not snapshot the labels"
 
+# --- kosmos#9117: the ps snapshot is filtered to the root's lines before the per-line loops ------------------------
+snap9117=$(printf '%s\n' \
+  "  101     1 node /tmp/kt42/stub.js" \
+  "  102     1 node /private/tmp/kt42/stub.js" \
+  "  103     1 node /tmp/kt429/other.js" \
+  "  104     1 bash -c sleep 9" \
+  "  105     1 node /tmp/aXb/s.js" \
+  "  106     1 node /tmp/a.b/s.js")
+got=$(leak_root_lines "$snap9117" /tmp/kt42 /private/tmp/kt42 | awk '{ print $1 }' | tr '\n' ' ')
+# 103 is kept on purpose: /tmp/kt429 contains /tmp/kt42, and leak_names_root (unchanged) is what refuses it.
+[ "$got" = "101 102 103 " ] && ok "#9117: only lines naming the root in either spelling reach the loop" || bad "#9117: prefilter kept: $got"
+got=$(leak_root_lines "$snap9117" /tmp/a.b /tmp/a.b | awk '{ print $1 }' | tr '\n' ' ')
+[ "$got" = "106 " ] && ok "#9117: the root is matched literally (a dot is not a wildcard)" || bad "#9117: a regex reading of the root kept: $got"
+got=$(leak_root_lines '  107     1 node C:\x\kt1\s.js' 'C:\x\kt1' 'C:\x\kt1' | awk '{ print $1 }')
+[ "$got" = "107" ] && ok "#9117: a backslash in the root is literal (passed through the environment, not awk -v)" || bad "#9117: backslash root: '$got'"
+leak_names_root "  103     1 node /tmp/kt429/other.js" /tmp/kt42 /private/tmp/kt42 && bad "#9117 CONTROL: leak_names_root took kt429 for kt42" || ok "#9117 CONTROL: a kept lookalike line is still refused by leak_names_root"
+# Structural: every per-line loop over the snapshot reads the filtered lines (the speed fix), none the whole snapshot.
+lg="$HERE/lib/test-leak-guard.sh"
+n_filtered=$(grep -c 'done < <(leak_root_lines "$snap" "$root" "$real")' "$lg")
+n_whole=$(grep -c 'done <<< "$snap"' "$lg")
+[ "$n_filtered" -eq 3 ] && [ "$n_whole" -eq 0 ] && ok "#9117: all 3 snapshot loops read the filtered lines" || bad "#9117: filtered=$n_filtered whole=$n_whole"
+
 echo "$checks checks"
 if [ "$fail" -ne 0 ]; then echo "test-test-leak-guard-4273: FAIL"; exit 1; fi
 echo "test-test-leak-guard-4273: PASS"
