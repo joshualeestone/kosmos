@@ -13147,8 +13147,18 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
   try {
     var t = localStorage.getItem('kosmos-theme');
     if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+    tellAppTheme(t === 'dark' || t === 'light' ? t : 'system');
   } catch (e) { /* private mode, a locked-down profile: the system theme is a fine answer */ }
 })();
+/* kosmos#9101 review: inside the iPhone app, the board's theme choice is told to the app (its kosmosTheme handler,
+   ContentView BoardThemeProxy), so the app's own ground round the page follows a forced Light or Dark rather than the
+   phone's setting. Only the three words; in a browser there is no handler and nothing happens. */
+function tellAppTheme(which) {
+  try {
+    var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosTheme;
+    if (h && (which === 'dark' || which === 'light' || which === 'system')) h.postMessage(which);
+  } catch (e) { /* the app is older than the handler, or this is a browser: nothing to tell */ }
+}
 /* #4470: the new look, behind a hidden switch in Settings > Advanced. Here for the same
    no-flash reason as the theme above. No stored value means no attribute, and with no
    attribute nothing in the new look's rules can match, so the app is today's app. */
@@ -23194,6 +23204,7 @@ function setTheme(which) {
     document.documentElement.setAttribute('data-theme', which);
     try { localStorage.setItem(THEME_KEY, which); } catch { /* the choice holds for this window */ }
   }
+  tellAppTheme(which);   // kosmos#9101 review: the app's ground follows the choice at once
   paintThemePicker();
 }
 document.addEventListener('click', (e) => {

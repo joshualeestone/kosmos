@@ -1168,6 +1168,10 @@ struct WebView: UIViewRepresentable {
         // Every page knows it is inside the app's tab bar, so the board hides its own (#6846 part c). kosmos#7042: and the
         // sign-in page starts with the app's session (BoardWeb.userScripts).
         BoardWeb.userScripts(session: SessionKeychain.live.load(), forget: web.forgotten).forEach(config.userContentController.addUserScript)
+        // kosmos#9101 review: the board's Light / Dark / System choice sets the app's appearance, so the ground round the
+        // page is the page's colour. The last choice is applied now, before the first page, so a relaunch has no flash.
+        config.userContentController.add(BoardThemeProxy(), name: Shell.boardThemeHandler)
+        BoardThemeProxy.apply(BoardThemeProxy.stored())
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
         webView.navigationDelegate = web.coordinator
@@ -1754,6 +1758,27 @@ struct WebView: UIViewRepresentable {
 
     // A tab's host going says nothing about the shared web view: BoardWeb.drop() ends it on lock.
     static func dismantleUIView(_ host: UIView, coordinator: Coordinator) {}
+}
+
+// kosmos#9101 review: the board posts its theme choice ("system", "light" or "dark", Shell.boardTheme) whenever it is
+// applied. The app keeps it and follows it: every window's appearance is the board's, so UIColor.boardGround, the tab bar
+// and the native screens match the page. "system" hands the choice back to the phone. Main frame only; anything else is
+// ignored. Nothing is sent anywhere.
+final class BoardThemeProxy: NSObject, WKScriptMessageHandler {
+    static func stored(_ defaults: UserDefaults = .standard) -> Shell.BoardTheme {
+        Shell.boardTheme(defaults.string(forKey: Shell.boardThemeKey)) ?? .system
+    }
+    static func apply(_ theme: Shell.BoardTheme) {
+        let style: UIUserInterfaceStyle = theme == .dark ? .dark : (theme == .light ? .light : .unspecified)
+        for scene in UIApplication.shared.connectedScenes {
+            (scene as? UIWindowScene)?.windows.forEach { $0.overrideUserInterfaceStyle = style }
+        }
+    }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, let theme = Shell.boardTheme(message.body) else { return }
+        UserDefaults.standard.set(theme.rawValue, forKey: Shell.boardThemeKey)
+        Self.apply(theme)
+    }
 }
 
 // Forwards kosmosSession posts with the sender's frame facts. The body is never

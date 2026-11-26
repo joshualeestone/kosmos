@@ -90,3 +90,39 @@ test('#9101 boardGround and the native ground (Palette.ground) are the same two 
   assert.equal('#' + m[1].toLowerCase(), page.light, 'Palette.ground (light) and the board\'s ground differ: the native screens and the page would not match');
   assert.equal('#' + m[2].toLowerCase(), page.dark, 'Palette.ground (dark) and the board\'s ground differ');
 });
+
+/* kosmos#9101 review: boardGround follows the APP's appearance, and the board can be forced Light or Dark against the
+   phone's (the phone menu's Appearance, kosmos-theme). So the page tells the app its choice through the kosmosTheme
+   handler, on load and on every change, and the app sets every window's appearance from it (BoardThemeProxy). */
+function between(src, from, to) { const a = src.indexOf(from); return a < 0 ? '' : src.slice(a, src.indexOf(to, a + from.length)); }
+function themeWiring(page, content) {
+  const head = between(page, "var t = localStorage.getItem('kosmos-theme');", '})();');
+  const setter = between(page, 'function setTheme(which) {', '\n}\n');
+  const teller = between(page, 'function tellAppTheme(which) {', '\n}\n');
+  return {
+    headTells: /tellAppTheme\(/.test(head),
+    setterTells: /tellAppTheme\(which\)/.test(setter),
+    tellerPosts: /messageHandlers\.kosmosTheme/.test(teller) && /postMessage\(which\)/.test(teller),
+    appListens: /userContentController\.add\(BoardThemeProxy\(\), name: Shell\.boardThemeHandler\)/.test(content),
+    appAppliesStored: /BoardThemeProxy\.apply\(BoardThemeProxy\.stored\(\)\)/.test(content),
+    appSetsWindows: /overrideUserInterfaceStyle = style/.test(content),
+  };
+}
+test('#9101 review: the board tells the app its theme (load and change) and the app follows it', () => {
+  const w = themeWiring(PAGE, CONTENT);
+  for (const [k, v] of Object.entries(w)) assert.equal(v, true, k);
+  assert.match(fs.readFileSync(path.join(IOS, 'ShellLogic.swift'), 'utf8'), /static let boardThemeHandler = "kosmosTheme"/, 'the handler name the page posts to');
+});
+test('#9101 review CONTROL: each half of the wiring, removed, is seen', () => {
+  const cases = [
+    ['headTells', PAGE.replace("tellAppTheme(t === 'dark' || t === 'light' ? t : 'system');", ''), CONTENT],
+    ['setterTells', PAGE.replace('  tellAppTheme(which);   //', '  //'), CONTENT],
+    ['tellerPosts', PAGE.replace('h.postMessage(which)', 'void 0'), CONTENT],
+    ['appListens', PAGE, CONTENT.replace('config.userContentController.add(BoardThemeProxy(), name: Shell.boardThemeHandler)', '')],
+    ['appAppliesStored', PAGE, CONTENT.replace('BoardThemeProxy.apply(BoardThemeProxy.stored())', '')],
+  ];
+  for (const [k, page, content] of cases) {
+    assert.ok(page !== PAGE || content !== CONTENT, k + ': the control edit applied');
+    assert.equal(themeWiring(page, content)[k], false, k);
+  }
+});

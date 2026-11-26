@@ -171,6 +171,9 @@ check(tapURL(["address": "hers.kosmosplus.com", "session": NSNull()]) == "https:
 check(tapURL(["address": "evil.example.com", "session": "leo"]) == nil, "a good session cannot rescue a bad address")
 
 section("shell: a page that failed to load")
+// kosmos#9101 review: the board's theme words, and only those.
+check(Shell.boardTheme("dark") == .dark && Shell.boardTheme("light") == .light && Shell.boardTheme("system") == .system, "the board's three theme words")
+check(Shell.boardTheme("Dark") == nil && Shell.boardTheme("blue") == nil && Shell.boardTheme(1) == nil && Shell.boardTheme(nil) == nil, "CONTROL: any other body is ignored")
 check(Shell.loadFailure(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet) == .offline, "no internet: offline")
 check(Shell.loadFailure(domain: NSURLErrorDomain, code: NSURLErrorNetworkConnectionLost) == .unreachable, "connection lost: unreachable (the phone may still be online)")
 check(Shell.loadFailure(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost) == .unreachable, "cannot connect: unreachable")

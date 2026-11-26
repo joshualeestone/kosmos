@@ -735,3 +735,18 @@ struct PressTracker {
         launchHost = nil
     }
 }
+
+// kosmos#9101 review: the board's own Light / Dark / System choice (the phone menu's Appearance, stored by the page as
+// kosmos-theme) reaches the app through the kosmosTheme handler, so the native ground behind the page (UIColor.boardGround,
+// which follows the app's appearance) is the page's colour even when the board is forced against the phone's setting.
+// Without it a light phone with the board on Dark showed cream bands round a near-black page. Only these three words
+// are taken; anything else is ignored.
+extension Shell {
+    enum BoardTheme: String, Equatable { case system, light, dark }
+    static let boardThemeHandler = "kosmosTheme"
+    static let boardThemeKey = "kosmos.boardTheme"
+    static func boardTheme(_ body: Any?) -> BoardTheme? {
+        guard let raw = body as? String else { return nil }
+        return BoardTheme(rawValue: raw)
+    }
+}
