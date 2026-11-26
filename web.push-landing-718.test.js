@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #718 mobile: a push tap (or the Answer button) that opens an agent must SHOW the
    conversation on a phone, where the question is and where you answer. The page stacks at
    max-width 56rem (the .dbody rule), which put the question about two screens down on an

@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #750: Add a project, styled like New agent: no box, "Name", "Description", no folder
  * talk, a dropdown behind Add an agent, and a big yellow Create project.

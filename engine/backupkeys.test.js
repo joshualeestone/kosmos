@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5535 E0.6: engine/backupkeys.js, the pure half of the backup keys (member key wraps and per-period naming keys). */
 const test = require('node:test');
 const assert = require('node:assert');

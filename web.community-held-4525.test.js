@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4525: two values the "Waiting for you" list in web/index.html has to repeat from the engine, pinned equal so

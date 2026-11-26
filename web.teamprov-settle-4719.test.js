@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4719: the team step's Model menu settles an unusable choice back to the default, and does
  * NOTHING when there is no team step to settle. The Muse answer calls tcProviderSettle on every

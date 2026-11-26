@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8585: one helper, tasks.withoutLocalPaths, makes "a task without this computer's paths" for every view that
  * leaves them out (the project rows, the Tasks view, the page's task answers). It names the path-bearing fields once:

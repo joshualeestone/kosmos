@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#9001 part 1b: Kosmos's PermissionRequest hook (engine/kosmos-permission-allow.js) answers a shell command whose
  * only protected names are PLAN FILES (.claude/plans/...), unless it deletes or moves something. Any other protected

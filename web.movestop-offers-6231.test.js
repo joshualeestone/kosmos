@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6231 item 5 (follow-up to #6214): the Update / Roll back dialog and the Kosmos switch offer "Stop the move" when the
  * board refuses them with a 409 that says moveStoppable. #6214 pins that wiring by matching the page's source; these run

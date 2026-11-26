@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5391: the project page's own Pause / Resume (paintHeadPause) and the Paused badge on the project card
    (pjPillOf), from the page's real functions. */
 const fs = require('node:fs');

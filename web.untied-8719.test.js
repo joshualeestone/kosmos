@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8719: an agent whose window Kosmos cannot tie to it (no launch mark, so the card's isNamedOurs is false). The board
    says why it cannot be messaged, marks it on the tile and the list row, and the detail page names the real test. */
 const test = require('node:test');

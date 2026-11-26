@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4466, the Windows half: a board that takes the connection but does not answer in time is BUSY,
  * not off. The Windows `kosmos` has no health pre-check and no start/stop/restart verbs for agents

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5481: the microphone permission lines the card waits on must be readable on a person's Mac. logLine writes only

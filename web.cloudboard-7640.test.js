@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7640: board pages from Angel's 10-30 Kosmos Cloud walk (#4903 items 2 and 6).
  *   - A page reached through Kosmos+ (every session on a cloud machine) never asks for /api/remote/waiting: an open

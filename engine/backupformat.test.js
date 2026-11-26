@@ -2,6 +2,7 @@
  * kosmos#5535 (E0.6) slice 2: engine/backupformat.js, the bytes a backup is made of.
  * Each property the design (#5535 v2 / v2.1) relies on has a test that can fail, with a control.
  */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');

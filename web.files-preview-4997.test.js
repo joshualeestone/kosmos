@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4997, the page half: a plain click on an image or PDF row in a Files list opens the full-page preview (pvOpen)
  * with a record whose picture and download are the board's Files routes, naming the file only by its listed name in

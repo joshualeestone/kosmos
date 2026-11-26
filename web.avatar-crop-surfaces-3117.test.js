@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3117: the non-.lav avatar surfaces that pinned `height: 100%` on their <img>.

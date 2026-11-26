@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8665: `kosmos agent list` names each agent's model in the words of its card. engine/clilists.js carries its own
  * copy of the card's model line (the CLIs carry that file alone), so this runs the PAGE's own tileModelLine, modelLine

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7345: the iPhone's notification sound (ios/Kosmos/bubble-pop.caf) is the Mac's bubble pop. This keeps the
  * three in step: the board's voice (web/index.html playBubblePop), the generator (ios/tools/make-bubble-pop.js), and the

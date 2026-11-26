@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The view lives in the address bar (#374). Josh: refreshing on an agent's or
  * a project's page threw him back to the overview; it did every time, because

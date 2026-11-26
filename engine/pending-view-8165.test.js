@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8165 review 7: the view of a room that the quote tag and the person's claim line read while posts are being
  * delivered (withPending): the record's rows earlier than the post, plus this room's earlier pending posts that the

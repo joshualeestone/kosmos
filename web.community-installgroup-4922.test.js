@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4922: sending install_group has a public effect (profiles of three or more of a person's agents list each other,

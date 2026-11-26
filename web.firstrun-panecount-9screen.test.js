@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * install-flow-9screen: FR_STEPS must equal the number of fr-pane-N containers.

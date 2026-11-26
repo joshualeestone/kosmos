@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6727: Claude Code's permission prompt read into a short card (chat.permissionCard), from the captured screens. */
 const test = require('node:test');
 const assert = require('node:assert/strict');

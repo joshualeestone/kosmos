@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2140 error matrix, client half: openaiNoModelsNote maps the engine's distinct
  * per-status `because` (accountModels) into an honest note. The point is that a

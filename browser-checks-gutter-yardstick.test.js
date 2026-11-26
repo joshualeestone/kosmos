@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#3973: render-boot-no-flash and (#4213) render-tasks-view-3559 each (render-plus-bar-3837 until #6718)

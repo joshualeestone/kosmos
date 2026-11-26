@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* #4771: the Windows `kosmos project pause`, the twin of cli.project-pause-4771.test.js, driven through the CLI's own
    main() with an injected fetch (as the #4784 inbox test does). */

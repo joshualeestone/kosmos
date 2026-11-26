@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4025: the App icon switch in Settings (the waiting count on the Dock or taskbar icon). Runs the
  * REAL page functions (lifted from web/index.html) against a stub DOM and fetch: hidden until the
  * board's setting is read, never a guessed Off, and a save repaints from what the board stored.

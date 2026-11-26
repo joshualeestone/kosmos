@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The projects sort (#168). Josh, 2026-08-21: "maybe not a filter but
  * definitely a sort", beside the view toggle. Spec on the card (Mona Lisa,

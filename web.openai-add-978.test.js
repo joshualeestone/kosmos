@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#978 (Josh, 2026-08-26): on Settings > AI Models > Add a provider >

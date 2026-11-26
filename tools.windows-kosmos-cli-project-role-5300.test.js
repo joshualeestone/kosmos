@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* #5300: the Windows `kosmos project role`, the twin of cli.project-role-5300.test.js, driven through the CLI's own
    main() with an injected fetch (as the #4771 pause test does). */

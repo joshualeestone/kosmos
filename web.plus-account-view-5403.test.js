@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5403: Settings > Kosmos+ "View account" opens login.kosmosplus.com/account, where Sign out everywhere and
  * Delete account moved (#5397). The sign-in home is still the address the Copy chip copies (other devices sign in

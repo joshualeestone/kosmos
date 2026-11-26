@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8506: an agent's working rules hold only its own platform's lines. A Windows agent got the macOS tmux
  * permission box, and a Mac agent the PowerShell forms. The board writes an agent's instructions on the computer the

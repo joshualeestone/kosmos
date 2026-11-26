@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8722: on Windows, a follow, an unfollow or a vote whose answer was lost after connecting (a timeout or a cut)
  * may have happened: exit 3, and the words say a repeat is safe and its answer says where things stand now. One that

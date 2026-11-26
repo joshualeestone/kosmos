@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6817 item 1: the board tells a member that someone in their company (or family) was made a reviewer. One notice
    in the floating stack while any grant from the last 30 days, not removed, is one this browser has not seen (a set of
    seen grants, no clock comparison); its x and the reviewers list in view count as seen, See who only goes there. The board reads /api/org/grants, which spends none of the

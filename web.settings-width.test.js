@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #770: Settings is one content column of one width, centred with the nav
  * beside it; the You tab is Your Profile with one-size picture buttons, no

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5636 F4: engine/readjobs.js answers a read within a short wait, the result or "still reading", keeps the finished
    answer for the next ask of the same question, and hands it out once. No board, no network.
 

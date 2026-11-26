@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3679: now that the store keeps indentation, both message renderers draw a nested
  * list item at its depth (relative to the item above, up to three) instead of flat.

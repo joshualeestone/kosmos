@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* #5959 slice 4: "Save diagnostics" sits in Settings > Advanced and is a download link to the route. */
 

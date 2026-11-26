@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #2096 -- the "cannot reach a Claude subscription" banner (renderConnection) must
  * be provider-aware: OpenAI-only is first-class and shows NO Claude warning, but a

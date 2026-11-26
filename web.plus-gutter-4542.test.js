@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#4542: on a classic-scrollbar machine the #1309 gutter painted a white strip beside the navy Kosmos Plus page,
  * because a gutter paints the canvas COLOUR and the Plus navy is a gradient IMAGE on the body. The canvas now takes

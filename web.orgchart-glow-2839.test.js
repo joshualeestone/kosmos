@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2839 (Josh, 0.6.57 live review): the org chart shows each agent's state as a
  * glow behind the node - green for working, red for needs-you - "so you can

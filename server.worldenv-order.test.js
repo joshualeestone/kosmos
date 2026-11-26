@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * #1704 slice 2b-i, the load-bearing INVARIANT of the single-site fix:
  * engine/worldenv's bootstrap must be the FIRST `require('./engine/...')` in

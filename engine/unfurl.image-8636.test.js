@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8636: the board remembers, for a day, whether a preview's picture could be fetched (imageState), apart from
  * the bytes its image cache lets go after ten minutes, and warm() fetches the picture with the page. Nothing touches the

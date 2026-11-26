@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4021: a run on main must never be cancelled by the next merge. On 2026-09-26 every main run

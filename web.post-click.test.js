@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #752: clicking Post in a project room must post the text, and the click
  * binding is the thing that was wrong, so this goes THROUGH the binding: the

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#9010: before a move restarts an agent, it is asked to write its handoff, the move waits (a time limit) for the

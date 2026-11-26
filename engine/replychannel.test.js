@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5805 part 2: engine/replychannel.js, the declared reply channel. Pure, with an injected store.
      node --test engine/replychannel.test.js */
 const test = require('node:test');

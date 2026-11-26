@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4588 part 3: the card's line for an agent held by a colleague's pause on the same Google account. */
 const test = require('node:test');
 const assert = require('node:assert/strict');

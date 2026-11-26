@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3568: Gemini on a Google subscription (value 'antigravity', Google's Antigravity CLI) on the page.
  * The option is gated on agy being installed (not on an account: it signs in inside the agent's own

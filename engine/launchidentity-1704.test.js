@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1704 / #2828: the launch key -- the ONE derivation of an agent's machine-wide
  * names per Kosmos. The default world must be unchanged byte for byte, and the

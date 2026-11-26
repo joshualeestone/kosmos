@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#3 / #2125 follow-up: the native --kosmos-app-scan HATCH. The find-agents import scan
  * must read the TCC-protected roots (~/Documents, ~/Downloads, ~/Desktop) under the APP identity

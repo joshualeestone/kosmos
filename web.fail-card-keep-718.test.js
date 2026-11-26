@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #718 state 3: tick's failure branch writes the cannot-read / signed-out card into #grid and
    #alist only when it changes, so the five-second poll does not rebuild the card's button under
    a keyboard's focus. The browser check (render-device-signed-out-401-718.js, Scenario 1b) shows

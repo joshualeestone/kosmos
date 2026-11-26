@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4935: Create a Team sends ONE model for every member (Josh: "default all of them to a single model").
  * tcModel reads #tc-model beside the provider and account, sends it only when it has a value (an empty value is

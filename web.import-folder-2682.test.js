@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* #2682: the add-an-agent-from-a-folder UI. A source slice (no browser) pinning
  * the wiring: the folder input + button exist in the create/import panel, the

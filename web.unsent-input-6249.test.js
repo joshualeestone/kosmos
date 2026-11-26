@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6249: an agent whose input box has held unsent text for a few minutes says so on its card (engine
    status.unsentInputOf sets a.unsentInput.since). Lifts the page's own stateReason. */
 const test = require('node:test');

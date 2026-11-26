@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5114: no sentence a person can see sends them to an "Accounts" tab. The Settings section is labelled
  * "AI Models" (its nav button and aria-label), so "the Accounts tab", "the Accounts page" or "Settings > Accounts"

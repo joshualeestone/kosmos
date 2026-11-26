@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4554: the kind picker's Team card and the Team screen describe a team with the same noun. The card said
  * "the people who report to it" while the screen said "the agents"; they are agents (Josh's #4554 brief: agents

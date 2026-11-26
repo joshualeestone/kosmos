@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1618: concurrent callers share one run, and NOTHING is shared once it settles.
  *

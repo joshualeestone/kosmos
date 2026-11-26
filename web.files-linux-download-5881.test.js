@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5881: on a Linux board a file row offers Download, as it does through Kosmos+ (#5165) and as #5865 makes the preview do:
    the board may have no desktop to open the file on (the engine then refuses, engine/projects.linuxopen-5881.test.js).
    The four file-row click handlers are anonymous listeners, so they are held by their source, in order: the download

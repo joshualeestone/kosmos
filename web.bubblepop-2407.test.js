@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2407: the per-project new-message "bubble pop" sound. Josh chose it from the
  * audition page; a new message on a project you are not looking at plays a soft pop.

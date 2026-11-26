@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7861 (Josh): a bare web address the chat makes a link (joshualeestone.com) gets the same preview as one
  * typed with http://, fetched as https:// first and as http:// only when https was not reached.

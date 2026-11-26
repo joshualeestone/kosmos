@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #7410: the provider-switch dialog says what does not come across, only when the switch crosses the Claude line, and
  * offers "Write handoff, then switch" there. The page's real functions, lifted (test-support/page.js).

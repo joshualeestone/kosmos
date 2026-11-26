@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * Josh, 2026-08-26 item 7, from a live run: "when I opened the ChatGPT one, it
  * should have automatically collapsed the Claude one but it left the Claude one

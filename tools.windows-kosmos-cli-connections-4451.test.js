@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4451, the Windows half: `kosmos connections` and `kosmos connect <service>` in
  * tools/windows/kosmos-cli.js, mirroring cli.connections-4451.test.js for install/kosmos.

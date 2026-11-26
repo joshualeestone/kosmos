@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * The install confirm on the first-run model step (Josh, 2026-08-26 14:44 and

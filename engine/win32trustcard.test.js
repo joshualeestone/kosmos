@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3013: the board-card diagnosis engine path -- is a known-owned, enabled,
  * not-live Windows agent waiting at Claude Code's invisible workspace-trust prompt?

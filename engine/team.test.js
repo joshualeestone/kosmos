@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #1279: engine/team.js createTeam -- a PM agent builds a team for a stated
    purpose. These are hermetic: createAgent is INJECTED, so nothing here writes a
    real agent. They pin the two safety rails (a Kosmos-owned cap, and createdBy +

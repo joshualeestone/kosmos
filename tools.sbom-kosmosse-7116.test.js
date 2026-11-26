@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7116 step 2: the SBOM (tools/lib/sbom.js) accepts app/bin/kosmos-se, the Secure Enclave admin signer, as a
  * first-party binary, and checks its source (native-se/main.swift at the app commit) as it checks the Mac app's: Apple

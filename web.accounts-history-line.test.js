@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #864 (Josh, 2026-08-26): "kill the line." The positive arm of the
  * per-account history sentence ("An agent moved here keeps its

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #752, the class: `addEventListener('click', someFn)` hands the event into
  * someFn's FIRST parameter. When that parameter is not the event (an

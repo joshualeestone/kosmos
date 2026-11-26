@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#9049: the wait reminder for a session that went on after its SessionEnd (a /clear, a resume after a quit),
  * and the newest session event after a wait (sessionAfter).

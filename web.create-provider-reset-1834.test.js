@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1834: the create-agent provider must reset consistently, so a role re-pick (or a reopened
  * form) cannot leave the provider on OpenAI while the rebuilt model menu lists Claude models

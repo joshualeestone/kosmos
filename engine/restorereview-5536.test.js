@@ -2,6 +2,7 @@
  * kosmos#5536 slice 4a: engine/restorereview.js, the review list a person reads before a restored agent is enabled.
  * Its input is written by someone who may be hostile, so most of these tests think like them (review 1).
  */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const roles = require('./roles');

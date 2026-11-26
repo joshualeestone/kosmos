@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4798 (Josh, 2026-09-30 17:53): "if I save the icon as a bookmark for my home screen, it has a big black
  * stroke around it." iOS fills a touch icon's transparent pixels with black and then applies its own rounded mask,

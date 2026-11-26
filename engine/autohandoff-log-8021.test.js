@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8021 (a real seat's 85% handoff prompt sat unsent in its box, and nothing said what the board thought had
    happened to it): each prompt the auto-handoff sweep delivers gets one board-log line saying what the delivery read.
    The verdicts are built by chat.js's own confirmedVerdict where it makes them, and copied from chat.js's own return

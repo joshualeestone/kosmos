@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6740: the agent identity a CLI test must not inherit. test-support/agent-env.js names it for a test run on its
    own; tools/run-tests.sh unsets it for the whole suite. Every name in the helper must be unset by the runner too, or
    `yarn test` and `node --test <file>` would read different environments again. */

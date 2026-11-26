@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The agent page's sections (agent-page-nav, 2026-08-23): which box lives in
  * which section, and the two behaviours that moved with the split.

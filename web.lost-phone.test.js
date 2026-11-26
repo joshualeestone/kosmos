@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #733 recovery, the control under Plus: "I lost my phone" resets the
  * account's second step through the Mac's own signed request. Driven

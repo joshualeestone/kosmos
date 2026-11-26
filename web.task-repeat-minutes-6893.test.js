@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6893: the task page's Repeats control offers "Every so many minutes" with a number box. From the page's real
    functions: the choice sends { every: 'minutes', at: '<n>' } (the form the route reads), a stored minutes rule fills the
    box and leaves the time box alone, and only the minutes box shows for it. */

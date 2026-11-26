@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #1150. Josh, 2026-08-27 16:18, on a fresh 0.5.86 install:

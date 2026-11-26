@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #788: the manual Check for Update's ten-second timer must cover the whole
    round trip. It once covered fetch() alone and was cleared the moment headers
    arrived, so a body that never completed (the board killed by the update the

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1704 PR3: the switch dialog asks, each time, whether to pause the Kosmos's agents
  * or keep them running (Josh). These run the SHIPPED functions from web/index.html

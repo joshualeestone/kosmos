@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#9058: a wait is reminded at the first session end after it and once more, not at every /clear and resume for
  * 7 days (sessionsSinceWait, REMIND_SESSIONS), and the reminder says "no report of its own", which is what is true.

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#5257: the project page's "Its screen" block, run for real (lifted from the shipped page) on each state a
  * thread read can carry. #5249 (#5223) gave a Windows agent, which has no window, "No screen to show" and the

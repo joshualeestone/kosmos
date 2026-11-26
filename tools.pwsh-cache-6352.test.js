@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6352: pwsh replays a per-user startup profile (powershell/StartupProfileData-NonInteractive under the cache folder)
  * and rewrites it on every run. One damaged write made every later pwsh start crash (rc 134) and failed
  * tools/test-publish-r2-3725.sh 87 of 87 in every validation on the fleet Mac until the file was moved aside.

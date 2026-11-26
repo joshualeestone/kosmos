@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8735 slice 3, item 1: "Answering the person who messaged you" no longer repeats an earlier section. Neither
    the colleagues block nor the working rules is in every agent's file (the colleagues block is added only to agents made
    from a role template), so each must still state how to answer on its own. These pin that, and that the two repeats

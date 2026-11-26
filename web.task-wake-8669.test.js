@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8669: the Tasks row and the task page say what a task waits for (kosmos task wake), or what it woke on and
    whether its holder was told, in the board's own words (taskwake.fieldsOf). From the page's real tskRow and
    tskWakeSentence, lifted together (as web.task-landed-7508.test.js lifts tskRow). */

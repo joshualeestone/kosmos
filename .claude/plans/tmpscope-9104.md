@@ -38,3 +38,17 @@ Earlier single-site fixes: #8225, #7442, #6017, #9098.
 - NIT left: supervisor.macrestart-8988.test.js socket path is about 99 of ~104 bytes under run-tests (reasoned, it
   passes 14/14 alone). Left: the full validation measures it; if it fails there, exempt with reason.
 - NIT left: regex literals in codeOnly are not modelled (documented, no live instance).
+
+## Challenge round 2 (21:05): no blocker; fixed by changing the rule
+- SHOULD-FIX (measured false pass): product code makes temp folders too (engine/store.js test home, sweep on 'exit'
+  only; 58 files load it without tmpscope; reviewer left kosmos-test-home-* on SIGTERM). SHOULD-FIX: the helper scan
+  read raw text, so a comment in test-support/page.js would turn 166 files red.
+- Call: the rule is now EVERY suite test file requires tmpscope first (two named exemptions). 694 more files get the
+  one line. Rejected: teaching the guard each temp-making module (round 1 helpers, round 2 product code: the detector
+  kept missing paths). Weakest premise: that no suite file breaks under a per-process TMPDIR; the full validation
+  checks it. Sample of 25 from the new batch: 195 tests, 0 fail.
+- Byte check: every inserted file equals origin/main apart from the one line (1,822 files), so the utf8 rewrite
+  corrupted nothing. test-support.stray-processes.test.js already required tmpscope as a const: left unchanged.
+- NITs left: test-leak-allowlist.txt not trimmed (families now leave nothing; a trim is a separate change); one
+  spelling of the require is enforced (path.join form fails, cannot false-pass); codeOnly regex/nested template limits
+  (documented); macrestart socket ~95/104 bytes (computed, passes).

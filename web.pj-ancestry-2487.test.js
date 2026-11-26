@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* #2487: pjAncestry unit test. projectCard's ancestry "mouseprint" walks parent
  * ids up the tree; this pins the chain, the dangling-parent fallback, and the

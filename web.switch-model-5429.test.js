@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5429: the provider switch's model menu, from the page's real functions (fillSwitchModel, switchModelPicked).
    Claude: its models with the default preselected. OpenAI: the chosen account's list, "Let OpenAI choose" first.
    Gemini and the others: hidden (they pick their own). The current provider: hidden (nothing is being switched). */

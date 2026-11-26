@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6523 (noise read; Mona Lisa agreed): on a project's Tasks view the crumb no longer carries a second "Open project";
    the title's chevron (#4586) is the way back, and it says where it goes in its accessible name and its tooltip.
    Read from the page source; render-subback-4586.js measures the painted chevron (name, 44px on touch). */

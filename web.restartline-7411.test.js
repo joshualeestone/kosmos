@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7411 step 4: the page's restart line (paintRestartLine and its words), with Mona Lisa's design review: what they
    get and what a restart costs, once; Restart all and Show who on the line; each agent's Restart only in the list; Not
    now. The clicks are covered in docs/browser-checks/render-restart-line-7411.js; the board's side in

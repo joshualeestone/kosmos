@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#8593 (Windows): a Codex agent's supervisor waits out a swap of the managed Codex before each turn. It spawns
  * the codex.exe it resolved once (it never asks resolveBin), so without this a turn could start on a tree that an

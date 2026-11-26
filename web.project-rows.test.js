@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #747 and #748: the project tile reads title, description, agents, status
  * top right, with no folder chip; the list row is the same markup across four

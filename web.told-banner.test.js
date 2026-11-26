@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The `told` verdict says nothing on the screen, and every staleness state has
  * to be given an answer by hand (#1213).

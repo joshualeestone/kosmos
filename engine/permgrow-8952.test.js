@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* kosmos#8952 slice (d): engine/permgrow.js grows a window whose permission box is cut, and puts it back. The screens are
    real captures (Claude Code 2.1.331, tmux 3.6a, 2026-11-24) of ONE 60-line mkdir prompt, each read the way chat.viewport

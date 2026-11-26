@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8786 S2: on a Kosmos Cloud computer the "Update Kosmos automatically" switch is shown (it turns off the
  * nightly update, engine/cloudnightly.js), with words for what it does there. On any other Linux board it stays

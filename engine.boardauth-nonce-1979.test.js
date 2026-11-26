@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #1979: the pure mint/redeem of the browser-open nonce store in engine/boardauth.js.

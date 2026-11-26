@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * Josh, #chaoskosmos-design (paraphrased across earlier feedback, confirmed
  * 2026-08-25 17:58 when asked directly which shape he wanted): below the

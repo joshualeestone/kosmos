@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6256 items 6 and 7: the box reader (status.composerText) on the two screen shapes the #6249 rounds named.
    Item 6 is measured: tmux's capture (capture-pane -e) writes an escape only where the style changes, so a dim run that
    wraps onto a second row carries no escape of its own there (scratch tmux server, 30 columns, 2026-10-15). */

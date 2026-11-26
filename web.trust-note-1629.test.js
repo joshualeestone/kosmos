@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#1629 point 3: the two "waiting on an answer" labels read the route's
  * `answerNote`, so a person on Claude Code's trust dialog is told the answer

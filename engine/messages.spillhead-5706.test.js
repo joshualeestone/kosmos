@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5706 (user feedback, 2026-10-09): a long message to an agent is put in a file, and the pane shows a line in its
    place. That line now says what the message is about (its first sentence, or its opening cut at a whole word) and
    how long the whole is, so the agent can decide whether to open the file without a read step first. The sender is

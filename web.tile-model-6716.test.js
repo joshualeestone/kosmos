@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6716 review 1: a model read from an agent's EARLIER session (a new one that has not replied yet) gives way to the
  * model the agent is set to run on, as a stopped agent's does: right after a model switch the earlier one is the old

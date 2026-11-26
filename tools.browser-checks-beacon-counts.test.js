@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * Splinter 2026-10-05 (homepage counts): a browser check run directly registered a fresh install on installkosmos.com
  * every run (53 of launch day's 105 new silent installs). Requiring docs/browser-checks/lib-sandbox-home.js, which every

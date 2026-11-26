@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6206: in WebKit a request from a page the board's service worker controls is fetched on the worker's side, where
  * page.route never sees it (web/sw.js passes /api/ through; the stub is simply skipped), so a mobile-shots screen
  * whose `go` stubs a request must set `noServiceWorker: true` (the rule the tool's header states). Three settings

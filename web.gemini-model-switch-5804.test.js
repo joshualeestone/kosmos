@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5804 (Liu Kang, 0.7.38): a Gemini agent launched on gemini-2.5-flash showed "Gemini 3.5 Flash" on its card. The card
    names the model the Gemini CLI recorded on its newest reply, and the CLI falls back to another model on a failure. The
    card now says "(set to X)" when the board sends settingModelName (engine/geminimodelswitch.js decides when). These

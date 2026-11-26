@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6233 (found in the #5622 Enterprise run): a company policy refusal names the provider as the screen does

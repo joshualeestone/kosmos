@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5805 slice 3: a capped Claude card says when its usage comes back, from its limitUntil, while the reset is ahead
  * ("Looks like a usage limit until <time>" for a screen reading, "Out of usage until <time>" for a reported one),
  * and says nothing about a time that has passed (its limit line stays on screen until something is typed).

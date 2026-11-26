@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * Josh, #chaoskosmos-design, 2026-08-25 15:52, five screenshots: "The agent
  * avatars are not cropped properly on the agents column. You can see it's

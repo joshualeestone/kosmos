@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6717: a draft Kosmos took out of an agent's input box is drawn in its conversation as Kosmos's line, with the
    words, Put in the message box and Dismiss, and never as a message from the person or the agent. Lifts the page's own
    dmRow and dmDraftUse. */

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5359: engine/accountline.js, the one copy of what `kosmos accounts` prints on both CLIs. The CLI tests
  * (cli.accounts-5359.test.js, tools.windows-kosmos-cli-accounts-5359.test.js) drive it end to end; this pins the arms

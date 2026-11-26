@@ -3,6 +3,7 @@
  * of cases, each with a control, as the design's test (c) asks: base64, line-split, inside a binary, in an
  * archive, in a git remote URL, behind a symlink, plus the deny-list and the fail-closed paths.
  */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');

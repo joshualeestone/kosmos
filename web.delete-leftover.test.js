@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #514: the delete's screen half. The confirmation's words come from the
  * engine; the destructive button is neither the calm one nor a copy of

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5785 (Josh, 2026-10-10 14:00): the big K-to-circle loader (#2692) while Kosmos+ connects this computer. Source checks
    on web/index.html (comments stripped): they catch a revert or a lost wire. The design shots carry what it looks like. */
 const test = require('node:test');

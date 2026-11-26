@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#2001. `blocked` and `needs_you` are the only two report states that
  * exist to SUMMON A PERSON; every other state is informational. Before this fix

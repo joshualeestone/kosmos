@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8259: the Tasks row's sentence on whether the agent that held a task for the person has asked them, lifted from
    the page with its one callee (agoWords). Checked in the real page by docs/browser-checks/render-onhold-4771.js.
 

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3796 (Josh, 2026-09-25 13:57): the in-app wizard's resend is a small LINK ("Didn't get it?
  * Send again"), not a button. The too-many-asks countdown held a button with .disabled; a link

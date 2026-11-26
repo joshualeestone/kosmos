@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8710 slice 3: the leaving member's joined view says which agents their company is moving to a colleague's
  * computer (/api/org handover, from engine/handoversend notice), and why a pack stopped when one did.

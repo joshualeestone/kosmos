@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#1183. Josh, 2026-08-27: the person's default picture was the literal
  * word "You", sitting beside a name field that already said Josh.

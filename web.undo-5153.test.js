@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5153 slice 4: the undo panel's words and choices, the activity line it leaves, and the Settings switch, from the
  * real functions in web/index.html.
  *   node --test web.undo-5153.test.js */

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7586: when the company's policy requires reports and this computer cannot send them yet, the joined view says
  * the company requires them and that its console shows a computer not reporting. The line for each state, and that the

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * win32-board-copy: the board speaks Windows on Windows, and the Mac board is unchanged.
  * It also holds the Linux arms that share its platform-stamp harness (#5860's stuck-update toast).

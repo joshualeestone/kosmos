@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8628 (Josh, 2026-11-17): the memory rings got FATTER as they filled, and at high fill the fat stroke

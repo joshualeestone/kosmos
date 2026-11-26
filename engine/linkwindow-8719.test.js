@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8719 part 2: linking a running window to its agent sets Kosmos's own mark on that one session, after it checks
    the window is plainly that agent, and reports linked only once the mark reads back. tmux is a stand-in here. */
 const test = require('node:test');

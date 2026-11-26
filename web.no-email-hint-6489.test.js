@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6489: the phone-notifications hint in Settings no longer promises a needs-you email. That email is built (the
  * coordinator's delivery.rs, sent by its notify.rs sweep) but sits behind KOSMOS_NEEDS_YOU_EMAIL, which is off in

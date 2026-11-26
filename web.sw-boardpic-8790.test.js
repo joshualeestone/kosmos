@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8790: on a browser that sends no Sec-Fetch-Site (Safari before 16.4) a Kosmos+ computer's connector refuses
  * the board's pictures, since an image load cannot carry X-Kosmos-Board-Page. web/sw.js asks again for such a refused

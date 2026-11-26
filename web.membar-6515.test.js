@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6515 (Mona's #6511 review): on the Agents list, an unknown memory hides its empty dotted track (the dash says
    it), and ONLY there: the agent page's memory box draws the same `.bar.unknown` and keeps it. */
 const test = require('node:test');

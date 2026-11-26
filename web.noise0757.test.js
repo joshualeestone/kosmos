@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * The 0.7.57 board noise read: six repeated lines removed (kosmos#6517, #6518, #6519, #6520, #6521, #6522).
  * Each removal is pinned absent from web/index.html, and beside it a line that must stay is pinned present, so a

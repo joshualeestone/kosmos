@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // #4583 follow-up (Mona Lisa's design pass): the create form's done field asks a question, and its hint says
 // what happens if you skip it, not how Kosmos records it. The hint must not name the row tag or the length cap
 // (the length is said by the error line, when it matters).

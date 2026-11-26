@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #758: a screen change can merge green and red the next cut, because the
  * page gate (docs/browser-checks/) is not in yarn test, and 15 of its 47

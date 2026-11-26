@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#2338 (piece 2): a Codex/ChatGPT agent can be MOVED between the user's

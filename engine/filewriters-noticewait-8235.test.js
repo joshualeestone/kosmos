@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8235: a file-owner notice reaches the owner at a prompt of its own, fetched at most once every five minutes,
  * so a check made just after the change can read as the feature not working. The throttle stays; it is said where a

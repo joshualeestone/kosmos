@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4785 (daily feedback, two installs). `kosmos --help` printed only the command names, so a person or an
  * agent had to guess what each did; and `agent list` after kosmos, the natural guess for "who is on this

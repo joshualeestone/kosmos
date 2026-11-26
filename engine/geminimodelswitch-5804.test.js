@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5804: when a running Gemini agent's card says "(set to X)". Pure: every read is injected. */
 const test = require('node:test');
 const assert = require('node:assert/strict');

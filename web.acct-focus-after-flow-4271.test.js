@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4271: acctFocusAfterFlow, where focus goes when the Claude sign-in panel is put away with
  * focus inside it. The browser check (docs/browser-checks/render-acct-stop-focus-4271.js)

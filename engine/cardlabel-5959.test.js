@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5959: engine/cardlabel.js is a second copy of the card's word. This lifts the page's own STATE_COPY, restartingLabel
  * and stateCopyOf out of web/index.html and compares their answer with labelOf's on every state and the special cases

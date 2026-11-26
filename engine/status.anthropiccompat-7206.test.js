@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #7206: a claude agent on a vendor account (~/.kosmos-deepseek-<label>) holds the vendor's key, not a Claude sign-in.
  * The stale-401 check (liveAuthForAuthFailed) asks `claude auth status` about the agent's folder; for a vendor folder

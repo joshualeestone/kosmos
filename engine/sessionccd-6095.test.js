@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // #6095: sessionClaudeDirs reads the Claude config folder each tmux session runs under, in one tmux call per batch.
 const test = require('node:test');
 const assert = require('node:assert/strict');

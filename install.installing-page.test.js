@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #867 (Josh, 2026-08-25 15:09 and 15:20, live-testing a fresh install):
  * "Totally dead stopped on this screen... Is it possible to put a progress

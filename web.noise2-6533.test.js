@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * noise2: lines that repeated what the same screen already said, removed (kosmos#6533 and #6535 to #6538, the 0.7.57

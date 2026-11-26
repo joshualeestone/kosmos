@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8603 item 1: install/kosmos never starts a tmux server, or an agent, from its own shell.
 
    Why it matters (kosmos#8599): the wrapper exports NODE_OPTIONS (the `--require engine/clipipe.js` preload) and

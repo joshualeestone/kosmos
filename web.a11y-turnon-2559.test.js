@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #2559 day-one (Splinter, 2026-10-03): on a fresh Mac with no Full Disk Access, /api/a11y-status cannot read the

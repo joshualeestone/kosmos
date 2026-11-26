@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2863 (Josh): the PROJECTS half of the top unread-message tally, the rollup of
  * the per-project unread bubbles ("tally those at the top... so you can see where

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#2125 slice 3: the native Accessibility WRITER. Accessibility trust is a TCC
  * fact the Node engine cannot read (#1344); only a native AXIsProcessTrusted call can.

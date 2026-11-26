@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7508: the Tasks row says which change a code fix was saved as (Mona Lisa's words), on open and closed rows,
    in the row's quiet text, and "only on this computer so far" while no remote has it. From the page's real tskRow. */
 const fs = require('node:fs');

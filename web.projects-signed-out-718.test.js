@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #718 state 3: loadProjects sets BOARD_SIGNED_OUT from the relay's signed-out 401 and clears it on
    every other answer, the same no-latch rule tick has (web.offline-note.test.js). This runs the
    page's REAL loadProjects, cut out of web/index.html, through signed-out -> 500 -> signed-out ->

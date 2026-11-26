@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5943, page half: a question the agent REPORTED shows how long it has been asked and an "Answered, clear this"
    button anyone can press (no Engineering mode). The age refreshes in place, so its minute ticking over must not
    change the thread's shape (#3966's flash). Runs the page's own functions, lifted from web/index.html. */

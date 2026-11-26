@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7206 slice 3 (review 3): every mark providerMarkNode copies out of #firstrun into a menu or the project tally
  * must paint on its own. A mark filled from a gradient (fill="url(#...)") draws nothing once copied, because the

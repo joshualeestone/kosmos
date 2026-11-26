@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3595: the Recommender guard checkboxes flip before their save lands. Runs the REAL page
  * functions (lifted from web/index.html) against a stub DOM and fetch, so the failure paths are
  * executed rather than matched by regex: a failed or dropped save must put the box back to what

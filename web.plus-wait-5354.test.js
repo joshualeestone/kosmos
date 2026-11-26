@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5354: the app's Kosmos+ sign-in said a long wait in seconds ("in 1290 seconds", live 2026-10-05). From two
  * minutes up it now says minutes, rounded up, in the relay sign-in page's own words (coordinator/src/signin.html

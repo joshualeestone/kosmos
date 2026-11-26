@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6587 (S-7a slice 2b): the floating notice for a Kosmos+ service key mismatch (paintSkNote), on every view but
  * Kosmos+. Put away for the tab by Close or Review, until an answer says anything but mismatch; one fixed sentence.

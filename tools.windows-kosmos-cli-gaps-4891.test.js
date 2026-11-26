@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* kosmos#4891, the Windows twin of cli.gaps-4891.test.js: `kosmos room -n`, `task list` on an unknown project, and
    `kosmos report clear`, driven through the CLI's own main() with an injected fetch (as the #4784 inbox test does). */

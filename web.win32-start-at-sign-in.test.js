@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * win32-installer-native (W-21a, W-22): the "Start Kosmos when I sign in to Windows" switch on
  * Settings > This computer, from the page's own source.

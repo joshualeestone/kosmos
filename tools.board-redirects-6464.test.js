@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6464: every fetch a Windows sender makes to the board never follows a redirect. The board never redirects an
  * /api/ request, and fetch would otherwise carry the board and agent tokens (and the body) to wherever a listener

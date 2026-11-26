@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * The Kosmos Plus tab (Josh, 2026-08-23 19:15): a holding place FIRST, with the

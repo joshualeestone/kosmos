@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #867 (Josh, 2026-08-25 11:02), his last note of that testing round on the
  * consolidated view: a project opens automatically on arrival rather than

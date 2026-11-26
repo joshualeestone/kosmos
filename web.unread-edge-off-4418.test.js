@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4418 (Josh, 2026-09-28): the gold unread edge (#3743) is OFF everywhere for now. unreadEdgeApply is the one

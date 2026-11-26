@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4582: `kosmos reply --stdin` on the Windows CLI (tools/windows/kosmos-cli.js), the parity half of
  * cli.reply-stdin-4582.test.js. fetch and the stdin read are injected, so no board and no pipe are

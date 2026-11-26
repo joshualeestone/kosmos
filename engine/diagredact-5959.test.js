@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* #5959 slice 4: engine/diagredact.js takes keys, the home folder, email addresses and this computer's names out of
    every string in the diagnostics file. */

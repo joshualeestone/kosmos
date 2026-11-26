@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4506: the org chart fits itself to its width. That width changes with no window resize whenever the tab layout's
  * scrollbar gutter comes or goes (the boot cover, the first-run and update overlays, the first screen, the restart

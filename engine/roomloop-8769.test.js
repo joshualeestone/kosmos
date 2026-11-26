@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#8769 item 3: a room whose agent wake-ups are paused says so to the agent READING it, before it posts, not only

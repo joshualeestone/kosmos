@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7416: when the computer running the agents stops answering, a phone or another computer seeing the board
  * through Kosmos+ says so with the computer's own name and when this page last heard from it, in Mona Lisa's words:

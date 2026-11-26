@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * 🛑 THE LINE THIS FILE WAS WRITTEN FOR IS GONE, and its removal is the point.

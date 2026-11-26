@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3729 (Josh, 2026-09-25 07:32, testing 0.6.94): "These are still showing these status messages
  * that I do not ever want to see ... I dont even what there to be a space on these to have any

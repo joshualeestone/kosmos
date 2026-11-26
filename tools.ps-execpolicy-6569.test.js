@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6569 (a Windows feedback report, 2026-10-19): after some Windows updates PowerShell's execution policy blocks plain

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6585: in the Mac app, choosing THIS computer in another computer's switcher goes back to this computer's own
  * board, as View > Back to This Computer does, instead of opening its Kosmos+ address, which is a sign-in there (Josh

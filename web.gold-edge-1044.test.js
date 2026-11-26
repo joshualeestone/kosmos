@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#1044, REVERSED BY JOSH 2026-08-26 22:05: the gold primary button has

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8165 review 5/6: a post still being delivered is in the quote tag's view (so a fast reply quotes as a late
  * one does). Its copy carries the quote tags its row will carry, computed when it is minted, so it is judged exactly as

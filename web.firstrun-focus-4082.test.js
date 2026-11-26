@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #4082: a first-run subscription sign-in that finishes hides its step, and focus inside that step fell to the page

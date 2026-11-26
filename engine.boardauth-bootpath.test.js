@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The address the board's sign-in answers with (bootstrap's location, from pathWithoutParam) is always a path on this
  * board: a request whose path normalises to start with more than one slash, or with a backslash, is answered with a

@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #8731: on a task page, the activity row (.tkact .tkact-what) did not wrap one unbroken token, so a check report
  * or message holding a long path or a URL with a query ran off the page.

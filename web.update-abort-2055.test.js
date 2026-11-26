@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #2055: the update-abort board notice. `paintUpdateAbort` renders #uabort-slot
    from /api/status's `updateAbort` marker ONLY when count >= 1; null / absent /
    count 0 / a garbage count all clear it, and it is called only from tick()'s

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6263 (board half): the Policies tab says a family's policy is the family's. The board sends the kind with
    the policy entry (server.js), and the page words both sentences through plusOrgIn (kosmos#6251). */
 const test = require('node:test');

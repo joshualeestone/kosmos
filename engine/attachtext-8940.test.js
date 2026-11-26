@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8940: a spreadsheet attachment's text keeps each row apart. One line per row, with the sheet's own row number,
    each value named by its column; the header found below a title row; blanks under a header listed; a line break or a
    pipe inside a cell never splits a row. Built from raw SpreadsheetML, so the cases are exact and need no other tool. */

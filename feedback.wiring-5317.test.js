@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5317 review 1: the writer is named where the report is written (both CLIs), and the board's sweep is the one
  * that also sends a changed yesterday. Dropping either reds this file; the behaviour itself is pinned in

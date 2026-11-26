@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4873 (Josh, 2026-10-01): agents start a message with their own name ("Dario: ...") under a header that already
  * says Dario. The board drops that prefix when drawing a room post or an agent's DM row: only the sender's own name,

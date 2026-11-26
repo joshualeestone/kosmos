@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #776: a release must be accountable from a commit. Not reproducible: codesign
    embeds a timestamp and binds to the machine, tar and gzip embed mtimes, so the
    bytes cannot be rebuilt and nobody should try. Accountable: given the served

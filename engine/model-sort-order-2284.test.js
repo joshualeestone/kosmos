@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2284: pin Josh's most-powerful-first model order for BOTH providers, so this
  * launch-critical ordering cannot silently regress. The sort itself already

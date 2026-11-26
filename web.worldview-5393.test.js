@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // kosmos#5393 slice 2: the words of "At a glance" (wvProviderLine, wvTasksLine, wvWorldHtml, wvListHtml), lifted from
 // web/index.html and run on the shapes GET /api/worlds/overview returns (engine/worldview.js, slice 1).
 const test = require('node:test');

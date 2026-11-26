@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3685: the room's code-block split (pjBody) reads a fence the way the store and pjRich do
  * (#3679): leading spaces allowed, three or more backticks, no backtick after them, closed only

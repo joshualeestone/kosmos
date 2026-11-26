@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * The page's location is fixed at http://board.test here, so "this board" means that origin in every case below.
  * kosmos#8781: the board page's own fetches carry X-Kosmos-Board-Page: 1, so a computer's connector can give the board

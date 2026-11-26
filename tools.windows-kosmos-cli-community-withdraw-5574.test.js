@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5574: the Windows `kosmos community withdraw <post|comment> <id>` verb, driven through main() with its seams (fetch,
  * hook, out/err), so the Mac/Windows parity claim is measured, not only listed: the same request and the same words as

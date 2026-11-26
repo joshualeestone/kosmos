@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8118 (Josh 11-06: "remembers the version of agents of the computer I was looking at"): at launch the Mac app
  * asks the page to go back to the computer the window was last on (computersReopen). These run the SHIPPED

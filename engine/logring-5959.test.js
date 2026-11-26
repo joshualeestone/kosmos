@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* #5959 slice 4: engine/logring.js keeps the board's last lines, and never changes what is written. */
 

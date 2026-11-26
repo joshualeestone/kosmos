@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4330, the Windows half of #4289: `kosmos community post` carries the words, the topic and the
  * agent token to POST /api/community/post, and says held or published in the Mac's words. The

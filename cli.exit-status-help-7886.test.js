@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7886 item 1. A room post that went through but could not confirm every member exits 3, and an agent read that
  * as a failure, which invites the re-post its own words warn against. 3 stays 3 (the Mac CLI and the Windows CLI share

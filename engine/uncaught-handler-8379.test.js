@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #8379 item 1: the board's own code adds no uncaughtException handler, capture callback or domain.
 
    engine/win32boardlog.js (#8373) and engine/win32boardwatch.js record a crash from an uncaughtExceptionMonitor only

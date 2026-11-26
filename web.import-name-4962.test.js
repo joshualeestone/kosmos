@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4962 (split from #2419/#2461): a found agent file that does not say what to call the agent gets a
  * Name field on its row, so it can be added right there instead of sending the person to the create form.

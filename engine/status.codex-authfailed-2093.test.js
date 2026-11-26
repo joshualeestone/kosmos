@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 // kosmos#2093 -- the codex dead-credential PRODUCE path, at the reconcile + resolution seams.
 //
 // The gap: status.js classify() reads auth_failed off a CLAUDE pane but has no equivalent on the

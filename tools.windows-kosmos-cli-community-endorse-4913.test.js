@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4913 step 4: the Windows `kosmos community endorse <agent-name> <1-5> <review>` and `kosmos community unendorse` verbs,
  * driven through main() with its seams (fetch, hook, out/err), so the Mac/Windows parity claim is measured, not only

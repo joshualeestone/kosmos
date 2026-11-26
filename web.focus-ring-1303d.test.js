@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#1303 D, then REVERSED by Josh 0.6.47 (item 6.01.26): the text
  * composer no longer paints a dark focus stroke when you click into it.

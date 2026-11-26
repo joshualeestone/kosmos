@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#7404 plan screen: the rows, Choose, the wait for the plan and the refusals, in Mona Lisa's words (m2544) and
    Ice Cream Kitty's reads (m2543). The functions are lifted from the page, so the test cannot drift from what ships. */
 const fs = require('node:fs');

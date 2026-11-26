@@ -1,4 +1,5 @@
 "use strict";
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * Josh, #chaoskosmos-design, 2026-08-25 15:52, five screenshots and the real
  * reference mockup at installkosmos.com/consolidated-mock:

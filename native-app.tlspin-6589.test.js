@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6589 (S-7c): in the Mac app, another of the person's computers must present a certificate whose key is the
  * one it vouches for. The rules (p256SpkiSha256Hex against an openssl vector, and tlsPinDecision's table) are proved

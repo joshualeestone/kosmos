@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#1955. `kosmos post` is text-only, and an agent asked to post a document
  * had no mechanism and no signal that one was missing -- an absent capability and

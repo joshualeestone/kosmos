@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6846: the iPhone app's native tab bar opens a board section through window.kosmosAppTab, with a real press, so it

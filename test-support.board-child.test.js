@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * test-support/board-child.js (#3607): the escalation paths the boot tests
  * never reach, because a real board honours SIGTERM. Lives at the root because

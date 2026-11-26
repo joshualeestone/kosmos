@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5209: a resize scales the Kosmos+ star field's dots into the new box without pushing a dot that sits in

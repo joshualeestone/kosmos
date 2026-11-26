@@ -64,6 +64,7 @@
  * three times, lives in the PR that lifted it (branch reasongrep-guard-1836),
  * not here, so editing this file does not mean editing a record.
  */
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

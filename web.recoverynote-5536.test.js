@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5536 (#5529): the board tells a member their own backup was opened to someone. One notice while any row in the
    last 30 days is one this browser has not seen; its x and the list in view count as seen, See who only goes there. It
    names nobody, and says nothing to a family. It rides on the reviewer notice's read of /api/org/grants. */

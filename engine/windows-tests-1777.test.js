@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1777: the selection and the verdict of tools/windows-tests.js, the script the `windows` CI
  * job runs on a real Windows runner. Its runs are Windows-only; what it RUNS and how it JUDGES

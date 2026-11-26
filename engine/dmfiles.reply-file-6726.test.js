@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6726: the Files block teaches `kosmos reply --file` on every platform. A Windows board left the paragraph out until
  * #7221 landed and one real Windows run attached a file (11-05). The paragraph is fixed when engine/dmfiles.js loads,
  * so each platform is rendered in a child node that loads the module with process.platform set to it, on any host:

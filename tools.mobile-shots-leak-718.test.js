@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #718: the mobile-shots leak guard's checks can fire, one kind at a time.
  *

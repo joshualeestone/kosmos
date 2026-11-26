@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #1373: the switch offers WHICH OpenAI sign-in, and only reports a pick when a

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #4477: codex reads a project's AGENTS.md only up to `project_doc_max_bytes` (32 KiB by default)
  * and silently drops the rest. Kosmos appends its own working rules after the person's brief, so

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#5628 slice 2b-ui: a computer whose company installed the Kosmos profile signs in through the company's
  * sign-in. Driven THROUGH the page's own functions (sliced from web/index.html) against a fake fetch and a held timer.

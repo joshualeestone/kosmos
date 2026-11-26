@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#3641 (Josh, 2026-09-24 16:06, #admin: "lets just kill the Beta Build line.. you can still get
  * the current version in settings"): the corner "beta build v<version>" marker from #2066 / #2658 is

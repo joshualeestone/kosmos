@@ -4,6 +4,7 @@
  * https://www.rfc-editor.org/rfc/rfc9180.txt. Every intermediate the RFC publishes is checked, so a
  * wrong label, length or concatenation fails at the step that is wrong, not only at the ciphertext.
  */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const hpke = require('./hpke');

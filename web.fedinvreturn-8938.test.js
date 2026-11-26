@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8938 item 4: an outside invite refused from a remote session for want of a fresh Kosmos+ sign-in leaves one
    note in this tab (the #8728 note, of its own kind); back from the fresh sign-in, the page opens that project's invite
    sheet with who it is for and person or agent filled in, and never makes the code by itself. Also Renet's nit on

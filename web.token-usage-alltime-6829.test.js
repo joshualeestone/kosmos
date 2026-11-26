@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#6829 (Josh 10-21 07:54): Token Usage is all-time since install, and Active Days counts from the install
    day. The helpers are lifted from the page and run, like web.token-usage-2617.test.js. */
 const test = require('node:test');

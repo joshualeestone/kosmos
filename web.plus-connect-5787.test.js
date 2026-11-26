@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #5787 (Josh, 2026-10-10 14:07 and 14:15, during his real new-account Kosmos+ test): "we just combine these pages so

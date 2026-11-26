@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#6620 (O04-5): the fleet's update pause, on the board (engine/update.js) and over real HTTP. A local server

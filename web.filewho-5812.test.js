@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5812: a project's Files row says which agent changed the file last when the board names one (pjDocMeta, lifted).
  *   node --test web.filewho-5812.test.js */
 const test = require('node:test');

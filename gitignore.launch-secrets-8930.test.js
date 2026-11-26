@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8930: from a source checkout with no AGENT_WORKFORCE_DATA, the supervisor writes agent secrets to
    <checkout>/launch-secrets (bin/agent-supervisor.sh: ${AGENT_WORKFORCE_DATA:-$_app}/launch-secrets, $_app the folder
    above bin/), and its run logs to <checkout>/runs (record_run). The root .gitignore keeps both out of a broad `git add`.

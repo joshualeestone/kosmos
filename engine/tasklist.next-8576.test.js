@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8576 (feedback): on the list across every project (kosmos task list --all), each row says when the task last
  * moved and, where the board's own fields say, what it waits on next, so a coordinator can tell waiting from drift

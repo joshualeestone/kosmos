@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * kosmos#7916 (follow-up to #7915): a question an agent holds until the person is back (`kosmos report needs_you --held`)

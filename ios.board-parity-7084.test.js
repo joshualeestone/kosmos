@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7084: the iPhone logic suites that read the board's own source (web/index.html, engine/*.js) to pin parity
  * with it run here, in the board's own node suite, on any machine with the Swift compiler. ios.yml runs them only on a

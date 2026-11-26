@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /*
  * #5663 review 3: a block inserted above 'use strict' turned a 2,000-line module into sloppy mode, silently: a directive

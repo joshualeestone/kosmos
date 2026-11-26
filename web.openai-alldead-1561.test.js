@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #1561: a switch onto OpenAI, on a computer whose OpenAI sign-ins are ALL dead,

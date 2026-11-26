@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #2037 (+ #11, 0.6.39): install-flow Screen 6 "self-improving" consent switch.
  * The install-flow ships the Screen 6 MARKUP (an s6-sw pill SPAN, #fr-s6-feedback,

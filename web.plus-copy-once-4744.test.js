@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#4744 (review 8): the Kosmos+ box's Copy button. When the synchronous copy fails, the handler waits on the
  * clipboard API; a second press during that wait must not start a second copy, so the screen never says "could

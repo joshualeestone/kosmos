@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5643: the task page's history rolls up runs that found nothing new, and the repeat line (the status card) says
    how many runs in a row found nothing new and when the last change was. From the page's real functions, lifted. */
 const fs = require('node:fs');

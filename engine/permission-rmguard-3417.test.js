@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3417 (Josh, 2026-10-22 11:39: "id rather it just auto approve stuff like this"): Claude Code's own safety checks
  * prompt even in bypass mode, for example "Dangerous rm operation on possibly-empty variable path" for

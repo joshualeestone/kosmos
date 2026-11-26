@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#5791 (Josh 10-10 14:32): joining a company. An outlined join button ("Join Company or Family Account" since kosmos#6380); opened, an X Cancel
    and one sentence, a code field and Connect Account, which joins with no preview step (the company decided). */
 const test = require('node:test');

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#4737: engine/enrolment.js, the one rule for "this computer's Kosmos+ folder is set up". */
 const test = require('node:test');
 const assert = require('node:assert/strict');

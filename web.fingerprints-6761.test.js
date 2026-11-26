@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #6761: a Files row's sha256 on the page. The functions are the REAL ones lifted from web/index.html.
  *   - the Files screen (agentFileRow, full row) and the Documents view (pjDocMeta) show "sha256 <first 12 hex>";
  *   - the narrow lists (agentFileRow compact, the project rail) keep their size-only rows and carry the whole value as

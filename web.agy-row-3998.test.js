@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #3998 review round 2: the Gemini SUBSCRIPTION row in Settings (authMode 'antigravity') has no key

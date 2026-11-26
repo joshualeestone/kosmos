@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8083: on a board where nothing has been at risk since it started, the auto-balance sweep wrote nothing to its
  * record and nothing to the board log, so "armed and quiet" and "not running" looked the same (Mortals, 11-05: armed at

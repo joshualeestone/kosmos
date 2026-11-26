@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * 🛑 THE POLL MUST NOT BE ABLE TO SWITCH OFF ITS OWN RENDERER (#1237).
  *

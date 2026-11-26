@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #3734 on Windows: `kosmos agent create` asks for a one-member team (POST /api/team) with the agent's
  * launch token and the long timeout, names the made agent with the board's address, refuses before sending

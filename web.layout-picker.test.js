@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #520: the consolidated view. #2618 removed the in-tab Settings > Styles picker
  * (tiles + Activate), so the header one-press flipper (data-layout-switch) is now the

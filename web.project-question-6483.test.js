@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #6483 (noise pass on 0.7.56, for Josh's clean interface): one agent asked one question, and its project card said a

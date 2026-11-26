@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* engine/tmuxsignin.js (#4195): the hidden-tmux plumbing agysignin (and musesignin, #3939) share.
    agysignin.test.js covers the socket, the gate and the timeout half of the delivery rule through the
    sign-in itself; these cover what it could not reach, measured by breaking each helper in turn:

@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#8118: the Mac app reopens on the computer the window was last on. The rules (computerToRemember: only
  * another computer's host; rememberableHost: a kept value is used only while it is a plain host) are proved by their

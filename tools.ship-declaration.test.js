@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #1025. A release cutter must be able to tell, without messaging anyone,
  * whether a merged branch is meant to be in front of a person.

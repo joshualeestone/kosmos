@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#2124: the native app must run as a SINGLE instance. A fresh install ran
  * multiple because macOS keys single-instance on bundle PATH, and the installer's

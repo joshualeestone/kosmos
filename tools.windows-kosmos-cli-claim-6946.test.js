@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #6946: the Windows twin of `kosmos claim` (tools/windows/kosmos-cli.js verbClaim), against a scripted board, as
  * tools.windows-kosmos-cli-570.test.js tests the other verbs. Same words and exit codes as install/kosmos cmd_claim

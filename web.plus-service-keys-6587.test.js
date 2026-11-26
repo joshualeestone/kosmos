@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6587 (S-7a slice 2a): the Plus pane's service key line (paintPlusServiceKeys). Said only for a mismatch.
  *

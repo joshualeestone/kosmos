@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#7586: when the company's policy requires backup and the coordinator's record of this computer's last backup
  * does not meet it (/api/org backupLate, from engine/orgpolicy.backupLate), the joined view says so. The line for each

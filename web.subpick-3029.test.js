@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #3029: the chain helpers every project picker and the Tasks screen use, run as shipped in web/index.html.
  *
  *   node --test web.subpick-3029.test.js

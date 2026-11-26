@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #5152 slice 1: the task page's history says a "done when" change in words, never the raw kind (tkActPhrase
    returns an unknown kind as itself, so without these cases a person would read "done-when-set"). From the page's real
    function, lifted as web.task-repeat-4787.test.js lifts it. */

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /*
  * kosmos#6587 (S-7a slice 1): engine/servicekeys.js checks a service key set exactly as kosmos-relay does (relay #474,
  * crates/proto/src/keyset.rs). The fixtures are the relay's published test vectors (docs/token-format.md, "Service

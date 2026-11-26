@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4588: an Antigravity agent paused on its account's shared Google quota says when the quota resets, not only that
    it hit a limit. stateReason is lifted from the page (the same way web.pane-title-status.test.js does). */
 const test = require('node:test');

@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * #5977 slice 3: engine/qwenlocal.js, Qwen on this computer through Ollama. The network is replaced through
  * setTransport, so no test reaches a real Ollama. Each state and step is run with a control.

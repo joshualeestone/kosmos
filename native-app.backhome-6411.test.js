@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#6411 part 1: View > Back to This Computer (Cmd-Shift-H). Since #6406 the Mac app's window can show another
  * computer, and the only way home was that computer's own switcher or quitting. The item shows only while the
