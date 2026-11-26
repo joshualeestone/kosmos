@@ -34,6 +34,38 @@ final class DuoFoldUITests: DuoPanesCase {
         shot(app, "three deep")
     }
 
+    // A long bubble follows its pane: bounded beside the list, wider when folded alone, bounded again on the unfold.
+    func testALongBubbleFollowsItsPaneThroughAFoldAndAnUnfold() throws {
+        let app = try launch("tap", ["KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "varied"])
+        XCTAssertTrue(box(app).waitForExistence(timeout: 30) && holds(8) { self.beside(app) }, "CONTROL: unfolded, the list is not beside the chat")
+        UIKitListArm.assertDrawn(app)
+        // The widest message text in the chat's pane, and that pane's width (its message box less the 16 pt margins).
+        func widest() -> (text: CGFloat, pane: CGFloat) {
+            let b = box(app).frame
+            let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label CONTAINS ' of 260'")).allElementsBoundByIndex
+                .filter { $0.frame.width > 0 && $0.frame.minX >= b.minX - 20 }
+            return (rows.map(\.frame.width).max() ?? 0, b.width + 32)
+        }
+        sleep(3)
+        let open = widest()
+        XCTAssertGreaterThan(open.text, 0, "CONTROL: no messages drawn in the chat's pane")
+        XCTAssertLessThanOrEqual(open.text, open.pane * 0.78, "unfolded, a bubble's text is wider than its pane's share")
+        fold(app, "sample folded")
+        XCTAssertTrue(holds(10) { self.alone(app) }, "CONTROL: folded, the chat is not alone")
+        sleep(3)
+        let folded = widest()
+        print("UI-NOTE kosmos#9002 widest bubble text unfolded \(Int(open.text)) of \(Int(open.pane)), folded \(Int(folded.text)) of \(Int(folded.pane))")
+        XCTAssertGreaterThan(folded.text, open.text + 20, "folded, the bubbles kept the narrow pane's width")
+        shot(app, "long bubbles folded")
+        fold(app, "sample unfolded")
+        XCTAssertTrue(holds(10) { self.beside(app) }, "CONTROL: unfolded again, the list is not beside the chat")
+        sleep(3)
+        let again = widest()
+        XCTAssertGreaterThan(again.text, 0, "CONTROL: no messages drawn after the unfold")
+        XCTAssertLessThanOrEqual(again.text, again.pane * 0.78, "unfolded again, the bubbles kept the whole screen's width")
+        shot(app, "long bubbles unfolded again")
+    }
+
     // An upright phone, as it always was: no tabs in a room or its page, the tabs back with the list.
     func testAnUprightPhoneHidesTheTabsInAProjectAndShowsThemInTheList() throws {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
