@@ -4828,7 +4828,7 @@ section("native board loop: connecting")
         c.stop()
         let asked = w.count("/_kosmos/session")
         for _ in 0..<3000 { await Task.yield() }
-        check(w.count("/_kosmos/session") == asked, "backed out of the wait: the run stops knocking")
+        check(w.count("/_kosmos/session") == asked, "BoardClient.stop() (what the sign-in screen calls when the person backs out) ends the knocking")
     }
     do {
         typealias P = BoardClient.Phase
@@ -4840,7 +4840,7 @@ section("native board loop: connecting")
         check(P.live(mac: mac).allowScreen(step: waiting) == .done, "let in: the screen moves on to the app")
         check(P.denied(mac: "Studio").allowScreen(step: waiting) == .denied, "the Mac said no: the screen says so")
         check(P.live(mac: mac).allowScreen(step: .denied(asking: true)) == .done, "asked again after a no, then let in: the screen moves on")
-        check(P.denied(mac: "Studio").allowScreen(step: .denied(asking: true)) == .denied, "asked again and the Mac's gate says no again: the screen says so (Kosmos+ need not learn of it)")
+        check(P.denied(mac: "Studio").allowScreen(step: .denied(asking: true)) == .knockAgain, "asked again and the gate still says no: knocked again, not final (its denied list catches up at the next poll; a real no is Kosmos+'s to say)")
         for phase in [P.starting, .connecting(mac: "Studio"), .signedOut, .kosmosPlusRefused, .signInAgain(mac: "Studio"), .signInHere(mac: "Studio")] {
             check(phase.allowScreen(step: waiting) == .keep, "\(phase.word) while waiting: the screen keeps waiting, nothing knocks again (Continue to the app is still there)")
         }

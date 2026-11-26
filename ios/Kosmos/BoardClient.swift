@@ -85,10 +85,12 @@ final class BoardClient: ObservableObject {
                 default: return endedRun ? .knockAgain : .keep
                 }
             case .denied(asking: true):
-                // Asked again after an earlier no: the same knock, so a yes now moves the screen on, and a second no
-                // says so (round 2: Kosmos+ need not learn of the gate's no, so nothing else would end the wait).
+                // Asked again after an earlier no: the same knock, so a yes now moves the screen on. The gate's no here
+                // is knocked again, not taken as final (round 3): Kosmos+ has made it a fresh Allow, but the Mac's
+                // denied list catches up only at its next poll (kosmos-relay proxy.rs, kosmos#6407), so the first
+                // knocks can get the old no. A real second no is Kosmos+'s to say (watchAllow's .denied), as before.
                 if case .live = self { return .done }
-                if case .denied = self { return .denied }
+                if case .denied = self { return .knockAgain }
                 return endedRun ? .knockAgain : .keep
             default: return .keep
             }

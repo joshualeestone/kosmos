@@ -85,3 +85,16 @@ Main logic suite PASS 2789/2789; settings, automation, actions, taskpage, room s
   showing when the knock starts (forget() clears it on a changed session); .denied(asking: false) has no Continue
   and a fixed-email person has no way back after the Mac's no (as before this change; a separate card if wanted).
 Main logic suite PASS 2789/2789; settings, automation, actions, taskpage, room pass.
+
+#### Iteration 3 (blind review of the whole branch, opus)
+
+- [SHOULD-FIX] taken: round 2's change made a second-chance sign-in (.denied(asking: true)) end on the gate's first
+  no, but that no is often stale: Kosmos+ has turned the no into a fresh Allow, and the Mac's denied list catches up
+  only at its next poll (kosmos-relay crates/tunnel/src/proxy.rs ~1481, kosmos#6407, read on origin/main). Now the
+  gate's no on that step knocks again (with the growing wait), and Kosmos+'s own poll (watchAllow) still says a real
+  second no, as on main. macSaidNo is back to the first Allow only, where the device was not denied before (a device
+  the Mac denied earlier arrives at .denied(asking: true), not .allow). Test changed to say so.
+- [NIT] taken: an old retry timer could match a reset counter: a never-reset knockTimers now picks the latest timer;
+  knockRetries (reset per knock) only sets the wait.
+- [NIT] taken: the "backed out" test's words now claim only what it covers (BoardClient.stop ends the knocking).
+Main logic suite PASS 2789/2789; settings, automation, actions, taskpage, room pass.
