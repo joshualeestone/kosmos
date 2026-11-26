@@ -44989,6 +44989,10 @@ function keptDrafts(kind, opts) {
   const prefix = 'kosmos.draft.' + kind + '.';
   const map = Object.create(null);   // round 2: an agent or project named __proto__ is an ordinary key
   const unsaved = new Set();
+  /* Review 4: what this page's own load pruned (key -> sig). Another tab that still holds that reply writes it back
+     when it hears the marker; this page must not adopt it again, or a reply picked only in that other tab (and never
+     typed after) shows here and comes back on every reload. A different reply for the key still comes through. */
+  const prunedHere = new Map();
   try {
     const cutoff = Date.now() - KEPT_DRAFT_DAYS * 24 * 60 * 60 * 1000;
     for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -45014,7 +45018,11 @@ function keptDrafts(kind, opts) {
         /* Review 3: not removed, but marked pruned. A removal fires a storage event in every other open tab, whose
            listener would delete a reply the person picked THERE a moment ago (nothing typed yet), and their next
            message would go out plain. A tab still holding the reply writes it back when it hears the marker. */
-        if (!keep && fresh(rec)) { localStorage.setItem(k, JSON.stringify({ v: null, pruned: true, t: Date.now() })); continue; }
+        if (!keep && fresh(rec)) {
+          prunedHere.set(k.slice(prefix.length), String(sig(rec.v) || ''));
+          localStorage.setItem(k, JSON.stringify({ v: null, pruned: true, t: Date.now() }));
+          continue;
+        }
       }
       if (keep) map[k.slice(prefix.length)] = rec.v;
       else localStorage.removeItem(k);
@@ -45028,8 +45036,8 @@ function keptDrafts(kind, opts) {
     } catch { unsaved.add(key); }
   };
   const kept = new Proxy(map, {
-    set(o, key, v) { o[key] = v; if (typeof key === 'string') keepEntry(key, v); return true; },
-    deleteProperty(o, key) { delete o[key]; if (typeof key === 'string') keepEntry(key, undefined); return true; },
+    set(o, key, v) { o[key] = v; if (typeof key === 'string') { prunedHere.delete(key); keepEntry(key, v); } return true; },
+    deleteProperty(o, key) { delete o[key]; if (typeof key === 'string') { prunedHere.delete(key); keepEntry(key, undefined); } return true; },
   });
   KEPT_DRAFT_UNSAVED.set(kept, unsaved);
   KEPT_DRAFT_PREFIX.set(kept, prefix);
@@ -45046,6 +45054,12 @@ function keptDrafts(kind, opts) {
         try { rec = e.newValue == null ? null : JSON.parse(e.newValue); } catch { rec = null; }
         // Review 3: another tab's load marked this entry pruned. Ours still stands: write it back, delete nothing.
         if (rec && rec.pruned === true) { if (map[key] != null) keepEntry(key, map[key]); return; }
+        // Review 4: the very reply this page's load pruned, written back by the tab that still holds it: not adopted.
+        if (rec && rec.v != null && prunedHere.has(key)) {
+          if (prunedHere.get(key) === String(sig(rec.v) || '')) return;
+          prunedHere.delete(key);   // a different reply for this key: an ordinary change from now on
+        }
+        if (!rec || rec.v == null) prunedHere.delete(key);
         const was = map[key];
         if (rec && rec.v != null) map[key] = rec.v; else delete map[key];
         unsaved.delete(key);

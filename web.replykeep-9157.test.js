@@ -209,11 +209,16 @@ test('#9157 review 3: another tab loading never deletes a reply this tab just pi
   two.keptDrafts('talk');
   const replies2 = two.keptDrafts('dmreply', two.KEPT_DM_REPLY_OPTS);   // tab 2 loads: the word-less reply is pruned there
   await settle();
-  assert.equal(replies2.april && replies2.april.at, REPLY.at, 'tab 2 did not hear tab 1 write its reply back');
+  // Review 4: tab 2 does not take up the word-less reply its own load just pruned, when tab 1 writes it back.
+  assert.equal(replies2.april, undefined, 'tab 2 adopted a reply picked only in tab 1, which its own load had pruned');
   assert.equal(replies1.april && replies1.april.at, REPLY.at, 'tab 2 loading deleted the reply tab 1 is writing');
   assert.equal(JSON.parse(shared.data.get('kosmos.draft.dmreply.april')).v.at, REPLY.at, 'storage does not hold tab 1\'s reply');
   assert.equal(one.draftsKept(replies1), true, 'tab 1\'s reply is not counted as kept');
-  // CONTROL: a real end in tab 2 (x) does remove it from tab 1.
+  // CONTROL: a DIFFERENT reply picked in tab 1 afterwards does reach tab 2, and a real end in tab 2 ends it in tab 1.
+  const LATER = Object.assign({}, REPLY, { at: '2026-11-26T09:30:00Z' });
+  replies1.april = LATER;
+  await settle();
+  assert.equal(replies2.april && replies2.april.at, LATER.at, 'CONTROL: a new reply from tab 1 did not reach tab 2');
   delete replies2.april;
   await settle();
   assert.equal(replies1.april, undefined, 'CONTROL: cancelling in tab 2 did not end the reply in tab 1');

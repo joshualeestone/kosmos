@@ -104,3 +104,20 @@ passes both arms.
   them (as recorded in round 1); the forget call sites are pinned by text; the browser check covers the chat. From
   #9132, not new: a page left open 14 days with no keystroke may restart and age its words out, and its reply with
   them.
+
+#### Iteration 4 (blind review of the whole branch, sonnet)
+
+- [BLOCKER] taken: gated.txt had render-replykeep-9157 out of byte order (tools.browser-checks-wired.test.js red,
+  measured: 10 pass 1 fail before, 11 pass after). Moved; LC_ALL=C sort -c passes. Every browser-checks-*.test.js
+  and tools.browser-checks-*.test.js now runs too (121 pass).
+- [SHOULD-FIX] taken: the marker's write-back re-adopted, in the pruning tab, the very word-less reply its load had
+  just dropped (picked only in the other tab), so it showed there and came back on every reload. Each page now
+  remembers what its own load pruned (key -> sig) and ignores that same reply written back; a different reply for the
+  key, or this page writing the key itself, ends that. Tested: tab 2 does not adopt it, tab 1 keeps it; control: a
+  new reply picked in tab 1 afterwards reaches tab 2, and x in tab 2 ends it in tab 1. Removing the ignore fails
+  exactly that test.
+- [NIT] recorded, not built: a word-less reply older than 14 days is removed, not marked, so it can reach a tab open
+  over 14 days with that reply (the #9132 age-out class); the browser check covers the chat, not three tabs or a load
+  during a send (traced by the reviewer, no defect).
+web.replykeep-9157 10 of 10 and the affected suites and guards (133), the browser-check wiring tests (121), and
+render-replykeep-9157 pass.
