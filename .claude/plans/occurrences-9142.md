@@ -12,7 +12,9 @@ its review is still pending, and the page shows the two states apart. The ask wa
 ## Change
 - engine/taskrepeat.js `occurrences(t, history, now)`: rows newest first, capped at 10, only since the current rule was
   set (as the late mark). Delivered rows: due (answeredSlot, the late mark's rule), at, late, by or person. Missed rows:
-  due (slot), count, more, review (told / unreached / asked), who; plus an open miss not yet recorded (pending / none).
+  due (slot), count, more, review (told / unreached / asked), who; misses a run recovered (its missedBefore) when no
+  recorded miss covers them (review: recovered); and a stretch open now with no recorded miss in it (review: open, which
+  claims nothing about whether anyone will be told).
   The reviewer is `repeatReviewer` or `repeatReviewerPerson`. Pure, never throws.
 - `occurrenceWords(row, nameOf)`: one row in words for an agent reader.
 - server.js, GET /api/project/:id/task/:n/activity: `occurrences` when the task repeats and has rows (absent otherwise,
@@ -32,6 +34,21 @@ its review is still pending, and the page shows the two states apart. The ask wa
   (3, both CLIs line for line), web.task-occurrences-9142.test.js (4). Each part shown red by a perturbation or by
   main's file.
 - Existing: 10 taskrepeat files (151), 42 CLI activity/parity tests, 13 page files near the change (127): all pass.
+
+## Reviews
+- Round 1: 0 BLOCKER, 3 SHOULD, 3 NIT.
+  - SHOULD: the open-miss row double-counted a stretch a recorded miss already counts, and said "not told yet" for ever
+    for an unreachable reviewer (and for paused, held or throttled tasks). Fixed: shown only when no recorded miss falls
+    in the stretch, and it claims nothing about the review ("no run since").
+  - SHOULD: misses a run recovered vanished on a task with no reviewer. Fixed: a row from the run's missedBefore unless
+    a recorded miss covers that stretch.
+  - SHOULD: a failed read left the previous task's list showing. Fixed: the list is tied to its task; a failed read
+    keeps it only for the same task.
+  - NIT: a projects read on every 5-second poll. Fixed: only when the history shows a repeat rule.
+  - NIT: the CLIs exit at "Nothing recorded" before the block. Left: a repeating task always has created and repeat-set
+    events, so the block is never skipped for one.
+  - NIT: recordRun's `at` is not stored (taskchat stamps its own). Left: every caller passes now, so the two agree;
+    noted for anyone who adds a caller that passes another time.
 
 ## Weakest premise
 That "review status" in the feedback means the miss review. If the agent meant a reviewer confirming each delivered run,
