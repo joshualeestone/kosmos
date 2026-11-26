@@ -1546,10 +1546,17 @@ for _p in $bwp; do wait "$_p"; done
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end last-fold
 nw9139="$(grep -c '^E g' "$MB/beside-runs.log")"
 { [ "$ng9139" -ge 1 ] && [ "$nw9139" = 300 ] && [ -z "$(ls "$MB" | grep '^beside-runs\.log\.pending')" ]; } && pass "#9139 twenty writers that mostly give up lose no line once folded ($ng9139 had given up while the lock was held)" || fail "#9139 writers that give up lost lines ($nw9139 of 300, $ng9139 were pending)"
+# Review 6 (besidefix): a lock just taken names a LIVE holder, the one the release checks, and does not read as stale.
+# Taking the pid inside $( ) named the substitution's own subshell, gone at once, so the next writer broke a held lock
+# (measured: 299 of 300). Run in a ( ) subshell, as the writers are, where $$ is not the holder either.
+rm -rf "$MB/own.lock"; own9139="$( ( _kosmos_beside_lock "$MB/own.lock" || exit 1; h="$(cat "$MB/own.lock/pid")"
+  kill -0 "$h" 2>/dev/null && [ "$h" = "$_KOSMOS_BESIDE_OWN" ] && ! _kosmos_beside_stale "$MB/own.lock" && echo live ) 2>/dev/null )"
+rm -rf "$MB/own.lock"
+[ "$own9139" = live ] && pass "#9139 a lock just taken names its live holder and is not stale" || fail "#9139 a fresh lock names a gone or other pid (got '$own9139')"
 # Review 1 (besidefix): the reader's first stage cannot fail (cat of an unmatched pending glob exits 1, which under the
 # caller's errexit and pipefail ended the caller). Pinned in the SOURCE, not run: this file may not turn pipefail on
 # (the #8195 ratchet would then count every pipeline in it as new).
-awk '/^kosmos_beside_runs_since\(\)/{p=1} p{print} p&&/^}/{exit}' "$HERE/lib/cut-guard.sh" | grep -qF '{ cat "$f".pending.* "$f".folding.* "$f" 2>/dev/null || true; } | awk' \
+awk '/^kosmos_beside_runs_since\(\)/{p=1} p{print} p&&/^}/{exit}' "$HERE/lib/cut-guard.sh" | grep -qF '{ { cat "$f".pending.* 2>/dev/null || true; }; { cat "$f".folding.* 2>/dev/null || true; }; { cat "$f" 2>/dev/null || true; }; } | awk' \
   && pass "#9139 the reader's cat stage cannot fail its pipeline (source pin)" || fail "#9139 the reader's cat stage is no longer guarded with || true"
 # Review 1 (besidefix): an older end folded after a newer start of the same id does not end the newer run. The marker
 # dir is made here: an earlier arm removes it, and these two write their lines by hand (not through the writer).
