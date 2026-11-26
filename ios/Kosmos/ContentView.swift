@@ -97,6 +97,8 @@ struct ContentView: View {
     // (what the native screens cannot do, such as a company sign-in before iOS 17.4) turns it off for this launch.
     @State private var nativeSignIn = ContentView.startsSignedOut
     @StateObject private var signIn = SignInModel(client: SignInClient())
+    /// kosmos#9111: the board's run was started from the sign-in screen's wait for the Mac (knockIfWaiting).
+    @State private var knocking = false
     /// kosmos#8791/#8795: the fresh sign-in a step-up refusal asks for (FreshSignInCenter), given to every tab.
     @StateObject private var fresh = FreshSignInCenter()
     private static var startsSignedOut: Bool {
@@ -148,6 +150,23 @@ struct ContentView: View {
         #endif
         return board.youPicture
     }
+    /// kosmos#9111: the sign-in screen's "Waiting for your Mac" is only true if the phone has knocked at the Mac's gate,
+    /// and before, only the Agents tab knocked, after "Continue to the app". So while that screen waits, the board's own
+    /// run (the Macs list, a handoff, the gate) starts here, once, with the session just issued; the tab's start() later
+    /// replaces it (a new generation), it never runs beside it. Backed out of the wait: the run stops. Moved on to the
+    /// app: the run is left for the tab, which is already let in.
+    private func knockIfWaiting() {
+        #if !KOSMOS_STORE_SHOTS
+        let waits = nativeSignIn && BoardClient.Phase.knocks(during: signIn.step)
+            && signIn.issued != nil && pushManager.currentSession == signIn.issued   // stored first: the run reads it
+        if waits && !knocking { knocking = true; board.start() }
+        else if !waits && knocking {
+            knocking = false
+            if signIn.step != .done { board.stop() }
+        }
+        #endif
+    }
+
     var body: some View {
         Group {
             if isUnlocked && nativeSignIn {
@@ -238,6 +257,7 @@ struct ContentView: View {
             guard let token = token else { return }
             pushManager.signedInNatively(token)
             web.signedInNatively()
+            knockIfWaiting()
         }
         // The person backed out of a session already issued (Use a different email, Sign in again): it is signed out,
         // so neither the app nor the web page keeps it (review round 2).
@@ -247,6 +267,17 @@ struct ContentView: View {
         }
         .onChange(of: signIn.step) { step in
             if step == .done { nativeSignIn = false; todayBoard = false; tab = AppTabs.todayTab ? .today : .agents }
+            knockIfWaiting()
+        }
+        // kosmos#9111: while the sign-in screen knocks, the run's answers move it: the Mac's own code, let in, or a no.
+        .onChange(of: board.phase) { phase in
+            guard knocking else { return }
+            switch phase.allowScreen(step: signIn.step) {
+            case .keep: break
+            case .code(let code): signIn.showGateCode(code)
+            case .done: signIn.continueToApp()
+            case .denied: signIn.macSaidNo()
+            }
         }
         // A press was answered: opened, the bar is on the tab pressed; refused (a box was up), it goes to the tab the
         // page really shows, so pressing the same tab again later is a real press.

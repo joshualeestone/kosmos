@@ -67,6 +67,37 @@ final class BoardClient: ObservableObject {
             }
         }
 
+        /// kosmos#9111: what the sign-in screen does with this phase while it waits for the Mac. ContentView starts this
+        /// run from that screen, so the phone knocks at the Mac's gate there (before, only the Agents tab knocked, after
+        /// "Continue to the app", and a person who waited as told waited for ever). The gate's own code wins over the
+        /// one Kosmos+ gave: a gate with the board-v2 marker answers a keyed code, which is the one the Mac shows
+        /// (kosmos-relay proxy.rs). Let in: the screen moves on. The Mac said no: the screen says so.
+        enum AllowScreen: Equatable { case keep, code(String), done, denied }
+        func allowScreen(step: SignIn.Step) -> AllowScreen {
+            switch step {
+            case .allow(let shown, true):
+                switch self {
+                case .live: return .done
+                case .waitingForAllow(_, let code?) where code != shown: return .code(code)
+                case .denied: return .denied
+                default: return .keep
+                }
+            case .denied(asking: true):
+                // Asked again after an earlier no: the same knock, so a yes now moves the screen on.
+                if case .live = self { return .done }
+                return .keep
+            default: return .keep
+            }
+        }
+
+        /// Whether the sign-in screen's step is one that waits for the Mac, so the run knocks while it shows.
+        static func knocks(during step: SignIn.Step) -> Bool {
+            switch step {
+            case .allow(_, true), .denied(asking: true): return true
+            default: return false
+            }
+        }
+
         /// kosmos#8055 (reviews 4, 5, 7): the states an open chat stays open through, the ones the client leaves by itself:
         /// starting (a reconnect, often with no agents yet), connecting, the computer not answering (retried every 15 s), and
         /// live. Every other phase needs the person (Try again, Allow, sign in) on the connection screen, so it still closes

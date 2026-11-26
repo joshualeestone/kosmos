@@ -4803,6 +4803,54 @@ section("native board loop: connecting")
         c.stop()
     }
 
+    section("kosmos#9111: the sign-in screen knocks while it waits, and the tab's start replaces that run")
+    do {
+        // The sign-in screen starts the run (ContentView.knockIfWaiting); then the tab appears and starts it again.
+        let (c, w, _, _) = make("kst1")
+        w.sessionAnswer = (403, #"{"pending":true,"code":"K7"}"#)
+        c.start()
+        let knocked = await settle { c.phase == .waitingForAllow(mac: "Studio", code: "K7") }
+        check(knocked && w.count("/_kosmos/session") >= 1, "started from the sign-in screen, the run knocks at the Mac's gate and waits for Allow")
+        c.start()   // the tab
+        _ = await settle { w.count("/v1/account/handoff") == 2 }
+        w.sessionAnswer = (200, #"{"ok":true}"#)
+        let inside = await settle { isLive(c) }
+        for _ in 0..<3000 { await Task.yield() }   // room for a second run, if one were left, to be let in too
+        check(inside && w.admitted == 1 && w.count("/v1/account/handoff") == 2, "the tab's start replaced the sign-in screen's run: let in once, one handoff each (admitted \(w.admitted))")
+        c.stop()
+    }
+    do {
+        // Stopped when the person backs out of the wait: no more knocks.
+        let (c, w, _, _) = make("kst1")
+        w.sessionAnswer = (403, #"{"pending":true,"code":"K7"}"#)
+        c.start()
+        _ = await settle { c.phase == .waitingForAllow(mac: "Studio", code: "K7") }
+        c.stop()
+        let asked = w.count("/_kosmos/session")
+        for _ in 0..<3000 { await Task.yield() }
+        check(w.count("/_kosmos/session") == asked, "backed out of the wait: the run stops knocking")
+    }
+    do {
+        typealias P = BoardClient.Phase
+        let mac = Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true, lastSeen: 100)
+        let waiting = SignIn.Step.allow(matchCode: "AB12", hasComputer: true)
+        check(P.waitingForAllow(mac: "Studio", code: "K7").allowScreen(step: waiting) == .code("K7"), "the gate's code replaces Kosmos+'s: it is the one the Mac shows (a v2 gate keys its own)")
+        check(P.waitingForAllow(mac: "Studio", code: "AB12").allowScreen(step: waiting) == .keep, "the same code: nothing to change")
+        check(P.waitingForAllow(mac: "Studio", code: nil).allowScreen(step: waiting) == .keep, "a gate with no code: Kosmos+'s stays")
+        check(P.live(mac: mac).allowScreen(step: waiting) == .done, "let in: the screen moves on to the app")
+        check(P.denied(mac: "Studio").allowScreen(step: waiting) == .denied, "the Mac said no: the screen says so")
+        check(P.live(mac: mac).allowScreen(step: .denied(asking: true)) == .done, "asked again after a no, then let in: the screen moves on")
+        check(P.denied(mac: "Studio").allowScreen(step: .denied(asking: true)) == .keep, "asked again and still no: Kosmos+'s own answer says it")
+        for phase in [P.starting, .connecting(mac: "Studio"), .unreachable(mac: "Studio"), .kosmosPlusDown, .noMac, .signedOut] {
+            check(phase.allowScreen(step: waiting) == .keep, "\(phase.word) while waiting: the screen keeps waiting (Continue to the app is still there)")
+        }
+        check(P.live(mac: mac).allowScreen(step: .allow(matchCode: nil, hasComputer: false)) == .keep, "no computer yet: nothing knocks, nothing moves")
+        check(P.live(mac: mac).allowScreen(step: .email) == .keep && P.live(mac: mac).allowScreen(step: .done) == .keep, "not waiting: the run's phase changes nothing on the sign-in screen")
+        check(P.knocks(during: waiting) && P.knocks(during: .denied(asking: true)), "the steps that wait for the Mac knock")
+        check(!P.knocks(during: .allow(matchCode: nil, hasComputer: false)) && !P.knocks(during: .denied(asking: false))
+              && !P.knocks(during: .email) && !P.knocks(during: .done), "no computer, a final no, the email step, done: no knock")
+    }
+
     section("native board loop: not answering clears by itself")
     do {
         let (c, w, _, _) = make("kst1")
