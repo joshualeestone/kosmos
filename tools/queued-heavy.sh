@@ -661,9 +661,51 @@ _qh_take() {
 # had no marker (it cleared on its first pass, or a lib older than #5332 unmarked it): it cannot stop a later joiner
 # passing in the gap before it (perturbed with the kept marker removed and the re-mark left in: the #5064 arm went red
 # in one of two runs, a race, which is why the kept marker exists and why no arm can pin that variant).
+# kosmos#9139: QUEUED_HEAVY_CAP_S=<seconds> caps the wait for a MAIN turn (relay CI on Mortals sets 900). When the cap
+# runs out, the run first looks again for a free turn; then, while a release cut's claim holds the machine, it keeps
+# waiting (a cut holds Mortals for about two hours, and a suite beside one slows the cut's own steps: Baron); otherwise
+# it runs BESIDE the holder, with no claim and no renewer, says so, and notes its start and end with
+# kosmos_note_beside_run, so the holder's red run-tests.sh summary names it (a red in that window reads as contention,
+# not as the change: PigeonPete). Unset, empty or not a number: no cap, the queue as before. A light run (a side turn)
+# ignores it. The place in the queue is not kept across a cut's re-wait (the wait takes a new one).
+QH_CAP_S="${QUEUED_HEAVY_CAP_S:-}"
+case "$QH_CAP_S" in ''|*[!0-9]*) QH_CAP_S="" ;; esac
+[ -n "$QH_CAP_S" ] && QH_CAP_S=$((10#$QH_CAP_S))
+[ "${KOSMOS_QUEUE_CLASS:-heavy}" = light ] && QH_CAP_S=""
+if [ -n "$QH_CAP_S" ]; then
+  export KOSMOS_WAIT_QUEUE_CEIL_S="$QH_CAP_S"
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') waits at most ${QH_CAP_S}s for an ordinary holder, then runs beside it; a release cut is waited out (QUEUED_HEAVY_CAP_S, kosmos#9139): $WHAT"
+fi
+_qh_cut_holds() { case "$(kosmos_machine_claim_status 2>/dev/null)" in *"reserved for a release"*) return 0 ;; esac; return 1; }
+_qh_run_beside() {
+  local id rc note=1
+  kosmos_unmark_suite_waiting
+  command -v kosmos_note_beside_run >/dev/null 2>&1 || note=0
+  id="queued-heavy-$$-$(date +%s)"
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') RUNNING BESIDE the queue: the cap (${QH_CAP_S}s) ran out and no release cut holds the machine, so this shares the box with whatever holds it (kosmos#9139): $WHAT"
+  [ "$note" = 1 ] || echo "QUEUED-HEAVY: this lib has no kosmos_note_beside_run, so the holder's summary will not name this run" >&2
+  [ "$note" = 1 ] && kosmos_note_beside_run start "$id" "$WHAT"
+  trap '[ "$note" = 1 ] && kosmos_note_beside_run end "$id"; exit 143' TERM
+  trap '[ "$note" = 1 ] && kosmos_note_beside_run end "$id"; exit 130' INT
+  trap '[ "$note" = 1 ] && kosmos_note_beside_run end "$id"; exit 129' HUP
+  "$@"; rc=$?
+  [ "$note" = 1 ] && kosmos_note_beside_run end "$id"
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') END (ran beside the queue) rc=$rc: $WHAT"
+  exit "$rc"
+}
+# The wait gave up. With no cap, as before: refused. With a cap: a free turn now, the cut waited out, or beside.
+_qh_after_bound() {
+  if [ -z "$QH_CAP_S" ]; then echo "QUEUED-HEAVY $(date '+%H:%M:%S') REFUSED (the queue's bound ran out): $WHAT"; exit 4; fi
+  _qh_clear >/dev/null 2>&1 && return 0
+  while _qh_cut_holds; do
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') the cap (${QH_CAP_S}s) ran out while a release cut holds the machine; waiting past the cap (kosmos#9139): $WHAT"
+    kosmos_wait_until_clear "$WHAT" --suite-queue _qh_clear && return 0
+  done
+  _qh_run_beside "$@"
+}
 QH_JOINED="$(date +%s)"
 export KOSMOS_WAIT_KEEP_MARK=1   # #5332, see _qh_take. Read only by a main-lane wait (a side wait returns first; the renewer never waits).
-until { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_ARGS[@]}"} _qh_clear || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') REFUSED (the queue's bound ran out): $WHAT"; exit 4; }; _qh_take; }; do
+until { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_ARGS[@]}"} _qh_clear || _qh_after_bound "$@"; _qh_take; }; do
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') did not get the turn (another run took it, or is ahead in the queue); waiting again: $WHAT"
   # Only when the place is gone (review 3): a lost take that kept its marker needs no re-mark.
   if [ "${KOSMOS_WAIT_LANE:-main}" != side ] && [ ! -e "$(_kosmos_suite_waiter_file "$$")" ]; then
