@@ -12341,6 +12341,12 @@ html.kapptabs :is(#plus-state2, #plus-org) .tk-inp:focus { outline-color: var(--
 html.kapptabs #plus-state2 .otp-cell { background: var(--k-surface, var(--k-bg)); border-color: var(--k-rule); }
 html.kapptabs #plus-state2 .otp-boxes:focus-within .otp-cell { border-color: var(--k-ink-2); }
 html.kapptabs #plus-state2 .otp-cell.on { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold) inset; }
+/* The section's blue primary button is a blue fill, so inside the app it is the board's own primary (.dbox .btn.uprime):
+   bright gold with dark ink. Its other buttons are outlined in the board's ink and rule. */
+html.kapptabs #plus-state2 .btn.uprime, html.kapptabs #plus-state2 .btn.uprime:hover { background: var(--gold-bright);
+  border-color: var(--gold-bright); color: #14161a; }
+html.kapptabs #plus-state2 .btn:not(.uprime) { color: var(--k-ink); border-color: var(--k-rule); }
+html.kapptabs #plus-state2 .btn:not(.uprime):hover { border-color: var(--k-ink-2); background: var(--k-sunk); }
 .plus-hero-h { font-size: 26px; font-weight: 650; letter-spacing: -.01em; line-height: 1.2;   /* #6557: it inherited a fixed 16px, so its two lines overlapped at phone width */
   margin: 10px 0 8px; color: var(--k-ink); }
 .plus-lede { color: var(--k-ink-2); margin: 0 0 24px; max-width: 52ch; }
