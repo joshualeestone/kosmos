@@ -752,7 +752,8 @@ mkdir -p $S/mwd; printf '%s-%s-1 %s %s host queued run (not a cut): fake heavy\n
 pre9118=0; free9118 || pre9118=1
 ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die' /bin/bash $QH "wd" sh -c "echo STARTED-WD; sleep $((U+5))" ) </dev/null > $S/wd.log 2>&1 & W1=$!; BG="$BG $W1"
 ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die' /bin/bash $QH "wd-other" true ) </dev/null > $S/wd2.log 2>&1 & W2=$!; BG="$BG $W2"
-until_true 30 'grep -q "waiting for a turn: wd " $S/wd.log && grep -q "waiting for a turn: wd-other" $S/wd2.log && [ -e $S/mwd/qh-label.$W1 ] && [ -e $S/mwd/qh-label.$W2 ]'; sw=$?
+# Review 1: its queue place must exist first, or "it left the queue" below proves nothing.
+until_true 30 'grep -q "waiting for a turn: wd " $S/wd.log && grep -q "waiting for a turn: wd-other" $S/wd2.log && [ -e $S/mwd/qh-label.$W1 ] && [ -e $S/mwd/qh-label.$W2 ] && [ -e $S/mwd/suitewait.$W1 ]'; sw=$?
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd /bin/bash $QH --withdraw "wd" 2>&1); rw=$?
 ok "#9118: --withdraw takes a WAITING run out by its exact label (it ends, leaves the queue, its command never starts)" '[ "$pre9118" = 0 ] && [ "$sw" = 0 ] && [ "$rw" = 0 ] && [[ "$o" == *"withdrew 1 run"* ]] && ! kill -0 $W1 2>/dev/null && [ ! -e $S/mwd/suitewait.$W1 ] && [ ! -e $S/mwd/qh-label.$W1 ] && ! grep -q STARTED-WD $S/wd.log'
 ok "#9118: --withdraw matches the label exactly: \"wd-other\" is still queued" 'kill -0 $W2 2>/dev/null && [ -e $S/mwd/qh-label.$W2 ]'
@@ -769,7 +770,29 @@ o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-wdrun /bin/bash $QH --withdraw "t9
 ok "#9118: --withdraw stops a HOLDING run's command and its claim is released" '[ "$pre9118" = 0 ] && [ "$sh9" = 0 ] && [ "$rw" = 0 ] && gone $((U+6)) && ! kill -0 $Q9 2>/dev/null && [ ! -e $S/m9118-wdrun/machine-claim ] && [ ! -e $S/m9118-wdrun/qh-label.$Q9 ]'
 for p in $(pgrep -f "^sleep $((U+6))$"); do kill -KILL $p 2>/dev/null; done; for p in $(pgrep -f "^sleep $((U+5))$"); do kill -KILL $p 2>/dev/null; done
 
-EXPECTED=166   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, four #9118 withdraw arms
+# #9118 A2 review 1: a pid is signalled only when its start time matches the one its label recorded. A live process
+# whose command line names queued-heavy.sh (a reused pid, another run's renewer) with a WRONG start time is left alone;
+# control: the same process with its real start time is withdrawn.
+bash -c "exec -a 'bash /x/queued-heavy.sh --queued-args y' sleep $((U+5))" & RP=$!; BG="$BG $RP"
+until_true 10 '[ "$(ps -o command= -p $RP 2>/dev/null | cut -c1-12)" = "bash /x/queu" ]'
+printf 'rp\nbg\nMon Jan  1 00:00:00 2001\n' > $S/mwd/qh-label.$RP
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd /bin/bash $QH --withdraw "rp" 2>&1); rw=$?
+ok "#9118: --withdraw does not signal a pid whose start time is not the one its label recorded (a reused pid)" '[ "$rw" = 1 ] && kill -0 $RP 2>/dev/null'
+printf 'rp\nbg\n%s\n' "$(TZ=UTC LC_ALL=C ps -o lstart= -p $RP | tr -s ' ' | sed 's/^ //; s/ $//')" > $S/mwd/qh-label.$RP
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd /bin/bash $QH --withdraw "rp" 2>&1); rw=$?
+ok "#9118: control: the same process with its real start time is withdrawn" '[ "$rw" = 0 ] && ! kill -0 $RP 2>/dev/null'
+reap $RP 20 2>/dev/null; rm -f $S/mwd/qh-label.$RP
+# #9118 A2 review 1: a holder on a terminal (foreground) is NOT signalled: a TERM there releases the claim and leaves the
+# command running. It says so and exits 4; the command and the claim are untouched.
+pre9118=0; free9118 || pre9118=1; mkdir -p $S/mfg
+( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mfg exec $S/ttyrun /bin/bash $QH "t9118-fg" sh -c "sleep $((U+6))" ) </dev/null > $S/fg.log 2>&1 & FGP=$!; BG="$BG $FGP"
+fgl9118() { local f; for f in $S/mfg/qh-label.*; do [ "$(sed -n 2p "$f" 2>/dev/null)" = fg ] && return 0; done; return 1; }
+until_true 30 '! gone $((U+6)) && fgl9118'; sf=$?
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mfg /bin/bash $QH --withdraw "t9118-fg" 2>&1); rw=$?
+ok "#9118: --withdraw refuses a foreground holder (exit 4, says why), leaving its command and claim alone" '[ "$pre9118" = 0 ] && [ "$sf" = 0 ] && [ "$rw" = 4 ] && [[ "$o" == *"NOT withdrawn"* ]] && ! gone $((U+6)) && [ -e $S/mfg/machine-claim ]'
+for p in $(pgrep -f "^sleep $((U+6))$"); do kill -KILL $p 2>/dev/null; done; until_true 20 '! kill -0 $FGP 2>/dev/null'; reap $FGP 20 2>/dev/null
+
+EXPECTED=169   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, seven #9118 withdraw arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
