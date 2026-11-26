@@ -53,16 +53,7 @@ check(HopLogic.speed(forScore: 10_000) == HopLogic.maxSpeed, "and stops rising a
 // pace, for several seeds. This also proves each shape is clearable at the top speed. CONTROL: the same player tapping
 // too late is caught, so the autopilot's success is the rules', not a game that cannot end.
 func autopilot(seed: UInt64, lead: Double, until target: Int) -> HopLogic {
-    var a = HopLogic(seed: seed); a.tap()
-    var n = 0
-    while a.phase == .running && a.score < target && n < 60 * 60 * 20 {
-        if !a.airborne, let next = a.clusters.first(where: { !$0.cleared && $0.x > HopLogic.playerX - HopLogic.dotRadius }) {
-            let distance = next.x - HopLogic.dotRadius - (HopLogic.playerX + HopLogic.playerRadius)
-            if distance < lead * a.speed / HopLogic.baseSpeed { a.tap() }
-        }
-        a.step(frame); n += 1
-    }
-    return a
+    var a = HopLogic(seed: seed); a.autoplay(frames: 60 * 60 * 20, lead: lead, until: target); return a
 }
 for seed: UInt64 in [1, 2, 3, 42, 9091] {
     let a = autopilot(seed: seed, lead: 40, until: 300)
@@ -94,6 +85,12 @@ for sp in [HopLogic.baseSpeed, HopLogic.maxSpeed] {
     let lo = (HopLogic.gap(speed: sp, unit: 0) - 160) / sp, hi = (HopLogic.gap(speed: sp, unit: 0.999) - 160) / sp
     check(abs(lo - 0.9) < 1e-9 && abs(hi - 1.6) < 0.001, "at \(Int(sp)) a second, 0.9 s to 1.6 s between clusters")
 }
+
+// The ground scrolls with the dots, and starts again with a new run.
+var walk = HopLogic(seed: 4); walk.autoplay(frames: 120)
+check(abs(walk.distance - HopLogic.baseSpeed * 2) < HopLogic.baseSpeed * 0.1, "2 s at the opening pace drifts about \(Int(HopLogic.baseSpeed * 2)) (\(Int(walk.distance)))")
+var lost = HopLogic(seed: 4); lost.tap(); while lost.phase == .running { lost.step(frame) }
+lost.tap(); check(lost.distance == 0, "a fresh run starts the ground again")
 
 // A long frame (the app was away) is cut, so a stall never jumps a run.
 var stall = HopLogic(seed: 3); stall.tap(); stall.step(30)

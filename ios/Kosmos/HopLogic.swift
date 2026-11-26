@@ -72,6 +72,8 @@ struct HopLogic {
     /// The distance still to travel before the next cluster enters at the right edge.
     private(set) var untilNext = 0.0
     private(set) var time = 0.0
+    /// How far the dots have drifted this run, so the ground line can scroll with them.
+    private(set) var distance = 0.0
     private var rng: HopRandom
 
     init(seed: UInt64, best: Int = 0) {
@@ -106,6 +108,7 @@ struct HopLogic {
             score = 0
             height = 0; velocity = 0
             clusters = []
+            distance = 0
             untilNext = HopLogic.worldWidth * 0.4
             hop()
         }
@@ -129,6 +132,7 @@ struct HopLogic {
         let move = speed * dt
         for i in clusters.indices { clusters[i].x -= move }
         untilNext -= move
+        distance += move
         if untilNext <= 0 {
             let shape = rng.int(0, HopLogic.shapes.count - 1)
             clusters.append(Cluster(x: HopLogic.worldWidth + HopLogic.dotRadius + untilNext, shape: shape))
@@ -146,6 +150,20 @@ struct HopLogic {
         }
         best = max(best, score)
         clusters.removeAll { $0.rightEdge < -HopLogic.dotRadius }
+    }
+
+    /// A player that taps when the next cluster is `lead` ahead (scaled with the pace), for `frames` steps of `dt` or
+    /// until `target`. The tests use it to prove every run can be won; a Debug screenshot uses it to reach a mid-run frame.
+    mutating func autoplay(frames: Int, dt: Double = 1.0 / 60, lead: Double = 40, until target: Int = .max) {
+        if phase != .running { tap() }
+        var n = 0
+        while phase == .running && score < target && n < frames {
+            if !airborne, let next = clusters.first(where: { !$0.cleared && $0.x > HopLogic.playerX - HopLogic.dotRadius }) {
+                let gap = next.x - HopLogic.dotRadius - (HopLogic.playerX + HopLogic.playerRadius)
+                if gap < lead * speed / HopLogic.baseSpeed { tap() }
+            }
+            step(dt); n += 1
+        }
     }
 
     static func touches(playerX: Double, playerY: Double, _ c: Cluster) -> Bool {

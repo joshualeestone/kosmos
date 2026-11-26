@@ -167,6 +167,11 @@ struct LoadFailureView: View {
                         .foregroundColor(Palette.primary)
                         .frame(minHeight: 44)
                 }
+                // kosmos#9091: Hop, a one-tap game, only while the phone is offline. Back online, this screen goes as
+                // it always has: the game never holds up the reload.
+                if failure == .offline {
+                    HopGameView().padding(.top, 16)
+                }
             }
             .padding(.horizontal, 32)
             .frame(maxWidth: 420)
