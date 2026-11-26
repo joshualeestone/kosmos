@@ -278,9 +278,20 @@ function whoMayGet(p, t) {
   return (Array.isArray(p.agents) ? p.agents : []).filter((s) => !isSwarmOff(p, s) && candidateIn(p, tree, holdersOf, t, s, new Set()) !== null);
 }
 
+/* #9168: a task nobody is on is not handed out until it is one tick old, so a hold put on it just after it is made
+   (task add, then task hold) is in place before any tick can give it out. Only pick waits: a task this young still
+   counts as open work (it stops a goal ask), still holds its parent back (willMove), and a person can give it now. */
+const NEW_TASK_GRACE_MS = 60 * 1000;
+function tooNewToGive(t, now) {
+  const at = Date.parse(t && t.createdAt);
+  if (!Number.isFinite(at) || !Number.isFinite(now)) return false;
+  const age = now - at;
+  return age >= 0 && age < NEW_TASK_GRACE_MS;   // a createdAt ahead of this clock waits for nothing (it may never come)
+}
+
 /* The next task nobody is on, in a live project this agent belongs to, and the part to give:
-   the first open one. `taken` holds "project#number" already chosen this step. */
-function pick(session, projects, taken) {
+   the first open one. `taken` holds "project#number" already chosen this step. `now` (ms) enables #9168's wait. */
+function pick(session, projects, taken, now) {
   const candidates = [];
   for (const p of projects) {
     if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
@@ -293,6 +304,7 @@ function pick(session, projects, taken) {
     const tree = tasks.treeOf(p);
     const holdersOf = tasks.treeHolders(p, tree, (t, who) => busyHold(p, t, who));
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
+      if (tooNewToGive(t, now)) continue;
       const c = candidateIn(p, tree, holdersOf, t, session, taken);
       if (c) candidates.push(c);
     }
@@ -622,7 +634,7 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
     const moved = stalled.length ? failoverPick(session, runnerOf.get(session) || null, stalled, projects, movedParts, taken) : null;
     const choice = moved
       ? { projectId: moved.projectId, n: moved.n, partId: moved.partId, from: moved.from, treeKey: moved.treeKey }
-      : pick(session, projects, taken);
+      : pick(session, projects, taken, now);
     if (choice) {
       // The assignment caps gate assignments only; the ask below has its own.
       if (log.length >= MAX_PER_HOUR) continue;
@@ -782,6 +794,6 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
     ask: typeof ask === 'function' ? (session, text) => ask(session, text, roster) : undefined });
 }
 
-module.exports = { step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
+module.exports = { NEW_TASK_GRACE_MS, step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
   projectSig, savedForm, restoredMemory, loadMemory, saveMemory, MEMORY_FILE,
   IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, handOutable, whoMayGet, treeHeldBy, subtasksFirst, stallable, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS, goalAskGaveUp };
