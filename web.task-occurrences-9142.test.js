@@ -35,8 +35,8 @@ test('each kind of row is worded for the person, with agents by their card names
   assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z', count: 1, review: 'told', who: 'quill' }), /: missed; Quill was told$/);
   assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z', count: 3, more: true, review: 'unreached', who: 'quill' }), /: missed \(3 or more runs\); Quill could not be reached$/);
   assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z', review: 'asked' }), /; it waited for you in Needs Your Decision$/);
-  assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z', review: 'pending' }), /; not told yet$/);
-  assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z', review: 'none' }), /; nobody is set to be told$/);
+  assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z', count: 2, review: 'recovered' }), /: missed \(2 runs\); a later run caught up$/);
+  assert.match(lib.tkOccWords({ kind: 'missed', due: '2026-11-23T15:00:00Z', review: 'open', open: true }), /: missed; no run since$/);
   assert.equal(lib.tkOccWords({ kind: 'something new' }), '');
 });
 
@@ -44,16 +44,29 @@ test('the painter draws one row each, marks a missed or late row on ITS line, an
   const doc = fakeDoc();
   const lib = make(doc);
   lib.tkPaintOccurrences([
-    { kind: 'missed', due: '2026-11-23T15:00:00Z', review: 'pending' },
+    { kind: 'missed', due: '2026-11-23T15:00:00Z', review: 'open', open: true },
     { kind: 'odd' },   // no words: left out, and must not shift the marks onto the wrong line
     { kind: 'delivered', due: '2026-11-22T15:00:00Z', at: '2026-11-22T15:01:00Z', late: false, by: 'nova' },
     { kind: 'delivered', due: '2026-11-21T15:00:00Z', at: '2026-11-21T18:00:00Z', late: true, by: 'nova' },
-  ]);
+  ], 'p#1');
   assert.equal(doc.box.hidden, false);
   assert.equal(doc.list.children.length, 3);
   assert.deepEqual(doc.list.children.map((li) => li.classList.has('tk-occ-off')), [true, false, true]);
-  lib.tkPaintOccurrences([]);
+  lib.tkPaintOccurrences([], 'p#1');
   assert.equal(doc.box.hidden, true, 'an empty list was left showing');
+});
+
+test('review 1: a failed read keeps this task\'s rows, and clears another task\'s', () => {
+  const doc = fakeDoc();
+  const lib = make(doc);
+  const rows = [{ kind: 'delivered', due: '2026-11-22T15:00:00Z', at: '2026-11-22T15:01:00Z', by: 'nova' }];
+  lib.tkPaintOccurrences(rows, 'p#1');
+  lib.tkPaintOccurrences(null, 'p#1');
+  assert.equal(doc.box.hidden, false, 'a failed read of the same task cleared its rows');
+  assert.equal(doc.list.children.length, 1);
+  lib.tkPaintOccurrences(null, 'p#2');
+  assert.equal(doc.box.hidden, true, 'task 1\'s rows stayed showing under task 2');
+  assert.equal(doc.list.children.length, 0);
 });
 
 test('text only: a name that looks like markup is shown as text, never parsed', () => {
@@ -65,5 +78,6 @@ test('the markup has the list, hidden, and the loader hands the occurrences to t
   assert.match(HTML, /<div id="tk-occurrences" class="tk-occ" hidden>.*<ul id="tk-occ-list"/);
   const loader = page.liftAll(SCRIPT, ['paintTaskActivity']);
   assert.match(loader, /occurrences = Array\.isArray\(out\.occurrences\) \? out\.occurrences : \[\];/);
-  assert.match(loader, /if \(typeof tkPaintOccurrences === 'function'\) tkPaintOccurrences\(occurrences\);/);
+  assert.match(loader, /if \(typeof tkPaintOccurrences === 'function'\) tkPaintOccurrences\(occurrences, p\.id \+ '#' \+ n\);/);
+  assert.match(loader, /tkPaintOccurrences\(null, p\.id \+ '#' \+ n\)/, 'a failed read does not tell the painter');
 });

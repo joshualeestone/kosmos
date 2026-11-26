@@ -75667,16 +75667,20 @@ function tkOccWords(o) {
     const review = o.review === 'told' ? who(o.who) + ' was told'
       : o.review === 'unreached' ? who(o.who) + ' could not be reached'
       : o.review === 'asked' ? 'it waited for you in Needs Your Decision'
-      : o.review === 'pending' ? 'not told yet'
-      : o.review === 'none' ? 'nobody is set to be told' : '';
+      : o.review === 'recovered' ? 'a later run caught up'
+      : o.review === 'open' ? 'no run since' : '';
     return 'Due ' + tkOccWhen(o.due) + ': ' + what + (review ? '; ' + review : '');
   }
   return '';
 }
-function tkPaintOccurrences(occ) {
+function tkPaintOccurrences(occ, task) {
   const box = document.getElementById('tk-occurrences');
   const list = document.getElementById('tk-occ-list');
   if (!box || !list) return;
+  /* Review 1: `occ` null means "this read failed": keep what is shown only if it is THIS task's, else clear it, so a
+     previous task's runs never show under another. */
+  if (occ === null) { if (list.dataset.task !== task) { list.dataset.task = task || ''; list.dataset.drawn = ''; list.textContent = ''; box.hidden = true; } return; }
+  list.dataset.task = task || '';
   // Each row's words beside its own entry, so the missed or late mark stays on the right line.
   const rows = (Array.isArray(occ) ? occ : []).map((o) => ({ o, w: o && typeof o === 'object' ? tkOccWords(o) : '' })).filter((r) => r.w);
   const key = rows.map((r) => r.w).join('\n');
@@ -75714,6 +75718,7 @@ async function paintTaskActivity(n, opts) {
     occurrences = Array.isArray(out.occurrences) ? out.occurrences : [];   // kosmos#9142
   } catch {
     if (n !== TK_OPEN || p.id !== PJ_CURRENT || seq < (holder.tkDrawnSeq || 0)) return;   // #6951: a stale read's failure is not news either
+    if (typeof tkPaintOccurrences === 'function') tkPaintOccurrences(null, p.id + '#' + n);   // kosmos#9142 review 1
     /* A failed read says nothing about the task, so it must not read as "nothing
        happened". Keep whatever is already shown; only when the list is empty put
        a quiet could-not-read line, never a false empty state. */
@@ -75728,7 +75733,7 @@ async function paintTaskActivity(n, opts) {
   if (n !== TK_OPEN || p.id !== PJ_CURRENT) return;
   if (seq < (holder.tkDrawnSeq || 0)) return;
   // kosmos#9142: guarded, so a test that lifts this function alone does not need the painter.
-  if (typeof tkPaintOccurrences === 'function') tkPaintOccurrences(occurrences);
+  if (typeof tkPaintOccurrences === 'function') tkPaintOccurrences(occurrences, p.id + '#' + n);
   const last = events[events.length - 1];
   const drawn = p.id + '#' + n + '#' + events.length + '#' + (last ? last.at + '#' + last.kind : '');
   /* #6951: kept on the holder, not in globals, so the page's sliced tests need nothing new. tkDrawn: the conversation

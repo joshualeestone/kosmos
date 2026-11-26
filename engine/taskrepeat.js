@@ -469,37 +469,60 @@ function occurrences(t, rows, now = Date.now(), max = OCCURRENCES_MAX) {
     const from = Date.parse(t.repeatSetAt || t.createdAt || '');
     if (!Number.isFinite(from)) return [];
     const first = nextAfter(t.repeat, from);
-    const out = [];
-    let newestMissed = -Infinity;
+    const flag = (v) => v === true || v === 'true';
+    const runs = [];
+    const misses = [];
     for (const r of rows) {
       if (!r || typeof r !== 'object') continue;
       const at = Date.parse(r.at || '');
       if (!Number.isFinite(at) || at < from) continue;
       if (r.kind === 'run') {
         const due = answeredSlot(t.repeat, first, at);
-        out.push({ kind: 'delivered', due: due === null ? null : new Date(due).toISOString(), at: new Date(at).toISOString(),
-          late: r.late === true || r.late === 'true', ...(r.person === true || r.person === 'true' ? { person: true } : (r.by ? { by: String(r.by) } : {})) });
+        runs.push({ at, due, late: flag(r.late), person: flag(r.person), by: r.by ? String(r.by) : '',
+          missedBefore: Number(r.missedBefore) || 0, missedMore: flag(r.missedMore) });
       } else if (r.kind === 'missed') {
         const slot = Date.parse(r.slot || '');
         if (!Number.isFinite(slot) || slot < from) continue;
-        newestMissed = Math.max(newestMissed, slot);
-        const person = r.person === true || r.person === 'true';
-        const reached = r.reached === true || r.reached === 'true';
-        out.push({ kind: 'missed', due: new Date(slot).toISOString(), count: Number(r.count) || 1, ...(r.more ? { more: true } : {}),
-          review: person ? 'asked' : (reached ? 'told' : 'unreached'), ...(!person && r.told ? { who: String(r.told) } : {}) });
+        const person = flag(r.person);
+        misses.push({ kind: 'missed', due: slot, count: Number(r.count) || 1, more: flag(r.more),
+          review: person ? 'asked' : (flag(r.reached) ? 'told' : 'unreached'), who: !person && r.told ? String(r.told) : '' });
       }
     }
-    // A miss open now that the history does not hold yet: the review is still to come (or there is no reviewer).
-    const open = missedRuns(t, now);
-    if (open && open.count > 0 && Number.isFinite(open.lastAt) && open.lastAt > newestMissed) {
-      // The reviewer fields tasks.setReviewer writes: a named agent (repeatReviewer), or the person (repeatReviewerPerson).
-      const hasReviewer = t.repeatReviewerPerson === true || (typeof t.repeatReviewer === 'string' && t.repeatReviewer !== '' && t.repeatReviewer !== 'none');
-      out.push({ kind: 'missed', due: new Date(open.lastAt).toISOString(), count: open.count, ...(open.more ? { more: true } : {}),
-        review: hasReviewer ? 'pending' : 'none', open: true });
+    runs.sort((a, b) => a.at - b.at);
+    const out = misses.slice();
+    for (let k = 0; k < runs.length; k += 1) {
+      const r = runs[k];
+      out.push({ kind: 'delivered', due: r.due, at: r.at, late: r.late, person: r.person, by: r.by });
+      /* Review 1: misses a run recovered (its missedBefore, kosmos#5920) are a row too, unless a recorded miss already
+         covers that stretch (after the run before, up to this run's slot): on a task with no reviewer nothing else
+         records them. Dated by the last slot before this run's. */
+      if (r.missedBefore > 0 && r.due !== null) {
+        const prev = k > 0 ? runs[k - 1].at : from;
+        const covered = misses.some((m) => m.due > prev && m.due < r.due);
+        const last = latestAtOrBefore(t.repeat, first, r.due - 1);
+        if (!covered && last !== null) out.push({ kind: 'missed', due: last, count: r.missedBefore, more: r.missedMore, review: 'recovered' });
+      }
     }
+    /* A stretch of misses open now, shown only when NO recorded miss falls in it (review 1: a recorded one already counts
+       it, and its count is the whole stretch's). Its review is not claimed either way: whether anyone is told depends on
+       the reviewer, the project's pause, a hold and the throttle, none of which this can see. */
+    const open = missedRuns(t, now);
+    const start = firstUnanswered(t, now);
+    if (open && open.count > 0 && Number.isFinite(open.lastAt) && start !== null && !misses.some((m) => m.due >= start)) {
+      out.push({ kind: 'missed', due: open.lastAt, count: open.count, more: open.more, review: 'open', open: true });
+    }
+    const iso = (ms) => new Date(ms).toISOString();
+    const shaped = out.map((o) => {
+      if (o.kind === 'delivered') {
+        return { kind: 'delivered', due: o.due === null ? null : iso(o.due), at: iso(o.at), late: o.late,
+          ...(o.person ? { person: true } : (o.by ? { by: o.by } : {})) };
+      }
+      return { kind: 'missed', due: iso(o.due), count: o.count, ...(o.more ? { more: true } : {}), review: o.review,
+        ...(o.who ? { who: o.who } : {}), ...(o.open ? { open: true } : {}) };
+    });
     const key = (o) => Date.parse(o.due || o.at || '') || 0;
-    out.sort((a, b) => key(b) - key(a));
-    return out.slice(0, Math.max(0, max));
+    shaped.sort((a, b) => key(b) - key(a));
+    return shaped.slice(0, Math.max(0, max));
   } catch {
     return [];
   }
@@ -520,8 +543,8 @@ function occurrenceWords(row, nameOf = (s) => s) {
     const review = row.review === 'told' ? 'its reviewer ' + name(row.who) + ' was told'
       : row.review === 'unreached' ? 'its reviewer ' + name(row.who) + ' could not be reached'
       : row.review === 'asked' ? 'the person was asked (Needs Your Decision)'
-      : row.review === 'pending' ? 'its reviewer has not been told yet'
-      : row.review === 'none' ? 'it has no reviewer' : '';
+      : row.review === 'recovered' ? 'a later run caught up'
+      : row.review === 'open' ? 'no run since' : '';
     return what + (review ? '; ' + review : '');
   }
   return '';

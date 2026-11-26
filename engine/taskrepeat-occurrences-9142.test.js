@@ -37,19 +37,45 @@ test('a recorded miss says what the review did: told, unreached, or asked the pe
     [iso(D(23, 9)), 'asked', null], [iso(D(22, 9)), 'unreached', 'quill'], [iso(D(21, 9)), 'told', 'quill']]);
 });
 
-test('a late delivery and its review still pending read as two rows: the run, and the miss not yet told', () => {
-  // The 21st was missed and not told yet; a run is due again on the 22nd, missed too by noon.
+test('a stretch of misses open now, not yet recorded, is one row that claims nothing about the review', () => {
   const t = task({ repeatReviewer: 'quill', lastRunAt: iso(D(20, 9, 1)) });
   const rows = [{ at: iso(D(20, 9, 1)), kind: 'run', by: 'nova' }];
   const got = occurrences(t, rows, D(22, 12));
   assert.equal(got[0].kind, 'missed');
-  assert.equal(got[0].review, 'pending');
+  assert.equal(got[0].review, 'open');
   assert.equal(got[0].open, true);
+  assert.equal(got[0].count, 2, 'the 21st and the 22nd');
   assert.equal(got[1].kind, 'delivered');
-  // CONTROL: with no reviewer the open miss says so, not "pending".
-  assert.equal(occurrences({ ...t, repeatReviewer: undefined }, rows, D(22, 12))[0].review, 'none');
-  // CONTROL: the person as reviewer counts as a reviewer.
-  assert.equal(occurrences({ ...t, repeatReviewer: undefined, repeatReviewerPerson: true }, rows, D(22, 12))[0].review, 'pending');
+});
+
+test('review 1: once a miss in the stretch is recorded, no open row double-counts it', () => {
+  const t = task({ repeatReviewer: 'quill', lastRunAt: iso(D(20, 9, 1)) });
+  const rows = [{ at: iso(D(20, 9, 1)), kind: 'run', by: 'nova' },
+    { at: iso(D(21, 10)), kind: 'missed', slot: iso(D(21, 9)), count: 1, told: 'quill', reached: true }];
+  const got = occurrences(t, rows, D(22, 12));
+  assert.equal(got.filter((r) => r.kind === 'missed').length, 1, 'a second, overlapping missed row');
+  assert.equal(got[0].review, 'told');
+});
+
+test('review 1: an unreachable reviewer\'s later misses never read as "not told yet"', () => {
+  const t = task({ repeatReviewer: 'quill', lastRunAt: iso(D(20, 9, 1)) });
+  const rows = [{ at: iso(D(20, 9, 1)), kind: 'run', by: 'nova' },
+    { at: iso(D(21, 10)), kind: 'missed', slot: iso(D(21, 9)), count: 1, told: 'quill', reached: false }];
+  const got = occurrences(t, rows, D(23, 12));
+  assert.ok(!got.some((r) => r.review === 'pending' || r.review === 'open'), JSON.stringify(got));
+});
+
+test('review 1: misses a later run recovered are a row (no reviewer, so nothing else recorded them)', () => {
+  const rows = [{ at: iso(D(20, 9, 1)), kind: 'run', by: 'nova' },
+    { at: iso(D(23, 9, 5)), kind: 'run', by: 'nova', missedBefore: 2 }];
+  const got = occurrences(task({ lastRunAt: iso(D(23, 9, 5)) }), rows, D(23, 10));
+  const rec = got.find((r) => r.review === 'recovered');
+  assert.ok(rec, JSON.stringify(got));
+  assert.equal(rec.count, 2);
+  assert.equal(rec.due, iso(D(22, 9)), 'dated by the last slot before the recovering run');
+  // CONTROL: when a recorded miss covers that stretch, no second row.
+  const told = rows.concat([{ at: iso(D(21, 10)), kind: 'missed', slot: iso(D(21, 9)), count: 2, person: true }]);
+  assert.equal(occurrences(task({ lastRunAt: iso(D(23, 9, 5)) }), told, D(23, 10)).filter((r) => r.kind === 'missed').length, 1);
 });
 
 test('rows from before the rule was set are left out', () => {

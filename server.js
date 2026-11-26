@@ -27478,6 +27478,8 @@ const server = http.createServer(async (req, res) => {
     /* kosmos#9142: a repeating task's occurrences (engine/taskrepeat.js occurrences), from these same events, so the page
        and the CLIs show one row per run or miss. Only when the task repeats and has rows; never fails the route. */
     const occurrencesFor = (all) => {
+      // Review 1: only a task whose history shows a repeat rule costs a projects read (the page polls every 5 seconds).
+      if (!events.some((ev) => ev && ev.kind === 'repeat-set')) return [];
       try {
         const list = all || projects.readAll() || [];
         let t = null;
