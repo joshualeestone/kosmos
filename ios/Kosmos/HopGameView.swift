@@ -197,9 +197,12 @@ enum HopDrawing {
 
     /// The K, faint, filling the panel's height; lit dots bright, a newly lit one on its way home.
     static func k(_ gc: inout GraphicsContext, _ size: CGSize, lit: [Int: (start: Double, from: CGPoint)], now: Double) {
-        // The K's dots span y 207 to 809 of the icon's 1024 (centre near 512, 508): scaled to 0.8 of the panel's height.
-        let s = size.height * 0.8 / 602
-        let ox = size.width / 2 - 512 * s, oy = size.height * 0.46 - 508 * s
+        // The K's dots span y 207 to 809 of the icon's 1024 (x centred near 512). It stands ON the ground, between the
+        // score line and the ground line, so a lit dot of its foot is never read as a cluster to hop over (the first
+        // shots had its foot on and under the ground line).
+        let top = size.height * 0.16, foot = size.height * HopGameView.groundAt - 26 * scale(size)
+        let s = (foot - top) / 602
+        let ox = size.width / 2 - 512 * s, oy = foot - 809 * s
         for (i, d) in KDots.dots.enumerated() {
             let home = CGPoint(x: ox + d.x * s, y: oy + d.y * s), r = d.r * s
             guard let l = lit[i] else { gc.fill(circle(home, r), with: .color(cream.opacity(0.16))); continue }
@@ -209,7 +212,7 @@ enum HopDrawing {
                 let path = HopLogic.Spring.path(from: (l.from.x, l.from.y), home: (home.x, home.y))
                 at = CGPoint(x: path[frame].x, y: path[frame].y)
             }
-            gc.fill(circle(at, r), with: .color(cream.opacity(0.92)))
+            gc.fill(circle(at, r), with: .color(cream.opacity(0.7)))   // bright, but under the clusters' 0.9: it is scenery
         }
     }
 
