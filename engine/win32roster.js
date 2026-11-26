@@ -335,8 +335,7 @@ function make(opts) {
       // #5333: built BY KEY from PANE_COLUMNS, not hand-typed in order: a column added before `title` (tokenInstance)
       // shifted every Windows row, putting the name in the new column and dropping the title. A column this does not
       // know is left empty (win32roster.test.js asserts every column is known here).
-      const value = win32RowValue(name, runner);
-      lines.push(COLUMNS.map((c) => (Object.prototype.hasOwnProperty.call(value, c.key) ? value[c.key] : '')).join('\t'));
+      lines.push(rowLine(name, runner, COLUMNS));
     }
     // Trailing newline so the last row parses like every other (matches tmux's
     // own output shape); an empty roster is a valid, readable answer (no agents),
@@ -351,5 +350,12 @@ function win32RowValue(name, runner) {
   return { session: name, pane: '0.0', command: WIN32_COMMAND, inMode: '0', claim: name, runner, tokenInstance: '', title: name };
 }
 const WIN32_ROW_KEYS = Object.keys(win32RowValue('', ''));
+/* kosmos#9087: one Windows row as the roster line it is emitted as (make above), so a card built for one agent while
+   the roster cannot be read (status.channelCardFor) parses the same bytes a good read would have given. */
+function rowLine(name, runner, columns) {
+  const COLUMNS = columns || require('./status').PANE_COLUMNS;   // at call time: status requires this module
+  const value = win32RowValue(name, runner);
+  return COLUMNS.map((c) => (Object.prototype.hasOwnProperty.call(value, c.key) ? value[c.key] : '')).join('\t');
+}
 
-module.exports = { WIN32_ROW_KEYS, make, defaultRun, defaultRunAsync, makeCachedRun, cachedRun, FRESH_MS, STALE_MS, HOLD_MS, WIN32_COMMAND, isWin32Pane, flat, problemOf };
+module.exports = { WIN32_ROW_KEYS, rowLine, make, defaultRun, defaultRunAsync, makeCachedRun, cachedRun, FRESH_MS, STALE_MS, HOLD_MS, WIN32_COMMAND, isWin32Pane, flat, problemOf };

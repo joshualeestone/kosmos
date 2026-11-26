@@ -1186,4 +1186,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { restartWhy, restartedFor, exitCodeText, RESTART_TEXT_MAX, limitAfterEvent, startedAt, STEP_CLOCK_MS, START_DEADLINE_MS, LOST_WINDOW_MS, REPORT_HOLD_MS, MSGS_MAX, unstartedFor, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
+module.exports = { statePath /* kosmos#9087 */, restartWhy, restartedFor, exitCodeText, RESTART_TEXT_MAX, limitAfterEvent, startedAt, STEP_CLOCK_MS, START_DEADLINE_MS, LOST_WINDOW_MS, REPORT_HOLD_MS, MSGS_MAX, unstartedFor, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
