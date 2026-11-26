@@ -183,7 +183,8 @@ if [ "${1:-}" = --withdraw ]; then
     [ "$(date +%s)" -lt "$_qe" ] || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') still ending at the bound:$_ql ($_qw)"; exit 3; }
     sleep 0.5
   done
-  echo "QUEUED-HEAVY $(date '+%H:%M:%S') withdrew $_qn run(s) labelled \"$_qw\""; [ "$_qbad" -gt 0 ] && exit 5; [ "$_qfg" -gt 0 ] && exit 4; exit 0
+  [ "$_qn" -gt 0 ] && echo "QUEUED-HEAVY $(date '+%H:%M:%S') withdrew $_qn run(s) labelled \"$_qw\""   # review 6: never "withdrew 0"
+  [ "$_qbad" -gt 0 ] && exit 5; [ "$_qfg" -gt 0 ] && exit 4; exit 0
 fi
 if [ "${1:-}" = --light ]; then export KOSMOS_QUEUE_CLASS=light; shift; fi
 WHAT="${1:?what}"; shift
@@ -861,9 +862,10 @@ if [ "$LANE" = side ]; then
   # #9118 review 5: a TERM, INT or HUP between the fork and CMD=$! is recorded and acted on once CMD is set, as in a main
   # turn (a TERM there found CMD empty, so the side command ran on uncapped and unclaimed).
   trap 'QH_PEND=143' TERM; trap 'QH_PEND=130' INT; trap 'QH_PEND=129' HUP
+  trap 'QH_PEND=$((128 + $(kill -l ALRM)))' ALRM; trap 'QH_PEND=$((128 + $(kill -l USR1)))' USR1; trap 'QH_PEND=$((128 + $(kill -l USR2)))' USR2   # review 6: as the main lane
   if [ -t 0 ]; then set -m; "$@" </dev/null & CMD=$!; set +m
   else set -m; "$@" & CMD=$!; set +m; fi
-  trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP
+  trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP; trap - ALRM USR1 USR2
   [ -n "$QH_PEND" ] && exit "$QH_PEND"
   kosmos_publish_light_side_pgid "$CMD"       # review 5: a holder's page layer can tell this run's browser run apart
   # The capper runs in its OWN process group too, and is stopped by group: killing only the subshell could orphan the
