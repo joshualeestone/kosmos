@@ -28,6 +28,17 @@ each start under its logon task, after the hand-off, is never seen at all.
 6. Messages: one plain sentence of what is wrong, what Repair does, Yes as the default (unlike AskYesNo, which guards
    removals).
 
+## Review 1 (opus): the repair targeted the wrong copy
+The file that crashed on the box was the ANCHORED copy, <LOCALAPPDATA>\Kosmos\runtime\node.exe (win32anchor.anchorDir),
+which the logon task's board and every agent run, and which ensureAnchored re-copies only when its SIZE differs. The
+first build checked and repaired only this folder's runtime\node.exe. Now both are checked; the anchored one is repaired
+from this folder's (once that checks out). Also from the review: damaged means it RAN and ended non-zero (a runtime
+Windows will not start keeps Windows' reason and is never renamed); No goes on with the launch; the after-hand-off look
+speaks only when the anchored runtime fails its check (a slow healthy board says nothing); crash dialogs are off for the
+check (SetErrorMode); per-process copy names; one kept damaged copy; a failed swap that leaves no runtime says so; a
+sha256 mismatch points at a download, not a restart; the probe keys its fake on the file ID (NTFS tunnelling defeats a
+creation-time key).
+
 ## Tests
 tools.win-launcher-runtime-9144.test.js: the source (the order in Main, fail open on a check that did not finish, the
 repair's step order and what each failure leaves, the after-hand-off look only for a hand-off, the flag, the manifest

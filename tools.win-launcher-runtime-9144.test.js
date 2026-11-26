@@ -6,16 +6,17 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *
  *   node --test tools.win-launcher-runtime-9144.test.js
  *
- * Measured on the Windows box 11-26 (Homer): runtime\node.exe died on every run, even `node -e 1` (exit 139), while a
- * byte-identical COPY ran clean, and a fresh copy over it fixed it. The launcher said "try again", which fails the same
- * way, and the logon task's board died seconds after the hand-off where nobody saw it.
+ * Measured on the Windows box 11-26 (Homer): <LOCALAPPDATA>\Kosmos\runtime\node.exe, the ANCHORED copy the logon
+ * task's board and every agent run, died on every run (exit 139 in bash) while a byte-identical COPY ran clean, and a
+ * fresh copy over it fixed it. The launcher said "try again", which fails the same way, and the logon task's board died
+ * after the hand-off where nobody saw it.
  *
  * Two halves, as tools.win-launcher-stuck-board-4543.test.js does it:
- *   - the SOURCE, for the wiring (where Main checks, that the check fails open, the repair's order, the look after a
- *     hand-off, the Yes default, the manifest key the build writes, C# 5 only);
+ *   - the SOURCE, for the wiring (where Main checks, both copies, what counts as damaged, the repair's order, the look
+ *     after a hand-off, the Yes default, the anchored path's rule, the manifest key the build writes, C# 5 only);
  *   - a PROBE compiled beside KosmosLauncher.cs (Windows only), which runs the real RepairRuntime against a fake runtime
- *     that "crashes" (exit 139) when its FILE was created before a threshold, so the old file fails and a fresh copy,
- *     a new file, runs: the same shape as the fault.
+ *     that "crashes" (exit 139) when its FILE ID is on a list: a copy is a new file with a new ID, a rename keeps it.
+ *     (Keyed on the ID, not a time: NTFS tunnelling gives a file renamed into a just-vacated name the old CREATION time.)
  */
 
 const test = require('node:test');
@@ -30,6 +31,7 @@ const REPO = __dirname;
 const LAUNCHER = path.join(REPO, 'tools', 'windows', 'KosmosLauncher.cs');
 const SOURCE = fs.readFileSync(LAUNCHER, 'utf8');
 const BUILD = fs.readFileSync(path.join(REPO, 'tools', 'build-kosmos-windows.sh'), 'utf8');
+const ANCHOR = fs.readFileSync(path.join(REPO, 'engine', 'win32anchor.js'), 'utf8');
 const WINDOWS_ONLY = { skip: process.platform !== 'win32' && 'the probe needs the Windows C# compiler and Windows processes' };
 
 function slice(start, end) {
@@ -43,56 +45,92 @@ function method(signature) { return slice(signature, '\n    }\n'); }
 
 /* ---- the source ------------------------------------------------------------ */
 
-test('#9144: Main checks the runtime after the file checks and the window errand, and before the installer duties and the board', () => {
+test('#9144: Main checks the runtimes after the file checks and the window errand, and before the installer duties and the board', () => {
   const main = method('static int Main(string[] args)');
   const exists = main.indexOf('if (!File.Exists(server)) return Fail(');
   const window = main.indexOf('if (wantsWindow) return RunBoardWindow(');
   const repair = main.indexOf('if (wantsRepair) return RepairRuntimeFromConsole(here);');
-  const check = main.indexOf('int? endedByRuntimeCheck = CheckRuntimeBeforeStarting(here, node);');
+  const check = main.indexOf('int? endedByRuntimeCheck = CheckRuntimesBeforeStarting(here, node);');
   const duties = main.indexOf('int? endedByInstallerDuties = RunInstallerDuties(here, node, port);');
   const board = main.indexOf('p = Process.Start(s);');
   for (const [n, v] of Object.entries({ exists, window, repair, check, duties, board })) assert.ok(v > 0, n + ' moved');
   assert.ok(exists < window && window < repair && repair < check, 'the check is not after the file checks and the window errand');
   assert.ok(check < duties && check < board, 'something runs the runtime before it is checked');
-  assert.match(main.slice(check), /^int\? endedByRuntimeCheck = CheckRuntimeBeforeStarting\(here, node\);\n\s+if \(endedByRuntimeCheck\.HasValue\) return endedByRuntimeCheck\.Value;/);
+  assert.match(main.slice(check), /^int\? endedByRuntimeCheck = CheckRuntimesBeforeStarting\(here, node\);\n\s+if \(endedByRuntimeCheck\.HasValue\) return endedByRuntimeCheck\.Value;/);
 });
 
-test('#9144: the check fails open: one that does not finish says nothing; one that will not start, or ends non-zero, is damaged', () => {
-  const looks = method('internal static bool RuntimeLooksDamaged(int exitCode)');
-  assert.match(looks, /return exitCode != 0 && exitCode != RuntimeCheckDidNotFinish;/);
-  const check = method('static int? CheckRuntimeBeforeStarting(string here, string node)');
-  assert.match(check, /if \(!RuntimeLooksDamaged\(code\)\) return null;/, 'a healthy or unfinished check does not let the launch go on');
-  assert.match(check, /if \(problem == null\) return null;/, 'a repaired runtime does not let the launch go on');
-  const run = method('internal static int RuntimeCheckExitCode(string nodePath)');
+test('#9144: BOTH copies are checked: this folder\'s, then the logon task\'s anchored one, repaired from this folder\'s', () => {
+  const check = method('static int? CheckRuntimesBeforeStarting(string here, string node)');
+  const own = check.indexOf('RuntimeCheck own = CheckRuntime(node);');
+  const anchored = check.indexOf('RuntimeCheck task = CheckRuntime(anchored);');
+  assert.ok(own > -1 && anchored > own, 'the anchored copy is not checked after this folder\'s');
+  assert.match(check, /RepairRuntime\(node, anchored, ExpectedRuntimeSha256\(here\)\)/, 'the anchored copy is not repaired from this folder\'s');
+  assert.match(check, /RepairRuntime\(node, node, ExpectedRuntimeSha256\(here\)\)/);
+  assert.match(method('static void LookAfterHandOff(string here, string node, int port)'), /RuntimeCheck task = CheckRuntime\(anchored\);/, 'the look after a hand-off does not check the copy the logon task runs');
+});
+
+test('#9144: the anchored path follows engine/win32anchor.js anchorDir\'s rule', () => {
+  const p = method('internal static string AnchoredRuntimePath()');
+  /* The C# branches, in order. */
+  const data = p.indexOf('if (!string.IsNullOrEmpty(data)) baseDir = Path.Combine(data, InstallFolderName);');
+  const home = p.indexOf('else if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("AGENT_WORKFORCE_HOME")))');
+  const local = p.indexOf('else baseDir = Path.Combine(LocalAppDataFolder(), InstallFolderName);');
+  assert.ok(data > -1 && home > data && local > home, 'the anchored path\'s branches moved: ' + [data, home, local]);
+  assert.match(p, /return Path\.Combine\(baseDir, "runtime", "node\.exe"\);/);
+  /* The JS rule they mirror, and the folder name. */
+  assert.match(ANCHOR, /\} else if \(e\.AGENT_WORKFORCE_DATA\) \{\n\s+base = p\.join\(e\.AGENT_WORKFORCE_DATA, APP\);/);
+  assert.match(ANCHOR, /base = e\.AGENT_WORKFORCE_HOME\n\s+\? p\.join\(home, 'AppData', 'Local', APP\)\n\s+: p\.join\(e\.LOCALAPPDATA \|\| p\.join\(home, 'AppData', 'Local'\), APP\);/);
+  assert.match(ANCHOR, /const dir = p\.join\(base, 'runtime'\);/);
+  assert.match(SOURCE, /const string InstallFolderName = "Kosmos";/);
+  assert.match(fs.readFileSync(path.join(REPO, 'engine', 'store.js'), 'utf8'), /const APP = 'Kosmos';/);
+});
+
+test('#9144: damaged means it RAN, finished, and did not end with 0; Windows refusing to start it is never repaired', () => {
+  assert.match(SOURCE, /public bool LooksDamaged \{ get \{ return Started && Finished && ExitCode != 0; \} \}/);
+  const check = method('static int? CheckRuntimesBeforeStarting(string here, string node)');
+  assert.match(check, /if \(!AskRepair\(DamagedRuntimeQuestion\(own\.Words\)\)\) return null;/, 'a No does not let the launch go on');
+  assert.match(check, /else if \(!own\.Finished \|\| !own\.Started\) return null;/, 'an unfinished or refused check does not let the launch go on');
+  assert.match(check, /if \(!task\.LooksDamaged \|\| !showMessageBoxes\) return null;/);
+  const run = method('internal static RuntimeCheck CheckRuntime(string nodePath)');
   assert.match(run, /new ProcessStartInfo\(nodePath, "-e 0"\)/);
+  assert.match(run, /catch \(Exception e\) \{ r\.StartError = e\.Message; return r; \}/, 'Windows\' reason for refusing to start it is dropped');
   assert.match(run, /if \(!q\.WaitForExit\(RuntimeCheckTimeoutMs\)\)/, 'the check has no time limit');
-  assert.match(run, /catch \{ return RuntimeCheckCouldNotStart; \}/, 'the check can throw');
+  assert.match(run, /SetErrorMode\(SEM_FAILCRITICALERRORS \| SEM_NOGPFAULTERRORBOX\)/, 'a crash can put up a dialog that holds the check');
 });
 
-test('#9144: the repair makes a NEW file, checks it, and only then swaps it in, keeping the old one', () => {
-  const repair = method('internal static string RepairRuntime(string here)');
+test('#9144: the repair makes a NEW file, checks it, and only then swaps it in, keeping one old copy', () => {
+  const repair = method('internal static string RepairRuntime(string from, string target, string expectedSha256)');
   const order = [
-    'File.Copy(node, copy);',
-    'string expected = ExpectedRuntimeSha256(here);',
-    'int code = RuntimeCheckExitCode(copy);',
-    'File.Move(node, damaged);',
-    'try { File.Move(copy, node); }',
-    'int after = RuntimeCheckExitCode(node);',
+    'File.Copy(from, copy, true);',
+    'string got = FileSha256Hex(copy);',
+    'RuntimeCheck fresh = CheckRuntime(copy);',
+    'foreach (string old in Directory.GetFiles(dir, DamagedRuntimePrefix + "*")) TryDeleteFile(old);',
+    'if (hadTarget) File.Move(target, damaged);',
+    'try { File.Move(copy, target); }',
+    'RuntimeCheck after = CheckRuntime(target);',
   ].map((s) => { const at = repair.indexOf(s); assert.ok(at > -1, s + ' is gone from RepairRuntime'); return at; });
   for (let i = 1; i < order.length; i += 1) assert.ok(order[i - 1] < order[i], 'the repair steps are out of order at step ' + i);
-  assert.match(repair, /if \(code != 0\)\n\s+\{\n\s+TryDeleteFile\(copy\);/, 'a fresh copy that does not run is not removed, or a slow one is accepted');
-  assert.match(repair, /Path\.Combine\(runtime, DamagedRuntimePrefix \+ DateTime\.Now\.ToString\("yyyyMMdd-HHmmss"\)\)/);
-  assert.doesNotMatch(repair, /File\.Delete\(node\)|File\.WriteAllBytes\(node/, 'the repair deletes or rewrites the old runtime instead of keeping it');
-  assert.match(SOURCE, /internal const string RepairCopyName = "node-repair\.exe";/, 'the fresh copy is not an .exe, so Windows may not run it as a program');
+  assert.match(repair, /if \(!fresh\.Finished \|\| fresh\.ExitCode != 0\)\n\s+\{\n\s+TryDeleteFile\(copy\);/, 'a fresh copy that does not run is kept, or a slow one is accepted');
+  assert.match(repair, /Path\.Combine\(dir, RepairCopyPrefix \+ Process\.GetCurrentProcess\(\)\.Id \+ "\.exe"\)/, 'two launches repairing at once share one copy');
+  assert.match(repair, /and the runtime is now missing: /, 'a failed swap that leaves no runtime does not say so');
+  assert.doesNotMatch(repair, /File\.Delete\(target\)|File\.WriteAllBytes\(target/, 'the repair deletes or rewrites the old runtime instead of keeping it');
 });
 
-test('#9144: after a hand-off (and only then), nothing listening on the port in time offers the same Repair', () => {
+test('#9144: a file that does not match this version is sent to a download, not a restart', () => {
+  const m = method('internal static string RepairFailedMessage(string problem)');
+  assert.match(m, /"does not match this version's"/);
+  assert.match(m, /\(fileIsWrong \? DownloadAdvice : RestartAdvice\)/);
+  assert.match(method('internal static string RepairRuntime(string from, string target, string expectedSha256)'), /"its file does not match this version's \(sha256 "/, 'the words RepairFailedMessage keys on moved');
+});
+
+test('#9144: after a hand-off (and only then), a quiet port AND a failing logon-task runtime offer Repair; a healthy runtime says nothing', () => {
   const main = method('static int Main(string[] args)');
   assert.match(main, /if \(provablyServingHere\) \{ servedHere = true; stoppedByPerson = KeepBoardUntilPersonStopsIt\(p\); break; \}/);
   assert.match(main, /if \(p\.ExitCode == 0 && !servedHere && !stoppedByPerson && showMessageBoxes\) LookAfterHandOff\(here, node, port\);\n\s+return p\.ExitCode;/);
   const look = method('static void LookAfterHandOff(string here, string node, int port)');
   assert.match(look, /if \(listening == null \|\| listening\.Count > 0\) return;/, 'an unreadable table or a listening board is not left alone');
-  assert.ok(look.indexOf('while (waited.ElapsedMilliseconds < AfterHandOffLookMs)') < look.indexOf('RuntimeCheckExitCode(node)'), 'the runtime is checked before the board was given its time');
+  assert.match(look, /if \(!task\.LooksDamaged\) return;/, 'a slow but healthy board gets a question');
+  assert.ok(look.indexOf('while (waited.ElapsedMilliseconds < AfterHandOffLookMs)') < look.indexOf('CheckRuntime(anchored)'), 'the runtime is checked before the board was given its time');
   const ms = Number((/internal const int AfterHandOffLookMs = (\d+);/.exec(SOURCE) || [])[1]);
   const serving = Number((/const int CheckForServingAfterMs = (\d+);/.exec(SOURCE) || [])[1]);
   assert.ok(ms >= 60000 && ms > serving, 'the look comes before a slow first boot could be listening (' + ms + ' ms)');
@@ -123,25 +161,44 @@ test('#9144: the launcher stays C# 5 (the in-box .NET Framework compiler verify-
 
 /* ---- the probe (Windows only) ----------------------------------------------- */
 
-/* A fake runtime: exit 139 when this file was CREATED before the threshold in threshold.txt beside it, else 0. A copy
-   is a new file (a new creation time), a rename keeps the old one: the same shape as the fault. */
+/* A fake runtime: exit 139 when this file's ID (volume serial and file index) is listed in crash-ids.txt beside it, or
+   when the list says ALWAYS; else 0. A copy is a new file with a new ID; a rename keeps the ID. */
+const FILE_ID = `
+  [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+  struct BHFI { public uint attr; public long c, a, w; public uint vol, sizeHi, sizeLo, links, idxHi, idxLo; }
+  [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool GetFileInformationByHandle(Microsoft.Win32.SafeHandles.SafeFileHandle h, out BHFI info);
+  internal static string FileId(string path) {
+    using (System.IO.FileStream f = new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete)) {
+      BHFI i; if (!GetFileInformationByHandle(f.SafeFileHandle, out i)) return "?";
+      return i.vol.ToString("x8") + ":" + i.idxHi.ToString("x8") + i.idxLo.ToString("x8");
+    }
+  }`;
 const FAKE_NODE = `
 using System; using System.IO;
 class FakeNode {
+${FILE_ID}
   static int Main(string[] a) {
     string me = System.Reflection.Assembly.GetEntryAssembly().Location;
-    string t = Path.Combine(Path.GetDirectoryName(me), "threshold.txt");
-    if (!File.Exists(t)) return 0;
-    long ticks = long.Parse(File.ReadAllText(t).Trim());
-    return File.GetCreationTimeUtc(me).Ticks < ticks ? 139 : 0;
+    string list = Path.Combine(Path.GetDirectoryName(me), "crash-ids.txt");
+    if (!File.Exists(list)) return 0;
+    string all = File.ReadAllText(list);
+    if (all.Contains("ALWAYS")) return 139;
+    return all.Contains(FileId(me)) ? 139 : 0;
   }
 }`;
 const PROBE = `
 using System; using System.IO;
 class RuntimeProbe {
+${FILE_ID}
   static int Main(string[] a) {
-    if (a[0] == "check") { Console.WriteLine(KosmosLauncher.RuntimeCheckExitCode(a[1])); return 0; }
-    string problem = KosmosLauncher.RepairRuntime(a[1]);
+    if (a[0] == "fileid") { Console.WriteLine(FileId(a[1])); return 0; }
+    if (a[0] == "check") {
+      KosmosLauncher.RuntimeCheck c = KosmosLauncher.CheckRuntime(a[1]);
+      Console.WriteLine(!c.Started ? "NOTSTARTED" : !c.Finished ? "UNFINISHED" : c.ExitCode.ToString());
+      return 0;
+    }
+    string problem = KosmosLauncher.RepairRuntime(a[1], a[2], a[3] == "-" ? null : a[3]);
     Console.WriteLine(problem == null ? "REPAIRED" : "PROBLEM " + problem);
     return 0;
   }
@@ -152,7 +209,7 @@ function compile(csc, out, sources, main) {
   assert.equal(r.status, 0, 'compile failed: ' + r.stdout + r.stderr);
 }
 
-test('#9144 probe: RepairRuntime against a fake runtime that crashes, a bad manifest sha256, and a copy that crashes too', WINDOWS_ONLY, (t) => {
+test('#9144 probe: RepairRuntime on a crashing runtime, a crashing anchored copy, a bad sha256, and a copy that crashes too', WINDOWS_ONLY, (t) => {
   const csc = path.join(process.env.SystemRoot || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
   if (!fs.existsSync(csc)) { t.skip('no .NET Framework compiler on this machine'); return; }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-9144-'));
@@ -163,43 +220,56 @@ test('#9144 probe: RepairRuntime against a fake runtime that crashes, a bad mani
   compile(csc, fake, [path.join(dir, 'FakeNode.cs')], 'FakeNode');
   compile(csc, probe, [LAUNCHER, path.join(dir, 'RuntimeProbe.cs')], 'RuntimeProbe');
   const run = (...args) => (spawnSync(probe, args, { encoding: 'utf8', windowsHide: true, timeout: 120000 }).stdout || '').trim();
-
-  /* One kit per case: a folder with runtime\node.exe (the fake, created in the past) and an optional manifest. */
-  let n = 0;
-  function kit(threshold, manifestSha) {
-    const root = path.join(dir, 'kit' + (n += 1));
-    fs.mkdirSync(path.join(root, 'runtime'), { recursive: true });
-    const node = path.join(root, 'runtime', 'node.exe');
-    fs.copyFileSync(fake, node);
-    spawnSync('powershell', ['-NoProfile', '-Command', `(Get-Item '${node}').CreationTimeUtc = (Get-Date).ToUniversalTime().AddHours(-1)`], { windowsHide: true });
-    fs.writeFileSync(path.join(root, 'runtime', 'threshold.txt'), String(threshold));
-    if (manifestSha !== undefined) fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify({ product: 'kosmos', platform: 'win32', runtime_node_sha256: manifestSha }));
-    return { root, node };
-  }
-  const nowTicks = () => String(BigInt(Date.now()) * 10000n + 621355968000000000n);
   const sha = crypto.createHash('sha256').update(fs.readFileSync(fake)).digest('hex');
 
-  /* A: the old file crashes, a fresh copy runs: repaired, the old kept, no copy left, node.exe now runs. */
-  const a = kit(nowTicks(), sha);
+  /* A folder holding runtime\node.exe (the fake); `crash` lists that very file's ID (or ALWAYS). */
+  let n = 0;
+  function runtimeDir(crash) {
+    const root = path.join(dir, 'kit' + (n += 1));
+    const rt = path.join(root, 'runtime');
+    fs.mkdirSync(rt, { recursive: true });
+    const node = path.join(rt, 'node.exe');
+    fs.copyFileSync(fake, node);
+    if (crash === 'always') fs.writeFileSync(path.join(rt, 'crash-ids.txt'), 'ALWAYS\n');
+    else if (crash) fs.writeFileSync(path.join(rt, 'crash-ids.txt'), run('fileid', node) + '\n');
+    return { root, rt, node };
+  }
+  const leftovers = (rt) => fs.readdirSync(rt).filter((f) => f.startsWith('node-repair-'));
+  const kept = (rt) => fs.readdirSync(rt).filter((f) => f.startsWith('node.exe.damaged-'));
+
+  /* A: this folder's runtime crashes, a fresh copy runs: repaired, one old kept, no copy left. */
+  const a = runtimeDir(true);
   assert.equal(run('check', a.node), '139', 'CONTROL: the fake runtime crashes before the repair');
-  assert.equal(run('repair', a.root), 'REPAIRED');
+  assert.equal(run('repair', a.node, a.node, sha), 'REPAIRED');
   assert.equal(run('check', a.node), '0', 'node.exe still crashes after the repair');
-  const left = fs.readdirSync(path.join(a.root, 'runtime'));
-  assert.equal(left.filter((f) => f.startsWith('node.exe.damaged-')).length, 1, 'the old runtime is not kept: ' + left);
-  assert.ok(!left.includes('node-repair.exe'), 'the fresh copy was left behind under its working name');
+  assert.equal(kept(a.rt).length, 1);
+  assert.deepEqual(leftovers(a.rt), []);
+
+  /* E: the ANCHORED copy crashes (the fault on the box); this folder's is healthy: repaired from it. */
+  const install = runtimeDir(false);
+  const anchored = runtimeDir(true);
+  assert.equal(run('check', anchored.node), '139', 'CONTROL: the anchored copy crashes before the repair');
+  assert.equal(run('repair', install.node, anchored.node, sha), 'REPAIRED');
+  assert.equal(run('check', anchored.node), '0');
+  assert.equal(kept(anchored.rt).length, 1);
+  assert.equal(kept(install.rt).length, 0, 'the healthy source was touched');
 
   /* B: the manifest names another sha256: refused, nothing swapped, no copy left. */
-  const b = kit(nowTicks(), '0'.repeat(64));
-  assert.match(run('repair', b.root), /^PROBLEM its file does not match this version's/);
+  const b = runtimeDir(true);
+  assert.match(run('repair', b.node, b.node, '0'.repeat(64)), /^PROBLEM its file does not match this version's/);
   assert.equal(run('check', b.node), '139', 'the old runtime was swapped out on a sha256 mismatch');
-  assert.ok(!fs.readdirSync(path.join(b.root, 'runtime')).some((f) => f === 'node-repair.exe' || f.startsWith('node.exe.damaged-')));
+  assert.deepEqual([...leftovers(b.rt), ...kept(b.rt)], []);
 
-  /* C: a fresh copy crashes too (the threshold is in the future): refused, the old left in place. */
-  const c = kit(String(BigInt(nowTicks()) + 36000000000n), sha);
-  assert.match(run('repair', c.root), /^PROBLEM a fresh copy of it does not run either/);
-  assert.ok(fs.existsSync(c.node) && !fs.readdirSync(path.join(c.root, 'runtime')).some((f) => f === 'node-repair.exe' || f.startsWith('node.exe.damaged-')));
+  /* C: a fresh copy crashes too: refused, the old left in place. */
+  const c = runtimeDir('always');
+  assert.match(run('repair', c.node, c.node, sha), /^PROBLEM a fresh copy of it does not run either/);
+  assert.ok(fs.existsSync(c.node));
+  assert.deepEqual([...leftovers(c.rt), ...kept(c.rt)], []);
 
-  /* D: an older build with no manifest key: repaired on the run check alone. */
-  const d = kit(nowTicks());
-  assert.equal(run('repair', d.root), 'REPAIRED');
+  /* D: an older build with no manifest key: repaired on the run check alone; a second repair keeps ONE old copy. */
+  const d = runtimeDir(true);
+  assert.equal(run('repair', d.node, d.node, '-'), 'REPAIRED');
+  fs.writeFileSync(path.join(d.rt, 'crash-ids.txt'), run('fileid', d.node) + '\n');
+  assert.equal(run('repair', d.node, d.node, '-'), 'REPAIRED');
+  assert.equal(kept(d.rt).length, 1, 'old copies pile up: ' + kept(d.rt));
 });
