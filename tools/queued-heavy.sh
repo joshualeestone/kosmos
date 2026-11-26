@@ -687,7 +687,9 @@ if [ -n "$QH_CAP_S" ]; then
   export KOSMOS_WAIT_QUEUE_CEIL_S="$QH_CAP_S"
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') waits at most ${QH_CAP_S}s for an ordinary holder, then runs beside it; a release cut is waited out (QUEUED_HEAVY_CAP_S, kosmos#9139): $WHAT"
 fi
-# Review 1: a cut with no claim (or a lapsed one) is a cut too: kosmos_refuse_if_cut_live sees the cut's own process.
+# Review 1: a cut with no claim (or a lapsed one) counts too when deciding to go BESIDE: kosmos_refuse_if_cut_live sees
+# the cut's own process. Review 3: it does not stop an ordinary TAKE on an otherwise free box (_qh_clear does not ask),
+# which is what the queue has always done; only running beside is held back by it.
 _qh_cut_holds() {
   case "$(kosmos_machine_claim_status 2>/dev/null)" in *"reserved for a release"*) return 0 ;; esac
   if command -v kosmos_refuse_if_cut_live >/dev/null 2>&1; then kosmos_refuse_if_cut_live "$WHAT" >/dev/null 2>&1 || return 0; fi
@@ -700,26 +702,12 @@ _qh_free_now() {
   [ -e "$(_kosmos_suite_waiter_file "$$")" ] || kosmos_mark_suite_waiting "$QH_JOINED"
   return 0
 }
-_qh_run_beside() {
-  local id rc note=1
-  kosmos_unmark_suite_waiting
-  command -v kosmos_note_beside_run >/dev/null 2>&1 || note=0
-  id="queued-heavy-$$-$(date +%s)"
-  echo "QUEUED-HEAVY $(date '+%H:%M:%S') RUNNING BESIDE the queue: the cap (${QH_CAP_S}s) ran out and no release cut holds the machine, so this shares the box with whatever holds it (kosmos#9139): $WHAT"
-  [ "$note" = 1 ] || echo "QUEUED-HEAVY: this lib has no kosmos_note_beside_run, so the holder's summary will not name this run" >&2
-  [ "$note" = 1 ] && kosmos_note_beside_run start "$id" "$WHAT"
-  trap '[ "$note" = 1 ] && kosmos_note_beside_run end "$id"; exit 143' TERM
-  trap '[ "$note" = 1 ] && kosmos_note_beside_run end "$id"; exit 130' INT
-  trap '[ "$note" = 1 ] && kosmos_note_beside_run end "$id"; exit 129' HUP
-  # Review 1: the command gets the environment a main turn gives it (the two unset lines after the turn is taken), and
-  # not the cap: a queued-heavy inside a beside run has no claim to inherit, and would wait the cap again.
-  unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} 2>/dev/null
-  unset KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_KEEP_MARK KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S QH_TEST_PS QH_TEST_PS_NAME QH_TEST_CWD QH_TEST_MOVE_FAIL QH_TEST_RESTORE_FAIL QUEUED_HEAVY_CAP_S
-  "$@"; rc=$?
-  [ "$note" = 1 ] && kosmos_note_beside_run end "$id"
-  echo "QUEUED-HEAVY $(date '+%H:%M:%S') END (ran beside the queue) rc=$rc: $WHAT"
-  exit "$rc"
-}
+# Review 3: a beside run goes through the SAME run code as a main turn (its own process group, the #9118 TERM
+# forwarding and grace, the watcher for a killed wrapper, the bg/fg label --withdraw reads, the END line), with no take,
+# no claim and no renewer. It used to run its command in the foreground here, so --withdraw or a TERM did nothing until
+# the command ended, and the command's exit code was lost (the class #9118 fixed for main turns).
+QH_BESIDE=""; QH_BESIDE_ID=""
+_qh_go_beside() { QH_BESIDE=1; return 0; }
 # The wait gave up. With no cap, as before: refused. With a cap: a free turn now (in order), the cut waited out, or
 # beside. Review 1: the cut re-wait sleeps between passes and does not honour KOSMOS_NO_WAIT, so a wait that gives up
 # at once (a cap of 0, or KOSMOS_NO_WAIT=1) cannot spin beside a cut for its two hours.
@@ -735,11 +723,12 @@ _qh_after_bound() {
 }
 # Past the deadline with no turn: a cut is waited out (sleeping between passes); then a free turn, or beside.
 _qh_cut_or_beside() {
-  local every="${KOSMOS_WAIT_EVERY_S:-30}" waited=0
+  local every="${KOSMOS_WAIT_EVERY_S:-30}" waited=0 passes=0
   case "$every" in ''|*[!0-9]*|0) every=30 ;; esac
   while _qh_cut_holds; do
-    waited=1
-    echo "QUEUED-HEAVY $(date '+%H:%M:%S') the cap (${QH_CAP_S}s) ran out while a release cut holds the machine; waiting past the cap (kosmos#9139): $WHAT"
+    waited=1; passes=$((passes + 1))
+    # Review 3: said on the first pass and every tenth, not on every pass of a two-hour cut.
+    [ $(( (passes - 1) % 10 )) = 0 ] && echo "QUEUED-HEAVY $(date '+%H:%M:%S') the cap (${QH_CAP_S}s) ran out while a release cut holds the machine; waiting past the cap (pass $passes, kosmos#9139): $WHAT"
     KOSMOS_NO_WAIT=0 kosmos_wait_until_clear "$WHAT" --suite-queue _qh_clear && return 0
     _qh_free_now && return 0
     sleep "$every"
@@ -747,23 +736,23 @@ _qh_cut_or_beside() {
   # Review 1: the cut may have ended between the last check and the loop's test. Review 2: only after a cut was waited
   # out; a free box with no cut here is the one this run just lost a take on, and taking it again would only lose again.
   [ "$waited" = 1 ] && _qh_free_now && return 0
-  _qh_run_beside "$@"
+  _qh_go_beside
 }
 QH_JOINED="$(date +%s)"
 export KOSMOS_WAIT_KEEP_MARK=1   # #5332, see _qh_take. Read only by a main-lane wait (a side wait returns first; the renewer never waits).
 # kosmos#9139 review 2: `&&`, so a capped wait that _qh_after_bound sends round again does not take. Without a cap the
 # two forms are the same (_qh_after_bound exits 4 there, or returns 0).
-until { { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_ARGS[@]}"} _qh_clear || _qh_after_bound "$@"; } && _qh_take; }; do
+until { { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_ARGS[@]}"} _qh_clear || _qh_after_bound "$@"; } && { [ -n "$QH_BESIDE" ] || _qh_take; }; }; do
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') did not get the turn (another run took it, or is ahead in the queue); waiting again: $WHAT"
-  # kosmos#9139 review 2: with a cap, the next wait gets only what is left of it, and a lost take pauses first (a cap of
-  # 0 behind an earlier waiter otherwise went round at full speed).
+  # kosmos#9139 review 2: with a cap, the next wait gets only what is left of it. Review 3: no pause here (it cost the
+  # run its place for one poll and overshot the deadline); the wait polls on its own, and past the deadline
+  # QH_CAP_TRIED, not a pause, is what stops a second take of the same free box.
   if [ -n "$QH_CAP_S" ] && [ "${KOSMOS_WAIT_LANE:-main}" != side ]; then
     _qh_left=$(( QH_CAP_END - $(date +%s) )); [ "$_qh_left" -gt 0 ] || _qh_left=0
     export KOSMOS_WAIT_QUEUE_CEIL_S="$_qh_left"
     # Past the deadline the next wait has a ceiling of 0, so it gives up at once and _qh_after_bound decides (a cut
     # waited out, or beside). That holds when only the TAKE lost (an earlier waiter on a free box) too: the wait sees
     # the waiter ahead and gives up. Review 2's 169-take spin was _qh_cut_or_beside retaking that same free box.
-    sleep "${KOSMOS_WAIT_EVERY_S:-30}"
   fi
   # Only when the place is gone (review 3): a lost take that kept its marker needs no re-mark.
   if [ "${KOSMOS_WAIT_LANE:-main}" != side ] && [ ! -e "$(_kosmos_suite_waiter_file "$$")" ]; then
@@ -780,6 +769,13 @@ until { { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_A
   # a later joiner past it.
   [ "${KOSMOS_WAIT_LANE:-main}" = side ] && sleep "${KOSMOS_WAIT_EVERY_S:-30}"
 done
+if [ -n "$QH_BESIDE" ]; then   # kosmos#9139: no claim was taken; leave the queue, say so, note the start
+  kosmos_unmark_suite_waiting
+  QH_BESIDE_ID="queued-heavy-$$-$(date +%s)"
+  command -v kosmos_note_beside_run >/dev/null 2>&1 && kosmos_note_beside_run start "$QH_BESIDE_ID" "$WHAT" \
+    || echo "QUEUED-HEAVY: this lib has no kosmos_note_beside_run, so the holder's summary will not name this run" >&2
+  unset QUEUED_HEAVY_CAP_S   # a queued-heavy inside a beside run has no claim to inherit, and would wait the cap again
+fi
 RENEWER=""
 QH_STOPPED=""
 QH_DESC=""
@@ -884,9 +880,14 @@ _qh_end() {
   _qh_stop_capper
   # Review 4: the stop file too, once the capper is gone (a yield in the window before could write it again).
   rm -f ${QH_STOPPED:+"$QH_STOPPED"} ${QH_DESC:+"$QH_DESC"}
-  if [ "$LANE" = side ]; then kosmos_release_light_side; else kosmos_release_machine; fi
+  if [ "$LANE" = side ]; then kosmos_release_light_side; else kosmos_release_machine; fi   # a beside run holds no cookie: frees nothing
   [ -n "${QH_LABEL:-}" ] && rm -f "$QH_LABEL"   # #9118 item 1: the label goes with the claim
-  echo "QUEUED-HEAVY $(date '+%H:%M:%S') claim released"
+  if [ -n "${QH_BESIDE_ID:-}" ]; then   # kosmos#9139: after the command group is stopped, so the end is the real end
+    command -v kosmos_note_beside_run >/dev/null 2>&1 && kosmos_note_beside_run end "$QH_BESIDE_ID"
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') ran beside the queue; no claim to release"
+  else
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') claim released"
+  fi
 }
 trap _qh_end EXIT
 # A signal exits through the EXIT trap, so a killed script still stops its command (in its own process group, out of
@@ -922,10 +923,12 @@ QH_FGSIG=""
 [ -n "$QH_FG" ] || { trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP; }
 if [ "$LANE" = side ]; then
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') SIDE TURN: running $WHAT beside the heavy holder (#4911; stopped if it runs past ${SIDE_MIN} min)"
+elif [ -n "$QH_BESIDE" ]; then
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') RUNNING BESIDE the queue: the cap (${QH_CAP_S}s) ran out and no release cut holds the machine, so this shares the box with whatever holds it; no claim is taken (kosmos#9139): $WHAT"
 else
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') TURN: running $WHAT (machine claimed, renewed every ${RENEW_SEC}s while it runs)"
 fi
-if [ "$LANE" != side ]; then
+if [ "$LANE" != side ] && [ -z "$QH_BESIDE" ]; then
 (
   # The renewer (a main turn only: a side turn is capped, above). $$ here is still the main script's pid, so the claim keeps naming the main script as its holder.
   trap - EXIT
@@ -1056,5 +1059,6 @@ else
   wait "$CMD"; rc=$?; QH_DONE=1   # the command ended on its own (a trapped signal exits from inside the wait instead)
   _qh_stop_capper
 fi
-echo "QUEUED-HEAVY $(date '+%H:%M:%S') END rc=$rc: $WHAT"
+if [ -n "$QH_BESIDE" ]; then echo "QUEUED-HEAVY $(date '+%H:%M:%S') END (ran beside the queue) rc=$rc: $WHAT"
+else echo "QUEUED-HEAVY $(date '+%H:%M:%S') END rc=$rc: $WHAT"; fi
 exit $rc
