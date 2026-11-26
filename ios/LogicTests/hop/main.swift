@@ -110,6 +110,19 @@ let order = HopLogic.lightingOrder(ks)
 check(order == [1, 2, 3, 4, 0], "bottom row first, left to right within a row (4 and 0 share one), then upward (\(order))")
 check(Set(order).count == ks.count, "every dot exactly once")
 
+// KDots.swift is the generated copy of k-dots.json: the same 153 dots in the same order, and the same gradient.
+// (Regenerate with node tools/gen-kdots-9091.js.) The JSON's path is this program's first argument.
+let json = try! JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))) as! [String: Any]
+let jd = (json["dots"] as! [[Double]])
+check(jd.count == 153 && KDots.dots.count == jd.count, "153 dots in the JSON and in KDots.swift (\(KDots.dots.count))")
+check(zip(KDots.dots, jd).allSatisfy { $0.x == $1[0] && $0.y == $1[1] && $0.r == $1[2] }, "every dot matches the JSON, in order")
+func rgb(_ a: [Int]) -> UInt32 { UInt32(a[0]) << 16 | UInt32(a[1]) << 8 | UInt32(a[2]) }
+check(KDots.top == rgb(json["top"] as! [Int]) && KDots.bottom == rgb(json["bot"] as! [Int]) && KDots.top == 0xECB115,
+      "the gradient is the icon's gold, #ECB115 to #CE9800")
+let realOrder = HopLogic.lightingOrder(KDots.dots)
+check(Set(realOrder).count == 153 && KDots.dots[realOrder[0]].y > KDots.dots[realOrder[152]].y + 400,
+      "the real K lights every dot once, from its foot (y \(Int(KDots.dots[realOrder[0]].y))) to its top (y \(Int(KDots.dots[realOrder[152]].y)))")
+
 // The spring: lands exactly home, moves smoothly (no frame jumps more than a fifth of the way), and overshoots little.
 let from = (x: 0.0, y: 0.0), home = (x: 400.0, y: -300.0)
 let path = HopLogic.Spring.path(from: from, home: home)
