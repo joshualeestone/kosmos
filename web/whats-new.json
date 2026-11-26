@@ -1,36 +1,28 @@
 {
-  "version": "0.8.24",
+  "version": "0.8.25",
   "highlights": [
     {
-      "icon": "shield",
-      "title": "Plan-file safety prompts are approved for you",
-      "line": "A Claude Code safety check on a command that only touches an agent's plan files is now approved for you."
+      "icon": "tasks",
+      "title": "A closed question says who closed it",
+      "line": "Hovering an agent's status says, for 12 hours, when its question for you was closed, and whether the agent or something else closed it."
     },
     {
       "icon": "shield",
-      "title": "A tall safety prompt does not buzz your phone",
-      "line": "A safety check left to you shows as a card line, not a phone buzz, even when its box is taller than the window.",
+      "title": "An expired Claude login is said",
+      "line": "An agent stopped by an expired Claude login shows a sign-in issue on its card; kosmos accounts says so, and agents are not moved onto it."
+    },
+    {
+      "icon": "shield",
+      "title": "A printed sign-in message is not the agent's",
+      "line": "When a command or tool an agent runs prints \"Not logged in\", its card no longer reads that as the agent's own sign-in failure."
+    },
+    {
+      "icon": "shield",
+      "title": "An old sign-in message no longer misleads",
+      "line": "An old sign-in message left on an agent's screen no longer marks a Claude account as refused once it is signed in again elsewhere.",
       "platforms": [
         "mac"
       ]
-    },
-    {
-      "icon": "swarm",
-      "title": "Mac agent restarts say why",
-      "line": "When a Claude agent's process stops on its own on the Mac and Kosmos starts it again, its card now says when and why.",
-      "platforms": [
-        "mac"
-      ]
-    },
-    {
-      "icon": "shield",
-      "title": "A file that did not arrive whole is refused",
-      "line": "A file sent from the board that arrives incomplete is refused, saying how much arrived; an Office or zip file missing its end is marked."
-    },
-    {
-      "icon": "swarm",
-      "title": "Account moves ask for a handoff first",
-      "line": "Moving an agent to another account now asks it to write a handoff first, and its new session is pointed at it."
     }
   ]
 }
