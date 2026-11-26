@@ -206,12 +206,14 @@ tarball_case "--control-tarball with no connector -> CANNOT TELL, says why" 2 "g
 # Another connector with the gate's identity -> CANNOT TELL. Stand-ins carry the command line a
 # connector has: first a SIGKILLed earlier gate's (a tunnel-gate.* temp dir), then one started by
 # hand on the enrolled state dir, then (control) another Mac's.
-# kosmos#9113: wait until the stand-in SHOWS that command line, never a fixed sleep. Until its exec
-# lands the forked pid still carries this script's own command line, so a gate that scans first sees
-# no connector and says PASS (exit 0, wanted 2). A fixed 0.3 s lost that race on a loaded machine,
-# twice in one evening. /bin/ps by full path: one case below puts a ps that prints nothing on PATH.
+# kosmos#9113: wait until the stand-in SHOWS that command line, never a fixed sleep. Until its FIRST
+# exec lands the forked pid still carries this script's own command line, which neither of the gate's
+# scans matches, so a gate that scans then sees no connector and says PASS (exit 0, wanted 2). A
+# fixed 0.3 s lost that race on a loaded machine, twice in one evening. The wait is for the final
+# exec, stricter than needed. /bin/ps by full path, so a fake ps on PATH can never reach this wait.
+# The trap is dropped before the exec, as for the server above: a pre-exec kill would run it.
 standin() {
-  bash -c "exec -a 'kosmos-tunnel run${2:- --state-dir }$1 --coordinator x' sleep 30" & STALE=$!
+  ( trap - EXIT; exec bash -c "exec -a 'kosmos-tunnel run${2:- --state-dir }$1 --coordinator x' sleep 30" ) & STALE=$!
   local end=$((SECONDS + 10))    # a deadline, not a count: each ps costs about as much as the sleep
   until case "$(/bin/ps -o command= -p "$STALE" 2>/dev/null)" in "kosmos-tunnel run"*) true ;; *) false ;; esac; do
     if [ "$SECONDS" -ge "$end" ]; then
