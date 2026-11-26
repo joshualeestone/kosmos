@@ -18,7 +18,7 @@ converged: false
 **Asked (awaiting user):** 0
 
 ### Validation
-- Full validation: passed on Mortals 05:08 CST 2026-11-26 (mortals-validate.sh, rc 0, remote hash equal to the local one, ad8555a0e098, base main 803efc5d58 era, rebased 11-25 23:5x with all 6 patches unchanged). Only this proof file changed after it.
+- Full validation: passed on Mortals 05:08 CST 2026-11-26 (mortals-validate.sh, rc 0, remote hash equal to the local one, ad8555a0e098, base main d2535faca6; the slice was rebased onto main after D1b1 merged, all 6 patches unchanged). Only this proof file changed after it.
 - UI run (AIPoliciesUITests, light and dark, smallest iPhone): passed 2026-11-25 04:07 CST on the pre-rebase head; the rebase onto main changed none of this slice's patches (range-diff all equal). The PR's iOS CI reruns the UI job on the merge.
 - subdir CLAUDE.md audit: passed (rc 0).
 
@@ -36,7 +36,7 @@ converged: false
 #### Iteration 2
 **Reviewer model:** sonnet
 
-- [BLOCKER] no; [WARNING] a change's sentence could land off screen: it now shows beside what was tapped FIXED
+- [WARNING] (the round's one MAJOR) a change's sentence could land off screen: it now shows beside what was tapped FIXED
 - [WARNING] an unknown outcome left the list stale: it now reloads FIXED
 - [WARNING] the form was cleared after the reload, wiping a replace started meanwhile FIXED
 - [NIT] an empty rename closes the iOS alert: kept (iOS behaviour)
