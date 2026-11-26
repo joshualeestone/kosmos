@@ -38,6 +38,9 @@ struct HopLogic {
     static let speedPerPoint = 8.0
     static let maxSpeed = 720.0           // the pace stops rising here (at score 45)
     static let maxStep = 1.0 / 20         // a longer frame is cut to this
+    /// After a run ends, taps are ignored this long, so the hop a player was already tapping does not restart the run
+    /// before they have seen it end.
+    static let restartDelay = 0.5
     /// Collision forgives a little: two circles must overlap by this fraction of their radii before a run ends, so a
     /// graze that looks clear on screen never counts.
     static let forgiveness = 0.85
@@ -72,6 +75,9 @@ struct HopLogic {
     /// The distance still to travel before the next cluster enters at the right edge.
     private(set) var untilNext = 0.0
     private(set) var time = 0.0
+    /// `time` when the run ended (the clock keeps running while over, for the restart delay).
+    private(set) var endedAt = 0.0
+    var canRestart: Bool { phase == .over && time - endedAt >= HopLogic.restartDelay }
     /// How far the dots have drifted this run, so the ground line can scroll with them.
     private(set) var distance = 0.0
     private var rng: HopRandom
@@ -104,6 +110,7 @@ struct HopLogic {
         case .running:
             if !airborne { hop() }
         case .over:
+            guard canRestart else { return }
             phase = .running
             score = 0
             height = 0; velocity = 0
@@ -116,11 +123,13 @@ struct HopLogic {
 
     private mutating func hop() { velocity = HopLogic.hopSpeed }
 
-    /// Advance the run by dt seconds. Does nothing unless a run is going.
+    /// Advance the run by dt seconds. Before the first tap nothing moves; after a run ends only the clock runs (for the
+    /// restart delay).
     mutating func step(_ rawDt: Double) {
-        guard phase == .running, rawDt > 0 else { return }
+        guard phase != .ready, rawDt > 0 else { return }
         let dt = min(rawDt, HopLogic.maxStep)
         time += dt
+        guard phase == .running else { return }
         // The hop: constant gravity, landing exactly on the ground.
         if airborne {
             // The exact step for constant gravity, so the hop reaches the same apex at any frame rate.
@@ -141,6 +150,7 @@ struct HopLogic {
         // A touch ends the run; a cluster wholly behind the player scores once.
         if clusters.contains(where: { HopLogic.touches(playerX: HopLogic.playerX, playerY: playerY, $0) }) {
             phase = .over
+            endedAt = time
             best = max(best, score)
             return
         }

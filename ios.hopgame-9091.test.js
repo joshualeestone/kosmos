@@ -37,7 +37,7 @@ function gameGuard(src) {
 test('#9091: the game is shown only on the offline failure screen', () => {
   const src = read('ios/Kosmos/ShellViews.swift');
   assert.equal((code(src).match(/HopGameView\(/g) || []).length, 1, 'exactly one HopGameView on the failure screen');
-  assert.equal(gameGuard(code(src)), 'failure == .offline');
+  assert.equal(gameGuard(code(src)), 'failure == .offline && !typeSize.isAccessibilitySize');
   // Nowhere else in the app shows it.
   const others = fs.readdirSync(path.join(root, 'ios/Kosmos')).filter((f) => f.endsWith('.swift') && f !== 'ShellViews.swift' && f !== 'HopGameView.swift');
   for (const f of others) assert.ok(!code(read(`ios/Kosmos/${f}`)).includes('HopGameView('), `${f} does not show the game`);
@@ -45,10 +45,10 @@ test('#9091: the game is shown only on the offline failure screen', () => {
 
 test('#9091 CONTROL: an unguarded or wrongly guarded game is seen', () => {
   const src = code(read('ios/Kosmos/ShellViews.swift'));
-  const wrong = src.replace(/if failure == \.offline \{(\s*HopGameView)/, 'if failure != .other {$1');
+  const wrong = src.replace(/if failure == \.offline && !typeSize\.isAccessibilitySize \{(\s*HopGameView)/, 'if failure != .other {$1');
   assert.notEqual(wrong, src, 'the control edit applied');
   assert.equal(gameGuard(wrong), 'failure != .other');
-  assert.equal(gameGuard(src.replace(/if failure == \.offline \{\s*HopGameView\(\)/, 'HopGameView()')), '');
+  assert.equal(gameGuard(src.replace(/if failure == \.offline && !typeSize\.isAccessibilitySize \{\s*HopGameView\(\)/, 'HopGameView()')), '');
 });
 
 // Blue, the way these files could say it: a named blue, or an RGB colour whose blue clearly leads.
@@ -80,9 +80,9 @@ test('#9091 CONTROL: a blue is seen in each spelling', () => {
 test('#9091: Reduce Motion shows the still K and no game', () => {
   const src = code(read('ios/Kosmos/HopGameView.swift'));
   assert.match(src, /@Environment\(\\\.accessibilityReduceMotion\)\s+private var reduceMotion/);
-  const m = src.match(/if reduceMotion \{([\s\S]*?)\} else \{\s*game\s*\}/);
+  const m = src.match(/if reduceMotion \{([\s\S]*?)\} else \{\s*HopPlayView\(\)\s*\}/);
   assert.ok(m, 'the game is the else of Reduce Motion');
-  assert.ok(!/TimelineView|onTapGesture|model\./.test(m[1]), 'the Reduce Motion branch neither animates nor plays');
+  assert.ok(!/TimelineView|onTapGesture|DragGesture|HopModel|model\./.test(m[1]), 'the Reduce Motion branch neither animates nor plays');
 });
 
 // Anything that could send the score off the phone.

@@ -42,8 +42,12 @@ var steps = 0
 while idle.phase == .running && steps < 60 * 30 { idle.step(frame); steps += 1 }
 check(idle.phase == .over && idle.score == 0, "a player who stops tapping is caught by the first cluster (after \(steps) frames)")
 check(idle.best == 12, "a short run keeps the earlier best (\(idle.best))")
-idle.step(1); check(idle.phase == .over, "nothing moves once the run is over")
-idle.tap(); check(idle.phase == .running && idle.score == 0 && idle.clusters.isEmpty && idle.airborne, "a tap after the end starts a fresh run")
+let frozen = idle.clusters
+idle.step(frame); check(idle.phase == .over && idle.clusters == frozen, "nothing moves once the run is over")
+idle.tap(); check(idle.phase == .over, "a tap at once after the end is ignored (the hop the player was already tapping)")
+for _ in 0..<Int(HopLogic.restartDelay / frame) { idle.step(frame) }
+check(idle.canRestart, "after the restart delay a tap may restart")
+idle.tap(); check(idle.phase == .running && idle.score == 0 && idle.clusters.isEmpty && idle.airborne, "CONTROL: a tap after the delay starts a fresh run")
 
 check(HopLogic.speed(forScore: 0) == HopLogic.baseSpeed && HopLogic.speed(forScore: 10) > HopLogic.speed(forScore: 0),
       "the pace rises with the score")
@@ -90,14 +94,15 @@ for sp in [HopLogic.baseSpeed, HopLogic.maxSpeed] {
 var walk = HopLogic(seed: 4); walk.autoplay(frames: 120)
 check(abs(walk.distance - HopLogic.baseSpeed * 2) < HopLogic.baseSpeed * 0.1, "2 s at the opening pace drifts about \(Int(HopLogic.baseSpeed * 2)) (\(Int(walk.distance)))")
 var lost = HopLogic(seed: 4); lost.tap(); while lost.phase == .running { lost.step(frame) }
-lost.tap(); check(lost.distance == 0, "a fresh run starts the ground again")
+for _ in 0..<60 { lost.step(frame) }
+lost.tap(); check(lost.phase == .running && lost.distance == 0, "a fresh run starts the ground again")
 
 // A long frame (the app was away) is cut, so a stall never jumps a run.
 var stall = HopLogic(seed: 3); stall.tap(); stall.step(30)
 check(abs(stall.time - HopLogic.maxStep) < 1e-12, "a 30 s frame advances only \(HopLogic.maxStep) s")
 
 // The K lights one dot per cluster cleared, never past whole.
-var lit = HopLogic(seed: 1); check(lit.lit(of: 153) == 0, "no dot lit before a cluster is cleared")
+let lit = HopLogic(seed: 1); check(lit.lit(of: 153) == 0, "no dot lit before a cluster is cleared")
 let far = autopilot(seed: 2, lead: 40, until: 200)
 check(far.lit(of: 153) == 153 && autopilot(seed: 2, lead: 40, until: 20).lit(of: 153) == 20, "one dot per cluster, capped at the whole K")
 
@@ -124,7 +129,7 @@ check(Set(realOrder).count == 153 && KDots.dots[realOrder[0]].y > KDots.dots[rea
 let from = (x: 0.0, y: 0.0), home = (x: 400.0, y: -300.0)
 let path = HopLogic.Spring.path(from: from, home: home)
 check(path.count == HopLogic.Spring.frames, "\(path.count) frames (2.8 s at 30 fps)")
-check(path.last!.x == home.x && path.last!.y == home.y, "the last frame is exactly home")
+check(abs(path.last!.x - home.x) < 1e-9 && abs(path.last!.y - home.y) < 1e-9, "the last frame is home")
 var prev = from, maxJump = 0.0
 for p in path { maxJump = max(maxJump, hypot(p.x - prev.x, p.y - prev.y)); prev = p }
 check(maxJump < 100, "no frame jumps more than 100 of 500 (\(Int(maxJump)))")

@@ -85,6 +85,8 @@ struct LoadFailureView: View {
     var macName: String? = nil
     // kosmos#7416 slice 2: when it was last heard from (unix seconds, Board.lastHeard), when known.
     var lastHeard: Double? = nil
+    // kosmos#9091: Hop is left off at the accessibility text sizes, where the screen's own words need the room.
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var title: String {
         switch failure {
@@ -117,6 +119,10 @@ struct LoadFailureView: View {
             // kosmos#9095 (Josh 11-25: no blue background anywhere in the app): the native screens' own ground, cream in
             // light and near-black in dark (Palette.ground), with the app's text colours and the board's gold.
             Palette.ground.ignoresSafeArea()
+            // kosmos#9091 review 1: when the words (large text, the other-computer row, Hop) are taller than the screen,
+            // the screen scrolls rather than clipping its title and Try again. When it fits it sits centred as before.
+            GeometryReader { geo in
+            ScrollView {
             VStack(spacing: 16) {
                 Image(systemName: icon)
                     .font(.system(size: 44, weight: .regular))
@@ -169,13 +175,26 @@ struct LoadFailureView: View {
                 }
                 // kosmos#9091: Hop, a one-tap game, only while the phone is offline. Back online, this screen goes as
                 // it always has: the game never holds up the reload.
-                if failure == .offline {
+                if failure == .offline && !typeSize.isAccessibilitySize {
                     HopGameView().padding(.top, 16)
                 }
             }
             .padding(.horizontal, 32)
             .frame(maxWidth: 420)
+            .padding(.vertical, 24)
+            .frame(width: geo.size.width)
+            .frame(minHeight: geo.size.height)
+            }
+            .modifier(BounceOnlyWhenScrolling())
+            }
         }
+    }
+}
+
+// kosmos#9091: a screen that fits does not bounce (iOS 16.4 and later; earlier, it bounces as any scroll view does).
+private struct BounceOnlyWhenScrolling: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) { content.scrollBounceBehavior(.basedOnSize) } else { content }
     }
 }
 

@@ -8,7 +8,6 @@ import SwiftUI
 // anywhere (Josh 11-25). The best score stays on this phone (UserDefaults); the game sends nothing anywhere.
 struct HopGameView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @StateObject private var model = HopModel()
 
     // The world (1000 wide) is drawn into a panel 0.62 as tall as it is wide, with the ground near the foot.
     static let aspect = 0.62
@@ -18,19 +17,25 @@ struct HopGameView: View {
     var body: some View {
         Group {
             if reduceMotion {
-                // Reduce Motion: the K, still, and no game (a game is motion by nature).
+                // Reduce Motion: the K, still, and no game (a game is motion by nature). No model is made for it.
                 Canvas { gc, size in HopDrawing.panel(&gc, size); HopDrawing.k(&gc, size, lit: [:], now: 0) }
                     .accessibilityHidden(true)
             } else {
-                game
+                HopPlayView()
             }
         }
         .aspectRatio(1 / Self.aspect, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .onDisappear { model.keepBest() }
     }
+}
 
-    private var game: some View {
+/// The game itself, with its model: made only when it is played.
+struct HopPlayView: View {
+    @StateObject private var model = HopModel()
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var pressed = false
+
+    var body: some View {
         TimelineView(.animation(paused: !model.ticking)) { context in
             // The rules step here, before this frame's views are built, so the score and the drawing agree.
             let _ = model.advance(to: context.date)
@@ -48,12 +53,20 @@ struct HopGameView: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture { model.tap() }
-        // VoiceOver: one element, never a trap (no direct interaction, so a touch there is still VoiceOver's). It says what
-        // it is and the best; a double-tap hops.
+        // A hop on touch-down, not on lift (review 1: a tap gesture fires on lift, late for a reflex game). One hop per
+        // touch: `pressed` holds until the finger lifts.
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { _ in if !pressed { pressed = true; model.tap() } }
+            .onEnded { _ in pressed = false })
+        // VoiceOver: one element, never a trap (no direct interaction, so a touch there is still VoiceOver's). It says
+        // what it is and the best; a double-tap hops.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Offline game, best \(model.logic.best)")
+        .accessibilityHint("Double-tap to hop")
+        .accessibilityAddTraits(.isButton)
         .accessibilityAction { model.tap() }
+        .onDisappear { model.keepBest() }
+        .onChange(of: scenePhase) { phase in if phase != .active { model.keepBest() } }
     }
 
     private var hud: some View {
@@ -63,7 +76,7 @@ struct HopGameView: View {
             Text("Best \(model.logic.best.formatted())").monospacedDigit()
         }
         .font(.subheadline.weight(.semibold))
-        .foregroundColor(Self.ink)
+        .foregroundColor(HopGameView.ink)
         .padding(.horizontal, 14).padding(.top, 10)
         .accessibilityHidden(true)
     }
@@ -80,7 +93,7 @@ struct HopGameView: View {
         if let words = hintWords {
             Text(words)
                 .font(.footnote.weight(.medium))
-                .foregroundColor(Self.ink)
+                .foregroundColor(HopGameView.ink)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 12)
                 .accessibilityHidden(true)
@@ -99,6 +112,7 @@ final class HopModel: ObservableObject {
     /// The panel's size at the last drawing, to place a newly lit dot's start on screen.
     var size = CGSize.zero
     private var last: Date?
+    private var pauseQueued = false
     private let order = HopLogic.lightingOrder(KDots.dots)
 
     init() {
@@ -117,16 +131,21 @@ final class HopModel: ObservableObject {
     func tap() {
         let wasOver = logic.phase == .over
         logic.tap()
-        if wasOver { litAt = [:] }
-        last = nil
-        ticking = true
+        if wasOver && logic.phase == .running { litAt = [:] }   // a new run, not a tap the restart delay ignored
+        if !ticking { last = nil; ticking = true }
+        pauses += 1   // any pause already queued is now stale
     }
+
+    /// Counts taps, so a pause queued before a tap never lands after it (review 1: a tap between the queue and the
+    /// pause would otherwise freeze the new run mid-hop).
+    private var pauses = 0
 
     /// Called once a frame: steps the rules by the time since the last frame.
     func advance(to now: Date) {
         guard ticking else { return }
-        let dt = last.map { now.timeIntervalSince($0) } ?? 0
-        last = now
+        // A date earlier than the last frame's (a re-run of the same frame) moves nothing and never winds the clock back.
+        let dt = max(0, last.map { now.timeIntervalSince($0) } ?? 0)
+        if dt > 0 || last == nil { last = now }
         frameClock += min(dt, HopLogic.maxStep)
         let before = logic.lit(of: order.count)
         logic.step(dt)
@@ -136,10 +155,18 @@ final class HopModel: ObservableObject {
             for n in before..<after { litAt[order[n]] = (frameClock, from) }
         }
         let springsDone = litAt.values.allSatisfy { frameClock - $0.start >= Double(HopLogic.Spring.frames) / 30 }
-        if logic.phase == .over && springsDone {
+        // Paused once the run is over, its springs are home and a restart is allowed (the delay needs the clock).
+        if logic.canRestart && springsDone && !pauseQueued {
             keepBest()
-            // Not while SwiftUI is drawing: the change goes out on the next turn of the main queue.
-            DispatchQueue.main.async { [weak self] in self?.ticking = false }
+            pauseQueued = true
+            let asked = pauses
+            // Not while SwiftUI is drawing: the change goes out on the next turn of the main queue, and only if no tap
+            // came in between.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.pauseQueued = false
+                if self.pauses == asked && self.logic.phase == .over { self.ticking = false }
+            }
         }
     }
 
