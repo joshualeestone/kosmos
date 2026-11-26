@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * `runFlow`'s HOOK WIRING, pinned from outside (#1569).

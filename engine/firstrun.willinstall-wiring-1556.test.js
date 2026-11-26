@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /**
  * #1556: THE PRODUCER AND THE READER MUST AGREE ON THE PATH.

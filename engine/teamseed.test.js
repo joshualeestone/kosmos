@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* #4557: engine/teamseed.js builds one create spec per member of a seeded team, in the order to make
    them. Hermetic: the catalogue is a fixture in the shape agreed with #4555 on the card, injected per
    call, so nothing here depends on the real seed existing yet. */
