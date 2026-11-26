@@ -38,3 +38,14 @@ fix; it cannot go silently green, because an unknown wording is a FAIL.
   catch in render-firstrun-reentry-3359; moved above it).
 
 ## Reviews
+- Round 1 (opus): 1 BLOCKER, 1 WARNING, 0 CONVENTION, 3 NIT.
+  - BLOCKER: the new lib-file-console.js was not in docs/browser-checks/README.md, and browser-checks-indexed.test.js
+    requires every .js there to be (confirmed red, 0/1). Fixed: a "is a library, not a check" section beside
+    lib-close-quietly's. Now green; all 17 browser-check guard files 150/150.
+  - WARNING: the sweep catches only the exact old line; three checks keep their own variants (render-agent-sort-4428,
+    render-onekosmos-4815, render-room-msgbox-2806). Decided: left alone on purpose. All three are green both ways
+    (measured), and 4428's arm, though looser than the shared one, is not red. Moving them is a change with nothing
+    to fix; the sweep's job is the copy that went red.
+  - NITs: the lib header said "fourteen copies" (13 and one variant) and read as if the old arms were precise. Fixed by
+    cutting the header to what the code shows, saying the carried-over arms are as broad as before.
+  - NIT not taken: render-firstrun-reentry-3359's require sits above the guarded playwright require (on purpose).
