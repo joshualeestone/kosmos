@@ -161,10 +161,15 @@ test('#9132 review 1: a reply being written holds the restart; a reply picked wi
     'a restart would keep the words and lose what they reply to');
   assert.equal(nothingToLose({ maps: { talk: h.keptDrafts('term') }, dmReply: reply, draftsKept: h.draftsKept, keptDraftStored: h.keptDraftStored }), true,
     'CONTROL: a reply with nothing typed held the restart (it never did)');
-  const pj = h.keptDrafts('pj');
-  pj.p7 = 'answering above';
-  assert.equal(nothingToLose({ maps: { pj }, pjReply: { p7: { id: 'm1' } }, draftsKept: h.draftsKept, keptDraftStored: h.keptDraftStored }), false,
-    'a project reply being written did not hold the restart');
+  const room = h.keptDrafts('room');
+  room.p7 = 'answering above';
+  assert.equal(nothingToLose({ maps: { room }, pjReply: { p7: { id: 'm1' } }, draftsKept: h.draftsKept, keptDraftStored: h.keptDraftStored }), false,
+    'a room reply being written did not hold the restart');
+  // Round 4: only the box the reply goes with counts.
+  const term = h.keptDrafts('term');
+  term.april = 'a terminal line';
+  assert.equal(nothingToLose({ maps: { term }, dmReply: reply, draftsKept: h.draftsKept, keptDraftStored: h.keptDraftStored }), true,
+    'words in the Terminal box held the restart for a chat reply they do not go with');
 });
 
 test('#9132 review 1: a removed agent\'s or project\'s drafts are forgotten, and logging out forgets every one', () => {
@@ -245,4 +250,23 @@ test('#9132 round 3: another tab\'s change reaches the open box when it still sh
   assert.equal(box.value, 'x', 'CONTROL: a change for another agent reached the open box');
   heard('talk', 'april', 'x', '');
   assert.equal(box.value, '', 'a draft the other tab sent stayed in the open box');
+});
+
+test('#9132 round 4: removing the agent whose chat is open empties its boxes as well as its kept drafts', () => {
+  const storage = memoryStorage();
+  const h = helper(storage);
+  const talk = h.keptDrafts('talk'), term = h.keptDrafts('term');
+  talk.april = 'for April'; term.april = 'a line'; talk.roo = 'for Roo';
+  const boxes = { 'd-say': { value: 'for April' }, 'd-term-say': { value: 'a line' } };
+  const sessionName = 'april';
+  const forget = (open, name) => new Function('TALK_DRAFTS', 'TERM_DRAFTS', 'CURRENT', 'document', 'forgetDrafts',
+    page.liftAll(SCRIPT, ['forgetAgentDrafts']) + '\nreturn forgetAgentDrafts(' + JSON.stringify(name) + ');')(
+    talk, term, open, { getElementById: (id) => boxes[id] || null }, h.forgetDrafts);
+  const otherOpen = (() => { const sessionName = 'roo'; return { sessionName }; })();   // the page's CURRENT: Roo's chat open
+  forget(otherOpen, 'april');
+  assert.equal(boxes['d-say'].value, 'for April', 'CONTROL: another agent\'s chat open, yet April\'s boxes were emptied');
+  forget({ sessionName }, 'april');
+  assert.equal(boxes['d-say'].value + boxes['d-term-say'].value, '', 'the removed agent\'s words stayed in its open boxes');
+  assert.equal(storage.data.has('kosmos.draft.talk.april') || storage.data.has('kosmos.draft.term.april'), false, 'its kept drafts stayed');
+  assert.equal(storage.data.has('kosmos.draft.talk.roo'), true, 'another agent\'s draft was forgotten too');
 });

@@ -113,3 +113,15 @@ web.keepdrafts-9132 11 of 11 and the related suites pass (92); render-keepdrafts
   "not kept" for the page's life (conservative).
 - Also: the test's second fixture name was a real outside person's name (no-name-refs-3071 red): now "roo".
 web.keepdrafts-9132 13 of 13 and the related suites and tree guards pass (104); render-keepdrafts-9132 passes.
+
+#### Iteration 4 (blind review of the whole branch, sonnet)
+
+- [SHOULD-FIX] taken: removing the agent whose chat is open left its words in d-say and d-term-say with no agent to
+  belong to, holding the restart until another agent opened (round 3's class, agent side). forgetAgentDrafts(name):
+  its kept drafts go, and its boxes empty when its chat is the open one; used at all three confirmed removals. Tested
+  with a control (another agent's chat open: nothing emptied).
+- [NIT] taken: the reply hold counts only the box the reply goes with (DM_REPLY with the chat box; PJ_REPLY with the
+  room's post box), not the Terminal or the project's agent box; the code says a half-written reply holds until sent
+  or cancelled (as any unsaved words did before).
+- [NIT] not taken: a search field left with a query holds the restart (main's, outside this card; a separate card).
+web.keepdrafts-9132 14 of 14 and the related suites and guards pass (105); render-keepdrafts-9132 passes.

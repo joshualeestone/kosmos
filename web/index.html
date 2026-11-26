@@ -26020,12 +26020,14 @@ function updateNothingToLose() {
     .some((m) => drafted(m) && !keptMap(m))) return false;
   /* Review 1: a reply being written (the message it answers is kept only on this page) holds the restart while it has
      words: a reload would keep the words and lose what they reply to, and Send would post them as a plain message.
-     A reply picked with nothing typed held nothing before and holds nothing now. */
+     A reply picked with nothing typed held nothing before and holds nothing now. Round 4: only the box the reply goes
+     with counts (an agent's chat box; a project room's post box). Known: a reply left half-written, its chat never
+     reopened, holds until it is sent or cancelled, as any unsaved words did before this change. */
   const wordsFor = (m, key) => !!m && String((m[key] && (typeof m[key] === 'string' ? m[key] : m[key].text)) || '').trim() !== '';
   if (typeof DM_REPLY !== 'undefined' && DM_REPLY && Object.keys(DM_REPLY).some((k) => DM_REPLY[k]
-    && (wordsFor(typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, k) || wordsFor(typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS, k)))) return false;
+    && wordsFor(typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, k))) return false;
   if (typeof PJ_REPLY !== 'undefined' && PJ_REPLY && Object.keys(PJ_REPLY).some((k) => PJ_REPLY[k]
-    && (wordsFor(typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, k) || wordsFor(typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS, k)))) return false;
+    && wordsFor(typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS, k))) return false;
   for (const t of [...UPDATE_TYPED]) if (t.isConnected === false) UPDATE_TYPED.delete(t);   // a removed field holds nothing (and is let go)
   /* Still holding words, shown or not (round 5): a hidden box is not a saved one (New task keeps its
      words when closed, #766), so any typed box with words waits for the person's Reload. */
@@ -45038,6 +45040,14 @@ function keptDraftHeard(kind, key, was, now) {
   el.value = words(now);
   if ((box === 'd-say' || box === 'pj-say' || box === 'pj-post') && typeof pjGrowComposer === 'function') pjGrowComposer(el);
 }
+/* Round 4: an agent removed. Its kept drafts go, and so do the words in its chat and Terminal boxes when its chat is
+   the open one: with the agent gone they belong to nobody, and would hold the restart until another agent opened. */
+function forgetAgentDrafts(name) {
+  forgetDrafts([TALK_DRAFTS, TERM_DRAFTS], name);
+  if (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName === name && typeof document !== 'undefined') {
+    for (const id of ['d-say', 'd-term-say']) { const b = document.getElementById(id); if (b) b.value = ''; }
+  }
+}
 /* Logged out of this browser's Kosmos+ session: every kept draft goes from storage (the page reloads to the sign-in
    right after, so its own copies go with it). */
 function forgetAllDrafts() {
@@ -53458,7 +53468,7 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
        In its OWN try: the server already returned REMOVED, so a repaint fault
        must not fall to the outer catch and overwrite the success message with
        "could not reach the board" (the poll will repaint within 5s anyway). */
-    forgetDrafts([TALK_DRAFTS, TERM_DRAFTS], forAgent);   // kosmos#9132 review 1: removed, so its kept drafts go too
+    forgetAgentDrafts(forAgent);   // kosmos#9132: removed, so its kept drafts and open boxes go too
     try { await tick(); await paintRemoved(); } catch { /* the 5s poll will catch up */ }
   } catch {
     if (onPanel()) {
@@ -53895,7 +53905,7 @@ document.getElementById('rm-go').addEventListener('click', async () => {
       await paintRemoved();
       return;
     }
-    forgetDrafts([TALK_DRAFTS, TERM_DRAFTS], forAgent);   // kosmos#9132 review 1: removed, so its kept drafts go too
+    forgetAgentDrafts(forAgent);   // kosmos#9132: removed, so its kept drafts and open boxes go too
     closeRemoveModal();
     // Nothing should still be pointing at an agent that is no longer on the
     // board: the detail panel behind it would keep its data.
@@ -68516,7 +68526,7 @@ document.getElementById('orgchart-undo-go').addEventListener('click', async () =
     // A clean removal's `because` only repeats that it was removed; any other answer is worth reading.
     const said = clean ? '' : ((out && (out.because || out.error)) || '');
     const done = clean || Boolean(onList && onList.has(c.name));
-    if (done && typeof forgetDrafts === 'function') forgetDrafts([TALK_DRAFTS, TERM_DRAFTS], c.name);   // kosmos#9132 review 1
+    if (done && typeof forgetAgentDrafts === 'function') forgetAgentDrafts(c.name);   // kosmos#9132
     return { c, done, said: said || (done ? '' : (reached ? 'Kosmos did not answer in a way we could read' : 'we could not reach Kosmos')) };
   });
   const left = rows.filter((r) => !r.done).map((r) => r.c);
