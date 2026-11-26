@@ -22,11 +22,13 @@ Split from #9166 item 1 (feedback triage 11-26, two reports, one agent a non-bui
 - A longer grace: one tick is the gap that matters; more only delays work.
 
 ## Cost
-A new unowned task waits up to about two ticks (its 60 s, then the next tick) before the Assigner gives it out.
+A new unowned task waits up to about two ticks (its 60 s, then the next tick) before the Assigner gives it out. While
+it waits, the agent it would go to is not asked to draft tasks for another project (review 1).
 
 ## Weakest premise
 That holds which lose the race land within a minute of the add. A hold placed later than that still loses, exactly
-as today; this only closes the "add then hold at once" case the reports describe.
+as today; this only closes the "add then hold at once" case the reports describe. Still exposed, by design: a new part
+added to an old task nobody is on, and a reopened task, are given at once (the wait keys on the task's createdAt).
 
 ## Tests: engine/assigner-holdrace-9168.test.js (6), each clock set from the task's own createdAt
 - CONTROL: a task one tick old is given. A task 5 s old, and 59.999 s old, is not.
@@ -40,3 +42,16 @@ as today; this only closes the "add then hold at once" case the reports describe
   which failed 20 existing tests: they run the Assigner at a 2001 clock over tasks stamped now. Bounded to 0..60 s.)
 
 ## Reviews
+- Round 1 (opus): 0 BLOCKER, 2 WARNING, 0 CONVENTION, 3 NIT.
+  - WARNING: with its only candidate held back by the wait, pick returned null and step went on to the goal ask, so
+    the idle agent could be asked to draft tasks for ANOTHER project (spending that project's daily ask) and go busy,
+    missing the new task. Fixed: pick reports a held-back candidate (`held.young`), and step skips the goal ask for
+    that agent on that tick. Test + CONTROL (nothing waiting: the other project IS asked). Perturbation D (skip
+    removed): 1 fail.
+  - WARNING: the hold-race test's last assertion also passed on main. Fixed: an unheld twin is added with the held
+    task; after 60 s only the twin goes.
+  - NITs taken: "one tick" reworded "60 s" (the wait is wall-clock, whatever the timer); the parts/reopen residual is
+    named above. NIT not taken: a young task with an earlier due date is skipped for that minute (due dates are set
+    after creation; one minute).
+  - After: new file 8/8; controls A (no grace) 4 fail, B (grace in handOutable) 6 fail, C (future young) 1 fail, D 1
+    fail; the 21 files that touch the Assigner 511/511.
