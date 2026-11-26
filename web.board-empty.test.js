@@ -176,7 +176,8 @@ test('both layouts paint the empty board, not just the one that happens to be op
      person set days ago. */
   // kosmos#8990: the grid is written through setGridHtml (only when its markup changed), still with the empty board.
   assert.match(SCRIPT, /setGridHtml\(orderedAgents\.length \? orderedAgents\.map\(card\)\.join\(''\) : boardEmpty\(\)\)/);
-  assert.match(SCRIPT, /function setGridHtml\(html\) \{[^}]*grid\.innerHTML = html;/, 'setGridHtml no longer writes the grid');
+  // kosmos#9094: through patchBoardHtml, which writes the grid whole or only the cards that changed.
+  assert.match(SCRIPT, /function setGridHtml\(html\) \{[^}]*patchBoardHtml\(grid, html, GRID_HTML, GRID_PARTS\)/, 'setGridHtml no longer writes the grid');
   // #3218: the agents-list render moved into paintAgentList() (so opening a project can re-group
   // the list at once, not just on the next poll). It is called from the board tick on the SAME
   // tick as #grid, and still falls back to the empty board when there are no agents -- both

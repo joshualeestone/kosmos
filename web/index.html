@@ -27750,9 +27750,73 @@ function paintAgentList() {
 /* kosmos#8990: the markup this function last wrote into #alist, so a poll that changes nothing writes nothing.
    Rewriting identical rows rebuilt every avatar <img>, and agent avatars are served no-store, so each rebuild fetched
    the picture again. Compared against the string last WRITTEN, never innerHTML, which the browser reserializes (the
-   compare MY_AGENTS_HTML uses). null means "write next time": the empty-board branch and the failed-poll path write the
-   list behind this memo, so they clear it. */
+   compare MY_AGENTS_HTML uses). null means "write whole next time" (kosmos#9094: patchBoardHtml patches only from a known last write): the
+   empty-board branch and the failed-poll path write the list behind this memo, so they clear it. */
 let ALIST_HTML = null;
+let ALIST_PARTS = null;   // kosmos#9094: its top-level pieces as last written (patchBoardHtml)
+/* kosmos#9094: write a board container's new markup, touching only the top-level pieces (rows, cards, headers) whose
+   markup changed since the last write. A rewrite of the whole container replaced every row when one agent's state or
+   memory ring moved: on a live board of 20 agents, 3 whole-list rewrites a minute, 20 rows replaced for 1 that changed.
+
+   Pieces are matched by their data-agent; pieces with none (headers, notes) by their order among such pieces, so one
+   of those appearing or going redraws each later unkeyed piece whose markup differs from the one now at its rank.
+
+   A matched piece whose markup is the same keeps its node. Of the kept nodes (keyed or not, the fed sections too),
+   the longest run already in the new order stays put and only the others are moved (insertBefore), so an agent
+   changing place under a sort or a star moves alone, up or down.
+
+   The new markup is parsed into a template and each piece serialised there, so both sides of the comparison come from
+   the same parser (never the live innerHTML, which the page may have touched). The nodes kept are the ones this
+   function recorded, wherever they now are, and every other child is removed, so another writer's nodes do not
+   survive a patch.
+   Written whole when the last write is unknown (prevHtml null: the empty-board and failed-poll paths) or when an
+   agent key repeats.
+
+   prevParts is the last call's return: [{ key, ser, node }] in order, node being what is on screen for that piece. */
+function patchBoardHtml(el, html, prevHtml, prevParts) {
+  const t = document.createElement('template');
+  t.innerHTML = html;
+  const next = [...t.content.childNodes];
+  const ser = (n) => (n.nodeType === 1 ? n.outerHTML : n.nodeType === 3 ? '#' + n.nodeValue : '!' + n.nodeType + ':' + n.nodeValue);
+  const keyOf = (n) => (n.nodeType === 1 && n.dataset && n.dataset.agent ? 'a:' + n.dataset.agent : null);
+  const parts = next.map((n) => ({ key: keyOf(n), ser: ser(n), node: n }));
+  const keys = parts.filter((x) => x.key).map((x) => x.key);
+  if (prevHtml === null || !prevParts || new Set(keys).size !== keys.length) {
+    el.replaceChildren(...next);
+    return parts;
+  }
+  const live = [...el.childNodes];
+  const byKey = new Map(); const loose = [];
+  prevParts.forEach((x) => { if (x.key) byKey.set(x.key, x); else loose.push(x); });
+  let li = 0;
+  const want = next.map((n, i) => {
+    const x = parts[i];
+    const old = x.key ? byKey.get(x.key) : loose[li++];
+    return old && old.ser === x.ser ? old.node : n;
+  });
+  const keep = new Set(want);
+  for (const n of live) if (!keep.has(n)) n.remove();
+  /* Which kept nodes stay where they are: the longest run of them already in the new order (old positions
+     increasing). Only the others are moved, so a row moving down moves alone, as a row moving up does. */
+  const was = new Map(live.map((n, i) => [n, i]));
+  const seq = want.map((n) => (was.has(n) ? was.get(n) : -1));
+  const tails = []; const tailAt = []; const prev = new Array(seq.length).fill(-1);
+  seq.forEach((v, i) => {
+    if (v < 0) return;
+    let lo = 0; let hi = tails.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (tails[mid] < v) lo = mid + 1; else hi = mid; }
+    tails[lo] = v; tailAt[lo] = i; prev[i] = lo > 0 ? tailAt[lo - 1] : -1;
+  });
+  const stays = new Set();
+  for (let i = tails.length ? tailAt[tails.length - 1] : -1; i >= 0; i = prev[i]) stays.add(want[i]);
+  let anchor = null;
+  for (let i = want.length - 1; i >= 0; i -= 1) {
+    if (!stays.has(want[i])) el.insertBefore(want[i], anchor);
+    anchor = want[i];
+  }
+  want.forEach((n, i) => { parts[i].node = n; });   // the node now on screen for each piece, for the next call's checks
+  return parts;
+}
 function paintAgentListNow() {
   const alist = document.getElementById('alist');
   if (!alist) return;
@@ -27788,6 +27852,7 @@ function paintAgentListNow() {
     const fedOutE = (layoutConsolidated() && PJ_CURRENT && typeof fedOutsideHtml === 'function') ? fedOutsideHtml() : '';
     // kosmos#4658: the sealed-room key section too, for the same reason (the Members card is hidden here).
     const fedOwnE = (layoutConsolidated() && PJ_CURRENT && typeof fedOwnHtml === 'function') ? fedOwnHtml() : '';
+    ALIST_PARTS = null;   // kosmos#9094: with its memo, so the two never disagree
     ALIST_HTML = null;
     alist.innerHTML = boardEmpty();
     if (fedOutE) alist.insertAdjacentHTML('beforeend', '<div id="alist-fed-outside" class="fedout">' + fedOutE + '</div>');
@@ -27828,12 +27893,12 @@ function paintAgentListNow() {
       + (fedOwn ? '<div id="alist-fed-own" class="fedout">' + fedOwn + '</div>' : '')
       + otherAgentsHeaderHtml()
       + rest.map(lrow).join('');
-    if (html !== ALIST_HTML) { ALIST_HTML = html; alist.innerHTML = html; }
+    if (html !== ALIST_HTML) { ALIST_PARTS = patchBoardHtml(alist, html, ALIST_HTML, ALIST_PARTS); ALIST_HTML = html; }
     setAgentsGrouped(true);
     fedRefocusRail();
   } else {
     const html = shown.map(lrow).join('');
-    if (html !== ALIST_HTML) { ALIST_HTML = html; alist.innerHTML = html; }
+    if (html !== ALIST_HTML) { ALIST_PARTS = patchBoardHtml(alist, html, ALIST_HTML, ALIST_PARTS); ALIST_HTML = html; }
     setAgentsGrouped(false);
   }
 }
@@ -27841,6 +27906,7 @@ function paintAgentListNow() {
    Wide windows only: a narrow one has no room and keeps its link back to All agents. */
 const MY_AGENTS_MIN_WIDTH = 1160;   // keeps the agent page's two columns at the width they had before this
 let MY_AGENTS_HTML = null;
+let MY_AGENTS_PARTS = null;   // kosmos#9094, as ALIST_PARTS
 let MY_AGENTS_FOLDED = null;   // what this page last set, for a browser that will not store it
 let MY_AGENTS_OPEN = null;
 function myAgentsFolded() {
@@ -27871,6 +27937,7 @@ function paintMyAgents() {
     // Empty, not just hidden: a second copy of every row left in the page answers anything looking an agent up by data-agent.
     document.getElementById('my-agents-list').innerHTML = '';
     MY_AGENTS_HTML = null;
+    MY_AGENTS_PARTS = null;   // kosmos#9094: with its memo
     MY_AGENTS_OPEN = null;
     return;
   }
@@ -27882,8 +27949,8 @@ function paintMyAgents() {
     const ae = document.activeElement;
     const nameOf = ae && list.contains(ae) && ae.classList.contains('namego') ? ae.closest('.lrow').dataset.agent : null;
     const top = list.scrollTop;
+    MY_AGENTS_PARTS = patchBoardHtml(list, html, MY_AGENTS_HTML, MY_AGENTS_PARTS);   // kosmos#9094: only the rows that changed
     MY_AGENTS_HTML = html;
-    list.innerHTML = html;
     list.scrollTop = top;
     if (nameOf) { const back = [...list.querySelectorAll('.lrow')].find((r) => r.dataset.agent === nameOf); if (back) back.querySelector('.namego').focus({ preventScroll: true }); }
   }
@@ -28667,6 +28734,7 @@ async function tick() {
        the failure card up for good. Cleared here, as ORG_HTML is below: the next good poll writes once. */
     GRID_HTML = null;
     ALIST_HTML = null;
+    GRID_PARTS = null; ALIST_PARTS = null;   // kosmos#9094: with their memos
     /* #3387: a failed poll shows no rows, so the consolidated head must not keep reading
        "Project Members" with the top + wired to add-member over a "could not refresh" list.
        Revert to "Agents" / New agent, the same reset the genuine empty-board path makes. */
@@ -42718,8 +42786,9 @@ function starBtn(a) {
   const burst = into >= 0 && into < STAR_BURST_MS ? ` burst" style="--burst-at:-${Math.round(into)}ms` : '';
   return `<button class="astar${on ? ' on' : ''}${burst}" type="button" data-star="${esc(a.sessionName)}" aria-label="${esc(say)}" title="${esc(say)}">${STAR_SVG}</button>`;
 }
-/* A repaint rebuilds the star buttons, which drops a keyboard user's focus. Every repaint of the grid or the list goes
-   through this, so a focused star is focused again afterwards (the toggle, the sort control and the 5 s poll alike). */
+/* A repaint rebuilds the star buttons of the rows and cards it redraws or moves (kosmos#9094: only those), which
+   drops a keyboard user's focus. Every repaint of the grid or the list goes through this, so a focused star is
+   focused again afterwards (the toggle, the sort control and the 5 s poll alike). */
 function keepStarFocus(paint, follow) {
   const had = document.activeElement && document.activeElement.closest ? document.activeElement.closest('[data-star]') : null;
   const where = had ? had.closest('#grid, #alist, #my-agents-list') : null;
@@ -42736,11 +42805,12 @@ function keepStarFocus(paint, follow) {
    behind a project room). Compared against the string last WRITTEN, never innerHTML, which the browser reserializes.
    Both paint sites go through here, so neither can rewrite the grid behind the other's memo. */
 let GRID_HTML = null;
+let GRID_PARTS = null;   // kosmos#9094, as ALIST_PARTS
 function setGridHtml(html) {
   const grid = document.getElementById('grid');
   if (!grid || html === GRID_HTML) return;
+  GRID_PARTS = patchBoardHtml(grid, html, GRID_HTML, GRID_PARTS);   // kosmos#9094: only the cards that changed
   GRID_HTML = html;
-  grid.innerHTML = html;
 }
 /* kosmos#8990: an agent avatar in the grid, the list or My Agents (all three skip identical markup) that fails to load
    is asked for again, by itself, after 5 s, then 10, 20, 40 and every 60 s while it keeps failing. Rebuilding every poll
