@@ -67,11 +67,6 @@ test('newest first, capped at 10', () => {
   assert.equal(got[0].at, iso(D(30, 9, 1)));
   assert.equal(got[9].at, iso(D(21, 9, 1)));
 });
-  const got = occurrences(task({ lastRunAt: iso(D(30, 9, 1)) }), rows, D(30, 10));
-  assert.equal(got.length, 10, 'not capped at 10');
-  assert.ok(!got.some((r) => r.by === 'old'), 'a run from before the rule was shown');
-  assert.equal(got[0].at, iso(D(30, 9, 1)));
-});
 
 test('CONTROL: not a repeating task, or junk input, gives no rows and never throws', () => {
   assert.deepEqual(occurrences({}, [], Date.now()), []);
