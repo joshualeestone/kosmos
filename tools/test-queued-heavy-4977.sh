@@ -617,7 +617,7 @@ qh9118() {   # qh9118 <tag> <grace s> <cmd...>: a main turn in its own marker di
   mkdir -p $S/m9118-$1; L9=$S/9118-$1.log
   # No terminal on stdin, stdout or stderr and (review 2) no controlling terminal (setsid), so the turn takes the
   # background path whoever runs this file. RS9118 sets the renewal period (the sigkill arm, so its renewer ends soon).
-  ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-$1 QUEUED_HEAVY_STOP_GRACE_S=$2 QUEUED_HEAVY_RENEW_SEC=${RS9118:-600} exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die' /bin/bash $QH "t9118-$1" "${@:3}" ) </dev/null > $L9 2>&1 & Q9=$!; BG="$BG $Q9"; }
+  ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-$1 QUEUED_HEAVY_STOP_GRACE_S=$2 QUEUED_HEAVY_RENEW_SEC=${RS9118:-600} QUEUED_HEAVY_CLAIM_MIN=${CL9118:-30} exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die' /bin/bash $QH "t9118-$1" "${@:3}" ) </dev/null > $L9 2>&1 & Q9=$!; BG="$BG $Q9"; }
 nocty() { perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die' "$@"; }   # review 2: run with no controlling terminal
 free9118() { gone $((U+5)) && gone $((U+6)); }   # review 1: each arm starts with this run's two sleep lengths free
 pre9118=0; free9118 || pre9118=1
@@ -625,14 +625,14 @@ qh9118 grp 60 sh -c "sleep $((U+5)) & wait"
 until_true 30 'grep -q "TURN: running t9118-grp" $L9 && ! gone $((U+5))'; s1=$?
 kill -TERM $Q9; until_true 40 'gone $((U+5)) && ! kill -0 $Q9 2>/dev/null'; r1=$?; o=$(cat $L9)
 ok "#9118: TERM to a main turn's wrapper stops a grandchild in its command's group, and releases the claim" '[ "$pre9118" = 0 ] && [ "$s1" = 0 ] && [ "$r1" = 0 ] && [[ "$o" == *"STOPPING: t9118-grp"* && "$o" == *"claim released"* ]] && [ ! -e $S/m9118-grp/machine-claim ]'
-printf '#!/bin/bash\nset -m; sleep %s & c=$!; set +m\ntrap '"'"'kill -- -$c 2>/dev/null; exit 143'"'"' TERM\nwait $c\n' $((U+6)) > $S/rt9118; chmod +x $S/rt9118
+printf '#!/bin/bash\ntrap '"'"'kill -- -$c 2>/dev/null; exit 143'"'"' TERM\nset -m; sleep %s & c=$!; set +m\nwait $c\n' $((U+6)) > $S/rt9118; chmod +x $S/rt9118   # review 6: the trap BEFORE the fork
 pre9118=0; free9118 || pre9118=1
 qh9118 rt 60 $S/rt9118
 until_true 30 'grep -q "TURN: running t9118-rt" $L9 && ! gone $((U+6))'; s2=$?
 kill -TERM $Q9; until_true 40 'gone $((U+6)) && ! kill -0 $Q9 2>/dev/null'; r2=$?; o=$(cat $L9)
 ok "#9118: TERM to a main turn's wrapper reaches a run-tests.sh-shaped command, whose trap stops a child in another group" '[ "$pre9118" = 0 ] && [ "$s2" = 0 ] && [ "$r2" = 0 ] && [ ! -e $S/m9118-rt/machine-claim ]'
 pre9118=0; free9118 || pre9118=1
-qh9118 grace 60 bash -c "trap 'sleep 2; echo CLEANED > $S/9118-cleaned; exit 0' TERM; sleep $((U+5)) & wait"
+qh9118 grace 60 bash -c "trap 'sleep 8; echo CLEANED > $S/9118-cleaned; exit 0' TERM; sleep $((U+5)) & wait"
 until_true 30 'grep -q "TURN: running t9118-grace" $L9 && ! gone $((U+5))'; s3=$?
 # Review 4: the claim is still held while the command cleans up (released AFTER the stop, never before it).
 kill -TERM $Q9; until_true 10 'grep -q "STOPPING: t9118-grace" $L9'; sleep 0.5
@@ -648,7 +648,9 @@ ok "#9118: a main command that ignores TERM is KILLed after the grace (QUEUED_HE
 # #9118 review 1: a SIGKILLed wrapper (no trap runs) still has its command stopped, by the watcher, within about 5 s.
 pre9118=0; free9118 || pre9118=1
 RS9118=2 qh9118 sigkill 60 sh -c "sleep $((U+5)) & wait"
-until_true 30 'grep -q "TURN: running t9118-sigkill" $L9 && ! gone $((U+5))'; s5=$?
+# Review 6: KILL only once the watcher exists (two group-leading children of the wrapper: the command and the watcher).
+wl9118() { local n=0 c; for c in $(pgrep -P $Q9); do [ "$(ps -o pgid= -p $c 2>/dev/null | tr -d ' ')" = "$c" ] && n=$((n+1)); done; [ "$n" -ge 2 ]; }
+until_true 30 'grep -q "TURN: running t9118-sigkill" $L9 && ! gone $((U+5)) && wl9118'; s5=$?
 kill -KILL $Q9; until_true 40 'gone $((U+5))'; r5=$?; reap $Q9 40 2>/dev/null
 ok "#9118: a SIGKILLed main turn's command is stopped by its watcher" '[ "$pre9118" = 0 ] && [ "$s5" = 0 ] && [ "$r5" = 0 ]'
 for p in $(pgrep -f "^sleep $((U+5))$"); do kill -KILL $p 2>/dev/null; done; until_true 10 'gone $((U+5))'   # so a red here cannot cascade
@@ -725,7 +727,14 @@ for p in $(pgrep -f "^sleep $((U+6))$"); do kill -KILL $p 2>/dev/null; done; unt
 mkdir -p $S/m9118-posix; o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-posix POSIXLY_CORRECT=1 nocty /bin/bash $QH "t9118-posix" sh -c 'echo RAN-9118' </dev/null 2>&1); r=$?
 ok "#9118: with POSIXLY_CORRECT set and no terminal, the command still runs" '[ "$r" = 0 ] && [[ "$o" == *RAN-9118* && "$o" == *"END rc=0"* ]]'
 
-EXPECTED=160   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, eighteen #9118 main-turn stop arms
+# #9118 review 6: the grace is cut to what the claim is sure to outlive (CLAIM_MIN*60 - RENEW_SEC): 1 min and 30 s -> 30 s.
+pre9118=0; free9118 || pre9118=1
+CL9118=1 RS9118=30 qh9118 clamp 60 sh -c "sleep $((U+6)) & wait"
+until_true 30 'grep -q "TURN: running t9118-clamp" $L9 && ! gone $((U+6))'; s11=$?
+kill -TERM $Q9; until_true 40 'gone $((U+6)) && ! kill -0 $Q9 2>/dev/null'; r11=$?; o=$(cat $L9)
+ok "#9118: a grace longer than the claim is sure to last is cut to fit (KILL after 30s)" '[ "$pre9118" = 0 ] && [ "$s11" = 0 ] && [ "$r11" = 0 ] && [[ "$o" == *"KILL after 30s"* ]]'
+
+EXPECTED=161   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, nineteen #9118 main-turn stop arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

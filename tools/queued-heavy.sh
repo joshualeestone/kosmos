@@ -416,6 +416,11 @@ while [ "${#STOP_GRACE_S}" -gt 1 ] && [ "${STOP_GRACE_S#0}" != "$STOP_GRACE_S" ]
 case "$STOP_GRACE_S" in ?????*) STOP_GRACE_S=600 ;; esac   # #9118 review 2: five digits or more is past the clamp (and no overflow)
 STOP_GRACE_S=$((10#$STOP_GRACE_S))   # #9118 review 1: 08 and 09 are not octal errors (an error inside the EXIT trap ended it part way)
 [ "$STOP_GRACE_S" -le 600 ] || STOP_GRACE_S=600
+# #9118 review 6: the renewer is stopped before the grace, so the claim must outlive it: at most one renewal period
+# has passed since the last renewal, so the claim has at least CLAIM_MIN*60 - RENEW_SEC seconds left. A longer grace
+# would let the claim lapse while the command is still being stopped, and another run start beside it.
+_qh_glim=$(( CLAIM_MIN * 60 - RENEW_SEC )); [ "$_qh_glim" -ge 1 ] || _qh_glim=1
+[ "$STOP_GRACE_S" -le "$_qh_glim" ] || STOP_GRACE_S=$_qh_glim
 _qh_clear() {
   kosmos_refuse_if_machine_claimed "$WHAT" || return 1
   # #4911: no main turn starts beside a light run's side turn, whatever its class: a light one would make two light
@@ -633,9 +638,9 @@ _qh_stop_capper() {
   CAPPER=""
 }
 _qh_end() {
-  trap '' TERM INT HUP PIPE ALRM USR1 USR2   # #9118 review 5: ALRM, USR1, USR2 too (each is fatal through this trap now)
-  # review 4: a second signal during cleanup must not abandon it (the command would run on
-                             # unclaimed); round 9: nor a reader that has gone (SIGPIPE at an echo below)
+  # Review 4: a second signal during cleanup must not abandon it (the command would run on unclaimed); round 9: nor a
+  # reader that has gone (SIGPIPE at an echo below); #9118 review 5: ALRM, USR1, USR2 too (each is fatal through here).
+  trap '' TERM INT HUP PIPE ALRM USR1 USR2
   [ -n "${QH_STOPPED:-}" ] && rm -f "$QH_STOPPED"
   # Stop the renewer and WAIT for it before releasing, so a renewal in flight cannot re-create the claim after
   # the release.
