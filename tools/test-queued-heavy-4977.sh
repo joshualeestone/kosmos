@@ -697,7 +697,18 @@ mkdir -p $S/m9118-ctty; ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-ctty perl -e
 pg3=$(sed -n 's/^PG //p' $S/9118-ctty.log 2>/dev/null); o=$(cat $S/9118-ctty.log 2>/dev/null)
 ok "#9118: a controlling terminal with stdio redirected keeps the command in the wrapper's group" '[ -n "$pg3" ] && [ "${pg3% *}" = "${pg3#* }" ]'
 
-EXPECTED=155   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, thirteen #9118 main-turn stop arms
+# #9118 review 3: any fatal signal, not only TERM/INT/HUP: an ALRM (a perl alarm deadline) to the wrapper stops its command.
+pre9118=0; free9118 || pre9118=1
+qh9118 alrm 20 sh -c "trap '' TERM; sleep $((U+6)) & wait"
+until_true 30 'grep -q "TURN: running t9118-alrm" $L9 && ! gone $((U+6))'; s10=$?
+kill -ALRM $Q9; until_true 45 'gone $((U+6)) && ! kill -0 $Q9 2>/dev/null'; r10=$?; o=$(cat $L9)
+ok "#9118: an ALRM to a main turn's wrapper stops its command (KILL after the grace) and releases the claim" '[ "$pre9118" = 0 ] && [ "$s10" = 0 ] && [ "$r10" = 0 ] && [[ "$o" == *"STOPPING: t9118-alrm"* ]] && [ ! -e $S/m9118-alrm/machine-claim ]'
+for p in $(pgrep -f "^sleep $((U+6))$"); do kill -KILL $p 2>/dev/null; done; until_true 10 'gone $((U+6))'
+# #9118 review 3: in posix mode the /dev/tty probe must not end the wrapper (a failed redirection on `:` does there).
+mkdir -p $S/m9118-posix; o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/m9118-posix POSIXLY_CORRECT=1 nocty /bin/bash $QH "t9118-posix" sh -c 'echo RAN-9118' </dev/null 2>&1); r=$?
+ok "#9118: with POSIXLY_CORRECT set and no terminal, the command still runs" '[ "$r" = 0 ] && [[ "$o" == *RAN-9118* && "$o" == *"END rc=0"* ]]'
+
+EXPECTED=157   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, fifteen #9118 main-turn stop arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
