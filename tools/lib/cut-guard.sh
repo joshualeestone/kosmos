@@ -1821,7 +1821,9 @@ _kosmos_beside_lock() {
       local sd="$d.stale.$$.$RANDOM"
       if mv "$d" "$sd" 2>/dev/null; then
         if [ $(( $(date +%s) - $(_kosmos_beside_mtime "$sd") )) -gt 10 ]; then rmdir "$sd" 2>/dev/null || true
-        else mv "$sd" "$d" 2>/dev/null || rmdir "$sd" 2>/dev/null || true; fi   # fresh after all: put it back
+        # Fresh after all: put it back, unless a new lock was made meanwhile (mv would move it INSIDE that one, review 5).
+        elif [ -e "$d" ]; then rmdir "$sd" 2>/dev/null || true
+        else mv "$sd" "$d" 2>/dev/null || rmdir "$sd" 2>/dev/null || true; fi
         continue
       fi
     fi
@@ -1831,10 +1833,11 @@ _kosmos_beside_lock() {
 }
 kosmos_note_beside_run() {
   local f l id got=0 now; f="$(_kosmos_marker_dir)/beside-runs.log"; l="$f.lock"; now="$(date +%s)"
+  # Review 5: a misspelled verb warns and returns 0 too (a set -e CI step must not die on a typo), before touching the dir.
+  case "${1:-}" in start|end) ;; *) echo "kosmos_note_beside_run: unknown verb '${1:-}' (start or end); nothing noted" >&2; return 0 ;; esac
   mkdir -p "$(_kosmos_marker_dir)" 2>/dev/null || true
   local what; what="$(printf '%s' "${3:-}" | tr '\n\r' '  ')"   # review 3: one record is one line
-  id="$(printf '%s' "${2:-unnamed}" | tr -s ' \t\n\r' '____')"; [ -n "$id" ] || id=unnamed
-  case "${1:-}" in start|end) ;; *) return 2 ;; esac
+  id="$(printf '%s' "${2:-unnamed}" | tr ' \t\n\r' '____')"; [ -n "$id" ] || id=unnamed   # review 5: no -s (it squeezed "_" too)
   _kosmos_beside_lock "$l" && got=1
   # Review 4: the redirect inside a group, so a file that cannot be opened is silent and, under set -e, not fatal.
   if [ "$1" = start ]; then { printf 'S %s %s %s\n' "$id" "$now" "$what" >> "$f"; } 2>/dev/null || true
