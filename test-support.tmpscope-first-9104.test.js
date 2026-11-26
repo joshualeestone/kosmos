@@ -30,6 +30,9 @@ const ROOT = __dirname;
 // './test-support/tmpscope', '../test-support/tmpscope', or a root variable joined on: require(R + '/test-support/tmpscope').
 const SCOPE = /require\(\s*(?:[\w.]+\s*\+\s*)?(['"])(?:\.\.?)?(?:\/\.\.)*\/?test-support\/tmpscope(?:-outside-home)?(?:\.js)?\1\s*\)/;
 // Files without tmpscope on purpose, each with its reason. Adding one needs a reason as good.
+// tmpscope adds 11 bytes (/kts-XXXXXX) to every temp path. A test that listens on a unix socket under one has about
+// 104 bytes on macOS in all: keep its mkdtemp prefix short (engine/win32channel.test.js uses 'wc570-') before reaching
+// for an exemption (#9104 review 3).
 const EXEMPT = new Map([
   ['test-support.tmpscope.test.js', 'it tests tmpscope itself, and its control case must run without it'],
   ['engine/status.test.js', 'kosmos#5334: its tmux socket tests need the short real temp path (a scoped one pushes the socket past the OS length limit); each fixture there is removed in its own finally'],

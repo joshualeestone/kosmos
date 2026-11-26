@@ -17,7 +17,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'win32chan-570-')));
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'wc570-')));
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 
 const channel = require('./win32channel');

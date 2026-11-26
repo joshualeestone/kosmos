@@ -52,7 +52,7 @@ const NAME = 'macrestart8988';
 
 function fixture(tag = '', { lang = 'en_US.UTF-8' } = {}) {
   /* A short root: a tmux socket path must fit in sun_path (104 bytes on macOS). */
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mr8988-' + tag)));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mr-' + tag)));
   for (const dir of ['bin', 'data', 'work', 'shim', 'home', 'ctl']) fs.mkdirSync(path.join(root, dir), { recursive: true });
   fs.symlinkSync(SHIPPED, path.join(root, 'bin', 'agent-supervisor.sh'));
   fs.symlinkSync(path.join(REPO, 'engine'), path.join(root, 'engine'));

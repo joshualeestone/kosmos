@@ -52,3 +52,17 @@ Earlier single-site fixes: #8225, #7442, #6017, #9098.
 - NITs left: test-leak-allowlist.txt not trimmed (families now leave nothing; a trim is a separate change); one
   spelling of the require is enforced (path.join form fails, cannot false-pass); codeOnly regex/nested template limits
   (documented); macrestart socket ~95/104 bytes (computed, passes).
+
+## Challenge round 3 (21:14): one BLOCKER, fixed
+- BLOCKER (computed): unix socket paths under tmpscope's extra 11 bytes (`/kts-XXXXXX`) near or past macOS's 104-byte
+  sun_path in engine/win32presence-8415.test.js, engine/win32channel.owner-1765.test.js, engine/win32channel.test.js,
+  and supervisor.macrestart-8988.test.js close to it. Fixed: shorter mkdtemp prefixes (wp8415-, wo1765-, wc570-, mr-);
+  each prefix appeared only in its own file. Measured under a run-root-shaped TMPDIR ($TMPDIR/kt99999, 64 bytes real):
+  presence, owner-1765 and macrestart pass; socket paths now ~95 bytes.
+- win32channel.test.js went red twice under that root at load ~149 (stand-in supervisor not up in 8 s; a helper that
+  only calls process.exit(1) outlasting a 2 s budget), and green twice alternating with main's file at load ~36-42
+  (main green all four times). Call: load, not tmpscope. Weakest premise: main also ran in the spike and passed, so
+  this is reasoned; the full validation decides.
+- SHOULD-FIX (guard cannot see socket budget): noted in the EXEMPT comment of the guard.
+- NITs left: textual-only guard (require inside a callback, createRequire, import(), a TMPDIR read before it); a lazy
+  require in a function above the line reads as a require before it. None occur today.
