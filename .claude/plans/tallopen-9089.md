@@ -98,3 +98,16 @@ No BLOCKER; no code SHOULD-FIX. Converged on the code.
 - Re-measured 11-26 07:20 at 23573eefcf: lazy WITH the fix, tall20 PASSED 3 of 3 (newest 666-724, inside the band
   116-797, first and second open), short20 passed 3 of 3. With the 05:1x lazy WITHOUT the fix (failed 3 of 3, its path
   unchanged since) and UIKit (6 of 6), the pass is shown to come from the fix. Posted on #9089 (comment 7193292665).
+
+#### Iteration 4 (blind review of the whole branch, opus)
+
+No BLOCKER, no SHOULD-FIX. Converged. Known limits, recorded rather than fixed (each narrow, none a regression):
+- A scroll without a finger on iOS 18+ (a status-bar tap, VoiceOver's scroll) runs in the animating phase, so it is not
+  counted; a look landing inside that animation, in the first 1.6 s, puts the reader back at the end.
+- iOS 17 (no scroll phases): a drag that ends with no momentum before a look is not seen; and if the end shows then is
+  pushed down, iOS 17 clears atBottom on its disappearing, so the looks do not fire there (unmeasured on iOS 17).
+  UIKit's own scroll state could count moves on every iOS: a follow-up if iOS 17 matters.
+- The looks start when the KEPT copy is drawn; a live read landing later with taller rows falls outside them (the
+  existing keep-at-end path covers it). Beside the weakest premise above.
+- A look during a keyboard rise within 1.6 s of opening could be one step (same target; unmeasured).
+- The sample walk counts personMoves twice on one change (harmless).
