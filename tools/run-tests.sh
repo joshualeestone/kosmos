@@ -367,6 +367,32 @@ rt_file_watchdog_start() {
   # ⚠️ A TERMed runner leaves its node --test running without the per-file limit (bash exits at once and node is not
   # its signal's target): stop the inner node too. The runner's TERM behaviour is deliberately unchanged here.
 }
+# kosmos#9159: a TERM to this runner ends bash, but its foreground `node --test` (in the same process group, yet not
+# the target of a TERM sent to this pid) ran on, reparented to 1, still starting test files: a stopped suite went on
+# loading a shared Mac, unclaimed. On exit, this run's OWN node --test (a direct child, by command line, as the file
+# watchdog finds it) and its own children are TERMed, then KILLed after up to 5 s. Found with ps by parent pid, not
+# pgrep (kosmos#9149: a failed pgrep reads as "none"). Nothing else is touched: not another suite's node, nor a
+# node this runner did not start. On a normal exit node has already ended, so this finds nothing.
+rt_stop_own_node() {
+  local p c cmd all="" i alive
+  for p in $(ps -A -o pid=,ppid= 2>/dev/null | awk -v me="$$" '$2 == me { print $1 }'); do
+    cmd="$(ps -o command= -p "$p" 2>/dev/null)"
+    case "$cmd" in
+      "node --test "*|*"/node --test "*)
+        all="$all $p"
+        for c in $(ps -A -o pid=,ppid= 2>/dev/null | awk -v me="$p" '$2 == me { print $1 }'); do all="$all $c"; done ;;
+    esac
+  done
+  [ -n "$all" ] || return 0
+  kill -TERM $all 2>/dev/null
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    alive=0; for p in $all; do kill -0 "$p" 2>/dev/null && alive=1; done
+    [ "$alive" = 0 ] && return 0
+    sleep 0.5
+  done
+  kill -KILL $all 2>/dev/null
+  return 0
+}
 # After node: stop the loop, and a file it timed out makes the run red whatever node said (that backstop for a node
 # that reports 0 is not proven by a test: node already fails a killed file).
 rt_file_watchdog_stop() {
@@ -782,7 +808,7 @@ if mkdir -p "$KOSMOS_RUN_TMPDIR" 2>/dev/null; then
   # stopped run), before the root goes (lib/test-leak-guard.sh leak_process_stop_root). It ignores SIGPIPE first: a
   # Ctrl-C to `run-tests.sh | tee` ends tee, and the trap's first line would otherwise end the trap (#8890 review 2);
   # and a second INT or TERM, which would cut the clean-up short (review 3; a KILL still ends it).
-  trap '_rt_turn_end $?; trap "" PIPE INT TERM; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"; [ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; type leak_process_stop_root >/dev/null 2>&1 && leak_process_stop_root "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
+  trap '_rt_turn_end $?; trap "" PIPE INT TERM; rt_stop_own_node; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"; [ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; type leak_process_stop_root >/dev/null 2>&1 && leak_process_stop_root "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
   export TMPDIR="$KOSMOS_RUN_TMPDIR"
   export KOSMOS_TEST_RUN="$KOSMOS_RUN_TMPDIR"   # #5418, see above
 else
@@ -792,7 +818,7 @@ else
   export KOSMOS_TEST_RUN="${TMPDIR:-/tmp}"
   # #6668: with no run root there is no exit trap above, so this one signals the file watchdog on a TERM (a Ctrl-C
   # waits for node, and the normal stop follows).
-  trap '_rt_turn_end $?; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"' EXIT
+  trap '_rt_turn_end $?; rt_stop_own_node; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"' EXIT
 fi
 
 # --- coverage assertion: every *.test.js is CONSIDERED (kosmos#1934) -----------

@@ -1,0 +1,102 @@
+'use strict';
+
+/**
+ * kosmos#9159: a TERM to tools/run-tests.sh ends bash, and its foreground `node --test` (same process group, but not
+ * the target of a TERM sent to bash's pid) used to run on, reparented to 1 and still starting test files: a stopped
+ * suite kept loading a shared Mac, unclaimed. The runner's EXIT trap now stops its own node --test and that runner's
+ * children. This file TERMs the real runner's bash pid, ALONE, while --only runs a fixture that sleeps, and asserts the
+ * fixture and its node --test are gone within a grace.
+ *
+ *   node --test tools.run-tests-term-9159.test.js
+ */
+require('./test-support/tmpscope');
+const test = require('node:test');
+/* A run this file starts must never start this file again (the same stand-down as tools.run-tests-file-timeout-6668). */
+if (process.env.KOSMOS_TERM_9159_INNER === '1') {
+  test('stands down inside its own inner run', { skip: 'started by tools.run-tests-term-9159.test.js itself' }, () => {});
+  return;
+}
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawn, spawnSync } = require('node:child_process');
+const { scaleBudget } = require('./test-support/eventually');
+
+const RUNNER = path.join(__dirname, 'tools', 'run-tests.sh');
+const RUNNER_SRC = fs.readFileSync(RUNNER, 'utf8');
+/* Read, never run, to see whether this runner knows --only: running one that does not starts the whole suite. */
+const KNOWS_ONLY = /\[ "\$\{1:-\}" = --only \]/.test(RUNNER_SRC);
+const DIR = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'term-9159-')));
+test.after(() => { try { fs.rmSync(DIR, { recursive: true, force: true }); } catch { /* best effort */ } });
+/* What run-tests.sh exports, or what a queue turn or node --test hands down: none of it may reach the inner run. */
+const RUNNER_SET = ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL', 'AGENT_WORKFORCE_COMMUNITY_URL',
+  'KOSMOS_CATALOGUE_BASE', 'AGENT_WORKFORCE_GH_BIN', 'AGENT_WORKFORCE_VERCEL_BIN', 'KOSMOS_NO_LEGACY_MIGRATION',
+  'KOSMOS_TEST_PART', 'KOSMOS_TEST_PART_LOCAL', 'KOSMOS_SHELL_SHARD', 'KOSMOS_SHELL_PLATFORM', 'KOSMOS_MACHINE_CLAIM_COOKIE',
+  'KOSMOS_LIGHT_SIDE_COOKIE', 'NODE_TEST_CONTEXT', 'KOSMOS_TEST_FILE_TIMEOUT_MIN', 'KOSMOS_TEST_FILE_TIMEOUT_S',
+  'KOSMOS_TEST_TIMEOUT_MS', 'TMUX', 'TMUX_PANE'];
+const PLAIN_TMP = fs.mkdtempSync(path.join(DIR, 'tmp-'));
+const SANDBOX_HOME = fs.mkdtempSync(path.join(DIR, 'home-'));
+function env() {
+  const e = { ...process.env };
+  for (const k of RUNNER_SET) delete e[k];
+  return Object.assign(e, { TMPDIR: PLAIN_TMP, HOME: SANDBOX_HOME, KOSMOS_TERM_9159_INNER: '1',
+    KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1' });
+}
+/* The runner starts in its own process group under a small perl parent; the test's own cleanup TERMs and KILLs that
+   whole group, so a failing arm never leaves the fixture running. */
+const GROUP = 'setpgrp(0, 0); my $pid = fork; die "fork: $!" unless defined $pid; if (!$pid) { exec @ARGV or exit 127 } ' +
+  'waitpid($pid, 0); exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)';
+
+function alive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+function ppidOf(pid) {
+  const r = spawnSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' });
+  const n = parseInt((r.stdout || '').trim(), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+function childrenOf(pid) {
+  const r = spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' });
+  return (r.stdout || '').split('\n').map((l) => l.trim().split(/\s+/).map(Number))
+    .filter(([p, pp]) => pp === pid && Number.isFinite(p)).map(([p]) => p);
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function until(fn, ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { const v = fn(); if (v) return v; await sleep(200); }
+  return fn();
+}
+
+const PIDS = path.join(DIR, 'fixture.pids');
+const FIXTURE = path.join(DIR, 'sleeps-9159.test.js');
+fs.writeFileSync(FIXTURE, `'use strict';
+require('node:fs').appendFileSync(${JSON.stringify(PIDS)}, process.pid + '\\n');
+require('node:test')('sleeps two minutes', () => new Promise((r) => setTimeout(r, 120000)));
+`);
+
+test('#9159: a TERM to run-tests.sh ALONE stops its node --test and the file it was running', async () => {
+  assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
+  const perl = spawn('perl', ['-e', GROUP, 'bash', RUNNER, '--only', FIXTURE], { env: env(), stdio: 'ignore' });
+  try {
+    const filePid = await until(() => {
+      const s = fs.existsSync(PIDS) ? fs.readFileSync(PIDS, 'utf8').trim() : '';
+      return s ? parseInt(s.split('\n')[0], 10) : 0;
+    }, scaleBudget(60000));
+    assert.ok(filePid > 0, 'the fixture never started (no pid written)');
+    const bashPid = childrenOf(perl.pid)[0];
+    assert.ok(bashPid > 0, 'run-tests.sh was not found under its perl parent');
+    const nodePid = ppidOf(filePid);
+    // CONTROL: the fixture really is this runner's grandchild through its node --test, so a pass cannot come from
+    // stopping something else.
+    assert.equal(ppidOf(nodePid), bashPid, `the fixture's node --test (${nodePid}) is not run-tests.sh's child (${bashPid})`);
+    process.kill(bashPid, 'SIGTERM');   // the runner's pid ALONE, as a person or a wrapper sends it
+    const gone = await until(() => !alive(filePid) && !alive(nodePid), scaleBudget(20000));
+    assert.ok(gone, `after a TERM to run-tests.sh (${bashPid}), its node --test (${nodePid}: ${alive(nodePid) ? 'alive' : 'gone'}) ` +
+      `and the file (${filePid}: ${alive(filePid) ? 'alive' : 'gone'}) were still there`);
+  } finally {
+    try { process.kill(-perl.pid, 'SIGTERM'); } catch { /* gone */ }
+    await sleep(500);
+    try { process.kill(-perl.pid, 'SIGKILL'); } catch { /* gone */ }
+  }
+});
