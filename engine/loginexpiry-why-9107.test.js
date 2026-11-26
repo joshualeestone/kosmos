@@ -172,8 +172,88 @@ test('kosmos#9107 review 2: at most FILE_READS_MAX reads run at once, however ma
   try {
     for (const f of files) assert.strictEqual(le.fileBodyNow(f, 0), null);
     assert.strictEqual(started, le.FILE_READS_MAX, 'the rest wait for a free slot');
-    assert.ok(le.FILE_READS_MAX < 4, 'fewer than libuv\'s default pool of 4');
   } finally { fs.readFile = orig; le._resetForTests(); }
+});
+
+// A stand-in fs.readFile for the named files that holds each callback until the test answers it.
+function heldReads(files) {
+  const orig = fs.readFile;
+  const held = [];
+  fs.readFile = function (p, ...rest) { if (files.includes(p)) { held.push({ p, cb: rest[rest.length - 1] }); return; } return orig.call(this, p, ...rest); };
+  return { held, restore: () => { fs.readFile = orig; } };
+}
+
+test('kosmos#9107 review 3: when a stalled read lands, its slot lets a waiting file be read', () => {
+  le._resetForTests();
+  const files = [0, 1, 2].map(() => path.join(homeWithLogin(), '.claude', '.credentials.json'));
+  const r = heldReads(files);
+  try {
+    for (const f of files) le.fileBodyNow(f, 0);
+    assert.deepStrictEqual(r.held.map((x) => x.p), files.slice(0, 2), 'two run, the third waits');
+    r.held[0].cb(null, body({ refreshTokenExpiresAt: UNTIL }));
+    le.fileBodyNow(files[2], 0);
+    assert.strictEqual(r.held.length, 3, 'the freed slot reads the waiting file');
+    assert.strictEqual(r.held[2].p, files[2]);
+  } finally { r.restore(); le._resetForTests(); }
+});
+
+test('kosmos#9107 review 3: a login that moves while a read runs is read again at once', () => {
+  le._resetForTests();
+  const f = path.join(homeWithLogin(), '.claude', '.credentials.json');
+  const r = heldReads([f]);
+  try {
+    le.fileBodyNow(f, 0);
+    le.loginChanged();   // a sign-in while the read is out
+    r.held[0].cb(null, body({ refreshTokenExpiresAt: UNTIL }));
+    const now = Date.now();
+    le.fileBodyNow(f, now);
+    assert.strictEqual(r.held.length, 2, 'read again inside the minute');
+    // CONTROL: with no move during the read, the minute holds.
+    r.held[1].cb(null, body({ refreshTokenExpiresAt: UNTIL }));
+    le.fileBodyNow(f, now + 10);
+    assert.strictEqual(r.held.length, 2);
+  } finally { r.restore(); le._resetForTests(); }
+});
+
+test('kosmos#9107 review 3: a locked file (EBUSY) keeps the last good body; a deleted one (ENOENT) clears it', () => {
+  le._resetForTests();
+  const f = path.join(homeWithLogin(), '.claude', '.credentials.json');
+  const r = heldReads([f]);
+  const good = body({ refreshTokenExpiresAt: UNTIL });
+  try {
+    le.fileBodyNow(f, 0);
+    r.held[0].cb(null, good);
+    const g = le.loginGeneration();
+    le.fileBodyNow(f, Date.now() + le.FILE_REREAD_MS + 10);
+    r.held[1].cb(Object.assign(new Error('busy'), { code: 'EBUSY' }));
+    assert.strictEqual(le.fileBodyNow(f, Date.now()), good, 'locked: the last good body');
+    assert.strictEqual(le.loginGeneration(), g, 'and no recompute');
+    assert.strictEqual(r.held.length, 3, 'read again at once');
+    r.held[2].cb(Object.assign(new Error('gone'), { code: 'ENOENT' }));
+    assert.strictEqual(le.fileBodyNow(f, Date.now()), null, 'gone: no login');
+    assert.ok(le.loginGeneration() > g, 'and the advisories recompute');
+  } finally { r.restore(); le._resetForTests(); }
+});
+
+test('kosmos#9107 review 3: a file that stays broken is taken as no login after FILE_BAD_TRIES reads', () => {
+  le._resetForTests();
+  const f = path.join(homeWithLogin(), '.claude', '.credentials.json');
+  const r = heldReads([f]);
+  const good = body({ refreshTokenExpiresAt: UNTIL });
+  try {
+    le.fileBodyNow(f, 0);
+    r.held[0].cb(null, good);
+    let late = Date.now() + le.FILE_REREAD_MS + 10;
+    for (let i = 1; i < le.FILE_BAD_TRIES; i += 1) {
+      le.fileBodyNow(f, late);
+      r.held[r.held.length - 1].cb(null, '{"claudeAiOauth": {"refreshTok');
+      assert.strictEqual(le.fileBodyNow(f, late), good, 'try ' + i + ': still the last good body');
+      late += 1;
+    }
+    // fileBodyNow above already started try FILE_BAD_TRIES.
+    r.held[r.held.length - 1].cb(null, '{"claudeAiOauth": {"refreshTok');
+    assert.strictEqual(le.fileBodyNow(f, Date.now()), null, 'given up: no login, not an old date for good');
+  } finally { r.restore(); le._resetForTests(); }
 });
 
 test('kosmos#9107 review 2: a body caught mid-rewrite keeps the last good one and is read again next time', async () => {

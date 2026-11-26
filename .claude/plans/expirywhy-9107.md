@@ -22,10 +22,13 @@ credentials file only (review 1).
   first answer for a file is null. A read that finds a new refresh-token expiry moves the generation, so the advisory
   cache recomputes on the next snapshot; an access-token refresh alone does not (it rewrites the file every few hours).
   A read that never returns holds back only that file's next read. macOS is unchanged (the Keychain read already has
-  its 5 s bound). Review 2: at most two background reads run at once over all files, since a stalled read holds one of
-  libuv's four shared threads (dns and crypto use them too); with two files stalled, no further reads start and the
-  warnings stay as last read. A body that does not parse (caught while Claude Code rewrites it) keeps the last good one
-  and is read again on the next call.
+  its 5 s bound). Review 2: at most two of these background reads run at once over all files, since a stalled read
+  holds one of libuv's four shared threads (dns and crypto use them too); with two files stalled, no further reads
+  start and the warnings stay as last read. The cap is this reader's only (review 3): readCredAsync (claudeloginlive)
+  and usagepoll.readCredFor read the same files with no cap, as they did before this change. Reviews 2 and 3: a read
+  caught mid-rewrite (a body that does not parse, or an error other than ENOENT, such as EBUSY while Windows locks the
+  file) keeps the last good body and is read again on the next call, three times in a row at most; then it is taken as
+  no login, so a broken file never keeps an old date for good. A deleted file (ENOENT) is no login at once.
 - The "account" line (a named account with no folder) cannot be reached through the board's own calls, which derive the
   account from the folder; it covers a direct caller that names an account, as the #9097 review asked. Kept for that.
 - The tests that check which file is chosen pass a direct read (`readNow`); the background read has its own tests.
