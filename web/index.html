@@ -1683,11 +1683,14 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
      (html.kapptabs, set by the app) the bar is the app's own header: 44px, no Kosmos+ mark (the app is Kosmos) and no
      two lines (the native bar does their job); this computer's name left when there is another computer to switch to,
      the person's face right, both opening the phone menu. */
-  html.kremote.kapptabs .kplus-bar { height: 44px; min-height: 44px; }
+  /* kosmos#9101 (Josh 11-25 16:49: no blue background anywhere in the app): inside the app the bar stands on the board's
+     own ground and ink, with a hairline under it; Kosmos+ in a browser keeps its navy bar. */
+  html.kremote.kapptabs .kplus-bar { height: 44px; min-height: 44px; background: var(--k-bg); color: var(--k-ink);
+    border-bottom: 1px solid var(--k-rule); }
   html.kremote.kapptabs .kplus-bar-mark, html.kremote.kapptabs .kplus-bar-menu { display: none; }
   html.kremote.kapptabs .kplus-bar-end { margin-left: auto; }
   html.kremote.kapptabs .kapp-comp:not([hidden]) { display: inline-flex; align-items: center; gap: 6px; min-width: 44px; height: 44px;
-    padding: 0; border: 0; background: none; color: #fff; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+    padding: 0; border: 0; background: none; color: var(--k-ink); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
     -webkit-tap-highlight-color: transparent; }
   html.kremote.kapptabs .kapp-comp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   html.kremote.kapptabs .kapp-comp-chev { flex: none; opacity: .8; }
@@ -1696,9 +1699,9 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
     border: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   html.kremote.kapptabs .kapp-me > img, html.kremote.kapptabs .kapp-me > .youtint { width: 32px; height: 32px; border-radius: 50%; overflow: hidden; }
   html.kremote.kapptabs .kapp-me > img { object-fit: cover; display: block; }
-  html.kremote.kapptabs .kapp-me > .youtint { display: grid; place-items: center; background: rgba(255,255,255,.14); color: #fff;
+  html.kremote.kapptabs .kapp-me > .youtint { display: grid; place-items: center; background: var(--k-rule); color: var(--k-ink);
     font-size: 14px; font-weight: 600; }
-  html.kremote.kapptabs .kapp-comp:focus-visible, html.kremote.kapptabs .kapp-me:focus-visible { outline: 2px solid #fff; outline-offset: -2px; border-radius: 8px; }
+  html.kremote.kapptabs .kapp-comp:focus-visible, html.kremote.kapptabs .kapp-me:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; border-radius: 8px; }
 }
 /* Off the app's header (a browser, an older app, the Mac itself, a wide window) the two controls are never drawn. */
 .kapp-comp, .kapp-me { display: none; }
